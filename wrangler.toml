@@ -1,6 +1,11 @@
 name = "collection-tracker"
-pages_build_output_dir = "dist/tracker/browser"
 compatibility_date = "2024-04-12"
+main = "src/worker.ts"
+
+[assets]
+directory = "dist/tracker/browser"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
 
 [[d1_databases]]
 binding = "DB"
