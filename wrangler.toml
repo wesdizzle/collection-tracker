@@ -10,4 +10,4 @@ not_found_handling = "single-page-application"
 [[d1_databases]]
 binding = "DB"
 database_name = "collection-db"
-database_id = "local-collection-db"
+database_id = "1e5eedbd-58d6-443e-a15e-568577cd5596"
