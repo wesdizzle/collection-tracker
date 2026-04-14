@@ -8,6 +8,8 @@ export interface Game {
     series: string;
     release_date: string;
     platform: string;
+    platform_id: number;
+    display_name?: string;
     owned: boolean | number;
     queued: boolean | number;
     image_url: string;
@@ -19,16 +21,20 @@ export interface Figure {
     id: string;
     name: string;
     line: string;
+    type: string;
     series_name: string;
     series_line: string;
     release_date: string;
     owned: boolean | number;
     image_url: string;
+    platform_id?: number;
 }
 
 export interface Platform {
     id: number;
     name: string;
+    display_name: string;
+    parent_platform_id?: number;
     brand: string;
     launch_date: string;
     image_url: string;
@@ -41,10 +47,10 @@ export class CollectionService {
   public listState: any = null;
   private http = inject(HttpClient);
 
-  getGames(platform?: string): Observable<Game[]> {
+  getGames(platformId?: number): Observable<Game[]> {
     let url = '/api/games';
-    if (platform) {
-      url += `?platform=${encodeURIComponent(platform)}`;
+    if (platformId) {
+      url += `?platform_id=${platformId}`;
     }
     return this.http.get<Game[]>(url);
   }

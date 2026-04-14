@@ -5,8 +5,9 @@ import { Platform } from '../../../../core/services/collection.service';
 
 export interface FilterState {
   ownership: 'all' | 'owned' | 'wanted';
-  platform?: string;
+  platform_id?: number;
   line?: string;
+  type?: string;
   series?: string;
 }
 
@@ -32,10 +33,13 @@ export interface PlatformGroup {
 
       <div class="filter-group flex items-center gap-sm" *ngIf="currentTab === 'games'">
         <label>Platform:</label>
-        <select [(ngModel)]="filters.platform" (change)="onFilterChange()" class="glass-input">
-          <option value="">All Platforms</option>
+        <select [(ngModel)]="filters.platform_id" (change)="onFilterChange()" class="glass-input">
+          <option [ngValue]="undefined">All Platforms</option>
           <optgroup *ngFor="let group of platformGroups" [label]="group.brand">
-            <option *ngFor="let p of group.platforms" [value]="p.name">{{p.name}}</option>
+            <ng-container *ngFor="let p of group.platforms">
+              <option *ngIf="!p.parent_platform_id" [ngValue]="p.id">{{p.display_name || p.name}}</option>
+              <option *ngIf="p.parent_platform_id" [ngValue]="p.id">&nbsp;&nbsp;↳ {{p.display_name || p.name}}</option>
+            </ng-container>
           </optgroup>
         </select>
       </div>
@@ -45,6 +49,14 @@ export interface PlatformGroup {
         <select [(ngModel)]="filters.line" (change)="onFilterChange()" class="glass-input">
           <option value="">All Lines</option>
           <option *ngFor="let l of uniqueLines" [value]="l">{{l}}</option>
+        </select>
+      </div>
+
+      <div class="filter-group flex items-center gap-sm" *ngIf="currentTab === 'figures'">
+        <label>Type:</label>
+        <select [(ngModel)]="filters.type" (change)="onFilterChange()" class="glass-input">
+          <option value="">All Types</option>
+          <option *ngFor="let t of uniqueTypes" [value]="t">{{t}}</option>
         </select>
       </div>
 
@@ -109,15 +121,17 @@ export class CollectionFiltersComponent {
   @Input() currentTab: 'games' | 'figures' = 'games';
   @Input() platformGroups: PlatformGroup[] = [];
   @Input() uniqueLines: string[] = [];
+  @Input() uniqueTypes: string[] = [];
   @Input() uniqueSeries: string[] = [];
   @Input() resultCount: number = 0;
   
   @Output() filtersChange = new EventEmitter<FilterState>();
 
-  filters: FilterState = {
+  @Input() filters: FilterState = {
     ownership: 'owned',
-    platform: '',
+    platform_id: undefined,
     line: '',
+    type: '',
     series: ''
   };
 

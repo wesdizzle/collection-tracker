@@ -12,7 +12,7 @@ if (!fs.existsSync(dbPath)) {
 const db = new Database(dbPath);
 
 console.log('Extracting SQLite parameters natively for Cloudflare synchronization...');
-let sqlDump = '';
+let sqlDump = 'PRAGMA foreign_keys = OFF;\n\n';
 
 const tables = db.prepare("SELECT name, sql FROM sqlite_master WHERE type='table'").all();
 
@@ -42,6 +42,8 @@ for (const table of tables) {
     }
     sqlDump += '\n';
 }
+
+sqlDump += 'PRAGMA foreign_keys = ON;\n';
 
 const outPath = path.join(__dirname, '..', 'deploy.sql');
 fs.writeFileSync(outPath, sqlDump);

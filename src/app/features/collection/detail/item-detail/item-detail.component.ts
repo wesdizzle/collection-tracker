@@ -31,39 +31,39 @@ import { Observable } from 'rxjs';
             <div class="badge-container mb-md">
               <span class="badge owned" *ngIf="item?.owned">Owned</span>
               <span class="badge wanted" *ngIf="!item?.owned">Wanted</span>
-              <span class="badge bg-dark ml-sm" *ngIf="type === 'game'">{{item?.platform}}</span>
-              <span class="badge bg-dark ml-sm" *ngIf="type === 'figure'">{{item?.line}}</span>
+                <span class="badge bg-dark ml-sm" *ngIf="type === 'game'">{{item?.display_name || item?.platform}}</span>
+                <span class="badge bg-dark ml-sm" *ngIf="type === 'figure'">{{item?.line}}</span>
+              </div>
+              
+              <h1 class="text-5xl text-gradient">{{item?.title || item?.name}}</h1>
+              <p class="text-xl text-secondary mt-sm" *ngIf="item?.series || item?.series_name">{{item?.series || item?.series_name}}</p>
+            </div>
+  
+            <div class="metadata" *ngIf="type === 'game'">
+              <div class="meta-item">
+                <span class="meta-label">Release Date</span>
+                <span class="meta-value">{{item?.release_date || 'Unknown Date'}}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Status</span>
+                <span class="meta-value">
+                  <span class="badge owned" *ngIf="item?.owned">Owned</span>
+                  <span class="badge wanted" *ngIf="!item?.owned">Wanted</span>
+                </span>
+              </div>
             </div>
             
-            <h1 class="text-5xl text-gradient">{{item?.title || item?.name}}</h1>
-            <p class="text-xl text-secondary mt-sm" *ngIf="item?.series || item?.series_name">{{item?.series || item?.series_name}}</p>
-          </div>
-
-          <div class="metadata" *ngIf="type === 'game'">
-            <div class="meta-item">
-              <span class="meta-label">Release Date</span>
-              <span class="meta-value">{{item?.release_date || 'Unknown Date'}}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Status</span>
-              <span class="meta-value">
-                <span class="badge owned" *ngIf="item?.owned">Owned</span>
-                <span class="badge wanted" *ngIf="!item?.owned">Wanted</span>
-              </span>
-            </div>
-          </div>
-          
-          <ng-container *ngIf="type === 'game'">
-            <h4 class="mt-lg mb-sm border-b pb-sm mb-md text-secondary">Platform Information</h4>
-            <div class="metadata">
-              <div class="meta-item">
-                <span class="meta-label">Brand</span>
-                <span class="meta-value">{{item?.brand || 'N/A'}}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">Console</span>
-                <span class="meta-value">{{item?.platform || 'N/A'}}</span>
-              </div>
+            <ng-container *ngIf="type === 'game'">
+              <h4 class="mt-lg mb-sm border-b pb-sm mb-md text-secondary">Platform Information</h4>
+              <div class="metadata">
+                <div class="meta-item">
+                  <span class="meta-label">Brand</span>
+                  <span class="meta-value">{{item?.brand || 'N/A'}}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Console</span>
+                  <span class="meta-value">{{item?.display_name || item?.platform || 'N/A'}}</span>
+                </div>
               <div class="meta-item">
                 <span class="meta-label">Launch Date</span>
                 <span class="meta-value">{{item?.platform_launch_date || 'Unknown Date'}}</span>

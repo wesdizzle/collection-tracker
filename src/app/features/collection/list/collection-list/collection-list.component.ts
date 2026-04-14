@@ -14,7 +14,9 @@ import { CollectionFiltersComponent, FilterState, PlatformGroup } from '../../fi
       <app-collection-filters 
         [currentTab]="currentTab"
         [platformGroups]="platformGroups"
+        [filters]="filters"
         [uniqueLines]="uniqueLines"
+        [uniqueTypes]="uniqueTypes"
         [uniqueSeries]="uniqueSeries"
         [resultCount]="currentTab === 'games' ? filteredGames.length : filteredFigures.length"
         (filtersChange)="onFiltersChange($event)">
@@ -25,7 +27,7 @@ import { CollectionFiltersComponent, FilterState, PlatformGroup } from '../../fi
           <div class="badge-container flex justify-between items-center">
             <span class="badge owned" *ngIf="game.owned">Owned</span>
             <span class="badge wanted" *ngIf="!game.owned">Wanted</span>
-            <span class="text-xs text-secondary ml-auto text-right font-medium">{{game.platform}}</span>
+            <span class="text-xs text-secondary ml-auto text-right font-medium">{{game.display_name || game.platform}}</span>
           </div>
           <h3 class="mt-md text-xl">{{game.title}}</h3>
           <p class="text-sm text-secondary truncate">{{game.series}} • {{game.release_date || 'Unknown Date'}}</p>
@@ -34,9 +36,10 @@ import { CollectionFiltersComponent, FilterState, PlatformGroup } from '../../fi
 
       <div class="grid animate-fade-in animate-stagger-2" *ngIf="currentTab === 'figures'">
         <a *ngFor="let figure of displayFigures" [routerLink]="['/collection', 'figure', figure.id]" class="glass-panel interactive-card p-lg flex flex-col gap-sm">
-          <div class="badge-container flex justify-between items-center">
+          <div class="badge-container flex justify-between items-center gap-xs">
             <span class="badge owned" *ngIf="figure.owned">Owned</span>
             <span class="badge wanted" *ngIf="!figure.owned">Wanted</span>
+            <span class="badge type">{{figure.type}}</span>
             <span class="text-xs text-secondary font-medium ml-auto text-right">{{figure.line}}</span>
           </div>
           <h3 class="mt-md text-xl">{{figure.name}}</h3>
@@ -59,6 +62,13 @@ import { CollectionFiltersComponent, FilterState, PlatformGroup } from '../../fi
     .ml-auto { margin-left: auto; }
     .text-right { text-align: right; }
     .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gap-xs { gap: 0.5rem; }
+    
+    .badge.type {
+      background: rgba(148, 163, 184, 0.1);
+      color: var(--text-secondary);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
     
     .grid {
       display: grid;
@@ -91,10 +101,12 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   displayLimit = 40;
 
   platformGroups: PlatformGroup[] = [];
+  platformMap = new Map<number, Platform>(); // For parent lookup
   uniqueLines: string[] = [];
+  uniqueTypes: string[] = [];
   uniqueSeries: string[] = [];
 
-  filters: FilterState = { ownership: 'owned', platform: '', line: '', series: '' };
+  filters: FilterState = { ownership: 'owned', platform_id: undefined, line: '', type: '', series: '' };
 
   @ViewChild('scrollTrigger') scrollTrigger!: ElementRef;
   private observer: IntersectionObserver | null = null;
@@ -125,8 +137,18 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       // Load platforms purely for building the dropdown filter.
       this.collectionService.getPlatforms().subscribe(data => {
         const grouped = new Map<string, Platform[]>();
+        data.forEach(p => this.platformMap.set(p.id, p));
+        
         data.sort((a,b) => {
            if (a.brand !== b.brand) return (a.brand || 'Other').localeCompare(b.brand || 'Other');
+           // Sort accessories to follow their parents
+           const aKey = a.parent_platform_id || a.id;
+           const bKey = b.parent_platform_id || b.id;
+           if (aKey !== bKey) {
+              const pa = data.find(p => p.id === aKey);
+              const pb = data.find(p => p.id === bKey);
+              return (pa?.launch_date || '1970').localeCompare(pb?.launch_date || '1970');
+           }
            return new Date(a.launch_date || '1970').getTime() - new Date(b.launch_date || '1970').getTime();
         }).forEach(p => {
            const b = p.brand || 'Other';
@@ -134,11 +156,13 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
            grouped.get(b)!.push(p);
         });
         this.platformGroups = Array.from(grouped.entries()).map(([brand, platforms]) => ({ brand, platforms }));
+        this.updateFilteredGames();
       });
     } else if (this.currentTab === 'figures') {
       this.collectionService.getFigures().subscribe(data => {
         this.figures = data;
         this.uniqueLines = Array.from(new Set(data.map(f => f.line))).filter(Boolean).sort();
+        this.uniqueTypes = Array.from(new Set(data.map(f => f.type))).filter(Boolean).sort();
         this.uniqueSeries = Array.from(new Set(data.map(f => f.series_name))).filter(Boolean).sort();
         this.updateFilteredFigures();
         this.restoreScroll();
@@ -205,7 +229,14 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       const isOwned = g.owned === 1 || g.owned === true;
       if (this.filters.ownership === 'owned' && !isOwned) return false;
       if (this.filters.ownership === 'wanted' && isOwned) return false;
-      if (this.filters.platform && g.platform !== this.filters.platform) return false;
+      
+      if (this.filters.platform_id) {
+        // Find the record for the current game's platform to check its parentage
+        const p = this.platformMap.get(g.platform_id);
+        const match = g.platform_id === this.filters.platform_id || p?.parent_platform_id === this.filters.platform_id;
+        if (!match) return false;
+      }
+      
       if (this.filters.series && !g.series?.toLowerCase().includes(this.filters.series.toLowerCase())) return false;
       return true;
     });
@@ -218,6 +249,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       if (this.filters.ownership === 'owned' && !isOwned) return false;
       if (this.filters.ownership === 'wanted' && isOwned) return false;
       if (this.filters.line && f.line !== this.filters.line) return false;
+      if (this.filters.type && f.type !== this.filters.type) return false;
       if (this.filters.series && !f.series_name?.toLowerCase().includes(this.filters.series.toLowerCase())) return false;
       return true;
     });

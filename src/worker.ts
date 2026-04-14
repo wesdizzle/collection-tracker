@@ -12,19 +12,20 @@ export default {
 
     try {
       if (path === '/api/games') {
-        const platform = url.searchParams.get('platform');
+        const platformId = url.searchParams.get('platform_id');
         let query = `
-            SELECT g.*, p.brand, p.launch_date as platform_launch_date 
+            SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date 
             FROM games g 
-            LEFT JOIN platforms p ON g.platform = p.name 
+            LEFT JOIN platforms p ON g.platform_id = p.id 
             WHERE 1=1
         `;
         const params: any[] = [];
-        if (platform) {
-            query += ` AND g.platform = ?`;
-            params.push(platform);
+        if (platformId) {
+            // Include children (accessories) if the selected platform is a parent
+            query += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
+            params.push(platformId, platformId);
         }
-        query += ` ORDER BY p.brand COLLATE NOCASE ASC, p.launch_date ASC, g.platform COLLATE NOCASE ASC, 
+        query += ` ORDER BY p.brand COLLATE NOCASE ASC, COALESCE(p.parent_platform_id, p.id) ASC, p.launch_date ASC, g.platform_id ASC, 
                    CASE WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.series, g.title), 5) WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.series, g.title), 3) ELSE COALESCE(g.series, g.title) END COLLATE NOCASE ASC, 
                    g.release_date IS NULL ASC, g.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
                    CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC`;
@@ -37,9 +38,9 @@ export default {
       else if (path.startsWith('/api/games/')) {
         const id = path.split('/').pop();
         const query = `
-            SELECT g.*, p.brand, p.launch_date as platform_launch_date 
+            SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date 
             FROM games g 
-            LEFT JOIN platforms p ON g.platform = p.name 
+            LEFT JOIN platforms p ON g.platform_id = p.id 
             WHERE g.id = ?
         `;
         const stmt = env.DB.prepare(query).bind(id);
@@ -81,7 +82,15 @@ export default {
       }
       
       else if (path === '/api/platforms') {
-        let query = `SELECT * FROM platforms ORDER BY brand ASC, launch_date ASC`;
+        const query = `
+          SELECT p.* FROM platforms p 
+          WHERE EXISTS (
+            SELECT 1 FROM games g 
+            WHERE g.platform_id = p.id 
+            OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
+          )
+          ORDER BY brand ASC, COALESCE(parent_platform_id, id) ASC, launch_date ASC
+        `;
         const stmt = env.DB.prepare(query);
         const { results } = await stmt.all();
         return Response.json(results);
