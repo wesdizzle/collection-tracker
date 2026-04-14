@@ -16,6 +16,11 @@ export const routes: Routes = [
         path: 'figures', 
         title: 'Figures',
         loadComponent: () => import('./features/collection/list/collection-list/collection-list.component').then(m => m.CollectionListComponent)
+      },
+      {
+        path: 'discovery',
+        title: 'Discovery Management',
+        loadComponent: () => import('./features/discovery/list/discovery-list/discovery-list.component').then(m => m.DiscoveryListComponent)
       }
     ]
   },

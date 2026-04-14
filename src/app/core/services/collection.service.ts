@@ -40,6 +40,20 @@ export interface Platform {
     image_url: string;
 }
 
+export interface DiscoveryOption {
+    name: string;
+    platform: string;
+    id: string;
+    image_url: string | null;
+    summary: string | null;
+}
+
+export interface DiscoveryItem {
+    title: string;
+    platform: string;
+    options: DiscoveryOption[];
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -66,4 +80,12 @@ export class CollectionService {
   getGameById(id: string): Observable<Game> { return this.http.get<Game>(`/api/games/${id}`); }
   getFigureById(id: string): Observable<Figure> { return this.http.get<Figure>(`/api/figures/${id}`); }
   getPlatformById(id: string): Observable<Platform> { return this.http.get<Platform>(`/api/platforms/${id}`); }
+
+  getDiscoveryItems(): Observable<DiscoveryItem[]> {
+    return this.http.get<DiscoveryItem[]>('/api/discovery');
+  }
+
+  applyDiscovery(payload: any): Observable<any> {
+    return this.http.post('/api/discovery/apply', payload);
+  }
 }

@@ -16,6 +16,9 @@ import { RouterModule } from '@angular/router';
         <div class="flex gap-md bg-glass tab-container">
           <a routerLink="/collection/games" routerLinkActive="active" class="btn">Games</a>
           <a routerLink="/collection/figures" routerLinkActive="active" class="btn">Figures</a>
+          <a *ngIf="isDev" routerLink="/collection/discovery" routerLinkActive="active" class="btn btn-discovery">
+            <span class="icon">✨</span> Discovery
+          </a>
         </div>
       </header>
 
@@ -84,4 +87,8 @@ import { RouterModule } from '@angular/router';
     }
   `]
 })
-export class CollectionLayoutComponent {}
+export class CollectionLayoutComponent {
+  get isDev(): boolean {
+    return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  }
+}

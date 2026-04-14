@@ -1,7 +1,7 @@
 const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
-const { findGame, getCollectionGames, PLATFORM_MAP } = require('./lib/igdb');
+const { findGame, getCollectionGames, PLATFORM_MAP, superNormalize } = require('./lib/igdb');
 const { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries } = require('./lib/figures');
 
 const db = new Database('collection.sqlite');
@@ -38,58 +38,76 @@ async function runScraper() {
         
         if (matches && matches.length > 0) {
             const bestMatch = matches[0];
-            const igdbName = bestMatch.name;
-            const igdbPlatform = bestMatch.platform;
 
             // Check for potential syncs (name or platform differs)
             const normLocal = normalizeTitle(game.title);
             const normIgdb = normalizeTitle(bestMatch.name);
+            const superNormLocal = superNormalize(game.title);
+            const superNormIgdb = superNormalize(bestMatch.name);
             
-            // Platform match is verified if the local platform IGDB ID is in the IGDB result's platform list
-            const platformMatches = !game.platform_igdb_id || (bestMatch.platform_ids && bestMatch.platform_ids.includes(game.platform_igdb_id));
+            // Platform verification: ID match OR Name match fallback
+            const platformIdMatch = bestMatch.platform_ids && bestMatch.platform_ids.includes(game.platform_igdb_id);
+            const platformNameMatch = bestMatch.platform && game.platform_display_name && (bestMatch.platform === game.platform_display_name);
+            const platformMatches = platformIdMatch || platformNameMatch;
 
-            if (normLocal === normIgdb && platformMatches) {
+            // Match Scenario A: Titles are identical or super-normalized titles match
+            if (platformMatches && (normLocal === normIgdb || superNormLocal === superNormIgdb)) {
                 // Automatic title normalization update
                 if (game.title !== bestMatch.name) {
                     db.prepare('UPDATE games SET title = ? WHERE id = ?').run(bestMatch.name, game.id);
                     console.log(`  Auto-normalized: ${game.title} -> ${bestMatch.name}`);
                 }
-            } else if (bestMatch.name !== game.title || !platformMatches) {
-                // Significant difference or ambiguous platform, add to suggestions
+                
+                db.prepare('UPDATE games SET igdb_id = ?, region = ? WHERE id = ?')
+                    .run(bestMatch.id.replace('igdb-', ''), 'NA', game.id);
+                console.log(`  Verified & Matched: ${bestMatch.name}`);
+                continue;
+            } else if (normLocal === normIgdb || superNormLocal === superNormIgdb) {
+                console.log(`  Title Match found for "${bestMatch.name}" but platform check failed: IGDB Platform="${bestMatch.platform}" vs Local="${game.platform_display_name}"`);
+            }
+
+            // Match Scenario B: Local title is a prefix/subtitle of IGDB title AND only one official match exists
+            const isSignificantPrefix = superNormIgdb.startsWith(superNormLocal) && superNormLocal.length > 5;
+            const singleOfficialMatch = matches.filter(r => r.platform_ids && r.platform_ids.includes(game.platform_igdb_id)).length === 1;
+
+            if (platformMatches && isSignificantPrefix && singleOfficialMatch) {
+                db.prepare('UPDATE games SET title = ?, igdb_id = ?, region = ? WHERE id = ?')
+                    .run(bestMatch.name, bestMatch.id.replace('igdb-', ''), 'NA', game.id);
+                console.log(`  Auto-matched Subtitle: ${game.title} -> ${bestMatch.name}`);
+                continue;
+            }
+
+            // If not auto-matched, check for detailed suggestions or imagery updates
+            if (bestMatch.name !== game.title || !platformMatches) {
                 syncSuggestions.push({
                     type: 'Game',
                     current: `${game.title} (${game.platform_display_name || game.platform})`,
-                    options: matches.slice(0, 3),
+                    options: matches.slice(0, 10),
                     localId: game.id
                 });
             }
 
-            // Silently update imagery/summary/region if missing
-            if (!game.image_url || !game.summary || !game.region) {
-                db.prepare('UPDATE games SET image_url = ?, summary = ?, region = ?, igdb_id = ? WHERE id = ?').run(
+            // Fallback: update imagery if missing but keep for sync review if ambiguous
+            if (!game.image_url || !game.summary) {
+                db.prepare('UPDATE games SET image_url = ?, summary = ? WHERE id = ?').run(
                     bestMatch.image_url, 
                     bestMatch.summary || null, 
-                    game.region || bestMatch.region,
-                    bestMatch.id.replace('igdb-', ''),
                     game.id
                 );
             }
         } else {
             console.log(`  No exact match found for ${game.title}`);
-            // Try broad search for unmatched section
             const suggestions = await findGame(searchTitle, null);
             unmatchedGames.push({ item: game, suggestions });
         }
     }
 
-    let newItemsCount = 0;
-
-
-    // 3. Discovery: Games
-    const gameSeriesList = db.prepare('SELECT DISTINCT series FROM games WHERE series IS NOT NULL').all();
+    // ... (rest of discovery logic - unchanged but ensure existingGames/ignoredItems are valid)
     const ignoredItems = db.prepare('SELECT id FROM ignored_items').all().map(i => i.id);
     const existingGameNorms = existingGames.map(g => normalizeTitle(g.title));
 
+    // 3. Discovery: Games
+    const gameSeriesList = db.prepare('SELECT DISTINCT series FROM games WHERE series IS NOT NULL').all();
     for (const { series } of gameSeriesList) {
         console.log(`Discovering Games for Series: ${series}...`);
         const searchResults = await findGame(series.replace(/\(.*\)/g, '').trim(), '');
@@ -101,141 +119,102 @@ async function runScraper() {
             for (const igdbGame of collectionGames) {
                 const igdbId = `igdb-${igdbGame.id}`;
                 if (ignoredItems.includes(igdbId)) continue;
-
                 const normalizedIgdb = normalizeTitle(igdbGame.name);
                 if (existingGameNorms.includes(normalizedIgdb)) continue;
-
                 missing.push(igdbGame);
             }
             if (missing.length > 0) {
-                gameDiscoveryResults.push({
-                    seriesName: series,
-                    items: missing
-                });
-                newItemsCount += missing.length;
+                gameDiscoveryResults.push({ series, games: missing });
             }
         }
     }
 
     // 4. Discovery: Figures
-    const figureSeries = db.prepare("SELECT * FROM figure_series").all();
-    const existingFigures = db.prepare('SELECT * FROM figures').all();
+    let figureDiscoveryResults = [];
+    const figureSeriesList = db.prepare('SELECT DISTINCT line FROM figures WHERE line IS NOT NULL').all();
+    const existingFigureIds = db.prepare('SELECT id FROM figures').all().map(f => f.id);
 
-    for (const series of figureSeries) {
-        console.log(`Discovering Figures for ${series.line}: ${series.name}...`);
-        
-        let allItems = [];
-        if (series.line.toLowerCase() === 'amiibo') {
-            allItems = await getAmiiboSeries(series.name);
-        } else if (series.line.toLowerCase() === 'skylanders') {
-            allItems = await getSkylandersSeries(series.name);
-        } else if (series.line.toLowerCase() === 'starlink') {
-            allItems = await getStarlinkSeries(series.name);
-        }
+    for (const { line: series_name } of figureSeriesList) {
+        console.log(`Discovering Figures for series: ${series_name}...`);
+        let figures = [];
+        if (series_name.toLowerCase().includes('amiibo')) figures = await getAmiiboSeries(series_name);
+        else if (series_name.toLowerCase().includes('skylanders')) figures = await getSkylandersSeries(series_name);
+        else if (series_name.toLowerCase().includes('starlink')) figures = await getStarlinkSeries(series_name);
 
-        const missingFiguresInSeries = [];
-        for (const item of allItems) {
-            const figId = `fig-${item.id}`;
-            if (ignoredItems.includes(figId)) continue;
+        const missing = figures.filter(f => !existingFigureIds.includes(f.id) && !ignoredItems.includes(f.id));
+        if (missing.length > 0) figureDiscoveryResults.push({ series: series_name, items: missing });
+    }
 
-            const normItem = normalizeTitle(item.name);
-            const localMatch = existingFigures.find(f => normalizeTitle(f.name) === normItem && f.series_id === series.id);
-            
-            if (localMatch) {
-                const normLocal = normalizeTitle(localMatch.name);
-                const normFig = normalizeTitle(item.name);
-                if (normLocal === normFig) {
-                    if (localMatch.name !== item.name) {
-                        db.prepare('UPDATE figures SET name = ? WHERE id = ?').run(item.name, localMatch.id);
-                        console.log(`  Auto-normalized figure: ${localMatch.name} -> ${item.name}`);
-                    }
-                } else if (localMatch.name !== item.name) {
-                    syncSuggestions.push({
-                        type: 'Figure',
-                        current: localMatch.name,
-                        suggested: item.name,
-                        id: `fig-${item.id}`,
-                        localId: localMatch.id
-                    });
+    generateReport(unmatchedGames, syncSuggestions, gameDiscoveryResults, figureDiscoveryResults);
+}
+
+function generateReport(unmatched, sync, gameDiscovery, figureDiscovery) {
+    let report = '# Discovery Report\n\nThis report lists findings from the collection discovery pipeline.\n\n';
+    report += '### Instructions:\n';
+    report += '- Mark with **`[x]`** to add the item as **Wanted**.\n';
+    report += '- Mark with **`[o]`** to **Sync/Update** an existing item.\n';
+    report += '- Mark with **`[r]`** to **Reject** the item.\n\n';
+
+    if (sync.length > 0) {
+        report += '## Action Required: Sync Suggestions\n';
+        for (const s of sync) {
+            report += `### ${s.current}\n`;
+            s.options.forEach(opt => {
+                report += `- [ ] **Update to:** ${opt.name} (${opt.platform}) - ID: ${opt.id}\n`;
+                if (opt.image_url) report += `  - ![cover](${opt.image_url})\n`;
+                if (opt.summary) {
+                    const shortSummary = opt.summary.length > 200 ? opt.summary.substring(0, 200) + '...' : opt.summary;
+                    report += `  - *${shortSummary.replace(/\n/g, ' ')}*\n`;
                 }
-                continue;
-            }
-            missingFiguresInSeries.push(item);
-        }
-
-        if (missingFiguresInSeries.length > 0) {
-            gameDiscoveryResults.push({
-                seriesName: series.name,
-                line: series.line,
-                items: missingFiguresInSeries
             });
-            newItemsCount += missingFiguresInSeries.length;
+            report += '\n';
         }
     }
 
-    // 5. Generate Report
-    let discoveryReport = '# Discovery Report\n\nThis report lists findings from the collection discovery pipeline.\n\n';
-    discoveryReport += '### Instructions:\n';
-    reportInstructions(discoveryReport); // Abstracted or just keep writing
-
-    function reportInstructions(rep) {
-        // I'll just keep it inline for simplicity in replace_file_content
-    }
-
-    discoveryReport += '### Instructions:\n';
-    discoveryReport += '- Mark with **`[x]`** to add the item as **Wanted**.\n';
-    discoveryReport += '- Mark with **`[o]`** to **Sync/Update** an existing item (updates name/platform/metadata/IDs).\n';
-    discoveryReport += '- Mark with **`[r]`** to **Reject** the item (permanent ignore).\n';
-    discoveryReport += '- Leave as **`[ ]`** to skip for now.\n\n';
-
-    if (syncSuggestions.length > 0) {
-        discoveryReport += '## Action Required: Sync Suggestions\n';
-        discoveryReport += 'Found different names or multiple official matches for items in your collection.\n\n';
-        
-        syncSuggestions.forEach(s => {
-            discoveryReport += `### ${s.current}\n`;
-            if (s.options) {
-                s.options.forEach(opt => {
-                    discoveryReport += `- [ ] **Update to:** ${opt.name} (${opt.platform}) - ID: ${opt.id}\n`;
+    if (unmatched.length > 0) {
+        report += '## Action Required: Unmatched Items\n';
+        for (const u of unmatched) {
+            report += `### ${u.item.title} (${u.item.platform_display_name || u.item.platform})\n`;
+            if (u.suggestions.length > 0) {
+                u.suggestions.slice(0, 10).forEach(s => {
+                    report += `- [ ] **Link to:** ${s.name} (${s.platform}) - ID: ${s.id}\n`;
+                    if (s.image_url) report += `  - ![cover](${s.image_url})\n`;
+                    if (s.summary) {
+                        const shortSummary = s.summary.length > 200 ? s.summary.substring(0, 200) + '...' : s.summary;
+                        report += `  - *${shortSummary.replace(/\n/g, ' ')}*\n`;
+                    }
                 });
             } else {
-                discoveryReport += `- [ ] **Update to:** ${s.suggested} - ID: ${s.id}\n`;
+                report += '- No suggestions found.\n';
             }
-            discoveryReport += '\n';
-        });
-    }
-
-    // Re-render Game Discovery
-    gameDiscoveryResults.forEach(res => {
-        if (res.line) {
-             discoveryReport += `## Series: ${res.seriesName} (Figures)\n`;
-             res.items.forEach(m => {
-                 discoveryReport += `- [ ] **${m.name}** (${res.line} ${m.type}) - ID: ${m.id}\n`;
-             });
-        } else {
-            discoveryReport += `## Series: ${res.seriesName} (Games)\n`;
-            res.items.forEach(m => {
-                discoveryReport += `- [ ] **${m.name}** (${m.platform || 'Multiple Platforms'}) - ID: ${m.id}\n`;
-            });
+            report += '\n';
         }
-        discoveryReport += '\n';
-    });
-
-    if (unmatchedGames.length > 0) {
-        discoveryReport += `---\n\n## Unmatched Games\nThe following games failed to find an exact match on IGDB. You may need to manually verify their names.\n\n`;
-        unmatchedGames.forEach(u => {
-            discoveryReport += `### ${u.item.title} (${u.item.platform_display_name || u.item.platform})\n`;
-            if (u.suggestions && u.suggestions.length > 0) {
-                u.suggestions.slice(0, 3).forEach(s => {
-                    discoveryReport += `- [ ] **Suggestion:** ${s.name} (${s.platform}) - ID: ${s.id}\n`;
-                });
-            }
-            discoveryReport += '\n';
-        });
     }
 
-    fs.writeFileSync('discovery_report.md', discoveryReport);
-    console.log(`\nDiscovery Complete! ${newItemsCount} new items found. Sync items identified. Review discovery_report.md.`);
+    if (gameDiscovery.length > 0) {
+        report += '## Discovery: New Games\n';
+        for (const d of gameDiscovery) {
+            report += `### Series: ${d.series}\n`;
+            d.games.forEach(g => {
+                report += `- [ ] ${g.name} (${g.platform}) - ID: igdb-${g.id}\n`;
+            });
+            report += '\n';
+        }
+    }
+
+    if (figureDiscovery.length > 0) {
+        report += '## Discovery: New Figures\n';
+        for (const d of figureDiscovery) {
+            report += `### Line: ${d.series}\n`;
+            d.items.forEach(i => {
+                report += `- [ ] ${i.name} (${i.line}) - ID: ${i.id}\n`;
+            });
+            report += '\n';
+        }
+    }
+
+    fs.writeFileSync('discovery_report.md', report);
+    console.log('Report generated: discovery_report.md');
 }
 
 runScraper().catch(console.error);

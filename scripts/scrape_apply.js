@@ -37,8 +37,7 @@ async function applyChanges() {
     const content = fs.readFileSync(reportPath, 'utf8');
     const lines = content.split('\n');
 
-    let currentSeries = '';
-    let currentLine = '';
+    let currentSectionGame = null;
     let addedCount = 0;
     let ignoredCount = 0;
     let updatedCount = 0;
@@ -46,11 +45,10 @@ async function applyChanges() {
     console.log('--- Applying Discovery Changes ---');
 
     for (const line of lines) {
-        if (line.startsWith('## Series:')) {
-            const seriesMatch = line.match(/## Series: (.*) \((.*)\)/);
-            if (seriesMatch) {
-                currentSeries = seriesMatch[1];
-                currentLine = seriesMatch[2];
+        if (line.startsWith('### ')) {
+            const gameMatch = line.match(/### (.*) \((.*)\)/);
+            if (gameMatch) {
+                currentSectionGame = { title: gameMatch[1].trim(), platform: gameMatch[2].trim() };
             }
             continue;
         }
@@ -61,41 +59,36 @@ async function applyChanges() {
         const isActionable = isAdd || isOwned;
 
         if (isActionable) {
-            // Check for Sync Suggestions format first: "- [o] **Update:** Current (Platform) → **Suggested (Platform)** - ID: igdb-ID"
-            const syncMatch = line.match(/- \[o\] \*\*Update:\*\* (.*) → \*\*(.*)\*\* - ID: (.*)/);
+            // Check for Sync Suggestions format: "- [o] **Update to:** Suggested (Platform) - ID: igdb-ID"
+            // We need to handle the header above it to know which game we are updating
+            const syncMatch = line.match(/- \[[xo]\] \*\*Update to:\*\* (.*) - ID: (.*)/);
             if (syncMatch) {
-                const id = syncMatch[3];
-                const suggestedRaw = syncMatch[2].match(/(.*) \((.*)\)/) || [null, syncMatch[2], null];
+                const suggestedRaw = syncMatch[1].match(/(.*) \((.*)\)/) || [null, syncMatch[1], null];
                 const newName = suggestedRaw[1].trim();
                 const newPlatform = suggestedRaw[2] ? suggestedRaw[2].trim() : null;
+                const id = syncMatch[2];
 
-                if (id.startsWith('igdb-')) {
-                    const localId = id.replace('igdb-', '');
-                    // For syncing existing games, we target the ID if we had it, but for now we find by the "Current" string in the report
-                    // Actually, let's keep it simple: the sync suggestions in scrape.js have the ID encoded.
-                    const existing = db.prepare('SELECT id, title, platform FROM games WHERE title = ?').get(syncMatch[1].split(' (')[0]);
-                    if (existing) {
-                        if (newPlatform && newPlatform !== existing.platform) {
-                            // This is a platform migration
-                            renamePlatformGlobal(existing.platform, newPlatform);
-                            // After global rename, the existing game's platform is now newPlatform
+                // Since we don't have the "Current" in the line, we rely on the nearest h3 header
+                // We'll need to track the current section game
+                if (currentSectionGame) {
+                    const localId = id.replace('igdb-', '').replace('fig-', '');
+                    
+                    if (id.startsWith('igdb-')) {
+                        const existing = db.prepare(`
+                            SELECT g.id, g.platform_id, p.display_name as platform
+                            FROM games g
+                            JOIN platforms p ON g.platform_id = p.id
+                            WHERE g.title = ? AND p.display_name = ?
+                        `).get(currentSectionGame.title, currentSectionGame.platform);
+
+                        if (existing) {
+                            db.prepare('UPDATE games SET title = ?, igdb_id = ?, region = ?, owned = 1 WHERE id = ?')
+                                .run(newName, localId, 'NA', existing.id);
+                            console.log(`  Synced Game: "${currentSectionGame.title}" (${currentSectionGame.platform}) -> "${newName}" [ID: ${localId}]`);
+                            updatedCount++;
                         }
-                        
-                        if (newPlatform) {
-                            db.prepare('UPDATE games SET title = ?, platform = ?, owned = 1 WHERE id = ?').run(newName, newPlatform, existing.id);
-                        } else {
-                            db.prepare('UPDATE games SET title = ?, owned = 1 WHERE id = ?').run(newName, existing.id);
-                        }
-                        console.log(`  Synced Game: "${existing.title}" -> "${newName}"`);
-                        updatedCount++;
-                    }
-                } else if (id.startsWith('fig-')) {
-                    const localId = id.replace('fig-', '');
-                    const existing = db.prepare('SELECT id, name FROM figures WHERE id = ?').get(localId);
-                    if (existing) {
-                        db.prepare('UPDATE figures SET name = ?, owned = 1 WHERE id = ?').run(newName, existing.id);
-                        console.log(`  Synced Figure: "${existing.name}" -> "${newName}"`);
-                        updatedCount++;
+                    } else if (id.startsWith('fig-')) {
+                        // Figures logic ... (if needed)
                     }
                 }
                 continue;

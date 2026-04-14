@@ -118,20 +118,42 @@ async function findGame(title, platformId) {
     // Clean title for search: replace special hyphens and remove characters that break IGDB fuzzy search
     const cleanTitle = title.replace(/[–—]/g, '-').replace(/[":()]/g, '').trim();
 
-    const query = `
+    // We do a two-pronged approach: 
+    // 1. Search for fuzzy matching
+    // 2. Explicit name filter for exact matches that might be buried
+    const searchQuery = `
         fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region;
         search "${cleanTitle.replace(/"/g, '')}";
         ${platformFilter ? `where platforms = (${platformId});` : ''}
-        limit 10;
+        limit 50;
+    `;
+
+    const nameQuery = `
+        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region;
+        where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
+        limit 50;
     `;
 
     try {
-        const results = await queryIGDB('games', query);
+        const [searchResults, nameResults] = await Promise.all([
+            queryIGDB('games', searchQuery),
+            queryIGDB('games', nameQuery)
+        ]);
+
+        const results = [...(searchResults || []), ...(nameResults || [])];
         if (!results || results.length === 0) return [];
+
+        // De-duplicate by ID
+        const seen = new Set();
+        const uniqueResults = results.filter(g => {
+            if (seen.has(g.id)) return false;
+            seen.add(g.id);
+            return true;
+        });
 
         // Filter for official releases only (0: Main Game, 8: Remake, 9: Remaster, 10: Expanded Game, 11: Port)
         const officialCategories = [0, 8, 9, 10, 11, undefined, null];
-        const initialFiltered = results.filter(g => officialCategories.includes(g.category));
+        const initialFiltered = uniqueResults.filter(g => officialCategories.includes(g.category));
 
         if (initialFiltered.length === 0) return [];
 
@@ -139,12 +161,23 @@ async function findGame(title, platformId) {
         const filteredResults = initialFiltered.filter(g => {
             const lowerName = g.name.toLowerCase();
             const lowerSummary = (g.summary || '').toLowerCase();
-            const isHack = lowerName.includes('hack') || lowerSummary.includes('level hack') || 
-                           lowerSummary.includes('graphics mod') || lowerName.includes('translation') || 
-                           lowerName.includes('patched');
             
-            // If it's a known hack but NOT tagged as a hack (5 or 12), and it's not the ONLY result, deprioritize or drop.
-            if (isHack && g.category !== 5 && g.category !== 12) return false;
+            // Explicitly filter Fork/Mod category (12)
+            if (g.category === 12) return false;
+
+            // Broaden hack/mod detection in name and summary
+            const hackKeywords = [
+                ' hack:', ' hack)', ' hack!', ' hack\n',
+                'level hack', 'graphics mod', 'translation', 'patched',
+                'fan-made', 'fanmade', 'fan project', 'unofficial',
+                'rom hack', 'romhack'
+            ];
+            
+            const isHack = hackKeywords.some(kw => lowerName.includes(kw) || lowerSummary.includes(kw));
+            
+            // Special case for "Pokmon [Name] hack" patterns which are common
+            if (isHack && g.category !== 5) return false; // 5 is "Bundle" which can sometimes include things, but usually hacks are mislabeled as 0.
+            
             return true;
         });
 
@@ -203,4 +236,34 @@ async function getCollectionGames(collectionId) {
     return physicalGames;
 }
 
-module.exports = { findGame, getCollectionGames, PLATFORM_MAP, queryIGDB };
+function superNormalize(title) {
+    if (!title) return '';
+    
+    // Strip diacritics
+    let t = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    
+    t = t.toLowerCase();
+    
+    // Common brand prefixes
+    t = t.replace(/^(disney's|marvel's|sid meier's|lego|j\.r\.r\. tolkien's)\b/gi, '');
+    
+    // Common versioning/flavor suffixes
+    t = t.replace(/\b(version|the videogame|the video game|special edition|game of the year edition|goty edition|a fantasy harvest moon|toy box challenge|special pikachu edition|director's cut|hd remaster|nintendo switch edition)\b/gi, '');
+    
+    // Series/Suffix patterns
+    t = t.replace(/:/g, ' ');
+    t = t.replace(/&/g, 'and');
+    t = t.replace(/\btelltale series\b/gi, '');
+    
+    // Remove non-alphanumeric and spaces
+    t = t.replace(/[^a-z0-9]/gi, '');
+    
+    return t;
+}
+
+module.exports = {
+    queryIGDB,
+    findGame,
+    superNormalize,
+    PLATFORM_MAP
+};
