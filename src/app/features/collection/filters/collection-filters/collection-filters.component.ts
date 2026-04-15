@@ -158,7 +158,7 @@ export class CollectionFiltersComponent {
   // Outputs
   public filtersChange = output<FilterState>();
 
-  onPartialChange(key: keyof FilterState, value: any) {
+  onPartialChange(key: keyof FilterState, value: string | number | undefined) {
     this.filtersChange.emit({
        ...this.filters(),
        [key]: value

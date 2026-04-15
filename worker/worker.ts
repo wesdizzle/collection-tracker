@@ -33,7 +33,7 @@ export default {
             LEFT JOIN platforms p ON g.platform_id = p.id 
             WHERE 1=1
         `;
-        const params: any[] = [];
+        const params: (string | number | null)[] = [];
         if (platformId) {
             // Complex Filter: Include children (accessories) if the selected platform is a parent.
             // This ensures selecting 'Wii' also shows 'Wii U' shared items if they are linked.
@@ -132,9 +132,10 @@ export default {
       // it delegates to env.ASSETS (Cloudflare Pages Assets).
       return env.ASSETS.fetch(request);
 
-    } catch (e: any) {
-      console.error('Worker Error:', e.message);
-      return Response.json({ error: e.message }, { status: 500 });
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : 'Internal Server Error';
+      console.error('Worker Error:', errorMessage);
+      return Response.json({ error: errorMessage }, { status: 500 });
     }
   }
 };

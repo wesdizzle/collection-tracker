@@ -1,65 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, firstValueFrom } from 'rxjs';
-
-export interface Game {
-    id: string;
-    title: string;
-    series: string;
-    release_date: string;
-    platform: string;
-    platform_id: number;
-    display_name?: string;
-    owned: boolean | number;
-    queued: boolean | number;
-    image_url: string;
-    platform_launch_date?: string;
-    brand?: string;
-}
-
-export interface Figure {
-    id: string;
-    name: string;
-    line: string;
-    type: string;
-    series_name: string;
-    series_line: string;
-    release_date: string;
-    owned: boolean | number;
-    image_url: string;
-    platform_id?: number;
-}
-
-export interface Platform {
-    id: number;
-    name: string;
-    display_name: string;
-    parent_platform_id?: number;
-    brand: string;
-    launch_date: string;
-    image_url: string;
-}
-
-export interface DiscoveryOption {
-    name: string;
-    platform: string;
-    id: string;
-    image_url: string | null;
-    summary: string | null;
-}
-
-export interface DiscoveryItem {
-    title: string;
-    platform: string;
-    options: DiscoveryOption[];
-}
-
-export interface ListState {
-  tab: 'games' | 'figures';
-  filters: any;
-  displayLimit: number;
-  scrollPosition: [number, number];
-}
+import { Game, Figure, Platform, DiscoveryItem, DiscoveryPayload, ListState } from '../models/collection.models';
 
 @Injectable({
   providedIn: 'root'
@@ -146,7 +88,7 @@ export class CollectionService {
     this._discoveryItems.set(items);
   }
 
-  applyDiscovery(payload: any): Observable<any> {
+  applyDiscovery(payload: DiscoveryPayload): Observable<unknown> {
     return this.http.post('/api/discovery/apply', payload);
   }
 }

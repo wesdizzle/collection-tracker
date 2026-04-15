@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import worker from './worker';
+import worker, { Env } from './worker';
 
 /**
  * UNIT TEST: Cloudflare Worker Logic
@@ -9,9 +9,20 @@ import worker from './worker';
  * This allows us to verify the SQL logic and route handling without 
  * relying on the stability of the Cloudflare test runner/local disk state.
  */
+import { Env } from './worker';
+
 describe('Worker API Logic', () => {
-    let mockDb: any;
-    let mockEnv: any;
+    let mockDb: {
+        prepare: (query: string) => {
+            bind: (...params: (string | number | null)[]) => {
+                all: () => Promise<{ results: unknown[] }>;
+                first: () => Promise<unknown>;
+            };
+            all: () => Promise<{ results: unknown[] }>;
+            first: () => Promise<unknown>;
+        };
+    };
+    let mockEnv: Env;
 
     beforeEach(() => {
         // Initialize an in-memory database for clean, isolated tests
@@ -59,17 +70,17 @@ describe('Worker API Logic', () => {
         // Mock the Cloudflare D1 interface
         mockDb = {
             prepare: (query: string) => ({
-                bind: (...params: any[]) => ({
-                    all: async () => ({ results: db.prepare(query).all(...params) }),
-                    first: async () => db.prepare(query).get(...params),
+                bind: (...params: (string | number | null)[]) => ({
+                    all: async () => ({ results: db.prepare(query).all(...params) as unknown[] }),
+                    first: async () => db.prepare(query).get(...params) as unknown,
                 }),
-                all: async () => ({ results: db.prepare(query).all() }),
-                first: async () => db.prepare(query).get(),
+                all: async () => ({ results: db.prepare(query).all() as unknown[] }),
+                first: async () => db.prepare(query).get() as unknown,
             }),
         };
 
         mockEnv = {
-            DB: mockDb,
+            DB: mockDb as unknown as Env['DB'],
             ASSETS: { fetch: vi.fn().mockResolvedValue(new Response('Asset Content')) }
         };
     });
@@ -79,7 +90,7 @@ describe('Worker API Logic', () => {
         const res = await worker.fetch(req, mockEnv);
         
         expect(res.status).toBe(200);
-        const data: any = await res.json();
+        const data = await res.json() as { title: string }[];
         expect(data[0].title).toBe('Super Mario Bros');
     });
 
@@ -88,7 +99,7 @@ describe('Worker API Logic', () => {
         const res = await worker.fetch(req, mockEnv);
         
         expect(res.status).toBe(200);
-        const data: any = await res.json();
+        const data = await res.json() as { name: string, series_name: string }[];
         expect(data[0].name).toBe('Link');
         expect(data[0].series_name).toBe('Smash');
     });
@@ -98,7 +109,7 @@ describe('Worker API Logic', () => {
         const res = await worker.fetch(req, mockEnv);
         
         expect(res.status).toBe(200);
-        const data: any = await res.json();
+        const data = await res.json() as { brand: string }[];
         expect(data[0].brand).toBe('Nintendo');
     });
 
@@ -117,7 +128,7 @@ describe('Worker API Logic', () => {
         const res = await worker.fetch(req, mockEnv);
         
         expect(res.status).toBe(500);
-        const data: any = await res.json();
+        const data = await res.json() as { error: string };
         expect(data.error).toBe('DB Down');
     });
 });

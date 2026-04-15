@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { CollectionService, DiscoveryItem, DiscoveryOption } from '../../../../core/services/collection.service';
+import { CollectionService, DiscoveryItem, DiscoveryOption, DiscoveryPayload } from '../../../../core/services/collection.service';
 import { RouterModule } from '@angular/router';
 
 @Component({
@@ -263,7 +263,7 @@ export class DiscoveryListComponent implements OnInit {
   }
 
   async applyMatch(item: DiscoveryItem, option: DiscoveryOption) {
-    const payload = {
+    const payload: DiscoveryPayload = {
       currentTitle: item.title,
       currentPlatform: item.platform,
       selectedIgdbId: option.id,
@@ -275,8 +275,9 @@ export class DiscoveryListComponent implements OnInit {
       await firstValueFrom(this.collectionService.applyDiscovery(payload));
       // Remove item from local list signal for immediate UX
       this.items.update(current => current.filter(i => i !== item));
-    } catch (e: any) {
-      alert('Error matching: ' + (e.error?.error || e.message));
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+      alert('Error matching: ' + errorMessage);
     }
   }
 }

@@ -30,6 +30,11 @@ describe('CollectionFiltersComponent', () => {
 
     fixture = TestBed.createComponent(CollectionFiltersComponent);
     component = fixture.componentInstance;
+    
+    // Satisfy required high-performance signal inputs before initialization
+    fixture.componentRef.setInput('currentTab', 'games');
+    fixture.componentRef.setInput('filters', { ownership: 'all' });
+    
     fixture.detectChanges();
   });
 

@@ -2,6 +2,7 @@ import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
+import { Game, Figure, Platform } from '../../../../core/models/collection.models';
 import { switchMap } from 'rxjs/operators';
 import { toSignal } from '@angular/core/rxjs-interop';
 
@@ -221,7 +222,7 @@ export class ItemDetailComponent {
         switch (type) {
           case 'game': return this.collectionService.getGameById(id);
           case 'figure': return this.collectionService.getFigureById(id);
-          case 'platform': return this.collectionService.getPlatformById(id as any);
+          case 'platform': return this.collectionService.getPlatformById(Number(id));
           default: throw new Error('Unknown type');
         }
       })
@@ -229,7 +230,7 @@ export class ItemDetailComponent {
   );
 
   // Type-safe narrowed signals for the template
-  public game = computed(() => this.type() === 'game' ? this.item() as any : null);
-  public figure = computed(() => this.type() === 'figure' ? this.item() as any : null);
-  public platform = computed(() => this.type() === 'platform' ? this.item() as any : null);
+  public game = computed(() => this.type() === 'game' ? this.item() as Game : null);
+  public figure = computed(() => this.type() === 'figure' ? this.item() as Figure : null);
+  public platform = computed(() => this.type() === 'platform' ? this.item() as Platform : null);
 }

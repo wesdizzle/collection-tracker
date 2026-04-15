@@ -21,5 +21,5 @@ if (typeof globalThis.IntersectionObserver === 'undefined') {
     observe() { return null; }
     unobserve() { return null; }
     disconnect() { return null; }
-  } as any;
+  } as unknown as typeof IntersectionObserver;
 }

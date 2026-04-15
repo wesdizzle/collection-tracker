@@ -1,0 +1,81 @@
+/**
+ * CORE COLLECTION MODELS
+ * 
+ * Centralized high-performance interfaces for the Collection Tracker.
+ * Resolves circular dependencies between services and components.
+ */
+
+export interface Game {
+    id: string;
+    title: string;
+    series: string;
+    release_date: string;
+    platform: string;
+    platform_id: number;
+    display_name?: string;
+    owned: boolean | number;
+    queued: boolean | number;
+    image_url: string;
+    platform_launch_date?: string;
+    brand?: string;
+}
+
+export interface Figure {
+    id: string;
+    name: string;
+    line: string;
+    type: string;
+    series_name: string;
+    series_line: string;
+    release_date: string;
+    owned: boolean | number;
+    image_url: string;
+    platform_id?: number;
+}
+
+export interface Platform {
+    id: number;
+    name: string;
+    display_name: string;
+    parent_platform_id?: number;
+    brand: string;
+    launch_date: string;
+    image_url: string;
+}
+
+export interface DiscoveryOption {
+    name: string;
+    platform: string;
+    id: string;
+    image_url: string | null;
+    summary: string | null;
+}
+
+export interface DiscoveryItem {
+    title: string;
+    platform: string;
+    options: DiscoveryOption[];
+}
+
+export interface DiscoveryPayload {
+    currentTitle: string;
+    currentPlatform: string;
+    selectedIgdbId: string | number;
+    selectedName: string;
+    region: string;
+}
+
+export interface FilterState {
+  ownership: 'all' | 'owned' | 'wanted';
+  platform_id?: number;
+  line?: string;
+  type?: string;
+  series?: string;
+}
+
+export interface ListState {
+  tab: 'games' | 'figures';
+  filters: FilterState;
+  displayLimit: number;
+  scrollPosition: [number, number];
+}
