@@ -4,6 +4,9 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
+    "dev": "node scripts/dev.js",
+    "sync-db": "node scripts/sync_local_d1.js",
+    "local-api": "node scripts/local_server.js",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",

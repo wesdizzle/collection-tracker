@@ -15,60 +15,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
 
     try {
-        if (req.method === 'GET' && pathname === '/api/games') {
-            const platformId = url.searchParams.get('platform_id');
-            let query = `
-                SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date 
-                FROM games g 
-                LEFT JOIN platforms p ON g.platform_id = p.id 
-                WHERE 1=1
-            `;
-            const params = [];
-            if (platformId) {
-                query += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
-                params.push(platformId, platformId);
-            }
-            query += ` ORDER BY p.brand COLLATE NOCASE ASC, COALESCE(p.parent_platform_id, p.id) ASC, p.launch_date ASC, g.platform_id ASC, 
-                       CASE WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.series, g.title), 5) WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.series, g.title), 3) ELSE COALESCE(g.series, g.title) END COLLATE NOCASE ASC, 
-                       g.release_date IS NULL ASC, g.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
-                       CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC`;
-            
-            const results = db.prepare(query).all(...params);
-            res.end(JSON.stringify(results));
-        }
-
-        else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
-            const id = pathname.split('/').pop();
-            const query = `
-                SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date 
-                FROM games g 
-                LEFT JOIN platforms p ON g.platform_id = p.id 
-                WHERE g.id = ?
-            `;
-            const game = db.prepare(query).get(id);
-            if (!game) {
-                res.statusCode = 404;
-                res.end(JSON.stringify({ error: 'Not found' }));
-            } else {
-                res.end(JSON.stringify(game));
-            }
-        }
-
-        else if (req.method === 'GET' && pathname === '/api/platforms') {
-            const query = `
-              SELECT p.* FROM platforms p 
-              WHERE EXISTS (
-                SELECT 1 FROM games g 
-                WHERE g.platform_id = p.id 
-                OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
-              )
-              ORDER BY brand ASC, COALESCE(parent_platform_id, id) ASC, launch_date ASC
-            `;
-            const results = db.prepare(query).all();
-            res.end(JSON.stringify(results));
-        }
-
-        else if (req.method === 'GET' && pathname === '/api/discovery') {
+        if (req.method === 'GET' && pathname === '/api/discovery') {
             const reportPath = path.join(process.cwd(), 'discovery_report.md');
             if (!fs.existsSync(reportPath)) {
                 res.end(JSON.stringify([]));
@@ -120,7 +67,6 @@ const server = http.createServer(async (req, res) => {
             req.on('end', () => {
                 const { currentTitle, currentPlatform, selectedIgdbId, selectedName, region } = JSON.parse(body);
                 
-                // Find game
                 const game = db.prepare(`
                     SELECT g.id FROM games g
                     JOIN platforms p ON g.platform_id = p.id
@@ -139,9 +85,26 @@ const server = http.createServer(async (req, res) => {
             });
         }
 
+        // FALLBACK: Proxy to Wrangler Dev (Port 8787)
         else {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ error: 'Path not found' }));
+            const proxyReq = http.request({
+                host: 'localhost',
+                port: 8787,
+                path: req.url,
+                method: req.method,
+                headers: req.headers
+            }, (proxyRes) => {
+                res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                proxyRes.pipe(res, { end: true });
+            });
+
+            proxyReq.on('error', (err) => {
+                console.error(`Proxy Error (is wrangler running?): ${err.message}`);
+                res.statusCode = 502;
+                res.end(JSON.stringify({ error: 'Wrangler Dev not reached' }));
+            });
+
+            req.pipe(proxyReq, { end: true });
         }
 
     } catch (e) {

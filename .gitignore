@@ -48,3 +48,5 @@ Thumbs.db
 # Build & Scraper Artifacts
 deploy.sql
 discovery_report.md
+
+.wrangler/
