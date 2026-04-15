@@ -1,0 +1,181 @@
+# Reversion Review Checklist
+
+Please mark the items you wish to revert to **Wanted** (owned = 0) by placing an `x` in the brackets: `[x]`. 
+Leave the items you actually own as `[ ]`.
+
+## Candidates for Reversion
+
+- [x] **Star Wars: Return of the Jedi - Death Star Battle (Atari 2600)** - `return-of-the-jedi-death-star-battle-atari-video-computer-system`
+- [x] **Star Wars: Return of the Jedi - Death Star Battle (Atari 5200)** - `return-of-the-jedi-death-star-battle-atari-5200-supersystem`
+- [ ] **BurgerTime (Intellivision)** - `burgertime-intellivision`
+- [x] **Super C (Nintendo Entertainment System)** - `super-contra-nintendo-entertainment-system`
+- [x] **Batman: The Video Game (Nintendo Entertainment System)** - `batman-nintendo-entertainment-system`
+- [x] **F-1 Race (Nintendo Entertainment System)** - `f1-race-nintendo-entertainment-system`
+- [x] **Bubsy II (Game Boy)** - `bubsy-2-game-boy`
+- [x] **Pac-Man World (Game Boy)** - `pac-man-world-game-boy`
+- [ ] **Pokémon Yellow Version: Special Pikachu Edition (Game Boy)** - `pok-mon-yellow-special-pikachu-edition-game-boy`
+- [x] **Bubsy II (Nintendo Entertainment System)** - `bubsy-2-super-nintendo-entertainment-system`
+- [ ] **Super Castlevania IV (Nintendo Entertainment System)** - `super-castlevania-iv-super-nintendo-entertainment-system`
+- [ ] **Castlevania: Dracula X (Nintendo Entertainment System)** - `castlevania-dracula-x-super-nintendo-entertainment-system`
+- [ ] **Chrono Trigger+ (Nintendo Entertainment System)** - `chrono-trigger-super-nintendo-entertainment-system`
+- [ ] **Donkey Kong Country (Nintendo Entertainment System)** - `donkey-kong-country-super-nintendo-entertainment-system`
+- [ ] **Donkey Kong Country 2: Diddy's Kong Quest (Nintendo Entertainment System)** - `donkey-kong-country-2-diddy-s-kong-quest-super-nintendo-entertainment-system`
+- [ ] **Donkey Kong Country 3: Dixie Kong's Double Trouble! (Nintendo Entertainment System)** - `donkey-kong-country-3-dixie-kong-s-double-trouble-super-nintendo-entertainment-system`
+- [ ] **Doom (Nintendo Entertainment System)** - `doom-super-nintendo-entertainment-system`
+- [ ] **EarthBound (Nintendo Entertainment System)** - `earthbound-super-nintendo-entertainment-system`
+- [ ] **F-Zero (Nintendo Entertainment System)** - `f-zero-super-nintendo-entertainment-system`
+- [ ] **Final Fantasy II (Nintendo Entertainment System)** - `final-fantasy-ii-super-nintendo-entertainment-system`
+- [ ] **Final Fantasy: Mystic Quest (Nintendo Entertainment System)** - `final-fantasy-mystic-quest-super-nintendo-entertainment-system`
+- [ ] **The Legend of Zelda: A Link to the Past (Nintendo Entertainment System)** - `the-legend-of-zelda-a-link-to-the-past-super-nintendo-entertainment-system`
+- [ ] **Mega Man 7 (Nintendo Entertainment System)** - `mega-man-7-super-nintendo-entertainment-system`
+- [ ] **Mega Man X (Nintendo Entertainment System)** - `mega-man-x-super-nintendo-entertainment-system`
+- [ ] **Mega Man X2 (Nintendo Entertainment System)** - `mega-man-x2-super-nintendo-entertainment-system`
+- [ ] **Mega Man X3 (Nintendo Entertainment System)** - `mega-man-x3-super-nintendo-entertainment-system`
+- [ ] **Super Mario World (Nintendo Entertainment System)** - `super-mario-world-super-nintendo-entertainment-system`
+- [ ] **Star Fox (Nintendo Entertainment System)** - `star-fox-super-nintendo-entertainment-system`
+- [ ] **Super Mario All-Stars (Nintendo Entertainment System)** - `super-mario-all-stars-super-nintendo-entertainment-system`
+- [ ] **Super Metroid (Nintendo Entertainment System)** - `super-metroid-super-nintendo-entertainment-system`
+- [ ] **Tetris & Dr. Mario (Nintendo Entertainment System)** - `tetris-dr-mario-super-nintendo-entertainment-system`
+- [ ] **007: The World Is Not Enough (Nintendo 64)** - `007-the-world-is-not-enough-nintendo-64`
+- [ ] **The Legend of Zelda: Ocarina of Time (Nintendo 64)** - `the-legend-of-zelda-ocarina-of-time-nintendo-64`
+- [ ] **The Legend of Zelda: Majora's Mask (Nintendo 64)** - `the-legend-of-zelda-majora-s-mask-nintendo-64`
+- [ ] **Super Mario 64 (Nintendo 64)** - `super-mario-64-nintendo-64`
+- [ ] **Mario Kart 64 (Nintendo 64)** - `mario-kart-64-nintendo-64`
+- [ ] **Star Fox 64 (Nintendo 64)** - `star-fox-64-nintendo-64`
+- [ ] **Perfect Dark (Nintendo 64)** - `perfect-dark-nintendo-64`
+- [ ] **James Bond 007: GoldenEye (Nintendo 64)** - `goldeneye-007-nintendo-64`
+- [ ] **Banjo-Kazooie (Nintendo 64)** - `banjo-kazooie-nintendo-64`
+- [ ] **Banjo-Tooie (Nintendo 64)** - `banjo-tooie-nintendo-64`
+- [ ] **Conker's Bad Fur Day (Nintendo 64)** - `conker-s-bad-fur-day-nintendo-64`
+- [ ] **Donkey Kong 64 (Nintendo 64)** - `donkey-kong-64-nintendo-64`
+- [ ] **Mario Party (Nintendo 64)** - `mario-party-nintendo-64`
+- [ ] **Mario Party 2 (Nintendo 64)** - `mario-party-2-nintendo-64`
+- [ ] **Mario Party 3 (Nintendo 64)** - `mario-party-3-nintendo-64`
+- [ ] **Paper Mario (Nintendo 64)** - `paper-mario-nintendo-64`
+- [ ] **Star Wars: Shadows of the Empire (Nintendo 64)** - `star-wars-shadows-of-the-empire-nintendo-64`
+- [ ] **Star Wars Episode I: Racer (Nintendo 64)** - `star-wars-episode-i-racer-nintendo-64`
+- [ ] **Star Wars: Rogue Squadron (Nintendo 64)** - `star-wars-rogue-squadron-nintendo-64`
+- [ ] **Battalion Wars (Nintendo DS)** - `battalion-wars-gamecube`
+- [ ] **Billy Hatcher and the Giant Egg (Nintendo DS)** - `billy-hatcher-and-the-giant-egg-gamecube`
+- [ ] **Chibi-Robo! (Nintendo DS)** - `chibi-robo-gamecube`
+- [ ] **Dance Dance Revolution Mario Mix (Nintendo DS)** - `dance-dance-revolution-mario-mix-gamecube`
+- [ ] **Donkey Konga (Nintendo DS)** - `donkey-konga-gamecube`
+- [ ] **Donkey Kong Jungle Beat (Nintendo DS)** - `donkey-kong-jungle-beat-gamecube`
+- [ ] **Donkey Konga 2 (Nintendo DS)** - `donkey-konga-2-gamecube`
+- [ ] **Eternal Darkness: Sanity's Requiem (Nintendo DS)** - `eternal-darkness-sanity-s-requiem-gamecube`
+- [ ] **F-Zero GX (Nintendo DS)** - `f-zero-gx-gamecube`
+- [ ] **Kirby Air Ride (Nintendo DS)** - `kirby-air-ride-gamecube`
+- [ ] **Luigi's Mansion (Nintendo DS)** - `luigi-s-mansion-gamecube`
+- [ ] **Super Mario Sunshine (Nintendo DS)** - `super-mario-sunshine-gamecube`
+- [ ] **Mario Kart: Double Dash!! (Nintendo DS)** - `mario-kart-double-dash-gamecube`
+- [ ] **Mario Party 4 (Nintendo DS)** - `mario-party-4-gamecube`
+- [ ] **Mario Party 5 (Nintendo DS)** - `mario-party-5-gamecube`
+- [ ] **Mario Party 6 (Nintendo DS)** - `mario-party-6-gamecube`
+- [ ] **Mario Party 7 (Nintendo DS)** - `mario-party-7-gamecube`
+- [ ] **Mega Man Network Transmission (Nintendo DS)** - `mega-man-network-transmission-gamecube`
+- [ ] **Metroid Prime (Nintendo DS)** - `metroid-prime-gamecube`
+- [ ] **Metroid Prime 2: Echoes (Nintendo DS)** - `metroid-prime-2-echoes-gamecube`
+- [ ] **Paper Mario: The Thousand-Year Door (Nintendo DS)** - `paper-mario-the-thousand-year-door-gamecube`
+- [ ] **Pikmin² (Nintendo DS)** - `pikmin-gamecube`
+- [ ] **Pikmin 2 (Nintendo DS)** - `pikmin-2-gamecube`
+- [ ] **Pokémon Colosseum (Nintendo DS)** - `pok-mon-colosseum-gamecube`
+- [ ] **Pokémon Colosseum Bonus Disc (Nintendo DS)** - `pok-mon-colosseum-bonus-disc-gamecube`
+- [ ] **Pokémon Box: Ruby and Sapphire (Nintendo DS)** - `pok-mon-box-ruby-and-sapphire-gamecube`
+- [ ] **Pokémon XD: Gale of Darkness (Nintendo DS)** - `pok-mon-xd-gale-of-darkness-gamecube`
+- [ ] **Resident Evil (Nintendo DS)** - `resident-evil-gamecube`
+- [ ] **Resident Evil Zero (Nintendo DS)** - `resident-evil-zero-gamecube`
+- [ ] **Resident Evil 4 (Nintendo DS)** - `resident-evil-4-gamecube`
+- [ ] **Sonic Adventure 2: Battle (Nintendo DS)** - `sonic-adventure-2-battle-gamecube`
+- [ ] **Sonic Mega Collection (Nintendo DS)** - `sonic-mega-collection-gamecube`
+- [ ] **Sonic Adventure DX: Director's Cut (Nintendo DS)** - `sonic-adventure-dx-director-s-cut-gamecube`
+- [ ] **Sonic Heroes (Nintendo DS)** - `sonic-heroes-gamecube`
+- [ ] **Sonic Gems Collection (Nintendo DS)** - `sonic-gems-collection-gamecube`
+- [ ] **Shadow the Hedgehog (Nintendo DS)** - `shadow-the-hedgehog-gamecube`
+- [ ] **Sonic Riders (Nintendo DS)** - `sonic-riders-gamecube`
+- [ ] **Spyro: A Hero's Tail (Nintendo DS)** - `spyro-a-hero-s-tail-gamecube`
+- [ ] **Star Fox Adventures (Nintendo DS)** - `star-fox-adventures-gamecube`
+- [ ] **Star Fox: Assault (Nintendo DS)** - `star-fox-assault-gamecube`
+- [ ] **Super Monkey Ball (Nintendo DS)** - `super-monkey-ball-gamecube`
+- [ ] **Super Monkey Ball 2 (Nintendo DS)** - `super-monkey-ball-2-gamecube`
+- [ ] **Super Monkey Ball Adventure (Nintendo DS)** - `super-monkey-ball-adventure-gamecube`
+- [ ] **Super Smash Bros. Melee (Nintendo DS)** - `super-smash-bros-melee-gamecube`
+- [ ] **Tales of Symphonia (Nintendo DS)** - `tales-of-symphonia-gamecube`
+- [ ] **Viewtiful Joe (Nintendo DS)** - `viewtiful-joe-gamecube`
+- [ ] **Viewtiful Joe 2 (Nintendo DS)** - `viewtiful-joe-2-gamecube`
+- [ ] **Viewtiful Joe: Red Hot Rumble (Nintendo DS)** - `viewtiful-joe-red-hot-rumble-gamecube`
+- [ ] **Wario World (Nintendo DS)** - `wario-world-gamecube`
+- [ ] **Halo: Combat Evolved (Nintendo DS)** - `halo-combat-evolved-xbox`
+- [ ] **Halo 2 (Nintendo DS)** - `halo-2-xbox`
+- [ ] **Final Fantasy I・II: Dawn of Souls (Game Boy Advance)** - `final-fantasy-i-ii-dawn-of-souls-game-boy-advance`
+- [ ] **Final Fantasy IV Advance (Game Boy Advance)** - `final-fantasy-iv-advance-game-boy-advance`
+- [ ] **Final Fantasy V Advance (Game Boy Advance)** - `final-fantasy-v-advance-game-boy-advance`
+- [ ] **Final Fantasy VI Advance (Game Boy Advance)** - `final-fantasy-vi-advance-game-boy-advance`
+- [ ] **Mega Man Star Force 2: Zerker x Ninja (Nintendo DS)** - `mega-man-star-force-2-zerker-ninja-nintendo-ds`
+- [ ] **Mega Man Star Force 2: Zerker x Saurian (Nintendo DS)** - `mega-man-star-force-2-zerker-saurian-nintendo-ds`
+- [ ] **Pokémon Platinum Version (Nintendo DS)** - `pok-mon-platinum-nintendo-ds`
+- [ ] **Nine Hours, Nine Persons, Nine Doors (Nintendo DS)** - `999-nine-hours-nine-persons-nine-doors-nintendo-ds`
+- [ ] **Kirby's Dream Collection Special Edition (Wii)** - `kirby-s-dream-collection-wii`
+- [ ] **Puzzle & Dragons Z + Puzzle & Dragons: Super Mario Bros. Edition (Nintendo 3DS)** - `puzzle-dragons-z-super-mario-bros-edition-nintendo-3ds`
+- [ ] **Harvest Moon: A New Beginning (Nintendo 3DS)** - `harvest-moon-3d-a-new-beginning-nintendo-3ds`
+- [ ] **The Amazing Spider-Man: Ultimate Edition (Wii U)** - `the-amazing-spider-man-wii-u`
+- [ ] **Anniversary Collection Arcade Classics (Nintendo Switch)** - `arcade-classics-anniversary-collection-nintendo-switch`
+- [ ] **Blaster Master Zero II (Nintendo Switch)** - `blaster-master-zero-2-nintendo-switch`
+- [ ] **Borderlands Legendary Collection (Nintendo Switch)** - `borderlands-the-legendary-collection-nintendo-switch`
+- [ ] **Final Fantasy: Pixel Remaster Collection (Nintendo Switch)** - `final-fantasy-i-vi-collection-nintendo-switch`
+- [ ] **Mega Man Legacy Collection 1 + 2 (Nintendo Switch)** - `mega-man-legacy-collection-mega-man-legacy-collection-2-nintendo-switch`
+- [ ] **Metal Gear Solid Master Collection: Volume 1 (Nintendo Switch)** - `metal-gear-solid-master-collection-vol-1-nintendo-switch`
+- [ ] **Ni no Kuni II: Revenant Kingdom - The Prince's Edition (Nintendo Switch)** - `ni-no-kuni-ii-revenant-kingdom-prince-s-edition-nintendo-switch`
+- [ ] **Pikmin 1+2 Bundle (Nintendo Switch)** - `pikmin-1-2-nintendo-switch`
+- [ ] **Subnautica + Subnautica Below Zero Double Pack (Nintendo Switch)** - `subnautica-subnautica-below-zero-nintendo-switch`
+- [ ] **World of Dragon Warrior: Torneko - The Last Hope (PlayStation)** - `torneko-the-last-hope-playstation`
+- [ ] **Tales of Destiny II (PlayStation)** - `tales-of-eternia-playstation`
+- [ ] **Deus Ex: The Conspiracy (PlayStation 2)** - `deus-ex-playstation-2`
+- [ ] **Final Fantasy XI Online (PlayStation 2)** - `final-fantasy-xi-playstation-2`
+- [ ] **Bionicle: The Game (PlayStation 2)** - `bionicle-playstation-2`
+- [ ] **Fantastic 4 (PlayStation 2)** - `fantastic-four-playstation-2`
+- [ ] **Spider-Man: Web of Shadows - Amazing Allies Edition (PlayStation 2)** - `spider-man-web-of-shadows-the-amazing-allies-edition-playstation-2`
+- [ ] **Persona 3 (PlayStation 2)** - `shin-megami-tensei-persona-3-playstation-2`
+- [ ] **Persona 3 FES (PlayStation 2)** - `shin-megami-tensei-persona-3-fes-playstation-2`
+- [ ] **Persona 4 (PlayStation 2)** - `shin-megami-tensei-persona-4-playstation-2`
+- [ ] **Xenosaga Episode I: Der Wille zur Macht (PlayStation 2)** - `xenosaga-episode-i-playstation-2`
+- [ ] **Spider-Man: Web of Shadows - Amazing Allies Edition (PlayStation Portable)** - `spider-man-web-of-shadows-the-amazing-allies-edition-playstation-portable`
+- [ ] **Persona 3 Portable (PlayStation Portable)** - `shin-megami-tensei-persona-3-portable-playstation-portable`
+- [ ] **Prince of Persia: Revelations (PlayStation Portable)** - `prince-of-persia-warrior-within-playstation-portable`
+- [ ] **Diablo III: Reaper of Souls - Ultimate Evil Edition (PlayStation 3)** - `diablo-iii-ultimate-evil-edition-playstation-3`
+- [ ] **Ninja Gaiden Sigma 2 (PlayStation 3)** - `ninja-gaiden-2-playstation-3`
+- [ ] **Prince of Persia Trilogy HD (PlayStation 3)** - `the-prince-of-persia-trilogy-playstation-3`
+- [ ] **Assassin's Creed Chronicles: Trilogy Pack (PlayStation Vita)** - `assassin-s-creed-chronicles-playstation-vita`
+- [ ] **Ninja Gaiden Sigma 2 Plus (PlayStation Vita)** - `ninja-gaiden-2-playstation-vita`
+- [ ] **Tales of Hearts R (PlayStation Vita)** - `tales-of-hearts-playstation-vita`
+- [ ] **Abzu (PlayStation 4)** - `abz-playstation-4`
+- [ ] **Anniversary Collection Arcade Classics (PlayStation 4)** - `arcade-classics-anniversary-collection-playstation-4`
+- [ ] **Assassin's Creed Chronicles: Trilogy Pack (PlayStation 4)** - `assassin-s-creed-chronicles-playstation-4`
+- [ ] **Baldur's Gate and Baldur's Gate II: Enhanced Editions (PlayStation 4)** - `baldur-s-gate-enhanced-edition-baldur-s-gate-ii-enhanced-edition-playstation-4`
+- [ ] **Blaster Master Zero II (PlayStation 4)** - `blaster-master-zero-2-playstation-4`
+- [ ] **Diablo III: Reaper of Souls - Ultimate Evil Edition (PlayStation 4)** - `diablo-iii-ultimate-evil-edition-playstation-4`
+- [ ] **The Elder Scrolls V: Skyrim VR (PlayStation 4)** - `the-elder-scrolls-v-skyrim-vr-playstation-4`
+- [ ] **Final Fantasy: Pixel Remaster Collection (PlayStation 4)** - `final-fantasy-i-vi-collection-playstation-4`
+- [ ] **Inside & Limbo Bundle (PlayStation 4)** - `inside-limbo-playstation-4`
+- [ ] **Baldur's Gate III (PlayStation 5)** - `baldur-s-gate-3-playstation-5`
+- [ ] **Baldur's Gate III (PlayStation 5)** - `baldur-s-gate-3-playstation-5-2`
+- [ ] **Metal Gear Solid Master Collection: Volume 1 (PlayStation 5)** - `metal-gear-solid-master-collection-vol-1-playstation-5`
+- [ ] **The Talos Principle II (PlayStation 5)** - `the-talos-principle-2-playstation-5`
+- [ ] **Tomb Raider I•II•III Remastered (PlayStation 5)** - `tomb-raider-i-iii-remastered-playstation-5`
+- [ ] **The Amazing Spider-Man vs. The Kingpin (Sega Master System)** - `spider-man-vs-the-kingpin-sega-master-system`
+- [ ] **Bubsy II (Sega Genesis)** - `bubsy-2-sega-genesis`
+- [ ] **The Amazing Spider-Man vs. The Kingpin (Sega Genesis)** - `spider-man-vs-the-kingpin-sega-genesis`
+- [ ] **The Amazing Spider-Man vs. The Kingpin (Game Gear)** - `spider-man-vs-the-kingpin-game-gear`
+- [ ] **Sonic the Hedgehog Chaos (Game Gear)** - `sonic-chaos-game-gear`
+- [ ] **The Amazing Spider-Man vs. The Kingpin (Sega CD)** - `spider-man-vs-the-kingpin-sega-cd`
+- [ ] **Bionicle: The Game (Xbox)** - `bionicle-xbox`
+- [ ] **Fantastic 4 (Xbox)** - `fantastic-four-xbox`
+- [ ] **Diablo III: Reaper of Souls - Ultimate Evil Edition (Xbox 360)** - `diablo-iii-ultimate-evil-edition-xbox-360`
+- [ ] **Sonic & Sega All-Stars Racing with Banjo-Kazooie (Xbox 360)** - `sonic-sega-all-stars-racing-xbox-360`
+- [ ] **Abzu (Xbox One)** - `abz-xbox-one`
+- [ ] **Assassin's Creed Chronicles: Trilogy Pack (Xbox One)** - `assassin-s-creed-chronicles-xbox-one`
+- [ ] **Baldur's Gate and Baldur's Gate II: Enhanced Editions (Xbox One)** - `baldur-s-gate-enhanced-edition-baldur-s-gate-ii-enhanced-edition-xbox-one`
+- [ ] **DmC: Devil May Cry - Definitive Edition (Xbox One)** - `dmc-definitive-edition-xbox-one`
+- [ ] **Diablo III: Reaper of Souls - Ultimate Evil Edition (Xbox One)** - `diablo-iii-ultimate-evil-edition-xbox-one`
+- [ ] **Inside & Limbo Bundle (Xbox One)** - `inside-limbo-xbox-one`
+- [ ] **Alan Wake II: Deluxe Edition (Xbox Series X)** - `alan-wake-2-deluxe-edition-xbox-series-x`
+- [ ] **Baldur's Gate III (Xbox Series X)** - `baldur-s-gate-3-xbox-series-x`
