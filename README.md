@@ -9,7 +9,7 @@ A high-fidelity, hybrid-architecture web application for tracking and reconcilin
 The system uses a **Hybrid Local/Cloud Architecture** to ensure perfect parity between development and production.
 
 ### 🌓 The Hybrid Concept
-- **Production Layer (`src/worker.ts`)**: A high-performance Cloudflare Worker querying a **D1 SQL Database**.
+- **Production Layer (`worker/worker.ts`)**: A high-performance Cloudflare Worker querying a **D1 SQL Database**.
 - **Local Bridge (`scripts/local_server.js`)**: A Node.js proxy that intercepts specialized filesystem tasks (like Discovery scraping) while forwarding standard API requests to a local instance of the Production Worker.
 
 ### 🗺️ System Map
@@ -58,12 +58,13 @@ The project includes specialized scrapers to identify "unlinked" games in your c
 
 ### Unit Testing
 We maintain high coverage across both the frontend and the backend logic:
-- **Worker (Core Logic)**: Tested via `Vitest` in a simulated Cloudflare environment.
-- **Frontend (UI)**: Tested via `Jasmine/Karma`.
+- **Worker (Core Logic)**: Located in `worker/`, tested via `Vitest` using high-stability in-memory SQLite mocking.
+- **Frontend (UI)**: Located in `src/`, tested via `Jasmine/Karma`.
 
-Run all tests:
+Run tests:
 ```bash
-npm test
+npm run test:worker  # Runs backend API tests
+npm run test         # Runs frontend unit tests
 ```
 
 ### CI/CD
@@ -88,4 +89,3 @@ A GitHub Action is configured in `.github/workflows/ci.yml` to automatically:
 - Some platform launch dates are missing.
 - Game regions are missing.
 - Some games still aren't matched to IGDB, and IGDB doesn't model physical games perfectly, so some games may remain unmatched indefinitely. Perhaps we can introduce a heuristic involving an automatic web search to determine whether a physical release existed.
-- 

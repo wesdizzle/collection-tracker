@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { CollectionService } from './collection.service';
 
 /**
@@ -7,6 +8,7 @@ import { CollectionService } from './collection.service';
  * 
  * Verifies that the frontend service correctly communicates with the 
  * hybrid API server to retrieve games, figures, and platforms.
+ * Uses modern Angular 19+ provider-based mocking.
  */
 describe('CollectionService', () => {
   let service: CollectionService;
@@ -14,8 +16,11 @@ describe('CollectionService', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      imports: [HttpClientTestingModule],
-      providers: [CollectionService]
+      providers: [
+        CollectionService,
+        provideHttpClient(),
+        provideHttpClientTesting()
+      ]
     });
     service = TestBed.inject(CollectionService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -29,7 +34,7 @@ describe('CollectionService', () => {
     expect(service).toBeTruthy();
   });
 
-  it('should fetch games list', () => {
+  it('should fetch games list using relative path', () => {
     const mockGames = [{ stable_id: 1, title: 'Super Mario' }];
 
     service.getGames().subscribe(games => {
@@ -37,12 +42,13 @@ describe('CollectionService', () => {
       expect(games[0].title).toBe('Super Mario');
     });
 
-    const req = httpMock.expectOne('http://localhost:3000/api/games');
+    // Production code uses relative root paths
+    const req = httpMock.expectOne('/api/games');
     expect(req.request.method).toBe('GET');
     req.flush(mockGames);
   });
 
-  it('should fetch figures list', () => {
+  it('should fetch figures list using relative path', () => {
     const mockFigures = [{ id: 1, name: 'Mario Amiibo' }];
 
     service.getFigures().subscribe(figures => {
@@ -50,7 +56,7 @@ describe('CollectionService', () => {
         expect(figures[0].name).toBe('Mario Amiibo');
     });
 
-    const req = httpMock.expectOne('http://localhost:3000/api/figures');
+    const req = httpMock.expectOne('/api/figures');
     expect(req.request.method).toBe('GET');
     req.flush(mockFigures);
   });

@@ -5,6 +5,6 @@ export default defineConfig({
     environment: 'node',
     // Only include worker-specific tests for Vitest. 
     // Angular component tests are handled separately via Karma.
-    include: ['src/worker.spec.ts'],
+    include: ['worker/worker.spec.ts'],
   },
 });
