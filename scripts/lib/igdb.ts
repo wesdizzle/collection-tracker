@@ -1,11 +1,58 @@
-const axios = require('axios');
-const { getAccessToken } = require('./igdb-auth');
-require('dotenv').config();
+import axios from 'axios';
+import { getAccessToken } from './igdb-auth.js';
+import 'dotenv/config';
 
 const IGDB_ENDPOINT = 'https://api.igdb.com/v4';
 
+/**
+ * IGDB Type Definitions
+ */
+export interface IGDBPlatform {
+    id: number;
+    name: string;
+}
+
+export interface IGDBImage {
+    id: number;
+    url: string;
+    image_id?: string;
+}
+
+export interface IGDBGame {
+    id: number;
+    name: string;
+    summary?: string;
+    cover?: IGDBImage;
+    first_release_date?: number;
+    platforms?: IGDBPlatform[];
+    collection?: any;
+    franchises?: { name: string }[];
+    genres?: { name: string }[];
+    themes?: { name: string }[];
+    category?: number;
+    version_parent?: number;
+    release_dates?: { region: number }[];
+    confidence?: number;
+}
+
+export interface NormalizedGame {
+    id: string;
+    name: string;
+    summary?: string;
+    image_url: string | null;
+    platform: string;
+    platforms: IGDBPlatform[];
+    platform_ids: number[];
+    release_date: string | null;
+    collection: string | null;
+    franchise: string | null;
+    category?: number;
+    region: string;
+    confidence: number;
+}
+
 // Map of local platform names to IGDB platform IDs
-const PLATFORM_MAP = {
+export const PLATFORM_MAP: Record<string, number> = {
     '3DO Interactive Multiplayer': 50,
     'Atari 2600': 59,
     'Atari Video Computer System': 59,
@@ -67,16 +114,23 @@ const PHYSICAL_DOMINANT_PLATFORMS = [
     5, 7, 8, 9, 11, 12, 15, 18, 19, 21, 23, 29, 30, 32, 33, 35, 37, 38, 41, 46, 48, 49, 50, 59, 60, 61, 62, 64, 66, 67, 86, 120, 130, 167, 169
 ];
 
-async function queryIGDB(endpoint, query) {
+/**
+ * UTILITY: queryIGDB
+ * 
+ * Performs a raw query against the IGDB API with retries and rate limiting.
+ */
+export async function queryIGDB(endpoint: string, query: string): Promise<any[]> {
     const token = await getAccessToken();
     const maxRetries = 3;
     let attempt = 0;
+
+    const clientId = process.env['TWITCH_CLIENT_ID'];
 
     while (attempt < maxRetries) {
         try {
             const response = await axios.post(`${IGDB_ENDPOINT}/${endpoint}`, query, {
                 headers: {
-                    'Client-ID': process.env.TWITCH_CLIENT_ID,
+                    'Client-ID': clientId,
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'text/plain'
                 }
@@ -84,7 +138,7 @@ async function queryIGDB(endpoint, query) {
             // 500ms delay to safely stay under 4 RPS (targeting 2 RPS)
             await new Promise(resolve => setTimeout(resolve, 500));
             return response.data;
-        } catch (error) {
+        } catch (error: any) {
             if (error.response?.status === 429) {
                 attempt++;
                 const delay = Math.pow(2, attempt) * 1000;
@@ -99,28 +153,16 @@ async function queryIGDB(endpoint, query) {
     return [];
 }
 
-async function normalizeTitle(title) {
-    if (!title) return '';
-    return title.toLowerCase()
-        .replace(/[\(\)\-:]/g, ' ') // Replace parentheses, hyphens, and colons with spaces
-        .replace(/[^a-z0-9]/g, '')  // Remove non-alphanumeric (including spaces)
-        .trim();
-}
-
 /**
- * Search for a game with metadata, strictly filtering by platform ID and official releases.
+ * Searches for a game with metadata, strictly filtering by platform ID and official releases.
  */
-async function findGame(title, platformId) {
+export async function findGame(title: string, platformId: number): Promise<NormalizedGame[] | null> {
     // Categories: 0: Main Game, 8: Remake, 9: Remaster, 10: Expanded Game, 11: Port
-    // We explicitly exclude Category 12 (Forks/Mods) to focus on official physical releases.
     const platformFilter = platformId ? `platforms = (${platformId})` : '';
     
-    // Clean title for search: replace special hyphens and remove characters that break IGDB fuzzy search
+    // Clean title for search
     const cleanTitle = title.replace(/[–—]/g, '-').replace(/[":()]/g, '').trim();
 
-    // We do a two-pronged approach: 
-    // 1. Search for fuzzy matching
-    // 2. Explicit name filter for exact matches that might be buried
     const searchQuery = `
         fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region;
         search "${cleanTitle.replace(/"/g, '')}";
@@ -140,32 +182,28 @@ async function findGame(title, platformId) {
             queryIGDB('games', nameQuery)
         ]);
 
-        const results = [...(searchResults || []), ...(nameResults || [])];
+        const results: IGDBGame[] = [...(searchResults || []), ...(nameResults || [])];
         if (!results || results.length === 0) return [];
 
         // De-duplicate by ID
-        const seen = new Set();
+        const seen = new Set<number>();
         const uniqueResults = results.filter(g => {
             if (seen.has(g.id)) return false;
             seen.add(g.id);
             return true;
         });
 
-        // Filter for official releases only (0: Main Game, 8: Remake, 9: Remaster, 10: Expanded Game, 11: Port)
+        // Filter for official categories only
         const officialCategories = [0, 8, 9, 10, 11, undefined, null];
         const initialFiltered = uniqueResults.filter(g => officialCategories.includes(g.category));
 
         if (initialFiltered.length === 0) return [];
 
-        // Heuristic: Filter out hacks/mods miscategorized as Main Game (0) or null
         const filteredResults = initialFiltered.filter(g => {
             const lowerName = g.name.toLowerCase();
             const lowerSummary = (g.summary || '').toLowerCase();
-            
-            // Explicitly filter Fork/Mod category (12)
             if (g.category === 12) return false;
 
-            // Broaden hack/mod detection in name and summary
             const hackKeywords = [
                 ' hack:', ' hack)', ' hack!', ' hack\n',
                 'level hack', 'graphics mod', 'translation', 'patched',
@@ -174,26 +212,19 @@ async function findGame(title, platformId) {
             ];
             
             const isHack = hackKeywords.some(kw => lowerName.includes(kw) || lowerSummary.includes(kw));
-            
-            // Special case for "Pokmon [Name] hack" patterns which are common
-            if (isHack && g.category !== 5) return false; // 5 is "Bundle" which can sometimes include things, but usually hacks are mislabeled as 0.
+            if (isHack && g.category !== 5) return false;
             
             return true;
         });
 
-        if (filteredResults.length === 0 && initialFiltered.length > 0) {
-            // If we filtered EVERYTHING out as hacks, but had results, fallback to first official just in case
-            // but the heuristic is usually safe for official-seeking.
-            return []; 
-        }
+        if (filteredResults.length === 0) return [];
 
-        // Matching & Ranking
-        const normalize = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+        const normalize = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
         const normTarget = normalize(title);
 
         return filteredResults.map(game => {
             const regionId = game.release_dates?.[0]?.region;
-            const regionMap = { 1: 'EU', 2: 'NA', 3: 'AU', 4: 'NZ', 5: 'JP', 6: 'CH', 7: 'AS', 8: 'WW' };
+            const regionMap: Record<number, string> = { 1: 'EU', 2: 'NA', 3: 'AU', 4: 'NZ', 5: 'JP', 6: 'CH', 7: 'AS', 8: 'WW' };
             const region = regionId ? regionMap[regionId] : 'NA';
 
             const matchedPlatform = game.platforms?.find(p => p.id === Number(platformId));
@@ -215,55 +246,26 @@ async function findGame(title, platformId) {
                 confidence: normalize(game.name) === normTarget ? 100 : 50
             };
         }).sort((a, b) => b.confidence - a.confidence);
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error finding game:', error.message);
         return null;
     }
 }
 
-async function getCollectionGames(collectionId) {
-    if (!collectionId) return [];
-    
-    // Fetch all games in the collection
-    const query = `fields id, name, cover.image_id, summary, platforms.id, platforms.name, first_release_date; where collection = ${collectionId}; limit 500;`;
-    const games = await queryIGDB('games', query);
-    
-    // Filter for physical-likelihood platforms
-    const physicalGames = games.filter(g => {
-        return g.platforms && g.platforms.some(p => PHYSICAL_DOMINANT_PLATFORMS.includes(p.id));
-    });
-    
-    return physicalGames;
-}
-
-function superNormalize(title) {
+/**
+ * UTILITY: superNormalize
+ * 
+ * Deep normalization of game titles for improved matching heuristics.
+ */
+export function superNormalize(title: string): string {
     if (!title) return '';
-    
-    // Strip diacritics
     let t = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    
     t = t.toLowerCase();
-    
-    // Common brand prefixes
     t = t.replace(/^(disney's|marvel's|sid meier's|lego|j\.r\.r\. tolkien's)\b/gi, '');
-    
-    // Common versioning/flavor suffixes
     t = t.replace(/\b(version|the videogame|the video game|special edition|game of the year edition|goty edition|a fantasy harvest moon|toy box challenge|special pikachu edition|director's cut|hd remaster|nintendo switch edition)\b/gi, '');
-    
-    // Series/Suffix patterns
     t = t.replace(/:/g, ' ');
     t = t.replace(/&/g, 'and');
     t = t.replace(/\btelltale series\b/gi, '');
-    
-    // Remove non-alphanumeric and spaces
     t = t.replace(/[^a-z0-9]/gi, '');
-    
     return t;
 }
-
-module.exports = {
-    queryIGDB,
-    findGame,
-    superNormalize,
-    PLATFORM_MAP
-};

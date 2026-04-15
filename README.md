@@ -1,91 +1,74 @@
-# 🎮 Video Game Collection Tracker
+# 🎮 Video Game & Figure Collection Tracker
 
-A high-fidelity, hybrid-architecture web application for tracking and reconciling video game and figure collections. Designed to bridge the gap between local development workflows and Cloudflare serverless environments.
+A high-fidelity, high-performance web application for tracking and reconciling video game and figure collections. Modernized with **Angular 21**, the system utilizes a **Signals-first, Zoneless architecture** to deliver state-of-the-art reactivity and performance.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏗️ Architecture & Internal Logic
 
-The system uses a **Hybrid Local/Cloud Architecture** to ensure perfect parity between development and production.
+The system is built on a **Hybrid Local/Remote Engine** designed to bridge specialized local node.js capabilities with global Cloudflare serverless environments.
 
 ### 🌓 The Hybrid Concept
-- **Production Layer (`worker/worker.ts`)**: A high-performance Cloudflare Worker querying a **D1 SQL Database**.
-- **Local Bridge (`scripts/local_server.js`)**: A Node.js proxy that intercepts specialized filesystem tasks (like Discovery scraping) while forwarding standard API requests to a local instance of the Production Worker.
+- **Production Layer (`worker/worker.ts`)**: A high-performance Cloudflare Worker that serves the API and interacts with a **Cloudflare D1 SQL Database**. It handles core CRUD operations for games, figures, and platforms.
+- **Local Bridge (`scripts/local_server.js`)**: A Node.js proxy that intercepts specialized filesystem and scraping tasks (like IGDB metadata reconciliation) while forwarding standard API requests to a local instance of the Production Worker.
+- **Signals-First Core**: All frontend state management is powered by Angular Signals (`signal`, `computed`, `toSignal`). This eliminates the need for legacy `zone.js` overhead and provides fine-grained, efficient UI updates.
 
 ### 🗺️ System Map
 ```mermaid
 graph TD
-    UI[Angular Frontend - Port 4200] --> Proxy[Local Proxy - Port 3000]
-    Proxy -->|API Requests| Worker[Wrangler/D1 - Port 8787]
-    Proxy -->|Discovery Data| LocalFS[(Local Filesystem)]
-    Worker --> D1[(Local SQLite / D1)]
+    UI["Angular 21 (Zoneless) - Port 4200"] --> Proxy["Local Proxy - Port 3000"]
+    Proxy -->|API Standard| Worker["Wrangler/D1 - Port 8787"]
+    Proxy -->|Scraping Hooks| LocalFS["Local Filesystem / Scraper Engine"]
+    Worker --> D1["Local SQLite (dev) / Cloud D1 (prod)"]
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 User-Facing Behavior
 
-### 1. Prerequisites
-- Node.js (v18+)
-- Cloudflare Wrangler (`npm install -g wrangler`)
-- A healthy `collection.sqlite` in the root folder.
+1. **High-Performance Collection Viewing**: Instantly browse thousands of games and figures with infinite scrolling and zero-lag filtering powered by synchronous Signals.
+2. **Intelligent Discovery**: The "Discovery" module identifies items in your collection that lack metadata and provides a high-fidelity reconciliation UI to link them with authoritative sources (IGDB).
+3. **Reactive state Preservation**: Navigating between details and lists preserves your scroll position and filter state automatically via the `CollectionService`.
+4. **Rich Metadata Display**: Detailed views for every item, featuring platform-specific information, ownership status, and high-fidelity gradients.
 
-### 2. Launching the environment
-We use a unified orchestrator to manage the database sync and all three server layers:
+---
+
+## 🛠️ Performance & Engineering Standards
+
+### ⚡ Zoneless Reactivity
+We have eliminated `zone.js` for maximum performance. This requires:
+- Explicit use of **Angular Signals** for all state changes.
+- `OnPush` change detection throughout the component tree.
+- Manually triggered or Signal-bound events for interaction.
+
+### 🧪 Unified Testing Suite
+The project uses **Vitest** for a unified, high-speed testing environment across both the frontend and the backend worker.
+- **Frontend Specs**: Located alongside components; use `JSDOM` and our "Guaranteed Execution" initialization pattern to bypass configuration resolution issues.
+- **Worker Specs**: Located in `worker/`, use in-memory SQLite for high-stability API logic testing.
+
+Run all tests:
 ```bash
-node scripts/dev.js
+npm run test  # Runs the full project-wide unified Vitest suite
 ```
-*This command synchronizes the local D1 instance, starts the Proxy, the Worker, and the Frontend simultaneously.*
 
----
-
-## 🛠️ Data & Reconciliation
-
-### The Source of Truth
-The `collection.sqlite` file in the root is the **local source of truth**. 
-- Every game is assigned a **`stable_id`** (Auto-incrementing Integer) to ensure permanent links across different scraping sessions.
-- **1,977 Reconciled Games**: This is the current benchmark for a fully synced collection.
-
-### Discovery & Scraping
-The project includes specialized scrapers to identify "unlinked" games in your collection and find their IGDB counterparts:
-1. Run `npm run scrape` to generate a `discovery_report.md`.
-2. Use the **Discovery** tab in the UI to link items.
-3. This updates the local `collection.sqlite` immediately.
-
----
-
-## 🧪 Engineering Standards
-
-### Unit Testing
-We maintain high coverage across both the frontend and the backend logic:
-- **Worker (Core Logic)**: Located in `worker/`, tested via `Vitest` using high-stability in-memory SQLite mocking.
-- **Frontend (UI)**: Located in `src/`, tested via `Jasmine/Karma`.
-
-Run tests:
+### 📦 Production Build
+The application is optimized for Cloudflare deployment:
 ```bash
-npm run test:worker  # Runs backend API tests
-npm run test         # Runs frontend unit tests
+npm run build # Performs a high-fidelity AOT-compiled production build
 ```
 
-### CI/CD
-A GitHub Action is configured in `.github/workflows/ci.yml` to automatically:
-1. Install dependencies.
-2. Run ESLint to ensure code quality.
-3. Execute all Worker and Frontend unit tests.
-
 ---
 
-## 📝 Future Work
-- **Overhaul Series Handling**: Update series and franchise handling to treat IGDB as authoritative.
-- **Visual Improvements**: Add images to collection pages and update the favicon.
-- **Database Upgrades**: Add played and backed up booleans to games and remove queue modeling.
-- **Mobile Layout**: Enhance the collection view for smaller devices.
-- **Image Caching**: Implement a worker-side cache for IGDB cover art to reduce external API calls.
-- **Adding Items**: Add a way to watch certain series or other groupings and scrape the various source APIs for missing items to add to the database as wanted. This may be used for adding a series as wanted and including all items that exist or finding new releases in groupings already included.
+## 📋 TODO: Known Issues & Future Work
 
----
+> [!IMPORTANT]
+> This section tracks our roadmap for future high-performance enhancements.
 
-## 📜 Known Issues
-- Some platform launch dates are missing.
-- Game regions are missing.
-- Some games still aren't matched to IGDB, and IGDB doesn't model physical games perfectly, so some games may remain unmatched indefinitely. Perhaps we can introduce a heuristic involving an automatic web search to determine whether a physical release existed.
+- [ ] **Overhaul Series Handling**: Update series and franchise handling to treat IGDB as authoritative.
+- [ ] **Visual Improvements**: Add rich cover art to collection pages and update the application favicon.
+- [ ] **Database Schema Upgrades**: Add `played` and `backed_up` booleans to games; remove legacy queue modeling.
+- [ ] **Mobile Layout Optimization**: Enhance the collection view and Discovery reconciliation UI for smaller devices.
+- [ ] **Worker-Side Image Caching**: Implement a KV-based cache for IGDB cover art to reduce external API dependency.
+- [ ] **Automated Watchlists**: Implement a system to watch specific series and automatically surface new releases as 'Wanted'.
+- [ ] **Legacy Data Cleanup**: Some platform launch dates and game regions are currently missing or un-reconciled.
+- [ ] **Heuristic Scrubber**: Introduce an automated web-search heuristic to determine physical release status for IGDB games and only track those with physical releases.

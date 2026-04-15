@@ -1,62 +1,76 @@
-import { Component, OnInit, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnInit, inject, signal } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { CollectionService, DiscoveryItem, DiscoveryOption } from '../../../../core/services/collection.service';
 import { RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-discovery-list',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [RouterModule],
   template: `
     <div class="discovery-container animate-fade-in">
       <div class="info-banner mb-lg">
         <span class="icon">ℹ️</span>
         <p>This page allows you to process games found during the last <strong>Scrape</strong>. These results are parsed directly from <code>discovery_report.md</code>.</p>
       </div>
-
-      <div *ngIf="loading" class="flex justify-center p-xl">
-        <div class="spinner"></div>
-      </div>
-
-      <div *ngIf="!loading && items.length === 0" class="empty-state">
-        <div class="empty-icon text-4xl">✅</div>
-        <h3>No Pending Discovery Items</h3>
-        <p class="text-secondary">Run <code>npm run scrape</code> to find new games or metadata updates.</p>
-      </div>
-
-      <div *ngIf="!loading && items.length > 0" class="discovery-grid">
-        <div *ngFor="let item of items; let i = index" class="discovery-card card-glass">
-          <div class="card-header">
-            <div>
-              <h2 class="text-lg font-bold">{{ item.title }}</h2>
-              <span class="platform-badge">{{ item.platform }}</span>
-            </div>
-            <div class="count-badge">{{ item.options.length }} Candidates</div>
-          </div>
-
-          <div class="options-scroll">
-            <div *ngFor="let opt of item.options" class="option-row">
-              <div class="option-cover">
-                <img *ngIf="opt.image_url" [src]="opt.image_url" alt="cover">
-                <div *ngIf="!opt.image_url" class="no-image">No Cover</div>
-              </div>
-              <div class="option-info">
-                <div class="flex justify-between items-start">
-                  <div>
-                    <h4 class="option-name">{{ opt.name }}</h4>
-                    <p class="option-platform text-xs text-secondary">{{ opt.platform }}</p>
-                  </div>
-                  <button (click)="applyMatch(item, opt)" class="btn-match">Match</button>
-                </div>
-                <p class="option-summary text-xs mt-1" *ngIf="opt.summary">{{ opt.summary }}</p>
-                <div class="option-id text-xxs text-secondary mt-1">ID: {{ opt.id }}</div>
-              </div>
-            </div>
-          </div>
+    
+      @if (collectionService.loading()) {
+        <div class="flex justify-center p-xl">
+          <div class="spinner"></div>
         </div>
-      </div>
+      }
+    
+      @if (!collectionService.loading() && items().length === 0) {
+        <div class="empty-state">
+          <div class="empty-icon text-4xl">✅</div>
+          <h3>No Pending Discovery Items</h3>
+          <p class="text-secondary">Run <code>npm run scrape</code> to find new games or metadata updates.</p>
+        </div>
+      }
+    
+      @if (!collectionService.loading() && items().length > 0) {
+        <div class="discovery-grid">
+          @for (item of items(); track item.title + item.platform; let i = $index) {
+            <div class="discovery-card card-glass">
+              <div class="card-header">
+                <div>
+                  <h2 class="text-lg font-bold">{{ item.title }}</h2>
+                  <span class="platform-badge">{{ item.platform }}</span>
+                </div>
+                <div class="count-badge">{{ item.options.length }} Candidates</div>
+              </div>
+              <div class="options-scroll">
+                @for (opt of item.options; track opt.id) {
+                  <div class="option-row">
+                    <div class="option-cover">
+                      @if (opt.image_url) {
+                        <img [src]="opt.image_url" alt="cover">
+                      } @else {
+                        <div class="no-image">No Cover</div>
+                      }
+                    </div>
+                    <div class="option-info">
+                      <div class="flex justify-between items-start">
+                        <div>
+                          <h4 class="option-name">{{ opt.name }}</h4>
+                          <p class="option-platform text-xs text-secondary">{{ opt.platform }}</p>
+                        </div>
+                        <button (click)="applyMatch(item, opt)" class="btn-match">Match</button>
+                      </div>
+                      @if (opt.summary) {
+                        <p class="option-summary text-xs mt-1">{{ opt.summary }}</p>
+                      }
+                      <div class="option-id text-xxs text-secondary mt-1">ID: {{ opt.id }}</div>
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
     </div>
-  `,
+    `,
   styles: [`
     .discovery-container { padding: 0 1rem; }
     .mb-lg { margin-bottom: 2rem; }
@@ -227,44 +241,42 @@ import { RouterModule } from '@angular/router';
     }
   `]
 })
+/**
+ * DISCOVERY LIST COMPONENT (SIGNALS-FIRST)
+ * 
+ * Renders the results of the latest scrape and allows the user to reconcile 
+ * discovered titles with established IGDB metadata.
+ */
 export class DiscoveryListComponent implements OnInit {
-  items: DiscoveryItem[] = [];
-  loading = true;
-  private collectionService = inject(CollectionService);
+  public collectionService = inject(CollectionService);
+  
+  // Local signal to allow immediate local removal after matching
+  public items = signal<DiscoveryItem[]>([]);
 
   ngOnInit() {
     this.refresh();
   }
 
-  refresh() {
-    this.loading = true;
-    this.collectionService.getDiscoveryItems().subscribe({
-      next: (items) => {
-        this.items = items;
-        this.loading = false;
-      },
-      error: (e) => {
-        console.error(e);
-        this.loading = false;
-      }
-    });
+  async refresh() {
+    await this.collectionService.refreshDiscovery();
+    this.items.set(this.collectionService.discoveryItems());
   }
 
-  applyMatch(item: DiscoveryItem, option: DiscoveryOption) {
+  async applyMatch(item: DiscoveryItem, option: DiscoveryOption) {
     const payload = {
       currentTitle: item.title,
       currentPlatform: item.platform,
       selectedIgdbId: option.id,
       selectedName: option.name,
-      region: 'NA' // Default or extracted
+      region: 'NA' 
     };
 
-    this.collectionService.applyDiscovery(payload).subscribe({
-      next: () => {
-        // Remove item from local list
-        this.items = this.items.filter(i => i !== item);
-      },
-      error: (e) => alert('Error matching: ' + (e.error?.error || e.message))
-    });
+    try {
+      await firstValueFrom(this.collectionService.applyDiscovery(payload));
+      // Remove item from local list signal for immediate UX
+      this.items.update(current => current.filter(i => i !== item));
+    } catch (e: any) {
+      alert('Error matching: ' + (e.error?.error || e.message));
+    }
   }
 }

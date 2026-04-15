@@ -1,11 +1,11 @@
 import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-collection-layout',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [RouterModule],
   template: `
     <div class="container animate-fade-in">
       <header class="flex justify-between items-center mb-10 header-responsive">
@@ -16,15 +16,17 @@ import { RouterModule } from '@angular/router';
         <div class="flex gap-md bg-glass tab-container">
           <a routerLink="/collection/games" routerLinkActive="active" class="btn">Games</a>
           <a routerLink="/collection/figures" routerLinkActive="active" class="btn">Figures</a>
-          <a *ngIf="isDev" routerLink="/collection/discovery" routerLinkActive="active" class="btn btn-discovery">
-            <span class="icon">✨</span> Discovery
-          </a>
+          @if (isDev) {
+            <a routerLink="/collection/discovery" routerLinkActive="active" class="btn btn-discovery">
+              <span class="icon">✨</span> Discovery
+            </a>
+          }
         </div>
       </header>
-
+    
       <router-outlet></router-outlet>
     </div>
-  `,
+    `,
   styles: [`
     .mb-10 { margin-bottom: 2.5rem; }
     .mt-2 { margin-top: 0.5rem; }

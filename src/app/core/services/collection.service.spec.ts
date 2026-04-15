@@ -1,3 +1,5 @@
+import '../../../test-setup';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
@@ -6,9 +8,9 @@ import { CollectionService } from './collection.service';
 /**
  * UNIT TEST: CollectionService
  * 
- * Verifies that the frontend service correctly communicates with the 
- * hybrid API server to retrieve games, figures, and platforms.
- * Uses modern Angular 19+ provider-based mocking.
+ * Verifies the core data-fetching logic and signal-based state management
+ * for the game and figure collection.
+ * Updated for Angular 21 and Vitest.
  */
 describe('CollectionService', () => {
   let service: CollectionService;

@@ -1,12 +1,59 @@
-const Database = require('better-sqlite3');
-const fs = require('fs');
-const path = require('path');
-const { findGame, getCollectionGames, PLATFORM_MAP, superNormalize } = require('./lib/igdb');
-const { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries } = require('./lib/figures');
+/**
+ * GAME COLLECTION RECONCILIATION & DISCOVERY (TS)
+ * 
+ * This script serves as the primary engine for verifying your local collection 
+ * against IGDB and discovering missing items in series you own.
+ * It produces a 'discovery_report.md' for manual review.
+ */
+
+import Database from 'better-sqlite3';
+import * as fs from 'fs';
+import { findGame, getCollectionGames, superNormalize, IGDBGame, NormalizedGame } from './lib/igdb.js';
+import { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries, Figure } from './lib/figures.js';
 
 const db = new Database('collection.sqlite');
 
-function normalizeTitle(title) {
+interface GameRecord {
+    id: number;
+    title: string;
+    platform: string;
+    platform_id: number;
+    platform_igdb_id: number;
+    platform_display_name: string;
+    region?: string;
+    image_url?: string;
+    summary?: string;
+    series?: string;
+}
+
+interface SyncSuggestion {
+    type: 'Game' | 'Figure';
+    current: string;
+    options: NormalizedGame[];
+    localId: number;
+}
+
+interface UnmatchedItem {
+    item: GameRecord;
+    suggestions: NormalizedGame[] | null;
+}
+
+interface GameDiscovery {
+    series: string;
+    games: any[]; // Raw IGDB collection results
+}
+
+interface FigureDiscovery {
+    series: string;
+    items: Figure[];
+}
+
+/**
+ * UTILITY: normalizeTitle
+ * 
+ * Standardizes titles for high-fidelity matching across different data sources.
+ */
+function normalizeTitle(title: string): string {
     if (!title) return '';
     return title.toLowerCase()
         .replace(/[–—]/g, '-') // Replace special hyphens
@@ -15,18 +62,21 @@ function normalizeTitle(title) {
         .trim();
 }
 
-async function runScraper() {
+/**
+ * CORE EXECUTION: runScraper
+ */
+async function runScraper(): Promise<void> {
     console.log('--- Starting Verification Phase ---');
-    let unmatchedGames = [];
-    let syncSuggestions = [];
-    let gameDiscoveryResults = [];
+    const unmatchedGames: UnmatchedItem[] = [];
+    const syncSuggestions: SyncSuggestion[] = [];
+    const gameDiscoveryResults: GameDiscovery[] = [];
     
     // 1. Verify Games (Metadata & Sync checking)
     const existingGames = db.prepare(`
         SELECT g.*, p.igdb_id as platform_igdb_id, p.display_name as platform_display_name
         FROM games g
         LEFT JOIN platforms p ON g.platform_id = p.id
-    `).all();
+    `).all() as GameRecord[];
 
     for (const game of existingGames) {
         // Skip if already has region metadata (implies already verified in this session)
@@ -48,7 +98,7 @@ async function runScraper() {
             // Platform verification: ID match OR Name match fallback
             const platformIdMatch = bestMatch.platform_ids && bestMatch.platform_ids.includes(game.platform_igdb_id);
             const platformNameMatch = bestMatch.platform && game.platform_display_name && (bestMatch.platform === game.platform_display_name);
-            const platformMatches = platformIdMatch || platformNameMatch;
+            const platformMatches = !!(platformIdMatch || platformNameMatch);
 
             // Match Scenario A: Titles are identical or super-normalized titles match
             if (platformMatches && (normLocal === normIgdb || superNormLocal === superNormIgdb)) {
@@ -97,24 +147,25 @@ async function runScraper() {
             }
         } else {
             console.log(`  No exact match found for ${game.title}`);
-            const suggestions = await findGame(searchTitle, null);
+            const suggestions = await findGame(searchTitle, 0); // Corrected: use 0 or common default for ambiguous search
             unmatchedGames.push({ item: game, suggestions });
         }
     }
 
-    // ... (rest of discovery logic - unchanged but ensure existingGames/ignoredItems are valid)
-    const ignoredItems = db.prepare('SELECT id FROM ignored_items').all().map(i => i.id);
+    const ignoredItems = (db.prepare('SELECT id FROM ignored_items').all() as { id: string }[]).map(i => i.id);
     const existingGameNorms = existingGames.map(g => normalizeTitle(g.title));
 
     // 3. Discovery: Games
-    const gameSeriesList = db.prepare('SELECT DISTINCT series FROM games WHERE series IS NOT NULL').all();
+    const gameSeriesList = db.prepare('SELECT DISTINCT series FROM games WHERE series IS NOT NULL').all() as { series: string }[];
     for (const { series } of gameSeriesList) {
         console.log(`Discovering Games for Series: ${series}...`);
-        const searchResults = await findGame(series.replace(/\(.*\)/g, '').trim(), '');
+        const searchResults = await findGame(series.replace(/\(.*\)/g, '').trim(), 0);
         const initialMatch = searchResults && searchResults.length > 0 ? searchResults[0] : null;
 
-        if (initialMatch && initialMatch.collection) {
-            const collectionGames = await getCollectionGames(initialMatch.collection);
+        if (initialMatch && initialMatch.id) {
+            // Find collection context via original IGDB ID
+            const igdbIdNum = Number(initialMatch.id.replace('igdb-', ''));
+            const collectionGames = await getCollectionGames(igdbIdNum);
             const missing = [];
             for (const igdbGame of collectionGames) {
                 const igdbId = `igdb-${igdbGame.id}`;
@@ -130,13 +181,13 @@ async function runScraper() {
     }
 
     // 4. Discovery: Figures
-    let figureDiscoveryResults = [];
-    const figureSeriesList = db.prepare('SELECT DISTINCT line FROM figures WHERE line IS NOT NULL').all();
-    const existingFigureIds = db.prepare('SELECT id FROM figures').all().map(f => f.id);
+    let figureDiscoveryResults: FigureDiscovery[] = [];
+    const figureSeriesList = db.prepare('SELECT DISTINCT line FROM figures WHERE line IS NOT NULL').all() as { line: string }[];
+    const existingFigureIds = (db.prepare('SELECT id FROM figures').all() as { id: string }[]).map(f => f.id);
 
     for (const { line: series_name } of figureSeriesList) {
         console.log(`Discovering Figures for series: ${series_name}...`);
-        let figures = [];
+        let figures: Figure[] = [];
         if (series_name.toLowerCase().includes('amiibo')) figures = await getAmiiboSeries(series_name);
         else if (series_name.toLowerCase().includes('skylanders')) figures = await getSkylandersSeries(series_name);
         else if (series_name.toLowerCase().includes('starlink')) figures = await getStarlinkSeries(series_name);
@@ -148,7 +199,12 @@ async function runScraper() {
     generateReport(unmatchedGames, syncSuggestions, gameDiscoveryResults, figureDiscoveryResults);
 }
 
-function generateReport(unmatched, sync, gameDiscovery, figureDiscovery) {
+/**
+ * UTILITY: generateReport
+ * 
+ * Writes the discovery_report.md file with all findings for manual verification.
+ */
+function generateReport(unmatched: UnmatchedItem[], sync: SyncSuggestion[], gameDiscovery: GameDiscovery[], figureDiscovery: FigureDiscovery[]): void {
     let report = '# Discovery Report\n\nThis report lists findings from the collection discovery pipeline.\n\n';
     report += '### Instructions:\n';
     report += '- Mark with **`[x]`** to add the item as **Wanted**.\n';
@@ -175,7 +231,7 @@ function generateReport(unmatched, sync, gameDiscovery, figureDiscovery) {
         report += '## Action Required: Unmatched Items\n';
         for (const u of unmatched) {
             report += `### ${u.item.title} (${u.item.platform_display_name || u.item.platform})\n`;
-            if (u.suggestions.length > 0) {
+            if (u.suggestions && u.suggestions.length > 0) {
                 u.suggestions.slice(0, 10).forEach(s => {
                     report += `- [ ] **Link to:** ${s.name} (${s.platform}) - ID: ${s.id}\n`;
                     if (s.image_url) report += `  - ![cover](${s.image_url})\n`;

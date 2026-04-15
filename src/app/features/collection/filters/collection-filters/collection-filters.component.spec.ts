@@ -1,6 +1,9 @@
+import '../../../../../test-setup';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { HttpClientTestingModule } from '@angular/common/http/testing';
-import { RouterTestingModule } from '@angular/router/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { CollectionFiltersComponent } from './collection-filters.component';
 
 /**
@@ -8,6 +11,7 @@ import { CollectionFiltersComponent } from './collection-filters.component';
  * 
  * Verifies that the filtering UI initializes correctly and can 
  * communicate with the collection data layer.
+ * Updated for Angular 21 and Vitest.
  */
 describe('CollectionFiltersComponent', () => {
   let component: CollectionFiltersComponent;
@@ -15,10 +19,11 @@ describe('CollectionFiltersComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [
-        HttpClientTestingModule,
-        RouterTestingModule,
-        CollectionFiltersComponent
+      imports: [CollectionFiltersComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([])
       ]
     })
     .compileComponents();

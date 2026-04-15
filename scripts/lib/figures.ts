@@ -1,6 +1,21 @@
-const axios = require('axios');
+import axios from 'axios';
 
-async function getAmiiboSeries(seriesName) {
+export interface Figure {
+    id: string;
+    name: string;
+    line: string;
+    series_name: string;
+    type: string;
+    image_url: string | null;
+    release_date?: string | null;
+}
+
+/**
+ * UTILITY: getAmiiboSeries
+ * 
+ * Fetches all figures in a given series from the AmiiboAPI.
+ */
+export async function getAmiiboSeries(seriesName: string): Promise<Figure[]> {
     try {
         await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay
         const response = await axios.get(`https://www.amiiboapi.org/api/amiibo/`, {
@@ -8,7 +23,8 @@ async function getAmiiboSeries(seriesName) {
             headers: { 'User-Agent': 'CollectionTracker/1.0' },
             timeout: 10000
         });
-        return response.data.amiibo.map(a => ({
+        
+        return response.data.amiibo.map((a: any) => ({
             id: a.tail,
             name: a.name,
             line: 'amiibo',
@@ -17,7 +33,7 @@ async function getAmiiboSeries(seriesName) {
             image_url: a.image,
             release_date: a.release?.na || null
         }));
-    } catch (error) {
+    } catch (error: any) {
         if (error.code === 'ECONNRESET') {
             console.error(`AmiiboAPI: Connection reset for ${seriesName}, skipping...`);
         } else {
@@ -27,9 +43,14 @@ async function getAmiiboSeries(seriesName) {
     }
 }
 
-async function getSkylandersSeries(seriesName) {
+/**
+ * UTILITY: getSkylandersSeries
+ * 
+ * Returns curated figures for Skylanders series since they lack a public API.
+ */
+export async function getSkylandersSeries(seriesName: string): Promise<Figure[]> {
     // Skylanders doesn't have a public API, so we use a curated list of series.
-    const seriesManifest = {
+    const seriesManifest: Record<string, string[]> = {
         "Spyro's Adventure": ["Spyro", "Gill Grunt", "Trigger Happy", "Eruptor", "Bash", "Ignitor", "Chop Chop", "Terrafin"],
         "Giants": ["Tree Rex", "Bouncer", "Crusher", "Eye-Brawl", "Hot Head", "Ninjini", "Swarm", "Thumpback"],
         "Swap Force": ["Wash Buckler", "Blast Zone", "Free Ranger", "Freeze Blade", "Magna Charge", "Night Shift", "Rattle Shake", "Stink Bomb"],
@@ -49,8 +70,13 @@ async function getSkylandersSeries(seriesName) {
     }));
 }
 
-async function getStarlinkSeries(seriesName) {
-    const seriesManifest = {
+/**
+ * UTILITY: getStarlinkSeries
+ * 
+ * Returns curated figures for Starlink: Battle for Atlas.
+ */
+export async function getStarlinkSeries(seriesName: string): Promise<Figure[]> {
+    const seriesManifest: Record<string, string[]> = {
         "Battle for Atlas": ["Mason Rana", "Judge", "Chase da Silva", "Hunter Hakka", "Shaid", "Levi McCray", "Razor Lemay", "Eli Arborwood", "Karl Zeon", "Fern Wilder"]
     };
     
@@ -64,5 +90,3 @@ async function getStarlinkSeries(seriesName) {
         image_url: null
     }));
 }
-
-module.exports = { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries };

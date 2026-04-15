@@ -1,13 +1,14 @@
 /**
- * DATABASE SYNCHRONIZATION SCRIPT
+ * DATABASE SYNCHRONIZATION SCRIPT (TS)
  * 
  * This script ensures that the local Wrangler D1 environment has the same 
  * data as your source-of-truth 'collection.sqlite'. It finds the hidden 
  * SQLite files that Wrangler/Miniflare uses and overwrites them with your data.
  */
 
-const fs = require('fs');
-const path = require('path');
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 
 // The source database we work with in the root folder
 const sourcePath = 'collection.sqlite';
@@ -31,8 +32,8 @@ if (!fs.existsSync(sourcePath)) {
 if (!fs.existsSync(d1StateDir)) {
     console.log('Wrangler state directory not found. Starting wrangler briefly to initialize...');
     try {
-        const { execSync } = require('child_process');
-        execSync('npx wrangler dev --local --dry-run', { stdio: 'ignore' });
+        const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+        execSync(`${cmd} wrangler dev --local --dry-run`, { stdio: 'ignore' });
     } catch (e) {
         // Ignored, we check for the folder again below
     }
@@ -53,7 +54,7 @@ const files = fs.readdirSync(d1StateDir);
 const d1Files = files.filter(f => f.endsWith('.sqlite') && f !== 'metadata.sqlite');
 
 if (d1Files.length === 0) {
-    console.warn('No active D1 sqlite file found. Please run "node scripts/dev.js" once, stop it, and try again.');
+    console.warn('No active D1 sqlite file found. Please run "node scripts/dev.ts" (via tsx) once, stop it, and try again.');
     process.exit(1);
 }
 

@@ -1,16 +1,16 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { switchMap } from 'rxjs/operators';
-import { Observable } from 'rxjs';
+import { toSignal } from '@angular/core/rxjs-interop';
 
 /**
- * Item Detail Component
+ * Item Detail Component (SIGNALS-FIRST)
  * 
  * Displays comprehensive details for games, figures, or platforms.
- * Leverages the hybrid proxy to fetch data that may reside in either 
- * the Cloudflare D1 database or the local filesystem.
+ * Utilizes Angular Signals to bridge route parameters to data retrieval, 
+ * ensuring a high-performance, zoneless experience.
  */
 
 @Component({
@@ -18,83 +18,94 @@ import { Observable } from 'rxjs';
   standalone: true,
   imports: [CommonModule, RouterModule],
   template: `
-    <div class="container animate-fade-in" *ngIf="item$ | async as item; else loading">
-      <nav class="mb-lg">
-        <a [routerLink]="['/collection', type + 's']" class="back-link flex items-center gap-sm">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          Back to Collection
-        </a>
-      </nav>
-
-      <div class="detail-grid">
-        <div class="art-frame glass-panel flex justify-center items-center">
-          <img *ngIf="item?.image_url" [src]="item.image_url" alt="Cover Art">
-          <div *ngIf="!item?.image_url" class="placeholder text-secondary">
-             No Image Available
+    @if (item(); as item) {
+      <div class="container animate-fade-in">
+        <nav class="mb-lg">
+          <a [routerLink]="['/collection', type() + 's']" class="back-link flex items-center gap-sm">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back to Collection
+          </a>
+        </nav>
+        <div class="detail-grid">
+          <div class="art-frame glass-panel flex justify-center items-center">
+            @if (item.image_url) {
+              <img [src]="item.image_url" alt="Cover Art">
+            } @else {
+              <div class="placeholder text-secondary">
+                No Image Available
+              </div>
+            }
           </div>
-        </div>
-
-        <div class="details-content flex-col gap-lg">
-          <div>
-            <div class="badge-container mb-md">
-              <span class="badge owned" *ngIf="item?.owned">Owned</span>
-              <span class="badge wanted" *ngIf="!item?.owned">Wanted</span>
-                <span class="badge bg-dark ml-sm" *ngIf="type === 'game'">{{item?.display_name || item?.platform}}</span>
-                <span class="badge bg-dark ml-sm" *ngIf="type === 'figure'">{{item?.line}}</span>
+          <div class="details-content flex-col gap-lg">
+            <div>
+              <div class="badge-container mb-md">
+                @if (game()?.owned || figure()?.owned) {
+                  <span class="badge owned">Owned</span>
+                } @else if (game() || figure()) {
+                  <span class="badge wanted">Wanted</span>
+                }
+                @if (game(); as g) {
+                  <span class="badge bg-dark ml-sm">{{g.display_name || g.platform}}</span>
+                }
+                @if (figure(); as f) {
+                  <span class="badge bg-dark ml-sm">{{f.line}}</span>
+                }
               </div>
-              
-              <h1 class="text-5xl text-gradient">{{item?.title || item?.name}}</h1>
-              <p class="text-xl text-secondary mt-sm" *ngIf="item?.series || item?.series_name">{{item?.series || item?.series_name}}</p>
+              <h1 class="text-5xl text-gradient">{{ (game()?.title) || (figure()?.name) || (platform()?.name) }}</h1>
+              @if (game()?.series || figure()?.series_name) {
+                <p class="text-xl text-secondary mt-sm">{{ game()?.series || figure()?.series_name }}</p>
+              }
             </div>
-  
-            <div class="metadata" *ngIf="type === 'game'">
-              <div class="meta-item">
-                <span class="meta-label">Release Date</span>
-                <span class="meta-value">{{item?.release_date || 'Unknown Date'}}</span>
+            @if (game(); as g) {
+              <div class="metadata">
+                <div class="meta-item">
+                  <span class="meta-label">Release Date</span>
+                  <span class="meta-value">{{g.release_date || 'Unknown Date'}}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Status</span>
+                  <span class="meta-value">
+                    @if (g.owned) {
+                      <span class="badge owned">Owned</span>
+                    } @else {
+                      <span class="badge wanted">Wanted</span>
+                    }
+                  </span>
+                </div>
               </div>
-              <div class="meta-item">
-                <span class="meta-label">Status</span>
-                <span class="meta-value">
-                  <span class="badge owned" *ngIf="item?.owned">Owned</span>
-                  <span class="badge wanted" *ngIf="!item?.owned">Wanted</span>
-                </span>
-              </div>
-            </div>
-            
-            <ng-container *ngIf="type === 'game'">
               <h4 class="mt-lg mb-sm border-b pb-sm mb-md text-secondary">Platform Information</h4>
               <div class="metadata">
                 <div class="meta-item">
                   <span class="meta-label">Brand</span>
-                  <span class="meta-value">{{item?.brand || 'N/A'}}</span>
+                  <span class="meta-value">{{g.brand || 'N/A'}}</span>
                 </div>
                 <div class="meta-item">
                   <span class="meta-label">Console</span>
-                  <span class="meta-value">{{item?.display_name || item?.platform || 'N/A'}}</span>
+                  <span class="meta-value">{{g.display_name || g.platform || 'N/A'}}</span>
                 </div>
-              <div class="meta-item">
-                <span class="meta-label">Launch Date</span>
-                <span class="meta-value">{{item?.platform_launch_date || 'Unknown Date'}}</span>
+                <div class="meta-item">
+                  <span class="meta-label">Launch Date</span>
+                  <span class="meta-value">{{g.platform_launch_date || 'Unknown Date'}}</span>
+                </div>
               </div>
-            </div>
-          </ng-container>
-
-          <div class="metadata" *ngIf="type === 'figure'">
-            <div class="meta-item">
-              <span class="meta-label">Release Date</span>
-              <span class="meta-value">{{item?.release_date || 'Unknown'}}</span>
-            </div>
+            }
+            @if (figure(); as f) {
+              <div class="metadata">
+                <div class="meta-item">
+                  <span class="meta-label">Release Date</span>
+                  <span class="meta-value">{{f.release_date || 'Unknown'}}</span>
+                </div>
+              </div>
+            }
           </div>
         </div>
       </div>
-    </div>
-    
-    <ng-template #loading>
+    } @else {
       <div class="container flex justify-center items-center" style="min-height: 50vh">
-         <p class="text-xl text-secondary">Loading details...</p>
+        <p class="text-xl text-secondary">Loading details...</p>
       </div>
-    </ng-template>
-  `,
+    }
+    `,
   styles: [`
     .mb-lg { margin-bottom: 2rem; }
     .mb-md { margin-bottom: 1rem; }
@@ -194,27 +205,31 @@ import { Observable } from 'rxjs';
     }
   `]
 })
-export class ItemDetailComponent implements OnInit {
+export class ItemDetailComponent {
   private route = inject(ActivatedRoute);
   private collectionService = inject(CollectionService);
   
-  type: string = '';
-  item$!: Observable<any>;
-
-  ngOnInit() {
-    this.item$ = this.route.paramMap.pipe(
+  public type = computed(() => this.route.snapshot.paramMap.get('type') || '');
+  
+  public item = toSignal(
+    this.route.paramMap.pipe(
       switchMap(params => {
-        this.type = params.get('type') || '';
+        const type = params.get('type') || '';
         const id = params.get('id');
         if (!id) throw new Error('No id');
         
-        switch (this.type) {
+        switch (type) {
           case 'game': return this.collectionService.getGameById(id);
           case 'figure': return this.collectionService.getFigureById(id);
-          case 'platform': return this.collectionService.getPlatformById(id);
+          case 'platform': return this.collectionService.getPlatformById(id as any);
           default: throw new Error('Unknown type');
         }
       })
-    );
-  }
+    )
+  );
+
+  // Type-safe narrowed signals for the template
+  public game = computed(() => this.type() === 'game' ? this.item() as any : null);
+  public figure = computed(() => this.type() === 'figure' ? this.item() as any : null);
+  public platform = computed(() => this.type() === 'platform' ? this.item() as any : null);
 }

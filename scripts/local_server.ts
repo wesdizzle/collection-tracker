@@ -1,27 +1,46 @@
 /**
- * LOCAL DEVELOPMENT PROXY & DISCOVERY SERVER
+ * LOCAL DEVELOPMENT PROXY & DISCOVERY SERVER (TS)
  * 
  * This server serves two roles in the local development environment:
  * 1. DISCOVERY HANDLER: It has direct access to the local filesystem (discovery_report.md)
  *    and the local source-of-truth database (collection.sqlite).
  * 2. PROXY: It transparently forwards all standard API requests (Games, Figures, Platforms)
  *    to the Cloudflare Wrangler dev server (Port 8787).
- * 
- * This architecture ensures that local-only tasks (scraping/reconciliation) work normally
- * while the core API uses the exact same logic that will run in production.
  */
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const Database = require('better-sqlite3');
+import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
+import Database from 'better-sqlite3';
 
 // Source of truth local database
 const db = new Database('collection.sqlite');
 const PORT = 3000;
 
+interface DiscoveryOption {
+    name: string;
+    platform: string;
+    id: string;
+    image_url: string | null;
+    summary: string | null;
+}
+
+interface DiscoveryItem {
+    title: string;
+    platform: string;
+    options: DiscoveryOption[];
+}
+
+interface ApplyPayload {
+    currentTitle: string;
+    currentPlatform: string;
+    selectedIgdbId: string;
+    selectedName: string;
+    region?: string;
+}
+
 const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const url = new URL(req.url || '/', `http://localhost:${PORT}`);
     const pathname = url.pathname;
 
     // Enable cross-origin requests for the frontend (running on Port 4200)
@@ -40,7 +59,7 @@ const server = http.createServer(async (req, res) => {
     try {
         /**
          * ROUTE: GET /api/discovery
-         * Reads the local 'discovery_report.md' file produced by my scraping scripts
+         * Reads the local 'discovery_report.md' file produced by scraping scripts
          * and parses it into a JSON format for the UI.
          */
         if (req.method === 'GET' && pathname === '/api/discovery') {
@@ -52,8 +71,8 @@ const server = http.createServer(async (req, res) => {
 
             const content = fs.readFileSync(reportPath, 'utf8');
             const lines = content.split('\n');
-            const discoveryItems = [];
-            let currentItem = null;
+            const discoveryItems: DiscoveryItem[] = [];
+            let currentItem: DiscoveryItem | null = null;
 
             // Simple Markdown parser for the specific discovery report format
             for (const line of lines) {
@@ -98,14 +117,14 @@ const server = http.createServer(async (req, res) => {
             let body = '';
             req.on('data', chunk => body += chunk);
             req.on('end', () => {
-                const { currentTitle, currentPlatform, selectedIgdbId, selectedName, region } = JSON.parse(body);
+                const { currentTitle, currentPlatform, selectedIgdbId, selectedName, region }: ApplyPayload = JSON.parse(body);
                 
                 // Find the existing local record
                 const game = db.prepare(`
                     SELECT g.id FROM games g
                     JOIN platforms p ON g.platform_id = p.id
                     WHERE g.title = ? AND p.display_name = ?
-                `).get(currentTitle, currentPlatform);
+                `).get(currentTitle, currentPlatform) as { id: number } | undefined;
 
                 if (game) {
                     const cleanId = selectedIgdbId.replace('igdb-', '');
@@ -133,7 +152,9 @@ const server = http.createServer(async (req, res) => {
                 method: req.method,
                 headers: req.headers
             }, (proxyRes) => {
-                res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                if (proxyRes.statusCode) {
+                    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                }
                 proxyRes.pipe(res, { end: true });
             });
 
@@ -146,7 +167,7 @@ const server = http.createServer(async (req, res) => {
             req.pipe(proxyReq, { end: true });
         }
 
-    } catch (e) {
+    } catch (e: any) {
         console.error('Server Logic Error:', e);
         res.statusCode = 500;
         res.end(JSON.stringify({ error: e.message }));

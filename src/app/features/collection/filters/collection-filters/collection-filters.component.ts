@@ -1,8 +1,10 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Platform } from '../../../../core/services/collection.service';
 
+/**
+ * Filter State Interface
+ */
 export interface FilterState {
   ownership: 'all' | 'owned' | 'wanted';
   platform_id?: number;
@@ -11,6 +13,9 @@ export interface FilterState {
   series?: string;
 }
 
+/**
+ * Platform grouping for categorization in dropdowns.
+ */
 export interface PlatformGroup {
   brand: string;
   platforms: Platform[];
@@ -19,61 +24,78 @@ export interface PlatformGroup {
 @Component({
   selector: 'app-collection-filters',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [FormsModule],
   template: `
     <div class="filter-bar glass-panel flex p-md gap-md items-center mb-lg flex-wrap animate-fade-in animate-stagger-1">
       <div class="filter-group flex items-center gap-sm">
         <label>Status:</label>
-        <select [(ngModel)]="filters.ownership" (change)="onFilterChange()" class="glass-input">
+        <select [ngModel]="filters().ownership" (ngModelChange)="onPartialChange('ownership', $event)" class="glass-input">
           <option value="all">All</option>
           <option value="owned">Owned</option>
           <option value="wanted">Wanted</option>
         </select>
       </div>
-
-      <div class="filter-group flex items-center gap-sm" *ngIf="currentTab === 'games'">
-        <label>Platform:</label>
-        <select [(ngModel)]="filters.platform_id" (change)="onFilterChange()" class="glass-input">
-          <option [ngValue]="undefined">All Platforms</option>
-          <optgroup *ngFor="let group of platformGroups" [label]="group.brand">
-            <ng-container *ngFor="let p of group.platforms">
-              <option *ngIf="!p.parent_platform_id" [ngValue]="p.id">{{p.display_name || p.name}}</option>
-              <option *ngIf="p.parent_platform_id" [ngValue]="p.id">&nbsp;&nbsp;↳ {{p.display_name || p.name}}</option>
-            </ng-container>
-          </optgroup>
-        </select>
-      </div>
-
-      <div class="filter-group flex items-center gap-sm" *ngIf="currentTab === 'figures'">
-        <label>Line:</label>
-        <select [(ngModel)]="filters.line" (change)="onFilterChange()" class="glass-input">
-          <option value="">All Lines</option>
-          <option *ngFor="let l of uniqueLines" [value]="l">{{l}}</option>
-        </select>
-      </div>
-
-      <div class="filter-group flex items-center gap-sm" *ngIf="currentTab === 'figures'">
-        <label>Type:</label>
-        <select [(ngModel)]="filters.type" (change)="onFilterChange()" class="glass-input">
-          <option value="">All Types</option>
-          <option *ngFor="let t of uniqueTypes" [value]="t">{{t}}</option>
-        </select>
-      </div>
-
+    
+      @if (currentTab() === 'games') {
+        <div class="filter-group flex items-center gap-sm">
+          <label>Platform:</label>
+          <select [ngModel]="filters().platform_id" (ngModelChange)="onPartialChange('platform_id', $event)" class="glass-input">
+            <option [ngValue]="undefined">All Platforms</option>
+            @for (group of platformGroups(); track group.brand) {
+              <optgroup [label]="group.brand">
+                @for (p of group.platforms; track p.id) {
+                  @if (!p.parent_platform_id) {
+                    <option [ngValue]="p.id">{{p.display_name || p.name}}</option>
+                  } @else {
+                    <option [ngValue]="p.id">&nbsp;&nbsp;↳ {{p.display_name || p.name}}</option>
+                  }
+                }
+              </optgroup>
+            }
+          </select>
+        </div>
+      }
+    
+      @if (currentTab() === 'figures') {
+        <div class="filter-group flex items-center gap-sm">
+          <label>Line:</label>
+          <select [ngModel]="filters().line" (ngModelChange)="onPartialChange('line', $event)" class="glass-input">
+            <option value="">All Lines</option>
+            @for (l of uniqueLines(); track l) {
+              <option [value]="l">{{l}}</option>
+            }
+          </select>
+        </div>
+      }
+    
+      @if (currentTab() === 'figures') {
+        <div class="filter-group flex items-center gap-sm">
+          <label>Type:</label>
+          <select [ngModel]="filters().type" (ngModelChange)="onPartialChange('type', $event)" class="glass-input">
+            <option value="">All Types</option>
+            @for (t of uniqueTypes(); track t) {
+              <option [value]="t">{{t}}</option>
+            }
+          </select>
+        </div>
+      }
+    
       <div class="filter-group flex items-center gap-sm">
         <label>Series:</label>
-        <input list="series-list" [(ngModel)]="filters.series" (change)="onFilterChange()" class="glass-input list-input" placeholder="All Series">
+        <input list="series-list" [ngModel]="filters().series" (ngModelChange)="onPartialChange('series', $event)" class="glass-input list-input" placeholder="All Series">
         <datalist id="series-list">
           <option value="">All Series</option>
-          <option *ngFor="let s of uniqueSeries" [value]="s"></option>
+          @for (s of uniqueSeries(); track s) {
+            <option [value]="s"></option>
+          }
         </datalist>
       </div>
-      
+    
       <div class="filter-group flex items-center gap-sm ml-auto text-secondary text-sm">
-        <span>{{resultCount}} items found</span>
+        <span>{{resultCount()}} items found</span>
       </div>
     </div>
-  `,
+    `,
   styles: [`
     .mb-lg { margin-bottom: 2rem; }
     .p-md { padding: 1rem 1.5rem; }
@@ -117,25 +139,29 @@ export interface PlatformGroup {
     }
   `]
 })
+/**
+ * COLLECTION FILTERS COMPONENT
+ * 
+ * Provides the UI for filtering the collection by status, platform, line, or series.
+ * Updated to use Angular 21 Signals for efficient property binding.
+ */
 export class CollectionFiltersComponent {
-  @Input() currentTab: 'games' | 'figures' = 'games';
-  @Input() platformGroups: PlatformGroup[] = [];
-  @Input() uniqueLines: string[] = [];
-  @Input() uniqueTypes: string[] = [];
-  @Input() uniqueSeries: string[] = [];
-  @Input() resultCount: number = 0;
+  // Inputs as Signals
+  public currentTab = input.required<'games' | 'figures'>();
+  public platformGroups = input<PlatformGroup[]>([]);
+  public uniqueLines = input<string[]>([]);
+  public uniqueTypes = input<string[]>([]);
+  public uniqueSeries = input<string[]>([]);
+  public resultCount = input<number>(0);
+  public filters = input.required<FilterState>();
   
-  @Output() filtersChange = new EventEmitter<FilterState>();
+  // Outputs
+  public filtersChange = output<FilterState>();
 
-  @Input() filters: FilterState = {
-    ownership: 'owned',
-    platform_id: undefined,
-    line: '',
-    type: '',
-    series: ''
-  };
-
-  onFilterChange() {
-    this.filtersChange.emit({ ...this.filters });
+  onPartialChange(key: keyof FilterState, value: any) {
+    this.filtersChange.emit({
+       ...this.filters(),
+       [key]: value
+    });
   }
 }

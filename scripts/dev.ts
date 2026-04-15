@@ -1,23 +1,24 @@
 /**
- * HYBRID DEVELOPMENT ORCHESTRATOR
+ * HYBRID DEVELOPMENT ORCHESTRATOR (TS)
  * 
  * This script is the single entry point for local development. It manages the 
  * lifecycle of three concurrent servers and ensures the database is correctly
  * synchronized before the API becomes active.
  */
 
-const { spawn } = require('child_process');
-const path = require('path');
+import { spawn, execSync, ChildProcess } from 'child_process';
+import * as path from 'path';
 
 /**
  * Spawns a child process with 'inherit' stdio to preserve color/formatting.
- * @param {string} name - Human-readable name for logging.
- * @param {string} command - The command to run.
- * @param {string[]} args - Arguments for the command.
+ * @param name - Human-readable name for logging.
+ * @param command - The command to run.
+ * @param args - Arguments for the command.
  */
-function startProcess(name, command, args) {
+function startProcess(name: string, command: string, args: string[]): ChildProcess {
     console.log(`[${name}] Starting...`);
-    const proc = spawn(command, args, { stdio: 'inherit', shell: true });
+    const resolvedCommand = process.platform === 'win32' && command === 'npx' ? 'npx.cmd' : command;
+    const proc = spawn(resolvedCommand, args, { stdio: 'inherit', shell: true });
     
     proc.on('close', (code) => {
         console.log(`[${name}] Process exited with code ${code}`);
@@ -34,10 +35,8 @@ console.log('--- Initializing Hybrid Development Environment ---');
  * folder BEFORE the worker starts, otherwise the API would be serving stale or empty data.
  */
 try {
-    const { execSync } = require('child_process');
-    console.log('[Sync] Synchronizing database...');
-    // Run synchronously to ensure data is ready before servers start
-    execSync('node scripts/sync_local_d1.js', { stdio: 'inherit' });
+    const syncCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+    execSync(`${syncCommand} tsx scripts/sync_local_d1.ts`, { stdio: 'inherit' });
 } catch (e) {
     console.error('[Sync] Failed. Continuing anyway...');
 }
@@ -52,8 +51,9 @@ try {
 const wranglerBin = path.join('node_modules', 'wrangler', 'bin', 'wrangler.js');
 const ngBin = path.join('node_modules', '@angular', 'cli', 'bin', 'ng.js');
 
-const processes = [
-    startProcess('API Proxy', 'node', ['scripts/local_server.js']),
+const processes: ChildProcess[] = [
+    // Use npx tsx for local TypeScript scripts
+    startProcess('API Proxy', 'npx', ['tsx', 'scripts/local_server.ts']),
     startProcess('D1 Worker', 'node', [wranglerBin, 'dev', '--local']),
     startProcess('Frontend ', 'node', [ngBin, 'serve'])
 ];

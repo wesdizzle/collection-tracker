@@ -1,6 +1,6 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, firstValueFrom } from 'rxjs';
 
 export interface Game {
     id: string;
@@ -54,12 +54,64 @@ export interface DiscoveryItem {
     options: DiscoveryOption[];
 }
 
+export interface ListState {
+  tab: 'games' | 'figures';
+  filters: any;
+  displayLimit: number;
+  scrollPosition: [number, number];
+}
+
 @Injectable({
   providedIn: 'root'
 })
+/**
+ * COLLECTION DATA SERVICE (SIGNALS-FIRST)
+ * 
+ * This service manages the state and retrieval of the user's game and figure 
+ * collection. It utilizes Angular Signals for high-performance reactive 
+ * delivery to UI components.
+ */
 export class CollectionService {
-  public listState: any = null;
   private http = inject(HttpClient);
+  
+  // Persistence state for UI navigation
+  public listState: ListState | null = null;
+
+  // Core Collection Signals
+  private _games = signal<Game[]>([]);
+  private _figures = signal<Figure[]>([]);
+  private _platforms = signal<Platform[]>([]);
+  private _discoveryItems = signal<DiscoveryItem[]>([]);
+  private _loading = signal<boolean>(false);
+
+  // Public Read-only Signals
+  public readonly games = this._games.asReadonly();
+  public readonly figures = this._figures.asReadonly();
+  public readonly platforms = this._platforms.asReadonly();
+  public readonly discoveryItems = this._discoveryItems.asReadonly();
+  public readonly loading = this._loading.asReadonly();
+
+  /**
+   * REFRESH LOGIC
+   * We pull fresh data from the API and update the signals.
+   */
+  async refreshAll(): Promise<void> {
+    this._loading.set(true);
+    try {
+      const [games, figures, platforms] = await Promise.all([
+        firstValueFrom(this.getGames()),
+        firstValueFrom(this.getFigures()),
+        firstValueFrom(this.getPlatforms())
+      ]);
+      this._games.set(games);
+      this._figures.set(figures);
+      this._platforms.set(platforms);
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  // --- API Tier (Observables) ---
 
   getGames(platformId?: number): Observable<Game[]> {
     let url = '/api/games';
@@ -77,12 +129,21 @@ export class CollectionService {
     return this.http.get<Platform[]>('/api/platforms');
   }
 
-  getGameById(id: string): Observable<Game> { return this.http.get<Game>(`/api/games/${id}`); }
-  getFigureById(id: string): Observable<Figure> { return this.http.get<Figure>(`/api/figures/${id}`); }
-  getPlatformById(id: string): Observable<Platform> { return this.http.get<Platform>(`/api/platforms/${id}`); }
+  getGameById(id: string): Observable<Game> { 
+    return this.http.get<Game>(`/api/games/${id}`); 
+  }
+  
+  getFigureById(id: string): Observable<Figure> { 
+    return this.http.get<Figure>(`/api/figures/${id}`); 
+  }
+  
+  getPlatformById(id: number): Observable<Platform> { 
+    return this.http.get<Platform>(`/api/platforms/${id}`); 
+  }
 
-  getDiscoveryItems(): Observable<DiscoveryItem[]> {
-    return this.http.get<DiscoveryItem[]>('/api/discovery');
+  async refreshDiscovery(): Promise<void> {
+    const items = await firstValueFrom(this.http.get<DiscoveryItem[]>('/api/discovery'));
+    this._discoveryItems.set(items);
   }
 
   applyDiscovery(payload: any): Observable<any> {

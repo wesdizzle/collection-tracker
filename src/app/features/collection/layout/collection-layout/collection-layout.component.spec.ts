@@ -1,6 +1,9 @@
+import '../../../../../test-setup';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { HttpClientTestingModule } from '@angular/common/http/testing';
-import { RouterTestingModule } from '@angular/router/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { CollectionLayoutComponent } from './collection-layout.component';
 
 /**
@@ -8,6 +11,7 @@ import { CollectionLayoutComponent } from './collection-layout.component';
  * 
  * Verifies that the primary collection layout (Discovery/Games/Figures)
  * initializes correctly with its data dependencies.
+ * Updated for Angular 21 and Vitest.
  */
 describe('CollectionLayoutComponent', () => {
   let component: CollectionLayoutComponent;
@@ -15,10 +19,11 @@ describe('CollectionLayoutComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [
-        HttpClientTestingModule,
-        RouterTestingModule,
-        CollectionLayoutComponent
+      imports: [CollectionLayoutComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([])
       ]
     })
     .compileComponents();

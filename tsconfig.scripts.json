@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "outDir": "dist/scripts",
+    "rootDir": "scripts",
+    "resolveJsonModule": true,
+    "allowJs": true
+  },
+  "include": ["scripts/**/*"],
+  "exclude": ["node_modules"]
+}
