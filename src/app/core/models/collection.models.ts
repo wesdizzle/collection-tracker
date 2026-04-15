@@ -73,6 +73,11 @@ export interface FilterState {
   series?: string;
 }
 
+export interface PlatformGroup {
+  brand: string;
+  platforms: Platform[];
+}
+
 export interface ListState {
   tab: 'games' | 'figures';
   filters: FilterState;

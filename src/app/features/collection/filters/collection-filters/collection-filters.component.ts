@@ -1,25 +1,6 @@
 import { Component, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Platform } from '../../../../core/services/collection.service';
-
-/**
- * Filter State Interface
- */
-export interface FilterState {
-  ownership: 'all' | 'owned' | 'wanted';
-  platform_id?: number;
-  line?: string;
-  type?: string;
-  series?: string;
-}
-
-/**
- * Platform grouping for categorization in dropdowns.
- */
-export interface PlatformGroup {
-  brand: string;
-  platforms: Platform[];
-}
+import { Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
 
 @Component({
   selector: 'app-collection-filters',

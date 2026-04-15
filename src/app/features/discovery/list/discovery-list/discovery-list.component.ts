@@ -1,6 +1,7 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { CollectionService, DiscoveryItem, DiscoveryOption, DiscoveryPayload } from '../../../../core/services/collection.service';
+import { CollectionService } from '../../../../core/services/collection.service';
+import { DiscoveryItem, DiscoveryOption, DiscoveryPayload, Game, Figure, Platform } from '../../../../core/models/collection.models';
 import { RouterModule } from '@angular/router';
 
 @Component({

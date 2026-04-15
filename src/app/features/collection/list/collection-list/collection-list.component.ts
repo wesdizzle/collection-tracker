@@ -2,8 +2,9 @@ import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDest
 import { ViewportScroller } from '@angular/common';
 
 import { ActivatedRoute, RouterModule } from '@angular/router';
-import { CollectionService, Platform } from '../../../../core/services/collection.service';
-import { CollectionFiltersComponent, FilterState, PlatformGroup } from '../../filters/collection-filters/collection-filters.component';
+import { CollectionService } from '../../../../core/services/collection.service';
+import { Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
+import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 
 @Component({
   selector: 'app-collection-list',
