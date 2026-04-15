@@ -1,59 +1,91 @@
-# Tracker
+# 🎮 Video Game Collection Tracker
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 19.2.24.
+A high-fidelity, hybrid-architecture web application for tracking and reconciling video game and figure collections. Designed to bridge the gap between local development workflows and Cloudflare serverless environments.
 
-## Development server
+---
 
-To start a local development server, run:
+## 🏗️ Architecture Overview
 
-```bash
-ng serve
+The system uses a **Hybrid Local/Cloud Architecture** to ensure perfect parity between development and production.
+
+### 🌓 The Hybrid Concept
+- **Production Layer (`src/worker.ts`)**: A high-performance Cloudflare Worker querying a **D1 SQL Database**.
+- **Local Bridge (`scripts/local_server.js`)**: A Node.js proxy that intercepts specialized filesystem tasks (like Discovery scraping) while forwarding standard API requests to a local instance of the Production Worker.
+
+### 🗺️ System Map
+```mermaid
+graph TD
+    UI[Angular Frontend - Port 4200] --> Proxy[Local Proxy - Port 3000]
+    Proxy -->|API Requests| Worker[Wrangler/D1 - Port 8787]
+    Proxy -->|Discovery Data| LocalFS[(Local Filesystem)]
+    Worker --> D1[(Local SQLite / D1)]
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+---
 
-## Code scaffolding
+## 🚀 Getting Started
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+### 1. Prerequisites
+- Node.js (v18+)
+- Cloudflare Wrangler (`npm install -g wrangler`)
+- A healthy `collection.sqlite` in the root folder.
 
+### 2. Launching the environment
+We use a unified orchestrator to manage the database sync and all three server layers:
 ```bash
-ng generate component component-name
+node scripts/dev.js
+```
+*This command synchronizes the local D1 instance, starts the Proxy, the Worker, and the Frontend simultaneously.*
+
+---
+
+## 🛠️ Data & Reconciliation
+
+### The Source of Truth
+The `collection.sqlite` file in the root is the **local source of truth**. 
+- Every game is assigned a **`stable_id`** (Auto-incrementing Integer) to ensure permanent links across different scraping sessions.
+- **1,977 Reconciled Games**: This is the current benchmark for a fully synced collection.
+
+### Discovery & Scraping
+The project includes specialized scrapers to identify "unlinked" games in your collection and find their IGDB counterparts:
+1. Run `npm run scrape` to generate a `discovery_report.md`.
+2. Use the **Discovery** tab in the UI to link items.
+3. This updates the local `collection.sqlite` immediately.
+
+---
+
+## 🧪 Engineering Standards
+
+### Unit Testing
+We maintain high coverage across both the frontend and the backend logic:
+- **Worker (Core Logic)**: Tested via `Vitest` in a simulated Cloudflare environment.
+- **Frontend (UI)**: Tested via `Jasmine/Karma`.
+
+Run all tests:
+```bash
+npm test
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+### CI/CD
+A GitHub Action is configured in `.github/workflows/ci.yml` to automatically:
+1. Install dependencies.
+2. Run ESLint to ensure code quality.
+3. Execute all Worker and Frontend unit tests.
 
-```bash
-ng generate --help
-```
+---
 
-## Building
+## 📝 Future Work
+- **Overhaul Series Handling**: Update series and franchise handling to treat IGDB as authoritative.
+- **Visual Improvements**: Add images to collection pages and update the favicon.
+- **Database Upgrades**: Add played and backed up booleans to games and remove queue modeling.
+- **Mobile Layout**: Enhance the collection view for smaller devices.
+- **Image Caching**: Implement a worker-side cache for IGDB cover art to reduce external API calls.
+- **Adding Items**: Add a way to watch certain series or other groupings and scrape the various source APIs for missing items to add to the database as wanted. This may be used for adding a series as wanted and including all items that exist or finding new releases in groupings already included.
 
-To build the project run:
+---
 
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+## 📜 Known Issues
+- Some platform launch dates are missing.
+- Game regions are missing.
+- Some games still aren't matched to IGDB, and IGDB doesn't model physical games perfectly, so some games may remain unmatched indefinitely. Perhaps we can introduce a heuristic involving an automatic web search to determine whether a physical release existed.
+- 

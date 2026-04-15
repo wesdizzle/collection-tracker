@@ -1,9 +1,17 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
-import { CollectionService, Game, Figure, Platform } from '../../../../core/services/collection.service';
-import { map, switchMap } from 'rxjs/operators';
+import { CollectionService } from '../../../../core/services/collection.service';
+import { switchMap } from 'rxjs/operators';
 import { Observable } from 'rxjs';
+
+/**
+ * Item Detail Component
+ * 
+ * Displays comprehensive details for games, figures, or platforms.
+ * Leverages the hybrid proxy to fetch data that may reside in either 
+ * the Cloudflare D1 database or the local filesystem.
+ */
 
 @Component({
   selector: 'app-item-detail',
