@@ -1,6 +1,6 @@
 import { Component, input, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
+import { FilterState, PlatformGroup } from '../../../../core/models/collection.models';
 
 @Component({
   selector: 'app-collection-filters',
