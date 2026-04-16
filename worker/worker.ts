@@ -2,6 +2,7 @@ import { D1Database } from '@cloudflare/workers-types';
 
 export interface Env {
   DB: D1Database;
+  ASSETS: { fetch: (req: Request | string) => Promise<Response> };
 }
 
 /**
@@ -34,12 +35,12 @@ export default {
         `;
         const params: (string | number | null)[] = [];
         if (platformId) {
-            // Complex Filter: Include children (accessories) if the selected platform is a parent.
-            // This ensures selecting 'Wii' also shows 'Wii U' shared items if they are linked.
-            query += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
-            params.push(platformId, platformId);
+          // Complex Filter: Include children (accessories) if the selected platform is a parent.
+          // This ensures selecting 'Wii' also shows 'Wii U' shared items if they are linked.
+          query += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
+          params.push(platformId, platformId);
         }
-        
+
         /**
          * COMPLEX ORDERING LOGIC:
          * 1. Brand (Nintendo, Sony)
@@ -51,12 +52,12 @@ export default {
                    CASE WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.series, g.title), 5) WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.series, g.title), 3) ELSE COALESCE(g.series, g.title) END COLLATE NOCASE ASC, 
                    g.release_date IS NULL ASC, g.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
                    CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC`;
-        
+
         const stmt = env.DB.prepare(query).bind(...params);
         const { results } = await stmt.all();
         return Response.json(results);
       }
-      
+
       // Endpoint: GET /api/games/:id
       // Fetches a single game record by its unique ID.
       else if (path.startsWith('/api/games/')) {
@@ -72,7 +73,7 @@ export default {
         if (!game) return Response.json({ error: 'Not found' }, { status: 404 });
         return Response.json(game);
       }
-      
+
       // Endpoint: GET /api/figures
       // Fetches all amino/figures joined with their respective series lines.
       else if (path === '/api/figures') {
@@ -92,7 +93,7 @@ export default {
         const { results } = await stmt.all();
         return Response.json(results);
       }
-      
+
       // Endpoint: GET /api/figures/:id
       // Fetches single figure details.
       else if (path.startsWith('/api/figures/')) {
@@ -108,7 +109,7 @@ export default {
         if (!figure) return Response.json({ error: 'Not found' }, { status: 404 });
         return Response.json(figure);
       }
-      
+
       // Endpoint: GET /api/platforms
       // Fetches platforms that have at least one game (including games on child/parent platforms).
       else if (path === '/api/platforms') {
@@ -126,9 +127,10 @@ export default {
         return Response.json(results);
       }
 
-      // FALLBACK: 404 Not Found for non-API routes 
-      // Static assets are handled by Cloudflare Pages separately.
-      return Response.json({ error: 'Not found' }, { status: 404 });
+      // FALLBACK: Serve from Static Assets
+      // This worker handles both API and Frontend serving. If the path doesn't match an API,
+      // it delegates to env.ASSETS (Cloudflare Pages Assets).
+      return env.ASSETS.fetch(request);
 
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : 'Internal Server Error';
