@@ -16,10 +16,23 @@ import * as path from 'path';
  * @param args - Arguments for the command.
  */
 function startProcess(name: string, command: string, args: string[]): ChildProcess {
-    console.log(`[${name}] Starting...`);
-    const resolvedCommand = process.platform === 'win32' && command === 'npx' ? 'npx.cmd' : command;
-    const proc = spawn(resolvedCommand, args, { stdio: 'inherit', shell: true });
+    console.log(`[${name}] Starting: ${command} ${args.join(' ')}`);
     
+    let resolvedCommand = command;
+    if (process.platform === 'win32') {
+        if (command === 'npx') resolvedCommand = 'npx.cmd';
+        if (command === 'npm') resolvedCommand = 'npm.cmd';
+    }
+
+    const proc = spawn(resolvedCommand, args, { 
+        stdio: 'inherit', 
+        shell: true
+    });
+    
+    proc.on('error', (err) => {
+        console.error(`[${name}] Spawn error: ${err.message}`);
+    });
+
     proc.on('close', (code) => {
         console.log(`[${name}] Process exited with code ${code}`);
     });
@@ -31,11 +44,10 @@ console.log('--- Initializing Hybrid Development Environment ---');
 
 /**
  * STEP 1: Database Synchronization
- * We MUST sync the source-of-truth 'collection.sqlite' to the Wrangler internal state
- * folder BEFORE the worker starts, otherwise the API would be serving stale or empty data.
  */
 try {
     const syncCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+    console.log('[Sync] Synchronizing local D1 database...');
     execSync(`${syncCommand} tsx scripts/sync_local_d1.ts`, { stdio: 'inherit' });
 } catch (e) {
     console.error('[Sync] Failed. Continuing anyway...');
@@ -43,19 +55,11 @@ try {
 
 /**
  * STEP 2: Parallel Server Launch
- * We launch three distinct layers:
- * 1. API Proxy: Handles local filesystem tasks (Discovery) and proxies to Wrangler.
- * 2. D1 Worker: Runs the actual production API logic via local Wrangler.
- * 3. Frontend: The Angular SPA.
  */
-const wranglerBin = path.join('node_modules', 'wrangler', 'bin', 'wrangler.js');
-const ngBin = path.join('node_modules', '@angular', 'cli', 'bin', 'ng.js');
-
 const processes: ChildProcess[] = [
-    // Use npx tsx for local TypeScript scripts
     startProcess('API Proxy', 'npx', ['tsx', 'scripts/local_server.ts']),
-    startProcess('D1 Worker', 'node', [wranglerBin, 'dev', '--local']),
-    startProcess('Frontend ', 'node', [ngBin, 'serve'])
+    startProcess('D1 Worker', 'npx', ['wrangler', 'dev', '--local']),
+    startProcess('Frontend ', 'npx', ['ng', 'serve'])
 ];
 
 /**

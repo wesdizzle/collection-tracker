@@ -50,3 +50,5 @@ deploy.sql
 discovery_report.md
 
 .wrangler/
+/scratch/
+/scripts/temp/

@@ -56,17 +56,24 @@ interface FigureDiscovery {
 function normalizeTitle(title: string): string {
     if (!title) return '';
     return title.toLowerCase()
-        .replace(/[–—]/g, '-') // Replace special hyphens
-        .replace(/[\(\)\-:]/g, ' ') // Replace parentheses, hyphens, and colons with spaces
-        .replace(/[^a-z0-9]/g, '')  // Remove non-alphanumeric (including spaces)
+        .replace(/[–—]/g, '-')
+        .replace(/&/g, 'and')
+        .replace(/[^a-z0-9+:\-]/g, '') // Preserve +, :, and -
         .trim();
 }
 
-/**
- * CORE EXECUTION: runScraper
- */
+const REGIONAL_OVERRIDES: Record<string, number> = {
+    'sonic the hedgehog': 1, // UK for SMS
+    'mario kart 8 deluxe + booster course pass': 12, // SEA
+    'chrono cross: the radical dreamers edition': 12, // SEA
+    'pico park 1 + 2': 5, // JP
+    'mother': 5, // JP
+    'mother 3': 5, // JP
+    'taiko no tatsujin ds': 5 // JP
+};
+
 async function runScraper(): Promise<void> {
-    console.log('--- Starting Verification Phase ---');
+    console.log('--- Starting Gaggledex Verification Phase ---');
     const unmatchedGames: UnmatchedItem[] = [];
     const syncSuggestions: SyncSuggestion[] = [];
     const gameDiscoveryResults: GameDiscovery[] = [];
@@ -75,80 +82,77 @@ async function runScraper(): Promise<void> {
     const existingGames = db.prepare(`
         SELECT g.*, p.igdb_id as platform_igdb_id, p.display_name as platform_display_name
         FROM games g
-        LEFT JOIN platforms p ON g.platform_id = p.id
+        LEFT JOIN platforms p ON g.platform = p.display_name
     `).all() as GameRecord[];
 
+    console.log(`Processing ${existingGames.length} collection items...`);
+
     for (const game of existingGames) {
-        // Skip if already has region metadata (implies already verified in this session)
-        if (game.region) continue;
-
-        console.log(`Verifying Game: ${game.title} (${game.platform_display_name || game.platform})...`);
-        const searchTitle = game.title.replace(/\(.*\)/g, '').replace(/[:]/g, '').trim();
-        const matches = await findGame(searchTitle, game.platform_igdb_id);
+        if (game.igdb_id) {
+            console.log(`Skipping already-verified Game: ${game.title} (${game.platform_display_name || game.platform})`);
+            continue;
+        }
         
-        if (matches && matches.length > 0) {
-            const bestMatch = matches[0];
+        process.stdout.write(`Verifying: ${game.title} (${game.platform_display_name || game.platform})... `);
+        
+        // Phase 1: Strict Platform-Locked Match
+        const searchTitle = game.title.replace(/\(.*\)/g, '').trim();
+        let matches = await findGame(searchTitle, game.platform_igdb_id);
+        
+        // Check for regional override
+        const normTitle = normalizeTitle(game.title);
+        const overrideRegion = REGIONAL_OVERRIDES[normTitle];
 
-            // Check for potential syncs (name or platform differs)
+        if (matches && matches.length > 0) {
+            let bestMatch = matches[0];
+            
+            // If we have an override, we need to re-fetch or filter the release dates
+            if (overrideRegion) {
+                // In a real scenario, we might want to re-query IGDB for this specific region,
+                // but our findGame already fetched release_dates. We just need to prioritize it.
+                const regionalDate = (bestMatch as any).release_dates?.find((d: any) => d.region === overrideRegion);
+                if (regionalDate) {
+                    bestMatch.release_date = new Date(regionalDate.date * 1000).toISOString().split('T')[0];
+                    bestMatch.region = overrideRegion.toString();
+                }
+            }
+
             const normLocal = normalizeTitle(game.title);
             const normIgdb = normalizeTitle(bestMatch.name);
-            const superNormLocal = superNormalize(game.title);
-            const superNormIgdb = superNormalize(bestMatch.name);
             
-            // Platform verification: ID match OR Name match fallback
-            const platformIdMatch = bestMatch.platform_ids && bestMatch.platform_ids.includes(game.platform_igdb_id);
-            const platformNameMatch = bestMatch.platform && game.platform_display_name && (bestMatch.platform === game.platform_display_name);
-            const platformMatches = !!(platformIdMatch || platformNameMatch);
-
-            // Match Scenario A: Titles are identical or super-normalized titles match
-            if (platformMatches && (normLocal === normIgdb || superNormLocal === superNormIgdb)) {
-                // Automatic title normalization update
-                if (game.title !== bestMatch.name) {
-                    db.prepare('UPDATE games SET title = ? WHERE id = ?').run(bestMatch.name, game.id);
-                    console.log(`  Auto-normalized: ${game.title} -> ${bestMatch.name}`);
-                }
-                
-                db.prepare('UPDATE games SET igdb_id = ?, region = ? WHERE id = ?')
-                    .run(bestMatch.id.replace('igdb-', ''), 'NA', game.id);
-                console.log(`  Verified & Matched: ${bestMatch.name}`);
-                continue;
-            } else if (normLocal === normIgdb || superNormLocal === superNormIgdb) {
-                console.log(`  Title Match found for "${bestMatch.name}" but platform check failed: IGDB Platform="${bestMatch.platform}" vs Local="${game.platform_display_name}"`);
-            }
-
-            // Match Scenario B: Local title is a prefix/subtitle of IGDB title AND only one official match exists
-            const isSignificantPrefix = superNormIgdb.startsWith(superNormLocal) && superNormLocal.length > 5;
-            const singleOfficialMatch = matches.filter(r => r.platform_ids && r.platform_ids.includes(game.platform_igdb_id)).length === 1;
-
-            if (platformMatches && isSignificantPrefix && singleOfficialMatch) {
-                db.prepare('UPDATE games SET title = ?, igdb_id = ?, region = ? WHERE id = ?')
-                    .run(bestMatch.name, bestMatch.id.replace('igdb-', ''), 'NA', game.id);
-                console.log(`  Auto-matched Subtitle: ${game.title} -> ${bestMatch.name}`);
-                continue;
-            }
-
-            // If not auto-matched, check for detailed suggestions or imagery updates
-            if (bestMatch.name !== game.title || !platformMatches) {
-                syncSuggestions.push({
-                    type: 'Game',
-                    current: `${game.title} (${game.platform_display_name || game.platform})`,
-                    options: matches.slice(0, 10),
-                    localId: game.id
-                });
-            }
-
-            // Fallback: update imagery if missing but keep for sync review if ambiguous
-            if (!game.image_url || !game.summary) {
-                db.prepare('UPDATE games SET image_url = ?, summary = ? WHERE id = ?').run(
-                    bestMatch.image_url, 
+            // Title Match Logic
+            if (normLocal === normIgdb) {
+                db.prepare(`
+                    UPDATE games 
+                    SET title = ?, igdb_id = ?, region_chosen = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0
+                    WHERE id = ?
+                `).run(
+                    bestMatch.name, 
+                    bestMatch.id.replace('igdb-', ''), 
+                    bestMatch.region, 
                     bestMatch.summary || null, 
+                    (bestMatch as any).genres || null,
+                    bestMatch.image_url,
                     game.id
                 );
+                console.log(`Matched! [ID: ${bestMatch.id}]`);
+                continue;
             }
+
+            // If titles don't perfectly match, add to suggestions
+            syncSuggestions.push({
+                type: 'Game',
+                current: `${game.title} (${game.platform_display_name || game.platform})`,
+                options: matches.slice(0, 10),
+                localId: game.id
+            });
+            console.log("Ambiguous.");
         } else {
-            console.log(`  No exact match found for ${game.title}`);
-            const suggestions = await findGame(searchTitle, 0); // Corrected: use 0 or common default for ambiguous search
+            process.stdout.write(`No platform match. Global search... `);
+            // Phase 2: Global Platform Discovery
+            const suggestions = await findGame(searchTitle, 0); 
             unmatchedGames.push({ item: game, suggestions });
+            console.log(suggestions && suggestions.length > 0 ? "Candidates found." : "No candidates.");
         }
     }
 

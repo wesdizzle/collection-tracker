@@ -76,10 +76,10 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
         <label>Region:</label>
         <select [ngModel]="filters().region" (ngModelChange)="onPartialChange('region', $event)" class="glass-input">
           <option [ngValue]="undefined">All Regions</option>
-          <option value="NA">North America</option>
           <option value="EU">Europe</option>
           <option value="JP">Japan</option>
-          <option value="WW">Worldwide</option>
+          <option value="NA">North America</option>
+          <option value="SEA">Southeast Asia</option>
         </select>
       </div>
 

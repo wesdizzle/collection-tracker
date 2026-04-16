@@ -115,6 +115,29 @@ const PHYSICAL_DOMINANT_PLATFORMS = [
 ];
 
 /**
+ * REGIONAL OVERRIDES
+ * Maps specific game titles or IGDB IDs to their required region strings.
+ * This is prioritized over all automated heuristics.
+ */
+export const REGIONAL_OVERRIDES: Record<string, string> = {
+    // Exact Titles
+    'Pico Park 1 + 2': 'JP',
+    'Mother 3': 'JP',
+    'Taiko no Tatsujin DS': 'JP',
+    'Metcha! Taiko no Tatsujin DS: 7-tsu no Shima no Daibouken': 'JP',
+    'Sonic the Hedgehog (1991)': 'EU', // For Master System canonical EU releases
+    'Mario Kart 8 Deluxe + Booster Course Pass': 'SEA',
+    'Chrono Cross: The Radical Dreamers Edition': 'SEA',
+    'Chrono Cross: The Radical Dreamers': 'SEA',
+    
+    // IGDB IDs (More stable)
+    'igdb-3683': 'JP',     // Mother 3
+    'igdb-245049': 'SEA',  // Mario Kart 8 Deluxe + BCP
+    'igdb-188613': 'SEA',  // Chrono Cross: The Radical Dreamers Edition
+    'igdb-538': 'EU',      // Sonic the Hedgehog (Master System / GG)
+};
+
+/**
  * UTILITY: queryIGDB
  * 
  * Performs a raw query against the IGDB API with retries and rate limiting.
@@ -164,14 +187,14 @@ export async function findGame(title: string, platformId: number): Promise<Norma
     const cleanTitle = title.replace(/[–—]/g, '-').replace(/[":()]/g, '').trim();
 
     const searchQuery = `
-        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region;
+        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         search "${cleanTitle.replace(/"/g, '')}";
         ${platformFilter ? `where platforms = (${platformId});` : ''}
         limit 50;
     `;
 
     const nameQuery = `
-        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region;
+        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
         limit 50;
     `;
@@ -219,13 +242,40 @@ export async function findGame(title: string, platformId: number): Promise<Norma
 
         if (filteredResults.length === 0) return [];
 
-        const normalize = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+        const normalize = (s: string) => (s || '').toLowerCase()
+            .replace(/[–—]/g, '-')
+            .replace(/&/g, 'and')
+            .replace(/[^a-z0-9+:\-]/g, '') // Preserve +, :, and -
+            .trim();
         const normTarget = normalize(title);
 
         return filteredResults.map(game => {
-            const regionId = game.release_dates?.[0]?.region;
-            const regionMap: Record<number, string> = { 1: 'EU', 2: 'NA', 3: 'AU', 4: 'NZ', 5: 'JP', 6: 'CH', 7: 'AS', 8: 'WW' };
-            const region = regionId ? regionMap[regionId] : 'NA';
+            // Priority 0: Manual Override
+            let regionCode = REGIONAL_OVERRIDES[game.name] || REGIONAL_OVERRIDES[`igdb-${game.id}`];
+
+            // REGIONAL DATE LOGIC: US (2) -> NA (2) -> WW (8) -> Earliest
+            const allDates = game.release_dates || [];
+            
+            // Priority 1: North America / US (Region 2)
+            let chosenDateObj = allDates.find(d => d.region === 2);
+            if (!regionCode) regionCode = 'NA';
+
+            // Priority 2: Worldwide (Region 8)
+            if (!chosenDateObj) {
+                chosenDateObj = allDates.find(d => d.region === 8);
+                if (chosenDateObj) {
+                    if (regionCode === 'NA') regionCode = 'WW';
+                }
+            }
+
+            // Priority 3: Earliest available
+            if (!chosenDateObj && allDates.length > 0) {
+                chosenDateObj = allDates.reduce((prev, curr) => (prev.date < curr.date ? prev : curr));
+                const regionMap: Record<number, string> = { 1: 'EU', 2: 'NA', 3: 'AU', 4: 'NZ', 5: 'JP', 6: 'CH', 7: 'AS', 8: 'WW' };
+                if (regionCode === 'NA' || regionCode === 'WW') {
+                    regionCode = chosenDateObj.region ? (regionMap[chosenDateObj.region] || 'OT') : 'NA';
+                }
+            }
 
             const matchedPlatform = game.platforms?.find(p => p.id === Number(platformId));
             const platformName = matchedPlatform ? matchedPlatform.name : (game.platforms ? game.platforms[0].name : 'Unknown');
@@ -238,18 +288,31 @@ export async function findGame(title: string, platformId: number): Promise<Norma
                 platform: platformName,
                 platforms: game.platforms || [],
                 platform_ids: (game.platforms || []).map(p => p.id),
-                release_date: game.first_release_date ? new Date(game.first_release_date * 1000).toISOString().split('T')[0] : null,
+                release_date: chosenDateObj?.date ? new Date(chosenDateObj.date * 1000).toISOString().split('T')[0] : (game.first_release_date ? new Date(game.first_release_date * 1000).toISOString().split('T')[0] : null),
                 collection: game.collection ? (typeof game.collection === 'object' ? game.collection.name : null) : null,
                 franchise: game.franchises ? game.franchises[0].name : null,
                 category: game.category,
-                region: region,
-                confidence: normalize(game.name) === normTarget ? 100 : 50
+                region: regionCode,
+                confidence: normalize(game.name) === normTarget ? 100 : 50,
+                genres: game.genres ? game.genres.map(g => g.name).join(', ') : null
             };
         }).sort((a, b) => b.confidence - a.confidence);
     } catch (error: any) {
         console.error('Error finding game:', error.message);
         return null;
     }
+}
+
+/**
+ * Fetches all games in a collection (series) by collection ID.
+ */
+export async function getCollectionGames(collectionId: number): Promise<any[]> {
+    const query = `
+        fields name, platforms.name, first_release_date, cover.url;
+        where collection = ${collectionId};
+        limit 500;
+    `;
+    return queryIGDB('games', query);
 }
 
 /**
