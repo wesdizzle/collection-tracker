@@ -219,7 +219,7 @@ export class CollectionFiltersComponent {
     
     this.filtersChange.emit({
        ...this.filters(),
-       [key]: processedValue as any // Finalized cast for emit intersection
+       [key]: processedValue as FilterState[keyof FilterState]
     } as FilterState);
   }
 }

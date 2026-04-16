@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, HostListener, signal, computed } from '@angular/core';
+import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, signal, computed } from '@angular/core';
 import { ViewportScroller } from '@angular/common';
 
 import { ActivatedRoute, RouterModule } from '@angular/router';
