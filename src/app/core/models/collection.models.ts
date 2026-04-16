@@ -6,12 +6,15 @@
  */
 
 export interface Game {
-    id: string;
+    stable_id: number;
+    id: string; // The durable slug: game-title-platform-name
     title: string;
     series: string;
     release_date: string;
     platform: string;
     platform_id: number;
+    igdb_id?: number;
+    region?: string;
     display_name?: string;
     owned: boolean | number;
     queued: boolean | number;
@@ -68,6 +71,8 @@ export interface DiscoveryPayload {
 export interface FilterState {
   ownership: 'all' | 'owned' | 'wanted';
   platform_id?: number;
+  region?: string;
+  is_linked?: boolean;
   line?: string;
   type?: string;
   series?: string;

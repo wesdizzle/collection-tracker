@@ -71,6 +71,26 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
           }
         </datalist>
       </div>
+
+      <div class="filter-group flex items-center gap-sm">
+        <label>Region:</label>
+        <select [ngModel]="filters().region" (ngModelChange)="onPartialChange('region', $event)" class="glass-input">
+          <option [ngValue]="undefined">All Regions</option>
+          <option value="NA">North America</option>
+          <option value="EU">Europe</option>
+          <option value="JP">Japan</option>
+          <option value="WW">Worldwide</option>
+        </select>
+      </div>
+
+      <div class="filter-group flex items-center gap-sm">
+        <label>Linked:</label>
+        <select [ngModel]="filters().is_linked" (ngModelChange)="onPartialChange('is_linked', $event)" class="glass-input">
+          <option [ngValue]="undefined">All Items</option>
+          <option [ngValue]="true">IGDB Connected</option>
+          <option [ngValue]="false">Manual Entry</option>
+        </select>
+      </div>
     
       <div class="filter-group flex items-center gap-sm ml-auto text-secondary text-sm">
         <span>{{resultCount()}} items found</span>
@@ -139,10 +159,14 @@ export class CollectionFiltersComponent {
   // Outputs
   public filtersChange = output<FilterState>();
 
-  onPartialChange(key: keyof FilterState, value: string | number | undefined) {
+  onPartialChange(key: keyof FilterState, value: unknown) {
+    let processedValue: unknown = value;
+    if (value === 'true') processedValue = true;
+    if (value === 'false') processedValue = false;
+    
     this.filtersChange.emit({
        ...this.filters(),
-       [key]: value
-    });
+       [key]: processedValue as any // Finalized cast for emit intersection
+    } as FilterState);
   }
 }

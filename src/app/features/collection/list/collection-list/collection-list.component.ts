@@ -26,17 +26,37 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
       @if (currentTab() === 'games') {
         <div class="grid animate-fade-in animate-stagger-2">
           @for (game of displayGames(); track game.id) {
-            <a [routerLink]="['/collection', 'game', game.id]" class="glass-panel interactive-card p-lg flex flex-col gap-sm">
-              <div class="badge-container flex justify-between items-center">
-                @if (game.owned) {
-                  <span class="badge owned">Owned</span>
+            <a [routerLink]="['/collection', 'game', game.id]" class="glass-panel interactive-card flex flex-col overflow-hidden">
+              <div class="card-art-frame">
+                @if (game.image_url) {
+                  <img [src]="game.image_url" alt="Cover" class="card-art">
                 } @else {
-                  <span class="badge wanted">Wanted</span>
+                  <div class="card-art-placeholder text-secondary text-xs uppercase letter-spacing-wide">
+                    No Image
+                  </div>
                 }
-                <span class="text-xs text-secondary ml-auto text-right font-medium">{{game.display_name || game.platform}}</span>
+                <div class="region-flag" [title]="'Region: ' + game.region">
+                  {{ game.region }}
+                </div>
               </div>
-              <h3 class="mt-md text-xl">{{game.title}}</h3>
-              <p class="text-sm text-secondary truncate">{{game.series}} • {{game.release_date || 'Unknown Date'}}</p>
+              
+              <div class="p-lg flex flex-col gap-sm">
+                <div class="badge-container flex justify-between items-center">
+                  <div class="flex gap-xs items-center">
+                    @if (game.owned) {
+                      <span class="badge owned">Owned</span>
+                    } @else {
+                      <span class="badge wanted">Wanted</span>
+                    }
+                    @if (game.igdb_id) {
+                      <span class="igdb-icon" title="Verified by IGDB">🆔</span>
+                    }
+                  </div>
+                  <span class="text-xs text-secondary ml-auto text-right font-medium">{{game.display_name || game.platform}}</span>
+                </div>
+                <h3 class="mt-md text-xl">{{game.title}}</h3>
+                <p class="text-sm text-secondary truncate">{{game.series}} • {{game.release_date || 'Unknown Date'}}</p>
+              </div>
             </a>
           }
         </div>
@@ -87,8 +107,50 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
     
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
       gap: 1.5rem;
+    }
+
+    .card-art-frame {
+      width: 100%;
+      aspect-ratio: 3/4;
+      background: rgba(0,0,0,0.2);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .card-art {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.5s var(--ease-premium);
+    }
+
+    .interactive-card:hover .card-art {
+      transform: scale(1.05);
+    }
+
+    .region-flag {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      padding: 0.15rem 0.4rem;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(4px);
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .igdb-icon {
+      font-size: 0.9rem;
+      filter: drop-shadow(0 0 5px var(--accent-glow));
+      cursor: help;
     }
   `]
 })
@@ -146,6 +208,12 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
         const p = this.collectionService.platforms().find(plat => plat.id === g.platform_id);
         const match = g.platform_id === f.platform_id || p?.parent_platform_id === f.platform_id;
         if (!match) return false;
+      }
+
+      if (f.region && g.region !== f.region) return false;
+      if (f.is_linked !== undefined) {
+        const linked = !!g.igdb_id;
+        if (f.is_linked !== linked) return false;
       }
       
       if (f.series && !g.series?.toLowerCase().includes(f.series.toLowerCase())) return false;

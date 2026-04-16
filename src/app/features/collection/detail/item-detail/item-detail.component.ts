@@ -47,6 +47,9 @@ import { toSignal } from '@angular/core/rxjs-interop';
                 }
                 @if (game(); as g) {
                   <span class="badge bg-dark ml-sm">{{g.display_name || g.platform}}</span>
+                  @if (g.igdb_id) {
+                    <span class="igdb-badge ml-sm" title="Verified by IGDB">🆔 Verified by IGDB</span>
+                  }
                 }
                 @if (figure(); as f) {
                   <span class="badge bg-dark ml-sm">{{f.line}}</span>
@@ -203,6 +206,21 @@ import { toSignal } from '@angular/core/rxjs-interop';
       background: rgba(15, 23, 42, 0.6);
       color: var(--text-primary);
       border-color: var(--glass-border);
+    }
+
+    .igdb-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(147, 51, 234, 0.1);
+      color: #e9d5ff;
+      border: 1px solid rgba(147, 51, 234, 0.3);
+      padding: 0.15rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
   `]
 })
