@@ -2,10 +2,7 @@ name = "collection-tracker"
 compatibility_date = "2024-04-12"
 main = "worker/worker.ts"
 
-[assets]
-directory = "dist/tracker/browser"
-binding = "ASSETS"
-not_found_handling = "single-page-application"
+
 
 [[d1_databases]]
 binding = "DB"

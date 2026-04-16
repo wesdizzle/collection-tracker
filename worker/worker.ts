@@ -2,7 +2,6 @@ import { D1Database } from '@cloudflare/workers-types';
 
 export interface Env {
   DB: D1Database;
-  ASSETS: { fetch: (req: Request | string) => Promise<Response> };
 }
 
 /**
@@ -127,10 +126,9 @@ export default {
         return Response.json(results);
       }
 
-      // FALLBACK: Serve from Static Assets
-      // This worker handles both API and Frontend serving. If the path doesn't match an API,
-      // it delegates to env.ASSETS (Cloudflare Pages Assets).
-      return env.ASSETS.fetch(request);
+      // FALLBACK: 404 Not Found for non-API routes 
+      // Static assets are handled by Cloudflare Pages separately.
+      return Response.json({ error: 'Not found' }, { status: 404 });
 
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : 'Internal Server Error';
