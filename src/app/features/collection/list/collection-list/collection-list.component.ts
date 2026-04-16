@@ -29,7 +29,14 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
             <a [routerLink]="['/collection', 'game', game.id]" class="glass-panel interactive-card flex flex-col overflow-hidden">
               <div class="card-art-frame">
                 @if (game.image_url) {
-                  <img [src]="game.image_url" alt="Cover" class="card-art">
+                  <img 
+                    [src]="game.image_url" 
+                    alt="Cover" 
+                    class="card-art"
+                    loading="lazy"
+                    decoding="async"
+                    width="264"
+                    height="374">
                 } @else {
                   <div class="card-art-placeholder text-secondary text-xs uppercase letter-spacing-wide">
                     No Image
@@ -126,20 +133,16 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
       width: 100%;
       height: 100%;
       object-fit: cover;
-      transition: transform 0.5s var(--ease-premium);
     }
 
-    .interactive-card:hover .card-art {
-      transform: scale(1.05);
-    }
+    /* Removed: .interactive-card:hover .card-art { transform: scale(1.05); } */
 
     .region-flag {
       position: absolute;
       top: 0.5rem;
       right: 0.5rem;
       padding: 0.15rem 0.4rem;
-      background: rgba(0,0,0,0.7);
-      backdrop-filter: blur(4px);
+      background: rgba(0,0,0,0.85); /* Slightly darker instead of blur */
       border-radius: 4px;
       font-size: 0.65rem;
       font-weight: 700;
@@ -254,10 +257,8 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   private observer: IntersectionObserver | null = null;
   private currentScrollPosition: [number, number] = [0, 0];
 
-  @HostListener('window:scroll')
-  onScroll() {
-    this.currentScrollPosition = this.scroller.getScrollPosition();
-  }
+  // Optimization: Removed @HostListener('window:scroll') which triggered on every tick.
+  // We'll capture the scroll position once before destruction instead.
 
   ngOnInit() {
     this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'figures' || 'games');
@@ -291,11 +292,15 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     if (this.observer) {
       this.observer.disconnect();
     }
+    
+    // Capture position once before we leave
+    const finalScrollPosition = this.scroller.getScrollPosition();
+    
     this.collectionService.listState = {
       tab: this.currentTab(),
       filters: { ...this.filters() },
       displayLimit: this.displayLimit(),
-      scrollPosition: this.currentScrollPosition
+      scrollPosition: finalScrollPosition
     };
   }
 

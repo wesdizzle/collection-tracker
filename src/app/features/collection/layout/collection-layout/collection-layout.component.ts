@@ -10,8 +10,8 @@ import { RouterModule } from '@angular/router';
     <div class="container animate-fade-in">
       <header class="flex justify-between items-center mb-10 header-responsive">
         <div>
-          <h1 class="text-4xl text-gradient">My Collection</h1>
-          <p class="text-secondary mt-2">Games, Figures, and Platforms</p>
+          <h1 class="text-4xl text-gradient">Gaggledex Collection Tracker</h1>
+          <p class="text-secondary mt-2">Games and Figures</p>
         </div>
         <div class="flex gap-md bg-glass tab-container">
           <a routerLink="/collection/games" routerLinkActive="active" class="btn">Games</a>

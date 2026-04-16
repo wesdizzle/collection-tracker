@@ -7,7 +7,7 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
   standalone: true,
   imports: [FormsModule],
   template: `
-    <div class="filter-bar glass-panel flex p-md gap-md items-center mb-lg flex-wrap animate-fade-in animate-stagger-1">
+    <div class="filter-bar glass-panel glass-blur flex p-md gap-md items-center mb-lg flex-wrap animate-fade-in animate-stagger-1">
       <div class="filter-group flex items-center gap-sm">
         <label>Status:</label>
         <select [ngModel]="filters().ownership" (ngModelChange)="onPartialChange('ownership', $event)" class="glass-input">
@@ -103,40 +103,93 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
     .ml-auto { margin-left: auto; }
     .text-sm { font-size: 0.875rem; }
     .text-secondary { color: var(--text-secondary); }
+    
     .filter-bar {
       border-radius: 12px;
       justify-content: flex-start;
       margin-top: -1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
     }
+
+    .filter-group {
+      flex: 0 1 auto;
+      min-width: 0;
+    }
+    
     label {
       font-size: 0.875rem;
       font-weight: 500;
       color: var(--text-secondary);
+      white-space: nowrap;
     }
+    
     .glass-input {
       background: rgba(15, 23, 42, 0.6);
       border: 1px solid var(--glass-border);
       color: var(--text-primary);
-      padding: 0.5rem 1rem;
+      padding: 0.5rem 0.75rem;
       border-radius: 8px;
       font-family: var(--font-body);
       outline: none;
       transition: border-color 0.2s, box-shadow 0.2s;
+      font-size: 0.9rem;
+      width: 100%;
     }
+
+    /* Standard widths for dropdowns */
+    select.glass-input {
+      min-width: 120px;
+    }
+    
     .list-input {
-      width: 140px;
+      width: 100%;
+      max-width: 160px;
     }
+    
     .glass-input:focus {
-      border-color: var(--accent-color);
+      border-color: var(--accent-fuchsia);
       box-shadow: 0 0 10px var(--accent-glow);
     }
+    
     .glass-input option, .glass-input optgroup {
       background: var(--bg-color);
     }
+    
     .glass-input optgroup {
       font-weight: 700;
       color: var(--text-secondary);
       font-size: 0.85rem;
+    }
+
+    /* RESPONSIVE BREAKPOINTS */
+    @media (max-width: 768px) {
+      .filter-bar {
+        padding: 1.5rem;
+      }
+      .filter-group {
+        flex: 1 1 calc(50% - 0.5rem);
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 0.25rem !important;
+      }
+      .list-input {
+        max-width: none;
+      }
+      .ml-auto {
+        margin-left: 0;
+        width: 100%;
+        margin-top: 0.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--glass-border);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .filter-group {
+        flex: 1 1 100%;
+      }
     }
   `]
 })

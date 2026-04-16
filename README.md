@@ -1,6 +1,6 @@
-# 🎮 Video Game & Figure Collection Tracker
+# 🎮 Gaggledex: Collection Tracker
 
-A web application for tracking and reconciling video game and figure collections. Built with **Angular 21**, the system utilizes a **Signals-based, Zoneless architecture** for state management and UI reactivity.
+A high-performance portal for tracking and reconciling video game and figure collections. Built with **Angular 21**, the system utilizes a **Signals-based, Zoneless architecture** and a premium **Cyberpunk "Gaggledex" aesthetic**.
 
 ---
 
@@ -42,11 +42,28 @@ Chronological sorting in filters is powered by North American (NA) launch dates:
 ### 3. Local Environment Sync (`scripts/sync_local_d1.ts`)
 Repairs performed on the root `collection.sqlite` database are propagated to the active Cloudflare D1 local state. This ensures that metadata restoration is immediately visible in the development environment.
 
----
+### 🎨 Branding & Aesthetics
+The application features a custom **Gaggledex Cyberpunk Theme**:
+- **Void Purple (#1A0B2E)**: A deep, rich base background for high-contrast viewing.
+- **Neon Fuchsia (#FF007F)**: Primary accent color for interactive elements and brand identifiers.
+- **Cyber Lime (#39FF14)**: High-visibility accents for status indicators and success states.
+- **SVG Branding**: A custom-coded vector favicon for perfect clarity and transparency.
 
-## 🛠️ Performance & Engineering Standards
+### ⚡ Performance & Engineering Standards
 
-### Zoneless Reactivity
+#### Optimized Rendering Pipeline
+We prioritize a "buttery smooth" experience even with large collections:
+- **Aggressive Layer Management**: Avoids GPU thrashing by minimizing forced rendering layers (`will-change`).
+- **Selective Compositing**: High-cost effects like `backdrop-filter: blur()` are preserved for UI shells but removed from repeating grid items to maintain 60fps scrolling.
+- **Lazy Loading**: Native `loading="lazy"` and `decoding="async"` for all cover art, with explicit dimensioning to prevent layout shifts.
+- **Scroll Optimization**: Zero-cost scroll tracking that captures state on navigation without impacting frame rates.
+
+#### Responsive Design
+The UI is built to be fully accessible on any device:
+- **Adaptive Filter Bar**: Intelligently stacks into a grid or single column on mobile to prevent content overflow.
+- **Glassmorphism 2.0**: Sophisticated translucent panels with high contrast for legible reading in any light environment.
+
+#### Zoneless Reactivity
 We have eliminated `zone.js` for improved UI efficiency. Requirements:
 - Use **Angular Signals** for all state changes.
 - `OnPush` change detection throughout the component tree.
@@ -67,9 +84,7 @@ npm run test  # Runs the full project-wide unified Vitest suite
 ## 📋 Roadmap & Known Issues
 
 - [ ] **Overhaul Series Handling**: Update series and franchise handling to treat IGDB as authoritative.
-- [ ] **Visual Improvements**: Improve various visual elements and update the application favicon.
 - [ ] **Database Schema Upgrades**: Add `played` and `backed_up` booleans to games; remove legacy queue modeling.
-- [ ] **Mobile Layout Optimization**: Enhance the collection view and Discovery reconciliation UI for smaller devices.
 - [ ] **Worker-Side Image Caching**: Implement a KV-based cache for IGDB cover art to reduce external API dependency.
 - [ ] **Automated Watchlists**: Implement a system to watch specific series and automatically surface new releases as 'Wanted'.
 - [ ] **Heuristic Scrubber**: Introduce an automated web-search heuristic to determine physical release status for IGDB games and only track those with physical releases.
