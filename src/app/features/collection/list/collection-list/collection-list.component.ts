@@ -35,10 +35,10 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
                     class="card-art"
                     loading="lazy"
                     decoding="async"
-                    width="264"
-                    height="374">
+                    width="132"
+                    height="187">
                 } @else {
-                  <div class="card-art-placeholder text-secondary text-xs uppercase letter-spacing-wide">
+                  <div class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide">
                     No Image
                   </div>
                 }
@@ -47,9 +47,9 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
                 </div>
               </div>
               
-              <div class="p-lg flex flex-col gap-sm">
+              <div class="p-md flex flex-col gap-xs">
                 <div class="badge-container flex justify-between items-center">
-                  <div class="flex gap-xs items-center">
+                  <div class="flex gap-2xs items-center">
                     @if (game.owned) {
                       <span class="badge owned">Owned</span>
                     } @else {
@@ -59,10 +59,10 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
                       <span class="igdb-icon" title="Verified by IGDB">🆔</span>
                     }
                   </div>
-                  <span class="text-xs text-secondary ml-auto text-right font-medium">{{game.display_name || game.platform}}</span>
+                  <span class="text-2xs text-secondary ml-auto text-right font-medium">{{game.display_name || game.platform}}</span>
                 </div>
-                <h3 class="mt-md text-xl">{{game.title}}</h3>
-                <p class="text-sm text-secondary truncate">{{game.series}} • {{game.release_date || 'Unknown Date'}}</p>
+                <h3 class="mt-xs text-base truncate">{{game.title}}</h3>
+                <p class="text-xs text-secondary truncate">{{game.series}} • {{game.release_date || '?'}}</p>
               </div>
             </a>
           }
@@ -72,18 +72,18 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
       @if (currentTab() === 'figures') {
         <div class="grid animate-fade-in animate-stagger-2">
           @for (figure of displayFigures(); track figure.id) {
-            <a [routerLink]="['/collection', 'figure', figure.id]" class="glass-panel interactive-card p-lg flex flex-col gap-sm">
-              <div class="badge-container flex justify-between items-center gap-xs">
+            <a [routerLink]="['/collection', 'figure', figure.id]" class="glass-panel interactive-card p-md flex flex-col gap-xs">
+              <div class="badge-container flex justify-between items-center gap-2xs">
                 @if (figure.owned) {
                   <span class="badge owned">Owned</span>
                 } @else {
                   <span class="badge wanted">Wanted</span>
                 }
                 <span class="badge type">{{figure.type}}</span>
-                <span class="text-xs text-secondary font-medium ml-auto text-right">{{figure.line}}</span>
               </div>
-              <h3 class="mt-md text-xl">{{figure.name}}</h3>
-              <p class="text-sm text-secondary">{{figure.series_name}}</p>
+              <div class="text-2xs text-secondary font-medium">{{figure.line}}</div>
+              <h3 class="mt-xs text-base truncate">{{figure.name}}</h3>
+              <p class="text-xs text-secondary truncate">{{figure.series_name}}</p>
             </a>
           }
         </div>
@@ -94,18 +94,25 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
     </div>
     `,
   styles: [`
-    .mt-md { margin-top: var(--spacing-md); }
-    .p-lg { padding: var(--spacing-lg); }
-    .text-xl { font-size: 1.25rem; font-weight: 600; line-height: 1.3; }
-    .text-sm { font-size: 0.875rem; }
+    .mt-xs { margin-top: 0.25rem; }
+    .p-md { padding: 0.75rem; }
+    .text-base { font-size: 0.9375rem; font-weight: 600; line-height: 1.2; }
+    .text-sm { font-size: 0.8125rem; }
     .text-xs { font-size: 0.75rem; }
+    .text-2xs { font-size: 0.65rem; }
     .text-secondary { color: var(--text-secondary); }
     .font-medium { font-weight: 500; }
     .ml-auto { margin-left: auto; }
     .text-right { text-align: right; }
     .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .gap-xs { gap: 0.5rem; }
+    .gap-xs { gap: 0.25rem; }
+    .gap-2xs { gap: 0.15rem; }
     
+    .badge {
+      padding: 0.15rem 0.4rem;
+      font-size: 0.6rem;
+    }
+
     .badge.type {
       background: rgba(148, 163, 184, 0.1);
       color: var(--text-secondary);
@@ -114,8 +121,8 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
     
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+      gap: 1rem;
     }
 
     .card-art-frame {
@@ -135,25 +142,22 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
       object-fit: cover;
     }
 
-    /* Removed: .interactive-card:hover .card-art { transform: scale(1.05); } */
-
     .region-flag {
       position: absolute;
-      top: 0.5rem;
-      right: 0.5rem;
-      padding: 0.15rem 0.4rem;
-      background: rgba(0,0,0,0.85); /* Slightly darker instead of blur */
-      border-radius: 4px;
-      font-size: 0.65rem;
+      top: 0.25rem;
+      right: 0.25rem;
+      padding: 0.1rem 0.3rem;
+      background: rgba(0,0,0,0.85);
+      border-radius: 3px;
+      font-size: 0.55rem;
       font-weight: 700;
       color: #fff;
       border: 1px solid rgba(255,255,255,0.1);
     }
 
     .igdb-icon {
-      font-size: 0.9rem;
+      font-size: 0.75rem;
       filter: drop-shadow(0 0 5px var(--accent-glow));
-      cursor: help;
     }
   `]
 })
@@ -172,7 +176,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   // State Signals
   public currentTab = signal<'games' | 'figures'>('games');
   public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '' });
-  public displayLimit = signal<number>(40);
+  public displayLimit = signal<number>(100);
   
   // Computed Selections
   public platformGroups = computed<PlatformGroup[]>(() => {
@@ -318,11 +322,11 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   loadMore() {
-    this.displayLimit.update(limit => limit + 40);
+    this.displayLimit.update(limit => limit + 100);
   }
 
   onFiltersChange(newFilters: FilterState) {
     this.filters.set({ ...newFilters });
-    this.displayLimit.set(40); 
+    this.displayLimit.set(100); 
   }
 }

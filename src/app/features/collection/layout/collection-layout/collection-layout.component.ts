@@ -1,5 +1,4 @@
 import { Component } from '@angular/core';
-
 import { RouterModule } from '@angular/router';
 
 @Component({
@@ -7,46 +6,86 @@ import { RouterModule } from '@angular/router';
   standalone: true,
   imports: [RouterModule],
   template: `
-    <div class="container animate-fade-in">
-      <header class="flex justify-between items-center mb-10 header-responsive">
-        <div>
-          <h1 class="text-4xl text-gradient">Gaggledex Collection Tracker</h1>
-          <p class="text-secondary mt-2">Games and Figures</p>
+    <div class="layout-container animate-fade-in">
+      <header class="main-header">
+        <div class="header-content">
+          <h1 class="brand-title text-gradient">Gagglog Collection Tracker</h1>
+          <p class="brand-subtitle">Games and Figures</p>
         </div>
-        <div class="flex gap-md bg-glass tab-container">
-          <a routerLink="/collection/games" routerLinkActive="active" class="btn">Games</a>
-          <a routerLink="/collection/figures" routerLinkActive="active" class="btn">Figures</a>
+        <nav class="main-nav bg-glass">
+          <a routerLink="/collection/games" routerLinkActive="active" class="nav-btn">Games</a>
+          <a routerLink="/collection/figures" routerLinkActive="active" class="nav-btn">Figures</a>
           @if (isDev) {
-            <a routerLink="/collection/discovery" routerLinkActive="active" class="btn btn-discovery">
+            <a routerLink="/collection/discovery" routerLinkActive="active" class="nav-btn dev-btn">
               <span class="icon">✨</span> Discovery
             </a>
           }
-        </div>
+        </nav>
       </header>
     
-      <router-outlet></router-outlet>
+      <main class="content-area">
+        <router-outlet></router-outlet>
+      </main>
+
+      <footer class="main-footer">
+        <div class="footer-divider"></div>
+        <p class="footer-copy">Gagglog</p>
+        <a href="https://github.com/wesdizzle/collection-tracker" target="_blank" class="github-link">
+          <svg viewBox="0 0 24 24" class="github-icon">
+            <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+          </svg>
+          <span>View on GitHub</span>
+        </a>
+      </footer>
     </div>
     `,
   styles: [`
-    .mb-10 { margin-bottom: 2.5rem; }
-    .mt-2 { margin-top: 0.5rem; }
-    .text-4xl { font-size: 2.5rem; }
-    .text-secondary { color: var(--text-secondary); }
+    .layout-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .main-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2.5rem;
+    }
+
+    .brand-title {
+      font-size: 2.5rem;
+      margin: 0;
+    }
+
+    .brand-subtitle {
+      color: var(--text-secondary);
+      margin-top: 0.5rem;
+    }
+
     .text-gradient {
       background: linear-gradient(135deg, #fff, #94a3b8);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-    
+
+    .main-nav {
+      display: flex;
+      gap: 1rem;
+      padding: 0.35rem;
+    }
+
     .bg-glass {
       background: rgba(30, 41, 59, 0.4);
-      padding: 0.35rem;
       border-radius: 12px;
       border: 1px solid var(--glass-border);
       backdrop-filter: blur(8px);
     }
-    
-    .btn {
+
+    .nav-btn {
       background: transparent;
       border: none;
       color: var(--text-secondary);
@@ -56,35 +95,77 @@ import { RouterModule } from '@angular/router';
       font-family: var(--font-body);
       font-weight: 500;
       text-decoration: none;
-      display: inline-block;
-      text-align: center;
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    
-    .btn:hover:not(.active) {
+
+    .nav-btn:hover:not(.active) {
       color: var(--text-primary);
       background: rgba(255,255,255,0.05);
     }
-    
-    .btn.active {
+
+    .nav-btn.active {
       background: var(--accent-color);
       color: #fff;
       box-shadow: 0 4px 12px var(--accent-glow);
     }
 
-    @media (max-width: 640px) {
-      .header-responsive {
+    .content-area {
+      flex: 1;
+      width: 100%;
+    }
+
+    .main-footer {
+      margin-top: 5rem;
+      padding: 2.5rem 0;
+      text-align: center;
+    }
+
+    .footer-divider {
+      height: 1px;
+      background: var(--glass-border);
+      margin-bottom: 2rem;
+      width: 100%;
+    }
+
+    .footer-copy {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+
+    .github-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: color 0.2s;
+    }
+
+    .github-link:hover {
+      color: var(--text-primary);
+    }
+
+    .github-icon {
+      width: 1.25rem;
+      height: 1.25rem;
+      fill: currentColor;
+    }
+
+    @media (max-width: 768px) {
+      .main-header {
         flex-direction: column;
         align-items: flex-start;
         gap: 1.5rem;
       }
-      .tab-container {
+      .main-nav {
         width: 100%;
-        display: flex;
         justify-content: space-between;
       }
-      .tab-container .btn {
+      .nav-btn {
         flex: 1;
+        text-align: center;
       }
     }
   `]

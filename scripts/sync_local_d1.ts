@@ -26,16 +26,15 @@ if (!fs.existsSync(sourcePath)) {
 /**
  * INITIALIZATION TRICK:
  * If the user has never run wrangler dev, the state directory won't exist.
- * We run a 'dry-run' of wrangler dev to force it to create the folder structure
- * without actually starting the server.
+ * We run a dummy query to force it to create the folder structure.
  */
 if (!fs.existsSync(d1StateDir)) {
-    console.log('Wrangler state directory not found. Starting wrangler briefly to initialize...');
+    console.log('Wrangler state directory not found. Initializing with a dummy query...');
     try {
         const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-        execSync(`${cmd} wrangler dev --local --dry-run`, { stdio: 'ignore' });
+        execSync(`${cmd} wrangler d1 execute collection-db --command="SELECT 1;" --local`, { stdio: 'ignore' });
     } catch (e) {
-        // Ignored, we check for the folder again below
+        // Ignored
     }
 }
 
@@ -47,28 +46,48 @@ if (!fs.existsSync(d1StateDir)) {
 /**
  * FILE IDENTIFICATION:
  * Wrangler generates a random hash for each database ID in your wrangler.toml.
- * We look for all .sqlite files but EXCLUDE 'metadata.sqlite' which Wrangler
- * uses for internal tracking (not actual user data).
+ * We look for all .sqlite files but EXCLUDE 'metadata.sqlite'.
  */
-const files = fs.readdirSync(d1StateDir);
-const d1Files = files.filter(f => f.endsWith('.sqlite') && f !== 'metadata.sqlite');
+const items = fs.readdirSync(d1StateDir);
+const d1Targets: string[] = [];
 
-if (d1Files.length === 0) {
-    console.warn('No active D1 sqlite file found. Please run "node scripts/dev.ts" (via tsx) once, stop it, and try again.');
+for (const item of items) {
+    const fullPath = path.join(d1StateDir, item);
+    const stats = fs.statSync(fullPath);
+
+    if (stats.isDirectory()) {
+        // Modern Wrangler structure: hash.sqlite/db.sqlite
+        // In some versions, the database is inside a directory named after the hash.
+        const nestedFiles = fs.readdirSync(fullPath);
+        for (const nested of nestedFiles) {
+            if (nested.endsWith('.sqlite')) {
+                d1Targets.push(path.join(fullPath, nested));
+            }
+        }
+    } else if (item.endsWith('.sqlite') && !item.startsWith('metadata')) {
+        // Legacy/Traditional structure: hash.sqlite is the file.
+        d1Targets.push(fullPath);
+    }
+}
+
+if (d1Targets.length === 0) {
+    console.warn('No active D1 sqlite targets found. Please run "npm run dev" once, stop it, and try again.');
     process.exit(1);
 }
 
-console.log(`Found ${d1Files.length} potential D1 database(s). Synchronizing...`);
+console.log(`Found ${d1Targets.length} potential D1 database target(s). Synchronizing...`);
 
 /**
  * SYNCHRONIZATION:
- * We use a simple file-level copy (copyFileSync). This is more efficient than
- * SQL dumps for local development and ensures that the local D1 instance 
- * is a bit-for-bit match of your working source database.
+ * We perform a file-level copy.
  */
-for (const d1File of d1Files) {
-    const targetPath = path.join(d1StateDir, d1File);
+for (const targetPath of d1Targets) {
     console.log(`Copying ${sourcePath} to ${targetPath}...`);
+    // Before copying, ensure it's a file. If it were a directory, copyFileSync would fail.
+    if (fs.statSync(targetPath).isDirectory()) {
+        console.error(`Error: Target ${targetPath} is a directory. Skipping.`);
+        continue;
+    }
     fs.copyFileSync(sourcePath, targetPath);
 }
 

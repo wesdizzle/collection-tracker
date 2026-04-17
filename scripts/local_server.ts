@@ -1,11 +1,12 @@
 /**
- * LOCAL DEVELOPMENT PROXY & DISCOVERY SERVER (TS)
+ * LOCAL DEVELOPMENT API & DISCOVERY SERVER (TS)
  * 
- * This server serves two roles in the local development environment:
- * 1. DISCOVERY HANDLER: It has direct access to the local filesystem (discovery_report.md)
- *    and the local source-of-truth database (collection.sqlite).
- * 2. PROXY: It transparently forwards all standard API requests (Games, Figures, Platforms)
- *    to the Cloudflare Wrangler dev server (Port 8787).
+ * This server serves as the backend for the local development environment.
+ * It directly queries the 'collection.sqlite' source-of-truth database.
+ * 
+ * It handles:
+ * 1. Collection API: Games, Figures, and Platforms (mirroring worker/worker.ts)
+ * 2. Discovery API: Reading and applying scraping reconciliation reports.
  */
 
 import * as http from 'http';
@@ -59,8 +60,6 @@ const server = http.createServer(async (req, res) => {
     try {
         /**
          * ROUTE: GET /api/discovery
-         * Reads the local 'discovery_report.md' file produced by scraping scripts
-         * and parses it into a JSON format for the UI.
          */
         if (req.method === 'GET' && pathname === '/api/discovery') {
             const reportPath = path.join(process.cwd(), 'discovery_report.md');
@@ -74,7 +73,6 @@ const server = http.createServer(async (req, res) => {
             const discoveryItems: DiscoveryItem[] = [];
             let currentItem: DiscoveryItem | null = null;
 
-            // Simple Markdown parser for the specific discovery report format
             for (const line of lines) {
                 if (line.startsWith('### ')) {
                     if (currentItem) discoveryItems.push(currentItem);
@@ -111,15 +109,12 @@ const server = http.createServer(async (req, res) => {
 
         /**
          * ROUTE: POST /api/discovery/apply
-         * Updates the local database when a user 'reconciles' a game in the UI.
          */
         else if (req.method === 'POST' && pathname === '/api/discovery/apply') {
             let body = '';
             req.on('data', chunk => body += chunk);
             req.on('end', () => {
                 const { currentTitle, currentPlatform, selectedIgdbId, selectedName, region }: ApplyPayload = JSON.parse(body);
-                
-                // Find the existing local record
                 const game = db.prepare(`
                     SELECT g.id FROM games g
                     JOIN platforms p ON g.platform_id = p.id
@@ -128,7 +123,6 @@ const server = http.createServer(async (req, res) => {
 
                 if (game) {
                     const cleanId = selectedIgdbId.replace('igdb-', '');
-                    // Update the local SQLite source-of-truth
                     db.prepare('UPDATE games SET title = ?, igdb_id = ?, region = ?, owned = 1 WHERE id = ?')
                         .run(selectedName, cleanId, region || 'NA', game.id);
                     res.end(JSON.stringify({ success: true }));
@@ -140,31 +134,90 @@ const server = http.createServer(async (req, res) => {
         }
 
         /**
-         * FALLBACK: Transparent Proxy to Wrangler Dev (Port 8787)
-         * All other API requests (Games, Figures, Platforms) are forwarded to the 
-         * Cloudflare Worker running locally.
+         * STANDALONE COLLECTION API HANDLERS
+         * (Migrated from worker/worker.ts to ensure stability during local dev)
          */
+
+        // GET /api/platforms
+        else if (req.method === 'GET' && pathname === '/api/platforms') {
+            const query = `
+                SELECT p.* FROM platforms p 
+                WHERE EXISTS (
+                    SELECT 1 FROM games g 
+                    WHERE g.platform_id = p.id 
+                    OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
+                )
+                ORDER BY brand ASC, COALESCE(parent_platform_id, id) ASC, launch_date ASC
+            `;
+            const platforms = db.prepare(query).all();
+            res.end(JSON.stringify(platforms));
+        }
+
+        // GET /api/games
+        else if (req.method === 'GET' && pathname === '/api/games') {
+            const platformId = url.searchParams.get('platform');
+            const params: any[] = [];
+            let query = `
+                SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date 
+                FROM games g 
+                LEFT JOIN platforms p ON g.platform_id = p.id
+                WHERE 1=1
+            `;
+
+            if (platformId) {
+                query += ' AND (g.platform_id = ? OR p.parent_platform_id = ?)';
+                params.push(platformId, platformId);
+            }
+
+            query += ` ORDER BY p.brand COLLATE NOCASE ASC, COALESCE(p.parent_platform_id, p.id) ASC, p.launch_date ASC, g.platform_id ASC, 
+                       CASE WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.series, g.title), 5) WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.series, g.title), 3) ELSE COALESCE(g.series, g.title) END COLLATE NOCASE ASC, 
+                       g.release_date IS NULL ASC, g.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
+                       CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC`;
+
+            const games = db.prepare(query).all(...params);
+            res.end(JSON.stringify(games));
+        }
+
+        // GET /api/games/:id
+        else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
+            const id = pathname.split('/').pop();
+            const query = `
+                SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date 
+                FROM games g 
+                LEFT JOIN platforms p ON g.platform_id = p.id 
+                WHERE g.id = ?
+            `;
+            const game = db.prepare(query).get(id);
+            if (!game) {
+                res.statusCode = 404;
+                res.end(JSON.stringify({ error: 'Not found' }));
+            } else {
+                res.end(JSON.stringify(game));
+            }
+        }
+
+        // GET /api/figures
+        else if (req.method === 'GET' && pathname === '/api/figures') {
+            const query = `
+                SELECT f.*, fs.line as series_line, fs.name as series_name, fs.sort_index as series_index
+                FROM figures f
+                LEFT JOIN figure_series fs ON f.series_id = fs.id
+                ORDER BY 
+                         CASE WHEN fs.line COLLATE NOCASE LIKE 'the %' THEN SUBSTR(fs.line, 5) WHEN fs.line COLLATE NOCASE LIKE 'a %' THEN SUBSTR(fs.line, 3) ELSE fs.line END COLLATE NOCASE ASC, 
+                         fs.sort_index IS NULL ASC, fs.sort_index ASC, 
+                         CASE WHEN fs.name COLLATE NOCASE LIKE 'the %' THEN SUBSTR(fs.name, 5) WHEN fs.name COLLATE NOCASE LIKE 'a %' THEN SUBSTR(fs.name, 3) ELSE fs.name END COLLATE NOCASE ASC, 
+                         f.release_date IS NULL ASC, f.release_date ASC, 
+                         f.sort_index IS NULL ASC, f.sort_index ASC, 
+                         CASE WHEN f.name COLLATE NOCASE LIKE 'the %' THEN SUBSTR(f.name, 5) WHEN f.name COLLATE NOCASE LIKE 'a %' THEN SUBSTR(f.name, 3) ELSE f.name END COLLATE NOCASE ASC
+            `;
+            const figures = db.prepare(query).all();
+            res.end(JSON.stringify(figures));
+        }
+
+        // 404 Fallback
         else {
-            const proxyReq = http.request({
-                host: 'localhost',
-                port: 8787,
-                path: req.url,
-                method: req.method,
-                headers: req.headers
-            }, (proxyRes) => {
-                if (proxyRes.statusCode) {
-                    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-                }
-                proxyRes.pipe(res, { end: true });
-            });
-
-            proxyReq.on('error', (err) => {
-                console.error(`Proxy Error (is wrangler running?): ${err.message}`);
-                res.statusCode = 502;
-                res.end(JSON.stringify({ error: 'Wrangler Dev/D1 not reached' }));
-            });
-
-            req.pipe(proxyReq, { end: true });
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: 'Route not found locally' }));
         }
 
     } catch (e: any) {
@@ -175,5 +228,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`Local Discovery/Proxy Server running at http://localhost:${PORT}`);
+    console.log(`Standalone Local API Server running at http://localhost:${PORT}`);
 });

@@ -73,11 +73,11 @@ const REGIONAL_OVERRIDES: Record<string, number> = {
 };
 
 async function runScraper(): Promise<void> {
-    console.log('--- Starting Gaggledex Verification Phase ---');
+    console.log('--- Starting Gagglog Verification Phase ---');
     const unmatchedGames: UnmatchedItem[] = [];
     const syncSuggestions: SyncSuggestion[] = [];
     const gameDiscoveryResults: GameDiscovery[] = [];
-    
+
     // 1. Verify Games (Metadata & Sync checking)
     const existingGames = db.prepare(`
         SELECT g.*, p.igdb_id as platform_igdb_id, p.display_name as platform_display_name
@@ -89,23 +89,23 @@ async function runScraper(): Promise<void> {
 
     for (const game of existingGames) {
         if (game.igdb_id) {
-            console.log(`Skipping already-verified Game: ${game.title} (${game.platform_display_name || game.platform})`);
+            console.log(`Skipping already-verified Game: ${game.title} (${game.platform_display_name})`);
             continue;
         }
-        
-        process.stdout.write(`Verifying: ${game.title} (${game.platform_display_name || game.platform})... `);
-        
+
+        process.stdout.write(`Verifying: ${game.title} (${game.platform_display_name})... `);
+
         // Phase 1: Strict Platform-Locked Match
         const searchTitle = game.title.replace(/\(.*\)/g, '').trim();
         let matches = await findGame(searchTitle, game.platform_igdb_id);
-        
+
         // Check for regional override
         const normTitle = normalizeTitle(game.title);
         const overrideRegion = REGIONAL_OVERRIDES[normTitle];
 
         if (matches && matches.length > 0) {
             let bestMatch = matches[0];
-            
+
             // If we have an override, we need to re-fetch or filter the release dates
             if (overrideRegion) {
                 // In a real scenario, we might want to re-query IGDB for this specific region,
@@ -119,7 +119,7 @@ async function runScraper(): Promise<void> {
 
             const normLocal = normalizeTitle(game.title);
             const normIgdb = normalizeTitle(bestMatch.name);
-            
+
             // Title Match Logic
             if (normLocal === normIgdb) {
                 db.prepare(`
@@ -127,10 +127,10 @@ async function runScraper(): Promise<void> {
                     SET title = ?, igdb_id = ?, region_chosen = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0
                     WHERE id = ?
                 `).run(
-                    bestMatch.name, 
-                    bestMatch.id.replace('igdb-', ''), 
-                    bestMatch.region, 
-                    bestMatch.summary || null, 
+                    bestMatch.name,
+                    bestMatch.id.replace('igdb-', ''),
+                    bestMatch.region,
+                    bestMatch.summary || null,
                     (bestMatch as any).genres || null,
                     bestMatch.image_url,
                     game.id
@@ -150,7 +150,7 @@ async function runScraper(): Promise<void> {
         } else {
             process.stdout.write(`No platform match. Global search... `);
             // Phase 2: Global Platform Discovery
-            const suggestions = await findGame(searchTitle, 0); 
+            const suggestions = await findGame(searchTitle, 0);
             unmatchedGames.push({ item: game, suggestions });
             console.log(suggestions && suggestions.length > 0 ? "Candidates found." : "No candidates.");
         }

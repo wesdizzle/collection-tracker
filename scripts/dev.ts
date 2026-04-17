@@ -58,9 +58,9 @@ try {
  */
 const processes: ChildProcess[] = [
     startProcess('API Proxy', 'npx', ['tsx', 'scripts/local_server.ts']),
-    startProcess('D1 Worker', 'npx', ['wrangler', 'dev', '--local']),
     startProcess('Frontend ', 'npx', ['ng', 'serve'])
 ];
+
 
 /**
  * STEP 3: Graceful Shutdown
