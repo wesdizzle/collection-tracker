@@ -2,7 +2,7 @@ import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDest
 
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
+import { Game, Figure, Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 
 interface GameGroup {
