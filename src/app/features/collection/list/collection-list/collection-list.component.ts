@@ -2,7 +2,7 @@ import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDest
 
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Figure, Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
+import { Game, Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 
 interface GameGroup {
@@ -189,19 +189,19 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   private router = inject(Router);
   private observer?: IntersectionObserver;
   @ViewChild('scrollTrigger') scrollTrigger?: ElementRef;
-  
+
   private restorationPending = true;
   public currentTab = signal<'games' | 'figures'>('games');
   public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '' });
   public displayLimit = signal<number>(100);
-  
+
   public platformGroups = computed<PlatformGroup[]>(() => {
     const data = this.collectionService.platforms();
     const grouped = new Map<string, Platform[]>();
-    [...data].sort((a,b) => (a.brand || 'Other').localeCompare(b.brand || 'Other')).forEach(p => {
-       const b = p.brand || 'Other';
-       if (!grouped.has(b)) grouped.set(b, []);
-       grouped.get(b)!.push(p);
+    [...data].sort((a, b) => (a.brand || 'Other').localeCompare(b.brand || 'Other')).forEach(p => {
+      const b = p.brand || 'Other';
+      if (!grouped.has(b)) grouped.set(b, []);
+      grouped.get(b)!.push(p);
     });
     return Array.from(grouped.entries()).map(([brand, platforms]) => ({ brand, platforms }));
   });
@@ -214,22 +214,22 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       const isOwned = g.owned === 1 || g.owned === true;
       if (f.ownership === 'owned' && !isOwned) return false;
       if (f.ownership === 'wanted' && isOwned) return false;
-      
+
       // Platform Filter
       if (f.platform_id && g.platform_id !== f.platform_id) return false;
-      
+
       // Region Filter
       if (f.region && g.region !== f.region) return false;
-      
+
       // Linked Status Filter (IGDB connectivity)
       if (f.is_linked !== undefined) {
-          const hasIgdb = !!g.igdb_id;
-          if (f.is_linked !== hasIgdb) return false;
+        const hasIgdb = !!g.igdb_id;
+        if (f.is_linked !== hasIgdb) return false;
       }
-      
+
       // Series Filter
       if (f.series && !g.series?.toLowerCase().includes(f.series.toLowerCase())) return false;
-      
+
       return true;
     });
   });
@@ -265,7 +265,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.type))).filter(Boolean).sort());
   public uniqueSeries = computed(() => Array.from(new Set(this.collectionService.games().map(g => g.series || g.title))).filter(Boolean).sort());
 
-  constructor() {}
+  constructor() { }
 
   ngOnInit() {
     this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'figures' || 'games');
