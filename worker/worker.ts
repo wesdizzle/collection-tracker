@@ -24,7 +24,7 @@ export default {
       // Fetches games with optional platform filtering and complex regional-aware sorting.
       if (path === '/api/games') {
         const platformId = url.searchParams.get('platform');
-        const params: any[] = [];
+        const params: string[] = [];
         let query = `
             SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date, p.image_url as platform_logo
             FROM games g 

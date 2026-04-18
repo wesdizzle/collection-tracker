@@ -1,7 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Router, NavigationStart } from '@angular/router';
-import { Observable, firstValueFrom, filter } from 'rxjs';
+import { Router } from '@angular/router';
+import { Observable, firstValueFrom } from 'rxjs';
 import { Game, Figure, Platform, DiscoveryItem, DiscoveryPayload, ListState } from '../models/collection.models';
 
 @Injectable({

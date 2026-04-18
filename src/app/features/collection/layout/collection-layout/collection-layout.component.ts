@@ -1,6 +1,5 @@
-import { Component, inject } from '@angular/core';
-import { RouterModule, Router, NavigationStart } from '@angular/router';
-import { filter } from 'rxjs';
+import { Component } from '@angular/core';
+import { RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-collection-layout',

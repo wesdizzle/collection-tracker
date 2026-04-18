@@ -1,9 +1,15 @@
-import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, signal, computed, effect, HostListener, Injector, afterNextRender } from '@angular/core';
-import { ViewportScroller } from '@angular/common';
+import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, signal, computed } from '@angular/core';
+
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
+
+interface GameGroup {
+  platformName: string;
+  platformLogo?: string;
+  games: Game[];
+}
 
 @Component({
   selector: 'app-collection-list',
@@ -231,11 +237,11 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   public displayGames = computed(() => this.filteredGames().slice(0, this.displayLimit()));
   public groupedGames = computed(() => {
     const games = this.displayGames();
-    const groups: any[] = [];
+    const groups: GameGroup[] = [];
     games.forEach(game => {
       let group = groups.find(g => g.platformName === (game.display_name || game.platform));
       if (!group) {
-        group = { platformName: game.display_name || game.platform, platformLogo: (game as any).platform_logo, games: [] };
+        group = { platformName: game.display_name || game.platform, platformLogo: game.platform_logo, games: [] };
         groups.push(group);
       }
       group.games.push(game);
