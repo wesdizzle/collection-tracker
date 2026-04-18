@@ -17,10 +17,14 @@ export interface Game {
     region?: string;
     display_name?: string;
     owned: boolean | number;
-    queued: boolean | number;
+    played: boolean | number;
+    backed_up: boolean | number;
     image_url: string;
-    platform_launch_date?: string;
+    summary?: string;
+    genres?: string;
     brand?: string;
+    platform_launch_date?: string;
+    platform_logo?: string;
 }
 
 export interface Figure {
@@ -87,5 +91,4 @@ export interface ListState {
   tab: 'games' | 'figures';
   filters: FilterState;
   displayLimit: number;
-  scrollPosition: [number, number];
 }

@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, firstValueFrom } from 'rxjs';
+import { Router, NavigationStart } from '@angular/router';
+import { Observable, firstValueFrom, filter } from 'rxjs';
 import { Game, Figure, Platform, DiscoveryItem, DiscoveryPayload, ListState } from '../models/collection.models';
 
 @Injectable({
@@ -15,9 +16,18 @@ import { Game, Figure, Platform, DiscoveryItem, DiscoveryPayload, ListState } fr
  */
 export class CollectionService {
   private http = inject(HttpClient);
+  private router = inject(Router);
   
   // Persistence state for UI navigation
   public listState: ListState | null = null;
+
+  constructor() {}
+
+  public persistState() {
+    if (this.listState) {
+      sessionStorage.setItem('gagglog_list_state', JSON.stringify(this.listState));
+    }
+  }
 
   // Core Collection Signals
   private _games = signal<Game[]>([]);

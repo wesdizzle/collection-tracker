@@ -21,11 +21,11 @@ export const routes: Routes = [
         path: 'discovery',
         title: 'Discovery Management',
         loadComponent: () => import('./features/discovery/list/discovery-list/discovery-list.component').then(m => m.DiscoveryListComponent)
+      },
+      { 
+        path: ':type/:id', 
+        loadComponent: () => import('./features/collection/detail/item-detail/item-detail.component').then(m => m.ItemDetailComponent) 
       }
     ]
-  },
-  { 
-    path: 'collection/:type/:id', 
-    loadComponent: () => import('./features/collection/detail/item-detail/item-detail.component').then(m => m.ItemDetailComponent) 
   }
 ];

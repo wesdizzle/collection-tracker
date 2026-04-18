@@ -26,7 +26,7 @@ export default {
         const platformId = url.searchParams.get('platform');
         const params: any[] = [];
         let query = `
-            SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date 
+            SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date, p.image_url as platform_logo
             FROM games g 
             LEFT JOIN platforms p ON g.platform_id = p.id
             WHERE 1=1
@@ -57,7 +57,7 @@ export default {
       else if (path.startsWith('/api/games/')) {
         const id = path.split('/').pop();
         const query = `
-            SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date 
+            SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date, p.image_url as platform_logo
             FROM games g 
             LEFT JOIN platforms p ON g.platform_id = p.id 
             WHERE g.id = ?

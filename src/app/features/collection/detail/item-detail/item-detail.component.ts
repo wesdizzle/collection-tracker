@@ -6,221 +6,283 @@ import { Game, Figure, Platform } from '../../../../core/models/collection.model
 import { switchMap } from 'rxjs/operators';
 import { toSignal } from '@angular/core/rxjs-interop';
 
-/**
- * Item Detail Component (SIGNALS-FIRST)
- * 
- * Displays comprehensive details for games, figures, or platforms.
- * Utilizes Angular Signals to bridge route parameters to data retrieval, 
- * ensuring a high-performance, zoneless experience.
- */
-
 @Component({
   selector: 'app-item-detail',
   standalone: true,
   imports: [CommonModule, RouterModule],
   template: `
-    @if (item(); as item) {
-      <div class="container animate-fade-in">
-        <nav class="mb-lg">
+    @if (item(); as i) {
+      <div class="container animate-fade-in pb-xl" data-version="final-v12">
+        <nav class="details-nav mb-lg flex justify-between items-center">
           <a [routerLink]="['/collection', type() + 's']" class="back-link flex items-center gap-sm">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             Back to Collection
           </a>
-        </nav>
-        <div class="detail-grid">
-          <div class="art-frame glass-panel flex justify-center items-center">
-            @if (item.image_url) {
-              <img [src]="item.image_url" alt="Cover Art">
-            } @else {
-              <div class="placeholder text-secondary">
-                No Image Available
+          @if (game(); as g) {
+            <div class="quick-stats flex gap-sm items-center">
+              <div class="stat-pill" [class.active]="!!g.played">
+                <span class="icon">{{ g.played ? '🎮' : '⏳' }}</span>
+                <span>{{ g.played ? 'Played' : 'Unplayed' }}</span>
               </div>
-            }
-          </div>
-          <div class="details-content flex-col gap-lg">
-            <div>
-              <div class="badge-container mb-md">
-                @if (game()?.owned || figure()?.owned) {
-                  <span class="badge owned">Owned</span>
-                } @else if (game() || figure()) {
-                  <span class="badge wanted">Wanted</span>
-                }
-                @if (game(); as g) {
-                  <span class="badge bg-dark ml-sm">{{g.display_name || g.platform}}</span>
-                  @if (g.igdb_id) {
-                    <span class="igdb-badge ml-sm" title="Verified by IGDB">🆔 Verified by IGDB</span>
-                  }
-                }
-                @if (figure(); as f) {
-                  <span class="badge bg-dark ml-sm">{{f.line}}</span>
-                }
+              <div class="stat-pill" [class.active]="!!g.backed_up">
+                <span class="icon">{{ g.backed_up ? '💾' : '❌' }}</span>
+                <span>{{ g.backed_up ? 'Backed Up' : 'No Backup' }}</span>
               </div>
-              <h1 class="text-5xl text-gradient">{{ (game()?.title) || (figure()?.name) || (platform()?.name) }}</h1>
-              @if (game()?.series || figure()?.series_name) {
-                <p class="text-xl text-secondary mt-sm">{{ game()?.series || figure()?.series_name }}</p>
+              <div class="stat-pill" [class.active]="g.owned">
+                <span class="icon">{{ g.owned ? '✅' : '🎯' }}</span>
+                <span>{{ g.owned ? 'Owned' : 'Wanted' }}</span>
+              </div>
+              @if (g.igdb_id) {
+                <div class="stat-pill active igdb">
+                  <span class="icon">🆔</span>
+                  <span>IGDB Verified</span>
+                </div>
               }
             </div>
-            @if (game(); as g) {
-              <div class="metadata">
-                <div class="meta-item">
-                  <span class="meta-label">Release Date</span>
-                  <span class="meta-value">{{g.release_date || 'Unknown Date'}}</span>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">Status</span>
-                  <span class="meta-value">
-                    @if (g.owned) {
-                      <span class="badge owned">Owned</span>
-                    } @else {
-                      <span class="badge wanted">Wanted</span>
+          }
+        </nav>
+
+        <div class="hero-section mb-xl">
+          <div class="hero-grid">
+            <div class="art-container">
+              <div class="art-frame">
+                @if (i.image_url) {
+                  <img [src]="i.image_url" alt="Cover Art" class="glitch-load">
+                } @else {
+                  <div class="placeholder">No Image</div>
+                }
+                @if (game(); as g) {
+                   <div class="region-overlay" [title]="'Region: ' + g.region">{{ g.region }}</div>
+                }
+              </div>
+            </div>
+            
+            <div class="hero-content">
+              <h1 class="item-title text-gradient">{{ (game()?.title) || (figure()?.name) || (platform()?.name) }}</h1>
+              @if (game()?.series || figure()?.series_name) {
+                <p class="item-series">{{ game()?.series || figure()?.series_name }}</p>
+              }
+
+              @if (game(); as g) {
+                <div class="genre-cloud mt-lg">
+                  @for (genre of (g.genres || '').split(', '); track genre) {
+                    @if (genre) {
+                      <span class="genre-chip">{{genre}}</span>
                     }
-                  </span>
+                  }
                 </div>
+              }
+
+              <div class="metadata-grid mt-xl">
+                <div class="meta-box">
+                  <span class="label">Platform</span>
+                  <div class="value flex items-center gap-sm">
+                   @if (game()?.platform_logo) {
+                      <img [src]="game()?.platform_logo" class="mini-logo" alt="">
+                    }
+                    <span>{{ game()?.display_name || game()?.platform || figure()?.line || 'N/A' }}</span>
+                  </div>
+                </div>
+                <div class="meta-box">
+                  <span class="label">Release Date</span>
+                  <span class="value">{{ game()?.release_date || figure()?.release_date || 'Unknown' }}</span>
+                </div>
+                @if (game(); as g) {
+                   <div class="meta-box">
+                    <span class="label">Family</span>
+                    <span class="value">{{ g.brand || 'Original' }}</span>
+                  </div>
+                }
               </div>
-              <h4 class="mt-lg mb-sm border-b pb-sm mb-md text-secondary">Platform Information</h4>
-              <div class="metadata">
-                <div class="meta-item">
-                  <span class="meta-label">Brand</span>
-                  <span class="meta-value">{{g.brand || 'N/A'}}</span>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">Console</span>
-                  <span class="meta-value">{{g.display_name || g.platform || 'N/A'}}</span>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">Launch Date</span>
-                  <span class="meta-value">{{g.platform_launch_date || 'Unknown Date'}}</span>
-                </div>
-              </div>
-            }
-            @if (figure(); as f) {
-              <div class="metadata">
-                <div class="meta-item">
-                  <span class="meta-label">Release Date</span>
-                  <span class="meta-value">{{f.release_date || 'Unknown'}}</span>
-                </div>
-              </div>
-            }
+            </div>
           </div>
         </div>
+
+        @if (game(); as g) {
+          @if (g.summary) {
+            <section class="narrative-section animate-slide-up mt-xl">
+              <h2 class="section-title mb-md">Summary</h2>
+              <div class="summary-text-airy">
+                {{ g.summary }}
+              </div>
+            </section>
+          }
+        }
       </div>
     } @else {
-      <div class="container flex justify-center items-center" style="min-height: 50vh">
-        <p class="text-xl text-secondary">Loading details...</p>
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p>Retrieving metadata...</p>
       </div>
     }
     `,
   styles: [`
-    .mb-lg { margin-bottom: 2rem; }
-    .mb-md { margin-bottom: 1rem; }
-    .mt-sm { margin-top: 0.5rem; }
-    .ml-sm { margin-left: 0.5rem; }
-    .gap-lg { gap: 2rem; }
-    
-    .back-link {
-      display: inline-flex;
-      font-weight: 500;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--glass-border);
-    }
-    .back-link:hover {
-      background: rgba(255,255,255,0.1);
-      color: #fff;
+    .pb-xl { padding-bottom: 5rem; }
+    .details-nav {
+      margin-top: 1rem;
     }
 
-    .detail-grid {
+    .stat-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 1rem;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--glass-border);
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      transition: all 0.3s;
+    }
+
+    .stat-pill.active {
+      background: rgba(34, 197, 94, 0.1);
+      border-color: rgba(34, 197, 94, 0.3);
+      color: #4ade80;
+      box-shadow: 0 0 15px rgba(34, 197, 94, 0.1);
+    }
+
+    .stat-pill.active.igdb {
+      background: rgba(147, 51, 234, 0.1);
+      border-color: rgba(147, 51, 234, 0.3);
+      color: #d8b4fe;
+      box-shadow: 0 0 15px rgba(147, 51, 234, 0.1);
+    }
+
+    .hero-section {
+      position: relative;
+      overflow: hidden;
+      border-radius: 24px;
+    }
+
+    .hero-grid {
       display: grid;
       grid-template-columns: 1fr;
       gap: 3rem;
+      align-items: center;
     }
-    
-    @media (min-width: 900px) {
-      .detail-grid {
-        grid-template-columns: 400px 1fr;
+
+    @media (min-width: 1024px) {
+      .hero-grid {
+        grid-template-columns: 320px 1fr;
       }
     }
 
     .art-frame {
       aspect-ratio: 3/4;
+      border-radius: 12px;
       overflow: hidden;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 0 30px var(--accent-glow);
+      box-shadow: 0 10px 50px rgba(0,0,0,0.7), 0 0 30px rgba(96, 165, 250, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      position: relative;
     }
-    
+
+    .region-overlay {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      background: rgba(0,0,0,0.8);
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 800;
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.15);
+      z-index: 10;
+      backdrop-filter: blur(4px);
+    }
+
     .art-frame img {
       width: 100%;
       height: 100%;
       object-fit: cover;
     }
-    
-    .placeholder {
-      font-family: var(--font-heading);
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
 
-    .text-5xl {
+    .item-title {
       font-size: 3.5rem;
+      font-weight: 800;
       line-height: 1.1;
-    }
-    .text-xl {
-      font-size: 1.25rem;
+      letter-spacing: -0.02em;
     }
 
-    .grid-meta {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 1.5rem;
-      padding-top: 2rem;
-      border-top: 1px solid var(--glass-border);
+    .item-series {
+      font-size: 1.5rem;
+      color: var(--text-secondary);
+      margin-top: 0.5rem;
     }
-    
-    .meta-item {
+
+    .genre-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .genre-chip {
+      padding: 0.25rem 0.75rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      border-radius: 100px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .metadata-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 2rem;
+      padding-top: 2rem;
+      border-top: none !important; /* Explicitly remove any divider */
+    }
+
+    .meta-box .label {
+      display: block;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+      font-weight: 700;
+    }
+
+    .meta-box .value {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .mini-logo {
+      height: 1.25rem;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .section-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .summary-text-airy {
+      font-size: 1.125rem;
+      line-height: 1.7;
+      color: #cbd5e1;
+      max-width: 800px;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+    }
+
+    .loading-state {
+      min-height: 60vh;
       display: flex;
       flex-direction: column;
-      gap: 0.25rem;
-    }
-    
-    .meta-label {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-secondary);
-      font-weight: 600;
-    }
-    
-    .meta-value {
-      font-size: 1.125rem;
-      font-weight: 500;
-      color: var(--text-primary);
-    }
-
-    .text-gradient {
-      background: linear-gradient(135deg, #fff, #94a3b8);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .bg-dark {
-      background: rgba(15, 23, 42, 0.6);
-      color: var(--text-primary);
-      border-color: var(--glass-border);
-    }
-
-    .igdb-badge {
-      display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      background: rgba(147, 51, 234, 0.1);
-      color: #e9d5ff;
-      border: 1px solid rgba(147, 51, 234, 0.3);
-      padding: 0.15rem 0.6rem;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+      justify-content: center;
+      gap: 1.5rem;
+      color: var(--text-secondary);
     }
   `]
 })
@@ -228,7 +290,7 @@ export class ItemDetailComponent {
   private route = inject(ActivatedRoute);
   private collectionService = inject(CollectionService);
   
-  public type = computed(() => this.route.snapshot.paramMap.get('type') || '');
+  public type = toSignal(this.route.paramMap.pipe(switchMap(p => [p.get('type') || ''])), { initialValue: '' });
   
   public item = toSignal(
     this.route.paramMap.pipe(
@@ -247,7 +309,6 @@ export class ItemDetailComponent {
     )
   );
 
-  // Type-safe narrowed signals for the template
   public game = computed(() => this.type() === 'game' ? this.item() as Game : null);
   public figure = computed(() => this.type() === 'figure' ? this.item() as Figure : null);
   public platform = computed(() => this.type() === 'platform' ? this.item() as Platform : null);

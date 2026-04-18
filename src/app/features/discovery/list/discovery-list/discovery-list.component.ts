@@ -10,9 +10,17 @@ import { RouterModule } from '@angular/router';
   imports: [RouterModule],
   template: `
     <div class="discovery-container animate-fade-in">
-      <div class="info-banner mb-lg">
-        <span class="icon">ℹ️</span>
-        <p>This page allows you to process games found during the last <strong>Scrape</strong>. These results are parsed directly from <code>discovery_report.md</code>.</p>
+      <div class="discovery-header mb-lg">
+        <div class="info-banner">
+          <span class="icon">ℹ️</span>
+          <p>Processing games from the last <strong>Scrape</strong>.</p>
+        </div>
+        @if (items().length > 0) {
+          <div class="status-card bg-glass animate-slide-up">
+            <span class="status-label">Pending Review</span>
+            <span class="status-count">{{ items().length }}</span>
+          </div>
+        }
       </div>
     
       @if (collectionService.loading()) {
@@ -84,15 +92,39 @@ import { RouterModule } from '@angular/router';
     .font-bold { font-weight: 700; }
     .mt-1 { margin-top: 0.25rem; }
 
-    .info-banner {
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.2);
-      padding: 1rem;
-      border-radius: 12px;
+    .discovery-header {
       display: flex;
-      gap: 1rem;
-      align-items: center;
-      color: #bae6fd;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1.5rem;
+    }
+
+    .status-card {
+      padding: 1rem 2rem;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      border-color: var(--accent-light);
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+
+    .status-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-secondary);
+      margin-bottom: 0.25rem;
+    }
+
+    .status-count {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--accent-light);
+      line-height: 1;
+    }
+
+    .info-banner {
+      flex: 1;
     }
 
     .discovery-grid {
