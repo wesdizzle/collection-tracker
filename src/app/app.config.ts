@@ -10,19 +10,10 @@ export const appConfig: ApplicationConfig = {
       routes, 
       withComponentInputBinding(),
       withInMemoryScrolling({
-        scrollPositionRestoration: 'disabled',
+        scrollPositionRestoration: 'enabled',
         anchorScrolling: 'enabled'
       })
     ), 
-    provideHttpClient(),
-    {
-      provide: APP_INITIALIZER,
-      useValue: () => {
-        if ('scrollRestoration' in history) {
-          history.scrollRestoration = 'manual';
-        }
-      },
-      multi: true
-    }
+    provideHttpClient()
   ]
 };

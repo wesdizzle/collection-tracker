@@ -1,8 +1,9 @@
-import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, signal, computed } from '@angular/core';
+import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, signal, computed, effect, HostListener } from '@angular/core';
 
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
+import { ViewportScroller } from '@angular/common';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Platform, FilterState, PlatformGroup } from '../../../../core/models/collection.models';
+import { Game, Platform, FilterState, PlatformGroup, ListState } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 
 interface GameGroup {
@@ -187,10 +188,12 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   private collectionService = inject(CollectionService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private viewportScroller = inject(ViewportScroller);
   private observer?: IntersectionObserver;
   @ViewChild('scrollTrigger') scrollTrigger?: ElementRef;
 
   private restorationPending = true;
+  private stateInitialized = false;
   public currentTab = signal<'games' | 'figures'>('games');
   public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '' });
   public displayLimit = signal<number>(100);
@@ -265,20 +268,74 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.type))).filter(Boolean).sort());
   public uniqueSeries = computed(() => Array.from(new Set(this.collectionService.games().map(g => g.series || g.title))).filter(Boolean).sort());
 
-  constructor() { }
+  constructor() {
+    // Automatically save state whenever it changes
+    effect(() => {
+      const state: ListState = {
+        tab: this.currentTab(),
+        filters: this.filters(),
+        displayLimit: this.displayLimit(),
+        scrollX: window.scrollX,
+        scrollY: window.scrollY
+      };
+      if (this.stateInitialized) {
+        this.collectionService.updateListState(state);
+      }
+    });
+  }
 
-  ngOnInit() {
+  @HostListener('window:scroll')
+  onScroll() {
+    if (this.stateInitialized && this.collectionService.listState) {
+      this.collectionService.listState.scrollX = window.scrollX;
+      this.collectionService.listState.scrollY = window.scrollY;
+    }
+  }
+
+  async ngOnInit() {
     this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'figures' || 'games');
+    if (!this.collectionService.listState) {
+      this.collectionService.loadPersistedState();
+    }
     const savedState = this.collectionService.listState;
     if (savedState && savedState.tab === this.currentTab()) {
       this.filters.set({ ...savedState.filters });
       this.displayLimit.set(savedState.displayLimit);
     }
-    this.collectionService.refreshAll();
+    
+    // Refresh data and then attempt to restore scroll position
+    await this.collectionService.refreshAll();
+
+    // We wait for the DOM to catch up with the signal updates
+    setTimeout(() => {
+      const savedState = this.collectionService.listState;
+      
+      const performScroll = () => {
+        if (savedState && savedState.scrollX !== undefined && savedState.scrollY !== undefined) {
+          window.scrollTo({ left: savedState.scrollX, top: savedState.scrollY, behavior: 'instant' as any });
+          // Double scroll after a tiny delay to catch any content-visibility shifts
+          requestAnimationFrame(() => {
+            window.scrollTo({ left: savedState.scrollX!, top: savedState.scrollY!, behavior: 'instant' as any });
+            this.stateInitialized = true;
+          });
+        } else {
+          const position = (this.viewportScroller as any).getRestoredScrollPosition();
+          if (position) {
+            window.scrollTo(position[0], position[1]);
+          }
+          this.stateInitialized = true;
+        }
+      };
+
+      performScroll();
+    }, 400); 
   }
 
   ngAfterViewInit() { this.setupIntersectionObserver(); }
-  ngOnDestroy() { if (this.observer) this.observer.disconnect(); }
+  ngOnDestroy() { 
+    if (this.observer) this.observer.disconnect(); 
+    this.collectionService.persistState();
+  }
 
   setupIntersectionObserver() {
     this.observer = new IntersectionObserver((entries) => { if (entries[0].isIntersecting) this.loadMore(); }, { root: null, rootMargin: '200px', threshold: 0.1 });

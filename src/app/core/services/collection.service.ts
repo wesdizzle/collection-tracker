@@ -29,6 +29,22 @@ export class CollectionService {
     }
   }
 
+  public updateListState(state: ListState) {
+    this.listState = state;
+    this.persistState();
+  }
+
+  public loadPersistedState() {
+    const saved = sessionStorage.getItem('gagglog_list_state');
+    if (saved) {
+      try {
+        this.listState = JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse saved list state', e);
+      }
+    }
+  }
+
   // Core Collection Signals
   private _games = signal<Game[]>([]);
   private _figures = signal<Figure[]>([]);

@@ -91,4 +91,6 @@ export interface ListState {
   tab: 'games' | 'figures';
   filters: FilterState;
   displayLimit: number;
+  scrollX?: number;
+  scrollY?: number;
 }
