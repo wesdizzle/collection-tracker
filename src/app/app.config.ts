@@ -1,4 +1,4 @@
-import { ApplicationConfig, APP_INITIALIZER } from '@angular/core';
+import { ApplicationConfig } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 

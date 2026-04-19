@@ -62,4 +62,49 @@ describe('CollectionService', () => {
     expect(req.request.method).toBe('GET');
     req.flush(mockFigures);
   });
+
+  describe('List State Persistence', () => {
+    beforeEach(() => {
+      sessionStorage.clear();
+    });
+
+    it('should update and persist list state', () => {
+      const mockState = {
+        tab: 'games' as const,
+        filters: { ownership: 'owned' as const },
+        displayLimit: 200,
+        scrollX: 0,
+        scrollY: 500
+      };
+
+      service.updateListState(mockState);
+      expect(service.listState).toEqual(mockState);
+      
+      const saved = sessionStorage.getItem('gagglog_list_state');
+      expect(saved).toBeTruthy();
+      expect(JSON.parse(saved!)).toEqual(mockState);
+    });
+
+    it('should load persisted state from sessionStorage', () => {
+      const mockState = {
+        tab: 'figures' as const,
+        filters: { ownership: 'wanted' as const },
+        displayLimit: 300,
+        scrollX: 0,
+        scrollY: 1000
+      };
+
+      sessionStorage.setItem('gagglog_list_state', JSON.stringify(mockState));
+      service.loadPersistedState();
+      
+      expect(service.listState).toEqual(mockState);
+    });
+
+    it('should handle malformed JSON in sessionStorage', () => {
+      sessionStorage.setItem('gagglog_list_state', 'invalid-json');
+      // Should not throw
+      service.loadPersistedState();
+      expect(service.listState).toBeNull();
+    });
+  });
 });

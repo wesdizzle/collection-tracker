@@ -14,10 +14,12 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
+    "type-check": "tsc --noEmit -p tsconfig.app.json",
     "deploy:db": "npx tsx scripts/deploy_db.ts",
     "deploy": "npm run deploy:db && npm run build && npx wrangler deploy",
     "scrape": "npx tsx scripts/scrape.ts",
-    "scrape:apply": "npx tsx scripts/scrape_apply.ts"
+    "scrape:apply": "npx tsx scripts/scrape_apply.ts",
+    "ci-check": "npm run lint && npm run type-check && npm test"
   },
   "private": true,
   "dependencies": {

@@ -10,6 +10,7 @@ export default tseslint.config(
       'node_modules/**', 
       '.angular/**',
       'scripts/**',    // Local dev helpers - secondary priority
+      'scratch/**',    // Temporary/debug scripts
       '*.js'          // Legacy root test/debug scripts
     ],
   },

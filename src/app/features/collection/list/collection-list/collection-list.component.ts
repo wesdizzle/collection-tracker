@@ -312,17 +312,14 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       
       const performScroll = () => {
         if (savedState && savedState.scrollX !== undefined && savedState.scrollY !== undefined) {
-          window.scrollTo({ left: savedState.scrollX, top: savedState.scrollY, behavior: 'instant' as any });
+          window.scrollTo({ left: savedState.scrollX, top: savedState.scrollY, behavior: 'auto' });
           // Double scroll after a tiny delay to catch any content-visibility shifts
           requestAnimationFrame(() => {
-            window.scrollTo({ left: savedState.scrollX!, top: savedState.scrollY!, behavior: 'instant' as any });
+            window.scrollTo({ left: savedState.scrollX!, top: savedState.scrollY!, behavior: 'auto' });
             this.stateInitialized = true;
           });
         } else {
-          const position = (this.viewportScroller as any).getRestoredScrollPosition();
-          if (position) {
-            window.scrollTo(position[0], position[1]);
-          }
+          // No saved state to restore, just mark as initialized
           this.stateInitialized = true;
         }
       };
