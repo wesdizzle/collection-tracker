@@ -1,13 +1,20 @@
 # Gagglog Collection Tracker
 
-A premium, high-performance collection tracking application built with **Angular 21**.
+A collection tracking application built with **Angular 21**.
 
 ## 🚀 Key Features
 
-- **Immersive UI Architecture**: A modern aesthetic that prioritizes content. Item details are presented directly on the background without redundant container panels.
 - **Durable Metadata**: Deep integration with IGDB for verified game status, genres, and regional data.
 - **Regional Art Overlays**: Intelligent UI that overlays regional markers (e.g., NA, EU, JP) directly onto game art for a clean, consistent look.
 - **Signals-First Architecture**: Leveraging Angular 21 Signals for high-performance state management and reactive delivery.
+
+## 💻 Tech Stack
+
+- **Frontend**: Angular 21 (Signals, Standalone Components)
+- **Styling**: Vanilla CSS with HSL-based design tokens
+- **Build/Test**: Vite & Vitest
+- **Database**: Cloudflare D1 (SQLite-compatible)
+- **Backend**: Cloudflare Workers
 
 ## 🛠️ Architecture & Technical Standards
 
@@ -31,7 +38,23 @@ The application implements a robust manual scroll restoration system to ensure a
 4.  **Launch Frontend**: `npx ng serve`
 5.  **View locally**: `http://localhost:4200/`
 
+### 🔑 Environment Configuration
+
+Create a `.env` file in the root directory with your IGDB credentials:
+```env
+TWITCH_CLIENT_ID=your_client_id
+TWITCH_CLIENT_SECRET=your_client_secret
+```
+
 ## 🛡️ Engineering Standards
 - **In-Code Comments**: All complex logic is thoroughly documented explaining the technical intent.
 - **Colocated Testing**: Unit tests reside alongside the components they validate.
 - **Premium Aesthetics**: Curated HSL palettes and sleek dark modes used throughout the application.
+- **Local CI Validation**: Developers must run `npm run ci-check` before pushing. This script performs Linting, strict Type-Checking, and Unit Testing sequentially.
+
+## 📋 Roadmap
+
+- [ ] **Overhaul Series Handling**: Update series and franchise handling to treat IGDB as authoritative.
+- [ ] **Worker-Side Image Caching**: Implement a KV-based cache for IGDB cover art to reduce external API dependency.
+- [ ] **Automated Watchlists**: Implement a system to watch specific series and automatically surface new releases as 'Wanted'.
+- [ ] **Heuristic Scrubber**: Introduce an automated web-search heuristic to determine physical release status for IGDB games and only track those with physical releases.
