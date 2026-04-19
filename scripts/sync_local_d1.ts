@@ -33,7 +33,7 @@ if (!fs.existsSync(d1StateDir)) {
     try {
         const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
         execSync(`${cmd} wrangler d1 execute collection-db --command="SELECT 1;" --local`, { stdio: 'ignore' });
-    } catch (e) {
+    } catch {
         // Ignored
     }
 }

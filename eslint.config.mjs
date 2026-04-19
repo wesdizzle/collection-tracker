@@ -9,8 +9,7 @@ export default tseslint.config(
       '.wrangler/**', 
       'node_modules/**', 
       '.angular/**',
-      'scripts/**',    // Local dev helpers - secondary priority
-      'scratch/**',    // Temporary/debug scripts
+      'scratch/**',    // Gitignored temporary/debug scripts
       '*.js'          // Legacy root test/debug scripts
     ],
   },

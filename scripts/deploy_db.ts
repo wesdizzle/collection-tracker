@@ -1,7 +1,11 @@
-const Database = require('better-sqlite3');
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+import Database from 'better-sqlite3';
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const dbPath = path.join(__dirname, '..', 'collection.sqlite');
 if (!fs.existsSync(dbPath)) {
@@ -14,7 +18,7 @@ const db = new Database(dbPath);
 console.log('Extracting SQLite parameters natively for Cloudflare synchronization...');
 let sqlDump = 'PRAGMA foreign_keys = OFF;\n\n';
 
-const tables = db.prepare("SELECT name, sql FROM sqlite_master WHERE type='table'").all();
+const tables = db.prepare("SELECT name, sql FROM sqlite_master WHERE type='table'").all() as { name: string; sql: string }[];
 
 for (const table of tables) {
     if (table.name === 'sqlite_sequence' || table.name.startsWith('_')) continue;
@@ -23,13 +27,13 @@ for (const table of tables) {
     sqlDump += `DROP TABLE IF EXISTS ${table.name};\n`;
     sqlDump += table.sql + ';\n';
     
-    const rows = db.prepare(`SELECT * FROM ${table.name}`).all();
+    const rows = db.prepare(`SELECT * FROM ${table.name}`).all() as Record<string, unknown>[];
     
     // Optimised Transaction Batching
     if (rows.length > 0) {
         for (const row of rows) {
-            let cols = Object.keys(row);
-            let vals = Object.values(row).map(v => {
+            const cols = Object.keys(row);
+            const vals = Object.values(row).map(v => {
                 if (v === null) return 'NULL';
                 if (typeof v === 'string') {
                     // Escape single quotes for SQLite
@@ -53,11 +57,10 @@ try {
     console.log('Pushing to Cloudflare D1 (collection-db)...');
     // Using npx with shell:true to handle Windows/Unix differences correctly
     execSync('npx wrangler d1 execute collection-db --remote --file=deploy.sql', { 
-        stdio: 'inherit',
-        shell: true 
+        stdio: 'inherit'
     });
     console.log('Successfully synchronized database to Cloudflare!');
-} catch (error) {
+} catch {
     console.error('Failed to sync database to Cloudflare.');
     process.exit(1);
 }

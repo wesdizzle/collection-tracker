@@ -301,7 +301,9 @@ export class DiscoveryListComponent implements OnInit {
       currentPlatform: item.platform,
       selectedIgdbId: option.id,
       selectedName: option.name,
-      region: 'NA' 
+      region: 'NA',
+      summary: option.summary || undefined,
+      imageUrl: option.image_url || undefined
     };
 
     try {

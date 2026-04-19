@@ -24,7 +24,17 @@ export async function getAmiiboSeries(seriesName: string): Promise<Figure[]> {
             timeout: 10000
         });
         
-        return response.data.amiibo.map((a: any) => ({
+        interface Amiibo {
+            tail: string;
+            name: string;
+            amiiboSeries: string;
+            type: string;
+            image: string;
+            release?: { na?: string };
+        }
+        
+        const data = response.data as { amiibo: Amiibo[] };
+        return data.amiibo.map((a: Amiibo) => ({
             id: a.tail,
             name: a.name,
             line: 'amiibo',
@@ -33,11 +43,13 @@ export async function getAmiiboSeries(seriesName: string): Promise<Figure[]> {
             image_url: a.image,
             release_date: a.release?.na || null
         }));
-    } catch (error: any) {
-        if (error.code === 'ECONNRESET') {
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        const code = (error as { code?: string }).code;
+        if (code === 'ECONNRESET') {
             console.error(`AmiiboAPI: Connection reset for ${seriesName}, skipping...`);
         } else {
-            console.error(`AmiiboAPI Error for ${seriesName}:`, error.message);
+            console.error(`AmiiboAPI Error for ${seriesName}:`, message);
         }
         return [];
     }

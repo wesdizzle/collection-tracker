@@ -70,6 +70,8 @@ export interface DiscoveryPayload {
     selectedIgdbId: string | number;
     selectedName: string;
     region: string;
+    summary?: string;
+    imageUrl?: string;
 }
 
 export interface FilterState {

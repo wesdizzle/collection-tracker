@@ -9,7 +9,6 @@ import worker, { Env } from './worker';
  * This allows us to verify the SQL logic and route handling without 
  * relying on the stability of the Cloudflare test runner/local disk state.
  */
-import { Env } from './worker';
 
 describe('Worker API Logic', () => {
     let mockDb: {

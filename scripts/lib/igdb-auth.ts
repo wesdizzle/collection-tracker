@@ -36,7 +36,7 @@ export async function getAccessToken(): Promise<string> {
             if (cache.expires_at > Date.now()) {
                 return cache.access_token;
             }
-        } catch (e) {
+        } catch {
             console.warn('Malformed IGDB token cache. Refreshing...');
         }
     }
@@ -51,7 +51,8 @@ export async function getAccessToken(): Promise<string> {
             }
         });
 
-        const { access_token, expires_in } = response.data;
+        const data = response.data as { access_token: string; expires_in: number };
+        const { access_token, expires_in } = data;
         const cacheData: TokenCache = {
             access_token,
             expires_at: Date.now() + (expires_in - 60) * 1000 // Buffer of 60 seconds
@@ -59,8 +60,9 @@ export async function getAccessToken(): Promise<string> {
 
         fs.writeFileSync(TOKEN_CACHE_PATH, JSON.stringify(cacheData));
         return access_token;
-    } catch (error: any) {
-        console.error('Failed to get Twitch access token:', error.response?.data || error.message);
+    } catch (error: unknown) {
+        const err = error as { response?: { data?: unknown }; message: string };
+        console.error('Failed to get Twitch access token:', err.response?.data || err.message);
         throw error;
     }
 }

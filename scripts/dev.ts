@@ -7,7 +7,6 @@
  */
 
 import { spawn, execSync, ChildProcess } from 'child_process';
-import * as path from 'path';
 
 /**
  * Spawns a child process with 'inherit' stdio to preserve color/formatting.
@@ -49,7 +48,7 @@ try {
     const syncCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
     console.log('[Sync] Synchronizing local D1 database...');
     execSync(`${syncCommand} tsx scripts/sync_local_d1.ts`, { stdio: 'inherit' });
-} catch (e) {
+} catch {
     console.error('[Sync] Failed. Continuing anyway...');
 }
 

@@ -25,13 +25,13 @@ export interface IGDBGame {
     cover?: IGDBImage;
     first_release_date?: number;
     platforms?: IGDBPlatform[];
-    collection?: any;
+    collection?: { name: string };
     franchises?: { name: string }[];
     genres?: { name: string }[];
     themes?: { name: string }[];
     category?: number;
     version_parent?: number;
-    release_dates?: { region: number }[];
+    release_dates?: { region: number; date: number }[];
     confidence?: number;
 }
 
@@ -49,6 +49,7 @@ export interface NormalizedGame {
     category?: number;
     region: string;
     confidence: number;
+    genres: string | null;
 }
 
 // Map of local platform names to IGDB platform IDs
@@ -110,9 +111,10 @@ export const PLATFORM_MAP: Record<string, number> = {
 };
 
 // Platforms that are primarily physical for historical consoles
-const PHYSICAL_DOMINANT_PLATFORMS = [
-    5, 7, 8, 9, 11, 12, 15, 18, 19, 21, 23, 29, 30, 32, 33, 35, 37, 38, 41, 46, 48, 49, 50, 59, 60, 61, 62, 64, 66, 67, 86, 120, 130, 167, 169
-];
+// NOTE: Kept for reference but commented out to satisfy linter if unused
+// const PHYSICAL_DOMINANT_PLATFORMS = [
+//     5, 7, 8, 9, 11, 12, 15, 18, 19, 21, 23, 29, 30, 32, 33, 35, 37, 38, 41, 46, 48, 49, 50, 59, 60, 61, 62, 64, 66, 67, 86, 120, 130, 167, 169
+// ];
 
 /**
  * REGIONAL OVERRIDES
@@ -142,7 +144,7 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
  * 
  * Performs a raw query against the IGDB API with retries and rate limiting.
  */
-export async function queryIGDB(endpoint: string, query: string): Promise<any[]> {
+export async function queryIGDB(endpoint: string, query: string): Promise<unknown[]> {
     const token = await getAccessToken();
     const maxRetries = 3;
     let attempt = 0;
@@ -160,16 +162,17 @@ export async function queryIGDB(endpoint: string, query: string): Promise<any[]>
             });
             // 500ms delay to safely stay under 4 RPS (targeting 2 RPS)
             await new Promise(resolve => setTimeout(resolve, 500));
-            return response.data;
-        } catch (error: any) {
-            if (error.response?.status === 429) {
+            return response.data as unknown[];
+        } catch (error: unknown) {
+            const err = error as { response?: { status?: number; data?: unknown }; message: string };
+            if (err.response?.status === 429) {
                 attempt++;
                 const delay = Math.pow(2, attempt) * 1000;
                 console.warn(`  Rate limited (429). Retrying in ${delay}ms... (Attempt ${attempt}/${maxRetries})`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
             }
-            console.error(`IGDB Error (${endpoint}):`, error.response?.data || error.message);
+            console.error(`IGDB Error (${endpoint}):`, err.response?.data || err.message);
             return [];
         }
     }
@@ -201,8 +204,8 @@ export async function findGame(title: string, platformId: number): Promise<Norma
 
     try {
         const [searchResults, nameResults] = await Promise.all([
-            queryIGDB('games', searchQuery),
-            queryIGDB('games', nameQuery)
+            queryIGDB('games', searchQuery) as Promise<IGDBGame[]>,
+            queryIGDB('games', nameQuery) as Promise<IGDBGame[]>
         ]);
 
         const results: IGDBGame[] = [...(searchResults || []), ...(nameResults || [])];
@@ -242,77 +245,105 @@ export async function findGame(title: string, platformId: number): Promise<Norma
 
         if (filteredResults.length === 0) return [];
 
-        const normalize = (s: string) => (s || '').toLowerCase()
-            .replace(/[–—]/g, '-')
-            .replace(/&/g, 'and')
-            .replace(/[^a-z0-9+:\-]/g, '') // Preserve +, :, and -
-            .trim();
-        const normTarget = normalize(title);
-
-        return filteredResults.map(game => {
-            // Priority 0: Manual Override
-            let regionCode = REGIONAL_OVERRIDES[game.name] || REGIONAL_OVERRIDES[`igdb-${game.id}`];
-
-            // REGIONAL DATE LOGIC: US (2) -> NA (2) -> WW (8) -> Earliest
-            const allDates = game.release_dates || [];
-            
-            // Priority 1: North America / US (Region 2)
-            let chosenDateObj = allDates.find(d => d.region === 2);
-            if (!regionCode) regionCode = 'NA';
-
-            // Priority 2: Worldwide (Region 8)
-            if (!chosenDateObj) {
-                chosenDateObj = allDates.find(d => d.region === 8);
-                if (chosenDateObj) {
-                    if (regionCode === 'NA') regionCode = 'WW';
-                }
-            }
-
-            // Priority 3: Earliest available
-            if (!chosenDateObj && allDates.length > 0) {
-                chosenDateObj = allDates.reduce((prev, curr) => (prev.date < curr.date ? prev : curr));
-                const regionMap: Record<number, string> = { 1: 'EU', 2: 'NA', 3: 'AU', 4: 'NZ', 5: 'JP', 6: 'CH', 7: 'AS', 8: 'WW' };
-                if (regionCode === 'NA' || regionCode === 'WW') {
-                    regionCode = chosenDateObj.region ? (regionMap[chosenDateObj.region] || 'OT') : 'NA';
-                }
-            }
-
-            const matchedPlatform = game.platforms?.find(p => p.id === Number(platformId));
-            const platformName = matchedPlatform ? matchedPlatform.name : (game.platforms ? game.platforms[0].name : 'Unknown');
-
-            return {
-                id: `igdb-${game.id}`,
-                name: game.name,
-                summary: game.summary,
-                image_url: game.cover ? `https:${game.cover.url.replace('t_thumb', 't_cover_big')}` : null,
-                platform: platformName,
-                platforms: game.platforms || [],
-                platform_ids: (game.platforms || []).map(p => p.id),
-                release_date: chosenDateObj?.date ? new Date(chosenDateObj.date * 1000).toISOString().split('T')[0] : (game.first_release_date ? new Date(game.first_release_date * 1000).toISOString().split('T')[0] : null),
-                collection: game.collection ? (typeof game.collection === 'object' ? game.collection.name : null) : null,
-                franchise: game.franchises ? game.franchises[0].name : null,
-                category: game.category,
-                region: regionCode,
-                confidence: normalize(game.name) === normTarget ? 100 : 50,
-                genres: game.genres ? game.genres.map(g => g.name).join(', ') : null
-            };
-        }).sort((a, b) => b.confidence - a.confidence);
-    } catch (error: any) {
-        console.error('Error finding game:', error.message);
+        return filteredResults.map(game => normalizeIGDBGame(game, title, platformId))
+            .sort((a, b) => b.confidence - a.confidence);
+    } catch (error: unknown) {
+        const err = error as { message: string };
+        console.error('Error finding game:', err.message);
         return null;
     }
 }
 
 /**
+ * Fetches a single game by its IGDB ID.
+ */
+export async function getGameById(igdbId: number, platformId?: number): Promise<NormalizedGame | null> {
+    const query = `
+        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        where id = ${igdbId};
+    `;
+    
+    try {
+        const results = await queryIGDB('games', query) as IGDBGame[];
+        if (!results || results.length === 0) return null;
+        return normalizeIGDBGame(results[0], results[0].name, platformId);
+    } catch (error: unknown) {
+        const err = error as { message: string };
+        console.error('Error fetching game by ID:', err.message);
+        return null;
+    }
+}
+
+/**
+ * UTILITY: Normalizes a raw IGDB game object into our internal format.
+ */
+function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: number): NormalizedGame {
+    const normalizeStr = (s: string) => (s || '').toLowerCase()
+        .replace(/[–—]/g, '-')
+        .replace(/&/g, 'and')
+        .replace(/[^a-z0-9+: -]/g, '')
+        .trim();
+    
+    const normTarget = normalizeStr(targetTitle);
+
+    // Priority 0: Manual Override
+    let regionCode = REGIONAL_OVERRIDES[game.name] || REGIONAL_OVERRIDES[`igdb-${game.id}`];
+
+    // REGIONAL DATE LOGIC: US (2) -> NA (2) -> WW (8) -> Earliest
+    const allDates = game.release_dates || [];
+    
+    // Priority 1: North America / US (Region 2)
+    let chosenDateObj = allDates.find(d => d.region === 2);
+    if (!regionCode) regionCode = 'NA';
+
+    // Priority 2: Worldwide (Region 8)
+    if (!chosenDateObj) {
+        chosenDateObj = allDates.find(d => d.region === 8);
+        if (chosenDateObj) {
+            if (regionCode === 'NA') regionCode = 'WW';
+        }
+    }
+
+    // Priority 3: Earliest available
+    if (!chosenDateObj && allDates.length > 0) {
+        chosenDateObj = allDates.reduce((prev, curr) => (prev.date < curr.date ? prev : curr));
+        const regionMap: Record<number, string> = { 1: 'EU', 2: 'NA', 3: 'AU', 4: 'NZ', 5: 'JP', 6: 'CH', 7: 'AS', 8: 'WW' };
+        if (regionCode === 'NA' || regionCode === 'WW') {
+            regionCode = chosenDateObj.region ? (regionMap[chosenDateObj.region] || 'OT') : 'NA';
+        }
+    }
+
+    const matchedPlatform = game.platforms?.find(p => p.id === Number(platformId));
+    const platformName = matchedPlatform ? matchedPlatform.name : (game.platforms ? game.platforms[0].name : 'Unknown');
+
+    return {
+        id: `igdb-${game.id}`,
+        name: game.name,
+        summary: game.summary,
+        image_url: game.cover ? `https:${game.cover.url.replace('t_thumb', 't_cover_big')}` : null,
+        platform: platformName,
+        platforms: game.platforms || [],
+        platform_ids: (game.platforms || []).map(p => p.id),
+        release_date: chosenDateObj?.date ? new Date(chosenDateObj.date * 1000).toISOString().split('T')[0] : (game.first_release_date ? new Date(game.first_release_date * 1000).toISOString().split('T')[0] : null),
+        collection: game.collection ? (typeof game.collection === 'object' ? game.collection.name : null) : null,
+        franchise: game.franchises ? game.franchises[0].name : null,
+        category: game.category,
+        region: regionCode,
+        confidence: normalizeStr(game.name) === normTarget ? 100 : 50,
+        genres: game.genres ? game.genres.map(g => g.name).join(', ') : null
+    };
+}
+
+/**
  * Fetches all games in a collection (series) by collection ID.
  */
-export async function getCollectionGames(collectionId: number): Promise<any[]> {
+export async function getCollectionGames(collectionId: number): Promise<IGDBGame[]> {
     const query = `
         fields name, platforms.name, first_release_date, cover.url;
         where collection = ${collectionId};
         limit 500;
     `;
-    return queryIGDB('games', query);
+    return queryIGDB('games', query) as Promise<IGDBGame[]>;
 }
 
 /**

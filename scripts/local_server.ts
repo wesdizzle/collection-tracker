@@ -13,6 +13,8 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import Database from 'better-sqlite3';
+import { execSync } from 'child_process';
+import { getGameById, PLATFORM_MAP } from './lib/igdb.js';
 
 // Source of truth local database
 const db = new Database('collection.sqlite');
@@ -111,26 +113,98 @@ const server = http.createServer(async (req, res) => {
          * ROUTE: POST /api/discovery/apply
          */
         else if (req.method === 'POST' && pathname === '/api/discovery/apply') {
-            let body = '';
-            req.on('data', chunk => body += chunk);
-            req.on('end', () => {
-                const { currentTitle, currentPlatform, selectedIgdbId, selectedName, region }: ApplyPayload = JSON.parse(body);
-                const game = db.prepare(`
-                    SELECT g.id FROM games g
-                    JOIN platforms p ON g.platform_id = p.id
-                    WHERE g.title = ? AND p.display_name = ?
-                `).get(currentTitle, currentPlatform) as { id: number } | undefined;
-
-                if (game) {
-                    const cleanId = selectedIgdbId.replace('igdb-', '');
-                    db.prepare('UPDATE games SET title = ?, igdb_id = ?, region = ?, owned = 1 WHERE id = ?')
-                        .run(selectedName, cleanId, region || 'NA', game.id);
-                    res.end(JSON.stringify({ success: true }));
-                } else {
-                    res.statusCode = 404;
-                    res.end(JSON.stringify({ error: 'Local game not found' }));
-                }
+            const body = await new Promise<string>((resolve, reject) => {
+                let data = '';
+                req.on('data', chunk => data += chunk);
+                req.on('end', () => resolve(data));
+                req.on('error', err => reject(err));
             });
+
+            const { currentTitle, currentPlatform, selectedIgdbId, selectedName, region }: ApplyPayload = JSON.parse(body);
+            
+            // 1. Fetch Full Metadata from IGDB
+            let summary: string | null = null;
+            let imageUrl: string | null = null;
+            let genres: string | null = null;
+            let finalName = selectedName;
+            const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
+
+            try {
+                const igdbPlatformId = PLATFORM_MAP[currentPlatform];
+                const igdbData = await getGameById(Number(finalIgdbId), igdbPlatformId);
+                
+                if (igdbData) {
+                    summary = igdbData.summary || null;
+                    imageUrl = igdbData.image_url || null;
+                    genres = igdbData.genres || null;
+                    finalName = igdbData.name; // Use canonical name from IGDB
+                }
+            } catch (igdbErr) {
+                console.error('Failed to fetch rich metadata from IGDB:', igdbErr);
+                // Fallback to what we have in the payload
+            }
+
+            // 2. Update the Local SQLite Source-of-Truth
+            const game = db.prepare(`
+                SELECT g.id FROM games g
+                JOIN platforms p ON g.platform_id = p.id
+                WHERE (g.title = ? OR g.title = ?) AND p.display_name = ?
+            `).get(currentTitle, finalName, currentPlatform) as { id: number } | undefined;
+
+            if (game) {
+                db.prepare(`
+                    UPDATE games 
+                    SET title = ?, igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ?, owned = 1 
+                    WHERE id = ?
+                `).run(finalName, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
+                
+                console.log(`Matched: ${currentTitle} -> ${finalName} (ID: ${finalIgdbId}) with full metadata.`);
+
+                // 2. Sync to Local D1 Instance (important for frontend preview)
+                try {
+                    const syncCmd = process.platform === 'win32' ? 'npm.cmd run sync-db' : 'npm run sync-db';
+                    execSync(syncCmd, { stdio: 'inherit' });
+                    console.log('Successfully synced to Local D1.');
+                } catch (syncErr) {
+                    console.error('D1 Sync Error:', syncErr);
+                }
+
+                // 3. Force Checkpoint (merges WAL into main sqlite file so user sees timestamp update)
+                try {
+                    db.pragma('wal_checkpoint(FULL)');
+                    console.log('Database checkpoint completed.');
+                } catch (checkpointErr) {
+                    console.error('Checkpoint Error:', checkpointErr);
+                }
+
+                // 3. Update Discovery Report (Remove matched item)
+                try {
+                    const reportPath = path.join(process.cwd(), 'discovery_report.md');
+                    if (fs.existsSync(reportPath)) {
+                        const content = fs.readFileSync(reportPath, 'utf8');
+                        const sections = content.split('\n### ');
+                        
+                        // Keep the first section (header) and filter out the matched one
+                        const header = sections[0];
+                        const remainingSections = sections.slice(1).filter(section => {
+                            const headerLine = section.split('\n')[0];
+                            const targetHeader = `${currentTitle} (${currentPlatform})`;
+                            return headerLine.trim() !== targetHeader.trim();
+                        });
+
+                        const newContent = [header, ...remainingSections].join('\n### ');
+                        fs.writeFileSync(reportPath, newContent, 'utf8');
+                        console.log('Updated discovery_report.md');
+                    }
+                } catch (reportErr) {
+                    console.error('Report Update Error:', reportErr);
+                }
+
+                res.end(JSON.stringify({ success: true }));
+            } else {
+                res.statusCode = 404;
+                res.end(JSON.stringify({ error: `Local game not found: "${currentTitle}" on "${currentPlatform}"` }));
+            }
         }
 
         /**
@@ -156,7 +230,7 @@ const server = http.createServer(async (req, res) => {
         // GET /api/games
         else if (req.method === 'GET' && pathname === '/api/games') {
             const platformId = url.searchParams.get('platform');
-            const params: any[] = [];
+            const params: unknown[] = [];
             let query = `
                 SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date, p.image_url as platform_logo
                 FROM games g 
@@ -220,10 +294,11 @@ const server = http.createServer(async (req, res) => {
             res.end(JSON.stringify({ error: 'Route not found locally' }));
         }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error('Server Logic Error:', e);
         res.statusCode = 500;
-        res.end(JSON.stringify({ error: e.message }));
+        const message = e instanceof Error ? e.message : 'Unknown error';
+        res.end(JSON.stringify({ error: message }));
     }
 });
 

@@ -14,7 +14,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
-    "type-check": "tsc --noEmit -p tsconfig.app.json",
+    "type-check": "tsc --noEmit",
     "deploy:db": "npx tsx scripts/deploy_db.ts",
     "deploy": "npm run deploy:db && npm run build && npx wrangler deploy",
     "scrape": "npx tsx scripts/scrape.ts",
