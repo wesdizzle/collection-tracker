@@ -73,7 +73,7 @@ async function runScraper(): Promise<void> {
     const existingGames = db.prepare(`
         SELECT g.*, p.igdb_id as platform_igdb_id, p.display_name as platform_display_name
         FROM games g
-        LEFT JOIN platforms p ON g.platform = p.display_name
+        LEFT JOIN platforms p ON g.platform_id = p.id
     `).all() as GameRecord[];
 
     console.log(`Processing ${existingGames.length} collection items...`);
@@ -106,7 +106,7 @@ async function runScraper(): Promise<void> {
             if (normLocal === normIgdb) {
                 db.prepare(`
                     UPDATE games 
-                    SET title = ?, igdb_id = ?, region_chosen = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0
+                    SET title = ?, igdb_id = ?, region = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0
                     WHERE id = ?
                 `).run(
                     bestMatch.name,

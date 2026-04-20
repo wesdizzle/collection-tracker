@@ -232,9 +232,10 @@ export async function findGame(title: string, platformId: number): Promise<Norma
 
             const hackKeywords = [
                 ' hack:', ' hack)', ' hack!', ' hack\n',
-                'level hack', 'graphics mod', 'translation', 'patched',
+                'level hack', 'translation', 'patched',
                 'fan-made', 'fanmade', 'fan project', 'unofficial',
-                'rom hack', 'romhack'
+                'rom hack', 'romhack', ' graphics mod ', ' graphics mod:',
+                ' a mod for ', ' this mod ', ' modded ', ' mod:', ' mod)'
             ];
             
             const isHack = hackKeywords.some(kw => lowerName.includes(kw) || lowerSummary.includes(kw));
