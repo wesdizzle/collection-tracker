@@ -154,7 +154,7 @@ const server = http.createServer(async (req, res) => {
             if (game) {
                 db.prepare(`
                     UPDATE games 
-                    SET title = ?, igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ?, owned = 1 
+                    SET title = ?, igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
                     WHERE id = ?
                 `).run(finalName, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
                 

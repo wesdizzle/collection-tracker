@@ -4,7 +4,7 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "dev": "npx tsx scripts/dev.ts",
+    "dev": "tsx scripts/dev.ts",
     "sync-db": "npx tsx scripts/sync_local_d1.ts",
     "local-api": "npx tsx scripts/local_server.ts",
     "build": "ng build",

@@ -17,16 +17,10 @@ import { spawn, execSync, ChildProcess } from 'child_process';
 function startProcess(name: string, command: string, args: string[]): ChildProcess {
     console.log(`[${name}] Starting: ${command} ${args.join(' ')}`);
     
-    let resolvedCommand = command;
-    if (process.platform === 'win32') {
-        if (command === 'npx') resolvedCommand = 'npx.cmd';
-        if (command === 'npm') resolvedCommand = 'npm.cmd';
-    }
-
-    const proc = spawn(resolvedCommand, args, { 
-        stdio: 'inherit', 
-        shell: true
-    });
+    const isWin = process.platform === 'win32';
+    const proc = isWin 
+        ? spawn('cmd.exe', ['/c', `${command} ${args.join(' ')}`], { stdio: 'inherit' })
+        : spawn(command, args, { stdio: 'inherit', shell: true });
     
     proc.on('error', (err) => {
         console.error(`[${name}] Spawn error: ${err.message}`);
@@ -45,19 +39,24 @@ console.log('--- Initializing Hybrid Development Environment ---');
  * STEP 1: Database Synchronization
  */
 try {
-    const syncCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
     console.log('[Sync] Synchronizing local D1 database...');
-    execSync(`${syncCommand} tsx scripts/sync_local_d1.ts`, { stdio: 'inherit' });
-} catch {
-    console.error('[Sync] Failed. Continuing anyway...');
+    const isWin = process.platform === 'win32';
+    if (isWin) {
+        execSync(`cmd.exe /c npx.cmd tsx scripts/sync_local_d1.ts`, { stdio: 'inherit' });
+    } else {
+        execSync(`npx tsx scripts/sync_local_d1.ts`, { stdio: 'inherit', shell: true } as any);
+    }
+} catch (e) {
+    console.error('[Sync] Failed. Continuing anyway...', e);
 }
 
 /**
  * STEP 2: Parallel Server Launch
  */
+const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const processes: ChildProcess[] = [
-    startProcess('API Proxy', 'npx', ['tsx', 'scripts/local_server.ts']),
-    startProcess('Frontend ', 'npx', ['ng', 'serve'])
+    startProcess('API Proxy', cmd, ['tsx', 'scripts/local_server.ts']),
+    startProcess('Frontend ', cmd, ['ng', 'serve'])
 ];
 
 
