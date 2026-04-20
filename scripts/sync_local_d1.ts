@@ -32,6 +32,7 @@ if (!fs.existsSync(d1StateDir)) {
     console.log('Wrangler state directory not found. Initializing with a dummy query...');
     try {
         const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         execSync(`${cmd} wrangler d1 execute collection-db --command="SELECT 1;" --local`, { stdio: 'ignore', shell: true } as any);
     } catch {
         // Ignored

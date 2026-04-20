@@ -44,6 +44,7 @@ try {
     if (isWin) {
         execSync(`cmd.exe /c npx.cmd tsx scripts/sync_local_d1.ts`, { stdio: 'inherit' });
     } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         execSync(`npx tsx scripts/sync_local_d1.ts`, { stdio: 'inherit', shell: true } as any);
     }
 } catch (e) {
