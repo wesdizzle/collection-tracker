@@ -1,6 +1,6 @@
 import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, RouterModule } from '@angular/router';
+import { ActivatedRoute, RouterModule, Router } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { Game, Figure, Platform } from '../../../../core/models/collection.models';
 import { switchMap } from 'rxjs/operators';
@@ -59,8 +59,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
             
             <div class="hero-content">
               <h1 class="item-title text-gradient">{{ (game()?.title) || (figure()?.name) || (platform()?.name) }}</h1>
-              @if (game()?.series || figure()?.series_name) {
-                <p class="item-series">{{ game()?.series || figure()?.series_name }}</p>
+              @if (type() === 'figure' && figure()?.series_name) {
+                <p class="item-series">{{ figure()?.series_name }}</p>
               }
 
               @if (game(); as g) {
@@ -92,6 +92,26 @@ import { toSignal } from '@angular/core/rxjs-interop';
                     <span class="label">Family</span>
                     <span class="value">{{ g.brand || 'Original' }}</span>
                   </div>
+                  @if (g.collections) {
+                    <div class="meta-box full-width">
+                      <span class="label">Series</span>
+                      <span class="value">
+                        @for (col of g.collections.split(','); track col) {
+                          <a class="meta-link" (click)="filterByCollection(col.trim())">{{ col.trim() }}</a>
+                        }
+                      </span>
+                    </div>
+                  }
+                  @if (g.franchises) {
+                    <div class="meta-box full-width">
+                      <span class="label">Franchises</span>
+                      <span class="value">
+                        @for (fran of g.franchises.split(','); track fran) {
+                          <a class="meta-link" (click)="filterByFranchise(fran.trim())">{{ fran.trim() }}</a>
+                        }
+                      </span>
+                    </div>
+                  }
                 }
               </div>
             </div>
@@ -233,6 +253,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 2rem;
       padding-top: 2rem;
+      padding-bottom: 1.5rem;
       border-top: none !important; /* Explicitly remove any divider */
     }
 
@@ -251,6 +272,15 @@ import { toSignal } from '@angular/core/rxjs-interop';
       font-weight: 600;
       color: #fff;
     }
+
+    .meta-box.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .meta-link { cursor: pointer; color: var(--accent-color); transition: color 0.2s; }
+    .meta-link:hover { color: var(--accent-fuchsia); text-decoration: underline; }
+    .meta-link:not(:last-child)::after { content: ','; color: #fff; display: inline-block; text-decoration: none; margin-right: 0.1rem; cursor: default; }
+    .meta-link:hover::after { text-decoration: none; }
 
     .mini-logo {
       height: 1.25rem;
@@ -288,6 +318,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 })
 export class ItemDetailComponent {
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private collectionService = inject(CollectionService);
   
   public type = toSignal(this.route.paramMap.pipe(switchMap(p => [p.get('type') || ''])), { initialValue: '' });
@@ -312,4 +343,32 @@ export class ItemDetailComponent {
   public game = computed(() => this.type() === 'game' ? this.item() as Game : null);
   public figure = computed(() => this.type() === 'figure' ? this.item() as Figure : null);
   public platform = computed(() => this.type() === 'platform' ? this.item() as Platform : null);
+
+  filterByCollection(col: string) {
+    if (this.collectionService.listState) {
+      this.collectionService.listState.filters.collection = col;
+      this.collectionService.persistState();
+    } else {
+      this.collectionService.updateListState({
+        tab: 'games',
+        filters: { ownership: 'all', collection: col },
+        displayLimit: 100
+      });
+    }
+    this.router.navigate(['/collection', 'games']);
+  }
+
+  filterByFranchise(fran: string) {
+    if (this.collectionService.listState) {
+      this.collectionService.listState.filters.franchise = fran;
+      this.collectionService.persistState();
+    } else {
+      this.collectionService.updateListState({
+        tab: 'games',
+        filters: { ownership: 'all', franchise: fran },
+        displayLimit: 100
+      });
+    }
+    this.router.navigate(['/collection', 'games']);
+  }
 }

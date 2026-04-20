@@ -106,7 +106,7 @@ async function runScraper(): Promise<void> {
             if (normLocal === normIgdb) {
                 db.prepare(`
                     UPDATE games 
-                    SET title = ?, igdb_id = ?, region = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0
+                    SET title = ?, igdb_id = ?, region = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0, collections = ?, franchises = ?
                     WHERE id = ?
                 `).run(
                     bestMatch.name,
@@ -115,6 +115,8 @@ async function runScraper(): Promise<void> {
                     bestMatch.summary || null,
                     bestMatch.genres || null,
                     bestMatch.image_url,
+                    bestMatch.collections,
+                    bestMatch.franchises,
                     game.id
                 );
                 console.log(`Matched! [ID: ${bestMatch.id}]`);

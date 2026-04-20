@@ -25,8 +25,8 @@ export interface IGDBGame {
     cover?: IGDBImage;
     first_release_date?: number;
     platforms?: IGDBPlatform[];
-    collection?: { name: string };
-    franchises?: { name: string }[];
+    collections?: { id: number; name: string }[];
+    franchises?: { id: number; name: string }[];
     genres?: { name: string }[];
     themes?: { name: string }[];
     category?: number;
@@ -44,8 +44,8 @@ export interface NormalizedGame {
     platforms: IGDBPlatform[];
     platform_ids: number[];
     release_date: string | null;
-    collection: string | null;
-    franchise: string | null;
+    collections: string | null;
+    franchises: string | null;
     category?: number;
     region: string;
     confidence: number;
@@ -190,14 +190,14 @@ export async function findGame(title: string, platformId: number): Promise<Norma
     const cleanTitle = title.replace(/[–—]/g, '-').replace(/[":()]/g, '').trim();
 
     const searchQuery = `
-        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         search "${cleanTitle.replace(/"/g, '')}";
         ${platformFilter ? `where platforms = (${platformId});` : ''}
         limit 50;
     `;
 
     const nameQuery = `
-        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
         limit 50;
     `;
@@ -260,7 +260,7 @@ export async function findGame(title: string, platformId: number): Promise<Norma
  */
 export async function getGameById(igdbId: number, platformId?: number): Promise<NormalizedGame | null> {
     const query = `
-        fields name, summary, cover.url, first_release_date, platforms.name, collection.name, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         where id = ${igdbId};
     `;
     
@@ -320,8 +320,8 @@ function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: num
         platforms: game.platforms || [],
         platform_ids: (game.platforms || []).map(p => p.id),
         release_date: chosenDateObj?.date ? new Date(chosenDateObj.date * 1000).toISOString().split('T')[0] : (game.first_release_date ? new Date(game.first_release_date * 1000).toISOString().split('T')[0] : null),
-        collection: game.collection ? (typeof game.collection === 'object' ? game.collection.name : null) : null,
-        franchise: game.franchises ? game.franchises[0].name : null,
+        collections: game.collections ? game.collections.map(c => c.name).join(', ') : null,
+        franchises: game.franchises ? game.franchises.map(f => f.name).join(', ') : null,
         category: game.category,
         region: regionCode,
         confidence: normalizeStr(game.name) === normTarget ? 100 : 50,
@@ -335,7 +335,7 @@ function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: num
 export async function getCollectionGames(collectionId: number): Promise<IGDBGame[]> {
     const query = `
         fields name, platforms.name, first_release_date, cover.url;
-        where collection = ${collectionId};
+        where collections = (${collectionId});
         limit 500;
     `;
     return queryIGDB('games', query) as Promise<IGDBGame[]>;

@@ -22,6 +22,8 @@ export interface Game {
     image_url: string;
     summary?: string;
     genres?: string;
+    collections?: string;
+    franchises?: string;
     brand?: string;
     platform_launch_date?: string;
     platform_logo?: string;
@@ -82,6 +84,8 @@ export interface FilterState {
   line?: string;
   type?: string;
   series?: string;
+  collection?: string;
+  franchise?: string;
 }
 
 export interface PlatformGroup {
