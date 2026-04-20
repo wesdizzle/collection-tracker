@@ -34,7 +34,8 @@ describe('Worker API Logic', () => {
                 display_name TEXT, 
                 brand TEXT, 
                 launch_date DATE, 
-                parent_platform_id INTEGER
+                parent_platform_id INTEGER,
+                image_url TEXT
             );
             CREATE TABLE games (
                 stable_id INTEGER PRIMARY KEY, 

@@ -19,7 +19,7 @@ function startProcess(name: string, command: string, args: string[]): ChildProce
     
     const isWin = process.platform === 'win32';
     const proc = isWin 
-        ? spawn('cmd.exe', ['/c', `${command} ${args.join(' ')}`], { stdio: 'inherit' })
+        ? spawn('cmd.exe', ['/c', command, ...args], { stdio: 'inherit' })
         : spawn(command, args, { stdio: 'inherit', shell: true });
     
     proc.on('error', (err) => {
@@ -41,12 +41,8 @@ console.log('--- Initializing Hybrid Development Environment ---');
 try {
     console.log('[Sync] Synchronizing local D1 database...');
     const isWin = process.platform === 'win32';
-    if (isWin) {
-        execSync(`cmd.exe /c npx.cmd tsx scripts/sync_local_d1.ts`, { stdio: 'inherit' });
-    } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        execSync(`npx tsx scripts/sync_local_d1.ts`, { stdio: 'inherit', shell: true } as any);
-    }
+    const syncCmd = isWin ? 'npm.cmd run sync-db' : 'npm run sync-db';
+    execSync(syncCmd, { stdio: 'inherit' });
 } catch (e) {
     console.error('[Sync] Failed. Continuing anyway...', e);
 }
@@ -54,10 +50,10 @@ try {
 /**
  * STEP 2: Parallel Server Launch
  */
-const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const processes: ChildProcess[] = [
-    startProcess('API Proxy', cmd, ['tsx', 'scripts/local_server.ts']),
-    startProcess('Frontend ', cmd, ['ng', 'serve'])
+    startProcess('API Proxy', cmd, ['run', 'local-api']),
+    startProcess('Frontend ', cmd, ['start'])
 ];
 
 

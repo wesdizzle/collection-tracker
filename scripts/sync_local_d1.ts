@@ -83,12 +83,22 @@ console.log(`Found ${d1Targets.length} potential D1 database target(s). Synchron
  * We perform a file-level copy.
  */
 for (const targetPath of d1Targets) {
-    console.log(`Copying ${sourcePath} to ${targetPath}...`);
-    // Before copying, ensure it's a file. If it were a directory, copyFileSync would fail.
-    if (fs.statSync(targetPath).isDirectory()) {
-        console.error(`Error: Target ${targetPath} is a directory. Skipping.`);
-        continue;
+    // 1. Create a backup of the existing D1 state if it exists
+    try {
+        const backupDir = path.join(process.cwd(), 'backups');
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir);
+        
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const dbName = path.basename(targetPath, '.sqlite');
+        const backupPath = path.join(backupDir, `${dbName}_${timestamp}.sqlite.bak`);
+        
+        fs.copyFileSync(targetPath, backupPath);
+        console.log(`[Backup] Saved existing D1 state to: ${path.relative(process.cwd(), backupPath)}`);
+    } catch (e) {
+        console.warn(`[Backup] Failed to create backup of ${targetPath}:`, e);
     }
+
+    // 2. Perform the synchronization
     fs.copyFileSync(sourcePath, targetPath);
 }
 

@@ -278,12 +278,6 @@ export async function getGameById(igdbId: number, platformId?: number): Promise<
  * UTILITY: Normalizes a raw IGDB game object into our internal format.
  */
 function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: number): NormalizedGame {
-    const normalizeStr = (s: string) => (s || '').toLowerCase()
-        .replace(/[–—]/g, '-')
-        .replace(/&/g, 'and')
-        .replace(/[^a-z0-9+: -]/g, '')
-        .trim();
-    
     const normTarget = normalizeStr(targetTitle);
 
     // Priority 0: Manual Override
@@ -344,6 +338,19 @@ export async function getCollectionGames(collectionId: number): Promise<IGDBGame
         limit 500;
     `;
     return queryIGDB('games', query) as Promise<IGDBGame[]>;
+}
+
+/**
+ * UTILITY: normalizeStr
+ * 
+ * Simple normalization for basic string comparison.
+ */
+export function normalizeStr(s: string): string {
+    return (s || '').toLowerCase()
+        .replace(/[–—]/g, '-')
+        .replace(/&/g, 'and')
+        .replace(/[^a-z0-9+: -]/g, '')
+        .trim();
 }
 
 /**
