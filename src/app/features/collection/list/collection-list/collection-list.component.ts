@@ -140,37 +140,32 @@ interface GameGroup {
     }
 
     .platform-logo-frame {
-      width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
-      background: rgba(255, 255, 255, 0.05); border-radius: 8px; border: 1px solid var(--glass-border);
-      padding: 0.25rem;
+      width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+      background: rgba(255, 255, 255, 0.05); border-radius: 6px; border: 1px solid var(--glass-border);
+      padding: 0.2rem;
     }
 
     .platform-logo { max-width: 100%; max-height: 100%; object-fit: contain; }
-    .platform-logo-placeholder { font-weight: 800; color: var(--accent-color); font-size: 1.25rem; }
-    .platform-title { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; color: #f8fafc; }
+    .platform-logo-placeholder { font-weight: 800; color: var(--accent-color); font-size: 1rem; }
+    .platform-title { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.01em; color: #f8fafc; }
     .platform-divider { flex: 1; height: 1px; background: linear-gradient(90deg, var(--glass-border), transparent); }
-    .group-count { font-size: 0.75rem; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .group-count { font-size: 0.7rem; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
 
     .badge.played-badge { background: rgba(34, 197, 94, 0.15); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
     
-    .metadata-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 2rem;
-      padding-top: 2rem;
-      border: none !important;
-      outline: none !important;
+    .grid { 
+      display: grid; 
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); 
+      gap: 1rem; 
     }
-    
-    .genre-cloud {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      padding-bottom: 0.5rem;
-      border: none !important;
+
+    @media (max-width: 400px) {
+      .grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
+      }
     }
-    
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 1.25rem; }
+
     .card-art-frame { width: 100%; aspect-ratio: 3/4; background: rgba(0,0,0,0.2); overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; }
     .card-art { width: 100%; height: 100%; object-fit: cover; transition: none; }
     

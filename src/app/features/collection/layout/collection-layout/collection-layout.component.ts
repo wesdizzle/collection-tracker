@@ -28,7 +28,7 @@ import { CollectionService } from '../../../../core/services/collection.service'
           <svg viewBox="0 0 24 24" class="github-icon">
             <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
           </svg>
-          <span class="git-text">GitHub</span>
+          <span class="git-text mobile-hidden">GitHub</span>
         </a>
       </header>
     
@@ -46,7 +46,7 @@ import { CollectionService } from '../../../../core/services/collection.service'
     .layout-container {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 2rem 1rem;
+      padding: var(--container-padding);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -56,28 +56,29 @@ import { CollectionService } from '../../../../core/services/collection.service'
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 1.5rem;
-      flex-wrap: wrap;
-      margin-bottom: 3rem;
+      gap: 1rem;
+      flex-wrap: nowrap;
+      margin-bottom: 2rem;
     }
 
     .brand-link {
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 0.75rem;
       text-decoration: none;
       padding: 0.25rem 0;
       text-shadow: none !important;
+      flex-shrink: 0;
     }
 
 
     .brand-icon {
-      width: 42px;
-      height: 42px;
+      width: 40px;
+      height: 40px;
     }
 
     .brand-title {
-      font-size: 2.25rem;
+      font-size: 2rem;
       font-weight: 700;
       letter-spacing: -0.02em;
       margin: 0;
@@ -95,9 +96,13 @@ import { CollectionService } from '../../../../core/services/collection.service'
 
     .main-nav {
       display: flex;
-      gap: 0.5rem;
-      padding: 0.35rem;
+      gap: 0.25rem;
+      padding: 0.25rem;
+      overflow-x: auto;
+      scrollbar-width: none;
     }
+    
+    .main-nav::-webkit-scrollbar { display: none; }
 
     .bg-glass {
       background: rgba(30, 41, 59, 0.4);
@@ -110,13 +115,15 @@ import { CollectionService } from '../../../../core/services/collection.service'
       background: transparent;
       border: none;
       color: var(--text-secondary);
-      padding: 0.5rem 1.25rem;
+      padding: 0.5rem 1rem;
       border-radius: 8px;
       cursor: pointer;
       font-family: var(--font-body);
       font-weight: 600;
       text-decoration: none;
       transition: all 0.2s ease;
+      white-space: nowrap;
+      font-size: 0.9rem;
     }
 
     .nav-btn:hover:not(.active) {
@@ -136,8 +143,8 @@ import { CollectionService } from '../../../../core/services/collection.service'
     }
 
     .main-footer {
-      margin-top: 5rem;
-      padding: 2.5rem 0;
+      margin-top: 4rem;
+      padding: 2rem 0;
       text-align: center;
     }
 
@@ -162,8 +169,9 @@ import { CollectionService } from '../../../../core/services/collection.service'
       text-decoration: none;
       font-size: 0.875rem;
       transition: all 0.2s;
-      padding: 0.5rem 1rem;
+      padding: 0.5rem;
       border-radius: 8px;
+      flex-shrink: 0;
     }
 
     .header-git {
@@ -178,51 +186,29 @@ import { CollectionService } from '../../../../core/services/collection.service'
     }
 
     .github-icon {
-      width: 1.1rem;
-      height: 1.1rem;
+      width: 1.25rem;
+      height: 1.25rem;
       fill: currentColor;
     }
 
-    @media (max-width: 900px) {
+    @media (max-width: 600px) {
       .main-header {
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        gap: 1.5rem;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
       }
       .brand-title {
-        font-size: 2rem;
-      }
-      .main-nav {
-        width: 100%;
-        max-width: 400px;
-        justify-content: center;
-        order: 2;
-      }
-      .header-git {
-        order: 3;
-        margin-top: 0.5rem;
-      }
-    }
-
-    @media (max-width: 480px) {
-      .brand-title {
-        font-size: 1.75rem;
+        font-size: 1.5rem;
       }
       .brand-icon {
-        width: 36px;
-        height: 36px;
-      }
-      .main-nav {
-        flex-direction: column;
-        gap: 0.5rem;
-        background: transparent;
-        border: none;
-        backdrop-filter: none;
+        width: 32px;
+        height: 32px;
       }
       .nav-btn {
-        width: 100%;
-        background: rgba(255,255,255,0.03);
+        padding: 0.4rem 0.75rem;
+        font-size: 0.85rem;
+      }
+      .github-link {
+        padding: 0.4rem;
       }
     }
   `]

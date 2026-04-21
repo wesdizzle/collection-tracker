@@ -131,17 +131,33 @@ import { toSignal } from '@angular/core/rxjs-interop';
     .pb-xl { padding-bottom: 5rem; }
     .details-nav {
       margin-top: 1rem;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }
+
+    .back-link {
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .back-link:hover {
+      color: var(--accent-fuchsia);
+    }
+
+    .quick-stats {
+      flex-wrap: wrap;
+      justify-content: flex-start;
     }
 
     .stat-pill {
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      padding: 0.4rem 1rem;
+      padding: 0.4rem 0.85rem;
       border-radius: 20px;
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid var(--glass-border);
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 600;
       color: var(--text-secondary);
       transition: all 0.3s;
@@ -170,13 +186,15 @@ import { toSignal } from '@angular/core/rxjs-interop';
     .hero-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 3rem;
-      align-items: center;
+      gap: 2rem;
+      align-items: flex-start;
     }
 
     @media (min-width: 1024px) {
       .hero-grid {
         grid-template-columns: 320px 1fr;
+        gap: 3rem;
+        align-items: center;
       }
     }
 
@@ -187,6 +205,14 @@ import { toSignal } from '@angular/core/rxjs-interop';
       box-shadow: 0 10px 50px rgba(0,0,0,0.7), 0 0 30px rgba(96, 165, 250, 0.2);
       border: 1px solid rgba(255, 255, 255, 0.15);
       position: relative;
+      max-width: 320px;
+      margin: 0 auto;
+    }
+
+    @media (min-width: 1024px) {
+      .art-frame {
+        margin: 0;
+      }
     }
 
     .region-overlay {
@@ -217,6 +243,15 @@ import { toSignal } from '@angular/core/rxjs-interop';
       letter-spacing: -0.02em;
     }
 
+    @media (max-width: 768px) {
+      .item-title {
+        font-size: 2.25rem;
+      }
+      .item-series {
+        font-size: 1.1rem;
+      }
+    }
+
     .item-series {
       font-size: 1.5rem;
       color: var(--text-secondary);
@@ -241,11 +276,11 @@ import { toSignal } from '@angular/core/rxjs-interop';
 
     .metadata-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 2rem;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1.5rem;
       padding-top: 2rem;
       padding-bottom: 1.5rem;
-      border-top: none !important; /* Explicitly remove any divider */
+      border-top: none !important;
     }
 
     .meta-box .label {

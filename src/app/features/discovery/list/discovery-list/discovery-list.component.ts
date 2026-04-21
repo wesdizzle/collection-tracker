@@ -95,29 +95,31 @@ import { RouterModule } from '@angular/router';
     .discovery-header {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
+      align-items: center;
       gap: 1.5rem;
+      flex-wrap: wrap;
     }
 
     .status-card {
-      padding: 1rem 2rem;
+      padding: 0.75rem 1.5rem;
       text-align: center;
       display: flex;
       flex-direction: column;
       border-color: var(--accent-light);
       box-shadow: 0 4px 20px var(--accent-glow);
+      min-width: 140px;
     }
 
     .status-label {
-      font-size: 0.75rem;
+      font-size: 0.65rem;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--text-secondary);
-      margin-bottom: 0.25rem;
+      margin-bottom: 0.15rem;
     }
 
     .status-count {
-      font-size: 2rem;
+      font-size: 1.5rem;
       font-weight: 800;
       color: var(--accent-light);
       line-height: 1;
@@ -125,12 +127,23 @@ import { RouterModule } from '@angular/router';
 
     .info-banner {
       flex: 1;
+      min-width: 280px;
     }
 
     .discovery-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.25rem;
+    }
+
+    @media (max-width: 480px) {
+      .discovery-grid {
+        grid-template-columns: 1fr;
+      }
+      .discovery-card {
+        height: auto;
+        max-height: 550px;
+      }
     }
 
     .discovery-card {
