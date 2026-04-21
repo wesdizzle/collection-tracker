@@ -1,5 +1,6 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
+import { CollectionService } from '../../../../core/services/collection.service';
 
 @Component({
   selector: 'app-collection-layout',
@@ -8,10 +9,12 @@ import { RouterModule } from '@angular/router';
   template: `
     <div class="layout-container animate-fade-in">
       <header class="main-header">
-        <div class="header-content">
-          <h1 class="brand-title text-gradient">Gagglog Collection Tracker</h1>
-          <p class="brand-subtitle">Games and Figures</p>
-        </div>
+        <a routerLink="/collection/games" class="brand-link">
+          <img src="/favicon.svg" alt="Gagglog Icon" class="brand-icon">
+          <div class="brand-content">
+            <h1 class="brand-title text-gradient">Gagglog</h1>
+          </div>
+        </a>
         <nav class="main-nav bg-glass">
           <a routerLink="/collection/games" routerLinkActive="active" class="nav-btn">Games</a>
           <a routerLink="/collection/figures" routerLinkActive="active" class="nav-btn">Figures</a>
@@ -55,28 +58,44 @@ import { RouterModule } from '@angular/router';
       align-items: center;
       gap: 1.5rem;
       flex-wrap: wrap;
-      margin-bottom: 2.5rem;
+      margin-bottom: 3rem;
+    }
+
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      text-decoration: none;
+      padding: 0.25rem 0;
+      text-shadow: none !important;
+    }
+
+
+    .brand-icon {
+      width: 42px;
+      height: 42px;
     }
 
     .brand-title {
-      font-size: 2.5rem;
+      font-size: 2.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
       margin: 0;
-    }
-
-    .brand-subtitle {
-      color: var(--text-secondary);
-      margin-top: 0.5rem;
+      line-height: 1.2;
+      display: flex;
+      align-items: center;
+      text-shadow: none !important;
     }
 
     .text-gradient {
-      background: linear-gradient(135deg, #fff, #94a3b8);
+      background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
     .main-nav {
       display: flex;
-      gap: 1rem;
+      gap: 0.5rem;
       padding: 0.35rem;
     }
 
@@ -84,7 +103,7 @@ import { RouterModule } from '@angular/router';
       background: rgba(30, 41, 59, 0.4);
       border-radius: 12px;
       border: 1px solid var(--glass-border);
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(12px);
     }
 
     .nav-btn {
@@ -95,9 +114,9 @@ import { RouterModule } from '@angular/router';
       border-radius: 8px;
       cursor: pointer;
       font-family: var(--font-body);
-      font-weight: 500;
+      font-weight: 600;
       text-decoration: none;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: all 0.2s ease;
     }
 
     .nav-btn:hover:not(.active) {
@@ -169,7 +188,7 @@ import { RouterModule } from '@angular/router';
         flex-direction: column;
         align-items: center;
         text-align: center;
-        gap: 1.25rem;
+        gap: 1.5rem;
       }
       .brand-title {
         font-size: 2rem;
@@ -188,7 +207,11 @@ import { RouterModule } from '@angular/router';
 
     @media (max-width: 480px) {
       .brand-title {
-        font-size: 1.5rem;
+        font-size: 1.75rem;
+      }
+      .brand-icon {
+        width: 36px;
+        height: 36px;
       }
       .main-nav {
         flex-direction: column;
@@ -205,6 +228,8 @@ import { RouterModule } from '@angular/router';
   `]
 })
 export class CollectionLayoutComponent {
+  private collectionService = inject(CollectionService);
+
   get isDev(): boolean {
     return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   }

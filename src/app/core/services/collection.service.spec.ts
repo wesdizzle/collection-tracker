@@ -78,9 +78,9 @@ describe('CollectionService', () => {
       };
 
       service.updateListState(mockState);
-      expect(service.listState).toEqual(mockState);
+      expect(service.gamesState()).toEqual(mockState);
       
-      const saved = sessionStorage.getItem('gagglog_list_state');
+      const saved = sessionStorage.getItem('gagglog_list_state_games');
       expect(saved).toBeTruthy();
       expect(JSON.parse(saved!)).toEqual(mockState);
     });
@@ -94,17 +94,17 @@ describe('CollectionService', () => {
         scrollY: 1000
       };
 
-      sessionStorage.setItem('gagglog_list_state', JSON.stringify(mockState));
+      sessionStorage.setItem('gagglog_list_state_figures', JSON.stringify(mockState));
       service.loadPersistedState();
       
-      expect(service.listState).toEqual(mockState);
+      expect(service.figuresState()).toEqual(mockState);
     });
 
     it('should handle malformed JSON in sessionStorage', () => {
-      sessionStorage.setItem('gagglog_list_state', 'invalid-json');
+      sessionStorage.setItem('gagglog_list_state_games', 'invalid-json');
       // Should not throw
       service.loadPersistedState();
-      expect(service.listState).toBeNull();
+      expect(service.gamesState()).toBeNull();
     });
   });
 });

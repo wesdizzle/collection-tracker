@@ -336,16 +336,22 @@ export class ItemDetailComponent {
   public platform = computed(() => this.type() === 'platform' ? this.item() as Platform : null);
 
   filterBySeries(series: string) {
-    if (this.collectionService.listState) {
-      this.collectionService.listState.filters.series = series;
-      this.collectionService.persistState();
+    const tab = this.type() === 'figure' ? 'figures' : 'games';
+    const currentState = this.collectionService.getListState(tab);
+    if (currentState) {
+      this.collectionService.updateListState({
+        ...currentState,
+        filters: { ...currentState.filters, series }
+      });
     } else {
       this.collectionService.updateListState({
-        tab: 'games',
-        filters: { ownership: 'all', series },
-        displayLimit: 100
+        tab,
+        filters: { ownership: 'all', series, line: '', type: '' },
+        displayLimit: 100,
+        scrollX: 0,
+        scrollY: 0
       });
     }
-    this.router.navigate(['/collection', 'games']);
+    this.router.navigate(['/collection', tab]);
   }
 }

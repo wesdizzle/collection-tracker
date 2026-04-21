@@ -21,6 +21,7 @@ export interface IGDBImage {
 export interface IGDBGame {
     id: number;
     name: string;
+    slug?: string;
     summary?: string;
     cover?: IGDBImage;
     first_release_date?: number;
@@ -37,6 +38,7 @@ export interface IGDBGame {
 
 export interface NormalizedGame {
     id: string;
+    slug: string | null;
     name: string;
     summary?: string;
     image_url: string | null;
@@ -190,14 +192,14 @@ export async function findGame(title: string, platformId: number): Promise<Norma
     const cleanTitle = title.replace(/[–—]/g, '-').replace(/[":()]/g, '').trim();
 
     const searchQuery = `
-        fields name, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         search "${cleanTitle.replace(/"/g, '')}";
         ${platformFilter ? `where platforms = (${platformId});` : ''}
         limit 50;
     `;
 
     const nameQuery = `
-        fields name, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
         limit 50;
     `;
@@ -260,7 +262,7 @@ export async function findGame(title: string, platformId: number): Promise<Norma
  */
 export async function getGameById(igdbId: number, platformId?: number): Promise<NormalizedGame | null> {
     const query = `
-        fields name, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         where id = ${igdbId};
     `;
     
@@ -313,6 +315,7 @@ function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: num
 
     return {
         id: `igdb-${game.id}`,
+        slug: game.slug || null,
         name: game.name,
         summary: game.summary,
         image_url: game.cover ? `https:${game.cover.url.replace('t_thumb', 't_cover_big')}` : null,

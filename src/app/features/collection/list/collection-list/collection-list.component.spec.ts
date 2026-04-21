@@ -63,7 +63,7 @@ describe('CollectionListComponent', () => {
     };
     
     // Inject mock state into service
-    service.listState = mockState;
+    service.updateListState(mockState);
     
     // Trigger ngOnInit
     const initPromise = component.ngOnInit();

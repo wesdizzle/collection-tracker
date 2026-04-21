@@ -24,11 +24,11 @@ The UI utilizes a minimalist approach to structure:
 - **Detail Pages**: Removes standard dashboard panels in favor of a flat, immersive layout that places focus on the item's metadata and artwork.
 - **Badge Consolidation**: Status markers (Owned, Played, IGDB) are consolidated into high-level pill groups in the header.
 
-### Navigation & Scroll Restoration
-The application implements a robust manual scroll restoration system to ensure a seamless "back-to-list" experience:
-- **State Persistence**: The `CollectionService` persists the list's filters, pagination state (`displayLimit`), and exact scroll coordinates in memory and `sessionStorage`.
-- **Race Condition Handling**: Restoration is synchronized with asynchronous data fetching. The UI awaits data arrival and uses a "double-scroll" technique (re-applying scroll position on the next animation frame) to handle layout shifts caused by lazy-loading and dynamic rendering.
-- **Layout Stability**: To guarantee restoration accuracy, the system avoids `translateY` animations and `content-visibility: auto` shifts during the restoration phase, ensuring the scroll target remains constant.
+### Navigation & Filter Logic
+The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Figures** collections:
+- **Isolated Contexts**: Your active filters and scroll position on the Games page are stored separately from those on the Figures page. Switching between the two tabs will restore each respective state exactly as you left it.
+- **Persistent Context**: Clicking the "Gagglog" brand logo, using the browser's back button, or navigating via the "Back to Collection" link will all maintain your active context for the current tab.
+- **Scroll Restoration**: Uses a "double-scroll" technique synced with asynchronous data loading to ensure your exact position is maintained even when content is lazy-loaded.
 
 ## 📦 Getting Started
 

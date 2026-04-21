@@ -18,31 +18,59 @@ export class CollectionService {
   private http = inject(HttpClient);
   private router = inject(Router);
   
-  // Persistence state for UI navigation
-  public listState: ListState | null = null;
+  // Persistence state for UI navigation (Split by tab)
+  private _gamesState = signal<ListState | null>(null);
+  private _figuresState = signal<ListState | null>(null);
+  
+  public readonly gamesState = this._gamesState.asReadonly();
+  public readonly figuresState = this._figuresState.asReadonly();
 
-  constructor() {}
+  constructor() {
+    if (typeof window !== 'undefined') {
+      this.loadPersistedState();
+    }
+  }
 
-  public persistState() {
-    if (this.listState) {
-      sessionStorage.setItem('gagglog_list_state', JSON.stringify(this.listState));
+  public persistState(tab: 'games' | 'figures') {
+    const state = tab === 'games' ? this._gamesState() : this._figuresState();
+    if (state) {
+      sessionStorage.setItem(`gagglog_list_state_${tab}`, JSON.stringify(state));
     }
   }
 
   public updateListState(state: ListState) {
-    this.listState = state;
-    this.persistState();
+    if (state.tab === 'games') {
+      this._gamesState.set(state);
+    } else {
+      this._figuresState.set(state);
+    }
+    this.persistState(state.tab);
+  }
+
+  public getListState(tab: 'games' | 'figures') {
+    return tab === 'games' ? this._gamesState() : this._figuresState();
   }
 
   public loadPersistedState() {
-    const saved = sessionStorage.getItem('gagglog_list_state');
-    if (saved) {
-      try {
-        this.listState = JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse saved list state', e);
+    ['games', 'figures'].forEach(tab => {
+      const saved = sessionStorage.getItem(`gagglog_list_state_${tab}`);
+      if (saved) {
+        try {
+          const state = JSON.parse(saved);
+          if (tab === 'games') this._gamesState.set(state);
+          else this._figuresState.set(state);
+        } catch (e) {
+          console.error(`Failed to parse saved ${tab} state`, e);
+        }
       }
-    }
+    });
+  }
+
+  public resetListState() {
+    this._gamesState.set(null);
+    this._figuresState.set(null);
+    sessionStorage.removeItem('gagglog_list_state_games');
+    sessionStorage.removeItem('gagglog_list_state_figures');
   }
 
   // Core Collection Signals

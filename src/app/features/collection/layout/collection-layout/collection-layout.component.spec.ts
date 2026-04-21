@@ -36,4 +36,9 @@ describe('CollectionLayoutComponent', () => {
   it('should create', () => {
     expect(component).toBeTruthy();
   });
+
+  it('should have a brand link pointing to the collection', () => {
+    const brandLink = fixture.nativeElement.querySelector('.brand-link');
+    expect(brandLink.getAttribute('routerlink')).toBe('/collection/games');
+  });
 });

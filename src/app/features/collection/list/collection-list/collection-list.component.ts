@@ -289,56 +289,71 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
         this.collectionService.updateListState(state);
       }
     });
+
   }
 
   @HostListener('window:scroll')
   onScroll() {
-    if (this.stateInitialized && this.collectionService.listState) {
-      this.collectionService.listState.scrollX = window.scrollX;
-      this.collectionService.listState.scrollY = window.scrollY;
+    const currentState = this.collectionService.getListState(this.currentTab());
+    if (this.stateInitialized && currentState) {
+      this.collectionService.updateListState({
+        ...currentState,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY
+      });
     }
   }
 
-  async ngOnInit() {
-    this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'figures' || 'games');
-    if (!this.collectionService.listState) {
-      this.collectionService.loadPersistedState();
+  private restoreScroll() {
+    const savedState = this.collectionService.getListState(this.currentTab());
+    if (!savedState || savedState.scrollY === undefined) {
+      this.stateInitialized = true;
+      return;
     }
-    const savedState = this.collectionService.listState;
-    if (savedState && savedState.tab === this.currentTab()) {
+
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    const tryScroll = () => {
+      if (attempts >= maxAttempts) {
+        this.stateInitialized = true;
+        return;
+      }
+      
+      window.scrollTo({ left: savedState.scrollX, top: savedState.scrollY, behavior: 'auto' });
+      
+      // If we are close enough or have tried enough, mark as initialized
+      if (Math.abs(window.scrollY - (savedState.scrollY || 0)) < 2 || attempts > 5) {
+         this.stateInitialized = true;
+      } else {
+        attempts++;
+        setTimeout(tryScroll, 100);
+      }
+    };
+
+    // Initial delay to allow rendering to start
+    setTimeout(tryScroll, 200);
+  }
+
+  async ngOnInit() {
+    this.stateInitialized = false;
+    this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'figures' || 'games');
+    
+    const savedState = this.collectionService.getListState(this.currentTab());
+    if (savedState) {
       this.filters.set({ ...savedState.filters });
       this.displayLimit.set(savedState.displayLimit);
     }
     
     // Refresh data and then attempt to restore scroll position
     await this.collectionService.refreshAll();
-
-    // We wait for the DOM to catch up with the signal updates
-    setTimeout(() => {
-      const savedState = this.collectionService.listState;
-      
-      const performScroll = () => {
-        if (savedState && savedState.scrollX !== undefined && savedState.scrollY !== undefined) {
-          window.scrollTo({ left: savedState.scrollX, top: savedState.scrollY, behavior: 'auto' });
-          // Double scroll after a tiny delay to catch any content-visibility shifts
-          requestAnimationFrame(() => {
-            window.scrollTo({ left: savedState.scrollX!, top: savedState.scrollY!, behavior: 'auto' });
-            this.stateInitialized = true;
-          });
-        } else {
-          // No saved state to restore, just mark as initialized
-          this.stateInitialized = true;
-        }
-      };
-
-      performScroll();
-    }, 400); 
+    this.restoreScroll();
   }
 
   ngAfterViewInit() { this.setupIntersectionObserver(); }
   ngOnDestroy() { 
     if (this.observer) this.observer.disconnect(); 
-    this.collectionService.persistState();
+    this.collectionService.persistState(this.currentTab());
   }
 
   setupIntersectionObserver() {
