@@ -58,3 +58,4 @@ TWITCH_CLIENT_SECRET=your_client_secret
 - [ ] **Worker-Side Image Caching**: Implement a KV-based cache for IGDB cover art to reduce external API dependency.
 - [ ] **Automated Watchlists & Discovery**: Use the `collections` and `franchises` data in a standalone script to automatically discover and propose missing games from known series, and surface new releases as 'Wanted'.
 - [ ] **Heuristic Scrubber**: Introduce an automated web-search heuristic to determine physical release status for IGDB games and only track those with physical releases.
+- [ ] **PWA**: Add support for installation as a PWA and offline use.
