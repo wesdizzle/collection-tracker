@@ -205,12 +205,38 @@ export async function findGame(title: string, platformId: number): Promise<Norma
     `;
 
     try {
+        // Pass 1: Exact search
         const [searchResults, nameResults] = await Promise.all([
             queryIGDB('games', searchQuery) as Promise<IGDBGame[]>,
             queryIGDB('games', nameQuery) as Promise<IGDBGame[]>
         ]);
 
-        const results: IGDBGame[] = [...(searchResults || []), ...(nameResults || [])];
+        let results: IGDBGame[] = [...(searchResults || []), ...(nameResults || [])];
+
+        // Pass 2: Fallback to simplified title if results are poor
+        if (!results || results.length < 2) {
+            const simplifiedTitle = getSimplifiedTitle(cleanTitle);
+            if (simplifiedTitle !== cleanTitle) {
+                console.log(`  Falling back to simplified search: "${simplifiedTitle}"`);
+                const fallbackSearchQuery = `
+                    fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    search "${simplifiedTitle.replace(/"/g, '')}";
+                    ${platformFilter ? `where platforms = (${platformId});` : ''}
+                    limit 50;
+                `;
+                const fallbackNameQuery = `
+                    fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    where name ~ "${simplifiedTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
+                    limit 50;
+                `;
+                const [fallbackSearch, fallbackName] = await Promise.all([
+                    queryIGDB('games', fallbackSearchQuery) as Promise<IGDBGame[]>,
+                    queryIGDB('games', fallbackNameQuery) as Promise<IGDBGame[]>
+                ]);
+                results = [...results, ...(fallbackSearch || []), ...(fallbackName || [])];
+            }
+        }
+
         if (!results || results.length === 0) return [];
 
         // De-duplicate by ID
@@ -222,7 +248,7 @@ export async function findGame(title: string, platformId: number): Promise<Norma
         });
 
         // Filter for official categories only
-        const officialCategories = [0, 8, 9, 10, 11, undefined, null];
+        const officialCategories = [0, 8, 9, 10, 11, 13, 14, undefined, null];
         const initialFiltered = uniqueResults.filter(g => officialCategories.includes(g.category));
 
         if (initialFiltered.length === 0) return [];
@@ -234,7 +260,7 @@ export async function findGame(title: string, platformId: number): Promise<Norma
 
             const hackKeywords = [
                 ' hack:', ' hack)', ' hack!', ' hack\n',
-                'level hack', 'translation', 'patched',
+                'level hack', 'fan translation', 'patched version',
                 'fan-made', 'fanmade', 'fan project', 'unofficial',
                 'rom hack', 'romhack', ' graphics mod ', ' graphics mod:',
                 ' a mod for ', ' this mod ', ' modded ', ' mod:', ' mod)'
@@ -249,7 +275,18 @@ export async function findGame(title: string, platformId: number): Promise<Norma
         if (filteredResults.length === 0) return [];
 
         return filteredResults.map(game => normalizeIGDBGame(game, title, platformId))
-            .sort((a, b) => b.confidence - a.confidence);
+            .sort((a, b) => {
+                // Primary: Confidence
+                if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+                // Secondary: Category priority (Main Game > Remake > Remaster > Port > Bundle)
+                const catA = a.category ?? 0;
+                const catB = b.category ?? 0;
+                if (catA !== catB) {
+                    const priority: Record<number, number> = { 0: 10, 8: 9, 9: 8, 10: 7, 11: 6, 13: 5, 14: 4 };
+                    return (priority[catB] || 0) - (priority[catA] || 0);
+                }
+                return 0;
+            });
     } catch (error: unknown) {
         const err = error as { message: string };
         console.error('Error finding game:', err.message);
@@ -281,8 +318,6 @@ export async function getGameById(igdbId: number, platformId?: number): Promise<
  * UTILITY: Normalizes a raw IGDB game object into our internal format.
  */
 function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: number): NormalizedGame {
-    const normTarget = normalizeStr(targetTitle);
-
     // Priority 0: Manual Override
     let regionCode = REGIONAL_OVERRIDES[game.name] || REGIONAL_OVERRIDES[`igdb-${game.id}`];
 
@@ -327,7 +362,7 @@ function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: num
         franchises: game.franchises ? game.franchises.map(f => f.name).join(', ') : null,
         category: game.category,
         region: regionCode,
-        confidence: normalizeStr(game.name) === normTarget ? 100 : 50,
+        confidence: calculateConfidence(targetTitle, game.name, game.category),
         genres: game.genres ? game.genres.map(g => g.name).join(', ') : null
     };
 }
@@ -373,4 +408,77 @@ export function superNormalize(title: string): string {
     t = t.replace(/\btelltale series\b/gi, '');
     t = t.replace(/[^a-z0-9]/gi, '');
     return t;
+}
+
+/**
+ * UTILITY: calculateConfidence
+ * 
+ * Scores a candidate game name against a target title using word overlap and category heuristics.
+ */
+export function calculateConfidence(target: string, candidate: string, category?: number): number {
+    const normTarget = normalizeStr(target);
+    const normCandidate = normalizeStr(candidate);
+
+    if (normTarget === normCandidate) return 100;
+
+    const simplifiedTarget = normalizeStr(getSimplifiedTitle(target));
+    if (simplifiedTarget === normCandidate) return 100;
+
+    // Word overlap scoring (ignoring small filler words)
+    const targetWords = new Set(normTarget.split(/[:\s+-]+/).filter(w => w.length > 2));
+    const candidateWords = new Set(normCandidate.split(/[:\s+-]+/).filter(w => w.length > 2));
+
+    if (targetWords.size === 0) return 50;
+
+    let matches = 0;
+    for (const word of targetWords) {
+        if (candidateWords.has(word)) matches++;
+    }
+
+    const overlapScore = (matches / targetWords.size) * 100;
+    
+    // Category boosts for bundles
+    let boost = 0;
+    if (category === 10 || category === 13) {
+        const bundleKeywords = ['+', 'expansion', 'collection', 'pack', 'pass', 'complete'];
+        if (bundleKeywords.some(kw => normTarget.includes(kw))) {
+            boost += 15;
+        }
+    }
+
+    // Penalize if the candidate has extra words that significantly change meaning
+    if (candidateWords.size > targetWords.size + 2) {
+        boost -= 10;
+    }
+
+    return Math.min(95, Math.max(0, overlapScore + boost));
+}
+
+/**
+ * UTILITY: getSimplifiedTitle
+ * 
+ * Returns the "head" of a title by splitting on common version/bundle separators.
+ */
+export function getSimplifiedTitle(title: string): string {
+    const separators = [':', '+', ' - ', '('];
+    let simplified = title;
+
+    // Handle "Title + Title Suffix" redundancy (e.g., "Pokemon Sword + Pokemon Sword Expansion Pass")
+    if (title.includes('+')) {
+        const parts = title.split('+').map(p => p.trim());
+        if (parts.length === 2) {
+            const [p1, p2] = parts;
+            if (p2.toLowerCase().startsWith(p1.toLowerCase())) {
+                return `${p1} + ${p2.substring(p1.length).trim()}`;
+            }
+        }
+    }
+
+    for (const sep of separators) {
+        const index = simplified.indexOf(sep);
+        if (index > 0) {
+            simplified = simplified.substring(0, index);
+        }
+    }
+    return simplified.trim();
 }

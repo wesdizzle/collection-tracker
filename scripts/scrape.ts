@@ -8,7 +8,7 @@
 
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
-import { findGame, getCollectionGames, NormalizedGame, IGDBGame } from './lib/igdb.js';
+import { findGame, getCollectionGames, NormalizedGame, IGDBGame, calculateConfidence } from './lib/igdb.js';
 import { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries, Figure } from './lib/figures.js';
 
 const db = new Database('collection.sqlite');
@@ -64,9 +64,13 @@ function normalizeTitle(title: string): string {
 }
 
 async function runScraper(): Promise<void> {
+    const args = process.argv.slice(2);
+    const runDiscovery = args.includes('--discovery');
+
     console.log('--- Starting Gagglog Verification Phase ---');
     const unmatchedGames: UnmatchedItem[] = [];
     const syncSuggestions: SyncSuggestion[] = [];
+    let autoMatchedCount = 0;
     const gameDiscoveryResults: GameDiscovery[] = [];
 
     // 1. Verify Games (Metadata & Sync checking)
@@ -99,11 +103,10 @@ async function runScraper(): Promise<void> {
             // but for now we'll just rely on the default logic or fix findGame to pass it through.
             // For this script, we'll bypass regionalDate logic for now to stay type-safe.
 
-            const normLocal = normalizeTitle(game.title);
-            const normIgdb = normalizeTitle(bestMatch.name);
+            const confidence = calculateConfidence(game.title, bestMatch.name, bestMatch.category);
 
-            // Title Match Logic
-            if (normLocal === normIgdb) {
+            // Title Match Logic - Auto-update if high confidence (100)
+            if (confidence === 100) {
                 db.prepare(`
                     UPDATE games 
                     SET title = ?, igdb_id = ?, region = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0, collections = ?, franchises = ?
@@ -119,7 +122,8 @@ async function runScraper(): Promise<void> {
                     bestMatch.franchises,
                     game.id
                 );
-                console.log(`Matched! [ID: ${bestMatch.id}]`);
+                console.log(`  Auto-matched and updated! [ID: ${bestMatch.id}]`);
+                autoMatchedCount++;
                 continue;
             }
 
@@ -142,46 +146,59 @@ async function runScraper(): Promise<void> {
 
     const ignoredItems = (db.prepare('SELECT id FROM ignored_items').all() as { id: string }[]).map(i => i.id);
     const existingGameNorms = existingGames.map(g => normalizeTitle(g.title));
+    const figureDiscoveryResults: FigureDiscovery[] = [];
 
-    // 3. Discovery: Games
-    const gameSeriesList = db.prepare('SELECT DISTINCT series FROM games WHERE series IS NOT NULL').all() as { series: string }[];
-    for (const { series } of gameSeriesList) {
-        console.log(`Discovering Games for Series: ${series}...`);
-        const searchResults = await findGame(series.replace(/\(.*\)/g, '').trim(), 0) || [];
-        const initialMatch = searchResults.length > 0 ? searchResults[0] : null;
+    // 3. Discovery Phase: Series-based
+    if (runDiscovery) {
+        // Discovery: Games
+        const gameSeriesList = db.prepare('SELECT DISTINCT series FROM games WHERE series IS NOT NULL').all() as { series: string }[];
+        for (const { series } of gameSeriesList) {
+            console.log(`Discovering Games for Series: ${series}...`);
+            const searchResults = await findGame(series.replace(/\(.*\)/g, '').trim(), 0) || [];
+            const initialMatch = searchResults.length > 0 ? searchResults[0] : null;
 
-        if (initialMatch && initialMatch.id) {
-            // Find collection context via original IGDB ID
-            const igdbIdNum = Number(initialMatch.id.replace('igdb-', ''));
-            const collectionGames = await getCollectionGames(igdbIdNum);
-            const missing = [];
-            for (const igdbGame of collectionGames) {
-                const igdbId = `igdb-${igdbGame.id}`;
-                if (ignoredItems.includes(igdbId)) continue;
-                const normalizedIgdb = normalizeTitle(igdbGame.name);
-                if (existingGameNorms.includes(normalizedIgdb)) continue;
-                missing.push(igdbGame);
+            if (initialMatch && initialMatch.id) {
+                // Find collection context via original IGDB ID
+                const igdbIdNum = Number(initialMatch.id.replace('igdb-', ''));
+                const collectionGames = await getCollectionGames(igdbIdNum);
+                const missing = [];
+                for (const igdbGame of collectionGames) {
+                    const igdbId = `igdb-${igdbGame.id}`;
+                    if (ignoredItems.includes(igdbId)) continue;
+                    const normalizedIgdb = normalizeTitle(igdbGame.name);
+                    if (existingGameNorms.includes(normalizedIgdb)) continue;
+                    missing.push(igdbGame);
+                }
+                if (missing.length > 0) {
+                    gameDiscoveryResults.push({ series, games: missing });
+                }
             }
-            if (missing.length > 0) {
-                gameDiscoveryResults.push({ series, games: missing });
-            }
+        }
+
+        // 4. Discovery: Figures
+        const figureSeriesList = db.prepare('SELECT DISTINCT line FROM figures WHERE line IS NOT NULL').all() as { line: string }[];
+        const existingFigureIds = (db.prepare('SELECT id FROM figures').all() as { id: string }[]).map(f => f.id);
+
+        for (const { line: series_name } of figureSeriesList) {
+            console.log(`Discovering Figures for series: ${series_name}...`);
+            let figures: Figure[] = [];
+            if (series_name.toLowerCase().includes('amiibo')) figures = await getAmiiboSeries(series_name);
+            else if (series_name.toLowerCase().includes('skylanders')) figures = await getSkylandersSeries(series_name);
+            else if (series_name.toLowerCase().includes('starlink')) figures = await getStarlinkSeries(series_name);
+
+            const missing = figures.filter(f => !existingFigureIds.includes(f.id) && !ignoredItems.includes(f.id));
+            if (missing.length > 0) figureDiscoveryResults.push({ series: series_name, items: missing });
         }
     }
 
-    // 4. Discovery: Figures
-    const figureDiscoveryResults: FigureDiscovery[] = [];
-    const figureSeriesList = db.prepare('SELECT DISTINCT line FROM figures WHERE line IS NOT NULL').all() as { line: string }[];
-    const existingFigureIds = (db.prepare('SELECT id FROM figures').all() as { id: string }[]).map(f => f.id);
-
-    for (const { line: series_name } of figureSeriesList) {
-        console.log(`Discovering Figures for series: ${series_name}...`);
-        let figures: Figure[] = [];
-        if (series_name.toLowerCase().includes('amiibo')) figures = await getAmiiboSeries(series_name);
-        else if (series_name.toLowerCase().includes('skylanders')) figures = await getSkylandersSeries(series_name);
-        else if (series_name.toLowerCase().includes('starlink')) figures = await getStarlinkSeries(series_name);
-
-        const missing = figures.filter(f => !existingFigureIds.includes(f.id) && !ignoredItems.includes(f.id));
-        if (missing.length > 0) figureDiscoveryResults.push({ series: series_name, items: missing });
+    console.log('\n--- Scrape Summary ---');
+    console.log(`Manual Entries Processed: ${unmatchedGames.length + syncSuggestions.length + autoMatchedCount}`);
+    console.log(`  - Auto-matched: ${autoMatchedCount}`);
+    console.log(`  - Remaining in Report: ${unmatchedGames.length + syncSuggestions.length}`);
+    if (runDiscovery) {
+        console.log(`Discovery Results: ${gameDiscoveryResults.length} game series, ${figureDiscoveryResults.length} figure series`);
+    } else {
+        console.log('Discovery phase skipped. Use --discovery to find missing items in your series.');
     }
 
     generateReport(unmatchedGames, syncSuggestions, gameDiscoveryResults, figureDiscoveryResults);

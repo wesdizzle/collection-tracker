@@ -28,15 +28,24 @@ The UI utilizes a minimalist approach to structure:
 The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Figures** collections:
 - **Isolated Contexts**: Your active filters and scroll position on the Games page are stored separately from those on the Figures page. Switching between the two tabs will restore each respective state exactly as you left it.
 - **Persistent Context**: Clicking the "Gagglog" brand logo, using the browser's back button, or navigating via the "Back to Collection" link will all maintain your active context for the current tab.
-- **Scroll Restoration**: Uses a "double-scroll" technique synced with asynchronous data loading to ensure your exact position is maintained even when content is lazy-loaded.
+### Metadata Reconciliation & Discovery
+The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for maintaining collection integrity and discovering new content:
+- **Multi-Pass Search**: Automatically falls back to simplified title searches if a direct platform match isn't found, handling complex bundle and special edition naming patterns.
+- **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches directly into the database.
+- **Discovery Mode**: Use the `--discovery` flag to analyze your owned series and franchises and find missing items you don't yet own.
+- **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
 
 ## 📦 Getting Started
 
 1.  **Clone the repository**
 2.  **Install dependencies**: `npm install`
 3.  **Run Local API Proxy**: `npx tsx scripts/local_server.ts`
-4.  **Launch Frontend**: `npx ng serve`
-5.  **View locally**: `http://localhost:4200/`
+4.  **Metadata Scraping**:
+    - **Reconcile**: `npx tsx scripts/scrape.ts` (Processes unmatched items in your collection)
+    - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Finds missing games in your series)
+    - **Sync**: `npx tsx scripts/sync_local_d1.ts` (Propagates changes to the dev server)
+5.  **Launch Frontend**: `npx ng serve`
+6.  **View locally**: `http://localhost:4200/`
 
 ### 🔑 Environment Configuration
 
@@ -54,8 +63,6 @@ TWITCH_CLIENT_SECRET=your_client_secret
 
 ## 📋 Roadmap
 
-- [ ] **Overhaul Series Handling**: Update series and franchise handling to treat IGDB as authoritative.
 - [ ] **Worker-Side Image Caching**: Implement a KV-based cache for IGDB cover art to reduce external API dependency.
-- [ ] **Automated Watchlists & Discovery**: Use the `collections` and `franchises` data in a standalone script to automatically discover and propose missing games from known series, and surface new releases as 'Wanted'.
 - [ ] **Heuristic Scrubber**: Introduce an automated web-search heuristic to determine physical release status for IGDB games and only track those with physical releases.
 - [ ] **PWA**: Add support for installation as a PWA and offline use.

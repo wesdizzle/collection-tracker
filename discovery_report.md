@@ -8,20 +8,14 @@ This report lists findings from the collection discovery pipeline.
 - Mark with **`[r]`** to **Reject** the item.
 
 ## Action Required: Sync Suggestions
-### Metal Gear Solid: The Twin Snakes (Nintendo GameCube)
-- [ ] **Update to:** Metal Gear Solid: The Twin Snakes - Premium Package (Nintendo GameCube) - ID: igdb-307490
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co99k5.jpg)
-  - *A Japan-exclusive bundle which included The Twin Snakes; the original Famicom version of Metal Gear on GameCube disc; a platinum-colored GameCube with the FOXHOUND logo on the disc tray cover (replaci...*
+### Overcooked! Special Edition + Overcooked! 2 (Nintendo Switch)
+- [ ] **Update to:** Overcooked!: Special Edition (Nintendo Switch) - ID: igdb-51998
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1tj1.jpg)
+  - *Get ready for the ultimate arcade-style couch cook-off in Overcooked: Special Edition for Nintendo Switch.  Working as a team, you and your fellow chefs must prepare, cook and serve up a variety of ta...*
 
-### Pokémon Sword + Pokémon Sword Expansion Pass (Nintendo Switch)
-- [ ] **Update to:** Pokémon Sword Expansion Pass (Nintendo Switch) - ID: igdb-128071
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1wdv.jpg)
-  - *Continue your Pokémon Sword adventure in The Isle of Armor and The Crown Tundra, two new areas to explore that will be added to the Galar region as part of the Pokémon Sword Expansion Pass! Each area ...*
-
-### Pokémon Shield + Pokémon Shield Expansion Pass (Nintendo Switch)
-- [ ] **Update to:** Pokémon Shield Expansion Pass (Nintendo Switch) - ID: igdb-128073
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1wdx.jpg)
-  - *Continue your Pokémon Shield adventure in The Isle of Armor and The Crown Tundra, two new areas to explore that will be added to the Galar region as part of the Pokémon Shield Expansion Pass! Each are...*
+### Pico Park 1 + 2 (Nintendo Switch)
+- [ ] **Update to:** Pico Park 1+2 (Nintendo Switch) - ID: igdb-328142
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9kwt.jpg)
 
 ### Rayman Legends Definitive Edition (Nintendo Switch)
 - [ ] **Update to:** Rayman Legends: Definitive Edition (Nintendo Switch) - ID: igdb-27239
@@ -91,12 +85,6 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Super Monkey Ball: Banana Rumble (Nintendo Switch) - ID: igdb-287854
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/cobbw9.jpg)
   - *Join AiAi and friends in Super Monkey Ball Banana Rumble, where you and up to 16 players can compete online across multiple game modes as you aim to become Top Banana! You can also work together with ...*
-- [ ] **Update to:** Super Monkey Ball: Banana Rumble - Sega Character Pass (Nintendo Switch) - ID: igdb-308836
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8l4j.jpg)
-  - *Includes 6 SEGA all-stars each with their own unique stats! This pack also includes 15 customization items to deck your monkey out in the freshest SEGA themed fashion trends.  The characters included ...*
-- [ ] **Update to:** Super Monkey Ball: Banana Rumble - Digital Deluxe Edition (Nintendo Switch) - ID: igdb-288279
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8lev.jpg)
-  - *Super Monkey Ball: Banana Rumble - Digital Deluxe Edition includes the base game, Super Monkey Ball: Banana Rumble, and the SEGA Character Pass which adds 6 SEGA all-stars to play as each with their o...*
 - [ ] **Update to:** Super Monkey Ball: Banana Rumble - Beat (Nintendo Switch) - ID: igdb-310690
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8l3h.jpg)
   - *Over the Hood, Through the Streets - Beat from Jet Set Radio Joins the Rumble!  Roll with Beat in either Adventure Mode or Battle Mode! Pick up Spray Paint Cans instead of Bananas as you skate your wa...*
@@ -118,6 +106,12 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Super Monkey Ball: Banana Rumble - Knuckles (Nintendo Switch) - ID: igdb-309080
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8l1g.jpg)
   - *Knuckles is ready to rumble! Muscle your way through all who dare stand in your path as the burly echidna.*
+- [ ] **Update to:** Super Monkey Ball: Banana Rumble - Godzilla (Nintendo Switch) - ID: igdb-322748
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co92bp.jpg)
+  - *Smash through the competition ad Godzilla, the mighty King of Monsters!*
+- [ ] **Update to:** Super Monkey Ball: Banana Rumble - Hatsune Miku (Nintendo Switch) - ID: igdb-322749
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co92bq.jpg)
+  - *Party as the cheerful Virtual Singer Hatsune Miku, ready to share her love for music with the world!*
 
 ### Xenoblade Chronicles X (Nintendo Switch)
 - [ ] **Update to:** Xenoblade Chronicles X: Definitive Edition (Nintendo Switch) - ID: igdb-321048
@@ -133,6 +127,11 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Super Mario Party Jamboree: Nintendo Switch 2 Edition + Jamboree TV (Nintendo Switch 2) - ID: igdb-338071
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9m77.jpg)
   - *Super Mario Party Jamboree is getting even more minigames and an upgrade on Nintendo Switch 2! The upgrade expands on the base game and adds Nintendo Switch 2 gameplay features, such as mouse controls...*
+
+### Metroid Prime 4: Beyond - Nintendo Switch 2 Edition (Nintendo Switch 2)
+- [ ] **Update to:** Metroid Prime 4: Beyond (Nintendo Switch 2) - ID: igdb-37136
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/cob9xh.jpg)
+  - *Deadly sharpshooter Sylux has finally caught up with renowned bounty hunter Samus Aran! After an unexpected accident in the wake of their clash, Samus finds herself transported to Viewros— a mysteriou...*
 
 ### Bomberman Party Edition (PlayStation)
 - [ ] **Update to:** Bomberman: Party Edition (PlayStation) - ID: igdb-18786
@@ -163,6 +162,9 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Star Wars Episode I: The Phantom Menace (PlayStation) - ID: igdb-158
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coba6s.jpg)
   - *Star Wars Episode I: The Phantom Menace is an adventure video game released by LucasArts in 1999. It is based on the film of the same title.*
+- [ ] **Update to:** Star Wars: Episode I - Jedi Power Battles (PlayStation) - ID: igdb-6606
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coav0d.jpg)
+  - *The game follows the plot of Star Wars Episode I: The Phantom Menace. Players can choose from one of five prequel-era Jedi and run, jump, slash, and use the Force through the game's ten levels, starti...*
 
 ### Star Wars Episode I: Jedi Power Battles (PlayStation)
 - [ ] **Update to:** Star Wars: Episode I - Jedi Power Battles (PlayStation) - ID: igdb-6606
@@ -204,30 +206,30 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Final Fantasy XI: Ultimate Collection (PlayStation 2) - ID: igdb-269413
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co75s7.jpg)
   - *This bundle includes Final Fantasy XI Online and its four first expansions:  -Rise of the Zilart -Chains of Promathia -Treasures of Aht Urhgan -Wings of the Goddess  As well as three add-on scenarios:...*
-- [ ] **Update to:** Final Fantasy XI: Rise of the Zilart (PlayStation 2) - ID: igdb-416
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x52.jpg)
-  - *Final Fantasy XI: Rise of the Zilart is an expansion pack of Final Fantasy XI. This expansion pack brings several new areas, Jobs, quests, and a new mission storyline to the game.  Rise of the Zilart ...*
 - [ ] **Update to:** Final Fantasy XI: Chains of Promathia (PlayStation 2) - ID: igdb-409
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1vmv.jpg)
   - *Final Fantasy XI: Chains of Promathia is the second expansion pack for Final Fantasy XI. This expansion pack brings several new areas, quests, and a new mission storyline to the game. It is also the o...*
+- [ ] **Update to:** Final Fantasy XI: Seekers of Adoulin (PlayStation 2) - ID: igdb-10319
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x54.jpg)
+  - *Final Fantasy XI: Seekers of Adoulin is the fifth full expansion pack for Final Fantasy XI, and the first full expansion for Final Fantasy XI in over 5 years after Wings of the Goddess. Seekers of Ado...*
+- [ ] **Update to:** Final Fantasy XI: Rhapsodies of Vana'diel (PlayStation 2) - ID: igdb-266861
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x56.jpg)
+  - *Released across the May, August, and November 2015 version updates, Rhapsodies of Vana'diel is designed to be the conclusion of the main scenario missions of Final Fantasy XI, tying together plotlines...*
+- [ ] **Update to:** Final Fantasy XI: Rise of the Zilart (PlayStation 2) - ID: igdb-416
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x52.jpg)
+  - *Final Fantasy XI: Rise of the Zilart is an expansion pack of Final Fantasy XI. This expansion pack brings several new areas, Jobs, quests, and a new mission storyline to the game.  Rise of the Zilart ...*
 - [ ] **Update to:** Final Fantasy XI Online: Wings of the Goddess (PlayStation 2) - ID: igdb-80589
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9d4j.jpg)
   - *The fourth expansion in the Final Fantasy XI Online series adds new areas along with the ability to go back in time. Wings of the Goddess also introduces two new jobs to the game.*
 - [ ] **Update to:** Final Fantasy XI: Treasures of Aht Urhgan (PlayStation 2) - ID: igdb-405
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1vq6.jpg)
   - *Final Fantasy XI: Treasures of Aht Urhgan is a massively multiplayer online role-playing game. Enjoy a new world to explore as you tour the world of Vana'Diel. New jobs, new monsters, new realms and e...*
-- [ ] **Update to:** Final Fantasy XI: Seekers of Adoulin (PlayStation 2) - ID: igdb-10319
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x54.jpg)
-  - *Final Fantasy XI: Seekers of Adoulin is the fifth full expansion pack for Final Fantasy XI, and the first full expansion for Final Fantasy XI in over 5 years after Wings of the Goddess. Seekers of Ado...*
 - [ ] **Update to:** Final Fantasy XI: Vana'diel Collection 2008 (PlayStation 2) - ID: igdb-41853
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1vnr.jpg)
   - *This collection extends the 2007 compilation with the inclusion of the fourth expansion pack.*
 - [ ] **Update to:** Final Fantasy XI: A Moogle Kupo d'Etat (PlayStation 2) - ID: igdb-255771
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9hnf.jpg)
   - *The second add-on scenario for Final Fantasy XI. It was originally sold online through the PlayOnline network. It is now also available on disc in the Ultimate Collection of Final Fantasy XI. Like the...*
-- [ ] **Update to:** Final Fantasy XI: Wings of the Goddess (PlayStation 2) - ID: igdb-402
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co205j.jpg)
-  - *Wings of the Goddess (アルタナの神兵 Arutana no Shinpei, lit. "Divine Soldiers of Altana") is the fourth expansion of Final Fantasy XI was announced on May 12, 2007 at the Square Enix Party event in Japan. T...*
 
 ### Soccer Mania (PlayStation 2)
 - [ ] **Update to:** LEGO Soccer Mania (PlayStation 2) - ID: igdb-49221
@@ -394,23 +396,20 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Assassin's Creed Brotherhood (PlayStation 3) - ID: igdb-113
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6t4d.jpg)
   - *Live and breathe as Ezio, a legendary Master Assassin, in his enduring struggle against the powerful Templar Order. He must journey into Italy’s greatest city, Rome, center of power, greed and corrupt...*
-- [ ] **Update to:** Assassin's Creed Brotherhood: The Da Vinci Disappearance (PlayStation 3) - ID: igdb-8216
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1zlk.jpg)
-  - *The Da Vinci Disappearance is a downloadable content addition for Assassin's Creed: Brotherhood, bundled alongside Animus Project Update 3.0.*
 - [ ] **Update to:** Compilation Assassin's Creed: Brotherhood + Revelations (PlayStation 3) - ID: igdb-151207
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co31tx.jpg)
   - *This bundle contains:  - Assassin's Creed: Brotherhood - Assassin's Creed: Revelations*
 - [ ] **Update to:** Assassin's Creed Brotherhood: Copernicus Conspiracy (PlayStation 3) - ID: igdb-64133
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coabt5.jpg)
   - *Copernicus Conspiracy is a free downloadable content addition for Assassin's Creed: Brotherhood, originally released exclusively for the PlayStation 3.  The DLC focuses on the famed astronomer Nicolau...*
+- [ ] **Update to:** Assassin's Creed Brotherhood: The Da Vinci Disappearance (PlayStation 3) - ID: igdb-8216
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1zlk.jpg)
+  - *The Da Vinci Disappearance is a downloadable content addition for Assassin's Creed: Brotherhood, bundled alongside Animus Project Update 3.0.*
 
 ### Assassin's Creed: Revelations (PlayStation 3)
 - [ ] **Update to:** Assassin's Creed Revelations (PlayStation 3) - ID: igdb-537
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1xih.jpg)
   - *Assassin's Creed Revelations presents the most immersive experience available in the series to date and the culmination of Ezio's adventure. In Assassin's Creed Revelations, master assassin Ezio Audit...*
-- [ ] **Update to:** Assassin's Creed Revelations: The Lost Archive (PlayStation 3) - ID: igdb-8217
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1zni.jpg)
-  - *Explore the mysterious pasts of Subject 16 and Lucy Stillman in two hours of all-new content using the innovative narration style and puzzle-platforming gameplay pioneered in the present-day Desmond s...*
 - [ ] **Update to:** Assassin's Creed: Revelations - Gold Edition (PlayStation 3) - ID: igdb-52417
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600c.jpg)
   - *The Gold Edition contains the main game and also the three available DLC's. So the games within this compilation are:  - Assassin's Creed: Revelations - Assassin's Creed: Revelations - The Ancestors C...*
@@ -426,19 +425,20 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Assassin's Creed: Revelations - Collectors Edition (PlayStation 3) - ID: igdb-45119
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600d.jpg)
   - *This Collector's Edition contains:  - A special Collector's box - Assassin's Creed: Revelations (base game) - An artbook - The game's soundtrack - Additional single-player mission: Vlad the Impaler's ...*
+- [ ] **Update to:** Compilation Assassin's Creed: Brotherhood + Revelations (PlayStation 3) - ID: igdb-151207
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co31tx.jpg)
+  - *This bundle contains:  - Assassin's Creed: Brotherhood - Assassin's Creed: Revelations*
+- [ ] **Update to:** Assassin's Creed Revelations: The Lost Archive (PlayStation 3) - ID: igdb-8217
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1zni.jpg)
+  - *Explore the mysterious pasts of Subject 16 and Lucy Stillman in two hours of all-new content using the innovative narration style and puzzle-platforming gameplay pioneered in the present-day Desmond s...*
 - [ ] **Update to:** Assassin's Creed Revelations: The Ancestors Character Pack (PlayStation 3) - ID: igdb-167241
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6c8o.jpg)
   - *The Ancestors Character Pack features four new multiplayer characters, including: the swashbuckling Privateer, the devious siren Corsair, the battle-tested Brigand, and the bloodthirsty Gladiator. Eac...*
 - [ ] **Update to:** Assassin's Creed Revelations: Mediterranean Traveler Map Pack (PlayStation 3) - ID: igdb-167242
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6cl5.jpg)
   - *The Mediterranean Traveler Map Pack extends the Assassin’s Creed Revelations multiplayer experience with the addition of six multiplayer maps, each introducing new gameplay opportunities through their...*
-- [ ] **Update to:** Compilation Assassin's Creed: Brotherhood + Revelations (PlayStation 3) - ID: igdb-151207
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co31tx.jpg)
-  - *This bundle contains:  - Assassin's Creed: Brotherhood - Assassin's Creed: Revelations*
 
 ### Assassin's Creed IV: Black Flag (PlayStation 3)
-- [ ] **Update to:** Assassin's Creed IV Black Flag + Assassin's Creed Rogue Double Pack (PlayStation 3) - ID: igdb-167003
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3tx9.jpg)
 - [ ] **Update to:** Assassin's Creed IV Black Flag (PlayStation 3) - ID: igdb-1970
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co4qfn.jpg)
   - *Assassin’s Creed IV Black Flag begins in 1715, when pirates established a lawless republic in the Caribbean and ruled the land and seas. These outlaws paralyzed navies, halted international trade, and...*
@@ -457,12 +457,14 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Assassin's Creed IV: Black Flag - Limited Edition (PlayStation 3) - ID: igdb-42911
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600j.jpg)
   - *Assassin's Creed IV: Black Flag - Limited Edition contains the essential items for gamers to Unite under the Black Flag.  Along with a copy of the game, customers will receive: A stunning 18" assassin...*
-- [ ] **Update to:** Assassin's Creed IV Black Flag: Death Vessel Pack (PlayStation 3) - ID: igdb-26085
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600l.jpg)
-  - *Give a fearsome look to your ship with those 3 unique customization items: The Death Vessel Figurehead, Death Vessel Sails and Death Vessel Wheel.*
 - [ ] **Update to:** Assassin's Creed IV: Black Flag - Buccaneer Edition (PlayStation 3) - ID: igdb-89872
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2tf6.jpg)
   - *Welcome to the Golden Age of Piracy. The year is 1715. Pirates rule the Caribbean and have established their own lawless Republic where corruption, greediness and cruelty are commonplace. Among these ...*
+- [ ] **Update to:** Assassin's Creed IV Black Flag + Assassin's Creed Rogue Double Pack (PlayStation 3) - ID: igdb-167003
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3tx9.jpg)
+- [ ] **Update to:** Assassin's Creed IV Black Flag: Death Vessel Pack (PlayStation 3) - ID: igdb-26085
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600l.jpg)
+  - *Give a fearsome look to your ship with those 3 unique customization items: The Death Vessel Figurehead, Death Vessel Sails and Death Vessel Wheel.*
 - [ ] **Update to:** Assassin's Creed IV Black Flag: Crusader & Florentine Pack (PlayStation 3) - ID: igdb-26091
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600m.jpg)
   - *Sail with Altaïr and Ezio’s colors with 4 customisation items for your ship and 2 new weapons for Edward: Ezio’s Iconic Figurehead, Ezio’s Unique Sails, Ezio’s Swords, Altaïr’s Iconic Figurehead, Alta...*
@@ -518,21 +520,21 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Final Fantasy XIV: Soul Surrender (PlayStation 3) - ID: igdb-221536
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5hvu.jpg)
   - *Patch 3.4 brings myriad additions and refinements to the realm. Challenge seekers can test their mettle against fellow adventurers in duels and the Feast custom matches. Those who'd rather sit back an...*
-- [ ] **Update to:** Final Fantasy XIV: Before the Fall (PlayStation 3) - ID: igdb-221528
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5hvo.jpg)
-  - *Patch 2.5 brings a myriad of additions and refinements to the realm of Eorzea, including new story quests, a new primal battle, a new Frontline battle, and more!*
 - [ ] **Update to:** Final Fantasy XIV: A Realm Awoken (PlayStation 3) - ID: igdb-221522
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5hvj.jpg)
   - *Patch 2.1, the very first major version update for Final Fantasy XIV, sees large-scale additions and refinements made to Eorzea. Featuring the first installment of the Crystal Tower 24-man raid, the h...*
+- [ ] **Update to:** Final Fantasy XIV: Defenders of Eorzea (PlayStation 3) - ID: igdb-221525
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5hvl.jpg)
+  - *Patch 2.3 brings a myriad of additions and refinements to the realm of Eorzea including new story quests, a new primal battle, Frontline, the Hunt, and more!*
+- [ ] **Update to:** Final Fantasy XIV: Before the Fall (PlayStation 3) - ID: igdb-221528
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5hvo.jpg)
+  - *Patch 2.5 brings a myriad of additions and refinements to the realm of Eorzea, including new story quests, a new primal battle, a new Frontline battle, and more!*
 - [ ] **Update to:** Final Fantasy XIV: The Far Edge of Fate (PlayStation 3) - ID: igdb-221537
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/cobjg9.jpg)
   - *Patch 3.5 brings a myriad of additions and refinements to the realm of Eorzea, including new story quests, dungeons, and more!*
 - [ ] **Update to:** Final Fantasy XIV: Through the Maelstrom (PlayStation 3) - ID: igdb-221523
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6vmf.jpg)
   - *Patch 2.2 contains myriad additions and refinements to the realm of Eorzea. Players seeking the thrill of combat can face off with Leviathan or brave the new twists and turns of the Binding Coil. Arti...*
-- [ ] **Update to:** Final Fantasy XIV: Defenders of Eorzea (PlayStation 3) - ID: igdb-221525
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5hvl.jpg)
-  - *Patch 2.3 brings a myriad of additions and refinements to the realm of Eorzea including new story quests, a new primal battle, Frontline, the Hunt, and more!*
 
 ### Journey Collector's Edition (PlayStation 3)
 - [ ] **Update to:** Journey: Collector's Edition (PlayStation 3) - ID: igdb-23411
@@ -543,6 +545,33 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** LittleBigPlanet: Game of the Year Edition (PlayStation 3) - ID: igdb-21846
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3kps.jpg)
   - *If you were to stand on LittleBigPlanet and try to imagine a more astounding, fantastic, and creative place, full of enthralling adventure, uncanny characters, and brilliant things to do... you couldn...*
+- [ ] **Update to:** Minecraft: LittleBigPlanet Edition (PlayStation 3) - ID: igdb-234238
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co62oh.jpg)
+  - *Mix the crazy, non-stop creativity of LittleBigPlanet into the endless fun and freedom of Minecraft with this special mashup pack. Sackboy, Sackgirl, OddSock, Toggle, and Swoop will decorate your Mine...*
+- [ ] **Update to:** LittleBigPlanet 2: Special Edition (PlayStation 3) - ID: igdb-21717
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3kpu.jpg)
+  - *Exclusive for North America, a Special Edition of LittleBigPlanet 2 was released on November 15th 2011. This edition includes the standard edition of the game, PlayStation Move support, "Move Pack: Ri...*
+- [ ] **Update to:** LittleBigPlanet 3: The Journey Home (PlayStation 3) - ID: igdb-11252
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2f2s.jpg)
+  - *Bunkum is safe! To celebrate this marvelous feat, the grateful curators of the Imagisphere are throwing a huge party back on Craftworld… and everyone’s invited.  But silly bowler hat-wearing inventor ...*
+- [ ] **Update to:** LittleBigPlanet 2: Collector's Edition (PlayStation 3) - ID: igdb-44554
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3kpz.jpg)
+  - *Alongside the standard edition of the game, there are several other versions of the game exclusive to certain countries and/or regions around the world. All of the special edition versions of the game...*
+- [ ] **Update to:** LittleBigPlanet: Pirates of the Caribbean Level Kit (PlayStation 3) - ID: igdb-194642
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co4kph.jpg)
+  - *Get Sackboy ready for adventure with this downloadable collection of Pirates of the Caribbean goodies, including tons of stickers, music and a Cannibal costume.*
+- [ ] **Update to:** LittleBigPlanet 2: The Nightmare Before Christmas Level Kit (PlayStation 3) - ID: igdb-308678
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8irk.jpg)
+  - *The Nightmare Before Christmas Level Pack includes new decorations, materials, objects and other items from Tim Burton's Nightmare Before Christmas movie. These assets are presented in a new galley-st...*
+- [ ] **Update to:** LittleBigPlanet (PlayStation 3) - ID: igdb-1058
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co4p0f.jpg)
+  - *Welcome to LittleBigPlanet – a world of infinite possibilities, where imagination becomes reality and the powers of creation are firmly in your hands. If you can think of it, you can create it if you ...*
+- [ ] **Update to:** LittleBigPlanet 3 (PlayStation 3) - ID: igdb-7330
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3t1c.jpg)
+  - *In LittleBigPlanet 3, explore a world filled with creativity as you explore all corners of the Imagisphere, meet the inhabitants of the mysterious planet Bunkum and face the nefarious Newton. Discover...*
+- [ ] **Update to:** LittleBigPlanet 2 (PlayStation 3) - ID: igdb-2140
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2ijw.jpg)
+  - *LittleBigPlanet 2 is a puzzle platformer video game centered around user-generated content, first announced on May 8th, 2010 in the June 2010 issue of gaming magazine Game Informer. The game was devel...*
 
 ### X-Men Origins: Wolverine (PlayStation 3)
 - [ ] **Update to:** X-Men Origins: Wolverine Uncaged Edition (PlayStation 3) - ID: igdb-20478
@@ -607,20 +636,6 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co4yoz.jpg)
   - *Oddworld: Munch's Oddysee HD is a remaster of Oddworld: Munch's Oddysee. It includes upgrades to the environment and entity models, an improved sound design, and controls that more closely resemble th...*
 
-### Shovel Knight (PlayStation Vita)
-- [ ] **Update to:** Shovel Knight: Treasure Trove (PlayStation Vita) - ID: igdb-26848
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gsx.jpg)
-  - *Shovel Knight: Treasure Trove is the full and complete edition of Shovel Knight, a sweeping classic action-adventure game series with awesome gameplay, memorable characters, and an 8-bit retro aesthet...*
-- [ ] **Update to:** Shovel Knight: King of Cards (PlayStation Vita) - ID: igdb-27241
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gsw.jpg)
-  - *This game is the final free campaign included in the main game, Shovel Knight, and its updated title, Shovel Knight: Treasure Trove. The game will also be available as a standalone title on PC, PS4, X...*
-- [ ] **Update to:** Shovel Knight: Plague of Shadows (PlayStation Vita) - ID: igdb-20027
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gsv.jpg)
-  - *Shovel Knight: Plague of Shadows is a free expansion for Shovel Knight, a sweeping classic action adventure game that won over 70 Game of the Year Awards in 2014. You play as Plague Knight, the villai...*
-- [ ] **Update to:** Shovel Knight: Specter of Torment (PlayStation Vita) - ID: igdb-23910
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gsu.jpg)
-  - *This game is a free expansion included in the main game, Shovel Knight, and its updated title, Shovel Knight: Treasure Trove. The game will also be available as a standalone title on PC, PS4, Xbox One...*
-
 ### Tales of Hearts (PlayStation Vita)
 - [ ] **Update to:** Tales of Hearts R (PlayStation Vita) - ID: igdb-19797
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co55ok.jpg)
@@ -661,12 +676,12 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Assassin's Creed IV: Black Flag - Gold Edition (PlayStation 4) - ID: igdb-52431
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/ihejqfchcmpmiofetej4.jpg)
   - *The immersive world of Assassins Creed Black Flag drops you into the heart of an explosive reimagining of maritime history. Play as young privateer Edward Kenway, fighting side by side with the most n...*
-- [ ] **Update to:** Assassin's Creed IV Black Flag: Kraken Ship Pack (PlayStation 4) - ID: igdb-26086
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8giz.jpg)
-  - *Inspired by the legendary Kraken creature, unlock 3 new customization items for your ship: Kraken Figurehead, Kraken Sails, Kraken Wheel.  Important: You need to progress until Sequence 3 memory 04 to...*
 - [ ] **Update to:** Assassin's Creed IV: Black Flag - Limited Edition (PlayStation 4) - ID: igdb-42911
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600j.jpg)
   - *Assassin's Creed IV: Black Flag - Limited Edition contains the essential items for gamers to Unite under the Black Flag.  Along with a copy of the game, customers will receive: A stunning 18" assassin...*
+- [ ] **Update to:** Assassin's Creed IV Black Flag: Kraken Ship Pack (PlayStation 4) - ID: igdb-26086
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8giz.jpg)
+  - *Inspired by the legendary Kraken creature, unlock 3 new customization items for your ship: Kraken Figurehead, Kraken Sails, Kraken Wheel.  Important: You need to progress until Sequence 3 memory 04 to...*
 - [ ] **Update to:** Assassin's Creed IV Black Flag: Death Vessel Pack (PlayStation 4) - ID: igdb-26085
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600l.jpg)
   - *Give a fearsome look to your ship with those 3 unique customization items: The Death Vessel Figurehead, Death Vessel Sails and Death Vessel Wheel.*
@@ -702,6 +717,9 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Beyond Good & Evil: 20th Anniversary Edition (PlayStation 4) - ID: igdb-278326
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8eda.jpg)
   - *Swoop into the marvelous world of Hillys as action-reporter Jade to investigate the mysterious DomZ alien attacks alongside colorful characters, like her adoptive uncle Pey’j or the valiant Double H. ...*
+- [ ] **Update to:** Beyond Good & Evil 2 (PlayStation 4) - ID: igdb-1936
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2pjv.jpg)
+  - *Beyond Good & Evil 2 marks the return of one of Ubisoftís most beloved games. The prequel will transport players into a profoundly multicultural world, capturing the spirit of the original with unforg...*
 
 ### Blaster Master Zero 2 (PlayStation 4)
 - [ ] **Update to:** Blaster Master Zero II (PlayStation 4) - ID: igdb-116416
@@ -820,9 +838,9 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Final Fantasy XIV: Crossroads (PlayStation 4) - ID: igdb-318270
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co903w.jpg)
   - *Patch 7.1 introduces: new main scenario quests; the first installment from the alliance raid Echoes of Vana'diel, Jeuno: The First Walk; the Extreme version of the Sphene's Burden trial; a new dungeon...*
-- [ ] **Update to:** Final Fantasy XIV: Before the Fall (PlayStation 4) - ID: igdb-221528
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5hvo.jpg)
-  - *Patch 2.5 brings a myriad of additions and refinements to the realm of Eorzea, including new story quests, a new primal battle, a new Frontline battle, and more!*
+- [ ] **Update to:** Final Fantasy XIV: Buried Memory (PlayStation 4) - ID: igdb-221549
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5hw7.jpg)
+  - *Patch 6.2 follows the Warrior of Light and their companions on a perilous journey into the void. This patch also introduces the next raid dungeon Pandæmonium: Abyssos, a challenging new trial, and Isl...*
 
 ### Final Fantasy I-VI Collection (PlayStation 4)
 - [ ] **Update to:** Final Fantasy: Pixel Remaster Collection (PlayStation 4) - ID: igdb-159253
@@ -931,11 +949,6 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co246f.jpg)
   - *Overcooked! 2: Gourmet Edition contains a smorgasbord of delights, including the main game and all DLC, 58 chefs & dozens of kitchens!*
 
-### Pac-Man Championship Edition 2 + Arcade Game Series (PlayStation 4)
-- [ ] **Update to:** Pac-Man: Championship Edition 2 + Arcade Game Series (PlayStation 4) - ID: igdb-74273
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co27xn.jpg)
-  - *Bandai-Namco bundles its hit Pac-Man Championship Edition 2 on a disc with three Namco classics.*
-
 ### Panzer Dragoon (PlayStation 4)
 - [ ] **Update to:** Panzer Dragoon: Remake (PlayStation 4) - ID: igdb-113350
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co21me.jpg)
@@ -971,31 +984,6 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Resident Evil 7: Biohazard - Gold Edition Grotesque Version (PlayStation 4) - ID: igdb-167065
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co4tob.jpg)
   - *This edition includes the following:  - Resident Evil 7 biohazard: Grotesque Version - DLC: Banned Footage Vol.1 & Vol.2 - DLC: End of Zoe*
-
-### Shovel Knight (PlayStation 4)
-- [ ] **Update to:** Shovel Knight Showdown (PlayStation 4) - ID: igdb-27242
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/cobaa6.jpg)
-  - *"Duel with up to 4 players and scramble after gems as your favorite heroic or villainous knight in Shovel Knight Showdown. All the classic Shovel Knight characters you know and love are playable, many...*
-- [ ] **Update to:** Shovel Knight: Pocket Dungeon (PlayStation 4) - ID: igdb-133503
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/cobvml.jpg)
-  - *Delve with Shovel Knight into the depths of the Pocket Dungeon in an action-packed puzzle adventure mashup like none other! Join your mysterious guide Puzzle Knight as you shovel through scads of foes...*
-- [ ] **Update to:** Shovel Knight: Treasure Trove (PlayStation 4) - ID: igdb-26848
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gsx.jpg)
-  - *Shovel Knight: Treasure Trove is the full and complete edition of Shovel Knight, a sweeping classic action-adventure game series with awesome gameplay, memorable characters, and an 8-bit retro aesthet...*
-- [ ] **Update to:** Shovel Knight: King of Cards (PlayStation 4) - ID: igdb-27241
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gsw.jpg)
-  - *This game is the final free campaign included in the main game, Shovel Knight, and its updated title, Shovel Knight: Treasure Trove. The game will also be available as a standalone title on PC, PS4, X...*
-- [ ] **Update to:** Shovel Knight: Plague of Shadows (PlayStation 4) - ID: igdb-20027
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gsv.jpg)
-  - *Shovel Knight: Plague of Shadows is a free expansion for Shovel Knight, a sweeping classic action adventure game that won over 70 Game of the Year Awards in 2014. You play as Plague Knight, the villai...*
-- [ ] **Update to:** Shovel Knight: Specter of Torment (PlayStation 4) - ID: igdb-23910
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gsu.jpg)
-  - *This game is a free expansion included in the main game, Shovel Knight, and its updated title, Shovel Knight: Treasure Trove. The game will also be available as a standalone title on PC, PS4, Xbox One...*
-- [ ] **Update to:** Shovel Knight: Pocket Dungeon - Paradox Pack DLC (PlayStation 4) - ID: igdb-305756
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8ckd.jpg)
-- [ ] **Update to:** Shovel Knight: Pocket Dungeon - Puzzler's Pack DLC (PlayStation 4) - ID: igdb-246405
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9ap1.jpg)
-  - *This DLC adds new characters, areas, quests, relics, and more.*
 
 ### Star Wars Racer Revenge (PlayStation 4)
 - [ ] **Update to:** Star Wars: Racer Revenge (PlayStation 4) - ID: igdb-19419
@@ -1159,21 +1147,21 @@ This report lists findings from the collection discovery pipeline.
   - *The hack replaces Sonic with the infamous 90s video game mascot, Bubsy the Bobcat.*
 
 ### Batman (Sega Genesis)
-- [ ] **Update to:** Batman: The Video Game (Sega Mega Drive/Genesis) - ID: igdb-10510
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2kxh.jpg)
-  - *Batman is a video game developed by Sunsoft and released for the Sega Genesis in 1990. It was inspired by the 1989 Tim Burton-directed Batman film. The game is more faithful to the film's plot than th...*
 - [ ] **Update to:** Batman Returns (Sega Mega Drive/Genesis) - ID: igdb-4379
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3zck.jpg)
   - *Batman Returns is a beat-em-up side-scrolling game designed for the Sega consoles. It was published by Sega.*
-- [ ] **Update to:** The Adventures of Batman & Robin (Sega Mega Drive/Genesis) - ID: igdb-234834
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6378.jpg)
-  - *The Mega Drive/Genesis version, developed by Clockwork Tortoise and published by Sega, is a run 'n' gun where both Batman and Robin must stop Mr. Freeze, who plans to freeze Gotham City. In order to k...*
 - [ ] **Update to:** LEGO Batman (Sega Mega Drive/Genesis) - ID: igdb-213256
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co7t2o.jpg)
   - *LEGO Batman is an unlicensed platformer based on the 2008 J2ME version of Lego Batman: The Mobile Game, released in Russia for the Sega Mega Drive in 2014 by BMB.*
 - [ ] **Update to:** Batman Forever (Sega Mega Drive/Genesis) - ID: igdb-19856
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gym.jpg)
   - *Batman Forever is a beat 'em up video game based on the movie of the same name, where you can play as either Batman or Robin.*
+- [ ] **Update to:** Batman: The Video Game (Sega Mega Drive/Genesis) - ID: igdb-10510
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2kxh.jpg)
+  - *Batman is a video game developed by Sunsoft and released for the Sega Genesis in 1990. It was inspired by the 1989 Tim Burton-directed Batman film. The game is more faithful to the film's plot than th...*
+- [ ] **Update to:** The Adventures of Batman & Robin (Sega Mega Drive/Genesis) - ID: igdb-234834
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6378.jpg)
+  - *The Mega Drive/Genesis version, developed by Clockwork Tortoise and published by Sega, is a run 'n' gun where both Batman and Robin must stop Mr. Freeze, who plans to freeze Gotham City. In order to k...*
 - [ ] **Update to:** Batman: Revenge of the Joker (Sega Mega Drive/Genesis) - ID: igdb-45204
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5yv3.jpg)
   - *Precious metals are mysteriously missing from Gotham City mines. One of these metals has a highly toxic composition which is used to build explosives for missiles. Gotham City police have exhausted th...*
@@ -1308,20 +1296,17 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Assassin's Creed Brotherhood (Xbox 360) - ID: igdb-113
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6t4d.jpg)
   - *Live and breathe as Ezio, a legendary Master Assassin, in his enduring struggle against the powerful Templar Order. He must journey into Italy’s greatest city, Rome, center of power, greed and corrupt...*
-- [ ] **Update to:** Assassin's Creed Brotherhood: The Da Vinci Disappearance (Xbox 360) - ID: igdb-8216
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1zlk.jpg)
-  - *The Da Vinci Disappearance is a downloadable content addition for Assassin's Creed: Brotherhood, bundled alongside Animus Project Update 3.0.*
 - [ ] **Update to:** Compilation Assassin's Creed: Brotherhood + Revelations (Xbox 360) - ID: igdb-151207
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co31tx.jpg)
   - *This bundle contains:  - Assassin's Creed: Brotherhood - Assassin's Creed: Revelations*
+- [ ] **Update to:** Assassin's Creed Brotherhood: The Da Vinci Disappearance (Xbox 360) - ID: igdb-8216
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1zlk.jpg)
+  - *The Da Vinci Disappearance is a downloadable content addition for Assassin's Creed: Brotherhood, bundled alongside Animus Project Update 3.0.*
 
 ### Assassin's Creed: Revelations (Xbox 360)
 - [ ] **Update to:** Assassin's Creed Revelations (Xbox 360) - ID: igdb-537
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1xih.jpg)
   - *Assassin's Creed Revelations presents the most immersive experience available in the series to date and the culmination of Ezio's adventure. In Assassin's Creed Revelations, master assassin Ezio Audit...*
-- [ ] **Update to:** Assassin's Creed Revelations: The Lost Archive (Xbox 360) - ID: igdb-8217
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1zni.jpg)
-  - *Explore the mysterious pasts of Subject 16 and Lucy Stillman in two hours of all-new content using the innovative narration style and puzzle-platforming gameplay pioneered in the present-day Desmond s...*
 - [ ] **Update to:** Assassin's Creed: Revelations - Gold Edition (Xbox 360) - ID: igdb-52417
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600c.jpg)
   - *The Gold Edition contains the main game and also the three available DLC's. So the games within this compilation are:  - Assassin's Creed: Revelations - Assassin's Creed: Revelations - The Ancestors C...*
@@ -1337,15 +1322,18 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Assassin's Creed: Revelations - Collectors Edition (Xbox 360) - ID: igdb-45119
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600d.jpg)
   - *This Collector's Edition contains:  - A special Collector's box - Assassin's Creed: Revelations (base game) - An artbook - The game's soundtrack - Additional single-player mission: Vlad the Impaler's ...*
+- [ ] **Update to:** Compilation Assassin's Creed: Brotherhood + Revelations (Xbox 360) - ID: igdb-151207
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co31tx.jpg)
+  - *This bundle contains:  - Assassin's Creed: Brotherhood - Assassin's Creed: Revelations*
+- [ ] **Update to:** Assassin's Creed Revelations: The Lost Archive (Xbox 360) - ID: igdb-8217
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1zni.jpg)
+  - *Explore the mysterious pasts of Subject 16 and Lucy Stillman in two hours of all-new content using the innovative narration style and puzzle-platforming gameplay pioneered in the present-day Desmond s...*
 - [ ] **Update to:** Assassin's Creed Revelations: The Ancestors Character Pack (Xbox 360) - ID: igdb-167241
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6c8o.jpg)
   - *The Ancestors Character Pack features four new multiplayer characters, including: the swashbuckling Privateer, the devious siren Corsair, the battle-tested Brigand, and the bloodthirsty Gladiator. Eac...*
 - [ ] **Update to:** Assassin's Creed Revelations: Mediterranean Traveler Map Pack (Xbox 360) - ID: igdb-167242
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6cl5.jpg)
   - *The Mediterranean Traveler Map Pack extends the Assassin’s Creed Revelations multiplayer experience with the addition of six multiplayer maps, each introducing new gameplay opportunities through their...*
-- [ ] **Update to:** Compilation Assassin's Creed: Brotherhood + Revelations (Xbox 360) - ID: igdb-151207
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co31tx.jpg)
-  - *This bundle contains:  - Assassin's Creed: Brotherhood - Assassin's Creed: Revelations*
 
 ### Assassin's Creed IV: Black Flag (Xbox 360)
 - [ ] **Update to:** Assassin's Creed IV Black Flag (Xbox 360) - ID: igdb-1970
@@ -1366,12 +1354,12 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Assassin's Creed IV: Black Flag - Limited Edition (Xbox 360) - ID: igdb-42911
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600j.jpg)
   - *Assassin's Creed IV: Black Flag - Limited Edition contains the essential items for gamers to Unite under the Black Flag.  Along with a copy of the game, customers will receive: A stunning 18" assassin...*
-- [ ] **Update to:** Assassin's Creed IV Black Flag: Death Vessel Pack (Xbox 360) - ID: igdb-26085
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600l.jpg)
-  - *Give a fearsome look to your ship with those 3 unique customization items: The Death Vessel Figurehead, Death Vessel Sails and Death Vessel Wheel.*
 - [ ] **Update to:** Assassin's Creed IV: Black Flag - Buccaneer Edition (Xbox 360) - ID: igdb-89872
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2tf6.jpg)
   - *Welcome to the Golden Age of Piracy. The year is 1715. Pirates rule the Caribbean and have established their own lawless Republic where corruption, greediness and cruelty are commonplace. Among these ...*
+- [ ] **Update to:** Assassin's Creed IV Black Flag: Death Vessel Pack (Xbox 360) - ID: igdb-26085
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600l.jpg)
+  - *Give a fearsome look to your ship with those 3 unique customization items: The Death Vessel Figurehead, Death Vessel Sails and Death Vessel Wheel.*
 - [ ] **Update to:** Assassin's Creed IV Black Flag: Crusader & Florentine Pack (Xbox 360) - ID: igdb-26091
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co600m.jpg)
   - *Sail with Altaïr and Ezio’s colors with 4 customisation items for your ship and 2 new weapons for Edward: Ezio’s Iconic Figurehead, Ezio’s Unique Sails, Ezio’s Swords, Altaïr’s Iconic Figurehead, Alta...*
@@ -1431,30 +1419,30 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Final Fantasy XI: Ultimate Collection (Xbox 360) - ID: igdb-269413
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co75s7.jpg)
   - *This bundle includes Final Fantasy XI Online and its four first expansions:  -Rise of the Zilart -Chains of Promathia -Treasures of Aht Urhgan -Wings of the Goddess  As well as three add-on scenarios:...*
-- [ ] **Update to:** Final Fantasy XI: Rise of the Zilart (Xbox 360) - ID: igdb-416
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x52.jpg)
-  - *Final Fantasy XI: Rise of the Zilart is an expansion pack of Final Fantasy XI. This expansion pack brings several new areas, Jobs, quests, and a new mission storyline to the game.  Rise of the Zilart ...*
 - [ ] **Update to:** Final Fantasy XI: Chains of Promathia (Xbox 360) - ID: igdb-409
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1vmv.jpg)
   - *Final Fantasy XI: Chains of Promathia is the second expansion pack for Final Fantasy XI. This expansion pack brings several new areas, quests, and a new mission storyline to the game. It is also the o...*
+- [ ] **Update to:** Final Fantasy XI: Seekers of Adoulin (Xbox 360) - ID: igdb-10319
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x54.jpg)
+  - *Final Fantasy XI: Seekers of Adoulin is the fifth full expansion pack for Final Fantasy XI, and the first full expansion for Final Fantasy XI in over 5 years after Wings of the Goddess. Seekers of Ado...*
+- [ ] **Update to:** Final Fantasy XI: Rhapsodies of Vana'diel (Xbox 360) - ID: igdb-266861
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x56.jpg)
+  - *Released across the May, August, and November 2015 version updates, Rhapsodies of Vana'diel is designed to be the conclusion of the main scenario missions of Final Fantasy XI, tying together plotlines...*
+- [ ] **Update to:** Final Fantasy XI: Rise of the Zilart (Xbox 360) - ID: igdb-416
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x52.jpg)
+  - *Final Fantasy XI: Rise of the Zilart is an expansion pack of Final Fantasy XI. This expansion pack brings several new areas, Jobs, quests, and a new mission storyline to the game.  Rise of the Zilart ...*
 - [ ] **Update to:** Final Fantasy XI Online: Wings of the Goddess (Xbox 360) - ID: igdb-80589
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9d4j.jpg)
   - *The fourth expansion in the Final Fantasy XI Online series adds new areas along with the ability to go back in time. Wings of the Goddess also introduces two new jobs to the game.*
 - [ ] **Update to:** Final Fantasy XI: Treasures of Aht Urhgan (Xbox 360) - ID: igdb-405
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1vq6.jpg)
   - *Final Fantasy XI: Treasures of Aht Urhgan is a massively multiplayer online role-playing game. Enjoy a new world to explore as you tour the world of Vana'Diel. New jobs, new monsters, new realms and e...*
-- [ ] **Update to:** Final Fantasy XI: Seekers of Adoulin (Xbox 360) - ID: igdb-10319
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x54.jpg)
-  - *Final Fantasy XI: Seekers of Adoulin is the fifth full expansion pack for Final Fantasy XI, and the first full expansion for Final Fantasy XI in over 5 years after Wings of the Goddess. Seekers of Ado...*
 - [ ] **Update to:** Final Fantasy XI: Vana'diel Collection 2008 (Xbox 360) - ID: igdb-41853
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1vnr.jpg)
   - *This collection extends the 2007 compilation with the inclusion of the fourth expansion pack.*
 - [ ] **Update to:** Final Fantasy XI: Wings of the Goddess (Xbox 360) - ID: igdb-402
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co205j.jpg)
   - *Wings of the Goddess (アルタナの神兵 Arutana no Shinpei, lit. "Divine Soldiers of Altana") is the fourth expansion of Final Fantasy XI was announced on May 12, 2007 at the Square Enix Party event in Japan. T...*
-- [ ] **Update to:** Final Fantasy XI: A Moogle Kupo d'Etat (Xbox 360) - ID: igdb-255771
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9hnf.jpg)
-  - *The second add-on scenario for Final Fantasy XI. It was originally sold online through the PlayOnline network. It is now also available on disc in the Ultimate Collection of Final Fantasy XI. Like the...*
 
 ### Kinect Sports Ultimate Collection (Xbox 360)
 - [ ] **Update to:** Kinect Sports: Ultimate Collection (Xbox 360) - ID: igdb-47401
@@ -1465,11 +1453,6 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** X-Men Origins: Wolverine Uncaged Edition (Xbox 360) - ID: igdb-20478
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8f4l.jpg)
   - *X-Men Origins: Wolverine Uncaged Edition is a third-person action game developed by Raven Software and published by Activision. Released in 2009 for PlayStation 3, Xbox 360, and Windows PC, this versi...*
-
-### Quake 4 (re-release) (Xbox 360)
-- [ ] **Update to:** Quake 4 (Xbox 360) - ID: igdb-356
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1o1t.jpg)
-  - *Quake 4 is a action shooter game which serves as the another chapter in the Quake series.*
 
 ### Sonic & Sega All-Stars Racing (Xbox 360)
 - [ ] **Update to:** Sonic & Sega All-Stars Racing with Banjo-Kazooie (Xbox 360) - ID: igdb-24346
@@ -1667,11 +1650,6 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co246f.jpg)
   - *Overcooked! 2: Gourmet Edition contains a smorgasbord of delights, including the main game and all DLC, 58 chefs & dozens of kitchens!*
 
-### Pac-Man Championship Edition 2 + Arcade Game Series (Xbox One)
-- [ ] **Update to:** Pac-Man: Championship Edition 2 + Arcade Game Series (Xbox One) - ID: igdb-74273
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co27xn.jpg)
-  - *Bandai-Namco bundles its hit Pac-Man Championship Edition 2 on a disc with three Namco classics.*
-
 ### Prototype Biohazard Bundle (Xbox One)
 - [ ] **Update to:** Prototype: Biohazard Bundle (Xbox One) - ID: igdb-19611
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6s88.jpg)
@@ -1827,23 +1805,24 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Link to:** F-1 Race (Game Boy) - ID: igdb-240167
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co67uv.jpg)
   - *Game Boy port of F-1 Race.*
+- [ ] **Link to:** F1 ROC: Race of Champions (Super Nintendo Entertainment System) - ID: igdb-42571
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/cobgo7.jpg)
+  - *Strap yourself in the cockpit, step on the gas and take a turbo-charged ride through the high-speed world of Formula One racing with F1 900.  You’ll test your skill on the famed hairpins of Monte Carl...*
+- [ ] **Link to:** F1 ROC II: Race of Champions (Super Nintendo Entertainment System) - ID: igdb-42572
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3rro.jpg)
+  - *OK race fans, you've seen the rest, now here's the best'  Seta's new super DSP chip separates the men from the boys in this high speed Formula One racing tour. Drive real cars, like the FW14B Williams...*
 - [ ] **Link to:** F1 Race Stars: China Track (Unknown) - ID: igdb-167970
   - *Download the F1 RACE STARS China Track now! Race against the cast of F1 RACE STARS and share the fun in online and split-screen in this brand new circuit.*
 - [ ] **Link to:** F1 Race Stars: Canada Track (Unknown) - ID: igdb-167969
   - *Download the F1 RACE STARS Canada Track where the mayhem comes in solo, split-screen and online play! Dodge the grumpy groundhogs and race across a frozen river in this brand new F1 RACE STARS circuit...*
 - [ ] **Link to:** F1 Race Stars: Europe Track (Unknown) - ID: igdb-167971
   - *Go head to head with the F1 RACE STARS and compete online and in split-screen as you charge around the streets of Valencia.*
-- [ ] **Link to:** F1 Racing Simulation (PC (Microsoft Windows)) - ID: igdb-691
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co7yds.jpg)
-  - *Duel for position against the world's greatest drivers at 180 miles per hour! F1 Racing Simulation will impress even the most demanding Formula 1 fanatic! Featuring 22 drivers and all 16 tracks from t...*
 - [ ] **Link to:** F1 Race Stars: Powered Up Edition (Wii U) - ID: igdb-85134
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/bieu7dpoz6rlkeznntj0.jpg)
   - *Formula One goes over the top!*
-- [ ] **Link to:** F1 Racing Championship (Nintendo 64) - ID: igdb-3495
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5xxz.jpg)
-  - *You'll line up against the fiercest opponents of all time in this ultimate F-1 simulation. Featuring real circuits from the 1999 Formula One season, F-1 RACING CHAMPIONSHIP boasts the inclusion of the...*
-- [ ] **Link to:** F1 Racing Championship (Game Boy Color) - ID: igdb-249118
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6pr0.jpg)
+- [ ] **Link to:** F1 Racing Simulation (PC (Microsoft Windows)) - ID: igdb-691
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co7yds.jpg)
+  - *Duel for position against the world's greatest drivers at 180 miles per hour! F1 Racing Simulation will impress even the most demanding Formula 1 fanatic! Featuring 22 drivers and all 16 tracks from t...*
 
 ### The Amazing Spider-Man 3: Invasion of the Spider-Slayers (Game Boy)
 - No suggestions found.
@@ -1862,9 +1841,6 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coa8l2.jpg)
   - *PAC-MAN WORLD 2 Re-PAC modernizes, updates, and enhances the fan favorite 3D Platforming adventure in nearly every way! Venture across PAC-LAND to reclaim the golden fruit and put a stop to the ghosts...*
 - [ ] **Link to:** MP1: Pac-Man World Rally (Nintendo 64) - ID: igdb-283508
-- [ ] **Link to:** Pac-Man World 2 Re-Pac x Sonic the Hedgehog (Xbox Series X|S) - ID: igdb-361843
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coaqw9.jpg)
-  - *Grants the Sonic the Hedgehog Collaboration Set for PAC-MAN WORLD 2 Re-PAC!  Sonic the Hedgehog Collaboration Set includes: - 3 Collab Stages - 1 Collab Costume - 20 Collab Figures • Collaboration Set...*
 - [ ] **Link to:** Pac-Man World 3 (Xbox) - ID: igdb-4064
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2de8.jpg)
   - *The classic gaming character Pac-Man is back for the third iteration of the Pac-Man World series. The game features the classic Pac-Man powers and adds a few new abilities--such as superstomp and elec...*
@@ -1875,9 +1851,9 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Link to:** Pac-Man World 2 (PlayStation 2) - ID: igdb-305269
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8byw.jpg)
   - *The black label edition of Pac-Man World 2 on the PS2 is the original North American release. It differs significantly from later versions, which were rebalanced to reduce the difficulty.*
-
-### Final Fantasy IV Advance (Game Boy Advance)
-- No suggestions found.
+- [ ] **Link to:** Pac-Man World 2 (Game Boy Advance) - ID: igdb-134428
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co31xe.jpg)
+  - *This version of Pac-Man World 2 is the Game Boy Advance portable version. It is sprite-based and an isometric platformer.*
 
 ### Mega Man Battle Network 3 Blue Version (Game Boy Advance)
 - No suggestions found.
@@ -1915,14 +1891,6 @@ This report lists findings from the collection discovery pipeline.
 ### Rayman M (Nintendo GameCube)
 - No suggestions found.
 
-### Dragon Quest IV: Chapters of the Chosen (Nintendo DS)
-- [ ] **Link to:** Dragon Quest IV: Chapters of the Chosen (Android) - ID: igdb-216304
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co7ug6.jpg)
-  - *The English iOS/Android version of Dragon Quest IV brings back the Party Chat feature which was absent from the English DS version.*
-
-### Pokémon HeartGold Version (Nintendo DS)
-- No suggestions found.
-
 ### Harvest Moon DS: The Tale of Two Towns (Nintendo DS)
 - No suggestions found.
 
@@ -1953,13 +1921,13 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Link to:** The LEGO Movie 2 Videogame (PlayStation 4) - ID: igdb-112674
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2dhg.jpg)
   - *The alien monster invaders have left Bricksburg in ruins. It is now up to Emmet and a host of heroic characters to go beyond their world and save their friends from the strange inhabitants of the Syst...*
-- [ ] **Link to:** The LEGO Movie Videogame: Wild West Pack (PlayStation 4) - ID: igdb-168792
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5pb8.jpg)
-  - *It’s a rip-roarin' good time in the wild, wild west! Get a chock-full of laughs and abilities with these special pants. Spin around and attract more studs with the Tornado Pants. Put on your Prospecto...*
 - [ ] **Link to:** The LEGO Movie 2 Videogame: Prophecy Pack (PlayStation 4) - ID: igdb-375277
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coar06.jpg)
   - *A pre-order bonus for the LEGO Movie 2 Videogame that featured the playable characters Cleopatra, Emmet wearing pyjamas, Lord Business, human Metalbeard, Shakespeare, and young Vitruvius. Unlike most ...*
 - [ ] **Link to:** The LEGO Movie 2 Videogame: Minifigure Edition (Unknown) - ID: igdb-139954
+- [ ] **Link to:** The LEGO Movie Videogame: Wild West Pack (PlayStation 4) - ID: igdb-168792
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5pb8.jpg)
+  - *It’s a rip-roarin' good time in the wild, wild west! Get a chock-full of laughs and abilities with these special pants. Spin around and attract more studs with the Tornado Pants. Put on your Prospecto...*
 - [ ] **Link to:** The LEGO Movie 2 Videogame: Galactic Adventures Character & Level Pack (Xbox Series X|S) - ID: igdb-238013
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coaf1s.jpg)
   - *More levels focusing on what Rex Dangervest and Sweet Mayhem were doing before the movie / game began.*
@@ -1999,15 +1967,6 @@ This report lists findings from the collection discovery pipeline.
 ### The Messenger [Includes Picnic Panic] (Nintendo Switch)
 - No suggestions found.
 
-### Overcooked! Special Edition + Overcooked! 2 (Nintendo Switch)
-- No suggestions found.
-
-### Pico Park 1 + 2 (Nintendo Switch)
-- No suggestions found.
-
-### Metroid Prime 4: Beyond - Nintendo Switch 2 Edition (Nintendo Switch 2)
-- No suggestions found.
-
 ### Star Wars: Masters of Teräs Käsi (PlayStation)
 - No suggestions found.
 
@@ -2040,9 +1999,6 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Link to:** Fallout 76 (Xbox Series X|S) - ID: igdb-103020
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1yc4.jpg)
   - *Bethesda Game Studios welcome you to Fallout 76. Twenty-five years after the bombs fall you and your fellow Vault Dwellers, chosen from the nation’s best and brightest, emerge into post-nuclear Americ...*
-- [ ] **Link to:** Fallout 76: Atlantic City - America's Playground (PlayStation 4) - ID: igdb-297701
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8369.jpg)
-  - *Atlantic City – America’s Playground is a free update for Fallout 76 and with it comes new questlines, open exploration of Atlantic City and a season full of adventurous rewards.  America’s Playground...*
 - [ ] **Link to:** Fallout 76: The Pitt (Xbox Series X|S) - ID: igdb-217785
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5a4e.jpg)
   - *These expeditions into the Pitt are large-scale repeatable missions for groups of up to 4 players. From Whitespring Refuge in Appalachia, players will power a Vertibird to transport them into the hear...*
@@ -2063,38 +2019,42 @@ This report lists findings from the collection discovery pipeline.
   - *Unleash your inner ghoul. Today's Ghoul Within update allows Wastelanders to leave their humanity behind and play as a Ghoul.*
 - [ ] **Link to:** Fallout 76 + Wastelanders (Xbox One) - ID: igdb-171286
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co7yin.jpg)
+- [ ] **Link to:** Fallout 76: Wastelanders (PlayStation 4) - ID: igdb-132141
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2315.jpg)
+  - *In Fallout 76: Wastelanders, people are now coming back to West Virginia. Two vying factions are struggling to gain the upper hand as the secrets of West Virginia are revealed. The Settlers have come ...*
 
 ### The Walking Dead: Game of the Year Edition (PlayStation 3)
 - No suggestions found.
 
 ### Accounting+ (PlayStation 4)
-- [ ] **Link to:** Accounting+ (Meta Quest 2) - ID: igdb-76881
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co22m0.jpg)
-  - *Accounting returns to its roots with Accounting+, a nIGHTMARE aDVENTURE cOMEDY made by Crows Crows Crows and designed with Squanch Games! Double the size of the original Accounting (one of the most po...*
-- [ ] **Link to:** Search Account (PC (Microsoft Windows)) - ID: igdb-330044
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9cp4.jpg)
-  - *Real Escape Game.*
 - [ ] **Link to:** Accounting (PlayStation VR) - ID: igdb-25251
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2pdg.jpg)
   - *The modern field of Accountancy is a serious and honorable profession. Many human beings have spent their lives toiling over the hard science of numbers. Thousands have died so that we may get to the ...*
+- [ ] **Link to:** Accounting+ (Meta Quest 2) - ID: igdb-76881
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co22m0.jpg)
+  - *Accounting returns to its roots with Accounting+, a nIGHTMARE aDVENTURE cOMEDY made by Crows Crows Crows and designed with Squanch Games! Double the size of the original Accounting (one of the most po...*
 - [ ] **Link to:** Doug From Accounting (Unknown) - ID: igdb-179888
   - *Office themed Beat em Up*
 - [ ] **Link to:** Jeff From Accounting (Unknown) - ID: igdb-177594
   - *Jeff From Accounting is an unpunctuated FPS typing game about typing what you shoot and shooting what you type. Buckle up, things are about to get wordy!*
+- [ ] **Link to:** When in Rome 1: Accounting for Taste (Web browser) - ID: igdb-216340
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co57hv.jpg)
+  - *Manhattan, May, 1954.  The last few years, you've settled into a routine. You work at the bank, you go home, you occasionally have dinner with your mother. It is all acceptably ordinary.  One day a st...*
+- [ ] **Link to:** Debit and Credit: A Walk Through Accounting Hell (PC (Microsoft Windows)) - ID: igdb-102983
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6pet.jpg)
+  - *Bad accountants go to accounting hell. Complete an accountant's walk through accounting hell, solving puzzles and searching for save points. This is a college student's attempt at making an interactiv...*
+- [ ] **Link to:** Search Account (PC (Microsoft Windows)) - ID: igdb-330044
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9cp4.jpg)
+  - *Real Escape Game.*
 - [ ] **Link to:** Zombie Accountant (Unknown) - ID: igdb-66159
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/f9cponb8wjjpwsqpzjzc.jpg)
   - *A terrifying zombie outbreak threatens to consume humanity and you fall victim to the undead curse, doomed to hunger for human flesh. In a startling turn of events, the army actually manages to contai...*
 - [ ] **Link to:** Accounts of Abydos (Unknown) - ID: igdb-223818
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5q34.jpg)
   - *This economy based card game pits your strategic skills against friends, family, and other players online! Just hop in, create or join a room, and fight to amass the mountains of gold contained in the...*
-- [ ] **Link to:** When in Rome 1: Accounting for Taste (Web browser) - ID: igdb-216340
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co57hv.jpg)
-  - *Manhattan, May, 1954.  The last few years, you've settled into a routine. You work at the bank, you go home, you occasionally have dinner with your mother. It is all acceptably ordinary.  One day a st...*
 - [ ] **Link to:** Bandit Accountancy (Web browser) - ID: igdb-336923
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9kxa.jpg)
   - *In Bandit Accountancy, you sort gems using a gamepad or the arrow keys.*
-- [ ] **Link to:** Yabai Girls: Amazing Accountant (Unknown) - ID: igdb-376352
-  - *Meet over 50 pretty anime girls in this relaxing puzzle game!*
 
 ### Astro Bot Rescue Mission (PlayStation 4)
 - [ ] **Link to:** Astro Bot: Rescue Mission (PlayStation VR) - ID: igdb-102129
@@ -2217,6 +2177,9 @@ This report lists findings from the collection discovery pipeline.
   - *Experience the world of Wolfenstein from a whole new perspective in Cyberpilot VR, a virtual reality gaming experience from MachineGames.  Paris. 1980. You’re the best hacker in town. Your mission: Ai...*
 
 ### Red Matter (PlayStation 5)
+- [ ] **Link to:** Red Matter (Oculus VR) - ID: igdb-109907
+  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8caj.jpg)
+  - *Red Matter is a story-driven VR puzzle adventure game set during a dystopian sci-fi Cold War. Take on the role of Agent Epsilon, an astronaut of the Atlantic Union dispatched to an abandoned Volgravia...*
 - [ ] **Link to:** Red Matter 2 (Meta Quest 2) - ID: igdb-198227
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8ccv.jpg)
   - *Red Matter 2 is an immersive, puzzle-adventure game that will transport you to the far reaches of space. Step into the shoes of Sasha, an agent awakened in a lunar base by an undercover operative and ...*
