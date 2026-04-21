@@ -77,22 +77,11 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
       @if (currentTab() === 'games') {
         <div class="filter-group flex items-center gap-sm">
           <label>Series:</label>
-          <input list="series-list" [ngModel]="filters().collection" (ngModelChange)="onPartialChange('collection', $event)" class="glass-input list-input" placeholder="All Series">
+          <input list="series-list" [ngModel]="filters().series" (ngModelChange)="onPartialChange('series', $event)" class="glass-input list-input" placeholder="All Series">
           <datalist id="series-list">
             <option value="">All Series</option>
-            @for (s of uniqueCollections(); track s) {
+            @for (s of uniqueSeries(); track s) {
               <option [value]="s"></option>
-            }
-          </datalist>
-        </div>
-
-        <div class="filter-group flex items-center gap-sm">
-          <label>Franchise:</label>
-          <input list="franchise-list" [ngModel]="filters().franchise" (ngModelChange)="onPartialChange('franchise', $event)" class="glass-input list-input" placeholder="All Franchises">
-          <datalist id="franchise-list">
-            <option value="">All Franchises</option>
-            @for (f of uniqueFranchises(); track f) {
-              <option [value]="f"></option>
             }
           </datalist>
         </div>
@@ -232,8 +221,6 @@ export class CollectionFiltersComponent {
   public uniqueLines = input<string[]>([]);
   public uniqueTypes = input<string[]>([]);
   public uniqueSeries = input<string[]>([]);
-  public uniqueCollections = input<string[]>([]);
-  public uniqueFranchises = input<string[]>([]);
   public resultCount = input<number>(0);
   public filters = input.required<FilterState>();
 

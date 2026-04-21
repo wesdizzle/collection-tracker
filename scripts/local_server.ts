@@ -69,7 +69,7 @@ const server = http.createServer(async (req, res) => {
             });
 
             const { currentTitle, currentPlatform, selectedIgdbId, selectedName, region }: ApplyPayload = JSON.parse(body);
-            
+
             // 1. Fetch Full Metadata from IGDB
             let summary: string | null = null;
             let imageUrl: string | null = null;
@@ -80,7 +80,7 @@ const server = http.createServer(async (req, res) => {
             try {
                 const igdbPlatformId = PLATFORM_MAP[currentPlatform];
                 const igdbData = await getGameById(Number(finalIgdbId), igdbPlatformId);
-                
+
                 if (igdbData) {
                     summary = igdbData.summary || null;
                     imageUrl = igdbData.image_url || null;
@@ -105,7 +105,7 @@ const server = http.createServer(async (req, res) => {
                     SET title = ?, igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
                     WHERE id = ?
                 `).run(finalName, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
-                
+
                 console.log(`Matched: ${currentTitle} -> ${finalName} (ID: ${finalIgdbId}) with full metadata.`);
 
                 // 2. Sync to Local D1 Instance (important for frontend preview)
@@ -131,7 +131,7 @@ const server = http.createServer(async (req, res) => {
                     if (fs.existsSync(reportPath)) {
                         const content = fs.readFileSync(reportPath, 'utf8');
                         const sections = content.split('\n### ');
-                        
+
                         // Keep the first section (header) and filter out the matched one
                         const header = sections[0];
                         const remainingSections = sections.slice(1).filter(section => {
@@ -164,12 +164,14 @@ const server = http.createServer(async (req, res) => {
         else if (req.method === 'GET' && pathname === '/api/platforms') {
             const query = `
                 SELECT p.* FROM platforms p 
+                LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
                 WHERE EXISTS (
                     SELECT 1 FROM games g 
                     WHERE g.platform_id = p.id 
                     OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
                 )
-                ORDER BY brand ASC, COALESCE(parent_platform_id, id) ASC, launch_date ASC
+                AND p.parent_platform_id IS NULL
+                ORDER BY COALESCE(pp.launch_date, p.launch_date) ASC, COALESCE(p.parent_platform_id, p.id) ASC
             `;
             const platforms = db.prepare(query).all();
             res.end(JSON.stringify(platforms));
@@ -180,9 +182,14 @@ const server = http.createServer(async (req, res) => {
             const platformId = url.searchParams.get('platform');
             const params: unknown[] = [];
             let query = `
-                SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date, p.image_url as platform_logo
+                SELECT g.*, 
+                       COALESCE(pp.display_name, p.display_name) as display_name, 
+                       COALESCE(pp.brand, p.brand) as brand, 
+                       COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
+                       COALESCE(pp.image_url, p.image_url) as platform_logo
                 FROM games g 
                 LEFT JOIN platforms p ON g.platform_id = p.id
+                LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
                 WHERE 1=1
             `;
 
@@ -191,8 +198,10 @@ const server = http.createServer(async (req, res) => {
                 params.push(platformId, platformId);
             }
 
-            query += ` ORDER BY p.brand COLLATE NOCASE ASC, COALESCE(p.parent_platform_id, p.id) ASC, p.launch_date ASC, g.platform_id ASC, 
-                       CASE WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.series, g.title), 5) WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.series, g.title), 3) ELSE COALESCE(g.series, g.title) END COLLATE NOCASE ASC, 
+            query += ` ORDER BY COALESCE(pp.launch_date, p.launch_date) ASC, 
+                       COALESCE(p.parent_platform_id, p.id) ASC, 
+                       g.platform_id ASC, 
+                       CASE WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 5) WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 3) ELSE COALESCE(g.canonical_series, g.title) END COLLATE NOCASE ASC, 
                        g.release_date IS NULL ASC, g.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
                        CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC`;
 

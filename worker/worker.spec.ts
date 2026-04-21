@@ -42,6 +42,7 @@ describe('Worker API Logic', () => {
                 id TEXT, 
                 title TEXT, 
                 series TEXT, 
+                canonical_series TEXT,
                 release_date DATE, 
                 platform_id INTEGER, 
                 owned BOOLEAN,

@@ -10,6 +10,7 @@ export interface Game {
     id: string; // The durable slug: game-title-platform-name
     title: string;
     series: string;
+    canonical_series: string;
     release_date: string;
     platform: string;
     platform_id: number;
@@ -84,8 +85,6 @@ export interface FilterState {
   line?: string;
   type?: string;
   series?: string;
-  collection?: string;
-  franchise?: string;
 }
 
 export interface PlatformGroup {

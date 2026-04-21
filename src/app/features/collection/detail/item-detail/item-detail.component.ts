@@ -62,6 +62,11 @@ import { toSignal } from '@angular/core/rxjs-interop';
               @if (type() === 'figure' && figure()?.series_name) {
                 <p class="item-series">{{ figure()?.series_name }}</p>
               }
+              @if (game(); as g) {
+                @if (g.canonical_series) {
+                  <p class="item-series">{{ g.canonical_series }}</p>
+                }
+              }
 
               @if (game(); as g) {
                 <div class="genre-cloud mt-lg">
@@ -92,26 +97,12 @@ import { toSignal } from '@angular/core/rxjs-interop';
                     <span class="label">Family</span>
                     <span class="value">{{ g.brand || 'Original' }}</span>
                   </div>
-                  @if (g.collections) {
-                    <div class="meta-box full-width">
-                      <span class="label">Series</span>
-                      <span class="value">
-                        @for (col of g.collections.split(','); track col) {
-                          <a class="meta-link" (click)="filterByCollection(col.trim())">{{ col.trim() }}</a>
-                        }
-                      </span>
-                    </div>
-                  }
-                  @if (g.franchises) {
-                    <div class="meta-box full-width">
-                      <span class="label">Franchises</span>
-                      <span class="value">
-                        @for (fran of g.franchises.split(','); track fran) {
-                          <a class="meta-link" (click)="filterByFranchise(fran.trim())">{{ fran.trim() }}</a>
-                        }
-                      </span>
-                    </div>
-                  }
+                  <div class="meta-box full-width">
+                    <span class="label">Canonical Series</span>
+                    <span class="value">
+                      <a class="meta-link" (click)="filterBySeries(g.canonical_series)">{{ g.canonical_series }}</a>
+                    </span>
+                  </div>
                 }
               </div>
             </div>
@@ -344,28 +335,14 @@ export class ItemDetailComponent {
   public figure = computed(() => this.type() === 'figure' ? this.item() as Figure : null);
   public platform = computed(() => this.type() === 'platform' ? this.item() as Platform : null);
 
-  filterByCollection(col: string) {
+  filterBySeries(series: string) {
     if (this.collectionService.listState) {
-      this.collectionService.listState.filters.collection = col;
+      this.collectionService.listState.filters.series = series;
       this.collectionService.persistState();
     } else {
       this.collectionService.updateListState({
         tab: 'games',
-        filters: { ownership: 'all', collection: col },
-        displayLimit: 100
-      });
-    }
-    this.router.navigate(['/collection', 'games']);
-  }
-
-  filterByFranchise(fran: string) {
-    if (this.collectionService.listState) {
-      this.collectionService.listState.filters.franchise = fran;
-      this.collectionService.persistState();
-    } else {
-      this.collectionService.updateListState({
-        tab: 'games',
-        filters: { ownership: 'all', franchise: fran },
+        filters: { ownership: 'all', series },
         displayLimit: 100
       });
     }

@@ -26,9 +26,14 @@ export default {
         const platformId = url.searchParams.get('platform');
         const params: string[] = [];
         let query = `
-            SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date, p.image_url as platform_logo
+            SELECT g.*, 
+                   COALESCE(pp.display_name, p.display_name) as display_name, 
+                   COALESCE(pp.brand, p.brand) as brand, 
+                   COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
+                   COALESCE(pp.image_url, p.image_url) as platform_logo
             FROM games g 
             LEFT JOIN platforms p ON g.platform_id = p.id
+            LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
             WHERE 1=1
         `;
 
@@ -38,15 +43,16 @@ export default {
         }
 
         /**
-         * COMPLEX ORDERING LOGIC:
+         * COMPLEX ORDERING LOGIC (Pass 8):
          * 1. Brand (Nintendo, Sony)
-         * 2. Platform Launch Date (NES before SNES)
-         * 3. Series/Title (Lexicographical, ignoring 'The ' and 'A ' prefixes)
+         * 2. Platform Launch Date (NES before SNES, grouped by parent)
+         * 3. Canonical Series (Lexicographical, prefix-aware)
+         * 4. Game Release Date
          */
-        query += ` ORDER BY p.brand COLLATE NOCASE ASC, COALESCE(p.parent_platform_id, p.id) ASC, p.launch_date ASC, g.platform_id ASC, 
-                   CASE WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.series, g.title), 5) WHEN COALESCE(g.series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.series, g.title), 3) ELSE COALESCE(g.series, g.title) END COLLATE NOCASE ASC, 
-                   g.release_date IS NULL ASC, g.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
-                   CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC`;
+        query += ` ORDER BY COALESCE(pp.launch_date, p.launch_date) ASC, 
+                   COALESCE(p.parent_platform_id, p.id) ASC, 
+                   CASE WHEN g.canonical_series COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.canonical_series, 5) WHEN g.canonical_series COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.canonical_series, 3) ELSE g.canonical_series END COLLATE NOCASE ASC,
+                   g.release_date ASC`;
 
         const stmt = env.DB.prepare(query).bind(...params);
         const { results } = await stmt.all();
@@ -89,12 +95,14 @@ export default {
       else if (path === '/api/platforms') {
         const query = `
           SELECT p.* FROM platforms p 
+          LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
           WHERE EXISTS (
             SELECT 1 FROM games g 
             WHERE g.platform_id = p.id 
             OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
           )
-          ORDER BY brand ASC, COALESCE(parent_platform_id, id) ASC, launch_date ASC
+          AND p.parent_platform_id IS NULL
+          ORDER BY COALESCE(pp.launch_date, p.launch_date) ASC, COALESCE(p.parent_platform_id, p.id) ASC
         `;
         const { results } = await env.DB.prepare(query).all();
         return Response.json(results);

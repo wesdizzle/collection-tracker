@@ -25,8 +25,6 @@ interface GameGroup {
         [uniqueLines]="uniqueLines()"
         [uniqueTypes]="uniqueTypes()"
         [uniqueSeries]="uniqueSeries()"
-        [uniqueCollections]="uniqueCollections()"
-        [uniqueFranchises]="uniqueFranchises()"
         [resultCount]="currentTab() === 'games' ? filteredGames().length : filteredFigures().length"
         (filtersChange)="onFiltersChange($event)">
       </app-collection-filters>
@@ -78,6 +76,9 @@ interface GameGroup {
                         </div>
                       </div>
                       <h3 class="mt-xs text-base truncate">{{game.title}}</h3>
+                      @if (game.canonical_series) {
+                        <div class="text-xs text-secondary truncate opacity-80" title="Series">{{game.canonical_series}}</div>
+                      }
                     </div>
                   </a>
                 }
@@ -196,17 +197,21 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   private restorationPending = true;
   private stateInitialized = false;
   public currentTab = signal<'games' | 'figures'>('games');
-  public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '', collection: '', franchise: '' });
+  public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '' });
   public displayLimit = signal<number>(100);
 
   public platformGroups = computed<PlatformGroup[]>(() => {
     const data = this.collectionService.platforms();
     const grouped = new Map<string, Platform[]>();
-    [...data].sort((a, b) => (a.brand || 'Other').localeCompare(b.brand || 'Other')).forEach(p => {
-      const b = p.brand || 'Other';
-      if (!grouped.has(b)) grouped.set(b, []);
-      grouped.get(b)!.push(p);
-    });
+    
+    // Maintain the chronological order from the server
+    [...data]
+      .forEach(p => {
+        const b = p.brand || 'Other';
+        if (!grouped.has(b)) grouped.set(b, []);
+        grouped.get(b)!.push(p);
+      });
+    
     return Array.from(grouped.entries()).map(([brand, platforms]) => ({ brand, platforms }));
   });
 
@@ -231,11 +236,9 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
         if (f.is_linked !== hasIgdb) return false;
       }
 
-      // Collection Filter
-      if (f.collection && !g.collections?.toLowerCase().includes(f.collection.toLowerCase())) return false;
 
-      // Franchise Filter
-      if (f.franchise && !g.franchises?.toLowerCase().includes(f.franchise.toLowerCase())) return false;
+      // Series Filter
+      if (f.series && g.canonical_series !== f.series) return false;
 
       return true;
     });
@@ -270,25 +273,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   public displayFigures = computed(() => this.filteredFigures().slice(0, this.displayLimit()));
   public uniqueLines = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.line))).filter(Boolean).sort());
   public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.type))).filter(Boolean).sort());
-  public uniqueSeries = computed(() => Array.from(new Set(this.collectionService.games().map(g => g.series || g.title))).filter(Boolean).sort());
-  public uniqueCollections = computed(() => {
-    const colls = new Set<string>();
-    this.collectionService.games().forEach(g => {
-      if (g.collections) {
-        g.collections.split(',').forEach(c => colls.add(c.trim()));
-      }
-    });
-    return Array.from(colls).filter(Boolean).sort();
-  });
-  public uniqueFranchises = computed(() => {
-    const frs = new Set<string>();
-    this.collectionService.games().forEach(g => {
-      if (g.franchises) {
-        g.franchises.split(',').forEach(f => frs.add(f.trim()));
-      }
-    });
-    return Array.from(frs).filter(Boolean).sort();
-  });
+  public uniqueSeries = computed(() => Array.from(new Set(this.collectionService.games().map(g => g.canonical_series))).filter(Boolean).sort());
 
   constructor() {
     // Automatically save state whenever it changes
