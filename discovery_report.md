@@ -8,11 +8,6 @@ This report lists findings from the collection discovery pipeline.
 - Mark with **`[r]`** to **Reject** the item.
 
 ## Action Required: Sync Suggestions
-### Ninja Gaiden (Atari Lynx)
-- [ ] **Update to:** Ninja Gaiden III: The Ancient Ship of Doom (Atari Lynx) - ID: igdb-40853
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co5ipt.jpg)
-  - *Immerse yourself in action-acked Ninja adventure as you help Ryu through his greatest challenge. Battle the hideous ancient forces of darkness to save mankind, with the epic adventure unfolding as you...*
-
 ### Rayman (Game Boy Advance)
 - [ ] **Update to:** Rayman IV (Game Boy Advance) - ID: igdb-312033
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8mci.jpg)
