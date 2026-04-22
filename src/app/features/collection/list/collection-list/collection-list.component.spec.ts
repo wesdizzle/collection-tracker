@@ -37,6 +37,9 @@ describe('CollectionListComponent', () => {
 
     fixture = TestBed.createComponent(CollectionListComponent);
     component = fixture.componentInstance;
+    
+    // Reset service state between tests to avoid pollution from sessionStorage
+    TestBed.inject(CollectionService).resetListState();
   });
 
   it('should create', () => {
@@ -114,5 +117,34 @@ describe('CollectionListComponent', () => {
     // Test non-match
     component.filters.set({ ownership: 'all', series: 'Zelda' });
     expect(component.filteredGames().length).toBe(0);
+  });
+
+  it('should correctly calculate group totals even when displayLimit is small', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    
+    const initPromise = component.ngOnInit();
+    
+    // Provide 5 games for Switch, but we will set displayLimit to 2
+    httpMock.expectOne('/api/games').flush([
+      { id: '1', title: 'G1', platform: 'Switch', owned: 1 },
+      { id: '2', title: 'G2', platform: 'Switch', owned: 1 },
+      { id: '3', title: 'G3', platform: 'Switch', owned: 1 },
+      { id: '4', title: 'G4', platform: 'Switch', owned: 1 },
+      { id: '5', title: 'G5', platform: 'Switch', owned: 1 }
+    ]);
+    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    
+    await initPromise;
+    fixture.detectChanges();
+
+    component.displayLimit.set(2);
+    fixture.detectChanges();
+    
+    const groups = component.groupedGames();
+    expect(groups.length).toBe(1);
+    expect(groups[0].platformName).toBe('Switch');
+    expect(groups[0].games.length).toBe(2); // Only 2 displayed
+    expect(groups[0].totalCount).toBe(5); // But total count should be 5
   });
 });

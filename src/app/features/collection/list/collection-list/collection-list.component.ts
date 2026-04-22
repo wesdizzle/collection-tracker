@@ -10,6 +10,7 @@ interface GameGroup {
   platformName: string;
   platformLogo?: string;
   games: Game[];
+  totalCount: number;
 }
 
 @Component({
@@ -42,7 +43,7 @@ interface GameGroup {
                   }
                 </div>
                 <h2 class="platform-title">{{ group.platformName }}</h2>
-                <span class="group-count">{{ group.games.length }} Items</span>
+                <span class="group-count">{{ group.totalCount }} Items</span>
               </header>
               
               <div class="grid">
@@ -267,16 +268,35 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
 
   public displayGames = computed(() => this.filteredGames().slice(0, this.displayLimit()));
   public groupedGames = computed(() => {
-    const games = this.displayGames();
+    const allFiltered = this.filteredGames();
+    const displayed = this.displayGames();
+    
+    // 1. Calculate total counts per platform from ALL filtered games
+    const counts = new Map<string, number>();
+    for (const g of allFiltered) {
+      const p = g.display_name || g.platform;
+      counts.set(p, (counts.get(p) || 0) + 1);
+    }
+
+    // 2. Build groups from DISPLAYED games
     const groups: GameGroup[] = [];
-    games.forEach(game => {
-      let group = groups.find(g => g.platformName === (game.display_name || game.platform));
+    const groupMap = new Map<string, GameGroup>();
+    
+    for (const game of displayed) {
+      const p = game.display_name || game.platform;
+      let group = groupMap.get(p);
       if (!group) {
-        group = { platformName: game.display_name || game.platform, platformLogo: game.platform_logo, games: [] };
+        group = { 
+          platformName: p, 
+          platformLogo: game.platform_logo, 
+          games: [],
+          totalCount: counts.get(p) || 0
+        };
         groups.push(group);
+        groupMap.set(p, group);
       }
       group.games.push(game);
-    });
+    }
     return groups;
   });
 
