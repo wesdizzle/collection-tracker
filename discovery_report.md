@@ -168,22 +168,6 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co491j.jpg)
   - *Add your favorite Hoodlum Havoc characters and scenes from the Rayman world, to create your own calendars, writing paper and cards. You can choose from a variety of backgrounds, stamps and borders.*
 
-### Space Channel 5: Special Edition (Game Boy Advance)
-- [ ] **Link to:** Space Channel 5 Special Edition (PlayStation 2) - ID: igdb-43611
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co44xs.jpg)
-  - *"Space Channel 5 Special Edition" actually contains two games. The first is "Space Channel 5", and the second is "Space Channel 5 Part 2". This is the first NA release of the latter game.*
-
-### Star Wars Episode I: Jedi Power Battles (Game Boy Advance)
-- [ ] **Link to:** Star Wars: Episode I - Jedi Power Battles (Xbox Series X|S) - ID: igdb-6606
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coav0d.jpg)
-  - *The game follows the plot of Star Wars Episode I: The Phantom Menace. Players can choose from one of five prequel-era Jedi and run, jump, slash, and use the Force through the game's ten levels, starti...*
-- [ ] **Link to:** Star Wars: Episode I - Jedi Power Battles (Xbox Series X|S) - ID: igdb-319362
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8x5j.jpg)
-  - *Take back the Theed Royal Palace in this fast and furious lightsaber action game. You will have the power of the Force and your trusty lightsaber to help you ward off legions of battle droids, destroy...*
-- [ ] **Link to:** Star Wars: Episode I - Jedi Power Battles (Dreamcast) - ID: igdb-301490
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co87v4.jpg)
-  - *Choose your jedi (including Qui-Gon Jinn, Obi-Wan Kenobi, Mace Windu, Plo Koon, and Adi Gallia) and fight the forces of the Trade Federation through the planet Naboo, facing plenty of droids and Darth...*
-
 ### Rayman M (Nintendo GameCube)
 - No suggestions found.
 
