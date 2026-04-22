@@ -61,8 +61,19 @@ TWITCH_CLIENT_SECRET=your_client_secret
 - **Premium Aesthetics**: Curated HSL palettes and sleek dark modes used throughout the application.
 - **Local CI Validation**: Developers must run `npm run ci-check` before pushing. This script performs Linting, strict Type-Checking, and Unit Testing sequentially.
 
+## 📱 Mobile & PWA Features
+
+The Collection Tracker is optimized for mobile use:
+- **Standalone Mode**: Install it on your iOS or Android device for a full-screen, app-like experience without browser chrome.
+- **Offline Access**: The core application shell and game lists are cached locally, allowing you to browse your collection without an active internet connection.
+- **Safe Area Support**: Full support for modern phone displays with notches and gesture indicators.
+- **Touch-First UI**: Refined touch targets and compact layouts for one-handed use.
+
+### Installation
+- **iOS**: Open in Safari, tap "Share", and select "Add to Home Screen".
+- **Android**: Open in Chrome/Edge and tap "Install" or "Add to Home Screen" when prompted.
+
 ## 📋 Roadmap
 
 - [ ] **Worker-Side Image Caching**: Implement a KV-based cache for IGDB cover art to reduce external API dependency.
 - [ ] **Heuristic Scrubber**: Introduce an automated web-search heuristic to determine physical release status for IGDB games and only track those with physical releases.
-- [ ] **PWA**: Add support for installation as a PWA and offline use.

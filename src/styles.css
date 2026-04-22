@@ -151,3 +151,41 @@ a:hover {
   border-color: rgba(255, 0, 127, 0.3);
   box-shadow: 0 0 10px rgba(255, 0, 127, 0.1);
 }
+
+/* --- MOBILE REFINEMENTS --- */
+@media (max-width: 768px) {
+  :root {
+    --spacing-lg: 1rem;
+    --spacing-md: 0.75rem;
+  }
+
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .container {
+    padding: var(--spacing-md);
+    padding-top: calc(var(--spacing-md) + env(safe-area-inset-top));
+  }
+
+  h1 { font-size: 1.75rem; }
+  h2 { font-size: 1.25rem; }
+
+  /* Improved touch targets for interactive elements */
+  .interactive-card {
+    min-height: 44px; /* Apple recommendation for touch targets */
+  }
+
+  /* Compact spacing for mobile collection lists */
+  .badge {
+    padding: 0.2rem 0.6rem;
+    font-size: 0.7rem;
+  }
+}
+
+/* Hide scrollbar for cleaner app feel on mobile */
+@media (display-mode: standalone) {
+  body::-webkit-scrollbar {
+    display: none;
+  }
+}
