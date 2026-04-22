@@ -198,14 +198,6 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coayvb.jpg)
   - *The PlayStation version of Final Fantasy II is largely based on the WonderSwan Color release. Major new features include higher resolution graphics, FMV's, an easy mode, a bestiary, an art gallery, an...*
 
-### Namco Museum 50th Anniversary (PlayStation Portable)
-- [ ] **Update to:** Namco Museum 50th Anniversary (Xbox) - ID: igdb-9889
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2dz6.jpg)
-  - *Includes 14 Classic Arcade Hits - Pac-Man - Ms. Pac-Man - Galaga - Galaxian - Rally-X - Pole Position - Pole Position 2 - Xevious - Dragon Spirit - Bosconian - Rolling Thunder - Mappy - Sky Kid - Dig ...*
-- [ ] **Update to:** Namco Museum 50th Anniversary (Game Boy Advance) - ID: igdb-202112
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co86cn.jpg)
-  - *Namco Museum 50th Anniversary on Game Boy Advance, includes 14 Classic Arcade Hits; - Pac-Man - Ms. Pac-Man - Galaga - Galaxian - Rally-X - Pole Position - Pole Position 2 - Xevious - Dragon Spirit - ...*
-
 ### Prince of Persia: The Two Thrones (PlayStation Portable)
 - [ ] **Update to:** Prince of Persia: The Two Thrones (Legacy Mobile Device) - ID: igdb-242993
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coav9r.jpg)
