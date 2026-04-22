@@ -62,10 +62,9 @@ import { toSignal } from '@angular/core/rxjs-interop';
               @if (type() === 'figure' && figure()?.series_name) {
                 <p class="item-series">{{ figure()?.series_name }}</p>
               }
-              @if (game(); as g) {
-                @if (g.canonical_series) {
-                  <p class="item-series">{{ g.canonical_series }}</p>
-                }
+
+              @if (formattedDate(); as date) {
+                <p class="item-release-banner animate-slide-up">{{ date }}</p>
               }
 
               @if (game(); as g) {
@@ -88,10 +87,19 @@ import { toSignal } from '@angular/core/rxjs-interop';
                     <span>{{ game()?.display_name || game()?.platform || figure()?.line || 'N/A' }}</span>
                   </div>
                 </div>
-                <div class="meta-box">
-                  <span class="label">Release Date</span>
-                  <span class="value">{{ game()?.release_date || figure()?.release_date || 'Unknown' }}</span>
-                </div>
+                @if (game(); as g) {
+                  <div class="meta-box">
+                    <span class="label">Launch Date</span>
+                    <span class="value">{{ platformLaunchDate() }}</span>
+                  </div>
+                } @else if (figure(); as f) {
+                  @if (!formattedDate()) {
+                    <div class="meta-box">
+                      <span class="label">Release Date</span>
+                      <span class="value">{{ f.release_date || 'Unknown' }}</span>
+                    </div>
+                  }
+                }
                 @if (game(); as g) {
                    <div class="meta-box">
                     <span class="label">Family</span>
@@ -111,8 +119,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 
         @if (game(); as g) {
           @if (g.summary) {
-            <section class="narrative-section animate-slide-up mt-xl">
-              <h2 class="section-title mb-md">Summary</h2>
+            <section class="narrative-section animate-slide-up">
               <div class="summary-text-airy">
                 {{ g.summary }}
               </div>
@@ -128,217 +135,214 @@ import { toSignal } from '@angular/core/rxjs-interop';
     }
     `,
   styles: [`
-    .pb-xl { padding-bottom: 5rem; }
+    .pb-xl { padding-bottom: var(--spacing-64); }
     .details-nav {
-      margin-top: 1rem;
+      margin-top: var(--spacing-16);
+      margin-bottom: var(--spacing-32);
       flex-wrap: wrap;
-      gap: 1.5rem;
+      gap: var(--spacing-24);
     }
-
+ 
     .back-link {
       font-weight: 600;
-      color: var(--text-secondary);
+      color: var(--m3-on-surface-variant);
+      padding: var(--spacing-8) var(--spacing-12);
+      border-radius: var(--radius-md);
     }
-
+ 
     .back-link:hover {
-      color: var(--accent-fuchsia);
+      color: var(--m3-primary);
+      background: var(--m3-surface-container-high);
     }
-
+ 
     .quick-stats {
       flex-wrap: wrap;
-      justify-content: flex-start;
+      gap: var(--spacing-12);
     }
-
+ 
     .stat-pill {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      padding: 0.4rem 0.85rem;
-      border-radius: 20px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--glass-border);
-      font-size: 0.75rem;
+      gap: var(--spacing-8);
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-xl);
+      background: var(--m3-surface-container-high);
+      border: 1px solid var(--m3-outline-variant);
+      font-size: 0.875rem;
       font-weight: 600;
-      color: var(--text-secondary);
-      transition: all 0.3s;
+      color: var(--m3-on-surface-variant);
+      transition: all 0.2s;
     }
-
+ 
     .stat-pill.active {
-      background: rgba(34, 197, 94, 0.1);
-      border-color: rgba(34, 197, 94, 0.3);
-      color: #4ade80;
-      box-shadow: 0 0 15px rgba(34, 197, 94, 0.1);
+      background: var(--m3-tertiary-container);
+      color: var(--m3-on-tertiary-container);
+      border-color: transparent;
     }
-
+ 
     .stat-pill.active.igdb {
-      background: rgba(147, 51, 234, 0.1);
-      border-color: rgba(147, 51, 234, 0.3);
-      color: #d8b4fe;
-      box-shadow: 0 0 15px rgba(147, 51, 234, 0.1);
+      background: var(--m3-secondary-container);
+      color: var(--m3-on-secondary-container);
+      border-color: transparent;
     }
-
+ 
     .hero-section {
-      position: relative;
-      overflow: hidden;
-      border-radius: 24px;
+      margin-bottom: var(--spacing-48);
     }
-
+ 
     .hero-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 2rem;
+      gap: var(--spacing-32);
       align-items: flex-start;
     }
-
+ 
     @media (min-width: 1024px) {
       .hero-grid {
         grid-template-columns: 320px 1fr;
-        gap: 3rem;
-        align-items: center;
+        gap: var(--spacing-64);
+        align-items: flex-start;
       }
     }
-
+ 
     .art-frame {
       aspect-ratio: 3/4;
-      border-radius: 12px;
+      border-radius: var(--radius-lg);
       overflow: hidden;
-      box-shadow: 0 10px 50px rgba(0,0,0,0.7), 0 0 30px rgba(96, 165, 250, 0.2);
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      border: 1px solid var(--m3-outline-variant);
       position: relative;
       max-width: 320px;
       margin: 0 auto;
     }
-
+ 
     @media (min-width: 1024px) {
       .art-frame {
         margin: 0;
       }
     }
-
+ 
     .region-overlay {
       position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      padding: 0.2rem 0.5rem;
-      background: rgba(0,0,0,0.8);
-      border-radius: 4px;
-      font-size: 0.7rem;
-      font-weight: 800;
+      top: var(--spacing-12);
+      right: var(--spacing-12);
+      padding: 0.25rem 0.5rem;
+      background: rgba(0,0,0,0.7);
+      border-radius: var(--radius-xs);
+      font-size: 0.75rem;
+      font-weight: 700;
       color: #fff;
-      border: 1px solid rgba(255,255,255,0.15);
       z-index: 10;
-      backdrop-filter: blur(4px);
     }
-
+ 
     .art-frame img {
       width: 100%;
       height: 100%;
       object-fit: cover;
     }
-
+ 
     .item-title {
       font-size: 3.5rem;
       font-weight: 800;
       line-height: 1.1;
       letter-spacing: -0.02em;
+      margin-bottom: var(--spacing-12);
     }
-
+ 
     @media (max-width: 768px) {
-      .item-title {
-        font-size: 2.25rem;
-      }
-      .item-series {
-        font-size: 1.1rem;
-      }
+      .item-title { font-size: 2.25rem; }
+      .item-series { font-size: 1.125rem; }
     }
-
+ 
     .item-series {
       font-size: 1.5rem;
-      color: var(--text-secondary);
-      margin-top: 0.5rem;
+      color: var(--m3-on-surface-variant);
+      margin-bottom: var(--spacing-8);
     }
 
+    .item-release-banner {
+      font-size: 1.125rem;
+      font-weight: 500;
+      color: var(--m3-primary);
+      margin-bottom: var(--spacing-24);
+      letter-spacing: 0.01em;
+    }
+ 
     .genre-cloud {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: var(--spacing-8);
+      margin-bottom: var(--spacing-32);
     }
-
+ 
     .genre-chip {
-      padding: 0.25rem 0.75rem;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--glass-border);
-      border-radius: 100px;
-      font-size: 0.75rem;
+      padding: 0.5rem 1rem;
+      background: var(--m3-surface-container);
+      border: 1px solid var(--m3-outline-variant);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
       font-weight: 500;
-      color: var(--text-secondary);
+      color: var(--m3-on-surface-variant);
     }
-
+ 
     .metadata-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 1.5rem;
-      padding-top: 2rem;
-      padding-bottom: 1.5rem;
-      border-top: none !important;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: var(--spacing-24);
+      padding-top: var(--spacing-32);
+      border-top: 1px solid var(--m3-outline-variant);
     }
-
+ 
     .meta-box .label {
       display: block;
-      font-size: 0.7rem;
+      font-size: 0.75rem;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--text-secondary);
-      margin-bottom: 0.5rem;
+      letter-spacing: 0.08em;
+      color: var(--m3-on-surface-variant);
+      margin-bottom: var(--spacing-8);
       font-weight: 700;
     }
-
+ 
     .meta-box .value {
-      font-size: 1.1rem;
+      font-size: 1.125rem;
       font-weight: 600;
-      color: #fff;
+      color: var(--m3-on-surface);
     }
-
+ 
     .meta-box.full-width {
       grid-column: 1 / -1;
     }
-
-    .meta-link { cursor: pointer; color: var(--accent-color); transition: color 0.2s; }
-    .meta-link:hover { color: var(--accent-fuchsia); text-decoration: underline; }
-    .meta-link:not(:last-child)::after { content: ','; color: #fff; display: inline-block; text-decoration: none; margin-right: 0.1rem; cursor: default; }
-    .meta-link:hover::after { text-decoration: none; }
-
+ 
+    .meta-link { cursor: pointer; color: var(--m3-primary); transition: opacity 0.2s; }
+    .meta-link:hover { opacity: 0.8; text-decoration: underline; }
+    
     .mini-logo {
       height: 1.25rem;
       width: auto;
       object-fit: contain;
     }
-
-    .section-title {
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: #fff;
+ 
+    .narrative-section {
+      margin-top: var(--spacing-32);
+      border-top: 1px solid var(--m3-outline-variant);
+      padding-top: var(--spacing-32);
     }
-
+ 
     .summary-text-airy {
       font-size: 1.125rem;
-      line-height: 1.7;
-      color: #cbd5e1;
+      line-height: 1.8;
+      color: var(--m3-on-surface-variant);
       max-width: 800px;
-      background: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-      padding: 0 !important;
     }
-
+ 
     .loading-state {
       min-height: 60vh;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 1.5rem;
-      color: var(--text-secondary);
+      gap: var(--spacing-16);
+      color: var(--m3-on-surface-variant);
     }
   `]
 })
@@ -370,6 +374,38 @@ export class ItemDetailComponent {
   public figure = computed(() => this.type() === 'figure' ? this.item() as Figure : null);
   public platform = computed(() => this.type() === 'platform' ? this.item() as Platform : null);
 
+  public formattedDate = computed(() => {
+    const releaseDate = this.game()?.release_date || this.figure()?.release_date;
+    if (!releaseDate) return null;
+    
+    try {
+      // Split YYYY-MM-DD to avoid UTC offset issues by creating the date in local time
+      const parts = releaseDate.split('-');
+      if (parts.length === 3) {
+        const year = parseInt(parts[0]);
+        const month = parseInt(parts[1]) - 1; // JS months are 0-indexed
+        const day = parseInt(parts[2]);
+        const date = new Date(year, month, day);
+        
+        return new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        }).format(date);
+      }
+      return releaseDate;
+    } catch {
+      return releaseDate;
+    }
+  });
+
+  public platformLaunchDate = computed(() => {
+    const g = this.game();
+    if (!g?.platform_launch_date) return 'Unknown';
+    return g.platform_launch_date;
+  });
+
   filterBySeries(series: string) {
     const tab = this.type() === 'figure' ? 'figures' : 'games';
     const currentState = this.collectionService.getListState(tab);
@@ -381,7 +417,7 @@ export class ItemDetailComponent {
     } else {
       this.collectionService.updateListState({
         tab,
-        filters: { ownership: 'all', series, line: '', type: '' },
+        filters: { ownership: 'owned', series, line: '', type: '' },
         displayLimit: 100,
         scrollX: 0,
         scrollY: 0

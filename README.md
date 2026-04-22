@@ -19,10 +19,12 @@ A collection tracking application built with **Angular 21**.
 ## 🛠️ Architecture & Technical Standards
 
 ### Visual System
-The UI utilizes a minimalist approach to structure:
-- **Collection Grid**: Uses subtle glass-morphism panels to provide structure to the grid items.
-- **Detail Pages**: Removes standard dashboard panels in favor of a flat, immersive layout that places focus on the item's metadata and artwork.
-- **Badge Consolidation**: Status markers (Owned, Played, IGDB) are consolidated into high-level pill groups in the header.
+The application follows **Material Design 3 (Material You)** principles, providing a tonal, accessible, and premium interface:
+- **Dual-Theme Engine**: Full support for Light, Dark, and System-aware modes with a built-in theme switcher.
+- **8px Grid System**: All spacing and layouts are strictly governed by an 8px base grid for visual consistency.
+- **M3 Components**: Uses standardized M3 Primary Tabs for desktop navigation and a Bottom Navigation bar for mobile.
+- **Detail Pages**: An immersive, airy layout that removes dashboard panels in favor of tonal surfaces and high-contrast metadata.
+- **Status Pills**: Consolidated status markers (Owned, Played, Backed Up) use tonal M3 chip patterns for high readability.
 
 ### Navigation & Filter Logic
 The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Figures** collections:

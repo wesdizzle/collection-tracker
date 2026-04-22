@@ -8,72 +8,82 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
   imports: [FormsModule],
   template: `
     <div class="filter-wrapper animate-fade-in animate-stagger-1">
-      <button class="filter-toggle desktop-hidden" (click)="showFilters.set(!showFilters())">
-        <span class="icon">{{ showFilters() ? '✕' : '🔍' }}</span>
-        <span>{{ showFilters() ? 'Hide Filters' : 'Show Filters' }}</span>
+      <div class="mobile-filter-row desktop-hidden">
+        <button class="m3-button m3-button-tonal" (click)="showFilters.set(!showFilters())">
+          <span class="icon">{{ showFilters() ? '✕' : '🔍' }}</span>
+          <span>{{ showFilters() ? 'Hide Filters' : 'Show Filters' }}</span>
+        </button>
         @if (!showFilters()) {
-          <span class="result-badge">{{resultCount()}}</span>
+          <div class="m3-badge">{{resultCount()}}</div>
         }
-      </button>
+      </div>
 
-      <div class="filter-bar glass-panel glass-blur flex p-md gap-md items-center mb-lg flex-wrap" [class.mobile-collapsed]="!showFilters()">
-        <div class="filter-group flex items-center gap-sm">
-          <label>Status:</label>
-          <select [ngModel]="filters().ownership" (ngModelChange)="onPartialChange('ownership', $event)" class="glass-input">
-            <option value="all">All</option>
-            <option value="owned">Owned</option>
-            <option value="wanted">Wanted</option>
-          </select>
+      <div class="filter-bar m3-surface-container flex p-md gap-md items-center mb-lg flex-wrap" [class.mobile-collapsed]="!showFilters()">
+        <div class="filter-group">
+          <label class="m3-label">Status</label>
+          <div class="input-wrapper">
+            <select [ngModel]="filters().ownership" (ngModelChange)="onPartialChange('ownership', $event)" class="m3-input">
+              <option value="all">All</option>
+              <option value="owned">Owned</option>
+              <option value="wanted">Wanted</option>
+            </select>
+          </div>
         </div>
       
         @if (currentTab() === 'games') {
-          <div class="filter-group flex items-center gap-sm">
-            <label>Platform:</label>
-            <select [ngModel]="filters().platform_id" (ngModelChange)="onPartialChange('platform_id', $event)" class="glass-input">
-              <option [ngValue]="undefined">All Platforms</option>
-              @for (group of platformGroups(); track group.brand) {
-                <optgroup [label]="group.brand">
-                  @for (p of group.platforms; track p.id) {
-                    @if (!p.parent_platform_id) {
-                      <option [ngValue]="p.id">{{p.display_name || p.name}}</option>
-                    } @else {
-                      <option [ngValue]="p.id">&nbsp;&nbsp;↳ {{p.display_name || p.name}}</option>
+          <div class="filter-group">
+            <label class="m3-label">Platform</label>
+            <div class="input-wrapper">
+              <select [ngModel]="filters().platform_id" (ngModelChange)="onPartialChange('platform_id', $event)" class="m3-input">
+                <option [ngValue]="undefined">All Platforms</option>
+                @for (group of platformGroups(); track group.brand) {
+                  <optgroup [label]="group.brand">
+                    @for (p of group.platforms; track p.id) {
+                      @if (!p.parent_platform_id) {
+                        <option [ngValue]="p.id">{{p.display_name || p.name}}</option>
+                      } @else {
+                        <option [ngValue]="p.id">&nbsp;&nbsp;↳ {{p.display_name || p.name}}</option>
+                      }
                     }
-                  }
-                </optgroup>
-              }
-            </select>
+                  </optgroup>
+                }
+              </select>
+            </div>
           </div>
         }
       
         @if (currentTab() === 'figures') {
-          <div class="filter-group flex items-center gap-sm">
-            <label>Line:</label>
-            <select [ngModel]="filters().line" (ngModelChange)="onPartialChange('line', $event)" class="glass-input">
-              <option value="">All Lines</option>
-              @for (l of uniqueLines(); track l) {
-                <option [value]="l">{{l}}</option>
-              }
-            </select>
+          <div class="filter-group">
+            <label class="m3-label">Line</label>
+            <div class="input-wrapper">
+              <select [ngModel]="filters().line" (ngModelChange)="onPartialChange('line', $event)" class="m3-input">
+                <option value="">All Lines</option>
+                @for (l of uniqueLines(); track l) {
+                  <option [value]="l">{{l}}</option>
+                }
+              </select>
+            </div>
           </div>
         }
       
         @if (currentTab() === 'figures') {
-          <div class="filter-group flex items-center gap-sm">
-            <label>Type:</label>
-            <select [ngModel]="filters().type" (ngModelChange)="onPartialChange('type', $event)" class="glass-input">
-              <option value="">All Types</option>
-              @for (t of uniqueTypes(); track t) {
-                <option [value]="t">{{t}}</option>
-              }
-            </select>
+          <div class="filter-group">
+            <label class="m3-label">Type</label>
+            <div class="input-wrapper">
+              <select [ngModel]="filters().type" (ngModelChange)="onPartialChange('type', $event)" class="m3-input">
+                <option value="">All Types</option>
+                @for (t of uniqueTypes(); track t) {
+                  <option [value]="t">{{t}}</option>
+                }
+              </select>
+            </div>
           </div>
         }
       
-        @if (currentTab() === 'figures') {
-          <div class="filter-group flex items-center gap-sm">
-            <label>Series:</label>
-            <input list="series-list" [ngModel]="filters().series" (ngModelChange)="onPartialChange('series', $event)" class="glass-input list-input" placeholder="All Series">
+        <div class="filter-group">
+          <label class="m3-label">Series</label>
+          <div class="input-wrapper">
+            <input list="series-list" [ngModel]="filters().series" (ngModelChange)="onPartialChange('series', $event)" class="m3-input list-input" placeholder="All Series">
             <datalist id="series-list">
               <option value="">All Series</option>
               @for (s of uniqueSeries(); track s) {
@@ -81,167 +91,163 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
               }
             </datalist>
           </div>
-        }
-  
-        @if (currentTab() === 'games') {
-          <div class="filter-group flex items-center gap-sm">
-            <label>Series:</label>
-            <input list="series-list" [ngModel]="filters().series" (ngModelChange)="onPartialChange('series', $event)" class="glass-input list-input" placeholder="All Series">
-            <datalist id="series-list">
-              <option value="">All Series</option>
-              @for (s of uniqueSeries(); track s) {
-                <option [value]="s"></option>
-              }
-            </datalist>
-          </div>
-        }
-  
-        <div class="filter-group flex items-center gap-sm">
-          <label>Region:</label>
-          <select [ngModel]="filters().region" (ngModelChange)="onPartialChange('region', $event)" class="glass-input">
-            <option [ngValue]="undefined">All Regions</option>
-            <option value="EU">Europe</option>
-            <option value="JP">Japan</option>
-            <option value="NA">North America</option>
-            <option value="SEA">Southeast Asia</option>
-          </select>
         </div>
   
-        <div class="filter-group flex items-center gap-sm">
-          <label>Linked:</label>
-          <select [ngModel]="filters().is_linked" (ngModelChange)="onPartialChange('is_linked', $event)" class="glass-input">
-            <option [ngValue]="undefined">All Items</option>
-            <option [ngValue]="true">IGDB Connected</option>
-            <option [ngValue]="false">Manual Entry</option>
-          </select>
+        <div class="filter-group">
+          <label class="m3-label">Region</label>
+          <div class="input-wrapper">
+            <select [ngModel]="filters().region" (ngModelChange)="onPartialChange('region', $event)" class="m3-input">
+              <option [ngValue]="undefined">All Regions</option>
+              <option value="EU">Europe</option>
+              <option value="JP">Japan</option>
+              <option value="NA">North America</option>
+              <option value="SEA">Southeast Asia</option>
+            </select>
+          </div>
+        </div>
+  
+        <div class="filter-group">
+          <label class="m3-label">Linked</label>
+          <div class="input-wrapper">
+            <select [ngModel]="filters().is_linked" (ngModelChange)="onPartialChange('is_linked', $event)" class="m3-input">
+              <option [ngValue]="undefined">All Items</option>
+              <option [ngValue]="true">IGDB Connected</option>
+              <option [ngValue]="false">Manual Entry</option>
+            </select>
+          </div>
         </div>
       
-        <div class="filter-group flex items-center gap-sm ml-auto text-secondary text-sm mobile-hidden">
-          <span>{{resultCount()}} items found</span>
+        <div class="filter-info ml-auto mobile-hidden">
+          <span>{{resultCount()}} items</span>
         </div>
       </div>
     </div>
     `,
   styles: [`
-    .mb-lg { margin-bottom: 2rem; }
-    .p-md { padding: 1rem 1.5rem; }
+    .mb-lg { margin-bottom: var(--spacing-32); }
+    .p-md { padding: var(--spacing-16) var(--spacing-24); }
     .ml-auto { margin-left: auto; }
-    .text-sm { font-size: 0.875rem; }
-    .text-secondary { color: var(--text-secondary); }
     
     .filter-wrapper {
-      margin-top: -1rem;
+      margin-top: calc(-1 * var(--spacing-8));
     }
-
-    .filter-toggle {
-      width: 100%;
-      padding: 0.75rem 1rem;
-      background: rgba(30, 41, 59, 0.6);
-      border: 1px solid var(--glass-border);
-      border-radius: 12px;
-      color: var(--text-primary);
-      font-family: var(--font-body);
-      font-weight: 600;
+ 
+    .mobile-filter-row {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 1rem;
-      cursor: pointer;
-      backdrop-filter: blur(8px);
+      gap: var(--spacing-16);
+      margin-bottom: var(--spacing-16);
     }
-
-    .filter-toggle .icon {
-      font-size: 1.1rem;
-      color: var(--accent-fuchsia);
-    }
-
-    .result-badge {
-      margin-left: auto;
-      background: var(--accent-fuchsia);
-      color: white;
-      padding: 0.15rem 0.5rem;
-      border-radius: 6px;
-      font-size: 0.75rem;
-    }
-
-    .filter-bar {
-      border-radius: 12px;
-      justify-content: flex-start;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      transition: all 0.3s ease;
-    }
-
-    .filter-group {
-      flex: 0 1 auto;
-      min-width: 0;
-    }
-    
-    label {
-      font-size: 0.875rem;
+ 
+    .m3-button {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--spacing-12);
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--radius-xl);
+      font-family: var(--font-body);
       font-weight: 500;
-      color: var(--text-secondary);
-      white-space: nowrap;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+ 
+    .m3-button-tonal {
+      background: var(--m3-secondary-container);
+      color: var(--m3-on-secondary-container);
+    }
+ 
+    .m3-badge {
+      background: var(--m3-primary);
+      color: var(--m3-on-primary);
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+ 
+    .m3-surface-container {
+      background: var(--m3-surface-container);
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--m3-outline-variant);
+    }
+ 
+    .filter-bar {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+ 
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-8);
+      min-width: 160px;
     }
     
-    .glass-input {
-      background: rgba(15, 23, 42, 0.6);
-      border: 1px solid var(--glass-border);
-      color: var(--text-primary);
-      padding: 0.5rem 0.75rem;
-      border-radius: 8px;
+    .m3-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--m3-primary);
+      margin-left: var(--spacing-4);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    
+    .m3-input {
+      background: var(--m3-surface-container-high);
+      border: 1px solid var(--m3-outline);
+      color: var(--m3-on-surface);
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
       font-family: var(--font-body);
       outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-      font-size: 0.9rem;
+      transition: all 0.2s;
+      font-size: 0.9375rem;
       width: 100%;
     }
-
-    /* Standard widths for dropdowns */
-    select.glass-input {
-      min-width: 120px;
+ 
+    .m3-input:focus {
+      border-color: var(--m3-primary);
+      background: var(--m3-surface-container-highest);
+      box-shadow: 0 0 0 1px var(--m3-primary);
     }
     
-    .list-input {
-      width: 100%;
-      max-width: 160px;
+    .m3-input option, .m3-input optgroup {
+      background: var(--m3-surface-container-highest);
+      color: var(--m3-on-surface);
     }
     
-    .glass-input:focus {
-      border-color: var(--accent-fuchsia);
-      box-shadow: 0 0 10px var(--accent-glow);
+    .filter-info {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--m3-on-surface-variant);
+      padding: 0.5rem 1.25rem;
+      background: var(--m3-surface-container-highest);
+      border-radius: var(--radius-md);
     }
-    
-    .glass-input option, .glass-input optgroup {
-      background: var(--bg-color);
-    }
-    
-    .glass-input optgroup {
-      font-weight: 700;
-      color: var(--text-secondary);
-      font-size: 0.85rem;
-    }
-
+ 
     /* RESPONSIVE BREAKPOINTS */
+    @media (min-width: 769px) {
+      .mobile-filter-row {
+        display: none;
+      }
+      .filter-bar.mobile-collapsed {
+        display: flex; /* Always show on desktop */
+      }
+    }
+ 
     @media (max-width: 768px) {
       .filter-bar {
-        padding: 1.25rem;
+        padding: var(--spacing-24);
       }
       .filter-group {
-        flex: 1 1 calc(50% - 0.5rem);
-        flex-direction: column;
-        align-items: flex-start !important;
-        gap: 0.25rem !important;
-      }
-      .list-input {
-        max-width: none;
+        min-width: 0;
+        flex: 1 1 calc(50% - var(--spacing-8));
       }
       .mobile-collapsed {
         display: none;
       }
     }
-
+ 
     @media (max-width: 480px) {
       .filter-group {
         flex: 1 1 100%;

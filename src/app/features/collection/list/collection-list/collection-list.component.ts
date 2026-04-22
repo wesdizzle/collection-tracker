@@ -9,6 +9,7 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
 interface GameGroup {
   platformName: string;
   platformLogo?: string;
+  launchYear?: string;
   games: Game[];
   totalCount: number;
 }
@@ -18,7 +19,7 @@ interface GameGroup {
   standalone: true,
   imports: [RouterModule, CollectionFiltersComponent],
   template: `
-    <div class="animate-fade-in" data-version="final-v11">
+    <div class="animate-fade-in" data-version="final-v12">
       <app-collection-filters
         [currentTab]="currentTab()"
         [platformGroups]="platformGroups()"
@@ -34,22 +35,33 @@ interface GameGroup {
         <div class="groups-container animate-fade-in animate-stagger-2">
           @for (group of groupedGames(); track group.platformName) {
             <div class="platform-section mb-xl">
-              <header class="platform-header flex items-center gap-md mb-md">
-                <div class="platform-logo-frame">
-                  @if (group.platformLogo) {
-                    <img [src]="group.platformLogo" [alt]="group.platformName" class="platform-logo">
-                  } @else {
-                    <div class="platform-logo-placeholder">{{ group.platformName.charAt(0) }}</div>
-                  }
+              <header class="platform-header">
+                <div class="header-content">
+                  <div class="platform-logo-frame">
+                    @if (group.platformLogo) {
+                      <img [src]="group.platformLogo" [alt]="group.platformName" class="platform-logo">
+                    } @else {
+                      <div class="platform-logo-placeholder">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                          <path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm3-3c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+                        </svg>
+                      </div>
+                    }
+                  </div>
+                  <h2 class="platform-title">
+                    {{ group.platformName }}
+                    @if (group.launchYear) {
+                      <span class="platform-year">({{ group.launchYear }})</span>
+                    }
+                  </h2>
+                  <div class="platform-badge">{{ group.totalCount }} Items</div>
                 </div>
-                <h2 class="platform-title">{{ group.platformName }}</h2>
-                <span class="group-count">{{ group.totalCount }} Items</span>
               </header>
               
               <div class="grid">
                 @for (game of group.games; track game.id) {
                   <a [routerLink]="['/collection', 'game', game.id]" 
-                     class="glass-panel interactive-card flex flex-col overflow-hidden">
+                     class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
                     <div class="card-art-frame">
                       @if (game.image_url) {
                         <img 
@@ -68,8 +80,8 @@ interface GameGroup {
                       </div>
                     </div>
                     
-                    <div class="p-md flex flex-col gap-xs">
-                      <div class="badge-container flex justify-between items-center">
+                    <div class="card-content">
+                      <div class="content-header">
                         <div class="flex gap-2xs items-center">
                           @if (game.igdb_id) {
                             <span class="igdb-icon" title="Verified by IGDB">🆔</span>
@@ -79,9 +91,9 @@ interface GameGroup {
                           <span class="release-year">{{ game.release_date.substring(0, 4) }}</span>
                         }
                       </div>
-                      <h3 class="mt-xs text-base truncate">{{game.title}}</h3>
+                      <h3 class="card-title">{{game.title}}</h3>
                       @if (game.canonical_series) {
-                        <div class="text-xs text-secondary truncate opacity-80" title="Series">{{game.canonical_series}}</div>
+                        <div class="card-subtitle" title="Series">{{game.canonical_series}}</div>
                       }
                     </div>
                   </a>
@@ -96,14 +108,14 @@ interface GameGroup {
         <div class="grid animate-fade-in animate-stagger-2">
           @for (figure of displayFigures(); track figure.id) {
             <a [routerLink]="['/collection', 'figure', figure.id]" 
-               class="glass-panel interactive-card p-md flex flex-col gap-xs">
+               class="m3-card m3-card-elevated state-layer p-md flex flex-col gap-xs">
               <div class="badge-container flex justify-between items-center gap-2xs">
                 @if (figure.owned) {
-                  <span class="badge owned">Owned</span>
+                  <span class="m3-chip active">Owned</span>
                 } @else {
-                  <span class="badge wanted">Wanted</span>
+                  <span class="m3-chip">Wanted</span>
                 }
-                <span class="badge type">{{figure.type}}</span>
+                <span class="m3-chip type">{{figure.type}}</span>
               </div>
               <div class="text-2xs text-secondary font-medium">{{figure.line}}</div>
               <h3 class="mt-xs text-base truncate">{{figure.name}}</h3>
@@ -113,88 +125,133 @@ interface GameGroup {
         </div>
       }
     
-      <!-- Invisible element used to trigger load more when scrolled into view -->
       <div #scrollTrigger class="scroll-trigger" style="height: 50px; width: 100%;"></div>
     </div>
     `,
   styles: [`
-    .mt-xs { margin-top: 0.25rem; }
-    .p-md { padding: 0.75rem; }
-    .text-base { font-size: 0.9375rem; font-weight: 600; line-height: 1.2; }
-    .text-xs { font-size: 0.75rem; }
-    .text-2xs { font-size: 0.65rem; }
-    .text-secondary { color: var(--text-secondary); }
-    .font-medium { font-weight: 500; }
-    .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .gap-xs { gap: 0.25rem; }
-    .gap-2xs { gap: 0.15rem; }
-    
-    .badge { padding: 0.15rem 0.4rem; font-size: 0.6rem; }
-    .badge.type { background: rgba(148, 163, 184, 0.1); color: var(--text-secondary); border: 1px solid rgba(148, 163, 184, 0.2); }
-    
-    .mb-xl { margin-bottom: 3.5rem; }
+    .mb-xl { margin-bottom: 4rem; }
     .mb-md { margin-bottom: 1.25rem; }
-    .gap-md { gap: 1rem; }
+    .p-md { padding: 1rem; }
+    .gap-xs { gap: 0.5rem; }
+    .gap-2xs { gap: 0.25rem; }
 
     .platform-header {
-      position: sticky; top: 0; z-index: 10;
-      background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(12px);
-      padding: 0.75rem 1rem; margin-left: -1rem; margin-right: -1rem;
-      border-bottom: 1px solid var(--glass-border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--m3-surface);
+      padding: 1rem 0;
+      margin-bottom: 1.5rem;
+    }
+
+    .header-content {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.5rem 1.25rem;
+      background: var(--m3-surface-container-high);
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--m3-outline-variant);
     }
 
     .platform-logo-frame {
-      width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
-      background: rgba(255, 255, 255, 0.05); border-radius: 6px; border: 1px solid var(--glass-border);
-      padding: 0.2rem;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--m3-surface-container-highest);
+      border-radius: 8px;
+      padding: 0.25rem;
     }
 
-    .platform-logo { max-width: 100%; max-height: 100%; object-fit: contain; }
-    .platform-logo-placeholder { font-weight: 800; color: var(--accent-color); font-size: 1rem; }
-    .platform-title { font-size: 1.1rem; font-weight: 700; letter-spacing: -0.01em; color: #f8fafc; }
-    .platform-divider { flex: 1; height: 1px; background: linear-gradient(90deg, var(--glass-border), transparent); }
-    .group-count { font-size: 0.7rem; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
-
-    .badge.played-badge { background: rgba(34, 197, 94, 0.15); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+    .platform-logo { max-width: 100%; max-height: 100%; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); }
+    .platform-logo-placeholder { font-weight: 700; color: var(--m3-primary); font-family: var(--font-heading); }
+    .platform-title { font-size: 1.25rem; font-weight: 600; color: var(--m3-on-surface); flex: 1; display: flex; align-items: center; gap: var(--spacing-8); }
+    .platform-year { font-size: 0.9rem; font-weight: 400; color: var(--m3-on-surface-variant); opacity: 0.8; }
     
+    .platform-badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--m3-on-secondary-container);
+      background: var(--m3-secondary-container);
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+    }
+
     .grid { 
       display: grid; 
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); 
-      gap: 1rem; 
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); 
+      gap: 1.25rem; 
     }
 
-    @media (max-width: 400px) {
+    @media (max-width: 480px) {
       .grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 0.75rem;
       }
     }
 
-    .card-art-frame { width: 100%; aspect-ratio: 3/4; background: rgba(0,0,0,0.2); overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; }
-    .card-art { width: 100%; height: 100%; object-fit: cover; transition: none; }
+    .card-art-frame { 
+      width: 100%; 
+      aspect-ratio: 3/4; 
+      background: var(--m3-surface-container-highest); 
+      overflow: hidden; 
+      position: relative; 
+    }
     
-    /* Removed All Hover Movement */
-    .interactive-card:hover .card-art { transform: none !important; }
-
+    .card-art { width: 100%; height: 100%; object-fit: cover; }
+    
     .region-flag {
-      position: absolute; top: 0.25rem; right: 0.25rem; padding: 0.1rem 0.3rem;
-      background: rgba(0,0,0,0.85); border-radius: 3px; font-size: 0.55rem; font-weight: 700;
-      color: #fff; border: 1px solid rgba(255,255,255,0.1); z-index: 2;
+      position: absolute; top: 0.5rem; right: 0.5rem; padding: 0.2rem 0.4rem;
+      background: rgba(0,0,0,0.8); border-radius: 4px; font-size: 0.6rem; font-weight: 700;
+      color: #fff; z-index: 2;
     }
 
-    .igdb-icon { font-size: 0.75rem; filter: drop-shadow(0 0 5px var(--accent-glow)); }
+    .card-content {
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .content-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.25rem;
+    }
+
+    .card-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      line-height: 1.3;
+      color: var(--m3-on-surface);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .card-subtitle {
+      font-size: 0.75rem;
+      color: var(--m3-on-surface-variant);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
     .release-year {
-      font-size: 0.65rem;
-      font-weight: 600;
-      color: var(--text-secondary);
-      opacity: 0.8;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--m3-on-primary-container);
+      background: var(--m3-primary-container);
+      padding: 0.15rem 0.5rem;
+      border-radius: 6px;
       letter-spacing: 0.02em;
-      background: rgba(255, 255, 255, 0.05);
-      padding: 0.1rem 0.35rem;
-      border-radius: 4px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
     }
+
+    .igdb-icon { font-size: 0.8rem; }
   `]
 })
 export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy {
@@ -289,6 +346,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
         group = { 
           platformName: p, 
           platformLogo: game.platform_logo, 
+          launchYear: game.platform_launch_date ? new Date(game.platform_launch_date).getFullYear().toString() : undefined,
           games: [],
           totalCount: counts.get(p) || 0
         };
