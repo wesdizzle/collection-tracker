@@ -74,6 +74,9 @@ interface GameGroup {
                             <span class="igdb-icon" title="Verified by IGDB">🆔</span>
                           }
                         </div>
+                        @if (game.release_date) {
+                          <span class="release-year">{{ game.release_date.substring(0, 4) }}</span>
+                        }
                       </div>
                       <h3 class="mt-xs text-base truncate">{{game.title}}</h3>
                       @if (game.canonical_series) {
@@ -179,6 +182,18 @@ interface GameGroup {
     }
 
     .igdb-icon { font-size: 0.75rem; filter: drop-shadow(0 0 5px var(--accent-glow)); }
+
+    .release-year {
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      opacity: 0.8;
+      letter-spacing: 0.02em;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
   `]
 })
 export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy {
