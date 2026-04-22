@@ -81,4 +81,38 @@ describe('CollectionListComponent', () => {
     expect(component.filters().ownership).toBe('wanted');
     expect(component.displayLimit()).toBe(500);
   });
+
+  it('should filter games by series with case and accent insensitivity', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    
+    // Trigger ngOnInit to start data load
+    const initPromise = component.ngOnInit();
+    
+    // Provide mock data with accents
+    httpMock.expectOne('/api/games').flush([
+      { id: '1', title: 'Game 1', canonical_series: 'Pokémon', owned: 1, platform: 'Switch' },
+      { id: '2', title: 'Game 2', canonical_series: 'Mario', owned: 1, platform: 'Switch' }
+    ]);
+    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    
+    await initPromise;
+
+    // Test case insensitive match
+    component.filters.set({ ownership: 'all', series: 'pokemon' });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].canonical_series).toBe('Pokémon');
+
+    // Test substring match
+    component.filters.set({ ownership: 'all', series: 'poke' });
+    expect(component.filteredGames().length).toBe(1);
+
+    // Test accent insensitive match
+    component.filters.set({ ownership: 'all', series: 'POKEMON' });
+    expect(component.filteredGames().length).toBe(1);
+
+    // Test non-match
+    component.filters.set({ ownership: 'all', series: 'Zelda' });
+    expect(component.filteredGames().length).toBe(0);
+  });
 });

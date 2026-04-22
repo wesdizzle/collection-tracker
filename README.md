@@ -27,6 +27,7 @@ The UI utilizes a minimalist approach to structure:
 ### Navigation & Filter Logic
 The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Figures** collections:
 - **Isolated Contexts**: Your active filters and scroll position on the Games page are stored separately from those on the Figures page. Switching between the two tabs will restore each respective state exactly as you left it.
+- **Intelligent Series Filtering**: The series filter is case and accent insensitive (e.g., searching for `poke` will match `Pokémon`), and supports substring matching for improved searchability.
 - **Persistent Context**: Clicking the "Gagglog" brand logo, using the browser's back button, or navigating via the "Back to Collection" link will all maintain your active context for the current tab.
 ### Metadata Reconciliation & Discovery
 The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for maintaining collection integrity and discovering new content:

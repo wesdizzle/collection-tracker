@@ -247,12 +247,23 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       }
 
 
-      // Series Filter
-      if (f.series && g.canonical_series !== f.series) return false;
+      // Series Filter (Case & Accent Insensitive)
+      if (f.series) {
+        const normalizedFilter = this.normalizeString(f.series);
+        const normalizedSeries = this.normalizeString(g.canonical_series || '');
+        if (!normalizedSeries.includes(normalizedFilter)) return false;
+      }
 
       return true;
     });
   });
+
+  private normalizeString(str: string): string {
+    return str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
 
   public displayGames = computed(() => this.filteredGames().slice(0, this.displayLimit()));
   public groupedGames = computed(() => {
@@ -273,9 +284,24 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     const allFigures = this.collectionService.figures();
     const f = this.filters();
     return allFigures.filter(fig => {
+      // Ownership Filter
       const isOwned = fig.owned === 1 || fig.owned === true;
       if (f.ownership === 'owned' && !isOwned) return false;
       if (f.ownership === 'wanted' && isOwned) return false;
+
+      // Line Filter
+      if (f.line && fig.line !== f.line) return false;
+
+      // Type Filter
+      if (f.type && fig.type !== f.type) return false;
+
+      // Series Filter (Case & Accent Insensitive)
+      if (f.series) {
+        const normalizedFilter = this.normalizeString(f.series);
+        const normalizedSeries = this.normalizeString(fig.series_name || '');
+        if (!normalizedSeries.includes(normalizedFilter)) return false;
+      }
+
       return true;
     });
   });
