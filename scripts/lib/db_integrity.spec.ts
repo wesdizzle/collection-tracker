@@ -13,22 +13,37 @@ describe('Database Integrity', () => {
     const db = new Database('collection.sqlite');
 
     it('should have the correct total number of games owned', () => {
+        // Query the 'games' table directly to ensure the raw count of owned items (owned = 1)
+        // matches the hardcoded snapshot. This catches accidental deletions or status changes.
         const ownedGames = db.prepare('SELECT COUNT(*) as count FROM games WHERE owned = 1').get() as { count: number };
         expect(ownedGames.count).toBe(1978);
     });
 
     it('should have the correct total number of games wanted', () => {
+        // Query the 'games' table directly for wanted items (owned = 0).
         const wantedGames = db.prepare('SELECT COUNT(*) as count FROM games WHERE owned = 0').get() as { count: number };
         expect(wantedGames.count).toBe(2362);
     });
 
     it('should have the correct number of owned and wanted games per platform', () => {
+        /**
+         * COMPLEX PLATFORM AGGREGATION QUERY
+         * 
+         * This query retrieves game counts grouped by their "parent" platform.
+         * 
+         * 1. COALESCE(pp.display_name, p.display_name): If a platform has a parent_platform_id (e.g., PSVR -> PS4),
+         *    it uses the parent's display name for grouping. This ensures PSVR games are counted under "PlayStation 4".
+         * 2. LEFT JOIN platforms pp: Links sub-platforms to their parent definitions.
+         * 3. ORDER BY: Sorts by brand and launch date (using parent metadata where applicable) to match 
+         *    the consistent ordering in the 'expected' object below.
+         */
         const platformCounts = db.prepare(`
-            SELECT p.display_name, g.owned, COUNT(g.stable_id) as count
+            SELECT COALESCE(pp.display_name, p.display_name) as display_name, g.owned, COUNT(g.stable_id) as count
             FROM games g
             JOIN platforms p ON g.platform_id = p.id
-            GROUP BY p.display_name, g.owned
-            ORDER BY p.brand ASC, p.launch_date ASC, g.owned DESC
+            LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+            GROUP BY COALESCE(pp.display_name, p.display_name), g.owned
+            ORDER BY COALESCE(pp.brand, p.brand) ASC, COALESCE(pp.launch_date, p.launch_date) ASC, g.owned DESC
         `).all() as { display_name: string, owned: number, count: number }[];
 
         const expected = {
@@ -120,6 +135,9 @@ describe('Database Integrity', () => {
             "Xbox Series X (Wanted)": 2
         };
 
+        // Reduce the SQL result rows into a flat lookup object formatted as "Platform (Status)": Count
+        // e.g., "PlayStation 4 (Owned)": 311
+        // This allows for a clean deep-equality check against the 'expected' snapshot.
         const actual = platformCounts.reduce((acc, row) => {
             const status = row.owned === 1 ? 'Owned' : 'Wanted';
             acc[`${row.display_name} (${status})`] = row.count;

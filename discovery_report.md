@@ -278,43 +278,10 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9kxa.jpg)
   - *In Bandit Accountancy, you sort gems using a gamepad or the arrow keys.*
 
-### Astro Bot Rescue Mission (PlayStation 4)
-- [ ] **Update to:** Astro Bot: Rescue Mission (PlayStation VR) - ID: igdb-102129
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2eao.jpg)
-  - *Astro Bot: Rescue Mission is a brand new Platform game exclusive to PS VR. Take control of Astro the captain bot and go on an epic VR rescue mission to save your fellow Bots who are dispersed all over...*
-
-### Blood & Truth (PlayStation 4)
-- [ ] **Update to:** Blood & Truth (PlayStation VR) - ID: igdb-75242
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1rh8.jpg)
-  - *Put on your PlayStation VR headset and ready yourself for hard-hitting action in the gritty and glamorous London underworld. You are elite Special Forces soldier Ryan Marks, on a desperate mission to ...*
-- [ ] **Update to:** Truth of Blood (Android) - ID: igdb-303307
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co8b1d.jpg)
-  - *Passing a graduation exam with your life? Graduation, death... or love? A dizzying romance with 4 charming men of 4 colors, a time of blood and death (Truth of Blood).*
-
-### Batman: Arkham VR (PlayStation 4)
-- [ ] **Update to:** Batman: Arkham VR (PlayStation VR) - ID: igdb-19563
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co22zo.jpg)
-  - *Your quest to clean up Gotham has only just begun – and now it’s even more terrifying than it’s ever been. Exclusive to PlayStation VR, Batman: Arkham VR lets you become the Dark Knight in a virtual r...*
-
 ### Doom VFR (PlayStation 4)
 - [ ] **Update to:** Doom VFR (Windows Mixed Reality) - ID: igdb-37031
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1xev.jpg)
   - *Taking place after the events of Doom, you take control of scientist who was killed during the initial demon invasion of Mars.  Available for PlayStation VR and VIVE platforms, this Doom adventure wil...*
-
-### DOOM 3: VR Edition (PlayStation 4)
-- [ ] **Update to:** Doom 3: VR Edition (PlayStation VR) - ID: igdb-144524
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2ux7.jpg)
-  - *Doom 3: VR Edition features Doom 3 and its expansions, Resurrection of Evil and The Lost Mission, retooled for PS VR technology. Uncover the secrets of the UAC’s unholy experiments, encounter uncanny ...*
-
-### The Elder Scrolls V: Skyrim VR (PlayStation 4)
-- [ ] **Update to:** The Elder Scrolls V: Skyrim VR (PlayStation VR) - ID: igdb-37088
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1tci.jpg)
-  - *A true, full-length open-world game for VR has arrived. Skyrim VR reimagines the complete epic fantasy masterpiece with an unparalleled sense of scale, depth, and immersion. From battling ancient drag...*
-
-### Farpoint (PlayStation 4)
-- [ ] **Update to:** Farpoint (PlayStation VR) - ID: igdb-19575
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co237p.jpg)
-  - *Farpoint is an unnerving VR space adventure set on a hostile alien planet. On a mission to pick up scientists studying an anomaly near Jupiter, a rupture from the anomaly transports the player and sci...*
 
 ### Job Simulator (PlayStation 4)
 - [ ] **Update to:** Construction Machine Simulator 2023: Hard Truck Work Job (PlayStation 4) - ID: igdb-259233
@@ -332,25 +299,10 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Where Moss Grows (PlayStation 4) - ID: igdb-397060
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/cobvhi.jpg)
 
-### PlayStation VR Worlds (PlayStation 4)
-- [ ] **Update to:** PlayStation VR Worlds (PlayStation VR) - ID: igdb-24781
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2cf3.jpg)
-  - *Step into PlayStation VR Worlds and journey through five unique and exclusive PlayStationVR experiences.  Go nose to nose with a great white shark, crawl through decaying space hulks, weave between on...*
-
 ### Prison Boss VR (PlayStation 4)
 - [ ] **Update to:** Prison Boss VR (Meta Quest 2) - ID: igdb-55474
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2790.jpg)
   - *Prison Boss VR is a crafting and trading game using room-scale to turn your VR space into a jail cell! Craft cigarettes, alcohol and cookies for other inmates! Customize your cell as your reputation g...*
-
-### Psychonauts in the Rhombus of Ruin (PlayStation 4)
-- [ ] **Update to:** Psychonauts in the Rhombus of Ruin (PlayStation VR) - ID: igdb-15572
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co24us.jpg)
-  - *Psychonauts in the Rhombus of Ruin is a first-person virtual reality puzzle platform video game. The game's story is intended to bridge the events between Psychonauts and Psychonauts 2.*
-
-### Robinson: The Journey (PlayStation 4)
-- [ ] **Update to:** Robinson: The Journey (PlayStation VR) - ID: igdb-11180
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co27wh.jpg)
-  - *Go beyond boundaries in Robinson: The Journey, a brand new virtual reality game from Crytek. Harnessing the power of CRYENGINE, Robinson: The Journey will offer players an unparalleled sense of presen...*
 
 ### Space Channel 5 VR: Kinda Funky News Flash! (PlayStation 4)
 - [ ] **Update to:** Space Channel 5 VR: Kinda Funky News Flash (Meta Quest 2) - ID: igdb-109296
@@ -365,11 +317,6 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/coazzl.jpg)
   - *Vader Immortal: A Star Wars VR Series places players in the role of a smuggler operating near Mustafar, Darth Vader's volcanic stronghold. Across three episodes, players wield lightsabers, explore Vad...*
 
-### Until Dawn: Rush of Blood (PlayStation 4)
-- [ ] **Update to:** Until Dawn: Rush of Blood (PlayStation VR) - ID: igdb-14366
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2afs.jpg)
-  - *Descend into madness  Strap yourself in for the most disturbing rollercoaster ride you’ll ever take. From the warped minds of the team behind PlayStation 4 horror classic Until Dawn, comes Until Dawn:...*
-
 ### The Walking Dead: The Complete First Season Plus 400 Days (PlayStation 4)
 - [ ] **Update to:** The Walking Dead: 400 Days (PlayStation 3) - ID: igdb-3015
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co2gyk.jpg)
@@ -379,17 +326,6 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Wolfenstein: Cyberpilot (Oculus VR) - ID: igdb-103302
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co21er.jpg)
   - *Experience the world of Wolfenstein from a whole new perspective in Cyberpilot VR, a virtual reality gaming experience from MachineGames.  Paris. 1980. You’re the best hacker in town. Your mission: Ai...*
-
-### Baldur's Gate 3 (PlayStation 5)
-- [ ] **Update to:** Baldur's Gate III (PlayStation 5) - ID: igdb-119171
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co670h.jpg)
-  - *An ancient evil has returned to Baldur's Gate, intent on devouring it from the inside out. The fate of Faerun lies in your hands. Alone, you may resist. But together, you can overcome.*
-- [ ] **Update to:** Baldur's Gate 3: Deluxe Edition (PlayStation 5) - ID: igdb-279660
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co7h9p.jpg)
-  - *The multi-award winning RPG Baldur’s Gate 3 released to the mortal plane. Fill your mantelpiece with feelies while you fill your heart with adventure. Gather your party and return to the Forgotten Rea...*
-- [ ] **Update to:** Baldur's Gate 3: Digital Deluxe Edition (PlayStation 5) - ID: igdb-279884
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9bc5.jpg)
-  - *The Digital Deluxe Edition upgrade content includes in-game cosmetics, such as a unique custom dice skin to show off to your friends, as well as practical in-game items such as the Mask of the Shapesh...*
 
 ### Red Matter (PlayStation 5)
 - [ ] **Update to:** Red Matter (Oculus VR) - ID: igdb-109907
@@ -417,11 +353,6 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Update to:** Batman Beyond: Return of the Joker (Game Boy Color) - ID: igdb-248765
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co6of7.jpg)
   - *Game Boy Color port of Batman Beyond: Return of the Joker.*
-
-### Xbox Live Arcade Unplugged Vol. 1 (Xbox 360)
-- [ ] **Update to:** Xbox Live Arcade Unplugged: Volume 1 (Xbox 360) - ID: igdb-7257
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/f68efxr3uawhdssvygou.jpg)
-  - *Xbox Live Arcade Unplugged Vol. 1 is a retail package of six Xbox Live Arcade games and three demos.  The disc works by inserting it into the system just like any other game. However, rather than dire...*
 
 ### The Walking Dead: The Complete First Season Plus 400 Days (Xbox One)
 - [ ] **Update to:** The Walking Dead: 400 Days (PlayStation 3) - ID: igdb-3015
