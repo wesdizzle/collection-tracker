@@ -29,12 +29,12 @@ describe('IGDB Normalization Utilities', () => {
         });
 
         it('should strip subtitle fluff', () => {
-            expect(superNormalize("The Legend of Zelda: The Videogame")).toBe('thelegendofzelda');
+            expect(superNormalize("The Legend of Zelda: The Videogame")).toBe('legendzelda');
             expect(superNormalize("Game: Special Edition")).toBe('game');
         });
 
-        it('should convert & to and', () => {
-            expect(superNormalize("Ratchet & Clank")).toBe('ratchetandclank');
+        it('should convert & to and (and then strip "and")', () => {
+            expect(superNormalize("Ratchet & Clank")).toBe('ratchetclank');
         });
 
         it('should remove all non-alphanumeric', () => {

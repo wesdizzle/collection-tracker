@@ -239,6 +239,22 @@ export async function findGame(title: string, platformId: number): Promise<Norma
             }
         }
 
+        // Pass 3: Ultra-aggressive fallback (remove all known suffixes)
+        if (!results || results.length === 0) {
+            const ultraSimplified = superNormalize(cleanTitle, true);
+            if (ultraSimplified && ultraSimplified !== cleanTitle.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()) {
+                console.log(`  Falling back to ultra-simplified search: "${ultraSimplified}"`);
+                const ultraSearchQuery = `
+                    fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    search "${ultraSimplified}";
+                    ${platformFilter ? `where platforms = (${platformId});` : ''}
+                    limit 50;
+                `;
+                const ultraResults = await queryIGDB('games', ultraSearchQuery) as IGDBGame[];
+                results = [...results, ...(ultraResults || [])];
+            }
+        }
+
         if (!results || results.length === 0) return [];
 
         // De-duplicate by ID
@@ -413,16 +429,20 @@ export function normalizeStr(s: string): string {
  * 
  * Deep normalization of game titles for improved matching heuristics.
  */
-export function superNormalize(title: string): string {
+export function superNormalize(title: string, keepSpaces = false): string {
     if (!title) return '';
     let t = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     t = t.toLowerCase();
-    t = t.replace(/^(disney's|marvel's|sid meier's|lego|j\.r\.r\. tolkien's)\b/gi, '');
-    t = t.replace(/\b(version|the videogame|the video game|special edition|game of the year edition|goty edition|a fantasy harvest moon|toy box challenge|special pikachu edition|director's cut|hd remaster|nintendo switch edition)\b/gi, '');
-    t = t.replace(/:/g, ' ');
-    t = t.replace(/&/g, 'and');
-    t = t.replace(/\btelltale series\b/gi, '');
-    t = t.replace(/[^a-z0-9]/gi, '');
+    t = t.replace(/rayman m\b/gi, 'rayman arena');
+    t = t.replace(/^(disney's|marvel's|sid meier's|lego|j\.r\.r\. tolkien's|the amazing|telltale's|the)\b/gi, '');
+    t = t.replace(/\b(version|the videogame|the video game|special edition|game of the year edition|goty edition|a fantasy harvest moon|toy box challenge|special pikachu edition|director's cut|hd remaster|nintendo switch edition|complete edition|definitive edition|ultimate edition|gold edition|remastered|remake|standard edition|plus|the telltale series|includes picnic panic|plus 400 days|vol 1|vol 2|vol 3|anniversary edition|starter pack|triple pack|unplugged vol 1|the complete first season|the complete second season|the final season|the complete series|the|of|a|and|for|ds|3ds|gba|nes|snes|n64|gc|gamecube|wii|wiiu|ps1|ps2|ps3|ps4|ps5|psp|vita|xbox|360|one)\b/gi, '');
+    t = t.replace(/[:&.-]/g, ' ');
+    t = t.replace(/\bvol\s*\d+\b/gi, '');
+    if (keepSpaces) {
+        t = t.replace(/[^a-z0-9 ]/gi, '').replace(/\s+/g, ' ').trim();
+    } else {
+        t = t.replace(/[^a-z0-9]/gi, '');
+    }
     return t;
 }
 
@@ -439,6 +459,10 @@ export function calculateConfidence(target: string, candidate: string, category?
 
     const simplifiedTarget = normalizeStr(getSimplifiedTitle(target));
     if (simplifiedTarget === normCandidate) return 100;
+
+    const superNormTarget = superNormalize(target);
+    const superNormCandidate = superNormalize(candidate);
+    if (superNormTarget && superNormTarget === superNormCandidate) return 100;
 
     // Word overlap scoring (ignoring small filler words)
     const targetWords = new Set(normTarget.split(/[:\s+-]+/).filter(w => w.length > 2));
