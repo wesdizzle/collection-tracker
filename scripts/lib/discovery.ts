@@ -17,6 +17,7 @@ export interface ApplyPayload {
     currentPlatform: string;
     selectedIgdbId: string;
     selectedName: string;
+    selectedPlatform: string;
     region?: string;
 }
 

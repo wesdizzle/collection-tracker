@@ -138,9 +138,30 @@ async function runScraper(): Promise<void> {
         } else {
             process.stdout.write(`No platform match. Global search... `);
             // Phase 2: Global Platform Discovery
-            const suggestions = await findGame(searchTitle, 0);
-            unmatchedGames.push({ item: game, suggestions });
-            console.log(suggestions && suggestions.length > 0 ? "Candidates found." : "No candidates.");
+            const globalMatches = await findGame(searchTitle, 0);
+            
+            if (globalMatches && globalMatches.length > 0) {
+                const bestGlobal = globalMatches[0];
+                const globalConfidence = calculateConfidence(game.title, bestGlobal.name, bestGlobal.category);
+                
+                // If we found a high-confidence match on a DIFFERENT platform, add to syncSuggestions
+                // This allows the user to "Update to" this better match (and change platform)
+                if (globalConfidence >= 90) {
+                    syncSuggestions.push({
+                        type: 'Game',
+                        current: `${game.title} (${game.platform_display_name || game.platform})`,
+                        options: globalMatches.slice(0, 10),
+                        localId: game.id
+                    });
+                    console.log(`Potential cross-platform match found [ID: ${bestGlobal.id}]`);
+                } else {
+                    unmatchedGames.push({ item: game, suggestions: globalMatches });
+                    console.log("Candidates found.");
+                }
+            } else {
+                unmatchedGames.push({ item: game, suggestions: null });
+                console.log("No candidates.");
+            }
         }
     }
 

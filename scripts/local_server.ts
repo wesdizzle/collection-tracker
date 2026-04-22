@@ -68,7 +68,7 @@ const server = http.createServer(async (req, res) => {
                 req.on('error', err => reject(err));
             });
 
-            const { currentTitle, currentPlatform, selectedIgdbId, selectedName, region }: ApplyPayload = JSON.parse(body);
+            const { currentTitle, currentPlatform, selectedIgdbId, selectedName, selectedPlatform, region }: ApplyPayload = JSON.parse(body);
 
             // 1. Fetch Full Metadata from IGDB
             let summary: string | null = null;
@@ -78,7 +78,7 @@ const server = http.createServer(async (req, res) => {
             const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
 
             try {
-                const igdbPlatformId = PLATFORM_MAP[currentPlatform];
+                const igdbPlatformId = PLATFORM_MAP[selectedPlatform || currentPlatform];
                 const igdbData = await getGameById(Number(finalIgdbId), igdbPlatformId);
 
                 if (igdbData) {
@@ -100,13 +100,27 @@ const server = http.createServer(async (req, res) => {
             `).get(currentTitle, finalName, currentPlatform) as { id: number } | undefined;
 
             if (game) {
+                // Handle Platform Update if needed
+                let finalPlatformId = null;
+                if (selectedPlatform && selectedPlatform !== currentPlatform) {
+                    const platform = db.prepare('SELECT id FROM platforms WHERE display_name = ?').get(selectedPlatform) as { id: number } | undefined;
+                    if (platform) {
+                        finalPlatformId = platform.id;
+                    }
+                }
+
+                // Calculate new ID (slug) if name or platform changed
+                // This follows the convention: normalize(name) + "-" + normalize(platform)
+                const slugify = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+                const newId = `${slugify(finalName)}-${slugify(selectedPlatform || currentPlatform)}`;
+
                 db.prepare(`
                     UPDATE games 
-                    SET title = ?, igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
+                    SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
                     WHERE id = ?
-                `).run(finalName, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
+                `).run(newId, finalName, finalPlatformId, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
 
-                console.log(`Matched: ${currentTitle} -> ${finalName} (ID: ${finalIgdbId}) with full metadata.`);
+                console.log(`Matched: ${currentTitle} (${currentPlatform}) -> ${finalName} (${selectedPlatform || currentPlatform}) [ID: ${finalIgdbId}]`);
 
                 // 2. Sync to Local D1 Instance (important for frontend preview)
                 try {

@@ -72,6 +72,7 @@ export interface DiscoveryPayload {
     currentPlatform: string;
     selectedIgdbId: string | number;
     selectedName: string;
+    selectedPlatform: string;
     region: string;
     summary?: string;
     imageUrl?: string;

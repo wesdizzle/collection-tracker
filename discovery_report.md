@@ -148,35 +148,6 @@ This report lists findings from the collection discovery pipeline.
 - [ ] **Link to:** Donkey Kong Jr. (Apple II) - ID: igdb-257641
   - *An Apple II of Donkey Kong Junior, confirmed by magazine ads, but never released.*
 
-### F1 Race (Nintendo Entertainment System)
-- [ ] **Link to:** F1 Race (Family Computer) - ID: igdb-11689
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co67ux.jpg)
-  - *F1 Race is a racing video game released in 1984 for the Family Computer in Japan. A version was released in 1990 for the Game Boy in Japan and in 1991 in Europe and North America, which included the F...*
-- [ ] **Link to:** F1 Race Stars (PlayStation 3) - ID: igdb-5311
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3zi6.jpg)
-  - *Get ready to experience Formula One cars, teams and circuits like never before with F1 Race Stars from Codemasters Racing, the home of the series of HD official Formula One games. F1 Race Stars is a f...*
-- [ ] **Link to:** F-1 Race (Game Boy) - ID: igdb-240167
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co67uv.jpg)
-  - *Game Boy port of F-1 Race.*
-- [ ] **Link to:** F1 ROC: Race of Champions (Super Nintendo Entertainment System) - ID: igdb-42571
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/cobgo7.jpg)
-  - *Strap yourself in the cockpit, step on the gas and take a turbo-charged ride through the high-speed world of Formula One racing with F1 900.  You’ll test your skill on the famed hairpins of Monte Carl...*
-- [ ] **Link to:** F1 ROC II: Race of Champions (Super Nintendo Entertainment System) - ID: igdb-42572
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3rro.jpg)
-  - *OK race fans, you've seen the rest, now here's the best'  Seta's new super DSP chip separates the men from the boys in this high speed Formula One racing tour. Drive real cars, like the FW14B Williams...*
-- [ ] **Link to:** F1 Race Stars: China Track (Unknown) - ID: igdb-167970
-  - *Download the F1 RACE STARS China Track now! Race against the cast of F1 RACE STARS and share the fun in online and split-screen in this brand new circuit.*
-- [ ] **Link to:** F1 Race Stars: Canada Track (Unknown) - ID: igdb-167969
-  - *Download the F1 RACE STARS Canada Track where the mayhem comes in solo, split-screen and online play! Dodge the grumpy groundhogs and race across a frozen river in this brand new F1 RACE STARS circuit...*
-- [ ] **Link to:** F1 Race Stars: Europe Track (Unknown) - ID: igdb-167971
-  - *Go head to head with the F1 RACE STARS and compete online and in split-screen as you charge around the streets of Valencia.*
-- [ ] **Link to:** F1 Race Stars: Powered Up Edition (Wii U) - ID: igdb-85134
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/bieu7dpoz6rlkeznntj0.jpg)
-  - *Formula One goes over the top!*
-- [ ] **Link to:** F1 Racing Simulation (PC (Microsoft Windows)) - ID: igdb-691
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co7yds.jpg)
-  - *Duel for position against the world's greatest drivers at 180 miles per hour! F1 Racing Simulation will impress even the most demanding Formula 1 fanatic! Featuring 22 drivers and all 16 tracks from t...*
-
 ### The Amazing Spider-Man 3: Invasion of the Spider-Slayers (Game Boy)
 - No suggestions found.
 

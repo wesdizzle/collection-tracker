@@ -48,4 +48,14 @@ describe('Discovery Report Parser', () => {
     it('should return empty array for empty content', () => {
         expect(parseDiscoveryReport('')).toEqual([]);
     });
+
+    it('should parse platform from options (cross-platform support)', () => {
+        const report = `
+### Space Invaders (Atari 2600)
+- [ ] **Update to:** Space Invaders (Nintendo Entertainment System) - ID: 5678
+`;
+        const results = parseDiscoveryReport(report);
+        expect(results).toHaveLength(1);
+        expect(results[0].options[0].platform).toBe('Nintendo Entertainment System');
+    });
 });
