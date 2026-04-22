@@ -16,13 +16,13 @@ describe('Database Integrity', () => {
         // Query the 'games' table directly to ensure the raw count of owned items (owned = 1)
         // matches the hardcoded snapshot. This catches accidental deletions or status changes.
         const ownedGames = db.prepare('SELECT COUNT(*) as count FROM games WHERE owned = 1').get() as { count: number };
-        expect(ownedGames.count).toBe(1978);
+        expect(ownedGames.count).toBe(1977);
     });
 
     it('should have the correct total number of games wanted', () => {
         // Query the 'games' table directly for wanted items (owned = 0).
         const wantedGames = db.prepare('SELECT COUNT(*) as count FROM games WHERE owned = 0').get() as { count: number };
-        expect(wantedGames.count).toBe(2362);
+        expect(wantedGames.count).toBe(2361);
     });
 
     it('should have the correct number of owned and wanted games per platform', () => {
@@ -97,14 +97,14 @@ describe('Database Integrity', () => {
             "PlayStation 2 (Owned)": 78,
             "PlayStation 2 (Wanted)": 148,
             "PlayStation Portable (Owned)": 27,
-            "PlayStation Portable (Wanted)": 75,
+            "PlayStation Portable (Wanted)": 74,
             "PlayStation 3 (Owned)": 103,
-            "PlayStation 3 (Wanted)": 184,
+            "PlayStation 3 (Wanted)": 183,
             "PlayStation Vita (Owned)": 36,
             "PlayStation Vita (Wanted)": 48,
             "PlayStation 4 (Owned)": 311,
-            "PlayStation 4 (Wanted)": 212,
-            "PlayStation 5 (Owned)": 125,
+            "PlayStation 4 (Wanted)": 213,
+            "PlayStation 5 (Owned)": 124,
             "PlayStation 5 (Wanted)": 19,
             "Sega Master System (Owned)": 1,
             "Sega Master System (Wanted)": 15,

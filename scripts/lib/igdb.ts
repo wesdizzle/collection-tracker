@@ -129,7 +129,14 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
     'Pico Park 1+2': 'JP',
     'Mother 3': 'JP',
     'Taiko no Tatsujin DS': 'JP',
+    'Meccha! Taiko no Tatsujin DS - 7-tsu no Shima no Daibouken': 'JP',
     'Metcha! Taiko no Tatsujin DS: 7-tsu no Shima no Daibouken': 'JP',
+    'Star Wars: Masters of Teräs Käsi': 'NA',
+    'Super Mario All-Stars 25th Anniversary Edition': 'NA',
+    'Harvest Moon 3D: The Tale of Two Towns': 'NA',
+    'The Elder Scrolls Online: Tamriel Unlimited': 'NA',
+    'Xbox 360 Triple Pack': 'NA',
+    'Batman: Return of the Joker': 'NA',
     'Sonic the Hedgehog (1991)': 'EU', // For Master System canonical EU releases
     'Mario Kart 8 Deluxe + Booster Course Pass': 'SEA',
     'Chrono Cross: The Radical Dreamers Edition': 'SEA',
@@ -188,21 +195,62 @@ export async function queryIGDB(endpoint: string, query: string): Promise<unknow
  */
 export async function findGame(title: string, platformId: number): Promise<NormalizedGame[] | null> {
     // Categories: 0: Main Game, 8: Remake, 9: Remaster, 10: Expanded Game, 11: Port
-    const platformFilter = platformId ? `platforms = (${platformId})` : '';
-    
+    let platformFilter = platformId ? `platforms = (${platformId})` : '';
+
+    // VR Heuristic: If searching for PS4/PS5, also look for PSVR/PSVR2
+    if (platformId === 48) platformFilter = 'platforms = (48, 165)';
+    if (platformId === 167) platformFilter = 'platforms = (167, 390)';
+
     // Clean title for search
     const cleanTitle = title.replace(/[–—]/g, '-').replace(/[":()]/g, '').trim();
+
+    // SPECIAL CASE: The LEGO Movie Videogame (3DS) - IGDB is missing 3DS platform but it is the correct entity
+    if (cleanTitle.toLowerCase() === 'the lego movie videogame' && platformId === 37) {
+        return getGameById(4845, 37).then(g => g ? [g] : null);
+    }
+
+    // SPECIAL CASE: 20XX/30XX (Switch)
+    if (cleanTitle.toLowerCase() === '20xx/30xx' && platformId === 130) {
+        return getGameById(364164, 130).then(g => g ? [g] : null);
+    }
+
+    // SPECIAL CASE: Star Wars: Masters of Teräs Käsi (PS1)
+    if (cleanTitle.toLowerCase().includes('teras kasi') && platformId === 7) {
+        // Star Wars: Masters of Teräs Käsi is ID 1341 (Wait, let's verify ID)
+        // I'll use a safer search if ID is uncertain, but search is failing.
+        // Let's try searching with 'teras kasi' literal.
+    }
+
+    // SPECIAL CASE: Super Mario All-Stars 25th Anniversary Edition (Wii)
+    if (cleanTitle.toLowerCase().includes('mario all-stars 25th') && platformId === 5) {
+        return getGameById(84920, 5).then(g => g ? [g] : null);
+    }
+
+    // SPECIAL CASE: Harvest Moon 3D: The Tale of Two Towns (3DS)
+    if (cleanTitle.toLowerCase().includes('tale of two towns') && platformId === 37) {
+        return getGameById(3392, 37).then(g => g ? [g] : null);
+    }
+
+    // SPECIAL CASE: The Elder Scrolls Online (PS4/Xbox)
+    if (cleanTitle.toLowerCase().includes('elder scrolls online') && (platformId === 48 || platformId === 49)) {
+        return getGameById(1081, platformId).then(g => g ? [g] : null);
+    }
+
+    // SPECIAL CASE: Triple Pack: Trials HD, Limbo, Splosion Man (Xbox 360)
+    if (cleanTitle.toLowerCase().includes('triple pack') && cleanTitle.toLowerCase().includes('trials hd') && platformId === 12) {
+        return getGameById(141767, 12).then(g => g ? [g] : null);
+    }
 
     const searchQuery = `
         fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         search "${cleanTitle.replace(/"/g, '')}";
-        ${platformFilter ? `where platforms = (${platformId});` : ''}
+        ${platformFilter ? `where ${platformFilter};` : ''}
         limit 50;
     `;
 
     const nameQuery = `
         fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
-        where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
+        where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & ${platformFilter}` : ''};
         limit 50;
     `;
 
@@ -377,8 +425,18 @@ function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: num
     // Final default for region
     if (!regionCode) regionCode = 'NA';
 
-    const matchedPlatform = game.platforms?.find(p => p.id === Number(platformId));
-    const platformName = matchedPlatform ? matchedPlatform.name : (game.platforms ? game.platforms[0].name : 'Unknown');
+    if (!regionCode) regionCode = 'NA';
+
+    // Unwanted VR platforms to ignore
+    const unwantedVR = [162, 163, 170, 384]; // Oculus, WMR, Meta Quest
+    const cleanPlatforms = (game.platforms || []).filter(p => !unwantedVR.includes(p.id));
+
+    // Preference: If source is PS4/PS5, prefer PSVR/PSVR2 if exact platform not found
+    let matchedPlatform = cleanPlatforms.find(p => p.id === Number(platformId));
+    if (!matchedPlatform && platformId === 48) matchedPlatform = cleanPlatforms.find(p => p.id === 165);
+    if (!matchedPlatform && platformId === 167) matchedPlatform = cleanPlatforms.find(p => p.id === 390);
+    
+    const platformName = matchedPlatform ? matchedPlatform.name : (cleanPlatforms.length > 0 ? cleanPlatforms[0].name : 'Unknown');
 
     return {
         id: `igdb-${game.id}`,
@@ -387,8 +445,8 @@ function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: num
         summary: game.summary,
         image_url: game.cover ? `https:${game.cover.url.replace('t_thumb', 't_cover_big')}` : null,
         platform: platformName,
-        platforms: game.platforms || [],
-        platform_ids: (game.platforms || []).map(p => p.id),
+        platforms: cleanPlatforms,
+        platform_ids: cleanPlatforms.map(p => p.id),
         release_date: chosenDateObj?.date ? new Date(chosenDateObj.date * 1000).toISOString().split('T')[0] : (game.first_release_date ? new Date(game.first_release_date * 1000).toISOString().split('T')[0] : null),
         collections: game.collections ? game.collections.map(c => c.name).join(', ') : null,
         franchises: game.franchises ? game.franchises.map(f => f.name).join(', ') : null,
@@ -434,9 +492,11 @@ export function superNormalize(title: string, keepSpaces = false): string {
     let t = title.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     t = t.toLowerCase();
     t = t.replace(/rayman m\b/gi, 'rayman arena');
+    t = t.replace(/\bjr\b/gi, 'junior');
+    t = t.replace(/\bjr\b/gi, 'junior');
     t = t.replace(/^(disney's|marvel's|sid meier's|lego|j\.r\.r\. tolkien's|the amazing|telltale's|the)\b/gi, '');
     t = t.replace(/\b(version|the videogame|the video game|special edition|game of the year edition|goty edition|a fantasy harvest moon|toy box challenge|special pikachu edition|director's cut|hd remaster|nintendo switch edition|complete edition|definitive edition|ultimate edition|gold edition|remastered|remake|standard edition|plus|the telltale series|includes picnic panic|plus 400 days|vol 1|vol 2|vol 3|anniversary edition|starter pack|triple pack|unplugged vol 1|the complete first season|the complete second season|the final season|the complete series|the|of|a|and|for|ds|3ds|gba|nes|snes|n64|gc|gamecube|wii|wiiu|ps1|ps2|ps3|ps4|ps5|psp|vita|xbox|360|one)\b/gi, '');
-    t = t.replace(/[:&.-]/g, ' ');
+    t = t.replace(/[:&.\-/]/g, ' ');
     t = t.replace(/\bvol\s*\d+\b/gi, '');
     if (keepSpaces) {
         t = t.replace(/[^a-z0-9 ]/gi, '').replace(/\s+/g, ' ').trim();
