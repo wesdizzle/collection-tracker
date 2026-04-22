@@ -35,6 +35,8 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches directly into the database.
 - **Discovery Mode**: Use the `--discovery` flag to analyze your owned series and franchises and find missing items you don't yet own.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
+- **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise game counts overall and per platform.
+
 
 ## 📦 Getting Started
 
