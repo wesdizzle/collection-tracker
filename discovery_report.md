@@ -13,10 +13,6 @@ This report lists findings from the collection discovery pipeline.
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co1tj1.jpg)
   - *Get ready for the ultimate arcade-style couch cook-off in Overcooked: Special Edition for Nintendo Switch.  Working as a team, you and your fellow chefs must prepare, cook and serve up a variety of ta...*
 
-### Pico Park 1 + 2 (Nintendo Switch)
-- [ ] **Update to:** Pico Park 1+2 (Nintendo Switch) - ID: igdb-328142
-  - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co9kwt.jpg)
-
 ### Rayman Legends Definitive Edition (Nintendo Switch)
 - [ ] **Update to:** Rayman Legends: Definitive Edition (Nintendo Switch) - ID: igdb-27239
   - ![cover](https://images.igdb.com/igdb/image/upload/t_cover_big/co3m8e.jpg)

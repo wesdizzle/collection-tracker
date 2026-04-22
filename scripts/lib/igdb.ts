@@ -126,6 +126,7 @@ export const PLATFORM_MAP: Record<string, number> = {
 export const REGIONAL_OVERRIDES: Record<string, string> = {
     // Exact Titles
     'Pico Park 1 + 2': 'JP',
+    'Pico Park 1+2': 'JP',
     'Mother 3': 'JP',
     'Taiko no Tatsujin DS': 'JP',
     'Metcha! Taiko no Tatsujin DS: 7-tsu no Shima no Daibouken': 'JP',
@@ -135,6 +136,7 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
     'Chrono Cross: The Radical Dreamers': 'SEA',
     
     // IGDB IDs (More stable)
+    'igdb-328142': 'JP',   // Pico Park 1+2
     'igdb-3683': 'JP',     // Mother 3
     'igdb-245049': 'SEA',  // Mario Kart 8 Deluxe + BCP
     'igdb-188613': 'SEA',  // Chrono Cross: The Radical Dreamers Edition
@@ -321,29 +323,43 @@ function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: num
     // Priority 0: Manual Override
     let regionCode = REGIONAL_OVERRIDES[game.name] || REGIONAL_OVERRIDES[`igdb-${game.id}`];
 
-    // REGIONAL DATE LOGIC: US (2) -> NA (2) -> WW (8) -> Earliest
+    // REGIONAL DATE LOGIC: Override Region -> US (2) -> WW (8) -> Earliest
     const allDates = game.release_dates || [];
-    
-    // Priority 1: North America / US (Region 2)
-    let chosenDateObj = allDates.find(d => d.region === 2);
-    if (!regionCode) regionCode = 'NA';
+    const regionMap: Record<number, string> = { 1: 'EU', 2: 'NA', 3: 'AU', 4: 'NZ', 5: 'JP', 6: 'CH', 7: 'AS', 8: 'WW' };
+    const regionToId: Record<string, number> = { 'EU': 1, 'NA': 2, 'AU': 3, 'NZ': 4, 'JP': 5, 'CH': 6, 'AS': 7, 'WW': 8, 'SEA': 7 };
 
-    // Priority 2: Worldwide (Region 8)
-    if (!chosenDateObj) {
-        chosenDateObj = allDates.find(d => d.region === 8);
-        if (chosenDateObj) {
-            if (regionCode === 'NA') regionCode = 'WW';
+    let chosenDateObj: { region?: number; date: number } | undefined;
+
+    // 1. If we have an override region, try to find that specific date first
+    if (regionCode) {
+        const targetRegionId = regionToId[regionCode];
+        if (targetRegionId) {
+            chosenDateObj = allDates.find(d => d.region === targetRegionId);
         }
     }
 
-    // Priority 3: Earliest available
+    // 2. Standard Priority: North America / US (Region 2)
+    if (!chosenDateObj) {
+        chosenDateObj = allDates.find(d => d.region === 2);
+        if (chosenDateObj && !regionCode) regionCode = 'NA';
+    }
+
+    // 3. Worldwide (Region 8)
+    if (!chosenDateObj) {
+        chosenDateObj = allDates.find(d => d.region === 8);
+        if (chosenDateObj && !regionCode) regionCode = 'WW';
+    }
+
+    // 4. Earliest available fallback
     if (!chosenDateObj && allDates.length > 0) {
         chosenDateObj = allDates.reduce((prev, curr) => (prev.date < curr.date ? prev : curr));
-        const regionMap: Record<number, string> = { 1: 'EU', 2: 'NA', 3: 'AU', 4: 'NZ', 5: 'JP', 6: 'CH', 7: 'AS', 8: 'WW' };
-        if (regionCode === 'NA' || regionCode === 'WW') {
+        if (!regionCode) {
             regionCode = chosenDateObj.region ? (regionMap[chosenDateObj.region] || 'OT') : 'NA';
         }
     }
+
+    // Final default for region
+    if (!regionCode) regionCode = 'NA';
 
     const matchedPlatform = game.platforms?.find(p => p.id === Number(platformId));
     const platformName = matchedPlatform ? matchedPlatform.name : (game.platforms ? game.platforms[0].name : 'Unknown');
