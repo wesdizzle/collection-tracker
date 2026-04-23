@@ -14,11 +14,11 @@ import Database from 'better-sqlite3';
 // The source database we work with in the root folder
 const sourcePath = 'collection.sqlite';
 
-console.log('--- Phase 0: Checkpointing SQLite ---');
+console.log('--- Phase 0: Verifying SQLite Mode ---');
 const db = new Database(sourcePath);
-db.pragma('wal_checkpoint(FULL)');
+const mode = db.pragma('journal_mode', { simple: true });
+console.log(`Current journal mode: ${mode}`);
 db.close();
-console.log('Checkpoint complete. WAL merged into main file.');
 
 // The internal folder where Wrangler stores local persistence
 const d1StateDir = path.join('.wrangler', 'state', 'v3', 'd1', 'miniflare-D1DatabaseObject');
