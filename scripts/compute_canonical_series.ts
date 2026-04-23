@@ -41,11 +41,13 @@ const CONFIG = {
 
 const SERIES_REDIRECTS: Record<string, string | null> = {
     "DK": "Donkey Kong",
+    "Detective Pikachu": "Pokémon",
     "Final Fantasy Legend": "SaGa",
     "Final Fantasy Legend II": "SaGa",
     "Final Fantasy Legend III": "SaGa",
     "Harvest Moon (old)": "Story of Seasons",
     "Harvest Moon": "Story of Seasons",
+    "Harvest Moon (new)": "Harvest Moon",
     "Light Gun Series": null, 
     "NES Series": null,
     "Classic Series": null,
@@ -172,15 +174,32 @@ async function main() {
             const normTitle = normalize(game.title);
             const normSummary = normalize(game.summary || '');
             
+            // Colon-Prefix Heuristic: Extract the part before the first colon
+            const colonIndex = game.title.indexOf(':');
+            const primaryPrefix = colonIndex > 0 ? normalize(game.title.substring(0, colonIndex)) : null;
+
             const scores = survivors.map(s => {
                 let score = 0;
+                let candidate = s;
                 const normS = normalize(s);
+
+                // Contextual Xeno Logic
+                if (normS === 'xeno') {
+                    if (normTitle.includes('xenoblade')) candidate = 'Xenoblade Chronicles';
+                    else if (normTitle.includes('xenogears')) candidate = 'Xenogears';
+                    else if (normTitle.includes('xenosaga')) candidate = 'Xenosaga';
+                }
+
                 if (series.some(x => normalize(x) === normS) && franchises.some(x => normalize(x) === normS)) score += 5;
                 if (normTitle.includes(normS)) score += 10;
                 else if (normTitle.includes(getFirstNontrivialWord(s))) score += 3;
+
+                // Colon-Prefix Bonus
+                if (primaryPrefix && normS === primaryPrefix) score += 10;
+
                 if (normSummary.includes(normS)) score += 2;
                 score += Math.min(frequencies[s] || 0, 100) / 100;
-                return { item: s, score };
+                return { item: candidate, score };
             });
 
             scores.sort((a, b) => b.score - a.score);

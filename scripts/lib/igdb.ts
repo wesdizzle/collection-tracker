@@ -31,9 +31,11 @@ export interface IGDBGame {
     genres?: { name: string }[];
     themes?: { name: string }[];
     category?: number;
-    version_parent?: number;
+    game_type?: number;
+    version_parent?: number | { id: number; collections?: { id: number; name: string }[]; franchises?: { id: number; name: string }[] };
     release_dates?: { region: number; date: number }[];
     confidence?: number;
+    bundles?: number[];
 }
 
 export interface NormalizedGame {
@@ -143,7 +145,7 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
     'Mario Kart 8 Deluxe + Booster Course Pass': 'SEA',
     'Chrono Cross: The Radical Dreamers Edition': 'SEA',
     'Chrono Cross: The Radical Dreamers': 'SEA',
-    
+
     // IGDB IDs (More stable)
     'igdb-328142': 'JP',   // Pico Park 1+2
     'igdb-3683': 'JP',     // Mother 3
@@ -344,10 +346,10 @@ export async function findGame(title: string, platformId: number): Promise<Norma
                 'rom hack', 'romhack', ' graphics mod ', ' graphics mod:',
                 ' a mod for ', ' this mod ', ' modded ', ' mod:', ' mod)'
             ];
-            
+
             const isHack = hackKeywords.some(kw => lowerName.includes(kw) || lowerSummary.includes(kw));
             if (isHack && g.category !== 5) return false;
-            
+
             return true;
         });
 
@@ -375,17 +377,58 @@ export async function findGame(title: string, platformId: number): Promise<Norma
 
 /**
  * Fetches a single game by its IGDB ID.
+ * If the game is a bundle (category 3), it aggregates collections/franchises from its members.
  */
 export async function getGameById(igdbId: number, platformId?: number): Promise<NormalizedGame | null> {
+    const fields = `name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.region, release_dates.date`;
     const query = `
-        fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields ${fields};
         where id = ${igdbId};
     `;
-    
+
     try {
         const results = await queryIGDB('games', query) as IGDBGame[];
         if (!results || results.length === 0) return null;
-        return normalizeIGDBGame(results[0], results[0].name, platformId);
+        const game = results[0];
+        const category = game.game_type ?? game.category;
+
+        // 1. If it's a bundle, fetch members and aggregate metadata
+        if (category === 3) {
+            const memberQuery = `fields collections.name, franchises.name; where bundles = (${game.id});`;
+            const members = await queryIGDB('games', memberQuery) as IGDBGame[];
+
+            const collections = new Set(game.collections?.map(c => c.name) || []);
+            const franchises = new Set(game.franchises?.map(f => f.name) || []);
+
+            for (const member of members) {
+                member.collections?.forEach(c => collections.add(c.name));
+                member.franchises?.forEach(f => franchises.add(f.name));
+            }
+
+            game.collections = Array.from(collections).map(name => ({ id: 0, name }));
+            game.franchises = Array.from(franchises).map(name => ({ id: 0, name }));
+        }
+
+        // 2. If it has a version_parent with collections/franchises, inherit them
+        if (game.version_parent && typeof game.version_parent === 'object') {
+            interface ParentInfo {
+                collections?: { name: string }[];
+                franchises?: { name: string }[];
+            }
+            const parent = game.version_parent as ParentInfo;
+            if (parent.collections || parent.franchises) {
+                const collections = new Set(game.collections?.map(c => c.name) || []);
+                const franchises = new Set(game.franchises?.map(f => f.name) || []);
+
+                parent.collections?.forEach(c => collections.add(c.name));
+                parent.franchises?.forEach(f => franchises.add(f.name));
+
+                game.collections = Array.from(collections).map(name => ({ id: 0, name }));
+                game.franchises = Array.from(franchises).map(name => ({ id: 0, name }));
+            }
+        }
+
+        return normalizeIGDBGame(game, game.name, platformId);
     } catch (error: unknown) {
         const err = error as { message: string };
         console.error('Error fetching game by ID:', err.message);
@@ -448,7 +491,7 @@ function normalizeIGDBGame(game: IGDBGame, targetTitle: string, platformId?: num
     let matchedPlatform = cleanPlatforms.find(p => p.id === Number(platformId));
     if (!matchedPlatform && platformId === 48) matchedPlatform = cleanPlatforms.find(p => p.id === 165);
     if (!matchedPlatform && platformId === 167) matchedPlatform = cleanPlatforms.find(p => p.id === 390);
-    
+
     const platformName = matchedPlatform ? matchedPlatform.name : (cleanPlatforms.length > 0 ? cleanPlatforms[0].name : 'Unknown');
 
     return {
@@ -550,7 +593,7 @@ export function calculateConfidence(target: string, candidate: string, category?
     }
 
     const overlapScore = (matches / targetWords.size) * 100;
-    
+
     // Category boosts for bundles
     let boost = 0;
     if (category === 10 || category === 13) {
