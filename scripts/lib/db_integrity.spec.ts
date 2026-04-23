@@ -22,7 +22,7 @@ describe('Database Integrity', () => {
     it('should have the correct total number of games wanted', () => {
         // Query the 'games' table directly for wanted items (owned = 0).
         const wantedGames = db.prepare('SELECT COUNT(*) as count FROM games WHERE owned = 0').get() as { count: number };
-        expect(wantedGames.count).toBe(2361);
+        expect(wantedGames.count).toBe(2363);
     });
 
     it('should have the correct number of owned and wanted games per platform', () => {
@@ -79,7 +79,7 @@ describe('Database Integrity', () => {
             "Nintendo GameCube (Owned)": 56,
             "Nintendo GameCube (Wanted)": 85,
             "Nintendo DS (Owned)": 71,
-            "Nintendo DS (Wanted)": 161,
+            "Nintendo DS (Wanted)": 162,
             "Wii (Owned)": 63,
             "Wii (Wanted)": 103,
             "Nintendo 3DS (Owned)": 71,
@@ -97,7 +97,7 @@ describe('Database Integrity', () => {
             "PlayStation 2 (Owned)": 78,
             "PlayStation 2 (Wanted)": 148,
             "PlayStation Portable (Owned)": 27,
-            "PlayStation Portable (Wanted)": 74,
+            "PlayStation Portable (Wanted)": 75,
             "PlayStation 3 (Owned)": 103,
             "PlayStation 3 (Wanted)": 183,
             "PlayStation Vita (Owned)": 36,

@@ -40,6 +40,7 @@ const CONFIG = {
 };
 
 const SERIES_REDIRECTS: Record<string, string | null> = {
+    "DK": "Donkey Kong",
     "Final Fantasy Legend": "SaGa",
     "Final Fantasy Legend II": "SaGa",
     "Final Fantasy Legend III": "SaGa",
@@ -136,13 +137,23 @@ async function main() {
         const candidates = Array.from(new Set([...series, ...franchises]));
 
         if (candidates.length > 0) {
-            // A. Substring Filter
+            // A. Substring Filter: Only filter out if the shorter one is a tiny common word OR if the longer one is significantly more frequent
             const filtered = candidates.filter((a, i) => {
                 const normA = normalize(a);
                 return !candidates.some((b, j) => {
                     if (i === j) return false;
                     const normB = normalize(b);
-                    return normA.includes(normB) && normA.length > normB.length;
+                    // If A contains B
+                    if (normA.includes(normB) && normA.length > normB.length) {
+                        // If B is a single letter (and not 'N' or other valid ones we want to keep) or very generic, drop it
+                        const skipShort = new Set(['a', 'v', 'i', 'ii', 'iii']);
+                        if (normB.length === 1 && !['n'].includes(normB)) return true;
+                        if (skipShort.has(normB)) return true;
+                        
+                        // Otherwise, if B is the "root" (like Pac-Man vs Ms. Pac-Man), we usually want B.
+                        // So we DON'T filter out A here, but we might prefer B in scoring.
+                    }
+                    return false;
                 });
             });
 
