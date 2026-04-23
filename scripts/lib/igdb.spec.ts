@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeStr, superNormalize } from './igdb';
+import { normalizeStr, superNormalize } from './igdb.js';
 
 describe('IGDB Normalization Utilities', () => {
     describe('normalizeStr', () => {

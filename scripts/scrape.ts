@@ -9,6 +9,7 @@
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import { findGame, getCollectionGames, NormalizedGame, IGDBGame, calculateConfidence } from './lib/igdb.js';
+import { scrapePriceCharting, scrapePlayStationStore, downloadCoverImage } from './lib/web_scraper.js';
 import { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries, Figure } from './lib/figures.js';
 
 const db = new Database('collection.sqlite');
@@ -25,6 +26,7 @@ interface GameRecord {
     summary?: string;
     series?: string;
     igdb_id?: string;
+    pricecharting_url?: string;
 }
 
 interface SyncSuggestion {
@@ -158,7 +160,23 @@ async function runScraper(): Promise<void> {
                     unmatchedGames.push({ item: game, suggestions: globalMatches });
                     console.log("Candidates found.");
                 }
+
+                // If IGDB confidence is low, try web validation as a better alternative
+                if (globalConfidence < 90) {
+                    const success = await performWebValidation(searchTitle, game);
+                    if (success) {
+                        autoMatchedCount++;
+                        continue;
+                    }
+                }
             } else {
+                // Phase 3: Web Validation Fallback
+                const success = await performWebValidation(searchTitle, game);
+                if (success) {
+                    autoMatchedCount++;
+                    continue;
+                }
+
                 unmatchedGames.push({ item: game, suggestions: null });
                 console.log("No candidates.");
             }
@@ -298,6 +316,54 @@ function generateReport(unmatched: UnmatchedItem[], sync: SyncSuggestion[], game
 
     fs.writeFileSync('discovery_report.md', report);
     console.log('Report generated: discovery_report.md');
+}
+
+/**
+ * Performs web validation using PriceCharting and PlayStation Store.
+ * Returns true if the game was successfully updated.
+ */
+async function performWebValidation(searchTitle: string, game: GameRecord): Promise<boolean> {
+    process.stdout.write(`Attempting web validation... `);
+    const scraped = await scrapePriceCharting(searchTitle, game.platform_display_name);
+    
+    if (scraped) {
+        let imageUrl = scraped.image_url;
+        let summary = null;
+        let releaseDate = null;
+
+        // Download image if found
+        if (imageUrl) {
+            const localPath = await downloadCoverImage(imageUrl, `pc-${game.id}`);
+            if (localPath) imageUrl = localPath;
+        }
+
+        // If it's a PlayStation title, try to get more metadata from PS Store
+        const psPlatforms = ['PlayStation 4', 'PlayStation 5', 'PlayStation VR', 'PlayStation VR2'];
+        if (psPlatforms.includes(game.platform_display_name)) {
+            const psData = await scrapePlayStationStore(searchTitle);
+            if (psData) {
+                summary = psData.description || null;
+                releaseDate = psData.release_date || null;
+            }
+        }
+
+        db.prepare(`
+            UPDATE games 
+            SET title = ?, pricecharting_url = ?, image_url = ?, summary = ?, release_date = ?, played = 0, backed_up = 0
+            WHERE id = ?
+        `).run(
+            scraped.title,
+            scraped.pricecharting_url,
+            imageUrl,
+            summary,
+            releaseDate,
+            game.id
+        );
+
+        console.log(`Web validated via PriceCharting! [${scraped.title}]`);
+        return true;
+    }
+    return false;
 }
 
 runScraper().catch(console.error);

@@ -86,6 +86,9 @@ interface GameGroup {
                           @if (game.igdb_id) {
                             <span class="igdb-icon" title="Verified by IGDB">🆔</span>
                           }
+                          @if (game.pricecharting_url) {
+                            <span class="physical-badge" title="Physical Release Verified">📦</span>
+                          }
                         </div>
                         @if (game.release_date) {
                           <span class="release-year">{{ game.release_date.substring(0, 4) }}</span>
@@ -252,6 +255,7 @@ interface GameGroup {
     }
 
     .igdb-icon { font-size: 0.8rem; }
+    .physical-badge { font-size: 0.8rem; }
   `]
 })
 export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy {

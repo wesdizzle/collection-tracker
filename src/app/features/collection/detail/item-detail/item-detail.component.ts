@@ -38,6 +38,12 @@ import { toSignal } from '@angular/core/rxjs-interop';
                   <span>IGDB Verified</span>
                 </div>
               }
+              @if (g.pricecharting_url) {
+                <a [href]="g.pricecharting_url" target="_blank" class="stat-pill active physical">
+                  <span class="icon">📦</span>
+                  <span>Physical Verified</span>
+                </a>
+              }
             </div>
           }
         </nav>
@@ -184,6 +190,13 @@ import { toSignal } from '@angular/core/rxjs-interop';
       background: var(--m3-secondary-container);
       color: var(--m3-on-secondary-container);
       border-color: transparent;
+    }
+ 
+    .stat-pill.active.physical {
+      background: var(--m3-primary-container);
+      color: var(--m3-on-primary-container);
+      border-color: transparent;
+      text-decoration: none;
     }
  
     .hero-section {

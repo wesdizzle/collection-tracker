@@ -106,16 +106,6 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
           </div>
         </div>
   
-        <div class="filter-group">
-          <label class="m3-label">Linked</label>
-          <div class="input-wrapper">
-            <select [ngModel]="filters().is_linked" (ngModelChange)="onPartialChange('is_linked', $event)" class="m3-input">
-              <option [ngValue]="undefined">All Items</option>
-              <option [ngValue]="true">IGDB Connected</option>
-              <option [ngValue]="false">Manual Entry</option>
-            </select>
-          </div>
-        </div>
       
         <div class="filter-info ml-auto mobile-hidden">
           <span>{{resultCount()}} items</span>

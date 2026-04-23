@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync, ExecSyncOptions } from 'child_process';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -55,11 +55,11 @@ console.log('Successfully generated deploy.sql! Initializing Cloudflare D1 sync.
 
 try {
     console.log('Pushing to Cloudflare D1 (collection-db)...');
-    // Using npx with shell:true to handle Windows/Unix differences correctly
+    // On Windows, we need to ensure the command is executed through the shell correctly
     execSync('npx wrangler d1 execute collection-db --remote --file=deploy.sql', { 
         stdio: 'inherit',
-        shell: process.platform === 'win32' ? 'powershell.exe' : true
-    } as ExecSyncOptions);
+        shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
+    });
     console.log('Successfully synchronized database to Cloudflare!');
 } catch {
     console.error('Failed to sync database to Cloudflare.');

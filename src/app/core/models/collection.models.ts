@@ -28,6 +28,7 @@ export interface Game {
     brand?: string;
     platform_launch_date?: string;
     platform_logo?: string;
+    pricecharting_url?: string;
 }
 
 export interface Figure {
