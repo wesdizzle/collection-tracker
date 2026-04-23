@@ -147,4 +147,24 @@ describe('CollectionListComponent', () => {
     expect(groups[0].games.length).toBe(2); // Only 2 displayed
     expect(groups[0].totalCount).toBe(5); // But total count should be 5
   });
+
+  it('should include sub-platform games when filtering by parent platform', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    
+    const initPromise = component.ngOnInit();
+    
+    // PS4 (id 34), PSVR (id 51, parent 34)
+    httpMock.expectOne('/api/games').flush([
+      { id: 'ps4-game', title: 'PS4 Game', platform_id: 34, owned: 1, platform: 'PS4' },
+      { id: 'psvr-game', title: 'PSVR Game', platform_id: 51, parent_platform_id: 34, owned: 1, platform: 'PSVR' }
+    ]);
+    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    
+    await initPromise;
+
+    // Filter by PS4
+    component.filters.set({ ownership: 'all', platform_id: 34 });
+    expect(component.filteredGames().length).toBe(2);
+  });
 });

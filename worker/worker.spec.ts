@@ -132,4 +132,81 @@ describe('Worker API Logic', () => {
         const data = await res.json() as { error: string };
         expect(data.error).toBe('DB Down');
     });
+
+    it('GET /api/games normalizes child platforms to parent info', async () => {
+        // Mock the Cloudflare D1 interface with fresh data for this specific test
+        const db = new Database(':memory:');
+        db.exec(`
+            CREATE TABLE platforms (id INTEGER PRIMARY KEY, display_name TEXT, brand TEXT, launch_date DATE, parent_platform_id INTEGER, image_url TEXT);
+            CREATE TABLE games (stable_id INTEGER PRIMARY KEY, id TEXT, title TEXT, series TEXT, canonical_series TEXT, release_date DATE, platform_id INTEGER, owned BOOLEAN, sort_index INTEGER);
+            
+            INSERT INTO platforms (id, display_name, brand, launch_date, parent_platform_id, image_url) 
+            VALUES (34, 'PS4', 'Sony', '2013-11-15', NULL, 'ps4.png');
+            INSERT INTO platforms (id, display_name, brand, launch_date, parent_platform_id, image_url) 
+            VALUES (51, 'PSVR', 'Sony', '2016-10-13', 34, 'psvr.png');
+            INSERT INTO games (stable_id, id, title, platform_id, owned) 
+            VALUES (2, 'vr-game', 'VR Game', 51, 1);
+        `);
+
+        const localMockDb = {
+            prepare: (query: string) => ({
+                bind: (...params: (string | number | null)[]) => ({
+                    all: async () => ({ results: db.prepare(query).all(...params) as unknown[] }),
+                    first: async () => db.prepare(query).get(...params) as unknown,
+                }),
+                all: async () => ({ results: db.prepare(query).all() as unknown[] }),
+                first: async () => db.prepare(query).get() as unknown,
+            }),
+        };
+
+        const localEnv = { ...mockEnv, DB: localMockDb as unknown as Env['DB'] };
+
+        const req = new Request('http://localhost/api/games');
+        const res = await worker.fetch(req, localEnv);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = await res.json() as any[];
+        
+        const vrGame = data.find(g => g.id === 'vr-game');
+        expect(vrGame.display_name).toBe('PS4');
+        expect(vrGame.platform_logo).toBe('ps4.png');
+        expect(vrGame.parent_platform_id).toBe(34);
+    });
+
+    it('GET /api/games/:id normalizes metadata for child platforms', async () => {
+        // Reuse the same DB setup logic as above for consistency
+        const db = new Database(':memory:');
+        db.exec(`
+            CREATE TABLE platforms (id INTEGER PRIMARY KEY, display_name TEXT, brand TEXT, launch_date DATE, parent_platform_id INTEGER, image_url TEXT);
+            CREATE TABLE games (stable_id INTEGER PRIMARY KEY, id TEXT, title TEXT, series TEXT, canonical_series TEXT, release_date DATE, platform_id INTEGER, owned BOOLEAN, sort_index INTEGER);
+            
+            INSERT INTO platforms (id, display_name, brand, launch_date, parent_platform_id, image_url) 
+            VALUES (34, 'PS4', 'Sony', '2013-11-15', NULL, 'ps4.png');
+            INSERT INTO platforms (id, display_name, brand, launch_date, parent_platform_id, image_url) 
+            VALUES (51, 'PSVR', 'Sony', '2016-10-13', 34, 'psvr.png');
+            INSERT INTO games (stable_id, id, title, platform_id, owned) 
+            VALUES (2, 'vr-game', 'VR Game', 51, 1);
+        `);
+
+        const localMockDb = {
+            prepare: (query: string) => ({
+                bind: (...params: (string | number | null)[]) => ({
+                    all: async () => ({ results: db.prepare(query).all(...params) as unknown[] }),
+                    first: async () => db.prepare(query).get(...params) as unknown,
+                }),
+                all: async () => ({ results: db.prepare(query).all() as unknown[] }),
+                first: async () => db.prepare(query).get() as unknown,
+            }),
+        };
+
+        const localEnv = { ...mockEnv, DB: localMockDb as unknown as Env['DB'] };
+
+        const req = new Request('http://localhost/api/games/vr-game');
+        const res = await worker.fetch(req, localEnv);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = await res.json() as any;
+        
+        expect(data.display_name).toBe('PS4');
+        expect(data.platform_logo).toBe('ps4.png');
+        expect(data.parent_platform_id).toBe(34);
+    });
 });

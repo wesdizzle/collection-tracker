@@ -146,4 +146,19 @@ describe('Database Integrity', () => {
 
         expect(actual).toEqual(expected);
     });
+
+    it('should correctly map PlayStation VR to PlayStation 4', () => {
+        // Specifically verify that a known PSVR game (id 51) is correctly 
+        // associated with the PS4 display name in the reporting query.
+        const psvrGame = db.prepare(`
+            SELECT COALESCE(pp.display_name, p.display_name) as parent_name
+            FROM games g
+            JOIN platforms p ON g.platform_id = p.id
+            LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+            WHERE p.id = 51
+            LIMIT 1
+        `).get() as { parent_name: string };
+
+        expect(psvrGame.parent_name).toBe('PlayStation 4');
+    });
 });

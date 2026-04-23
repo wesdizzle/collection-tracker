@@ -297,7 +297,9 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       if (f.ownership === 'wanted' && isOwned) return false;
 
       // Platform Filter
-      if (f.platform_id && g.platform_id !== f.platform_id) return false;
+      if (f.platform_id) {
+        if (g.platform_id !== f.platform_id && g.parent_platform_id !== f.platform_id) return false;
+      }
 
       // Region Filter
       if (f.region && g.region !== f.region) return false;

@@ -17,14 +17,23 @@ import { execSync } from 'child_process';
 import { getGameById, PLATFORM_MAP } from './lib/igdb.js';
 import { parseDiscoveryReport } from './lib/discovery.js';
 import type { ApplyPayload } from './lib/discovery.js';
+import { 
+    GAMES_LIST_QUERY, 
+    GAME_DETAIL_QUERY, 
+    PLATFORMS_LIST_QUERY, 
+    FIGURES_LIST_QUERY, 
+    GAMES_ORDER_BY 
+} from './lib/queries.js';
 
 // Source of truth local database
 const db = new Database('collection.sqlite');
 const PORT = 3000;
 
-// Redundant interfaces removed, imported from discovery.ts
-
-const server = http.createServer(async (req, res) => {
+/**
+ * CORE REQUEST HANDLER
+ * Extracted for unit testing with dependency injection (db).
+ */
+export const handleRequest = (db: Database.Database) => async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const url = new URL(req.url || '/', `http://localhost:${PORT}`);
     const pathname = url.pathname;
 
@@ -176,17 +185,7 @@ const server = http.createServer(async (req, res) => {
 
         // GET /api/platforms
         else if (req.method === 'GET' && pathname === '/api/platforms') {
-            const query = `
-                SELECT p.* FROM platforms p 
-                LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-                WHERE EXISTS (
-                    SELECT 1 FROM games g 
-                    WHERE g.platform_id = p.id 
-                    OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
-                )
-                AND p.parent_platform_id IS NULL
-                ORDER BY COALESCE(pp.launch_date, p.launch_date) ASC, COALESCE(p.parent_platform_id, p.id) ASC
-            `;
+            const query = PLATFORMS_LIST_QUERY;
             const platforms = db.prepare(query).all();
             res.end(JSON.stringify(platforms));
         }
@@ -195,29 +194,14 @@ const server = http.createServer(async (req, res) => {
         else if (req.method === 'GET' && pathname === '/api/games') {
             const platformId = url.searchParams.get('platform');
             const params: unknown[] = [];
-            let query = `
-                SELECT g.*, 
-                       COALESCE(pp.display_name, p.display_name) as display_name, 
-                       COALESCE(pp.brand, p.brand) as brand, 
-                       COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
-                       COALESCE(pp.image_url, p.image_url) as platform_logo
-                FROM games g 
-                LEFT JOIN platforms p ON g.platform_id = p.id
-                LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-                WHERE 1=1
-            `;
+            let query = GAMES_LIST_QUERY;
 
             if (platformId) {
                 query += ' AND (g.platform_id = ? OR p.parent_platform_id = ?)';
                 params.push(platformId, platformId);
             }
 
-            query += ` ORDER BY COALESCE(pp.launch_date, p.launch_date) ASC, 
-                       COALESCE(p.parent_platform_id, p.id) ASC, 
-                       g.platform_id ASC, 
-                       CASE WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 5) WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 3) ELSE COALESCE(g.canonical_series, g.title) END COLLATE NOCASE ASC, 
-                       g.release_date IS NULL ASC, g.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
-                       CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC`;
+            query += GAMES_ORDER_BY;
 
             const games = db.prepare(query).all(...params);
             res.end(JSON.stringify(games));
@@ -226,12 +210,7 @@ const server = http.createServer(async (req, res) => {
         // GET /api/games/:id
         else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
             const id = pathname.split('/').pop();
-            const query = `
-                SELECT g.*, p.display_name, p.brand, p.launch_date as platform_launch_date, p.image_url as platform_logo
-                FROM games g 
-                LEFT JOIN platforms p ON g.platform_id = p.id 
-                WHERE g.id = ?
-            `;
+            const query = GAME_DETAIL_QUERY;
             const game = db.prepare(query).get(id);
             if (!game) {
                 res.statusCode = 404;
@@ -243,36 +222,30 @@ const server = http.createServer(async (req, res) => {
 
         // GET /api/figures
         else if (req.method === 'GET' && pathname === '/api/figures') {
-            const query = `
-                SELECT f.*, fs.line as series_line, fs.name as series_name, fs.sort_index as series_index
-                FROM figures f
-                LEFT JOIN figure_series fs ON f.series_id = fs.id
-                ORDER BY 
-                         CASE WHEN fs.line COLLATE NOCASE LIKE 'the %' THEN SUBSTR(fs.line, 5) WHEN fs.line COLLATE NOCASE LIKE 'a %' THEN SUBSTR(fs.line, 3) ELSE fs.line END COLLATE NOCASE ASC, 
-                         fs.sort_index IS NULL ASC, fs.sort_index ASC, 
-                         CASE WHEN fs.name COLLATE NOCASE LIKE 'the %' THEN SUBSTR(fs.name, 5) WHEN fs.name COLLATE NOCASE LIKE 'a %' THEN SUBSTR(fs.name, 3) ELSE fs.name END COLLATE NOCASE ASC, 
-                         f.release_date IS NULL ASC, f.release_date ASC, 
-                         f.sort_index IS NULL ASC, f.sort_index ASC, 
-                         CASE WHEN f.name COLLATE NOCASE LIKE 'the %' THEN SUBSTR(f.name, 5) WHEN f.name COLLATE NOCASE LIKE 'a %' THEN SUBSTR(f.name, 3) ELSE f.name END COLLATE NOCASE ASC
-            `;
+            const query = FIGURES_LIST_QUERY;
             const figures = db.prepare(query).all();
             res.end(JSON.stringify(figures));
         }
 
-        // 404 Fallback
+        // Default fallback
         else {
             res.statusCode = 404;
-            res.end(JSON.stringify({ error: 'Route not found locally' }));
+            res.end(JSON.stringify({ error: 'Not found' }));
         }
 
-    } catch (e: unknown) {
-        console.error('Server Logic Error:', e);
+    } catch (err) {
+        console.error('Server Error:', err);
         res.statusCode = 500;
-        const message = e instanceof Error ? e.message : 'Unknown error';
-        res.end(JSON.stringify({ error: message }));
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
     }
-});
+};
 
-server.listen(PORT, () => {
-    console.log(`Standalone Local API Server running at http://localhost:${PORT}`);
-});
+const server = http.createServer(handleRequest(db));
+
+// Only start the server if this file is run directly
+import { fileURLToPath } from 'url';
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    server.listen(PORT, () => {
+        console.log(`Standalone Local API Server running at http://localhost:${PORT}`);
+    });
+}
