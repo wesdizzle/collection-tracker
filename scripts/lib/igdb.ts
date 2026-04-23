@@ -130,6 +130,7 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
     'Mother 3': 'JP',
     'Taiko no Tatsujin DS': 'JP',
     'Meccha! Taiko no Tatsujin DS - 7-tsu no Shima no Daibouken': 'JP',
+    'Meccha! Taiko no Tatsujin DS: 7-tsu no Shima no Daibouken': 'JP',
     'Metcha! Taiko no Tatsujin DS: 7-tsu no Shima no Daibouken': 'JP',
     'Star Wars: Masters of Teräs Käsi': 'NA',
     'Super Mario All-Stars 25th Anniversary Edition': 'NA',
@@ -148,6 +149,7 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
     'igdb-245049': 'SEA',  // Mario Kart 8 Deluxe + BCP
     'igdb-188613': 'SEA',  // Chrono Cross: The Radical Dreamers Edition
     'igdb-538': 'EU',      // Sonic the Hedgehog (Master System / GG)
+    'igdb-72548': 'JP',    // Meccha! Taiko no Tatsujin DS
 };
 
 /**
@@ -239,6 +241,16 @@ export async function findGame(title: string, platformId: number): Promise<Norma
     // SPECIAL CASE: Triple Pack: Trials HD, Limbo, Splosion Man (Xbox 360)
     if (cleanTitle.toLowerCase().includes('triple pack') && cleanTitle.toLowerCase().includes('trials hd') && platformId === 12) {
         return getGameById(141767, 12).then(g => g ? [g] : null);
+    }
+
+    // SPECIAL CASE: Doom (SNES) - ID 259982 has the correct cover art
+    if (cleanTitle.toLowerCase() === 'doom' && platformId === 19) {
+        return getGameById(259982, 19).then(g => g ? [g] : null);
+    }
+
+    // SPECIAL CASE: Sonic the Hedgehog 3 (Genesis) - ID 6797 is the canonical game
+    if (cleanTitle.toLowerCase() === 'sonic the hedgehog 3' && platformId === 29) {
+        return getGameById(6797, 29).then(g => g ? [g] : null);
     }
 
     const searchQuery = `
