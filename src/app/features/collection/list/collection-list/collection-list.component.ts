@@ -269,7 +269,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   private restorationPending = true;
   private stateInitialized = false;
   public currentTab = signal<'games' | 'figures'>('games');
-  public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '' });
+  public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '', seriesExact: false });
   public displayLimit = signal<number>(100);
 
   public platformGroups = computed<PlatformGroup[]>(() => {
@@ -315,7 +315,11 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       if (f.series) {
         const normalizedFilter = this.normalizeString(f.series);
         const normalizedSeries = this.normalizeString(g.canonical_series || '');
-        if (!normalizedSeries.includes(normalizedFilter)) return false;
+        if (f.seriesExact) {
+          if (normalizedSeries !== normalizedFilter) return false;
+        } else {
+          if (!normalizedSeries.includes(normalizedFilter)) return false;
+        }
       }
 
       return true;
@@ -383,7 +387,11 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       if (f.series) {
         const normalizedFilter = this.normalizeString(f.series);
         const normalizedSeries = this.normalizeString(fig.series_name || '');
-        if (!normalizedSeries.includes(normalizedFilter)) return false;
+        if (f.seriesExact) {
+          if (normalizedSeries !== normalizedFilter) return false;
+        } else {
+          if (!normalizedSeries.includes(normalizedFilter)) return false;
+        }
       }
 
       return true;

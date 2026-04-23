@@ -167,4 +167,34 @@ describe('CollectionListComponent', () => {
     component.filters.set({ ownership: 'all', platform_id: 34 });
     expect(component.filteredGames().length).toBe(2);
   });
+
+  it('should support exact normalized matching for series', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    
+    const initPromise = component.ngOnInit();
+    
+    httpMock.expectOne('/api/games').flush([
+      { id: '1', title: 'N+', canonical_series: 'N', owned: 1, platform: 'PSP' },
+      { id: '2', title: 'N++', canonical_series: 'N', owned: 1, platform: 'Switch' },
+      { id: '3', title: 'Batman Arkham Knight', canonical_series: 'Batman', owned: 1, platform: 'PS4' }
+    ]);
+    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    
+    await initPromise;
+
+    // Without exact match, searching "n" should find everything with "n"
+    component.filters.set({ ownership: 'all', series: 'n', seriesExact: false });
+    // "N" has "n", "Batman" has "n"
+    expect(component.filteredGames().length).toBe(3);
+
+    // With exact match, searching "n" should only find games in series "N"
+    component.filters.set({ ownership: 'all', series: 'n', seriesExact: true });
+    expect(component.filteredGames().length).toBe(2);
+    expect(component.filteredGames().every(g => g.canonical_series === 'N')).toBe(true);
+
+    // Should still be case and accent insensitive
+    component.filters.set({ ownership: 'all', series: 'N', seriesExact: true });
+    expect(component.filteredGames().length).toBe(2);
+  });
 });

@@ -88,6 +88,7 @@ export interface FilterState {
   line?: string;
   type?: string;
   series?: string;
+  seriesExact?: boolean;
 }
 
 export interface PlatformGroup {

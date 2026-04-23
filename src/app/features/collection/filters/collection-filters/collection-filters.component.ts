@@ -81,7 +81,13 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
         }
       
         <div class="filter-group">
-          <label class="m3-label">Series</label>
+          <div class="flex justify-between items-center pr-xs">
+            <label class="m3-label">Series</label>
+            <label class="m3-checkbox-label" title="Exact Normalized Match">
+              <input type="checkbox" [ngModel]="filters().seriesExact" (ngModelChange)="onPartialChange('seriesExact', $event)" class="m3-checkbox">
+              <span>Exact</span>
+            </label>
+          </div>
           <div class="input-wrapper">
             <input list="series-list" [ngModel]="filters().series" (ngModelChange)="onPartialChange('series', $event)" class="m3-input list-input" placeholder="All Series">
             <datalist id="series-list">
@@ -116,7 +122,11 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
   styles: [`
     .mb-lg { margin-bottom: var(--spacing-32); }
     .p-md { padding: var(--spacing-16) var(--spacing-24); }
+    .pr-xs { padding-right: var(--spacing-4); }
     .ml-auto { margin-left: auto; }
+    .flex { display: flex; }
+    .items-center { align-items: center; }
+    .justify-between { justify-content: space-between; }
     
     .filter-wrapper {
       margin-top: calc(-1 * var(--spacing-8));
@@ -204,6 +214,26 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
     .m3-input option, .m3-input optgroup {
       background: var(--m3-surface-container-highest);
       color: var(--m3-on-surface);
+    }
+
+    .m3-checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-4);
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--m3-on-surface-variant);
+      cursor: pointer;
+      user-select: none;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .m3-checkbox {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--m3-primary);
+      cursor: pointer;
     }
     
     .filter-info {

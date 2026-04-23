@@ -425,12 +425,12 @@ export class ItemDetailComponent {
     if (currentState) {
       this.collectionService.updateListState({
         ...currentState,
-        filters: { ...currentState.filters, series }
+        filters: { ...currentState.filters, series, seriesExact: true }
       });
     } else {
       this.collectionService.updateListState({
         tab,
-        filters: { ownership: 'owned', series, line: '', type: '' },
+        filters: { ownership: 'owned', series, seriesExact: true, line: '', type: '' },
         displayLimit: 100,
         scrollX: 0,
         scrollY: 0
