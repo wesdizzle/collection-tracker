@@ -151,7 +151,7 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
     'igdb-3683': 'JP',     // Mother 3
     'igdb-245049': 'SEA',  // Mario Kart 8 Deluxe + BCP
     'igdb-188613': 'SEA',  // Chrono Cross: The Radical Dreamers Edition
-    'igdb-538': 'EU',      // Sonic the Hedgehog (Master System / GG)
+    'igdb-106274': 'EU',   // Sonic the Hedgehog (Master System / GG)
     'igdb-72548': 'JP',    // Meccha! Taiko no Tatsujin DS
 };
 
