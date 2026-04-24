@@ -10,6 +10,7 @@ import {
   GAME_DETAIL_QUERY, 
   PLATFORMS_LIST_QUERY, 
   FIGURES_LIST_QUERY, 
+  FIGURE_DETAIL_QUERY,
   GAMES_ORDER_BY 
 } from '../scripts/lib/queries';
 
@@ -60,6 +61,15 @@ export default {
         const query = FIGURES_LIST_QUERY;
         const { results } = await env.DB.prepare(query).all();
         return Response.json(results);
+      }
+
+      // Endpoint: GET /api/figures/:id
+      else if (path.startsWith('/api/figures/')) {
+        const id = path.split('/').pop();
+        const query = FIGURE_DETAIL_QUERY;
+        const figure = await env.DB.prepare(query).bind(id).first();
+        if (!figure) return Response.json({ error: 'Not found' }, { status: 404 });
+        return Response.json(figure);
       }
 
       // Endpoint: GET /api/platforms

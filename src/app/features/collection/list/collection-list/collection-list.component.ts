@@ -3,7 +3,7 @@ import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDest
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller } from '@angular/common';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Platform, FilterState, PlatformGroup, ListState } from '../../../../core/models/collection.models';
+import { Game, Platform, FilterState, PlatformGroup, FigureGroup, ListState } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 
 interface GameGroup {
@@ -108,22 +108,69 @@ interface GameGroup {
       }
     
       @if (currentTab() === 'figures') {
-        <div class="grid animate-fade-in animate-stagger-2">
-          @for (figure of displayFigures(); track figure.id) {
-            <a [routerLink]="['/collection', 'figure', figure.id]" 
-               class="m3-card m3-card-elevated state-layer p-md flex flex-col gap-xs">
-              <div class="badge-container flex justify-between items-center gap-2xs">
-                @if (figure.owned) {
-                  <span class="m3-chip active">Owned</span>
-                } @else {
-                  <span class="m3-chip">Wanted</span>
+        <div class="groups-container animate-fade-in animate-stagger-2">
+          @for (group of groupedFigures(); track group.lineName) {
+            <div class="platform-section mb-xl">
+              <header class="platform-header">
+                <div class="header-content">
+                  <div class="platform-logo-frame">
+                    <div class="platform-logo-placeholder">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                      </svg>
+                    </div>
+                  </div>
+                  <h2 class="platform-title uppercase letter-spacing-wide">
+                    {{ group.lineName }}
+                  </h2>
+                  <div class="platform-badge">{{ group.totalCount }} Items</div>
+                </div>
+              </header>
+
+              <div class="grid">
+                @for (figure of group.figures; track figure.id) {
+                  <a [routerLink]="['/collection', 'figure', figure.id]" 
+                     class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
+                    <div class="card-art-frame figure-frame">
+                      @if (figure.image_url) {
+                        <img 
+                          [src]="figure.image_url" 
+                          alt="Figure" 
+                          class="card-art figure-art"
+                          loading="lazy"
+                          decoding="async">
+                      } @else {
+                        <div class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide">
+                          No Image
+                        </div>
+                      }
+                      <div class="region-flag" [title]="'Region: ' + figure.region">
+                        {{ figure.region }}
+                      </div>
+                    </div>
+
+                    <div class="card-content">
+                      <div class="content-header">
+                        <div class="flex gap-2xs items-center">
+                          @if (figure.verified) {
+                            <span class="igdb-icon" title="Verified Metadata">✨</span>
+                          }
+                          <span class="release-year">{{ figure.type }}</span>
+                        </div>
+                        @if (figure.release_date) {
+                          <span class="release-year">{{ figure.release_date.substring(0, 4) }}</span>
+                        }
+                      </div>
+                      <div class="text-2xs text-secondary font-medium uppercase letter-spacing-wide">{{figure.line}}</div>
+                      <h3 class="card-title mt-2xs">{{figure.name}}</h3>
+                      @if (figure.figure_series || figure.series_name) {
+                        <div class="card-subtitle" title="Series">{{figure.figure_series || figure.series_name}}</div>
+                      }
+                    </div>
+                  </a>
                 }
-                <span class="m3-chip type">{{figure.type}}</span>
               </div>
-              <div class="text-2xs text-secondary font-medium">{{figure.line}}</div>
-              <h3 class="mt-xs text-base truncate">{{figure.name}}</h3>
-              <p class="text-xs text-secondary truncate">{{figure.series_name}}</p>
-            </a>
+            </div>
           }
         </div>
       }
@@ -209,6 +256,16 @@ interface GameGroup {
       position: absolute; top: 0.5rem; right: 0.5rem; padding: 0.2rem 0.4rem;
       background: rgba(0,0,0,0.8); border-radius: 4px; font-size: 0.6rem; font-weight: 700;
       color: #fff; z-index: 2;
+    }
+
+    .figure-frame {
+      background: radial-gradient(circle at center, var(--m3-surface-container-highest), var(--m3-surface-container-high));
+      padding: 1rem;
+    }
+
+    .figure-art {
+      object-fit: contain !important;
+      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
     }
 
     .card-content {
@@ -399,9 +456,46 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   });
 
   public displayFigures = computed(() => this.filteredFigures().slice(0, this.displayLimit()));
+
+  public groupedFigures = computed(() => {
+    const displayed = this.displayFigures();
+    const allFiltered = this.filteredFigures();
+    
+    // 1. Get counts for all filtered figures per line
+    const counts = new Map<string, number>();
+    for (const f of allFiltered) {
+      const line = f.line || 'Unknown';
+      counts.set(line, (counts.get(line) || 0) + 1);
+    }
+
+    // 2. Build groups from DISPLAYED figures
+    const groups: FigureGroup[] = [];
+    const groupMap = new Map<string, FigureGroup>();
+    
+    for (const figure of displayed) {
+      const line = figure.line || 'Unknown';
+      let group = groupMap.get(line);
+      if (!group) {
+        group = { 
+          lineName: line, 
+          figures: [],
+          totalCount: counts.get(line) || 0
+        };
+        groups.push(group);
+        groupMap.set(line, group);
+      }
+      group.figures.push(figure);
+    }
+    return groups;
+  });
+
   public uniqueLines = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.line))).filter(Boolean).sort());
   public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.type))).filter(Boolean).sort());
-  public uniqueSeries = computed(() => Array.from(new Set(this.collectionService.games().map(g => g.canonical_series))).filter(Boolean).sort());
+  public uniqueSeries = computed(() => {
+    const gameSeries = this.collectionService.games().map(g => g.canonical_series);
+    const figureSeries = this.collectionService.figures().map(f => f.figure_series || f.series_name);
+    return Array.from(new Set([...gameSeries, ...figureSeries])).filter(Boolean).sort();
+  });
 
   constructor() {
     // Automatically save state whenever it changes

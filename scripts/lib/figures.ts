@@ -8,6 +8,11 @@ export interface Figure {
     type: string;
     image_url: string | null;
     release_date?: string | null;
+    verified?: boolean | number;
+    amiibo_id?: string;
+    metadata_json?: string;
+    scl_url?: string;
+    game_series?: string;
 }
 
 /**

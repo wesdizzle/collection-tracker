@@ -45,6 +45,19 @@ import { toSignal } from '@angular/core/rxjs-interop';
                 </a>
               }
             </div>
+          } @else if (figure(); as f) {
+            <div class="quick-stats flex gap-sm items-center">
+              <div class="stat-pill" [class.active]="f.owned">
+                <span class="icon">{{ f.owned ? '✅' : '🎯' }}</span>
+                <span>{{ f.owned ? 'Owned' : 'Wanted' }}</span>
+              </div>
+              @if (f.verified) {
+                <div class="stat-pill active physical">
+                  <span class="icon">✨</span>
+                  <span>Verified</span>
+                </div>
+              }
+            </div>
           }
         </nav>
 
@@ -53,7 +66,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
             <div class="art-container">
               <div class="art-frame">
                 @if (i.image_url) {
-                  <img [src]="i.image_url" alt="Cover Art" class="glitch-load">
+                  <img [src]="i.image_url" alt="Cover Art" [class.glitch-load]="type() !== 'figure'" [class.figure-detail-art]="type() === 'figure'">
                 } @else {
                   <div class="placeholder">No Image</div>
                 }
@@ -85,7 +98,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 
               <div class="metadata-grid mt-xl">
                 <div class="meta-box">
-                  <span class="label">Platform</span>
+                  <span class="label">{{ type() === 'figure' ? 'Line' : 'Platform' }}</span>
                   <div class="value flex items-center gap-sm">
                    @if (game()?.platform_logo) {
                       <img [src]="game()?.platform_logo" class="mini-logo" alt="">
@@ -107,16 +120,37 @@ import { toSignal } from '@angular/core/rxjs-interop';
                   }
                 }
                 @if (game(); as g) {
-                   <div class="meta-box">
-                    <span class="label">Family</span>
-                    <span class="value">{{ g.brand || 'Original' }}</span>
+                }
+                @if (figure(); as f) {
+                  <div class="meta-box">
+                    <span class="label">Category</span>
+                    <span class="value">{{ f.type }}</span>
                   </div>
-                  <div class="meta-box full-width">
-                    <span class="label">Canonical Series</span>
-                    <span class="value">
-                      <a class="meta-link" (click)="filterBySeries(g.canonical_series)">{{ g.canonical_series }}</a>
-                    </span>
-                  </div>
+                  @if (f.figure_series || f.series_name) {
+                    <div class="meta-box">
+                      <span class="label">Figure Series</span>
+                      <span class="value">{{ f.figure_series || f.series_name }}</span>
+                    </div>
+                  }
+                  @if (f.game_series) {
+                    <div class="meta-box">
+                      <span class="label">Game Series</span>
+                      <span class="value">{{ f.game_series }}</span>
+                    </div>
+                  }
+                  @if (f.amiibo_id || f.scl_url) {
+                    <div class="meta-box full-width">
+                      <span class="label">Verified Source</span>
+                      <span class="value">
+                        @if (f.amiibo_id) {
+                          <a [href]="'https://amiiboapi.org/api/amiibo/?id=' + f.amiibo_id" target="_blank" class="meta-link">AmiiboAPI</a>
+                        }
+                        @if (f.scl_url) {
+                          <a [href]="f.scl_url" target="_blank" class="meta-link">SCL Character Page</a>
+                        }
+                      </span>
+                    </div>
+                  }
                 }
               </div>
             </div>
@@ -222,11 +256,20 @@ import { toSignal } from '@angular/core/rxjs-interop';
       aspect-ratio: 3/4;
       border-radius: var(--radius-lg);
       overflow: hidden;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      border: 1px solid var(--m3-outline-variant);
-      position: relative;
       max-width: 320px;
       margin: 0 auto;
+      background: radial-gradient(circle at center, var(--m3-surface-container-highest), var(--m3-surface-container-low));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .figure-detail-art {
+       width: 100%;
+       height: 100%;
+       object-fit: contain !important;
+       filter: drop-shadow(0 12px 24px rgba(0,0,0,0.3));
     }
  
     @media (min-width: 1024px) {

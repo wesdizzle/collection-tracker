@@ -68,7 +68,7 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
       
         @if (currentTab() === 'figures') {
           <div class="filter-group">
-            <label class="m3-label">Type</label>
+            <label class="m3-label" title="Form factor (e.g. Figure, Card, Yarn)">Category</label>
             <div class="input-wrapper">
               <select [ngModel]="filters().type" (ngModelChange)="onPartialChange('type', $event)" class="m3-input">
                 <option value="">All Types</option>

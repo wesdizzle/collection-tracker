@@ -44,7 +44,7 @@ import { RouterModule } from '@angular/router';
               <div class="card-header">
                 <div>
                   <h2 class="text-lg font-bold">{{ item.title }}</h2>
-                  <span class="platform-badge">{{ item.platform }}</span>
+                  <span class="platform-badge" [class.figure-badge]="item.platform === 'amiibo'">{{ item.platform }}</span>
                 </div>
                 <div class="count-badge">{{ item.options.length }} Candidates</div>
               </div>
@@ -177,6 +177,13 @@ import { RouterModule } from '@angular/router';
       color: var(--text-secondary);
       margin-top: 0.35rem;
       display: inline-block;
+    }
+
+    .figure-badge {
+      background: rgba(var(--m3-primary-rgb), 0.2);
+      color: var(--m3-primary);
+      font-weight: 700;
+      text-transform: uppercase;
     }
 
     .count-badge {

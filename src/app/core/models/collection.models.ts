@@ -39,10 +39,23 @@ export interface Figure {
     type: string;
     series_name: string;
     series_line: string;
+    figure_series?: string;
+    game_series?: string;
     release_date: string;
     owned: boolean | number;
     image_url: string;
     platform_id?: number;
+    amiibo_id?: string;
+    scl_url?: string;
+    region?: string;
+    verified?: boolean | number;
+    metadata_json?: string;
+}
+
+export interface FigureGroup {
+    lineName: string;
+    figures: Figure[];
+    totalCount: number;
 }
 
 export interface Platform {

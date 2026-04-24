@@ -29,11 +29,20 @@ interface GameRecord {
     pricecharting_url?: string;
 }
 
+interface FigureSuggestion {
+    id: string;
+    name: string;
+    platform: string;
+    image_url: string | null;
+    summary: string;
+    category: string;
+}
+
 interface SyncSuggestion {
     type: 'Game' | 'Figure';
     current: string;
-    options: NormalizedGame[];
-    localId: number;
+    options: (NormalizedGame | FigureSuggestion)[];
+    localId: number | string;
 }
 
 interface UnmatchedItem {
@@ -178,6 +187,37 @@ async function runScraper(): Promise<void> {
                 }
 
                 unmatchedGames.push({ item: game, suggestions: null });
+                console.log("No candidates.");
+            }
+        }
+    }
+
+    // 2. Verify Figures
+    const existingFigures = db.prepare('SELECT * FROM figures').all() as Figure[];
+    console.log(`Processing ${existingFigures.length} figures...`);
+
+    for (const figure of existingFigures) {
+        if (figure.verified) continue;
+
+        if (figure.line.toLowerCase() === 'amiibo') {
+            process.stdout.write(`Verifying Figure: ${figure.name}... `);
+            const matches = await getAmiiboSeries(figure.name);
+            if (matches.length > 0) {
+                syncSuggestions.push({
+                    type: 'Figure',
+                    current: `${figure.name} (amiibo)`,
+                    options: matches.map(m => ({
+                        id: `amiibo-${m.id}`,
+                        name: m.name,
+                        platform: 'amiibo',
+                        image_url: m.image_url,
+                        summary: `Series: ${m.series_name} | Type: ${m.type}`,
+                        category: m.type
+                    })),
+                    localId: figure.id as unknown as number
+                });
+                console.log(`${matches.length} candidates.`);
+            } else {
                 console.log("No candidates.");
             }
         }

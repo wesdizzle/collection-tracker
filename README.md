@@ -4,7 +4,8 @@ A collection tracking application built with **Angular 21**.
 
 ## 🚀 Key Features
 
-- **Durable Metadata**: Deep integration with IGDB for verified game status, genres, and regional data.
+- **Figure Collection & Grounding**: Full support for Amiibo, Skylanders, and Starlink with verified metadata, regional tracking, and automated discovery.
+- **Durable Metadata**: Deep integration with IGDB for games and AmiiboAPI/SCL for figures.
 - **Regional Art Overlays**: Intelligent UI that overlays regional markers (e.g., NA, EU, JP) directly onto game art for a clean, consistent look.
 - **Signals-First Architecture**: Leveraging Angular 21 Signals for high-performance state management and reactive delivery.
 
@@ -46,9 +47,10 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 2.  **Install dependencies**: `npm install`
 3.  **Run Local API Proxy**: `npx tsx scripts/local_server.ts`
 4.  **Metadata Scraping**:
-    - **Reconcile**: `npx tsx scripts/scrape.ts` (Processes unmatched items in your collection)
-    - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Finds missing games in your series)
-    - **Sync**: `npx tsx scripts/sync_local_d1.ts` (Propagates changes to the dev server)
+    - **Reconcile**: `npx tsx scripts/scrape.ts` (Processes unmatched games and figures)
+    - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Finds missing games/figures in your series)
+    - **Figure Sync**: `npx tsx scripts/sync_figures.ts` (Updates figure metadata from external sources)
+    - **Sync**: `npx tsx scripts/sync_local_d1.ts` (Propagates all local changes to the dev server)
 5.  **Launch Frontend**: `npx ng serve`
 6.  **View locally**: `http://localhost:4200/`
 

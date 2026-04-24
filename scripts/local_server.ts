@@ -12,6 +12,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import axios from 'axios';
 import Database from 'better-sqlite3';
 import { execSync } from 'child_process';
 import { getGameById, PLATFORM_MAP } from './lib/igdb.js';
@@ -22,6 +23,7 @@ import {
     GAME_DETAIL_QUERY, 
     PLATFORMS_LIST_QUERY, 
     FIGURES_LIST_QUERY, 
+    FIGURE_DETAIL_QUERY,
     GAMES_ORDER_BY 
 } from './lib/queries.js';
 
@@ -78,104 +80,121 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
             });
 
             const { currentTitle, currentPlatform, selectedIgdbId, selectedName, selectedPlatform, region }: ApplyPayload = JSON.parse(body);
+            const isFigure = selectedIgdbId.toString().startsWith('amiibo-');
 
-            // 1. Fetch Full Metadata from IGDB
-            let summary: string | null = null;
-            let imageUrl: string | null = null;
-            let genres: string | null = null;
-            let finalName = selectedName;
-            const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
-
-            try {
-                const igdbPlatformId = PLATFORM_MAP[selectedPlatform || currentPlatform];
-                const igdbData = await getGameById(Number(finalIgdbId), igdbPlatformId);
-
-                if (igdbData) {
-                    summary = igdbData.summary || null;
-                    imageUrl = igdbData.image_url || null;
-                    genres = igdbData.genres || null;
-                    finalName = igdbData.name; // Use canonical name from IGDB
-                }
-            } catch (igdbErr) {
-                console.error('Failed to fetch rich metadata from IGDB:', igdbErr);
-                // Fallback to what we have in the payload
-            }
-
-            // 2. Update the Local SQLite Source-of-Truth
-            const game = db.prepare(`
-                SELECT g.id FROM games g
-                JOIN platforms p ON g.platform_id = p.id
-                WHERE (g.title = ? OR g.title = ?) AND p.display_name = ?
-            `).get(currentTitle, finalName, currentPlatform) as { id: number } | undefined;
-
-            if (game) {
-                // Handle Platform Update if needed
-                let finalPlatformId = null;
-                if (selectedPlatform && selectedPlatform !== currentPlatform) {
-                    const platform = db.prepare('SELECT id FROM platforms WHERE display_name = ?').get(selectedPlatform) as { id: number } | undefined;
-                    if (platform) {
-                        finalPlatformId = platform.id;
-                    }
-                }
-
-                // Calculate new ID (slug) if name or platform changed
-                // This follows the convention: normalize(name) + "-" + normalize(platform)
-                const slugify = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-                const newId = `${slugify(finalName)}-${slugify(selectedPlatform || currentPlatform)}`;
-
-                db.prepare(`
-                    UPDATE games 
-                    SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
-                    WHERE id = ?
-                `).run(newId, finalName, finalPlatformId, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
-
-                console.log(`Matched: ${currentTitle} (${currentPlatform}) -> ${finalName} (${selectedPlatform || currentPlatform}) [ID: ${finalIgdbId}]`);
-
-                // 2. Sync to Local D1 Instance (important for frontend preview)
+            if (isFigure) {
+                const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
+                // 1. Fetch full metadata from AmiiboAPI
                 try {
-                    const syncCmd = process.platform === 'win32' ? 'npm.cmd run sync-db' : 'npm run sync-db';
-                    execSync(syncCmd, { stdio: 'inherit' });
-                    console.log('Successfully synced to Local D1.');
-                } catch (syncErr) {
-                    console.error('D1 Sync Error:', syncErr);
+                   const response = await axios.get(`https://amiiboapi.org/api/amiibo/?id=${amiiboId}`);
+                   const a = response.data.amiibo;
+                   
+                   db.prepare(`
+                       UPDATE figures 
+                       SET amiibo_id = ?, name = ?, type = ?, image_url = ?, game_series = ?, region = ?, verified = 1, metadata_json = ?
+                       WHERE name = ? AND line = 'amiibo'
+                   `).run(amiiboId, a.name, a.type, a.image, a.gameSeries, region || 'NA', JSON.stringify(a), currentTitle);
+                   
+                   console.log(`Matched Figure: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
+                } catch (err) {
+                   console.error('Failed to fetch amiibo metadata:', err);
+                   res.statusCode = 500;
+                   res.end(JSON.stringify({ error: 'Failed to fetch amiibo metadata' }));
+                   return;
                 }
-
-                // 3. Force Checkpoint (merges WAL into main sqlite file so user sees timestamp update)
-                try {
-                    db.pragma('wal_checkpoint(FULL)');
-                    console.log('Database checkpoint completed.');
-                } catch (checkpointErr) {
-                    console.error('Checkpoint Error:', checkpointErr);
-                }
-
-                // 3. Update Discovery Report (Remove matched item)
-                try {
-                    const reportPath = path.join(process.cwd(), 'discovery_report.md');
-                    if (fs.existsSync(reportPath)) {
-                        const content = fs.readFileSync(reportPath, 'utf8');
-                        const sections = content.split('\n### ');
-
-                        // Keep the first section (header) and filter out the matched one
-                        const header = sections[0];
-                        const remainingSections = sections.slice(1).filter(section => {
-                            const headerLine = section.split('\n')[0];
-                            const targetHeader = `${currentTitle} (${currentPlatform})`;
-                            return headerLine.trim() !== targetHeader.trim();
-                        });
-
-                        const newContent = [header, ...remainingSections].join('\n### ');
-                        fs.writeFileSync(reportPath, newContent, 'utf8');
-                        console.log('Updated discovery_report.md');
-                    }
-                } catch (reportErr) {
-                    console.error('Report Update Error:', reportErr);
-                }
-
-                res.end(JSON.stringify({ success: true }));
             } else {
-                res.statusCode = 404;
-                res.end(JSON.stringify({ error: `Local game not found: "${currentTitle}" on "${currentPlatform}"` }));
+                // 1. Fetch Full Metadata from IGDB
+                let summary: string | null = null;
+                let imageUrl: string | null = null;
+                let genres: string | null = null;
+                let finalName = selectedName;
+                const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
+
+                try {
+                    const igdbPlatformId = PLATFORM_MAP[selectedPlatform || currentPlatform];
+                    const igdbData = await getGameById(Number(finalIgdbId), igdbPlatformId);
+
+                    if (igdbData) {
+                        summary = igdbData.summary || null;
+                        imageUrl = igdbData.image_url || null;
+                        genres = igdbData.genres || null;
+                        finalName = igdbData.name; // Use canonical name from IGDB
+                    }
+                } catch (igdbErr) {
+                    console.error('Failed to fetch rich metadata from IGDB:', igdbErr);
+                    // Fallback to what we have in the payload
+                }
+
+                // 2. Update the Local SQLite Source-of-Truth
+                const game = db.prepare(`
+                    SELECT g.id FROM games g
+                    JOIN platforms p ON g.platform_id = p.id
+                    WHERE (g.title = ? OR g.title = ?) AND p.display_name = ?
+                `).get(currentTitle, finalName, currentPlatform) as { id: number } | undefined;
+
+                if (game) {
+                    // Handle Platform Update if needed
+                    let finalPlatformId = null;
+                    if (selectedPlatform && selectedPlatform !== currentPlatform) {
+                        const platform = db.prepare('SELECT id FROM platforms WHERE display_name = ?').get(selectedPlatform) as { id: number } | undefined;
+                        if (platform) {
+                            finalPlatformId = platform.id;
+                        }
+                    }
+
+                    // Calculate new ID (slug) if name or platform changed
+                    const slugify = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+                    const newId = `${slugify(finalName)}-${slugify(selectedPlatform || currentPlatform)}`;
+
+                    db.prepare(`
+                        UPDATE games 
+                        SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
+                        WHERE id = ?
+                    `).run(newId, finalName, finalPlatformId, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
+
+                    console.log(`Matched Game: ${currentTitle} (${currentPlatform}) -> ${finalName} (${selectedPlatform || currentPlatform}) [ID: ${finalIgdbId}]`);
+                }
             }
+
+            // Sync to Local D1 Instance
+            try {
+                const syncCmd = process.platform === 'win32' ? 'npm.cmd run sync-db' : 'npm run sync-db';
+                execSync(syncCmd, { stdio: 'inherit' });
+            } catch (syncErr) {
+                console.error('D1 Sync Error:', syncErr);
+            }
+
+            // Force Checkpoint
+            try {
+                db.pragma('wal_checkpoint(FULL)');
+            } catch (checkpointErr) {
+                console.error('Checkpoint Error:', checkpointErr);
+            }
+
+            // 3. Update Discovery Report (Remove matched item)
+            try {
+                const reportPath = path.join(process.cwd(), 'discovery_report.md');
+                if (fs.existsSync(reportPath)) {
+                    const content = fs.readFileSync(reportPath, 'utf8');
+                    const sections = content.split('\n### ');
+
+                    // Keep the first section (header) and filter out the matched one
+                    const header = sections[0];
+                    const remainingSections = sections.slice(1).filter(section => {
+                        const headerLine = section.split('\n')[0];
+                        const targetHeader = isFigure ? `${currentTitle} (amiibo)` : `${currentTitle} (${currentPlatform})`;
+                        return headerLine.trim() !== targetHeader.trim();
+                    });
+
+                    const newContent = [header, ...remainingSections].join('\n### ');
+                    fs.writeFileSync(reportPath, newContent, 'utf8');
+                    console.log('Updated discovery_report.md');
+                }
+            } catch (reportErr) {
+                console.error('Report Update Error:', reportErr);
+            }
+
+            res.end(JSON.stringify({ success: true }));
         }
 
         /**
@@ -225,6 +244,19 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
             const query = FIGURES_LIST_QUERY;
             const figures = db.prepare(query).all();
             res.end(JSON.stringify(figures));
+        }
+
+        // GET /api/figures/:id
+        else if (req.method === 'GET' && pathname.startsWith('/api/figures/')) {
+            const id = pathname.split('/').pop();
+            const query = FIGURE_DETAIL_QUERY;
+            const figure = db.prepare(query).get(id);
+            if (!figure) {
+                res.statusCode = 404;
+                res.end(JSON.stringify({ error: 'Not found' }));
+            } else {
+                res.end(JSON.stringify(figure));
+            }
         }
 
         // Default fallback

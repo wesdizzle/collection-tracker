@@ -57,6 +57,13 @@ export const FIGURES_LIST_QUERY = `
              CASE WHEN f.name COLLATE NOCASE LIKE 'the %' THEN SUBSTR(f.name, 5) WHEN f.name COLLATE NOCASE LIKE 'a %' THEN SUBSTR(f.name, 3) ELSE f.name END COLLATE NOCASE ASC
 `;
 
+export const FIGURE_DETAIL_QUERY = `
+    SELECT f.*, fs.line as series_line, fs.name as series_name, fs.sort_index as series_index
+    FROM figures f
+    LEFT JOIN figure_series fs ON f.series_id = fs.id
+    WHERE f.id = ?
+`;
+
 /**
  * Common Sorters and Filters can also be added here if they share SQL syntax.
  */
