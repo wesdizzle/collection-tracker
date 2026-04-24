@@ -1,3 +1,11 @@
+/**
+ * COLLECTION LIST COMPONENT
+ * 
+ * Displays the main grid for both Games and Figures collection.
+ * Features infinite scrolling, platform/line grouping, and advanced filtering.
+ * Implements navigation state persistence for seamless back-and-forth movement.
+ */
+
 import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, signal, computed, effect, HostListener } from '@angular/core';
 
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
@@ -383,6 +391,12 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     });
   });
 
+  /**
+   * Normalizes a string by removing diacritics and converting to lowercase.
+   * 
+   * @param str The string to normalize.
+   * @returns The normalized string.
+   */
   private normalizeString(str: string): string {
     return str
       .normalize('NFD')
@@ -497,6 +511,9 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     return Array.from(new Set([...gameSeries, ...figureSeries])).filter(Boolean).sort();
   });
 
+  /**
+   * Initializes the component and sets up the state persistence effect.
+   */
   constructor() {
     // Automatically save state whenever it changes
     effect(() => {
@@ -514,6 +531,9 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
 
   }
 
+  /**
+   * Updates the persisted scroll position whenever the window is scrolled.
+   */
   @HostListener('window:scroll')
   onScroll() {
     const currentState = this.collectionService.getListState(this.currentTab());
@@ -526,6 +546,10 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     }
   }
 
+  /**
+   * Attempts to restore the previously saved scroll position after navigation.
+   * Uses a retry mechanism to account for lazy-loading and rendering delays.
+   */
   private restoreScroll() {
     const savedState = this.collectionService.getListState(this.currentTab());
     if (!savedState || savedState.scrollY === undefined) {
@@ -557,6 +581,9 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     setTimeout(tryScroll, 200);
   }
 
+  /**
+   * Component initialization: restores tab state and refreshes data.
+   */
   async ngOnInit() {
     this.stateInitialized = false;
     this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'figures' || 'games');
@@ -572,17 +599,36 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     this.restoreScroll();
   }
 
+  /**
+   * Lifecycle hook: sets up the intersection observer for infinite scrolling.
+   */
   ngAfterViewInit() { this.setupIntersectionObserver(); }
+
+  /**
+   * Lifecycle hook: cleans up the intersection observer and persists final state.
+   */
   ngOnDestroy() { 
     if (this.observer) this.observer.disconnect(); 
     this.collectionService.persistState(this.currentTab());
   }
 
+  /**
+   * Sets up the IntersectionObserver for the scroll trigger element.
+   */
   setupIntersectionObserver() {
     this.observer = new IntersectionObserver((entries) => { if (entries[0].isIntersecting) this.loadMore(); }, { root: null, rootMargin: '200px', threshold: 0.1 });
     if (this.scrollTrigger?.nativeElement) this.observer.observe(this.scrollTrigger.nativeElement);
   }
 
+  /**
+   * Increments the display limit to load more items (Infinite Scroll).
+   */
   loadMore() { this.displayLimit.update(limit => limit + 100); }
+
+  /**
+   * Updates the current filter state and resets the display limit.
+   * 
+   * @param newFilters The updated filter state from the child component.
+   */
   onFiltersChange(newFilters: FilterState) { this.filters.set({ ...newFilters }); this.displayLimit.set(100); }
 }

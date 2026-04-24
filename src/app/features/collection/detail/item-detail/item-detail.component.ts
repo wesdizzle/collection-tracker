@@ -1,3 +1,11 @@
+/**
+ * ITEM DETAIL COMPONENT
+ * 
+ * Provides a comprehensive view of a single collection item (Game, Figure, or Platform).
+ * Handles metadata display, image rendering, and series filtering.
+ * Uses Angular 21 Signals and modern standalone component patterns.
+ */
+
 import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule, Router } from '@angular/router';
@@ -123,7 +131,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
                 }
                 @if (figure(); as f) {
                   <div class="meta-box">
-                    <span class="label">Category</span>
+                    <span class="label">Type</span>
                     <span class="value">{{ f.type }}</span>
                   </div>
                   @if (f.figure_series || f.series_name) {
@@ -462,6 +470,11 @@ export class ItemDetailComponent {
     return g.platform_launch_date;
   });
 
+  /**
+   * Applies an exact series filter and navigates back to the collection list.
+   * 
+   * @param series The normalized series name to filter by.
+   */
   filterBySeries(series: string) {
     const tab = this.type() === 'figure' ? 'figures' : 'games';
     const currentState = this.collectionService.getListState(tab);

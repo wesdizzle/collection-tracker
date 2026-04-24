@@ -1,3 +1,11 @@
+/**
+ * COLLECTION FILTERS COMPONENT
+ * 
+ * Manages the filtering UI for both Games and Figures.
+ * Supports ownership status, platform, line, type, and series filtering.
+ * Features a mobile-responsive collapsible design.
+ */
+
 import { Component, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { FilterState, PlatformGroup } from '../../../../core/models/collection.models';
@@ -68,7 +76,7 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
       
         @if (currentTab() === 'figures') {
           <div class="filter-group">
-            <label class="m3-label" title="Form factor (e.g. Figure, Card, Yarn)">Category</label>
+            <label class="m3-label" title="Form factor (e.g. Figure, Card, Yarn)">Type</label>
             <div class="input-wrapper">
               <select [ngModel]="filters().type" (ngModelChange)="onPartialChange('type', $event)" class="m3-input">
                 <option value="">All Types</option>
@@ -297,6 +305,13 @@ export class CollectionFiltersComponent {
   // Outputs
   public filtersChange = output<FilterState>();
 
+  /**
+   * Emits a change event when a filter value is updated.
+   * Handles string-to-boolean conversion for specialized inputs like 'seriesExact'.
+   * 
+   * @param key The FilterState property to update.
+   * @param value The new value for the property.
+   */
   onPartialChange(key: keyof FilterState, value: unknown) {
     let processedValue: unknown = value;
     if (value === 'true') processedValue = true;
