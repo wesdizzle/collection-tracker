@@ -342,8 +342,19 @@ export class DiscoveryListComponent implements OnInit {
       // Remove item from local list signal for immediate UX
       this.items.update(current => current.filter(i => i !== item));
     } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : 'Unknown error';
-      alert('Error matching: ' + errorMessage);
+      console.error('[DiscoveryList] Match failed:', e);
+      let errorMsg = 'Unknown error';
+      if (e instanceof Error) {
+        errorMsg = e.message;
+      }
+      
+      const httpError = e as { error?: { error?: string, details?: string }, message?: string };
+      if (httpError?.error?.error) {
+        errorMsg = `${httpError.error.error}${httpError.error.details ? `\n\nDetails: ${httpError.error.details}` : ''}`;
+      } else if (httpError?.message) {
+        errorMsg = httpError.message;
+      }
+      alert('Error matching item:\n' + errorMsg);
     }
   }
 }

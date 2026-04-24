@@ -86,7 +86,7 @@ describe('DiscoveryListComponent', () => {
     
     await component.applyMatch(mockItems[0], mockItems[0].options[0]);
 
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Error matching: API Error'));
+    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Error matching item:\nAPI Error'));
     expect(component.items().length).toBe(1); // Item should remain on error
   });
 });

@@ -72,88 +72,95 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
          * ROUTE: POST /api/discovery/apply
          */
         else if (req.method === 'POST' && pathname === '/api/discovery/apply') {
-            const body = await new Promise<string>((resolve, reject) => {
-                let data = '';
-                req.on('data', chunk => data += chunk);
-                req.on('end', () => resolve(data));
-                req.on('error', err => reject(err));
-            });
+            let currentTitle = '';
+            let currentPlatform = '';
+            let isToy = false;
 
-            const { currentTitle, currentPlatform, selectedIgdbId, selectedName, selectedPlatform, region }: ApplyPayload = JSON.parse(body);
-            const isToy = selectedIgdbId.toString().startsWith('amiibo-');
+            try {
+                const body = await new Promise<string>((resolve, reject) => {
+                    let data = '';
+                    req.on('data', chunk => data += chunk);
+                    req.on('end', () => resolve(data));
+                    req.on('error', err => reject(err));
+                });
 
-            if (isToy) {
-                const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
-                // 1. Fetch full metadata from AmiiboAPI
-                try {
-                   const response = await axios.get(`https://amiiboapi.org/api/amiibo/?id=${amiiboId}`);
-                   const a = response.data.amiibo;
-                   
-                   db.prepare(`
-                       UPDATE toys 
-                       SET amiibo_id = ?, name = ?, type = ?, image_url = ?, game_series = ?, region = ?, verified = 1, metadata_json = ?
-                       WHERE name = ? AND line = 'amiibo'
-                   `).run(amiiboId, a.name, a.type, a.image, a.gameSeries, region || 'NA', JSON.stringify(a), currentTitle);
-                   
-                   console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
-                } catch (err) {
-                   console.error('Failed to fetch amiibo metadata:', err);
-                   res.statusCode = 500;
-                   res.end(JSON.stringify({ error: 'Failed to fetch amiibo metadata' }));
-                   return;
-                }
-            } else {
-                // 1. Fetch Full Metadata from IGDB
-                let summary: string | null = null;
-                let imageUrl: string | null = null;
-                let genres: string | null = null;
-                let finalName = selectedName;
-                const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
+                const payload: ApplyPayload = JSON.parse(body);
+                currentTitle = payload.currentTitle;
+                currentPlatform = payload.currentPlatform;
+                const { selectedIgdbId, selectedName, selectedPlatform, region } = payload;
+                isToy = selectedIgdbId.toString().startsWith('amiibo-');
 
-                try {
-                    const igdbPlatformId = PLATFORM_MAP[selectedPlatform || currentPlatform];
-                    const igdbData = await getGameById(Number(finalIgdbId), igdbPlatformId);
-
-                    if (igdbData) {
-                        summary = igdbData.summary || null;
-                        imageUrl = igdbData.image_url || null;
-                        genres = igdbData.genres || null;
-                        finalName = igdbData.name; // Use canonical name from IGDB
-                    }
-                } catch (igdbErr) {
-                    console.error('Failed to fetch rich metadata from IGDB:', igdbErr);
-                    // Fallback to what we have in the payload
-                }
-
-                // 2. Update the Local SQLite Source-of-Truth
-                const game = db.prepare(`
-                    SELECT g.id FROM games g
-                    JOIN platforms p ON g.platform_id = p.id
-                    WHERE (g.title = ? OR g.title = ?) AND p.display_name = ?
-                `).get(currentTitle, finalName, currentPlatform) as { id: number } | undefined;
-
-                if (game) {
-                    // Handle Platform Update if needed
-                    let finalPlatformId = null;
-                    if (selectedPlatform && selectedPlatform !== currentPlatform) {
-                        const platform = db.prepare('SELECT id FROM platforms WHERE display_name = ?').get(selectedPlatform) as { id: number } | undefined;
-                        if (platform) {
-                            finalPlatformId = platform.id;
-                        }
-                    }
-
-                    // Calculate new ID (slug) if name or platform changed
-                    const slugify = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-                    const newId = `${slugify(finalName)}-${slugify(selectedPlatform || currentPlatform)}`;
-
+                if (isToy) {
+                    const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
+                    const response = await axios.get(`https://amiiboapi.org/api/amiibo/?id=${amiiboId}`);
+                    const a = response.data.amiibo;
+                    
                     db.prepare(`
-                        UPDATE games 
-                        SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
-                        WHERE id = ?
-                    `).run(newId, finalName, finalPlatformId, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
+                        UPDATE toys 
+                        SET amiibo_id = ?, name = ?, type = ?, image_url = ?, game_series = ?, region = ?, verified = 1, metadata_json = ?
+                        WHERE name = ? AND line = 'amiibo'
+                    `).run(amiiboId, a.name, a.type, a.image, a.gameSeries, region || 'NA', JSON.stringify(a), currentTitle);
+                    
+                    console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
+                } else {
+                    // 1. Fetch Full Metadata from IGDB
+                    let summary: string | null = null;
+                    let imageUrl: string | null = null;
+                    let genres: string | null = null;
+                    let finalName = selectedName;
+                    const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
 
-                    console.log(`Matched Game: ${currentTitle} (${currentPlatform}) -> ${finalName} (${selectedPlatform || currentPlatform}) [ID: ${finalIgdbId}]`);
+                    try {
+                        const igdbPlatformId = PLATFORM_MAP[selectedPlatform || currentPlatform];
+                        const igdbData = await getGameById(Number(finalIgdbId), igdbPlatformId);
+
+                        if (igdbData) {
+                            summary = igdbData.summary || null;
+                            imageUrl = igdbData.image_url || null;
+                            genres = igdbData.genres || null;
+                            finalName = igdbData.name; // Use canonical name from IGDB
+                        }
+                    } catch (igdbErr) {
+                        console.error('Failed to fetch rich metadata from IGDB:', igdbErr);
+                    }
+
+                    // 2. Update the Local SQLite Source-of-Truth
+                    const game = db.prepare(`
+                        SELECT g.id FROM games g
+                        JOIN platforms p ON g.platform_id = p.id
+                        WHERE (g.title = ? OR g.title = ?) AND p.display_name = ?
+                    `).get(currentTitle, finalName, currentPlatform) as { id: number } | undefined;
+
+                    if (game) {
+                        let finalPlatformId = null;
+                        if (selectedPlatform && selectedPlatform !== currentPlatform) {
+                            const platform = db.prepare('SELECT id FROM platforms WHERE display_name = ?').get(selectedPlatform) as { id: number } | undefined;
+                            if (platform) {
+                                finalPlatformId = platform.id;
+                            }
+                        }
+
+                        const slugify = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+                        const newId = `${slugify(finalName)}-${slugify(selectedPlatform || currentPlatform)}`;
+
+                        db.prepare(`
+                            UPDATE games 
+                            SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
+                            WHERE id = ?
+                        `).run(newId, finalName, finalPlatformId, finalIgdbId, region || 'NA', summary, imageUrl, genres, game.id);
+
+                        console.log(`Matched Game: ${currentTitle} (${currentPlatform}) -> ${finalName} (${selectedPlatform || currentPlatform}) [ID: ${finalIgdbId}]`);
+                    }
                 }
+            } catch (err: unknown) {
+                console.error('Discovery Apply failed:', err);
+                const error = err instanceof Error ? err : new Error('Unknown error');
+                res.statusCode = 500;
+                res.end(JSON.stringify({ 
+                    error: error.message || 'Internal server error during discovery apply',
+                    details: error.stack 
+                }));
+                return;
             }
 
             // Sync to Local D1 Instance

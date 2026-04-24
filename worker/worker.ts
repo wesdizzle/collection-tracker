@@ -93,6 +93,52 @@ export default {
         return Response.json(results);
       }
 
+      // Endpoint: POST /api/discovery/apply
+      else if (request.method === 'POST' && path === '/api/discovery/apply') {
+        const payload = await request.json() as { currentTitle: string, currentPlatform: string, selectedIgdbId: string | number, selectedName: string, selectedPlatform?: string, region?: string, summary?: string, imageUrl?: string };
+        const { currentTitle, currentPlatform, selectedIgdbId, selectedName, selectedPlatform, region, summary, imageUrl } = payload;
+        const isToy = selectedIgdbId.toString().startsWith('amiibo-');
+
+        if (isToy) {
+          const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
+          // Note: In production worker, we use the metadata passed in the payload
+          // because we don't necessarily have AmiiboAPI/IGDB auth secrets configured at the edge.
+          await env.DB.prepare(`
+            UPDATE toys 
+            SET amiibo_id = ?, name = ?, region = ?, verified = 1, metadata_json = ?, image_url = COALESCE(?, image_url)
+            WHERE name = ? AND line = 'amiibo'
+          `).bind(amiiboId, selectedName, region || 'NA', JSON.stringify(payload), imageUrl || null, currentTitle).run();
+        } else {
+          const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
+          
+          // Find the game
+          const game = await env.DB.prepare(`
+            SELECT g.stable_id FROM games g
+            JOIN platforms p ON g.platform_id = p.id
+            WHERE (g.title = ? OR g.title = ?) AND p.display_name = ?
+          `).bind(currentTitle, selectedName, currentPlatform).first() as { stable_id: number } | null;
+
+          if (game) {
+            let finalPlatformId = null;
+            if (selectedPlatform && selectedPlatform !== currentPlatform) {
+              const platform = await env.DB.prepare('SELECT id FROM platforms WHERE display_name = ?').bind(selectedPlatform).first() as { id: number } | null;
+              if (platform) finalPlatformId = platform.id;
+            }
+
+            const slugify = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+            const newId = `${slugify(selectedName)}-${slugify(selectedPlatform || currentPlatform)}`;
+
+            await env.DB.prepare(`
+              UPDATE games 
+              SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ?, verified = 1
+              WHERE stable_id = ?
+            `).bind(newId, selectedName, finalPlatformId, finalIgdbId, region || 'NA', summary || null, imageUrl || null, null, game.stable_id).run();
+          }
+        }
+
+        return Response.json({ success: true });
+      }
+
       /**
        * FALLBACK: Serve from Static Assets
        * This leverages the [assets] binding defined in wrangler.toml (Workers Assets v3)

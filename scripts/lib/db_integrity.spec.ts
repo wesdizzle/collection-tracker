@@ -171,25 +171,34 @@ describe('Database Integrity', () => {
             expect(totalToys.count).toBe(787);
         });
 
-        it('should have the correct number of toys per line', () => {
-            // Group toys by their product line (e.g., amiibo) and verify 
-            // the counts match our expected manual import totals.
+        it('should have the correct total number of toys owned', () => {
+            const ownedToys = db.prepare('SELECT COUNT(*) as count FROM toys WHERE owned = 1').get() as { count: number };
+            expect(ownedToys.count).toBe(626);
+        });
+
+        it('should have the correct total number of toys wanted', () => {
+            const wantedToys = db.prepare('SELECT COUNT(*) as count FROM toys WHERE owned = 0').get() as { count: number };
+            expect(wantedToys.count).toBe(161);
+        });
+
+        it('should have the correct number of owned and wanted toys per line', () => {
             const lineCounts = db.prepare(`
-                SELECT line, COUNT(*) as count 
+                SELECT line, owned, COUNT(*) as count 
                 FROM toys 
-                GROUP BY line 
-                ORDER BY line ASC
-            `).all() as { line: string, count: number }[];
+                GROUP BY line, owned 
+                ORDER BY line ASC, owned DESC
+            `).all() as { line: string, owned: number, count: number }[];
 
             const expected = {
-                'Skylanders': 512,
-                'Starlink': 35,
-                'amiibo': 240
+                'Skylanders (Owned)': 351,
+                'Skylanders (Wanted)': 161,
+                'Starlink (Owned)': 35,
+                'amiibo (Owned)': 240
             };
 
-            // Reduce to a flat line -> count lookup for comparison.
             const actual = lineCounts.reduce((acc, row) => {
-                acc[row.line] = row.count;
+                const status = row.owned === 1 ? 'Owned' : 'Wanted';
+                acc[`${row.line} (${status})`] = row.count;
                 return acc;
             }, {} as Record<string, number>);
 
