@@ -1,8 +1,22 @@
 /**
- * PRODUCTION CLOUDFLARE WORKER (TS)
+ * PRODUCTION CLOUDFLARE WORKER
  * 
- * This worker serves the Collection Tracker API and handles the routing
- * for the web application's static assets and dynamic metadata.
+ * This worker acts as the edge API and static asset server for the collection 
+ * tracker. It provides a thin, highly performant layer over Cloudflare D1.
+ * 
+ * ARCHITECTURAL DESIGN:
+ * 1. **Centralized Query Sharing**: Imports SQL constants from `../scripts/lib/queries` 
+ *    to ensure that the local development server (better-sqlite3) and the 
+ *    production edge (D1) share identical logic, preventing query drift.
+ * 2. **Workers Assets Integration**: Implements a 'fallback-to-assets' pattern 
+ *    using the `env.ASSETS` binding. This allows for a single deployment 
+ *    target where the API and the Angular SPA coexist seamlessly.
+ * 3. **Stateless Edge Computing**: Uses the D1 binding directly, avoiding the 
+ *    need for a traditional backend server and ensuring global latency 
+ *    optimization for metadata retrieval.
+ * 4. **Regional-Awareness**: The `GAMES_ORDER_BY` logic (shared from queries) 
+ *    is applied at the edge to ensure consistent cross-regional sorting for 
+ *    international collectors.
  */
 
 import { 

@@ -1,9 +1,18 @@
 /**
  * COLLECTION FILTERS COMPONENT
  * 
- * Manages the filtering UI for both Games and Figures.
- * Supports ownership status, platform, line, type, and series filtering.
- * Features a mobile-responsive collapsible design.
+ * Provides the user interface for filtering the collection by status, 
+ * platform, line, type, and series.
+ * 
+ * DESIGN RATIONALE:
+ * - **Collapsible Design**: Implements a 'showFilters' signal to toggle 
+ *   visibility on mobile, keeping the interface clean for browsing.
+ * - **Signal Inputs**: Uses modern Angular 21 signal inputs (`input()`) for 
+ *   optimal change detection and developer ergonomics.
+ * - **Normalized Data**: Receives pre-calculated unique lines, types, and 
+ *   series to populate dropdowns, ensuring filter consistency.
+ * - **One-Way Data Flow**: Emits a `filtersChange` output rather than mutating 
+ *   inputs, following the "Data Down, Actions Up" architecture.
  */
 
 import { Component, input, output, signal } from '@angular/core';
@@ -223,7 +232,7 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
       background: var(--m3-surface-container-highest);
       color: var(--m3-on-surface);
     }
-
+ 
     .m3-checkbox-label {
       display: flex;
       align-items: center;
@@ -236,7 +245,7 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-
+ 
     .m3-checkbox {
       width: 14px;
       height: 14px;
@@ -283,17 +292,11 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
     }
   `]
 })
-/**
- * COLLECTION FILTERS COMPONENT
- * 
- * Provides the UI for filtering the collection by status, platform, line, or series.
- * Updated to use Angular 21 Signals for efficient property binding.
- */
 export class CollectionFiltersComponent {
-  // State for mobile collapse
+  /** --- Internal UI State --- */
   public showFilters = signal(false);
-
-  // Inputs as Signals
+ 
+  /** --- Reactive Inputs --- */
   public currentTab = input.required<'games' | 'figures'>();
   public platformGroups = input<PlatformGroup[]>([]);
   public uniqueLines = input<string[]>([]);
@@ -301,13 +304,14 @@ export class CollectionFiltersComponent {
   public uniqueSeries = input<string[]>([]);
   public resultCount = input<number>(0);
   public filters = input.required<FilterState>();
-
-  // Outputs
+ 
+  /** --- Event Emitters --- */
   public filtersChange = output<FilterState>();
-
+ 
   /**
    * Emits a change event when a filter value is updated.
-   * Handles string-to-boolean conversion for specialized inputs like 'seriesExact'.
+   * Handles string-to-boolean conversion for specialized inputs like 'seriesExact' 
+   * to maintain strict typing in the model layer.
    * 
    * @param key The FilterState property to update.
    * @param value The new value for the property.
@@ -316,7 +320,7 @@ export class CollectionFiltersComponent {
     let processedValue: unknown = value;
     if (value === 'true') processedValue = true;
     if (value === 'false') processedValue = false;
-
+ 
     this.filtersChange.emit({
       ...this.filters(),
       [key]: processedValue as FilterState[keyof FilterState]

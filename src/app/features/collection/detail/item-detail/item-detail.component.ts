@@ -1,9 +1,19 @@
 /**
  * ITEM DETAIL COMPONENT
  * 
- * Provides a comprehensive view of a single collection item (Game, Figure, or Platform).
- * Handles metadata display, image rendering, and series filtering.
- * Uses Angular 21 Signals and modern standalone component patterns.
+ * An immersive, high-contrast detail view for individual games, figures, and platforms.
+ * It synthesizes multiple metadata sources into a single, cohesive narrative.
+ * 
+ * DESIGN RATIONALE:
+ * - **Immersive UI**: Uses large typography, tonal surfaces, and high-quality 
+ *   imagery to create a premium feel.
+ * - **Signal Interop**: Leverages `toSignal` to bridge between the RxJS-based 
+ *   ActivatedRoute and the component's reactive computed signals.
+ * - **Dynamic Metadata**: Adapts the layout and metadata boxes based on the 
+ *   item 'type', ensuring relevance (e.g. showing 'Line' for figures vs 'Platform' for games).
+ * - **Context-Aware Navigation**: The 'filterBySeries' method doesn't just 
+ *   navigate; it intelligently updates the collection state to apply an exact 
+ *   match filter, streamlining franchise exploration.
  */
 
 import { Component, inject, computed } from '@angular/core';
@@ -272,7 +282,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
       justify-content: center;
       padding: 2rem;
     }
-
+ 
     .figure-detail-art {
        width: 100%;
        height: 100%;
@@ -323,7 +333,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
       color: var(--m3-on-surface-variant);
       margin-bottom: var(--spacing-8);
     }
-
+ 
     .item-release-banner {
       font-size: 1.125rem;
       font-weight: 500;
@@ -415,8 +425,13 @@ export class ItemDetailComponent {
   private router = inject(Router);
   private collectionService = inject(CollectionService);
   
+  /** The current item type ('game', 'figure', or 'platform') derived from the route */
   public type = toSignal(this.route.paramMap.pipe(switchMap(p => [p.get('type') || ''])), { initialValue: '' });
   
+  /** 
+   * Reactive signal containing the full metadata for the current item.
+   * Dynamically fetches data from the CollectionService based on the route parameters.
+   */
   public item = toSignal(
     this.route.paramMap.pipe(
       switchMap(params => {
@@ -434,10 +449,15 @@ export class ItemDetailComponent {
     )
   );
 
+  /** --- Type-Safe Accessors for Computed Metadata --- */
   public game = computed(() => this.type() === 'game' ? this.item() as Game : null);
   public figure = computed(() => this.type() === 'figure' ? this.item() as Figure : null);
   public platform = computed(() => this.type() === 'platform' ? this.item() as Platform : null);
 
+  /**
+   * Computes a human-readable, long-form release date.
+   * Handles string splitting to avoid browser-specific UTC offset bugs with Date objects.
+   */
   public formattedDate = computed(() => {
     const releaseDate = this.game()?.release_date || this.figure()?.release_date;
     if (!releaseDate) return null;
@@ -464,6 +484,9 @@ export class ItemDetailComponent {
     }
   });
 
+  /**
+   * Retrieves the launch date of the parent platform for game items.
+   */
   public platformLaunchDate = computed(() => {
     const g = this.game();
     if (!g?.platform_launch_date) return 'Unknown';
@@ -472,6 +495,7 @@ export class ItemDetailComponent {
 
   /**
    * Applies an exact series filter and navigates back to the collection list.
+   * This is used for franchise exploration links in the UI.
    * 
    * @param series The normalized series name to filter by.
    */

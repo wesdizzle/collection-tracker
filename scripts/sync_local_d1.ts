@@ -1,9 +1,21 @@
 /**
- * DATABASE SYNCHRONIZATION SCRIPT (TS)
+ * LOCAL D1 SYNCHRONIZATION BRIDGE
  * 
- * This script ensures that the local Wrangler D1 environment has the same 
- * data as your source-of-truth 'collection.sqlite'. It finds the hidden 
- * SQLite files that Wrangler/Miniflare uses and overwrites them with your data.
+ * This script provides a critical link between the source-of-truth 
+ * 'collection.sqlite' and the internal SQLite instance managed by Cloudflare Wrangler.
+ * 
+ * ARCHITECTURAL DESIGN:
+ * 1. **Bypassing Miniflare Isolation**: Cloudflare Workers (via Wrangler) store 
+ *    their local D1 state in obfuscated paths within `.wrangler/state`. This 
+ *    script automatically identifies these paths to allow for direct file-level sync.
+ * 2. **Initialization Trick**: If the state directory doesn't exist, it triggers 
+ *     a dummy `wrangler d1 execute` to force Miniflare to generate the 
+ *    internal directory structure before copying.
+ * 3. **Safety Backups**: Before overwriting the D1 instance, it creates a 
+ *    timestamped backup in `/backups`, ensuring no work is lost if the sync 
+ *    interrupts an active local session.
+ * 4. **Journal Mode Check**: Verifies the SQLite journal mode to ensure 
+ *    compatibility between the host OS and the Miniflare environment.
  */
 
 import * as fs from 'fs';

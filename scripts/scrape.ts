@@ -1,9 +1,23 @@
 /**
- * GAME COLLECTION RECONCILIATION & DISCOVERY (TS)
+ * GAME COLLECTION RECONCILIATION & DISCOVERY ENGINE
  * 
- * This script serves as the primary engine for verifying your local collection 
- * against IGDB and discovering missing items in series you own.
- * It produces a 'discovery_report.md' for manual review.
+ * This script is the backbone of the collection's metadata integrity. It performs 
+ * a multi-tier search to reconcile local entries with IGDB and web sources.
+ * 
+ * ARCHITECTURAL DESIGN:
+ * 1. **Multi-Tier Search Strategy**:
+ *    - **Phase 1: Platform-Locked IGDB Search**: Attempts to find an exact match 
+ *      on the specific platform. High-confidence (100%) matches are auto-applied.
+ *    - **Phase 2: Global IGDB Search**: If Phase 1 fails, searches across all 
+ *      platforms. Useful for identifying items accidentally logged on the wrong platform.
+ *    - **Phase 3: Web Scraping Fallback**: If IGDB is missing data (common for 
+ *      niche or regional variants), it falls back to PriceCharting and PS Store.
+ * 2. **Discovery Mechanism**:
+ *    - When run with `--discovery`, it analyzes the series/franchises owned by 
+ *      the user and identifies missing canonical entries to populate the 'Wanted' list.
+ * 3. **Human-in-the-Loop**:
+ *    - Items with ambiguous matches (confidence < 100) are offloaded to a 
+ *      `discovery_report.md` for manual user triage in the Discovery UI.
  */
 
 import Database from 'better-sqlite3';

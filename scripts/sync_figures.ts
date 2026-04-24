@@ -1,3 +1,22 @@
+/**
+ * FIGURE SYNCHRONIZATION PIPELINE
+ * 
+ * This script automates the retrieval of metadata for physical figures (amiibo, 
+ * Skylanders). It bridges the gap between local database entries and specialized 
+ * figure APIs/fan-maintained lists.
+ * 
+ * ARCHITECTURAL DESIGN:
+ * 1. **AmiiboAPI Integration**: Uses the comprehensive amiiboapi.org to 
+ *    fetch high-resolution images, release dates (prioritized by region), 
+ *    and canonical IDs.
+ * 2. **SCL Scraping (Skylanders)**: Since no official API exists for 
+ *    Skylanders, this script scrapes the 'Skylanders Character List' (SCL) 
+ *    to retrieve verified character URLs for documentation.
+ * 3. **Normalization Heuristics**: Employs `superNormalize` to handle name 
+ *    variations (e.g. "Series 2", "Chase Variants") that often differ 
+ *    between local logs and online databases.
+ */
+
 import Database from 'better-sqlite3';
 import axios from 'axios';
 import * as cheerio from 'cheerio';

@@ -295,10 +295,20 @@ import { RouterModule } from '@angular/router';
   `]
 })
 /**
- * DISCOVERY LIST COMPONENT (SIGNALS-FIRST)
+ * DISCOVERY LIST COMPONENT
  * 
- * Renders the results of the latest scrape and allows the user to reconcile 
- * discovered titles with established IGDB metadata.
+ * Provides a specialized interface for reconciling local game/figure data with 
+ * remote metadata sources (IGDB). It acts as a staging area for newly scraped items.
+ * 
+ * DESIGN RATIONALE:
+ * - **Reconciliation Workflow**: Allows the user to choose between multiple 
+ *   potential matches discovered by the scraper, ensuring database integrity.
+ * - **Glassmorphism Aesthetic**: Uses semi-transparent surfaces and blur effects 
+ *   to differentiate the 'maintenance' UI from the core collection browsing.
+ * - **Immediate Feedback**: Updates local signal state immediately after a 
+ *   successful match to provide a responsive, 'triage' style experience.
+ * - **Payload Abstraction**: Encapsulates the complex mapping between local 
+ *   keys and remote metadata into a clean `DiscoveryPayload`.
  */
 export class DiscoveryListComponent implements OnInit {
   public collectionService = inject(CollectionService);

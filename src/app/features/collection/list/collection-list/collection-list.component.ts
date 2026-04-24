@@ -1,9 +1,21 @@
 /**
  * COLLECTION LIST COMPONENT
  * 
- * Displays the main grid for both Games and Figures collection.
- * Features infinite scrolling, platform/line grouping, and advanced filtering.
- * Implements navigation state persistence for seamless back-and-forth movement.
+ * The primary view for browsing the user's game and figure collection.
+ * It provides a high-performance, infinite-scrolling grid with sophisticated 
+ * grouping and filtering capabilities.
+ * 
+ * DESIGN RATIONALE:
+ * - **State Persistence**: Uses an effect and HostListener to synchronize the UI 
+ *   state (filters, scroll position) with the CollectionService. This enables a 
+ *   "browser-like" navigation experience where the user never loses their place.
+ * - **Infinite Scrolling**: Implements an IntersectionObserver pattern to lazily 
+ *   increase the 'displayLimit' signal, ensuring the DOM remains lean and the 
+ *   initial paint is fast even for thousands of items.
+ * - **Normalization**: Series filtering uses a diacritic-insensitive normalization 
+ *   heuristic to handle international titles and variations (e.g. Pokémon vs Pokemon).
+ * - **Retry-based Scroll Restoration**: Accounts for the asynchronous nature of 
+ *   Angular rendering by attempting to restore scroll position over several frames.
  */
 
 import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, signal, computed, effect, HostListener } from '@angular/core';
@@ -134,7 +146,7 @@ interface GameGroup {
                   <div class="platform-badge">{{ group.totalCount }} Items</div>
                 </div>
               </header>
-
+ 
               <div class="grid">
                 @for (figure of group.figures; track figure.id) {
                   <a [routerLink]="['/collection', 'figure', figure.id]" 
@@ -156,7 +168,7 @@ interface GameGroup {
                         {{ figure.region }}
                       </div>
                     </div>
-
+ 
                     <div class="card-content">
                       <div class="content-header">
                         <div class="flex gap-2xs items-center">
@@ -192,7 +204,7 @@ interface GameGroup {
     .p-md { padding: 1rem; }
     .gap-xs { gap: 0.5rem; }
     .gap-2xs { gap: 0.25rem; }
-
+ 
     .platform-header {
       position: sticky;
       top: 0;
@@ -201,7 +213,7 @@ interface GameGroup {
       padding: 1rem 0;
       margin-bottom: 1.5rem;
     }
-
+ 
     .header-content {
       display: flex;
       align-items: center;
@@ -211,7 +223,7 @@ interface GameGroup {
       border-radius: var(--radius-xl);
       border: 1px solid var(--m3-outline-variant);
     }
-
+ 
     .platform-logo-frame {
       width: 32px;
       height: 32px;
@@ -222,7 +234,7 @@ interface GameGroup {
       border-radius: 8px;
       padding: 0.25rem;
     }
-
+ 
     .platform-logo { max-width: 100%; max-height: 100%; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); }
     .platform-logo-placeholder { font-weight: 700; color: var(--m3-primary); font-family: var(--font-heading); }
     .platform-title { font-size: 1.25rem; font-weight: 600; color: var(--m3-on-surface); flex: 1; display: flex; align-items: center; gap: var(--spacing-8); }
@@ -236,20 +248,20 @@ interface GameGroup {
       padding: 0.25rem 0.75rem;
       border-radius: 999px;
     }
-
+ 
     .grid { 
       display: grid; 
       grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); 
       gap: 1.25rem; 
     }
-
+ 
     @media (max-width: 480px) {
       .grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 0.75rem;
       }
     }
-
+ 
     .card-art-frame { 
       width: 100%; 
       aspect-ratio: 3/4; 
@@ -265,31 +277,31 @@ interface GameGroup {
       background: rgba(0,0,0,0.8); border-radius: 4px; font-size: 0.6rem; font-weight: 700;
       color: #fff; z-index: 2;
     }
-
+ 
     .figure-frame {
       background: radial-gradient(circle at center, var(--m3-surface-container-highest), var(--m3-surface-container-high));
       padding: 1rem;
     }
-
+ 
     .figure-art {
       object-fit: contain !important;
       filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
     }
-
+ 
     .card-content {
       padding: 1rem;
       display: flex;
       flex-direction: column;
       gap: 0.25rem;
     }
-
+ 
     .content-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 0.25rem;
     }
-
+ 
     .card-title {
       font-size: 0.9375rem;
       font-weight: 600;
@@ -300,7 +312,7 @@ interface GameGroup {
       -webkit-box-orient: vertical;
       overflow: hidden;
     }
-
+ 
     .card-subtitle {
       font-size: 0.75rem;
       color: var(--m3-on-surface-variant);
@@ -308,7 +320,7 @@ interface GameGroup {
       overflow: hidden;
       text-overflow: ellipsis;
     }
-
+ 
     .release-year {
       font-size: 0.7rem;
       font-weight: 700;
@@ -318,7 +330,7 @@ interface GameGroup {
       border-radius: 6px;
       letter-spacing: 0.02em;
     }
-
+ 
     .igdb-icon { font-size: 0.8rem; }
     .physical-badge { font-size: 0.8rem; }
   `]
@@ -330,28 +342,36 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   private viewportScroller = inject(ViewportScroller);
   private observer?: IntersectionObserver;
   @ViewChild('scrollTrigger') scrollTrigger?: ElementRef;
-
+ 
   private restorationPending = true;
   private stateInitialized = false;
+
+  /** --- Reactive Application State --- */
   public currentTab = signal<'games' | 'figures'>('games');
   public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '', seriesExact: false });
   public displayLimit = signal<number>(100);
-
+ 
+  /**
+   * Computes a grouped list of platforms for use in the filter dropdown.
+   * Groups by 'brand' (e.g. Nintendo, Sony) to improve selection ergonomics.
+   */
   public platformGroups = computed<PlatformGroup[]>(() => {
     const data = this.collectionService.platforms();
     const grouped = new Map<string, Platform[]>();
     
-    // Maintain the chronological order from the server
-    [...data]
-      .forEach(p => {
-        const b = p.brand || 'Other';
-        if (!grouped.has(b)) grouped.set(b, []);
-        grouped.get(b)!.push(p);
-      });
+    [...data].forEach(p => {
+      const b = p.brand || 'Other';
+      if (!grouped.has(b)) grouped.set(b, []);
+      grouped.get(b)!.push(p);
+    });
     
     return Array.from(grouped.entries()).map(([brand, platforms]) => ({ brand, platforms }));
   });
-
+ 
+  /**
+   * Reactive pipeline that applies active filters to the full games collection.
+   * Handles ownership, platform, region, and series matching.
+   */
   public filteredGames = computed(() => {
     const allGames = this.collectionService.games();
     const f = this.filters();
@@ -360,22 +380,21 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       const isOwned = g.owned === 1 || g.owned === true;
       if (f.ownership === 'owned' && !isOwned) return false;
       if (f.ownership === 'wanted' && isOwned) return false;
-
-      // Platform Filter
+ 
+      // Platform Filter (Checks both direct platform and parent platform for cross-compatible hardware)
       if (f.platform_id) {
         if (g.platform_id !== f.platform_id && g.parent_platform_id !== f.platform_id) return false;
       }
-
+ 
       // Region Filter
       if (f.region && g.region !== f.region) return false;
-
+ 
       // Linked Status Filter (IGDB connectivity)
       if (f.is_linked !== undefined) {
         const hasIgdb = !!g.igdb_id;
         if (f.is_linked !== hasIgdb) return false;
       }
-
-
+ 
       // Series Filter (Case & Accent Insensitive)
       if (f.series) {
         const normalizedFilter = this.normalizeString(f.series);
@@ -386,13 +405,14 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
           if (!normalizedSeries.includes(normalizedFilter)) return false;
         }
       }
-
+ 
       return true;
     });
   });
-
+ 
   /**
    * Normalizes a string by removing diacritics and converting to lowercase.
+   * Crucial for supporting international titles (e.g. Pokémon) in search.
    * 
    * @param str The string to normalize.
    * @returns The normalized string.
@@ -403,8 +423,15 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
   }
-
+ 
+  /** Virtual list window based on displayLimit for infinite scroll performance */
   public displayGames = computed(() => this.filteredGames().slice(0, this.displayLimit()));
+
+  /**
+   * Computes the final UI grouping for games, organized by Platform.
+   * Each group includes a totalCount that reflects the FULL filtered result set, 
+   * even if only a subset are currently displayed in the DOM.
+   */
   public groupedGames = computed(() => {
     const allFiltered = this.filteredGames();
     const displayed = this.displayGames();
@@ -415,7 +442,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       const p = g.display_name || g.platform;
       counts.set(p, (counts.get(p) || 0) + 1);
     }
-
+ 
     // 2. Build groups from DISPLAYED games
     const groups: GameGroup[] = [];
     const groupMap = new Map<string, GameGroup>();
@@ -438,7 +465,10 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     }
     return groups;
   });
-
+ 
+  /**
+   * Reactive pipeline for filtering the figure collection.
+   */
   public filteredFigures = computed(() => {
     const allFigures = this.collectionService.figures();
     const f = this.filters();
@@ -447,13 +477,13 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       const isOwned = fig.owned === 1 || fig.owned === true;
       if (f.ownership === 'owned' && !isOwned) return false;
       if (f.ownership === 'wanted' && isOwned) return false;
-
-      // Line Filter
+ 
+      // Line Filter (e.g. Amiibo, Skylanders)
       if (f.line && fig.line !== f.line) return false;
-
-      // Type Filter
+ 
+      // Type Filter (e.g. Figure, Card)
       if (f.type && fig.type !== f.type) return false;
-
+ 
       // Series Filter (Case & Accent Insensitive)
       if (f.series) {
         const normalizedFilter = this.normalizeString(f.series);
@@ -464,13 +494,17 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
           if (!normalizedSeries.includes(normalizedFilter)) return false;
         }
       }
-
+ 
       return true;
     });
   });
-
+ 
+  /** Virtual list window for figures */
   public displayFigures = computed(() => this.filteredFigures().slice(0, this.displayLimit()));
-
+ 
+  /**
+   * Computes the UI grouping for figures, organized by 'Line'.
+   */
   public groupedFigures = computed(() => {
     const displayed = this.displayFigures();
     const allFiltered = this.filteredFigures();
@@ -481,7 +515,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       const line = f.line || 'Unknown';
       counts.set(line, (counts.get(line) || 0) + 1);
     }
-
+ 
     // 2. Build groups from DISPLAYED figures
     const groups: FigureGroup[] = [];
     const groupMap = new Map<string, FigureGroup>();
@@ -502,7 +536,8 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     }
     return groups;
   });
-
+ 
+  /** --- Utility Selectors for Filter Dropdowns --- */
   public uniqueLines = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.line))).filter(Boolean).sort());
   public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.type))).filter(Boolean).sort());
   public uniqueSeries = computed(() => {
@@ -510,12 +545,13 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     const figureSeries = this.collectionService.figures().map(f => f.figure_series || f.series_name);
     return Array.from(new Set([...gameSeries, ...figureSeries])).filter(Boolean).sort();
   });
-
+ 
   /**
    * Initializes the component and sets up the state persistence effect.
+   * This effect ensures that any change to filters or display limits is 
+   * automatically mirrored in the CollectionService and sessionStorage.
    */
   constructor() {
-    // Automatically save state whenever it changes
     effect(() => {
       const state: ListState = {
         tab: this.currentTab(),
@@ -528,11 +564,12 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
         this.collectionService.updateListState(state);
       }
     });
-
   }
-
+ 
   /**
-   * Updates the persisted scroll position whenever the window is scrolled.
+   * Listens for scroll events to update the saved navigation context.
+   * This allows the user to return to their exact scroll position after viewing 
+   * an item detail page.
    */
   @HostListener('window:scroll')
   onScroll() {
@@ -545,10 +582,13 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       });
     }
   }
-
+ 
   /**
    * Attempts to restore the previously saved scroll position after navigation.
    * Uses a retry mechanism to account for lazy-loading and rendering delays.
+   * 
+   * WHY: Since images are lazy-loaded and the DOM is reactive, the height of 
+   * the page may shift several times during the first 500ms of loading.
    */
   private restoreScroll() {
     const savedState = this.collectionService.getListState(this.currentTab());
@@ -556,7 +596,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       this.stateInitialized = true;
       return;
     }
-
+ 
     let attempts = 0;
     const maxAttempts = 10;
     
@@ -576,13 +616,12 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
         setTimeout(tryScroll, 100);
       }
     };
-
-    // Initial delay to allow rendering to start
+ 
     setTimeout(tryScroll, 200);
   }
-
+ 
   /**
-   * Component initialization: restores tab state and refreshes data.
+   * Component Lifecycle: Restores previous tab state and initiates data refresh.
    */
   async ngOnInit() {
     this.stateInitialized = false;
@@ -594,41 +633,41 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       this.displayLimit.set(savedState.displayLimit);
     }
     
-    // Refresh data and then attempt to restore scroll position
     await this.collectionService.refreshAll();
     this.restoreScroll();
   }
-
+ 
   /**
-   * Lifecycle hook: sets up the intersection observer for infinite scrolling.
+   * Sets up the IntersectionObserver for infinite scrolling after the view is ready.
    */
   ngAfterViewInit() { this.setupIntersectionObserver(); }
-
+ 
   /**
-   * Lifecycle hook: cleans up the intersection observer and persists final state.
+   * Cleanup: disconnects observer to prevent memory leaks and persists final state.
    */
   ngOnDestroy() { 
     if (this.observer) this.observer.disconnect(); 
     this.collectionService.persistState(this.currentTab());
   }
-
+ 
   /**
-   * Sets up the IntersectionObserver for the scroll trigger element.
+   * Initializes the IntersectionObserver that triggers 'loadMore' when the 
+   * user reaches the bottom of the list.
    */
   setupIntersectionObserver() {
     this.observer = new IntersectionObserver((entries) => { if (entries[0].isIntersecting) this.loadMore(); }, { root: null, rootMargin: '200px', threshold: 0.1 });
     if (this.scrollTrigger?.nativeElement) this.observer.observe(this.scrollTrigger.nativeElement);
   }
-
+ 
   /**
-   * Increments the display limit to load more items (Infinite Scroll).
+   * Increases the virtual display limit, triggering the computed reactive 
+   * pipelines to slice a larger portion of the collection into the DOM.
    */
   loadMore() { this.displayLimit.update(limit => limit + 100); }
-
+ 
   /**
-   * Updates the current filter state and resets the display limit.
-   * 
-   * @param newFilters The updated filter state from the child component.
+   * Event handler for filter updates from the child component.
+   * Resets the display limit to ensure performance.
    */
   onFiltersChange(newFilters: FilterState) { this.filters.set({ ...newFilters }); this.displayLimit.set(100); }
 }
