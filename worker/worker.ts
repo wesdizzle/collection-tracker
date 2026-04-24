@@ -23,8 +23,8 @@ import {
   GAMES_LIST_QUERY, 
   GAME_DETAIL_QUERY, 
   PLATFORMS_LIST_QUERY, 
-  FIGURES_LIST_QUERY, 
-  FIGURE_DETAIL_QUERY,
+  TOYS_LIST_QUERY, 
+  TOY_DETAIL_QUERY,
   GAMES_ORDER_BY 
 } from '../scripts/lib/queries';
 
@@ -70,20 +70,20 @@ export default {
         return Response.json(game);
       }
 
-      // Endpoint: GET /api/figures
-      else if (path === '/api/figures') {
-        const query = FIGURES_LIST_QUERY;
+      // Endpoint: GET /api/toys
+      else if (path === '/api/toys') {
+        const query = TOYS_LIST_QUERY;
         const { results } = await env.DB.prepare(query).all();
         return Response.json(results);
       }
 
-      // Endpoint: GET /api/figures/:id
-      else if (path.startsWith('/api/figures/')) {
+      // Endpoint: GET /api/toys/:id
+      else if (path.startsWith('/api/toys/')) {
         const id = path.split('/').pop();
-        const query = FIGURE_DETAIL_QUERY;
-        const figure = await env.DB.prepare(query).bind(id).first();
-        if (!figure) return Response.json({ error: 'Not found' }, { status: 404 });
-        return Response.json(figure);
+        const query = TOY_DETAIL_QUERY;
+        const toy = await env.DB.prepare(query).bind(id).first();
+        if (!toy) return Response.json({ error: 'Not found' }, { status: 404 });
+        return Response.json(toy);
       }
 
       // Endpoint: GET /api/platforms

@@ -163,20 +163,20 @@ describe('Database Integrity', () => {
         expect(psvrGame.parent_name).toBe('PlayStation 4');
     });
 
-    describe('Figure Integrity', () => {
-        it('should have the correct total number of figures', () => {
-            // Verify the total count of all figures (amiibo, Skylanders, Starlink)
+    describe('Toy Integrity', () => {
+        it('should have the correct total number of toys', () => {
+            // Verify the total count of all toys (amiibo, Skylanders, Starlink)
             // matches the master dataset snapshot.
-            const totalFigures = db.prepare('SELECT COUNT(*) as count FROM figures').get() as { count: number };
-            expect(totalFigures.count).toBe(787);
+            const totalToys = db.prepare('SELECT COUNT(*) as count FROM toys').get() as { count: number };
+            expect(totalToys.count).toBe(787);
         });
 
-        it('should have the correct number of figures per line', () => {
-            // Group figures by their product line (e.g., amiibo) and verify 
+        it('should have the correct number of toys per line', () => {
+            // Group toys by their product line (e.g., amiibo) and verify 
             // the counts match our expected manual import totals.
             const lineCounts = db.prepare(`
                 SELECT line, COUNT(*) as count 
-                FROM figures 
+                FROM toys 
                 GROUP BY line 
                 ORDER BY line ASC
             `).all() as { line: string, count: number }[];
@@ -196,17 +196,17 @@ describe('Database Integrity', () => {
             expect(actual).toEqual(expected);
         });
 
-        it('should have all figures correctly associated with a series', () => {
-            // Ensure no figures are "orphaned" by having a missing or 
+        it('should have all toys correctly associated with a series', () => {
+            // Ensure no toys are "orphaned" by having a missing or 
             // invalid series_id reference.
-            const orphanedFigures = db.prepare(`
+            const orphanedToys = db.prepare(`
                 SELECT COUNT(*) as count 
-                FROM figures f
-                LEFT JOIN figure_series fs ON f.series_id = fs.id
-                WHERE f.series_id IS NULL OR fs.id IS NULL
+                FROM toys t
+                LEFT JOIN toy_series ts ON t.series_id = ts.id
+                WHERE t.series_id IS NULL OR ts.id IS NULL
             `).get() as { count: number };
 
-            expect(orphanedFigures.count).toBe(0);
+            expect(orphanedToys.count).toBe(0);
         });
     });
 });

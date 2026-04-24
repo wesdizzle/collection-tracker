@@ -4,8 +4,8 @@ A collection tracking application built with **Angular 21**.
 
 ## 🚀 Key Features
 
-- **Figure Collection & Grounding**: Full support for amiibo, Skylanders, and Starlink with verified metadata, regional tracking, and automated discovery.
-- **Durable Metadata**: Deep integration with IGDB for games and AmiiboAPI/SCL for figures.
+- **Toy Collection & Grounding**: Full support for amiibo, Skylanders, and Starlink with verified metadata, regional tracking, and automated discovery.
+- **Durable Metadata**: Deep integration with IGDB for games and AmiiboAPI/SCL for toys.
 - **Manual Discovery Pipeline**: A suggestion-based matching workflow for ambiguous items, surfaced through a generated discovery report for human-in-the-loop verification.
 - **Signals-First Architecture**: Leveraging Angular 21 Signals for high-performance state management and reactive delivery.
 
@@ -28,8 +28,8 @@ The application follows **Material Design 3 (Material You)** principles, providi
 - **Status Pills**: Consolidated status markers (Owned, Played, Backed Up) use tonal M3 chip patterns for high readability.
 
 ### Navigation & Filter Logic
-The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Figures** collections:
-- **Isolated Contexts**: Your active filters and scroll position on the Games page are stored separately from those on the Figures page. Switching between the two tabs will restore each respective state exactly as you left it.
+The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Toys** collections:
+- **Isolated Contexts**: Your active filters and scroll position on the Games page are stored separately from those on the Toys page. Switching between the two tabs will restore each respective state exactly as you left it.
 - **Intelligent Series Filtering**: The series filter is case and accent insensitive (e.g., searching for `poke` will match `Pokémon`), and supports substring matching for improved searchability.
 - **Persistent Context**: Clicking the "Gagglog" brand logo, using the browser's back button, or navigating via the "Back to Collection" link will all maintain your active context for the current tab.
 ### Metadata Reconciliation & Discovery
@@ -38,7 +38,7 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches. Ambiguous items are offloaded to a manual `discovery_report.md` for user verification.
 - **Verification Signals**: Uses the presence of an `igdb_id` or `pricecharting_url` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
-- **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and figures (amiibo, Skylanders, Starlink).
+- **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys (amiibo, Skylanders, Starlink).
 
 
 ## 📦 Getting Started
@@ -47,9 +47,9 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 2.  **Install dependencies**: `npm install`
 3.  **Run Local API Proxy**: `npx tsx scripts/local_server.ts`
 4.  **Metadata Scraping**:
-    - **Reconcile**: `npx tsx scripts/scrape.ts` (Processes unmatched games and figures)
-    - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Finds missing games/figures in your series)
-    - **Figure Sync**: `npx tsx scripts/sync_figures.ts` (Updates figure metadata from external sources)
+    - **Reconcile**: `npx tsx scripts/scrape.ts` (Processes unmatched games and toys)
+    - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Finds missing games/toys in your series)
+    - **Toy Sync**: `npx tsx scripts/sync_toys.ts` (Updates toy metadata from external sources)
     - **Sync**: `npx tsx scripts/sync_local_d1.ts` (Propagates all local changes to the dev server)
 5.  **Launch Frontend**: `npx ng serve`
 6.  **View locally**: `http://localhost:4200/`

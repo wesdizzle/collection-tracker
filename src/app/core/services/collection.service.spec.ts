@@ -9,7 +9,7 @@ import { CollectionService } from './collection.service';
  * UNIT TEST: CollectionService
  * 
  * Verifies the core data-fetching logic and signal-based state management
- * for the game and figure collection.
+ * for the game and toy collection.
  * Updated for Angular 21 and Vitest.
  */
 describe('CollectionService', () => {
@@ -50,17 +50,17 @@ describe('CollectionService', () => {
     req.flush(mockGames);
   });
 
-  it('should fetch figures list using relative path', () => {
-    const mockFigures = [{ id: 1, name: 'Mario Amiibo' }];
+  it('should fetch toys list using relative path', () => {
+    const mockToys = [{ id: 1, name: 'Mario Amiibo' }];
 
-    service.getFigures().subscribe(figures => {
-        expect(figures.length).toBe(1);
-        expect(figures[0].name).toBe('Mario Amiibo');
+    service.getToys().subscribe(toys => {
+        expect(toys.length).toBe(1);
+        expect(toys[0].name).toBe('Mario Amiibo');
     });
 
-    const req = httpMock.expectOne('/api/figures');
+    const req = httpMock.expectOne('/api/toys');
     expect(req.request.method).toBe('GET');
-    req.flush(mockFigures);
+    req.flush(mockToys);
   });
 
   describe('List State Persistence', () => {
@@ -87,17 +87,17 @@ describe('CollectionService', () => {
 
     it('should load persisted state from sessionStorage', () => {
       const mockState = {
-        tab: 'figures' as const,
+        tab: 'toys' as const,
         filters: { ownership: 'wanted' as const },
         displayLimit: 300,
         scrollX: 0,
         scrollY: 1000
       };
 
-      sessionStorage.setItem('gagglog_list_state_figures', JSON.stringify(mockState));
+      sessionStorage.setItem('gagglog_list_state_toys', JSON.stringify(mockState));
       service.loadPersistedState();
       
-      expect(service.figuresState()).toEqual(mockState);
+      expect(service.toysState()).toEqual(mockState);
     });
 
     it('should handle malformed JSON in sessionStorage', () => {

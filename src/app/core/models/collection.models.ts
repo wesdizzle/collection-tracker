@@ -32,14 +32,14 @@ export interface Game {
     parent_platform_id?: number;
 }
 
-export interface Figure {
+export interface Toy {
     id: string;
     name: string;
     line: string;
     type: string;
     series_name: string;
     series_line: string;
-    figure_series?: string;
+    toy_series?: string;
     game_series?: string;
     release_date: string;
     owned: boolean | number;
@@ -52,9 +52,9 @@ export interface Figure {
     metadata_json?: string;
 }
 
-export interface FigureGroup {
+export interface ToyGroup {
     lineName: string;
-    figures: Figure[];
+    toys: Toy[];
     totalCount: number;
 }
 
@@ -110,7 +110,7 @@ export interface PlatformGroup {
 }
 
 export interface ListState {
-  tab: 'games' | 'figures';
+  tab: 'games' | 'toys';
   filters: FilterState;
   displayLimit: number;
   scrollX?: number;

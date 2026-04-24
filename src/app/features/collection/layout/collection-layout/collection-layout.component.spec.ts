@@ -9,7 +9,7 @@ import { CollectionLayoutComponent } from './collection-layout.component';
 /**
  * UNIT TEST: CollectionLayoutComponent
  * 
- * Verifies that the primary collection layout (Discovery/Games/Figures)
+ * Verifies that the primary collection layout (Discovery/Games/Toys)
  * initializes correctly with its data dependencies.
  * Updated for Angular 21 and Vitest.
  */

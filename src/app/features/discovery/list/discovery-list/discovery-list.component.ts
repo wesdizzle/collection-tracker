@@ -13,7 +13,7 @@ import { RouterModule } from '@angular/router';
       <div class="discovery-header mb-lg">
         <div class="info-banner">
           <span class="icon">ℹ️</span>
-          <p>Processing games from the last <strong>Scrape</strong>.</p>
+          <p>Processing games and toys from the last scrape.</p>
         </div>
         @if (items().length > 0) {
           <div class="status-card bg-glass animate-slide-up">
@@ -44,7 +44,7 @@ import { RouterModule } from '@angular/router';
               <div class="card-header">
                 <div>
                   <h2 class="text-lg font-bold">{{ item.title }}</h2>
-                  <span class="platform-badge" [class.figure-badge]="item.platform === 'amiibo'">{{ item.platform }}</span>
+                  <span class="platform-badge" [class.toy-badge]="item.platform === 'amiibo'">{{ item.platform }}</span>
                 </div>
                 <div class="count-badge">{{ item.options.length }} Candidates</div>
               </div>
@@ -179,7 +179,7 @@ import { RouterModule } from '@angular/router';
       display: inline-block;
     }
 
-    .figure-badge {
+    .toy-badge {
       background: rgba(var(--m3-primary-rgb), 0.2);
       color: var(--m3-primary);
       font-weight: 700;
@@ -297,7 +297,7 @@ import { RouterModule } from '@angular/router';
 /**
  * DISCOVERY LIST COMPONENT
  * 
- * Provides a specialized interface for reconciling local game/figure data with 
+ * Provides a specialized interface for reconciling local game/toy data with 
  * remote metadata sources (IGDB). It acts as a staging area for newly scraped items.
  * 
  * DESIGN RATIONALE:
@@ -312,7 +312,7 @@ import { RouterModule } from '@angular/router';
  */
 export class DiscoveryListComponent implements OnInit {
   public collectionService = inject(CollectionService);
-  
+
   // Local signal to allow immediate local removal after matching
   public items = signal<DiscoveryItem[]>([]);
 

@@ -25,7 +25,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import { findGame, NormalizedGame, IGDBGame, calculateConfidence } from './lib/igdb.js';
 import { scrapePriceCharting, scrapePlayStationStore } from './lib/web_scraper.js';
-import { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries, Figure } from './lib/figures.js';
+import { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries, Toy } from './lib/toys.js';
 
 const db = new Database('collection.sqlite');
 
@@ -44,7 +44,7 @@ interface GameRecord {
     pricecharting_url?: string;
 }
 
-interface FigureSuggestion {
+interface ToySuggestion {
     id: string;
     name: string;
     platform: string;
@@ -54,9 +54,9 @@ interface FigureSuggestion {
 }
 
 interface SyncSuggestion {
-    type: 'Game' | 'Figure';
+    type: 'Game' | 'Toy';
     current: string;
-    options: (NormalizedGame | FigureSuggestion)[];
+    options: (NormalizedGame | ToySuggestion)[];
     localId: number | string;
 }
 
@@ -70,9 +70,9 @@ interface GameDiscovery {
     games: IGDBGame[];
 }
 
-interface FigureDiscovery {
+interface ToyDiscovery {
     series: string;
-    items: Figure[];
+    items: Toy[];
 }
 
 
@@ -129,6 +129,7 @@ async function runScraper(): Promise<void> {
             // but our findGame already fetched release_dates. We just need to prioritize it.
             // NOTE: We'd need to cast to any here because release_dates is not in NormalizedGame, 
             // but for now we'll just rely on the default logic or fix findGame to pass it through.
+            // For this script, we'll bypass regionalDate logic for now to stay type-safe.
             // For this script, we'll bypass regionalDate logic for now to stay type-safe.
 
             const confidence = calculateConfidence(game.title, bestMatch.name, bestMatch.category);
@@ -209,29 +210,29 @@ async function runScraper(): Promise<void> {
         }
     }
 
-    // 2. Verify Figures
-    const existingFigures = db.prepare('SELECT * FROM figures').all() as Figure[];
-    console.log(`Processing ${existingFigures.length} figures...`);
+    // 2. Verify Toys
+    const existingToys = db.prepare('SELECT * FROM toys').all() as Toy[];
+    console.log(`Processing ${existingToys.length} toys...`);
 
     // Fetch all Amiibos once for efficient matching and discovery
-    let allApiAmiibo: Figure[] = [];
-    if (runDiscovery || existingFigures.some(f => f.line.toLowerCase() === 'amiibo' && !f.verified)) {
+    let allApiAmiibo: Toy[] = [];
+    if (runDiscovery || existingToys.some(f => f.line.toLowerCase() === 'amiibo' && !f.verified)) {
         console.log('Fetching master Amiibo list...');
         allApiAmiibo = await getAmiiboSeries();
     }
 
 
-    for (const figure of existingFigures) {
+    for (const toy of existingToys) {
         // Skip if already linked or verified
-        if (figure.verified || figure.amiibo_id) continue;
+        if (toy.verified || toy.amiibo_id) continue;
 
         // For now, only handle amiibo matching as requested
-        if (figure.line.toLowerCase() !== 'amiibo') continue;
+        if (toy.line.toLowerCase() !== 'amiibo') continue;
 
-        process.stdout.write(`Verifying Figure: ${figure.name}... `);
+        process.stdout.write(`Verifying Toy: ${toy.name}... `);
         
         // Find broad candidates for manual matching (no auto-matching)
-        const normName = superNormalize(figure.name);
+        const normName = superNormalize(toy.name);
         const matches = allApiAmiibo.filter(a => {
             const aNorm = superNormalize(a.name);
             return aNorm.includes(normName) || normName.includes(aNorm);
@@ -248,8 +249,8 @@ async function runScraper(): Promise<void> {
             });
 
             syncSuggestions.push({
-                type: 'Figure',
-                current: `${figure.name} (amiibo)`,
+                type: 'Toy',
+                current: `${toy.name} (amiibo)`,
                 options: sortedMatches.slice(0, 15).map(m => ({ // Provide up to 15 options
                     id: `amiibo-${m.id}`,
                     name: m.name,
@@ -258,7 +259,7 @@ async function runScraper(): Promise<void> {
                     summary: `Series: ${m.series_name} | Type: ${m.type}`,
                     category: m.type
                 })),
-                localId: figure.id as unknown as number
+                localId: toy.id as unknown as number
             });
             console.log(`${matches.length} candidates found.`);
         } else {
@@ -268,7 +269,7 @@ async function runScraper(): Promise<void> {
 
 
     const ignoredItems = (db.prepare('SELECT id FROM ignored_items').all() as { id: string }[]).map(i => i.id);
-    const figureDiscoveryResults: FigureDiscovery[] = [];
+    const toyDiscoveryResults: ToyDiscovery[] = [];
 
     // 3. Discovery Phase: Series-based
     if (runDiscovery) {
@@ -300,26 +301,26 @@ async function runScraper(): Promise<void> {
         */
 
 
-        // 4. Discovery: Figures
-        const existingFigureNorms = new Set(existingFigures.map(f => superNormalize(f.name)));
-        const figureSeriesList = db.prepare('SELECT DISTINCT line FROM figures WHERE line IS NOT NULL').all() as { line: string }[];
+        // 4. Discovery: Toys
+        const existingToyNorms = new Set(existingToys.map(f => superNormalize(f.name)));
+        const toySeriesList = db.prepare('SELECT DISTINCT line FROM toys WHERE line IS NOT NULL').all() as { line: string }[];
 
-        for (const { line: type } of figureSeriesList) {
+        for (const { line: type } of toySeriesList) {
             // No new amiibo should be suggested at this point
             if (type.toLowerCase() === 'amiibo') continue;
             
-            process.stdout.write(`Discovering Figures for line: ${type}... `);
-            let figures: Figure[] = [];
-            if (type.toLowerCase().includes('skylanders')) figures = await getSkylandersSeries(type);
-            else if (type.toLowerCase().includes('starlink')) figures = await getStarlinkSeries(type);
+            process.stdout.write(`Discovering Toys for line: ${type}... `);
+            let toys: Toy[] = [];
+            if (type.toLowerCase().includes('skylanders')) toys = await getSkylandersSeries(type);
+            else if (type.toLowerCase().includes('starlink')) toys = await getStarlinkSeries(type);
 
-                const missing = figures.filter(f => 
-                    !existingFigureNorms.has(superNormalize(f.name)) &&
+                const missing = toys.filter(f => 
+                    !existingToyNorms.has(superNormalize(f.name)) &&
                     !ignoredItems.includes(f.id)
                 );
 
                 if (missing.length > 0) {
-                    figureDiscoveryResults.push({ series: type, items: missing });
+                    toyDiscoveryResults.push({ series: type, items: missing });
                     console.log(`${missing.length} missing.`);
                 } else {
                     console.log('None missing.');
@@ -333,12 +334,12 @@ async function runScraper(): Promise<void> {
     console.log(`  - Auto-matched: ${autoMatchedCount}`);
     console.log(`  - Remaining in Report: ${unmatchedGames.length + syncSuggestions.length}`);
     if (runDiscovery) {
-        console.log(`Discovery Results: ${gameDiscoveryResults.length} game series, ${figureDiscoveryResults.length} figure series`);
+        console.log(`Discovery Results: ${gameDiscoveryResults.length} game series, ${toyDiscoveryResults.length} toy series`);
     } else {
         console.log('Discovery phase skipped. Use --discovery to find missing items in your series.');
     }
 
-    generateReport(unmatchedGames, syncSuggestions, gameDiscoveryResults, figureDiscoveryResults);
+    generateReport(unmatchedGames, syncSuggestions, gameDiscoveryResults, toyDiscoveryResults);
 }
 
 /**
@@ -346,7 +347,7 @@ async function runScraper(): Promise<void> {
  * 
  * Writes the discovery_report.md file with all findings for manual verification.
  */
-function generateReport(unmatched: UnmatchedItem[], sync: SyncSuggestion[], gameDiscovery: GameDiscovery[], figureDiscovery: FigureDiscovery[]): void {
+function generateReport(unmatched: UnmatchedItem[], sync: SyncSuggestion[], gameDiscovery: GameDiscovery[], toyDiscovery: ToyDiscovery[]): void {
     let report = '# Discovery Report\n\nThis report lists findings from the collection discovery pipeline.\n\n';
 
 
@@ -398,9 +399,9 @@ function generateReport(unmatched: UnmatchedItem[], sync: SyncSuggestion[], game
         }
     }
 
-    if (figureDiscovery.length > 0) {
-        report += '## Discovery: New Figures\n';
-        for (const d of figureDiscovery) {
+    if (toyDiscovery.length > 0) {
+        report += '## Discovery: New Toys\n';
+        for (const d of toyDiscovery) {
             report += `### Line: ${d.series}\n`;
             d.items.forEach(i => {
                 report += `- [ ] ${i.name} (${i.line}) - ID: ${i.id}\n`;

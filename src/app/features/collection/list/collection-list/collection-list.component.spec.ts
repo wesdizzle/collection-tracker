@@ -12,7 +12,7 @@ import { ListState } from '../../../../core/models/collection.models';
  * UNIT TEST: CollectionListComponent
  * 
  * Verifies that the data grid correctly renders lists of 
- * games or figures fetched from the API layer.
+ * games or toys fetched from the API layer.
  * Uses modern Angular 21+ provider-based mocking for HTTP and Routing.
  */
 describe('CollectionListComponent', () => {
@@ -47,7 +47,7 @@ describe('CollectionListComponent', () => {
     fixture.detectChanges();
     
     httpMock.expectOne('/api/games').flush([]);
-    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
     
     expect(component).toBeTruthy();
@@ -74,8 +74,8 @@ describe('CollectionListComponent', () => {
     // Handle the HTTP requests triggered by refreshAll
     const reqGames = httpMock.expectOne('/api/games');
     reqGames.flush([]);
-    const reqFigures = httpMock.expectOne('/api/figures');
-    reqFigures.flush([]);
+    const reqToys = httpMock.expectOne('/api/toys');
+    reqToys.flush([]);
     const reqPlatforms = httpMock.expectOne('/api/platforms');
     reqPlatforms.flush([]);
     
@@ -96,7 +96,7 @@ describe('CollectionListComponent', () => {
       { id: '1', title: 'Game 1', canonical_series: 'Pokémon', owned: 1, platform: 'Switch' },
       { id: '2', title: 'Game 2', canonical_series: 'Mario', owned: 1, platform: 'Switch' }
     ]);
-    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
     
     await initPromise;
@@ -132,7 +132,7 @@ describe('CollectionListComponent', () => {
       { id: '4', title: 'G4', platform: 'Switch', owned: 1 },
       { id: '5', title: 'G5', platform: 'Switch', owned: 1 }
     ]);
-    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
     
     await initPromise;
@@ -158,7 +158,7 @@ describe('CollectionListComponent', () => {
       { id: 'ps4-game', title: 'PS4 Game', platform_id: 34, owned: 1, platform: 'PS4' },
       { id: 'psvr-game', title: 'PSVR Game', platform_id: 51, parent_platform_id: 34, owned: 1, platform: 'PSVR' }
     ]);
-    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
     
     await initPromise;
@@ -178,7 +178,7 @@ describe('CollectionListComponent', () => {
       { id: '2', title: 'N++', canonical_series: 'N', owned: 1, platform: 'Switch' },
       { id: '3', title: 'Batman Arkham Knight', canonical_series: 'Batman', owned: 1, platform: 'PS4' }
     ]);
-    httpMock.expectOne('/api/figures').flush([]);
+    httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
     
     await initPromise;
@@ -198,12 +198,12 @@ describe('CollectionListComponent', () => {
     expect(component.filteredGames().length).toBe(2);
   });
 
-  it('should filter figures by line, type, and series', async () => {
+  it('should filter toys by line, type, and series', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
     const initPromise = component.ngOnInit();
     
     httpMock.expectOne('/api/games').flush([]);
-    httpMock.expectOne('/api/figures').flush([
+    httpMock.expectOne('/api/toys').flush([
       { id: 'f1', name: 'Mario', line: 'amiibo', type: 'Figure', series_name: 'Super Mario', owned: 1 },
       { id: 'f2', name: 'Link', line: 'amiibo', type: 'Figure', series_name: 'Zelda', owned: 1 },
       { id: 'f3', name: 'Isabelle', line: 'amiibo', type: 'Card', series_name: 'Animal Crossing', owned: 0 }
@@ -214,29 +214,29 @@ describe('CollectionListComponent', () => {
 
     // Filter by ownership (wanted)
     component.filters.set({ ownership: 'wanted', line: '', type: '', series: '' });
-    expect(component.filteredFigures().length).toBe(1);
-    expect(component.filteredFigures()[0].name).toBe('Isabelle');
+    expect(component.filteredToys().length).toBe(1);
+    expect(component.filteredToys()[0].name).toBe('Isabelle');
 
     // Filter by line
     component.filters.set({ ownership: 'all', line: 'amiibo', type: '', series: '' });
-    expect(component.filteredFigures().length).toBe(3);
+    expect(component.filteredToys().length).toBe(3);
 
     // Filter by type
     component.filters.set({ ownership: 'all', line: '', type: 'Figure', series: '' });
-    expect(component.filteredFigures().length).toBe(2);
+    expect(component.filteredToys().length).toBe(2);
 
     // Filter by series (normalized)
     component.filters.set({ ownership: 'all', line: '', type: '', series: 'super mario' });
-    expect(component.filteredFigures().length).toBe(1);
-    expect(component.filteredFigures()[0].series_name).toBe('Super Mario');
+    expect(component.filteredToys().length).toBe(1);
+    expect(component.filteredToys()[0].series_name).toBe('Super Mario');
   });
 
-  it('should group figures correctly with total counts', async () => {
+  it('should group toys correctly with total counts', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
     const initPromise = component.ngOnInit();
     
     httpMock.expectOne('/api/games').flush([]);
-    httpMock.expectOne('/api/figures').flush([
+    httpMock.expectOne('/api/toys').flush([
       { id: '1', name: 'A1', line: 'Line A', owned: 1 },
       { id: '2', name: 'A2', line: 'Line A', owned: 1 },
       { id: '3', name: 'B1', line: 'Line B', owned: 1 }
@@ -246,22 +246,22 @@ describe('CollectionListComponent', () => {
     await initPromise;
     fixture.detectChanges();
 
-    const groups = component.groupedFigures();
+    const groups = component.groupedToys();
     expect(groups.length).toBe(2);
     expect(groups.find(g => g.lineName === 'Line A')?.totalCount).toBe(2);
     expect(groups.find(g => g.lineName === 'Line B')?.totalCount).toBe(1);
   });
 
-  it('should calculate uniqueSeries from both games and figures', async () => {
+  it('should calculate uniqueSeries from both games and toys', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
     const initPromise = component.ngOnInit();
     
     httpMock.expectOne('/api/games').flush([
       { id: 'g1', title: 'Game 1', canonical_series: 'Zelda', owned: 1 }
     ]);
-    httpMock.expectOne('/api/figures').flush([
-      { id: 'f1', name: 'Figure 1', series_name: 'Mario', owned: 1 },
-      { id: 'f2', name: 'Figure 2', figure_series: 'Metroid', owned: 1 }
+    httpMock.expectOne('/api/toys').flush([
+      { id: 'f1', name: 'Toy 1', series_name: 'Mario', owned: 1 },
+      { id: 'f2', name: 'Toy 2', series_name: 'Metroid', owned: 1 }
     ]);
     httpMock.expectOne('/api/platforms').flush([]);
     

@@ -5,7 +5,7 @@
  * It directly queries the 'collection.sqlite' source-of-truth database.
  * 
  * It handles:
- * 1. Collection API: Games, Figures, and Platforms (mirroring worker/worker.ts)
+ * 1. Collection API: Games, Toys, and Platforms (mirroring worker/worker.ts)
  * 2. Discovery API: Reading and applying scraping reconciliation reports.
  */
 
@@ -22,8 +22,8 @@ import {
     GAMES_LIST_QUERY, 
     GAME_DETAIL_QUERY, 
     PLATFORMS_LIST_QUERY, 
-    FIGURES_LIST_QUERY, 
-    FIGURE_DETAIL_QUERY,
+    TOYS_LIST_QUERY, 
+    TOY_DETAIL_QUERY,
     GAMES_ORDER_BY 
 } from './lib/queries.js';
 
@@ -80,9 +80,9 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
             });
 
             const { currentTitle, currentPlatform, selectedIgdbId, selectedName, selectedPlatform, region }: ApplyPayload = JSON.parse(body);
-            const isFigure = selectedIgdbId.toString().startsWith('amiibo-');
+            const isToy = selectedIgdbId.toString().startsWith('amiibo-');
 
-            if (isFigure) {
+            if (isToy) {
                 const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
                 // 1. Fetch full metadata from AmiiboAPI
                 try {
@@ -90,12 +90,12 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                    const a = response.data.amiibo;
                    
                    db.prepare(`
-                       UPDATE figures 
+                       UPDATE toys 
                        SET amiibo_id = ?, name = ?, type = ?, image_url = ?, game_series = ?, region = ?, verified = 1, metadata_json = ?
                        WHERE name = ? AND line = 'amiibo'
                    `).run(amiiboId, a.name, a.type, a.image, a.gameSeries, region || 'NA', JSON.stringify(a), currentTitle);
                    
-                   console.log(`Matched Figure: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
+                   console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
                 } catch (err) {
                    console.error('Failed to fetch amiibo metadata:', err);
                    res.statusCode = 500;
@@ -182,7 +182,7 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                     const header = sections[0];
                     const remainingSections = sections.slice(1).filter(section => {
                         const headerLine = section.split('\n')[0];
-                        const targetHeader = isFigure ? `${currentTitle} (amiibo)` : `${currentTitle} (${currentPlatform})`;
+                        const targetHeader = isToy ? `${currentTitle} (amiibo)` : `${currentTitle} (${currentPlatform})`;
                         return headerLine.trim() !== targetHeader.trim();
                     });
 
@@ -239,23 +239,23 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
             }
         }
 
-        // GET /api/figures
-        else if (req.method === 'GET' && pathname === '/api/figures') {
-            const query = FIGURES_LIST_QUERY;
-            const figures = db.prepare(query).all();
-            res.end(JSON.stringify(figures));
+        // GET /api/toys
+        else if (req.method === 'GET' && pathname === '/api/toys') {
+            const query = TOYS_LIST_QUERY;
+            const toys = db.prepare(query).all();
+            res.end(JSON.stringify(toys));
         }
 
-        // GET /api/figures/:id
-        else if (req.method === 'GET' && pathname.startsWith('/api/figures/')) {
+        // GET /api/toys/:id
+        else if (req.method === 'GET' && pathname.startsWith('/api/toys/')) {
             const id = pathname.split('/').pop();
-            const query = FIGURE_DETAIL_QUERY;
-            const figure = db.prepare(query).get(id);
-            if (!figure) {
+            const query = TOY_DETAIL_QUERY;
+            const toy = db.prepare(query).get(id);
+            if (!toy) {
                 res.statusCode = 404;
                 res.end(JSON.stringify({ error: 'Not found' }));
             } else {
-                res.end(JSON.stringify(figure));
+                res.end(JSON.stringify(toy));
             }
         }
 

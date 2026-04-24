@@ -7,7 +7,7 @@ import { ActivatedRoute, convertToParamMap, provideRouter, Router, ParamMap } fr
 import { of, BehaviorSubject } from 'rxjs';
 import { ItemDetailComponent } from './item-detail.component';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Figure } from '../../../../core/models/collection.models';
+import { Game, Toy } from '../../../../core/models/collection.models';
 
 /**
  * UNIT TEST: ItemDetailComponent
@@ -39,7 +39,7 @@ describe('ItemDetailComponent', () => {
     backed_up: true
   };
 
-  const mockFigure: Figure = {
+  const mockToy: Toy = {
     id: 'amiibo-1',
     name: 'Mario',
     line: 'amiibo',
@@ -77,7 +77,7 @@ describe('ItemDetailComponent', () => {
     router = TestBed.inject(Router);
     
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(of(mockGame));
-    vi.spyOn(collectionService, 'getFigureById').mockReturnValue(of(mockFigure));
+    vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(mockToy));
     
     fixture.detectChanges();
   });
@@ -95,13 +95,13 @@ describe('ItemDetailComponent', () => {
     expect(compiled.querySelector('.item-title').textContent).toContain('Super Mario World');
   });
 
-  it('should load and display figure details', async () => {
-    paramMapSubject.next(convertToParamMap({ id: 'amiibo-1', type: 'figure' }));
+  it('should load and display toy details', async () => {
+    paramMapSubject.next(convertToParamMap({ id: 'amiibo-1', type: 'toy' }));
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(component.figure()).toEqual(mockFigure);
-    expect(component.type()).toBe('figure');
+    expect(component.toy()).toEqual(mockToy);
+    expect(component.type()).toBe('toy');
     
     const compiled = fixture.nativeElement;
     expect(compiled.querySelector('.item-title').textContent).toContain('Mario');

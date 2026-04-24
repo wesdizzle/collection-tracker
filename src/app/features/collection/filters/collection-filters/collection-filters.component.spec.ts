@@ -42,8 +42,8 @@ describe('CollectionFiltersComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should display "Type" label for figures tab', () => {
-    fixture.componentRef.setInput('currentTab', 'figures');
+  it('should display "Type" label for toys tab', () => {
+    fixture.componentRef.setInput('currentTab', 'toys');
     fixture.detectChanges();
     
     const label = fixture.nativeElement.querySelector('label[title*="Form factor"]');

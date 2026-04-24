@@ -48,14 +48,14 @@ describe('Worker API Logic', () => {
                 owned BOOLEAN,
                 sort_index INTEGER
             );
-            CREATE TABLE figures (
+            CREATE TABLE toys (
                 id INTEGER PRIMARY KEY, 
                 name TEXT, 
                 series_id INTEGER, 
                 release_date DATE,
                 sort_index INTEGER
             );
-            CREATE TABLE figure_series (
+            CREATE TABLE toy_series (
                 id INTEGER PRIMARY KEY, 
                 name TEXT, 
                 line TEXT,
@@ -64,8 +64,8 @@ describe('Worker API Logic', () => {
             
             INSERT INTO platforms (id, display_name, brand, launch_date) VALUES (1, 'NES', 'Nintendo', '1985-10-18');
             INSERT INTO games (stable_id, id, title, series, platform_id, owned, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 1, 1, 0);
-            INSERT INTO figure_series (id, name, line, sort_index) VALUES (1, 'Smash', 'Amiibo', 0);
-            INSERT INTO figures (id, name, series_id, sort_index) VALUES (1, 'Link', 1, 0);
+            INSERT INTO toy_series (id, name, line, sort_index) VALUES (1, 'Smash', 'Amiibo', 0);
+            INSERT INTO toys (id, name, series_id, sort_index) VALUES (1, 'Link', 1, 0);
         `);
 
         // Mock the Cloudflare D1 interface
@@ -95,8 +95,8 @@ describe('Worker API Logic', () => {
         expect(data[0].title).toBe('Super Mario Bros');
     });
 
-    it('GET /api/figures joins with series info', async () => {
-        const req = new Request('http://localhost/api/figures');
+    it('GET /api/toys joins with series info', async () => {
+        const req = new Request('http://localhost/api/toys');
         const res = await worker.fetch(req, mockEnv);
         
         expect(res.status).toBe(200);

@@ -1,7 +1,7 @@
 /**
  * ITEM DETAIL COMPONENT
  * 
- * An immersive, high-contrast detail view for individual games, figures, and platforms.
+ * An immersive, high-contrast detail view for individual games, toys, and platforms.
  * It synthesizes multiple metadata sources into a single, cohesive narrative.
  * 
  * DESIGN RATIONALE:
@@ -10,7 +10,7 @@
  * - **Signal Interop**: Leverages `toSignal` to bridge between the RxJS-based 
  *   ActivatedRoute and the component's reactive computed signals.
  * - **Dynamic Metadata**: Adapts the layout and metadata boxes based on the 
- *   item 'type', ensuring relevance (e.g. showing 'Line' for figures vs 'Platform' for games).
+ *   item 'type', ensuring relevance (e.g. showing 'Line' for toys vs 'Platform' for games).
  * - **Context-Aware Navigation**: The 'filterBySeries' method doesn't just 
  *   navigate; it intelligently updates the collection state to apply an exact 
  *   match filter, streamlining franchise exploration.
@@ -20,7 +20,7 @@ import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule, Router } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Figure, Platform } from '../../../../core/models/collection.models';
+import { Game, Toy, Platform } from '../../../../core/models/collection.models';
 import { switchMap } from 'rxjs/operators';
 import { toSignal } from '@angular/core/rxjs-interop';
 
@@ -63,13 +63,13 @@ import { toSignal } from '@angular/core/rxjs-interop';
                 </a>
               }
             </div>
-          } @else if (figure(); as f) {
+          } @else if (toy(); as t) {
             <div class="quick-stats flex gap-sm items-center">
-              <div class="stat-pill" [class.active]="f.owned">
-                <span class="icon">{{ f.owned ? '✅' : '🎯' }}</span>
-                <span>{{ f.owned ? 'Owned' : 'Wanted' }}</span>
+              <div class="stat-pill" [class.active]="t.owned">
+                <span class="icon">{{ t.owned ? '✅' : '🎯' }}</span>
+                <span>{{ t.owned ? 'Owned' : 'Wanted' }}</span>
               </div>
-              @if (f.verified) {
+              @if (t.verified) {
                 <div class="stat-pill active physical">
                   <span class="icon">✨</span>
                   <span>Verified</span>
@@ -84,7 +84,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
             <div class="art-container">
               <div class="art-frame">
                 @if (i.image_url) {
-                  <img [src]="i.image_url" alt="Cover Art" [class.glitch-load]="type() !== 'figure'" [class.figure-detail-art]="type() === 'figure'">
+                  <img [src]="i.image_url" alt="Cover Art" [class.glitch-load]="type() !== 'toy'" [class.toy-detail-art]="type() === 'toy'">
                 } @else {
                   <div class="placeholder">No Image</div>
                 }
@@ -95,9 +95,9 @@ import { toSignal } from '@angular/core/rxjs-interop';
             </div>
             
             <div class="hero-content">
-              <h1 class="item-title text-gradient">{{ (game()?.title) || (figure()?.name) || (platform()?.name) }}</h1>
-              @if (type() === 'figure' && figure()?.series_name) {
-                <p class="item-series">{{ figure()?.series_name }}</p>
+              <h1 class="item-title text-gradient">{{ (game()?.title) || (toy()?.name) || (platform()?.name) }}</h1>
+              @if (type() === 'toy' && toy()?.series_name) {
+                <p class="item-series">{{ toy()?.series_name }}</p>
               }
 
               @if (formattedDate(); as date) {
@@ -116,12 +116,12 @@ import { toSignal } from '@angular/core/rxjs-interop';
 
               <div class="metadata-grid mt-xl">
                 <div class="meta-box">
-                  <span class="label">{{ type() === 'figure' ? 'Line' : 'Platform' }}</span>
+                  <span class="label">{{ type() === 'toy' ? 'Line' : 'Platform' }}</span>
                   <div class="value flex items-center gap-sm">
                    @if (game()?.platform_logo) {
                       <img [src]="game()?.platform_logo" class="mini-logo" alt="">
                     }
-                    <span>{{ game()?.display_name || game()?.platform || figure()?.line || 'N/A' }}</span>
+                    <span>{{ game()?.display_name || game()?.platform || toy()?.line || 'N/A' }}</span>
                   </div>
                 </div>
                 @if (game(); as g) {
@@ -129,42 +129,42 @@ import { toSignal } from '@angular/core/rxjs-interop';
                     <span class="label">Launch Date</span>
                     <span class="value">{{ platformLaunchDate() }}</span>
                   </div>
-                } @else if (figure(); as f) {
+                } @else if (toy(); as t) {
                   @if (!formattedDate()) {
                     <div class="meta-box">
                       <span class="label">Release Date</span>
-                      <span class="value">{{ f.release_date || 'Unknown' }}</span>
+                      <span class="value">{{ t.release_date || 'Unknown' }}</span>
                     </div>
                   }
                 }
                 @if (game(); as g) {
                 }
-                @if (figure(); as f) {
+                @if (toy(); as t) {
                   <div class="meta-box">
                     <span class="label">Type</span>
-                    <span class="value">{{ f.type }}</span>
+                    <span class="value">{{ t.type }}</span>
                   </div>
-                  @if (f.figure_series || f.series_name) {
+                  @if (t.toy_series || t.series_name) {
                     <div class="meta-box">
-                      <span class="label">Figure Series</span>
-                      <span class="value">{{ f.figure_series || f.series_name }}</span>
+                      <span class="label">Toy Series</span>
+                      <span class="value">{{ t.toy_series || t.series_name }}</span>
                     </div>
                   }
-                  @if (f.game_series) {
+                  @if (t.game_series) {
                     <div class="meta-box">
                       <span class="label">Game Series</span>
-                      <span class="value">{{ f.game_series }}</span>
+                      <span class="value">{{ t.game_series }}</span>
                     </div>
                   }
-                  @if (f.amiibo_id || f.scl_url) {
+                  @if (t.amiibo_id || t.scl_url) {
                     <div class="meta-box full-width">
                       <span class="label">Verified Source</span>
                       <span class="value">
-                        @if (f.amiibo_id) {
-                          <a [href]="'https://amiiboapi.org/api/amiibo/?id=' + f.amiibo_id" target="_blank" class="meta-link">AmiiboAPI</a>
+                        @if (t.amiibo_id) {
+                          <a [href]="'https://amiiboapi.org/api/amiibo/?id=' + t.amiibo_id" target="_blank" class="meta-link">AmiiboAPI</a>
                         }
-                        @if (f.scl_url) {
-                          <a [href]="f.scl_url" target="_blank" class="meta-link">SCL Character Page</a>
+                        @if (t.scl_url) {
+                          <a [href]="t.scl_url" target="_blank" class="meta-link">SCL Character Page</a>
                         }
                       </span>
                     </div>
@@ -283,7 +283,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
       padding: 2rem;
     }
  
-    .figure-detail-art {
+    .toy-detail-art {
        width: 100%;
        height: 100%;
        object-fit: contain !important;
@@ -425,7 +425,7 @@ export class ItemDetailComponent {
   private router = inject(Router);
   private collectionService = inject(CollectionService);
   
-  /** The current item type ('game', 'figure', or 'platform') derived from the route */
+  /** The current item type ('game', 'toy', or 'platform') derived from the route */
   public type = toSignal(this.route.paramMap.pipe(switchMap(p => [p.get('type') || ''])), { initialValue: '' });
   
   /** 
@@ -441,7 +441,7 @@ export class ItemDetailComponent {
         
         switch (type) {
           case 'game': return this.collectionService.getGameById(id);
-          case 'figure': return this.collectionService.getFigureById(id);
+          case 'toy': return this.collectionService.getToyById(id);
           case 'platform': return this.collectionService.getPlatformById(Number(id));
           default: throw new Error('Unknown type');
         }
@@ -451,7 +451,7 @@ export class ItemDetailComponent {
 
   /** --- Type-Safe Accessors for Computed Metadata --- */
   public game = computed(() => this.type() === 'game' ? this.item() as Game : null);
-  public figure = computed(() => this.type() === 'figure' ? this.item() as Figure : null);
+  public toy = computed(() => this.type() === 'toy' ? this.item() as Toy : null);
   public platform = computed(() => this.type() === 'platform' ? this.item() as Platform : null);
 
   /**
@@ -459,7 +459,7 @@ export class ItemDetailComponent {
    * Handles string splitting to avoid browser-specific UTC offset bugs with Date objects.
    */
   public formattedDate = computed(() => {
-    const releaseDate = this.game()?.release_date || this.figure()?.release_date;
+    const releaseDate = this.game()?.release_date || this.toy()?.release_date;
     if (!releaseDate) return null;
     
     try {
@@ -500,7 +500,7 @@ export class ItemDetailComponent {
    * @param series The normalized series name to filter by.
    */
   filterBySeries(series: string) {
-    const tab = this.type() === 'figure' ? 'figures' : 'games';
+    const tab = this.type() === 'toy' ? 'toys' : 'games';
     const currentState = this.collectionService.getListState(tab);
     if (currentState) {
       this.collectionService.updateListState({

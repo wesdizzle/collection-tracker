@@ -2,13 +2,13 @@
  * COLLECTION SERVICE
  * 
  * Central data orchestrator for the Gagglog Collection Tracker.
- * Manages the state of games, figures, and platforms using Angular Signals.
+ * Manages the state of games, toys, and platforms using Angular Signals.
  * Handles API interactions, local state persistence via sessionStorage, 
  * and data discovery workflows.
  * 
  * DESIGN RATIONALE:
  * - Uses private signals with public read-only views to enforce one-way data flow.
- * - Separates state persistence by 'tab' (games vs figures) to allow independent 
+ * - Separates state persistence by 'tab' (games vs toys) to allow independent 
  *   browsing contexts.
  * - Utilizes firstValueFrom for async/await compatibility while keeping the 
  *   underlying API layer based on RxJS Observables.
@@ -18,7 +18,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Observable, firstValueFrom, catchError, of } from 'rxjs';
-import { Game, Figure, Platform, DiscoveryItem, DiscoveryPayload, ListState } from '../models/collection.models';
+import { Game, Toy, Platform, DiscoveryItem, DiscoveryPayload, ListState } from '../models/collection.models';
 
 @Injectable({
   providedIn: 'root'
@@ -32,10 +32,10 @@ export class CollectionService {
    * Stores filters, scroll positions, and display limits.
    */
   private _gamesState = signal<ListState | null>(null);
-  private _figuresState = signal<ListState | null>(null);
+  private _toysState = signal<ListState | null>(null);
   
   public readonly gamesState = this._gamesState.asReadonly();
-  public readonly figuresState = this._figuresState.asReadonly();
+  public readonly toysState = this._toysState.asReadonly();
 
   /**
    * Initializes the service and restores any saved navigation state from sessionStorage.
@@ -50,10 +50,10 @@ export class CollectionService {
   /**
    * Persists the current list state for a specific tab to sessionStorage.
    * 
-   * @param tab The collection tab to persist ('games' or 'figures').
+   * @param tab The collection tab to persist ('games' or 'toys').
    */
-  public persistState(tab: 'games' | 'figures') {
-    const state = tab === 'games' ? this._gamesState() : this._figuresState();
+  public persistState(tab: 'games' | 'toys') {
+    const state = tab === 'games' ? this._gamesState() : this._toysState();
     if (state) {
       sessionStorage.setItem(`gagglog_list_state_${tab}`, JSON.stringify(state));
     }
@@ -68,7 +68,7 @@ export class CollectionService {
     if (state.tab === 'games') {
       this._gamesState.set(state);
     } else {
-      this._figuresState.set(state);
+      this._toysState.set(state);
     }
     this.persistState(state.tab);
   }
@@ -79,8 +79,8 @@ export class CollectionService {
    * @param tab The collection tab to query.
    * @returns The current ListState or null if not set.
    */
-  public getListState(tab: 'games' | 'figures') {
-    return tab === 'games' ? this._gamesState() : this._figuresState();
+  public getListState(tab: 'games' | 'toys') {
+    return tab === 'games' ? this._gamesState() : this._toysState();
   }
 
   /**
@@ -88,13 +88,13 @@ export class CollectionService {
    * Called during construction to hydrate signals before first render.
    */
   public loadPersistedState() {
-    ['games', 'figures'].forEach(tab => {
+    ['games', 'toys'].forEach(tab => {
       const saved = sessionStorage.getItem(`gagglog_list_state_${tab}`);
       if (saved) {
         try {
           const state = JSON.parse(saved);
           if (tab === 'games') this._gamesState.set(state);
-          else this._figuresState.set(state);
+          else this._toysState.set(state);
         } catch (e) {
           console.error(`[CollectionService] Failed to parse saved ${tab} state`, e);
         }
@@ -108,14 +108,14 @@ export class CollectionService {
    */
   public resetListState() {
     this._gamesState.set(null);
-    this._figuresState.set(null);
+    this._toysState.set(null);
     sessionStorage.removeItem('gagglog_list_state_games');
-    sessionStorage.removeItem('gagglog_list_state_figures');
+    sessionStorage.removeItem('gagglog_list_state_toys');
   }
 
   /** --- Internal Core Collection Signals --- */
   private _games = signal<Game[]>([]);
-  private _figures = signal<Figure[]>([]);
+  private _toys = signal<Toy[]>([]);
   private _platforms = signal<Platform[]>([]);
   private _discoveryItems = signal<DiscoveryItem[]>([]);
   private _loading = signal<boolean>(false);
@@ -123,7 +123,7 @@ export class CollectionService {
 
   /** --- Public Read-only Signal Views --- */
   public readonly games = this._games.asReadonly();
-  public readonly figures = this._figures.asReadonly();
+  public readonly toys = this._toys.asReadonly();
   public readonly platforms = this._platforms.asReadonly();
   public readonly discoveryItems = this._discoveryItems.asReadonly();
   public readonly loading = this._loading.asReadonly();
@@ -131,7 +131,7 @@ export class CollectionService {
 
   /**
    * Orchestrates a full refresh of the collection data.
-   * Fetches games, figures, and platforms in parallel to minimize load time.
+   * Fetches games, toys, and platforms in parallel to minimize load time.
    * 
    * WHY: Parallellizing these requests ensures the application shell stays 
    * snappy even as the collection grows.
@@ -140,13 +140,13 @@ export class CollectionService {
     this._loading.set(true);
     this._error.set(null);
     try {
-      const [games, figures, platforms] = await Promise.all([
+      const [games, toys, platforms] = await Promise.all([
         firstValueFrom(this.getGames()),
-        firstValueFrom(this.getFigures()),
+        firstValueFrom(this.getToys()),
         firstValueFrom(this.getPlatforms())
       ]);
       this._games.set(games);
-      this._figures.set(figures);
+      this._toys.set(toys);
       this._platforms.set(platforms);
     } catch (err: unknown) {
       console.error('[CollectionService] Global refresh failed:', err);
@@ -176,12 +176,12 @@ export class CollectionService {
   }
 
   /**
-   * Fetches the entire figures collection.
+   * Fetches the entire toys collection.
    */
-  getFigures(): Observable<Figure[]> {
-    return this.http.get<Figure[]>('/api/figures').pipe(
+  getToys(): Observable<Toy[]> {
+    return this.http.get<Toy[]>('/api/toys').pipe(
       catchError(err => {
-        console.error('[CollectionService] Error fetching figures:', err);
+        console.error('[CollectionService] Error fetching toys:', err);
         return of([]);
       })
     );
@@ -207,10 +207,10 @@ export class CollectionService {
   }
   
   /**
-   * Fetches a single figure by its unique identifier.
+   * Fetches a single toy by its unique identifier.
    */
-  getFigureById(id: string): Observable<Figure> { 
-    return this.http.get<Figure>(`/api/figures/${id}`); 
+  getToyById(id: string): Observable<Toy> { 
+    return this.http.get<Toy>(`/api/toys/${id}`); 
   }
   
   /**

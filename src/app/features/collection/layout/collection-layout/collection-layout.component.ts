@@ -40,8 +40,8 @@ import { CollectionService } from '../../../../core/services/collection.service'
           <span class="label">Games</span>
           <div class="indicator"></div>
         </a>
-        <a routerLink="/collection/figures" routerLinkActive="active" class="nav-item">
-          <span class="label">Figures</span>
+        <a routerLink="/collection/toys" routerLinkActive="active" class="nav-item">
+          <span class="label">Toys</span>
           <div class="indicator"></div>
         </a>
         @if (isDev) {

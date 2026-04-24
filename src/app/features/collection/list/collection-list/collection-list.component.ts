@@ -1,7 +1,7 @@
 /**
  * COLLECTION LIST COMPONENT
  * 
- * The primary view for browsing the user's game and figure collection.
+ * The primary view for browsing the user's game and toy collection.
  * It provides a high-performance, infinite-scrolling grid with sophisticated 
  * grouping and filtering capabilities.
  * 
@@ -19,11 +19,10 @@
  */
 
 import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, signal, computed, effect, HostListener } from '@angular/core';
-
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller } from '@angular/common';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Platform, FilterState, PlatformGroup, FigureGroup, ListState } from '../../../../core/models/collection.models';
+import { Game, Platform, FilterState, PlatformGroup, ToyGroup, ListState } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 
 interface GameGroup {
@@ -47,7 +46,7 @@ interface GameGroup {
         [uniqueLines]="uniqueLines()"
         [uniqueTypes]="uniqueTypes()"
         [uniqueSeries]="uniqueSeries()"
-        [resultCount]="currentTab() === 'games' ? filteredGames().length : filteredFigures().length"
+        [resultCount]="currentTab() === 'games' ? filteredGames().length : filteredToys().length"
         (filtersChange)="onFiltersChange($event)">
       </app-collection-filters>
     
@@ -127,9 +126,9 @@ interface GameGroup {
         </div>
       }
     
-      @if (currentTab() === 'figures') {
+      @if (currentTab() === 'toys') {
         <div class="groups-container animate-fade-in animate-stagger-2">
-          @for (group of groupedFigures(); track group.lineName) {
+          @for (group of groupedToys(); track group.lineName) {
             <div class="platform-section mb-xl">
               <header class="platform-header">
                 <div class="header-content">
@@ -146,17 +145,17 @@ interface GameGroup {
                   <div class="platform-badge">{{ group.totalCount }} Items</div>
                 </div>
               </header>
- 
+  
               <div class="grid">
-                @for (figure of group.figures; track figure.id) {
-                  <a [routerLink]="['/collection', 'figure', figure.id]" 
+                @for (toy of group.toys; track toy.id) {
+                  <a [routerLink]="['/collection', 'toy', toy.id]" 
                      class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
-                    <div class="card-art-frame figure-frame">
-                      @if (figure.image_url) {
+                    <div class="card-art-frame toy-frame">
+                      @if (toy.image_url) {
                         <img 
-                          [src]="figure.image_url" 
-                          alt="Figure" 
-                          class="card-art figure-art"
+                          [src]="toy.image_url" 
+                          alt="Toy" 
+                          class="card-art toy-art"
                           loading="lazy"
                           decoding="async">
                       } @else {
@@ -164,27 +163,27 @@ interface GameGroup {
                           No Image
                         </div>
                       }
-                      <div class="region-flag" [title]="'Region: ' + figure.region">
-                        {{ figure.region }}
+                      <div class="region-flag" [title]="'Region: ' + toy.region">
+                        {{ toy.region }}
                       </div>
                     </div>
- 
+  
                     <div class="card-content">
                       <div class="content-header">
                         <div class="flex gap-2xs items-center">
-                          @if (figure.verified) {
+                          @if (toy.verified) {
                             <span class="igdb-icon" title="Verified Metadata">✨</span>
                           }
-                          <span class="release-year">{{ figure.type }}</span>
+                          <span class="release-year">{{ toy.type }}</span>
                         </div>
-                        @if (figure.release_date) {
-                          <span class="release-year">{{ figure.release_date.substring(0, 4) }}</span>
+                        @if (toy.release_date) {
+                          <span class="release-year">{{ toy.release_date.substring(0, 4) }}</span>
                         }
                       </div>
-                      <div class="text-2xs text-secondary font-medium uppercase letter-spacing-wide">{{figure.line}}</div>
-                      <h3 class="card-title mt-2xs">{{figure.name}}</h3>
-                      @if (figure.figure_series || figure.series_name) {
-                        <div class="card-subtitle" title="Series">{{figure.figure_series || figure.series_name}}</div>
+                      <div class="text-2xs text-secondary font-medium uppercase letter-spacing-wide">{{toy.line}}</div>
+                      <h3 class="card-title mt-2xs">{{toy.name}}</h3>
+                      @if (toy.series_name) {
+                        <div class="card-subtitle" title="Series">{{toy.series_name}}</div>
                       }
                     </div>
                   </a>
@@ -278,12 +277,12 @@ interface GameGroup {
       color: #fff; z-index: 2;
     }
  
-    .figure-frame {
+    .toy-frame {
       background: radial-gradient(circle at center, var(--m3-surface-container-highest), var(--m3-surface-container-high));
       padding: 1rem;
     }
  
-    .figure-art {
+    .toy-art {
       object-fit: contain !important;
       filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
     }
@@ -347,7 +346,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   private stateInitialized = false;
 
   /** --- Reactive Application State --- */
-  public currentTab = signal<'games' | 'figures'>('games');
+  public currentTab = signal<'games' | 'toys'>('games');
   public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '', seriesExact: false });
   public displayLimit = signal<number>(100);
  
@@ -467,27 +466,27 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   });
  
   /**
-   * Reactive pipeline for filtering the figure collection.
+   * Reactive pipeline for filtering the toy collection.
    */
-  public filteredFigures = computed(() => {
-    const allFigures = this.collectionService.figures();
+  public filteredToys = computed(() => {
+    const allToys = this.collectionService.toys();
     const f = this.filters();
-    return allFigures.filter(fig => {
+    return allToys.filter(toy => {
       // Ownership Filter
-      const isOwned = fig.owned === 1 || fig.owned === true;
+      const isOwned = toy.owned === 1 || toy.owned === true;
       if (f.ownership === 'owned' && !isOwned) return false;
       if (f.ownership === 'wanted' && isOwned) return false;
  
       // Line Filter (e.g. Amiibo, Skylanders)
-      if (f.line && fig.line !== f.line) return false;
+      if (f.line && toy.line !== f.line) return false;
  
       // Type Filter (e.g. Figure, Card)
-      if (f.type && fig.type !== f.type) return false;
+      if (f.type && toy.type !== f.type) return false;
  
       // Series Filter (Case & Accent Insensitive)
       if (f.series) {
         const normalizedFilter = this.normalizeString(f.series);
-        const normalizedSeries = this.normalizeString(fig.series_name || '');
+        const normalizedSeries = this.normalizeString(toy.series_name || '');
         if (f.seriesExact) {
           if (normalizedSeries !== normalizedFilter) return false;
         } else {
@@ -499,51 +498,51 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     });
   });
  
-  /** Virtual list window for figures */
-  public displayFigures = computed(() => this.filteredFigures().slice(0, this.displayLimit()));
+  /** Virtual list window for toys */
+  public displayToys = computed(() => this.filteredToys().slice(0, this.displayLimit()));
  
   /**
-   * Computes the UI grouping for figures, organized by 'Line'.
+   * Computes the UI grouping for toys, organized by 'Line'.
    */
-  public groupedFigures = computed(() => {
-    const displayed = this.displayFigures();
-    const allFiltered = this.filteredFigures();
+  public groupedToys = computed(() => {
+    const displayed = this.displayToys();
+    const allFiltered = this.filteredToys();
     
-    // 1. Get counts for all filtered figures per line
+    // 1. Get counts for all filtered toys per line
     const counts = new Map<string, number>();
     for (const f of allFiltered) {
       const line = f.line || 'Unknown';
       counts.set(line, (counts.get(line) || 0) + 1);
     }
  
-    // 2. Build groups from DISPLAYED figures
-    const groups: FigureGroup[] = [];
-    const groupMap = new Map<string, FigureGroup>();
+    // 2. Build groups from DISPLAYED toys
+    const groups: ToyGroup[] = [];
+    const groupMap = new Map<string, ToyGroup>();
     
-    for (const figure of displayed) {
-      const line = figure.line || 'Unknown';
+    for (const toy of displayed) {
+      const line = toy.line || 'Unknown';
       let group = groupMap.get(line);
       if (!group) {
         group = { 
           lineName: line, 
-          figures: [],
+          toys: [],
           totalCount: counts.get(line) || 0
         };
         groups.push(group);
         groupMap.set(line, group);
       }
-      group.figures.push(figure);
+      group.toys.push(toy);
     }
     return groups;
   });
  
   /** --- Utility Selectors for Filter Dropdowns --- */
-  public uniqueLines = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.line))).filter(Boolean).sort());
-  public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.figures().map(f => f.type))).filter(Boolean).sort());
+  public uniqueLines = computed(() => Array.from(new Set(this.collectionService.toys().map(f => f.line))).filter(Boolean).sort());
+  public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.toys().map(f => f.type))).filter(Boolean).sort());
   public uniqueSeries = computed(() => {
     const gameSeries = this.collectionService.games().map(g => g.canonical_series);
-    const figureSeries = this.collectionService.figures().map(f => f.figure_series || f.series_name);
-    return Array.from(new Set([...gameSeries, ...figureSeries])).filter(Boolean).sort();
+    const toySeries = this.collectionService.toys().map(f => f.series_name);
+    return Array.from(new Set([...gameSeries, ...toySeries])).filter(Boolean).sort();
   });
  
   /**
@@ -625,7 +624,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
    */
   async ngOnInit() {
     this.stateInitialized = false;
-    this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'figures' || 'games');
+    this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'toys' || 'games');
     
     const savedState = this.collectionService.getListState(this.currentTab());
     if (savedState) {

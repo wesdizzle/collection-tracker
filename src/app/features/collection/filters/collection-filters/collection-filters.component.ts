@@ -69,7 +69,7 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
           </div>
         }
       
-        @if (currentTab() === 'figures') {
+        @if (currentTab() === 'toys') {
           <div class="filter-group">
             <label class="m3-label">Line</label>
             <div class="input-wrapper">
@@ -83,7 +83,7 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
           </div>
         }
       
-        @if (currentTab() === 'figures') {
+        @if (currentTab() === 'toys') {
           <div class="filter-group">
             <label class="m3-label" title="Form factor (e.g. Figure, Card, Yarn)">Type</label>
             <div class="input-wrapper">
@@ -297,7 +297,7 @@ export class CollectionFiltersComponent {
   public showFilters = signal(false);
  
   /** --- Reactive Inputs --- */
-  public currentTab = input.required<'games' | 'figures'>();
+  public currentTab = input.required<'games' | 'toys'>();
   public platformGroups = input<PlatformGroup[]>([]);
   public uniqueLines = input<string[]>([]);
   public uniqueTypes = input<string[]>([]);

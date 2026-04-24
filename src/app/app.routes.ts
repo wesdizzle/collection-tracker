@@ -13,8 +13,8 @@ export const routes: Routes = [
         loadComponent: () => import('./features/collection/list/collection-list/collection-list.component').then(m => m.CollectionListComponent)
       },
       { 
-        path: 'figures', 
-        title: 'Figures',
+        path: 'toys', 
+        title: 'Toys',
         loadComponent: () => import('./features/collection/list/collection-list/collection-list.component').then(m => m.CollectionListComponent)
       },
       {
