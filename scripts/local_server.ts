@@ -92,16 +92,29 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
 
                 if (isToy) {
                     const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
-                    const response = await axios.get(`https://amiiboapi.org/api/amiibo/?id=${amiiboId}`);
-                    const a = response.data.amiibo;
-                    
-                    db.prepare(`
-                        UPDATE toys 
-                        SET amiibo_id = ?, name = ?, type = ?, image_url = ?, game_series = ?, region = ?, verified = 1, metadata_json = ?
-                        WHERE name = ? AND line = 'amiibo'
-                    `).run(amiiboId, a.name, a.type, a.image, a.gameSeries, region || 'NA', JSON.stringify(a), currentTitle);
-                    
-                    console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
+                    try {
+                        const apiUrl = `https://amiiboapi.org/api/amiibo/?id=${amiiboId}`;
+                        console.log(`Fetching amiibo metadata: ${apiUrl}`);
+                        const response = await axios.get(apiUrl, { timeout: 10000 });
+                        const a = response.data.amiibo;
+                        
+                        if (!a) {
+                            throw new Error(`Amiibo API returned no results for ID: ${amiiboId}`);
+                        }
+                        
+                        db.prepare(`
+                            UPDATE toys 
+                            SET amiibo_id = ?, name = ?, type = ?, image_url = ?, game_series = ?, region = ?, verified = 1, metadata_json = ?
+                            WHERE name = ? AND line = 'amiibo'
+                        `).run(amiiboId, a.name, a.type, a.image, a.gameSeries, region || 'NA', JSON.stringify(a), currentTitle);
+                        
+                        console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
+                    } catch (apiErr: unknown) {
+                        console.error(`Amiibo API fetch failed for ID ${amiiboId}:`, apiErr);
+                        const apiErrMsg = apiErr instanceof Error ? apiErr.message : 'Unknown error';
+                        // Throw specific error format so frontend displays it cleanly
+                        throw new Error(`Failed to fetch amiibo metadata: ${apiErrMsg}`, { cause: apiErr });
+                    }
                 } else {
                     // 1. Fetch Full Metadata from IGDB
                     let summary: string | null = null;

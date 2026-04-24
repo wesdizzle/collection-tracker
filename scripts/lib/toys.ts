@@ -36,7 +36,7 @@ export async function getAmiiboSeries(seriesName?: string): Promise<Toy[]> {
         const params: Record<string, string> = {};
         if (seriesName) params['amiiboSeries'] = seriesName;
 
-        const response = await axios.get(`https://www.amiiboapi.org/api/amiibo/`, {
+        const response = await axios.get(`https://amiiboapi.org/api/amiibo/`, {
             params,
             headers: { 'User-Agent': 'CollectionTracker/1.0' },
             timeout: 10000
@@ -44,6 +44,7 @@ export async function getAmiiboSeries(seriesName?: string): Promise<Toy[]> {
 
         
         interface Amiibo {
+            head: string;
             tail: string;
             name: string;
             amiiboSeries: string;
@@ -54,7 +55,7 @@ export async function getAmiiboSeries(seriesName?: string): Promise<Toy[]> {
         
         const data = response.data as { amiibo: Amiibo[] };
         return data.amiibo.map((a: Amiibo) => ({
-            id: a.tail,
+            id: `${a.head}${a.tail}`,
             name: a.name,
             line: 'amiibo',
             series_name: a.amiiboSeries,
