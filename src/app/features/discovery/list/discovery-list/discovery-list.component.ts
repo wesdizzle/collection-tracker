@@ -44,7 +44,16 @@ import { RouterModule } from '@angular/router';
               <div class="card-header">
                 <div>
                   <h2 class="text-lg font-bold">{{ item.title }}</h2>
-                  <span class="platform-badge" [class.toy-badge]="item.platform === 'amiibo'">{{ item.platform }}</span>
+                  <div class="flex gap-2 items-center mt-1">
+                    <span class="platform-badge" [class.toy-badge]="item.platform === 'amiibo'">{{ item.platform }}</span>
+                    @if (item.line) {
+                      <span class="metadata-badge">Line: {{ item.line }}</span>
+                    }
+                    @if (item.series) {
+                      <span class="metadata-badge">Series: {{ item.series }}</span>
+                    }
+                    <span class="metadata-badge">DEBUG</span>
+                  </div>
                 </div>
                 <div class="count-badge">{{ item.options.length }} Candidates</div>
               </div>
@@ -185,6 +194,18 @@ import { RouterModule } from '@angular/router';
       font-weight: 700;
       text-transform: uppercase;
     }
+
+    .metadata-badge {
+      font-size: 0.65rem;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      color: var(--text-secondary);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .gap-2 { gap: 0.5rem; }
+    .items-center { align-items: center; }
 
     .count-badge {
       font-size: 0.75rem;
@@ -329,6 +350,8 @@ export class DiscoveryListComponent implements OnInit {
     const payload: DiscoveryPayload = {
       currentTitle: item.title,
       currentPlatform: item.platform,
+      currentLine: item.line,
+      currentSeries: item.series,
       selectedIgdbId: option.id,
       selectedName: option.name,
       selectedPlatform: option.platform,

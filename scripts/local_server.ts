@@ -74,6 +74,8 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
         else if (req.method === 'POST' && pathname === '/api/discovery/apply') {
             let currentTitle = '';
             let currentPlatform = '';
+            let currentLine = '';
+            let currentSeries = '';
             let isToy = false;
 
             try {
@@ -87,6 +89,8 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                 const payload: ApplyPayload = JSON.parse(body);
                 currentTitle = payload.currentTitle;
                 currentPlatform = payload.currentPlatform;
+                currentLine = payload.currentLine || '';
+                currentSeries = payload.currentSeries || '';
                 const { selectedIgdbId, selectedName, selectedPlatform, region } = payload;
                 isToy = selectedIgdbId.toString().startsWith('amiibo-');
 
@@ -104,9 +108,9 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                         
                         db.prepare(`
                             UPDATE toys 
-                            SET amiibo_id = ?, name = ?, type = ?, image_url = ?, game_series = ?, region = ?, verified = 1, metadata_json = ?
+                            SET amiibo_id = ?, name = ?, type = ?, image_url = ?, series = ?, region = ?, verified = 1, metadata_json = ?
                             WHERE name = ? AND line = 'amiibo'
-                        `).run(amiiboId, a.name, a.type, a.image, a.gameSeries, region || 'NA', JSON.stringify(a), currentTitle);
+                        `).run(amiiboId, a.name, a.type, a.image, a.amiiboSeries, region || 'NA', JSON.stringify(a), currentTitle);
                         
                         console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
                     } catch (apiErr: unknown) {
@@ -201,9 +205,15 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                     // Keep the first section (header) and filter out the matched one
                     const header = sections[0];
                     const remainingSections = sections.slice(1).filter(section => {
-                        const headerLine = section.split('\n')[0];
-                        const targetHeader = isToy ? `${currentTitle} (amiibo)` : `${currentTitle} (${currentPlatform})`;
-                        return headerLine.trim() !== targetHeader.trim();
+                        const headerLine = section.split('\n')[0].trim();
+                        let targetHeader = isToy ? `${currentTitle} (amiibo)` : `${currentTitle} (${currentPlatform})`;
+                        
+                        // If we have metadata, use the rich header format
+                        if (currentLine && currentSeries) {
+                            targetHeader = `${currentTitle} (${currentPlatform}) | Line: ${currentLine} | Series: ${currentSeries}`;
+                        }
+                        
+                        return headerLine !== targetHeader.trim();
                     });
 
                     const newContent = [header, ...remainingSections].join('\n### ');

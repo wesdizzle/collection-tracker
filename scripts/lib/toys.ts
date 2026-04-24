@@ -22,7 +22,7 @@ export interface Toy {
     amiibo_id?: string;
     metadata_json?: string;
     scl_url?: string;
-    game_series?: string;
+    series?: string;
 }
 
 /**

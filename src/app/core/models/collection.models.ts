@@ -39,8 +39,7 @@ export interface Toy {
     type: string;
     series_name: string;
     series_line: string;
-    toy_series?: string;
-    game_series?: string;
+    series?: string;
     release_date: string;
     owned: boolean | number;
     image_url: string;
@@ -79,12 +78,16 @@ export interface DiscoveryOption {
 export interface DiscoveryItem {
     title: string;
     platform: string;
+    line?: string;
+    series?: string;
     options: DiscoveryOption[];
 }
 
 export interface DiscoveryPayload {
     currentTitle: string;
     currentPlatform: string;
+    currentLine?: string;
+    currentSeries?: string;
     selectedIgdbId: string | number;
     selectedName: string;
     selectedPlatform: string;

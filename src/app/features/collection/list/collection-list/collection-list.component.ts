@@ -482,6 +482,9 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
  
       // Type Filter (e.g. Figure, Card)
       if (f.type && toy.type !== f.type) return false;
+
+      // Region Filter
+      if (f.region && toy.region !== f.region) return false;
  
       // Series Filter (Case & Accent Insensitive)
       if (f.series) {

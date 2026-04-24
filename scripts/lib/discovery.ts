@@ -9,12 +9,16 @@ export interface DiscoveryOption {
 export interface DiscoveryItem {
     title: string;
     platform: string;
+    line?: string;
+    series?: string;
     options: DiscoveryOption[];
 }
 
 export interface ApplyPayload {
     currentTitle: string;
     currentPlatform: string;
+    currentLine?: string;
+    currentSeries?: string;
     selectedIgdbId: string;
     selectedName: string;
     selectedPlatform: string;
@@ -34,13 +38,28 @@ export function parseDiscoveryReport(content: string): DiscoveryItem[] {
     for (const line of lines) {
         if (line.startsWith('### ')) {
             if (currentItem) discoveryItems.push(currentItem);
-            const match = line.match(/### (.*) \((.*)\)/);
+            
+            // Flexible regex to handle metadata
+            const match = line.match(/### (.*?) \((.*?)\)\s*\|\s*Line:\s*(.*?)\s*\|\s*Series:\s*(.*?)$/);
+            
             if (match) {
                 currentItem = {
                     title: match[1].trim(),
                     platform: match[2].trim(),
+                    line: match[3]?.trim(),
+                    series: match[4]?.trim(),
                     options: []
                 };
+            } else {
+                // Fallback for simple headers or if regex failed
+                const fallback = line.match(/### (.*?) \((.*?)\)/);
+                if (fallback) {
+                    currentItem = {
+                        title: fallback[1].trim(),
+                        platform: fallback[2].trim(),
+                        options: []
+                    };
+                }
             }
         } else if (currentItem && line.match(/- \[ \] \*\*(Update to|Link to):\*\*/)) {
             const match = line.match(/- \[ \] \*\*(?:Update to|Link to):\*\* (.*) \((.*)\) - ID: (.*)/);

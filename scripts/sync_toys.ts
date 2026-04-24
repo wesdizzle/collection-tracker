@@ -47,6 +47,7 @@ interface LocalToy {
     name: string;
     line: string;
     verified?: number;
+    amiibo_id?: string;
 }
 
 function superNormalize(s: string) {
@@ -63,18 +64,19 @@ async function syncAmiibo() {
         const allAmiibo = response.data.amiibo as AmiiboApiItem[];
         console.log(`Fetched ${allAmiibo.length} amiibo from API.`);
 
-        const localAmiibos = db.prepare("SELECT * FROM toys WHERE line = 'amiibo'").all() as LocalToy[];
+        const localAmiibos = db.prepare("SELECT * FROM toys WHERE line = 'amiibo' AND verified = 1").all() as LocalToy[];
         console.log(`Matching against ${localAmiibos.length} local amiibos.`);
 
         const updateStmt = db.prepare(`
             UPDATE toys 
-            SET image_url = ?, release_date = ?, amiibo_id = ?, region = ?, game_series = ?, figure_series = ?, type = ?, verified = 1, metadata_json = ?
+            SET image_url = ?, release_date = ?, amiibo_id = ?, region = ?, series = ?, type = ?, verified = 1, metadata_json = ?
             WHERE id = ?
         `);
 
         let matched = 0;
         for (const local of localAmiibos) {
             const match = allAmiibo.find(a => 
+                (local.amiibo_id && `${a.head}${a.tail}` === local.amiibo_id) ||
                 a.name.toLowerCase() === local.name.toLowerCase() ||
                 `${a.character} - ${a.amiiboSeries}`.toLowerCase() === local.name.toLowerCase()
             );
@@ -84,15 +86,22 @@ async function syncAmiibo() {
                 let region = 'NA';
                 let releaseDate = match.release.na;
                 if (!releaseDate) { region = 'JP'; releaseDate = match.release.jp; }
-                if (!releaseDate) { region = 'EU'; releaseDate = match.release.eu; }
-                if (!releaseDate) { region = 'AU'; releaseDate = match.release.au; }
+                if (!releaseDate) { 
+                    region = 'EU'; 
+                    releaseDate = match.release.eu; 
+                    if (releaseDate) console.log(`[WARNING] Amiibo "${match.name}" (${match.amiiboSeries}) matched via EU release date.`);
+                }
+                if (!releaseDate) { 
+                    region = 'AU'; 
+                    releaseDate = match.release.au; 
+                    if (releaseDate) console.log(`[WARNING] Amiibo "${match.name}" (${match.amiiboSeries}) matched via AU release date.`);
+                }
 
                 updateStmt.run(
                     match.image, 
                     releaseDate, 
                     `${match.head}${match.tail}`, 
                     region,
-                    match.gameSeries,
                     match.amiiboSeries,
                     match.type,
                     JSON.stringify(match), 
@@ -146,7 +155,7 @@ async function syncSkylanders() {
             });
         }
 
-        const localSkylanders = db.prepare("SELECT * FROM toys WHERE line = 'Skylanders'").all() as LocalToy[];
+        const localSkylanders = db.prepare("SELECT * FROM toys WHERE line = 'Skylanders' AND verified = 1").all() as LocalToy[];
         console.log(`Matching against ${localSkylanders.length} local Skylanders.`);
 
         const updateStmt = db.prepare(`

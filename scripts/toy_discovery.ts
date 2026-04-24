@@ -32,6 +32,8 @@ interface DiscoveryOption {
 interface DiscoveryItem {
     title: string;
     platform: string;
+    line: string;
+    series: string;
     options: DiscoveryOption[];
 }
 
@@ -39,9 +41,9 @@ async function discoverAmiibo() {
     console.log('--- Discovering Amiibo ---');
     try {
         const response = await axios.get('https://amiiboapi.org/api/amiibo/');
-        const allAmiibo = response.data.amiibo as AmiiboApiItem[];
+        const allAmiibo = (response.data.amiibo as AmiiboApiItem[]).filter(a => a.type !== 'Card');
         
-        const localAmiibos = db.prepare("SELECT * FROM toys WHERE line = 'amiibo'").all() as { name: string; amiibo_id?: string; verified?: number }[];
+        const localAmiibos = db.prepare("SELECT * FROM toys WHERE line = 'amiibo'").all() as { name: string; line: string; series: string; amiibo_id?: string; verified?: number }[];
         const localAmiiboIds = new Set(localAmiibos.map(f => f.amiibo_id).filter(Boolean));
         const localNames = new Set(localAmiibos.map(f => f.name.toLowerCase()));
 
@@ -50,21 +52,36 @@ async function discoverAmiibo() {
         // 1. Find local toys that are NOT verified
         const unverified = localAmiibos.filter(f => !f.verified);
         for (const local of unverified) {
-            const matches = allAmiibo.filter((a: AmiiboApiItem) => 
-                a.name.toLowerCase().includes(local.name.toLowerCase()) ||
-                local.name.toLowerCase().includes(a.name.toLowerCase())
-            ).slice(0, 5);
+            const localLower = local.name.toLowerCase();
+            const localFirstWord = localLower.split(' ')[0];
+
+            const matches = allAmiibo.filter((a: AmiiboApiItem) => {
+                const id = `${a.head}${a.tail}`;
+                if (localAmiiboIds.has(id)) return false; // Exclude already matched
+
+                const nameLower = a.name.toLowerCase();
+                const seriesLower = a.amiiboSeries.toLowerCase();
+                const gameSeriesLower = a.gameSeries.toLowerCase();
+
+                return nameLower.includes(localLower) || 
+                       localLower.includes(nameLower) ||
+                       seriesLower.includes(localLower) ||
+                       gameSeriesLower.includes(localLower) ||
+                       (localFirstWord.length > 3 && nameLower.includes(localFirstWord));
+            }).slice(0, 10);
 
             if (matches.length > 0) {
                 discoveryItems.push({
                     title: local.name,
                     platform: 'amiibo',
+                    line: local.line,
+                    series: local.series,
                     options: matches.map((m: AmiiboApiItem) => ({
                         name: `${m.name} (${m.amiiboSeries})`,
                         platform: 'amiibo',
                         id: `amiibo-${m.head}${m.tail}`,
                         image_url: m.image,
-                        summary: `Game Series: ${m.gameSeries}`
+                        summary: `Amiibo Series: ${m.amiiboSeries} | Game Series: ${m.gameSeries}`
                     }))
                 });
             }
@@ -86,7 +103,7 @@ async function discoverAmiibo() {
         }
 
         for (const item of discoveryItems) {
-            markdown += `### ${item.title} (amiibo)\n`;
+            markdown += `### ${item.title} (${item.platform}) | Line: ${item.line} | Series: ${item.series}\n`;
             for (const opt of item.options) {
                 markdown += `- [ ] **Link to:** ${opt.name} (amiibo) - ID: ${opt.id}\n`;
                 markdown += `  - ![image](${opt.image_url})\n`;
@@ -107,8 +124,8 @@ async function discoverAmiibo() {
         }
 
         const reportPath = path.join(process.cwd(), 'discovery_report.md');
-        fs.appendFileSync(reportPath, markdown);
-        console.log('Appended toy discovery to discovery_report.md');
+        fs.writeFileSync(reportPath, markdown);
+        console.log('Regenerated discovery_report.md');
 
     } catch (error: unknown) {
         if (error instanceof Error) {

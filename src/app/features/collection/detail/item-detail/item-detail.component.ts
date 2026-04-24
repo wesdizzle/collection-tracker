@@ -144,16 +144,10 @@ import { toSignal } from '@angular/core/rxjs-interop';
                     <span class="label">Type</span>
                     <span class="value">{{ t.type }}</span>
                   </div>
-                  @if (t.toy_series || t.series_name) {
+                  @if (t.series || t.series_name) {
                     <div class="meta-box">
-                      <span class="label">Toy Series</span>
-                      <span class="value">{{ t.toy_series || t.series_name }}</span>
-                    </div>
-                  }
-                  @if (t.game_series) {
-                    <div class="meta-box">
-                      <span class="label">Game Series</span>
-                      <span class="value">{{ t.game_series }}</span>
+                      <span class="label">Series</span>
+                      <span class="value">{{ t.series || t.series_name }}</span>
                     </div>
                   }
                   @if (t.amiibo_id || t.scl_url) {
