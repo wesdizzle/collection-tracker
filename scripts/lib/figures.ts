@@ -1,3 +1,13 @@
+/**
+ * FIGURES METADATA LIBRARY
+ * 
+ * This library provides utility functions for fetching and normalizing metadata 
+ * for various figure lines, including amiibo, Skylanders, and Starlink.
+ * 
+ * It serves as the primary data ingestion layer for the figure reconciliation 
+ * and discovery pipelines.
+ */
+
 import axios from 'axios';
 
 export interface Figure {
@@ -20,14 +30,18 @@ export interface Figure {
  * 
  * Fetches all figures in a given series from the AmiiboAPI.
  */
-export async function getAmiiboSeries(seriesName: string): Promise<Figure[]> {
+export async function getAmiiboSeries(seriesName?: string): Promise<Figure[]> {
     try {
         await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay
+        const params: Record<string, string> = {};
+        if (seriesName) params['amiiboSeries'] = seriesName;
+
         const response = await axios.get(`https://www.amiiboapi.org/api/amiibo/`, {
-            params: { amiiboSeries: seriesName },
+            params,
             headers: { 'User-Agent': 'CollectionTracker/1.0' },
             timeout: 10000
         });
+
         
         interface Amiibo {
             tail: string;

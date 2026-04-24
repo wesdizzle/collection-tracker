@@ -15,15 +15,16 @@
  * 2. **Discovery Mechanism**:
  *    - When run with `--discovery`, it analyzes the series/franchises owned by 
  *      the user and identifies missing canonical entries to populate the 'Wanted' list.
- * 3. **Human-in-the-Loop**:
+ * 3. **Programmatic Reconciliation**:
  *    - Items with ambiguous matches (confidence < 100) are offloaded to a 
- *      `discovery_report.md` for manual user triage in the Discovery UI.
+ *      `discovery_report.md` which serves as the data source for the 
+ *      Discovery page in the local development UI.
  */
 
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
-import { findGame, getCollectionGames, NormalizedGame, IGDBGame, calculateConfidence } from './lib/igdb.js';
-import { scrapePriceCharting, scrapePlayStationStore, downloadCoverImage } from './lib/web_scraper.js';
+import { findGame, NormalizedGame, IGDBGame, calculateConfidence } from './lib/igdb.js';
+import { scrapePriceCharting, scrapePlayStationStore } from './lib/web_scraper.js';
 import { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries, Figure } from './lib/figures.js';
 
 const db = new Database('collection.sqlite');
@@ -74,19 +75,21 @@ interface FigureDiscovery {
     items: Figure[];
 }
 
+
+
 /**
- * UTILITY: normalizeTitle
+ * UTILITY: superNormalize
  * 
- * Standardizes titles for high-fidelity matching across different data sources.
+ * Aggressively standardizes strings for cross-source matching by removing 
+ * all non-alphanumeric characters.
  */
-function normalizeTitle(title: string): string {
-    if (!title) return '';
-    return title.toLowerCase()
-        .replace(/[–—]/g, '-')
-        .replace(/&/g, 'and')
-        .replace(/[^a-z0-9+: -]/g, '') // Preserve +, :, and -
-        .trim();
+function superNormalize(s: string): string {
+    return s.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]/g, '');
 }
+
 
 async function runScraper(): Promise<void> {
     const args = process.argv.slice(2);
@@ -108,7 +111,7 @@ async function runScraper(): Promise<void> {
     console.log(`Processing ${existingGames.length} collection items...`);
 
     for (const game of existingGames) {
-        if (game.igdb_id) {
+        if (game.igdb_id || game.pricecharting_url) {
             console.log(`Skipping already-verified Game: ${game.title} (${game.platform_display_name})`);
             continue;
         }
@@ -210,39 +213,66 @@ async function runScraper(): Promise<void> {
     const existingFigures = db.prepare('SELECT * FROM figures').all() as Figure[];
     console.log(`Processing ${existingFigures.length} figures...`);
 
-    for (const figure of existingFigures) {
-        if (figure.verified) continue;
+    // Fetch all Amiibos once for efficient matching and discovery
+    let allApiAmiibo: Figure[] = [];
+    if (runDiscovery || existingFigures.some(f => f.line.toLowerCase() === 'amiibo' && !f.verified)) {
+        console.log('Fetching master Amiibo list...');
+        allApiAmiibo = await getAmiiboSeries();
+    }
 
-        if (figure.line.toLowerCase() === 'amiibo') {
-            process.stdout.write(`Verifying Figure: ${figure.name}... `);
-            const matches = await getAmiiboSeries(figure.name);
-            if (matches.length > 0) {
-                syncSuggestions.push({
-                    type: 'Figure',
-                    current: `${figure.name} (amiibo)`,
-                    options: matches.map(m => ({
-                        id: `amiibo-${m.id}`,
-                        name: m.name,
-                        platform: 'amiibo',
-                        image_url: m.image_url,
-                        summary: `Series: ${m.series_name} | Type: ${m.type}`,
-                        category: m.type
-                    })),
-                    localId: figure.id as unknown as number
-                });
-                console.log(`${matches.length} candidates.`);
-            } else {
-                console.log("No candidates.");
-            }
+
+    for (const figure of existingFigures) {
+        // Skip if already linked or verified
+        if (figure.verified || figure.amiibo_id) continue;
+
+        // For now, only handle amiibo matching as requested
+        if (figure.line.toLowerCase() !== 'amiibo') continue;
+
+        process.stdout.write(`Verifying Figure: ${figure.name}... `);
+        
+        // Find broad candidates for manual matching (no auto-matching)
+        const normName = superNormalize(figure.name);
+        const matches = allApiAmiibo.filter(a => {
+            const aNorm = superNormalize(a.name);
+            return aNorm.includes(normName) || normName.includes(aNorm);
+        });
+        
+        if (matches.length > 0) {
+            // Sort by better match (exact first)
+            const sortedMatches = matches.sort((a, b) => {
+                const aExact = superNormalize(a.name) === normName;
+                const bExact = superNormalize(b.name) === normName;
+                if (aExact && !bExact) return -1;
+                if (!aExact && bExact) return 1;
+                return 0;
+            });
+
+            syncSuggestions.push({
+                type: 'Figure',
+                current: `${figure.name} (amiibo)`,
+                options: sortedMatches.slice(0, 15).map(m => ({ // Provide up to 15 options
+                    id: `amiibo-${m.id}`,
+                    name: m.name,
+                    platform: 'amiibo',
+                    image_url: m.image_url,
+                    summary: `Series: ${m.series_name} | Type: ${m.type}`,
+                    category: m.type
+                })),
+                localId: figure.id as unknown as number
+            });
+            console.log(`${matches.length} candidates found.`);
+        } else {
+            console.log("No candidates.");
         }
     }
 
+
     const ignoredItems = (db.prepare('SELECT id FROM ignored_items').all() as { id: string }[]).map(i => i.id);
-    const existingGameNorms = existingGames.map(g => normalizeTitle(g.title));
     const figureDiscoveryResults: FigureDiscovery[] = [];
 
     // 3. Discovery Phase: Series-based
     if (runDiscovery) {
+        /* Temporarily disabled until PriceCharting physical verification is implemented
         // Discovery: Games
         const gameSeriesList = db.prepare('SELECT DISTINCT series FROM games WHERE series IS NOT NULL').all() as { series: string }[];
         for (const { series } of gameSeriesList) {
@@ -267,22 +297,36 @@ async function runScraper(): Promise<void> {
                 }
             }
         }
+        */
+
 
         // 4. Discovery: Figures
+        const existingFigureNorms = new Set(existingFigures.map(f => superNormalize(f.name)));
         const figureSeriesList = db.prepare('SELECT DISTINCT line FROM figures WHERE line IS NOT NULL').all() as { line: string }[];
-        const existingFigureIds = (db.prepare('SELECT id FROM figures').all() as { id: string }[]).map(f => f.id);
 
-        for (const { line: series_name } of figureSeriesList) {
-            console.log(`Discovering Figures for series: ${series_name}...`);
+        for (const { line: type } of figureSeriesList) {
+            // No new amiibo should be suggested at this point
+            if (type.toLowerCase() === 'amiibo') continue;
+            
+            process.stdout.write(`Discovering Figures for line: ${type}... `);
             let figures: Figure[] = [];
-            if (series_name.toLowerCase().includes('amiibo')) figures = await getAmiiboSeries(series_name);
-            else if (series_name.toLowerCase().includes('skylanders')) figures = await getSkylandersSeries(series_name);
-            else if (series_name.toLowerCase().includes('starlink')) figures = await getStarlinkSeries(series_name);
+            if (type.toLowerCase().includes('skylanders')) figures = await getSkylandersSeries(type);
+            else if (type.toLowerCase().includes('starlink')) figures = await getStarlinkSeries(type);
 
-            const missing = figures.filter(f => !existingFigureIds.includes(f.id) && !ignoredItems.includes(f.id));
-            if (missing.length > 0) figureDiscoveryResults.push({ series: series_name, items: missing });
+                const missing = figures.filter(f => 
+                    !existingFigureNorms.has(superNormalize(f.name)) &&
+                    !ignoredItems.includes(f.id)
+                );
+
+                if (missing.length > 0) {
+                    figureDiscoveryResults.push({ series: type, items: missing });
+                    console.log(`${missing.length} missing.`);
+                } else {
+                    console.log('None missing.');
+                }
+            }
         }
-    }
+
 
     console.log('\n--- Scrape Summary ---');
     console.log(`Manual Entries Processed: ${unmatchedGames.length + syncSuggestions.length + autoMatchedCount}`);
@@ -304,10 +348,7 @@ async function runScraper(): Promise<void> {
  */
 function generateReport(unmatched: UnmatchedItem[], sync: SyncSuggestion[], gameDiscovery: GameDiscovery[], figureDiscovery: FigureDiscovery[]): void {
     let report = '# Discovery Report\n\nThis report lists findings from the collection discovery pipeline.\n\n';
-    report += '### Instructions:\n';
-    report += '- Mark with **`[x]`** to add the item as **Wanted**.\n';
-    report += '- Mark with **`[o]`** to **Sync/Update** an existing item.\n';
-    report += '- Mark with **`[r]`** to **Reject** the item.\n\n';
+
 
     if (sync.length > 0) {
         report += '## Action Required: Sync Suggestions\n';
@@ -363,6 +404,7 @@ function generateReport(unmatched: UnmatchedItem[], sync: SyncSuggestion[], game
             report += `### Line: ${d.series}\n`;
             d.items.forEach(i => {
                 report += `- [ ] ${i.name} (${i.line}) - ID: ${i.id}\n`;
+                if (i.image_url) report += `  - ![cover](${i.image_url})\n`;
             });
             report += '\n';
         }
@@ -381,15 +423,12 @@ async function performWebValidation(searchTitle: string, game: GameRecord): Prom
     const scraped = await scrapePriceCharting(searchTitle, game.platform_display_name);
     
     if (scraped) {
-        let imageUrl = scraped.image_url;
+        const imageUrl = scraped.image_url;
         let summary = null;
         let releaseDate = null;
 
-        // Download image if found
-        if (imageUrl) {
-            const localPath = await downloadCoverImage(imageUrl, `pc-${game.id}`);
-            if (localPath) imageUrl = localPath;
-        }
+        // Use scraped image URL directly without downloading
+
 
         // If it's a PlayStation title, try to get more metadata from PS Store
         const psPlatforms = ['PlayStation 4', 'PlayStation 5', 'PlayStation VR', 'PlayStation VR2'];

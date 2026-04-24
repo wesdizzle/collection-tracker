@@ -4,9 +4,9 @@ A collection tracking application built with **Angular 21**.
 
 ## 🚀 Key Features
 
-- **Figure Collection & Grounding**: Full support for Amiibo, Skylanders, and Starlink with verified metadata, regional tracking, and automated discovery.
+- **Figure Collection & Grounding**: Full support for amiibo, Skylanders, and Starlink with verified metadata, regional tracking, and automated discovery.
 - **Durable Metadata**: Deep integration with IGDB for games and AmiiboAPI/SCL for figures.
-- **Regional Art Overlays**: Intelligent UI that overlays regional markers (e.g., NA, EU, JP) directly onto game art for a clean, consistent look.
+- **Manual Discovery Pipeline**: A suggestion-based matching workflow for ambiguous items, surfaced through a generated discovery report for human-in-the-loop verification.
 - **Signals-First Architecture**: Leveraging Angular 21 Signals for high-performance state management and reactive delivery.
 
 ## 💻 Tech Stack
@@ -35,10 +35,10 @@ The application prioritizes a consistent browsing context by isolating collectio
 ### Metadata Reconciliation & Discovery
 The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for maintaining collection integrity and discovering new content:
 - **Multi-Pass Search**: Automatically falls back to simplified title searches if a direct platform match isn't found, handling complex bundle and special edition naming patterns.
-- **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches directly into the database.
-- **Discovery Mode**: Use the `--discovery` flag to analyze your owned series and franchises and find missing items you don't yet own.
+- **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches. Ambiguous items are offloaded to a manual `discovery_report.md` for user verification.
+- **Verification Signals**: Uses the presence of an `igdb_id` or `pricecharting_url` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
-- **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise game counts overall and per platform.
+- **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and figures (amiibo, Skylanders, Starlink).
 
 
 ## 📦 Getting Started

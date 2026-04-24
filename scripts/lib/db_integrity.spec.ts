@@ -1,6 +1,7 @@
-
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
+
+
 
 /**
  * DATABASE INTEGRITY TESTS
@@ -160,5 +161,52 @@ describe('Database Integrity', () => {
         `).get() as { parent_name: string };
 
         expect(psvrGame.parent_name).toBe('PlayStation 4');
+    });
+
+    describe('Figure Integrity', () => {
+        it('should have the correct total number of figures', () => {
+            // Verify the total count of all figures (amiibo, Skylanders, Starlink)
+            // matches the master dataset snapshot.
+            const totalFigures = db.prepare('SELECT COUNT(*) as count FROM figures').get() as { count: number };
+            expect(totalFigures.count).toBe(787);
+        });
+
+        it('should have the correct number of figures per line', () => {
+            // Group figures by their product line (e.g., amiibo) and verify 
+            // the counts match our expected manual import totals.
+            const lineCounts = db.prepare(`
+                SELECT line, COUNT(*) as count 
+                FROM figures 
+                GROUP BY line 
+                ORDER BY line ASC
+            `).all() as { line: string, count: number }[];
+
+            const expected = {
+                'Skylanders': 512,
+                'Starlink': 35,
+                'amiibo': 240
+            };
+
+            // Reduce to a flat line -> count lookup for comparison.
+            const actual = lineCounts.reduce((acc, row) => {
+                acc[row.line] = row.count;
+                return acc;
+            }, {} as Record<string, number>);
+
+            expect(actual).toEqual(expected);
+        });
+
+        it('should have all figures correctly associated with a series', () => {
+            // Ensure no figures are "orphaned" by having a missing or 
+            // invalid series_id reference.
+            const orphanedFigures = db.prepare(`
+                SELECT COUNT(*) as count 
+                FROM figures f
+                LEFT JOIN figure_series fs ON f.series_id = fs.id
+                WHERE f.series_id IS NULL OR fs.id IS NULL
+            `).get() as { count: number };
+
+            expect(orphanedFigures.count).toBe(0);
+        });
     });
 });
