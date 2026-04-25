@@ -406,6 +406,42 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       }
  
       return true;
+    }).sort((a, b) => {
+      /**
+       * DESIGN RATIONALE: Client-side Sorting
+       * We perform the "strict" sort in TypeScript rather than SQL for several reasons:
+       * 1. Natural Language Sorting: Stripping articles (A/An/The) and diacritics is 
+       *    significantly more complex and brittle in SQLite/D1 than in JS.
+       * 2. Reactivity: Ensures the list remains perfectly ordered even after client-side 
+       *    filters (like search text) are applied to the cached signals.
+       * 3. Consistency: Guarantees identical behavior across local dev (SQLite) and 
+       *    production (Cloudflare D1) despite potential collation differences.
+       */
+
+      // 1. Platform Launch Date (ASC)
+      const dateA = a.platform_launch_date || '9999-99-99';
+      const dateB = b.platform_launch_date || '9999-99-99';
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+      // 2. Platform Brand (ASC)
+      const brandA = this.normalizeForSort(a.brand || '');
+      const brandB = this.normalizeForSort(b.brand || '');
+      if (brandA !== brandB) return brandA.localeCompare(brandB);
+
+      // 3. Game Canonical Series (ASC, fallback to title)
+      const seriesA = this.normalizeForSort(a.canonical_series || a.title);
+      const seriesB = this.normalizeForSort(b.canonical_series || b.title);
+      if (seriesA !== seriesB) return seriesA.localeCompare(seriesB);
+
+      // 4. Game Release Date (ASC, nulls last)
+      const relA = a.release_date || '9999-99-99';
+      const relB = b.release_date || '9999-99-99';
+      if (relA !== relB) return relA.localeCompare(relB);
+
+      // 5. Sort Index (ASC, nulls last)
+      const sortA = a.sort_index ?? 9999;
+      const sortB = b.sort_index ?? 9999;
+      return sortA - sortB;
     });
   });
  
@@ -421,6 +457,24 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
+  }
+
+  /**
+   * Normalizes a string for strict alphabetical sorting.
+   * In addition to diacritic removal and lowercasing, it strips leading 
+   * articles (a, an, the) to ensure more natural "book-style" sorting.
+   * 
+   * @param str The string to normalize.
+   * @returns The normalized string for sorting.
+   */
+  private normalizeForSort(str: string): string {
+    let s = this.normalizeString(str).trim();
+    
+    if (s.startsWith('the ')) s = s.substring(4);
+    else if (s.startsWith('a ')) s = s.substring(2);
+    else if (s.startsWith('an ')) s = s.substring(3);
+    
+    return s.trim();
   }
  
   /** Virtual list window based on displayLimit for infinite scroll performance */
@@ -498,6 +552,32 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       }
  
       return true;
+    }).sort((a, b) => {
+      /**
+       * DESIGN RATIONALE: Client-side Sorting
+       * Ensures consistent natural sorting (article stripping/diacritics) 
+       * across all toy product lines and series.
+       */
+
+      // 1. Line (ASC)
+      const lineA = this.normalizeForSort(a.line);
+      const lineB = this.normalizeForSort(b.line);
+      if (lineA !== lineB) return lineA.localeCompare(lineB);
+
+      // 2. Series (ASC)
+      const seriesA = this.normalizeForSort(a.series_name || '');
+      const seriesB = this.normalizeForSort(b.series_name || '');
+      if (seriesA !== seriesB) return seriesA.localeCompare(seriesB);
+
+      // 3. Release Date (ASC, nulls last)
+      const relA = a.release_date || '9999-99-99';
+      const relB = b.release_date || '9999-99-99';
+      if (relA !== relB) return relA.localeCompare(relB);
+
+      // 4. Sort Index (ASC, nulls last)
+      const sortA = a.sort_index ?? 9999;
+      const sortB = b.sort_index ?? 9999;
+      return sortA - sortB;
     });
   });
  
@@ -540,12 +620,22 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   });
  
   /** --- Utility Selectors for Filter Dropdowns --- */
-  public uniqueLines = computed(() => Array.from(new Set(this.collectionService.toys().map(f => f.line))).filter(Boolean).sort());
-  public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.toys().map(f => f.type))).filter(Boolean).sort());
+  public uniqueLines = computed(() => Array.from(new Set(this.collectionService.toys().map(f => f.line)))
+    .filter(Boolean)
+    .sort((a, b) => this.normalizeForSort(a).localeCompare(this.normalizeForSort(b))));
+
+  public uniqueTypes = computed(() => Array.from(new Set(this.collectionService.toys().map(f => f.type)))
+    .filter(Boolean)
+    .sort((a, b) => this.normalizeForSort(a).localeCompare(this.normalizeForSort(b))));
+
   public uniqueSeries = computed(() => {
-    const gameSeries = this.collectionService.games().map(g => g.canonical_series);
-    const toySeries = this.collectionService.toys().map(f => f.series_name);
-    return Array.from(new Set([...gameSeries, ...toySeries])).filter(Boolean).sort();
+    const list = this.currentTab() === 'games' 
+      ? this.collectionService.games().map(g => g.canonical_series)
+      : this.collectionService.toys().map(f => f.series_name);
+    
+    return Array.from(new Set(list))
+      .filter(Boolean)
+      .sort((a, b) => this.normalizeForSort(a || '').localeCompare(this.normalizeForSort(b || '')));
   });
  
   /**

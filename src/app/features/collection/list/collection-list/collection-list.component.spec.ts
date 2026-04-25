@@ -252,7 +252,79 @@ describe('CollectionListComponent', () => {
     expect(groups.find(g => g.lineName === 'Line B')?.totalCount).toBe(1);
   });
 
-  it('should calculate uniqueSeries from both games and toys', async () => {
+  it('should sort games strictly by platform launch, brand, series, release date, and sort index', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+    
+    httpMock.expectOne('/api/games').flush([
+      { id: 'g1', title: 'The Legend of Zelda', canonical_series: 'The Legend of Zelda', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', owned: 1 },
+      { id: 'g2', title: 'Metroid', canonical_series: 'Metroid', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', owned: 1 },
+      { id: 'g3', title: 'Pokémon', canonical_series: 'Pokémon', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', owned: 1 },
+      { id: 'g4', title: 'Game D', canonical_series: 'Series A', release_date: '2020-01-01', sort_index: 1, platform: 'P2', platform_launch_date: '1995-01-01', brand: 'Sega', owned: 1 },
+      { id: 'g5', title: 'Game E', canonical_series: 'Series A', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Apple', owned: 1 }
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    
+    await initPromise;
+
+    const games = component.filteredGames();
+    // 1. Platform Launch Date: g4 (1995) comes first
+    expect(games[0].id).toBe('g4');
+    // 2. Brand: g5 (Apple) comes before g1/g2/g3 (Nintendo) because both launched in 2000
+    expect(games[1].id).toBe('g5');
+    // 3. Series (Normalized):
+    // "The Legend of Zelda" -> "legend of zelda"
+    // "Metroid" -> "metroid"
+    // "Pokémon" -> "pokemon"
+    // "Series A" -> "series a"
+    // Order: legend of zelda (g1), metroid (g2), pokemon (g3), series a (from g5)
+    expect(games[2].id).toBe('g1'); // L
+    expect(games[3].id).toBe('g2'); // M
+    expect(games[4].id).toBe('g3'); // P
+  });
+
+  it('should sort toys strictly by line, series, release date, and sort index', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    component.currentTab.set('toys');
+    const initPromise = component.ngOnInit();
+    
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      { id: 't1', name: 'Toy 1', line: 'The Line B', series_name: 'Series A', release_date: '2020-01-01', sort_index: 1, owned: 1 },
+      { id: 't2', name: 'Toy 2', line: 'A Line A', series_name: 'The Series B', release_date: '2020-01-01', sort_index: 1, owned: 1 },
+      { id: 't3', name: 'Toy 3', line: 'Line A', series_name: 'An Series A', release_date: '2021-01-01', sort_index: 1, owned: 1 },
+      { id: 't4', name: 'Toy 4', line: 'Line A', series_name: 'Series A', release_date: '2020-01-01', sort_index: 2, owned: 1 },
+      { id: 't5', name: 'Toy 5', line: 'Line A', series_name: 'Series A', release_date: '2020-01-01', sort_index: 1, owned: 1 }
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    
+    await initPromise;
+
+    const toys = component.filteredToys();
+    // 1. Line (Normalized): 
+    // "A Line A" -> "line a"
+    // "Line A" -> "line a"
+    // "The Line B" -> "line b"
+    // Line A group: t2, t3, t4, t5. Line B group: t1
+    expect(toys[4].id).toBe('t1');
+
+    // 2. Series (Normalized) within Line A:
+    // "The Series B" (t2) -> "series b"
+    // "An Series A" (t3) -> "series a"
+    // "Series A" (t4/t5) -> "series a"
+    // Series A group: t3, t4, t5. Series B group: t2
+    expect(toys[3].id).toBe('t2');
+
+    // 3. Release Date within Series A: t4/t5 (2020) vs t3 (2021)
+    expect(toys[2].id).toBe('t3');
+
+    // 4. Sort Index within 2020: t5 (1) vs t4 (2)
+    expect(toys[0].id).toBe('t5');
+    expect(toys[1].id).toBe('t4');
+  });
+
+  it('should calculate uniqueSeries based on the active tab', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
     const initPromise = component.ngOnInit();
     
@@ -267,10 +339,43 @@ describe('CollectionListComponent', () => {
     
     await initPromise;
 
-    const series = component.uniqueSeries();
+    // Default tab is 'games'
+    let series = component.uniqueSeries();
     expect(series).toContain('Zelda');
+    expect(series).not.toContain('Mario');
+    expect(series.length).toBe(1);
+
+    // Switch to 'toys'
+    component.currentTab.set('toys');
+    series = component.uniqueSeries();
+    expect(series).not.toContain('Zelda');
     expect(series).toContain('Mario');
     expect(series).toContain('Metroid');
-    expect(series.length).toBe(3);
+    expect(series.length).toBe(2);
+  });
+
+  it('should sort dropdown options using normalized logic', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+    
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      { id: 't1', line: 'amiibo', owned: 1 },
+      { id: 't2', line: 'LEGO', owned: 1 },
+      { id: 't3', line: 'The Black Series', owned: 1 }
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    
+    await initPromise;
+
+    const lines = component.uniqueLines();
+    // Normalized for sort:
+    // "amiibo" -> "amiibo" (A)
+    // "LEGO" -> "lego" (L)
+    // "The Black Series" -> "black series" (B)
+    // Correct Order: amiibo (A), The Black Series (B), LEGO (L)
+    expect(lines[0]).toBe('amiibo');
+    expect(lines[1]).toBe('The Black Series');
+    expect(lines[2]).toBe('LEGO');
   });
 });

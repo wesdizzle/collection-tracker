@@ -30,6 +30,7 @@ export interface Game {
     platform_logo?: string;
     pricecharting_url?: string;
     parent_platform_id?: number;
+    sort_index?: number;
 }
 
 export interface Toy {
@@ -49,6 +50,7 @@ export interface Toy {
     region?: string;
     verified?: boolean | number;
     metadata_json?: string;
+    sort_index?: number;
 }
 
 export interface ToyGroup {
