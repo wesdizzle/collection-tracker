@@ -76,13 +76,16 @@ async function discoverAmiibo() {
                     platform: 'amiibo',
                     line: local.line,
                     series: local.series,
-                    options: matches.map((m: AmiiboApiItem) => ({
-                        name: `${m.name} (${m.amiiboSeries})`,
-                        platform: 'amiibo',
-                        id: `amiibo-${m.head}${m.tail}`,
-                        image_url: m.image,
-                        summary: `Amiibo Series: ${m.amiiboSeries}`
-                    }))
+                    options: matches.map((m: AmiiboApiItem) => {
+                        const effectiveSeries = m.amiiboSeries === 'Others' ? m.gameSeries : m.amiiboSeries;
+                        return {
+                            name: `${m.name} (${effectiveSeries})`,
+                            platform: 'amiibo',
+                            id: `amiibo-${m.head}${m.tail}`,
+                            image_url: m.image,
+                            summary: `Amiibo Series: ${effectiveSeries}`
+                        };
+                    })
                 });
             }
         }
@@ -116,7 +119,8 @@ async function discoverAmiibo() {
             markdown += `### New Amiibo Available (Not in Collection)\n`;
             markdown += `The following items were found in the AmiiboAPI but are not in your collection yet:\n\n`;
             for (const item of newItems.slice(0, 10)) {
-                markdown += `- **${item.name}** (${item.amiiboSeries})\n`;
+                const effectiveSeries = item.amiiboSeries === 'Others' ? item.gameSeries : item.amiiboSeries;
+                markdown += `- **${item.name}** (${effectiveSeries})\n`;
             }
             if (newItems.length > 10) {
                 markdown += `\n*...and ${newItems.length - 10} more items.*\n`;

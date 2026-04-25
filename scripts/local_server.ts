@@ -115,11 +115,13 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                             else if (a.release.au) { releaseDate = a.release.au; finalRegion = 'AU'; }
                         }
 
+                        const effectiveSeries = a.amiiboSeries === 'Others' ? a.gameSeries : a.amiiboSeries;
+
                         db.prepare(`
                             UPDATE toys 
                             SET amiibo_id = ?, name = ?, type = ?, image_url = ?, series = ?, region = ?, release_date = ?, verified = 1, metadata_json = ?
                             WHERE name = ? AND line = 'amiibo'
-                        `).run(amiiboId, a.name, a.type, a.image, a.amiiboSeries, finalRegion, releaseDate || null, JSON.stringify(a), currentTitle);
+                        `).run(amiiboId, a.name, a.type, a.image, effectiveSeries, finalRegion, releaseDate || null, JSON.stringify(a), currentTitle);
                         
                         console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
                     } catch (apiErr: unknown) {
