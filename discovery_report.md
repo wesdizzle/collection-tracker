@@ -1743,6 +1743,14 @@ This report lists findings from the collection discovery pipeline.
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1bd70000-03860002.png)
   - *Amiibo Series: Super Smash Bros.*
 
+### Chrom (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Chrom (Fire Emblem) (amiibo) - ID: amiibo-21080000036f1202
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_21080000-036f1202.png)
+  - *Amiibo Series: Fire Emblem*
+- [ ] **Link to:** Chrom (Super Smash Bros.) (amiibo) - ID: amiibo-2108000003880002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_21080000-03880002.png)
+  - *Amiibo Series: Super Smash Bros.*
+
 ### Dark Samus (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Dark Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c3000003800002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c30000-03800002.png)

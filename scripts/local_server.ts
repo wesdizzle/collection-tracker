@@ -120,8 +120,8 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                         db.prepare(`
                             UPDATE toys 
                             SET amiibo_id = ?, name = ?, type = ?, image_url = ?, series = ?, region = ?, release_date = ?, verified = 1, metadata_json = ?
-                            WHERE name = ? AND line = 'amiibo'
-                        `).run(amiiboId, a.name, a.type, a.image, effectiveSeries, finalRegion, releaseDate || null, JSON.stringify(a), currentTitle);
+                            WHERE name = ? AND series = ? AND line = 'amiibo'
+                        `).run(amiiboId, a.name, a.type, a.image, effectiveSeries, finalRegion, releaseDate || null, JSON.stringify(a), currentTitle, currentSeries);
                         
                         console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
                     } catch (apiErr: unknown) {

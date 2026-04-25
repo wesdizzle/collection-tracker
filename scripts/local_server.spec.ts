@@ -1,7 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest';
 import Database from 'better-sqlite3';
 import { handleRequest } from './local_server';
 import { EventEmitter } from 'events';
+import axios from 'axios';
+
+vi.mock('axios');
+const mockedAxios = axios as Mocked<typeof axios>;
 
 /**
  * UNIT TEST: Local Server API Logic
@@ -12,6 +16,15 @@ import { EventEmitter } from 'events';
 
 describe('Local Server API Logic', () => {
     let mockDb: Database.Database;
+
+    interface ToyRow {
+        id: number;
+        name: string;
+        line: string;
+        series: string;
+        amiibo_id: string | null;
+        verified: number;
+    }
 
     beforeEach(() => {
         // Setup in-memory DB
@@ -35,6 +48,19 @@ describe('Local Server API Logic', () => {
                 platform_id INTEGER, 
                 owned BOOLEAN,
                 sort_index INTEGER
+            );
+            CREATE TABLE toys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                line TEXT NOT NULL,
+                series TEXT,
+                amiibo_id TEXT,
+                verified BOOLEAN DEFAULT 0,
+                metadata_json TEXT,
+                type TEXT,
+                image_url TEXT,
+                region TEXT,
+                release_date DATE
             );
         `);
 
@@ -130,5 +156,111 @@ describe('Local Server API Logic', () => {
         expect(output.length).toBe(1);
         expect(output[0].id).toBe(34);
         expect(output[0].parent_platform_id).toBeNull();
+    });
+
+    describe('Discovery Apply Logic', () => {
+        const createDiscoveryMocks = (url: string, method = 'POST', body = {}) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const req = new EventEmitter() as any;
+            req.url = url;
+            req.method = method;
+            req.headers = { 'content-type': 'application/json' };
+            
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const res = new EventEmitter() as any;
+            res.setHeader = vi.fn();
+            res.end = vi.fn();
+            res.statusCode = 200;
+
+            process.nextTick(() => {
+                req.emit('data', Buffer.from(JSON.stringify(body)));
+                req.emit('end');
+            });
+
+            return { req, res };
+        };
+
+        it('should only update the specific toy when multiple have the same name', async () => {
+            mockDb.prepare('INSERT INTO toys (name, line, series) VALUES (?, ?, ?)').run(
+                'Mario', 'amiibo', 'Super Mario'
+            );
+            mockDb.prepare('INSERT INTO toys (name, line, series) VALUES (?, ?, ?)').run(
+                'Mario (SSB)', 'amiibo', 'Super Smash Bros.'
+            );
+
+            mockedAxios.get.mockResolvedValue({
+                data: {
+                    amiibo: {
+                        name: 'Mario',
+                        type: 'Figure',
+                        image: 'http://example.com/mario.png',
+                        gameSeries: 'Super Mario',
+                        amiiboSeries: 'Super Mario',
+                        release: { na: '2015-03-20' }
+                    }
+                }
+            });
+
+            const payload = {
+                currentTitle: 'Mario',
+                currentPlatform: 'amiibo',
+                currentLine: 'amiibo',
+                currentSeries: 'Super Mario',
+                selectedIgdbId: 'amiibo-0000000000000002',
+                selectedName: 'Mario',
+                selectedPlatform: 'amiibo'
+            };
+
+            const { req, res } = createDiscoveryMocks('/api/discovery/apply', 'POST', payload);
+            const handler = handleRequest(mockDb);
+
+            await handler(req, res);
+
+            const mario1 = mockDb.prepare("SELECT * FROM toys WHERE series = 'Super Mario'").get() as ToyRow;
+            expect(mario1.amiibo_id).toBe('0000000000000002');
+            expect(mario1.verified).toBe(1);
+
+            const mario2 = mockDb.prepare("SELECT * FROM toys WHERE series = 'Super Smash Bros.'").get() as ToyRow;
+            expect(mario2.amiibo_id).toBeNull();
+            expect(mario2.verified).toBe(0);
+        });
+
+        it('should correctly match toys with parentheses in the title', async () => {
+            mockDb.prepare('INSERT INTO toys (name, line, series) VALUES (?, ?, ?)').run(
+                'Mario (SSB)', 'amiibo', 'Super Smash Bros.'
+            );
+
+            mockedAxios.get.mockResolvedValue({
+                data: {
+                    amiibo: {
+                        name: 'Mario',
+                        type: 'Figure',
+                        image: 'http://example.com/mario_ssb.png',
+                        gameSeries: 'Super Smash Bros.',
+                        amiiboSeries: 'Super Smash Bros.',
+                        release: { na: '2014-11-21' }
+                    }
+                }
+            });
+
+            const payload = {
+                currentTitle: 'Mario (SSB)',
+                currentPlatform: 'amiibo',
+                currentLine: 'amiibo',
+                currentSeries: 'Super Smash Bros.',
+                selectedIgdbId: 'amiibo-0000000000000001',
+                selectedName: 'Mario',
+                selectedPlatform: 'amiibo'
+            };
+
+            const { req, res } = createDiscoveryMocks('/api/discovery/apply', 'POST', payload);
+            const handler = handleRequest(mockDb);
+
+            await handler(req, res);
+
+            const marioSSB = mockDb.prepare("SELECT * FROM toys WHERE series = 'Super Smash Bros.'").get() as ToyRow;
+            expect(marioSSB.amiibo_id).toBe('0000000000000001');
+            expect(marioSSB.verified).toBe(1);
+        });
     });
 });

@@ -58,4 +58,30 @@ describe('Discovery Report Parser', () => {
         expect(results).toHaveLength(1);
         expect(results[0].options[0].platform).toBe('Nintendo Entertainment System');
     });
+
+    it('should handle multiple parentheses in the title', () => {
+        const report = `
+### Mario (SSB) (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Mario (SSB) (amiibo) - ID: 1
+`;
+        const results = parseDiscoveryReport(report);
+        expect(results).toHaveLength(1);
+        expect(results[0].title).toBe('Mario (SSB)');
+        expect(results[0].platform).toBe('amiibo');
+        expect(results[0].line).toBe('amiibo');
+        expect(results[0].series).toBe('Super Smash Bros.');
+    });
+
+    it('should handle toy metadata in the header', () => {
+        const report = `
+### Link (amiibo) | Line: amiibo | Series: The Legend of Zelda
+- [ ] **Update to:** Link (amiibo) - ID: 2
+`;
+        const results = parseDiscoveryReport(report);
+        expect(results).toHaveLength(1);
+        expect(results[0].title).toBe('Link');
+        expect(results[0].platform).toBe('amiibo');
+        expect(results[0].line).toBe('amiibo');
+        expect(results[0].series).toBe('The Legend of Zelda');
+    });
 });

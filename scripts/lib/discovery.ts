@@ -39,8 +39,9 @@ export function parseDiscoveryReport(content: string): DiscoveryItem[] {
         if (line.startsWith('### ')) {
             if (currentItem) discoveryItems.push(currentItem);
             
-            // Flexible regex to handle metadata
-            const match = line.match(/### (.*?) \((.*?)\)\s*\|\s*Line:\s*(.*?)\s*\|\s*Series:\s*(.*?)$/);
+            // Robust regex: Platform is the last parenthetical before | or end of line
+            const regex = /### (.*) \(([^)]+)\)(?:\s*\|\s*Line:\s*(.*?)\s*\|\s*Series:\s*(.*))?$/;
+            const match = line.match(regex);
             
             if (match) {
                 currentItem = {
@@ -50,16 +51,6 @@ export function parseDiscoveryReport(content: string): DiscoveryItem[] {
                     series: match[4]?.trim(),
                     options: []
                 };
-            } else {
-                // Fallback for simple headers or if regex failed
-                const fallback = line.match(/### (.*?) \((.*?)\)/);
-                if (fallback) {
-                    currentItem = {
-                        title: fallback[1].trim(),
-                        platform: fallback[2].trim(),
-                        options: []
-                    };
-                }
             }
         } else if (currentItem && line.match(/- \[ \] \*\*(Update to|Link to):\*\*/)) {
             const match = line.match(/- \[ \] \*\*(?:Update to|Link to):\*\* (.*) \((.*)\) - ID: (.*)/);
