@@ -81,7 +81,7 @@ async function discoverAmiibo() {
                         platform: 'amiibo',
                         id: `amiibo-${m.head}${m.tail}`,
                         image_url: m.image,
-                        summary: `Amiibo Series: ${m.amiiboSeries} | Game Series: ${m.gameSeries}`
+                        summary: `Amiibo Series: ${m.amiiboSeries}`
                     }))
                 });
             }
@@ -116,7 +116,7 @@ async function discoverAmiibo() {
             markdown += `### New Amiibo Available (Not in Collection)\n`;
             markdown += `The following items were found in the AmiiboAPI but are not in your collection yet:\n\n`;
             for (const item of newItems.slice(0, 10)) {
-                markdown += `- **${item.name}** (${item.amiiboSeries}) - *${item.gameSeries}*\n`;
+                markdown += `- **${item.name}** (${item.amiiboSeries})\n`;
             }
             if (newItems.length > 10) {
                 markdown += `\n*...and ${newItems.length - 10} more items.*\n`;

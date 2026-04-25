@@ -51,9 +51,11 @@ describe('Worker API Logic', () => {
             CREATE TABLE toys (
                 id INTEGER PRIMARY KEY, 
                 name TEXT, 
+                line TEXT,
                 series_id INTEGER, 
                 release_date DATE,
-                sort_index INTEGER
+                sort_index INTEGER,
+                series TEXT
             );
             CREATE TABLE toy_series (
                 id INTEGER PRIMARY KEY, 

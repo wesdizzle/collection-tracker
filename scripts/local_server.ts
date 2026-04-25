@@ -105,12 +105,21 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                         if (!a) {
                             throw new Error(`Amiibo API returned no results for ID: ${amiiboId}`);
                         }
+                        // Determine primary region and date
+                        let releaseDate = a.release?.na;
+                        let finalRegion = region || 'NA';
                         
+                        if (!releaseDate && a.release) {
+                            if (a.release.jp) { releaseDate = a.release.jp; finalRegion = 'JP'; }
+                            else if (a.release.eu) { releaseDate = a.release.eu; finalRegion = 'EU'; }
+                            else if (a.release.au) { releaseDate = a.release.au; finalRegion = 'AU'; }
+                        }
+
                         db.prepare(`
                             UPDATE toys 
-                            SET amiibo_id = ?, name = ?, type = ?, image_url = ?, series = ?, region = ?, verified = 1, metadata_json = ?
+                            SET amiibo_id = ?, name = ?, type = ?, image_url = ?, series = ?, region = ?, release_date = ?, verified = 1, metadata_json = ?
                             WHERE name = ? AND line = 'amiibo'
-                        `).run(amiiboId, a.name, a.type, a.image, a.amiiboSeries, region || 'NA', JSON.stringify(a), currentTitle);
+                        `).run(amiiboId, a.name, a.type, a.image, a.amiiboSeries, finalRegion, releaseDate || null, JSON.stringify(a), currentTitle);
                         
                         console.log(`Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`);
                     } catch (apiErr: unknown) {
