@@ -20,12 +20,14 @@ A collection tracking application built with **Angular 21**.
 ## 🛠️ Architecture & Technical Standards
 
 ### Visual System
-The application follows **Material Design 3 (Material You)** principles, providing a tonal, accessible, and premium interface:
+The application features a **Material 3 Expressive** interface, prioritizing emotional vibrancy, organic motion, and bold brand expression:
+- **Expressive Palette**: Uses high-chroma, vibrant color schemes (Gold/Orange/Purple) that adapt to Light and Dark modes.
+- **Organic Shapes**: Implements a progressive shape system with increased corner radii (up to 48px) and fully rounded "pill" targets for a tactile feel.
+- **Expressive Typography**: Leverages **Roboto Flex** variable fonts for display and headlines, allowing for dynamic weight and width adjustments to emphasize visual hierarchy.
+- **Glassmorphism**: Tonal surfaces utilize backdrop-blur effects (glassmorphism) to create depth and focus in complex layouts.
+- **Fluid Motion**: Collection items and UI transitions use expressive, spring-based animations to provide immediate, delightful feedback.
 - **Dual-Theme Engine**: Full support for Light, Dark, and System-aware modes with a built-in theme switcher.
-- **8px Grid System**: All spacing and layouts are strictly governed by an 8px base grid for visual consistency.
-- **M3 Components**: Uses standardized M3 Primary Tabs for desktop navigation and a Bottom Navigation bar for mobile.
-- **Detail Pages**: An immersive, airy layout that removes dashboard panels in favor of tonal surfaces and high-contrast metadata.
-- **Status Pills**: Consolidated status markers (Owned, Played, Backed Up) use tonal M3 chip patterns for high readability.
+- **Status Pills**: Consolidated status markers (Owned, Played, Backed Up) use high-contrast expressive chip patterns for instant recognition.
 
 ### Navigation & Filter Logic
 The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Toys** collections:

@@ -30,7 +30,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
   imports: [CommonModule, RouterModule],
   template: `
     @if (item(); as i) {
-      <div class="container animate-fade-in pb-xl" data-version="final-v12">
+      <div class="container animate-expressive pb-xl" data-version="final-v12">
         <nav class="details-nav mb-lg flex justify-between items-center">
           <a [routerLink]="['/collection', type() + 's']" class="back-link flex items-center gap-sm">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>

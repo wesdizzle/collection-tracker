@@ -9,7 +9,7 @@ import { RouterModule } from '@angular/router';
   standalone: true,
   imports: [RouterModule],
   template: `
-    <div class="discovery-container animate-fade-in">
+    <div class="discovery-container animate-expressive">
       <div class="discovery-header mb-lg">
         <div class="info-banner">
           <span class="icon">ℹ️</span>

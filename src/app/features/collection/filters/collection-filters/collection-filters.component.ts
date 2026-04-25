@@ -24,7 +24,7 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
   standalone: true,
   imports: [FormsModule],
   template: `
-    <div class="filter-wrapper animate-fade-in animate-stagger-1">
+    <div class="filter-wrapper animate-expressive animate-stagger-1">
       <div class="mobile-filter-row desktop-hidden">
         <button class="m3-button m3-button-tonal" (click)="showFilters.set(!showFilters())">
           <span class="icon">{{ showFilters() ? '✕' : '🔍' }}</span>

@@ -38,7 +38,7 @@ interface GameGroup {
   standalone: true,
   imports: [RouterModule, CollectionFiltersComponent],
   template: `
-    <div class="animate-fade-in" data-version="final-v12">
+    <div class="animate-expressive" data-version="final-v12">
       <app-collection-filters
         [currentTab]="currentTab()"
         [platformGroups]="platformGroups()"
@@ -51,7 +51,7 @@ interface GameGroup {
       </app-collection-filters>
     
       @if (currentTab() === 'games') {
-        <div class="groups-container animate-fade-in animate-stagger-2">
+        <div class="groups-container animate-expressive animate-stagger-2">
           @for (group of groupedGames(); track group.platformName) {
             <div class="platform-section mb-xl">
               <header class="platform-header">
@@ -127,7 +127,7 @@ interface GameGroup {
       }
     
       @if (currentTab() === 'toys') {
-        <div class="groups-container animate-fade-in animate-stagger-2">
+        <div class="groups-container animate-expressive animate-stagger-2">
           @for (group of groupedToys(); track group.lineName) {
             <div class="platform-section mb-xl">
               <header class="platform-header">

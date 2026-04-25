@@ -52,7 +52,7 @@ import { CollectionService } from '../../../../core/services/collection.service'
         }
       </nav>
     
-      <main class="content-area animate-fade-in">
+      <main class="content-area animate-expressive">
         <router-outlet></router-outlet>
       </main>
  
