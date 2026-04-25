@@ -25,7 +25,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import { findGame, NormalizedGame, IGDBGame, calculateConfidence } from './lib/igdb.js';
 import { scrapePriceCharting, scrapePlayStationStore } from './lib/web_scraper.js';
-import { getAmiiboSeries, getSkylandersSeries, getStarlinkSeries, Toy } from './lib/toys.js';
+import { getAmiiboSeries, Toy } from './lib/toys.js';
 
 const db = new Database('collection.sqlite');
 
@@ -226,20 +226,21 @@ async function runScraper(): Promise<void> {
         // Skip if already linked or verified
         if (toy.verified || toy.amiibo_id) continue;
 
-        // For now, only handle amiibo matching as requested
+        // Strictly focus on Amiibo sync suggestions as requested
         if (toy.line.toLowerCase() !== 'amiibo') continue;
 
         process.stdout.write(`Verifying Toy: ${toy.name}... `);
         
-        // Find broad candidates for manual matching (no auto-matching)
+        // Find broad candidates for manual matching
         const normName = superNormalize(toy.name);
         const matches = allApiAmiibo.filter(a => {
+            if (a.type === 'Card') return false; // Explicitly exclude cards as requested
             const aNorm = superNormalize(a.name);
             return aNorm.includes(normName) || normName.includes(aNorm);
         });
         
         if (matches.length > 0) {
-            // Sort by better match (exact first)
+            // Sort by better match (exact normalized match first)
             const sortedMatches = matches.sort((a, b) => {
                 const aExact = superNormalize(a.name) === normName;
                 const bExact = superNormalize(b.name) === normName;
@@ -250,15 +251,18 @@ async function runScraper(): Promise<void> {
 
             syncSuggestions.push({
                 type: 'Toy',
-                current: `${toy.name} (amiibo)`,
-                options: sortedMatches.slice(0, 15).map(m => ({ // Provide up to 15 options
-                    id: `amiibo-${m.id}`,
-                    name: m.name,
-                    platform: 'amiibo',
-                    image_url: m.image_url,
-                    summary: `Series: ${m.series_name} | Type: ${m.type}`,
-                    category: m.type
-                })),
+                current: `${toy.name} (amiibo) | Line: ${toy.line} | Series: ${toy.series}`,
+                options: sortedMatches.slice(0, 15).map(m => {
+                    // Replicating toy_discovery.ts naming: name (effectiveSeries)
+                    return {
+                        id: `amiibo-${m.id}`,
+                        name: `${m.name} (${m.series_name})`,
+                        platform: 'amiibo',
+                        image_url: m.image_url,
+                        summary: `Amiibo Series: ${m.series_name}`,
+                        category: m.type
+                    };
+                }),
                 localId: toy.id as unknown as number
             });
             console.log(`${matches.length} candidates found.`);
@@ -268,7 +272,7 @@ async function runScraper(): Promise<void> {
     }
 
 
-    const ignoredItems = (db.prepare('SELECT id FROM ignored_items').all() as { id: string }[]).map(i => i.id);
+    // const ignoredItems = (db.prepare('SELECT id FROM ignored_items').all() as { id: string }[]).map(i => i.id);
     const toyDiscoveryResults: ToyDiscovery[] = [];
 
     // 3. Discovery Phase: Series-based
@@ -301,7 +305,8 @@ async function runScraper(): Promise<void> {
         */
 
 
-        // 4. Discovery: Toys
+        // 4. Discovery: Toys (DISABLED - Ignoring other toy lines and new discoveries for now)
+        /*
         const existingToyNorms = new Set(existingToys.map(f => superNormalize(f.name)));
         const toySeriesList = db.prepare('SELECT DISTINCT line FROM toys WHERE line IS NOT NULL').all() as { line: string }[];
 
@@ -326,6 +331,7 @@ async function runScraper(): Promise<void> {
                     console.log('None missing.');
                 }
             }
+        */
         }
 
 
@@ -352,18 +358,38 @@ function generateReport(unmatched: UnmatchedItem[], sync: SyncSuggestion[], game
 
 
     if (sync.length > 0) {
-        report += '## Action Required: Sync Suggestions\n';
-        for (const s of sync) {
-            report += `### ${s.current}\n`;
-            s.options.forEach(opt => {
-                report += `- [ ] **Update to:** ${opt.name} (${opt.platform}) - ID: ${opt.id}\n`;
-                if (opt.image_url) report += `  - ![cover](${opt.image_url})\n`;
-                if (opt.summary) {
-                    const shortSummary = opt.summary.length > 200 ? opt.summary.substring(0, 200) + '...' : opt.summary;
-                    report += `  - *${shortSummary.replace(/\n/g, ' ')}*\n`;
-                }
-            });
-            report += '\n';
+        const gameSync = sync.filter(s => s.type === 'Game');
+        const toySync = sync.filter(s => s.type === 'Toy');
+
+        if (gameSync.length > 0) {
+            report += '## Action Required: Sync Suggestions (Games)\n';
+            for (const s of gameSync) {
+                report += `### ${s.current}\n`;
+                s.options.forEach(opt => {
+                    report += `- [ ] **Update to:** ${opt.name} (${opt.platform}) - ID: ${opt.id}\n`;
+                    if (opt.image_url) report += `  - ![cover](${opt.image_url})\n`;
+                    if (opt.summary) {
+                        const shortSummary = opt.summary.length > 200 ? opt.summary.substring(0, 200) + '...' : opt.summary;
+                        report += `  - *${shortSummary.replace(/\n/g, ' ')}*\n`;
+                    }
+                });
+                report += '\n';
+            }
+        }
+
+        if (toySync.length > 0) {
+            report += '## Toy Discovery (Amiibo)\n';
+            for (const s of toySync) {
+                report += `### ${s.current}\n`;
+                s.options.forEach(opt => {
+                    report += `- [ ] **Link to:** ${opt.name} (amiibo) - ID: ${opt.id}\n`;
+                    if (opt.image_url) report += `  - ![image](${opt.image_url})\n`;
+                    if (opt.summary) {
+                        report += `  - *${opt.summary}*\n`;
+                    }
+                });
+                report += '\n';
+            }
         }
     }
 

@@ -48,21 +48,25 @@ export async function getAmiiboSeries(seriesName?: string): Promise<Toy[]> {
             tail: string;
             name: string;
             amiiboSeries: string;
+            gameSeries?: string;
             type: string;
             image: string;
             release?: { na?: string };
         }
         
         const data = response.data as { amiibo: Amiibo[] };
-        return data.amiibo.map((a: Amiibo) => ({
-            id: `${a.head}${a.tail}`,
-            name: a.name,
-            line: 'amiibo',
-            series_name: a.amiiboSeries,
-            type: a.type, // "Figure", "Card", etc.
-            image_url: a.image,
-            release_date: a.release?.na || null
-        }));
+        return data.amiibo.map((a: Amiibo) => {
+            const effectiveSeries = a.amiiboSeries === 'Others' && a.gameSeries ? a.gameSeries : a.amiiboSeries;
+            return {
+                id: `${a.head}${a.tail}`,
+                name: a.name,
+                line: 'amiibo',
+                series_name: effectiveSeries,
+                type: a.type,
+                image_url: a.image,
+                release_date: a.release?.na || null
+            };
+        });
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         const code = (error as { code?: string }).code;

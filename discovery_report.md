@@ -1,72 +1,34 @@
+# Discovery Report
 
+This report lists findings from the collection discovery pipeline.
 
 ## Toy Discovery (Amiibo)
-
 ### Kirby (amiibo) | Line: amiibo | Series: Kirby
-- [ ] **Link to:** Meta Knight (Super Smash Bros.) (amiibo) - ID: amiibo-1f01000000270002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-00270002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Meta Knight (& Shadow Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f01000004c61e03
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-04c61e03.png)
-  - *Amiibo Series: Kirby Air Riders*
 - [ ] **Link to:** Kirby (Super Smash Bros.) (amiibo) - ID: amiibo-1f000000000a0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f000000-000a0002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Kirby (Kirby) (amiibo) - ID: amiibo-1f00000002540c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f000000-02540c02.png)
   - *Amiibo Series: Kirby*
-- [ ] **Link to:** King Dedede (Super Smash Bros.) (amiibo) - ID: amiibo-1f02000000280002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-00280002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Meta Knight (Kirby) (amiibo) - ID: amiibo-1f01000002550c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-02550c02.png)
-  - *Amiibo Series: Kirby*
-- [ ] **Link to:** Waddle Dee (Kirby) (amiibo) - ID: amiibo-1f03000002570c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f030000-02570c02.png)
-  - *Amiibo Series: Kirby*
-- [ ] **Link to:** King Dedede (Kirby) (amiibo) - ID: amiibo-1f02000002560c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-02560c02.png)
-  - *Amiibo Series: Kirby*
 - [ ] **Link to:** Kirby (& Warp Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f00000004c41e03
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f000000-04c41e03.png)
-  - *Amiibo Series: Kirby Air Riders*
-- [ ] **Link to:** Bandana Waddle Dee (& Winged Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f03010004c91e03
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f030100-04c91e03.png)
   - *Amiibo Series: Kirby Air Riders*
 
 ### Meta Knight (amiibo) | Line: amiibo | Series: Kirby
 - [ ] **Link to:** Meta Knight (Super Smash Bros.) (amiibo) - ID: amiibo-1f01000000270002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-00270002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Meta Knight (& Shadow Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f01000004c61e03
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-04c61e03.png)
-  - *Amiibo Series: Kirby Air Riders*
 - [ ] **Link to:** Meta Knight (Kirby) (amiibo) - ID: amiibo-1f01000002550c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-02550c02.png)
   - *Amiibo Series: Kirby*
+- [ ] **Link to:** Meta Knight (& Shadow Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f01000004c61e03
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-04c61e03.png)
+  - *Amiibo Series: Kirby Air Riders*
 
 ### King Dedede (amiibo) | Line: amiibo | Series: Kirby
-- [ ] **Link to:** King K. Rool (Super Smash Bros.) (amiibo) - ID: amiibo-00c00000037b0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00c00000-037b0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** King Knight (Shovel Knight) (amiibo) - ID: amiibo-35c30000036e0a02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c30000-036e0a02.png)
-  - *Amiibo Series: Shovel Knight*
-- [ ] **Link to:** Ganondorf - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-01020100041a0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01020100-041a0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** King Dedede (Super Smash Bros.) (amiibo) - ID: amiibo-1f02000000280002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-00280002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0100000004180902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-04180902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Captain Toad & Talking Flower (Super Mario Bros.) (amiibo) - ID: amiibo-000a010004c20102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0100-04c20102.png)
-  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** King Dedede (Kirby) (amiibo) - ID: amiibo-1f02000002560c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-02560c02.png)
   - *Amiibo Series: Kirby*
@@ -94,160 +56,58 @@
 - [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Zelda (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003560902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03560902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
+- [ ] **Link to:** Zelda (Super Smash Bros.) (amiibo) - ID: amiibo-01010000000e0002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-000e0002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 
 ### Link - Ocarina of Time (amiibo) | Line: amiibo | Series: Legend of Zelda
-- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Majora's Mask (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034c0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034c0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-
-### Toon Link - The Wind Waker (amiibo) | Line: amiibo | Series: Legend of Zelda
 - [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
+
+### Toon Link - The Wind Waker (amiibo) | Line: amiibo | Series: Legend of Zelda
 - [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Zelda - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003520902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03520902.png)
-  - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
+  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Toon Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100010000160002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-00160002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Zelda - The Wind Waker (amiibo) | Line: amiibo | Series: Legend of Zelda
-- [ ] **Link to:** Zelda & Loftwing (Legend Of Zelda) (amiibo) - ID: amiibo-0101030004140902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010300-04140902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Zelda (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003560902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03560902.png)
   - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Toon Zelda - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003520902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03520902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
   - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Zelda (Super Smash Bros.) (amiibo) - ID: amiibo-01010000000e0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-000e0002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Link - Archer (amiibo) | Line: amiibo | Series: Legend of Zelda
-- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
+- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Majora's Mask (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034c0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034c0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 
 ### Link - Rider (amiibo) | Line: amiibo | Series: Legend of Zelda
-- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
+- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Majora's Mask (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034c0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034c0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 
 ### Guardian (amiibo) | Line: amiibo | Series: Legend of Zelda
 - [ ] **Link to:** Guardian (Legend Of Zelda) (amiibo) - ID: amiibo-0140000003550902
@@ -255,35 +115,20 @@
   - *Amiibo Series: Legend Of Zelda*
 
 ### Zelda (amiibo) | Line: amiibo | Series: Legend of Zelda
-- [ ] **Link to:** Zelda & Loftwing (Legend Of Zelda) (amiibo) - ID: amiibo-0101030004140902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010300-04140902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Guardian (Legend Of Zelda) (amiibo) - ID: amiibo-0140000003550902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01400000-03550902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Zelda (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003560902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03560902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
+- [ ] **Link to:** Zelda (Super Smash Bros.) (amiibo) - ID: amiibo-01010000000e0002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-000e0002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
+- [ ] **Link to:** Zelda & Loftwing (Legend Of Zelda) (amiibo) - ID: amiibo-0101030004140902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010300-04140902.png)
+  - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Toon Zelda - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003520902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03520902.png)
+  - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
   - *Amiibo Series: Legend Of Zelda*
 
 ### Bokoblin (amiibo) | Line: amiibo | Series: Legend of Zelda
@@ -292,100 +137,28 @@
   - *Amiibo Series: Legend Of Zelda*
 
 ### Link - Majora's Mask (amiibo) | Line: amiibo | Series: Legend of Zelda
-- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Link - Majora's Mask (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034c0902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034c0902.png)
   - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
+  - *Amiibo Series: Super Smash Bros.*
 
 ### Link - Twilight Princess (amiibo) | Line: amiibo | Series: Legend of Zelda
-- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Majora's Mask (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034c0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034c0902.png)
-  - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
+  - *Amiibo Series: Super Smash Bros.*
 
 ### Link - Skyward Sword (amiibo) | Line: amiibo | Series: Legend of Zelda
+- [ ] **Link to:** Link - Skyward Sword (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034e0902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034e0902.png)
+  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Majora's Mask (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034c0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034c0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 
 ### Mipha - Zora Champion (amiibo) | Line: amiibo | Series: Legend of Zelda
 - [ ] **Link to:** Mipha (Legend Of Zelda) (amiibo) - ID: amiibo-01070000035a0902
@@ -408,36 +181,15 @@
   - *Amiibo Series: Legend Of Zelda*
 
 ### Link - Link's Awakening (amiibo) | Line: amiibo | Series: Legend of Zelda
+- [ ] **Link to:** Link - Link's Awakening (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003990902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03990902.png)
+  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Ken (Super Smash Bros.) (amiibo) - ID: amiibo-34c1000003890002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34c10000-03890002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 
 ### Zelda & Loftwing - Skyward Sword (amiibo) | Line: amiibo | Series: Legend of Zelda
 - [ ] **Link to:** Zelda & Loftwing (Legend Of Zelda) (amiibo) - ID: amiibo-0101030004140902
@@ -446,60 +198,24 @@
 - [ ] **Link to:** Zelda (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003560902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03560902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Zelda - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003520902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03520902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Zelda (Super Smash Bros.) (amiibo) - ID: amiibo-01010000000e0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-000e0002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Link - Tears of the Kingdom (amiibo) | Line: amiibo | Series: Legend of Zelda
+- [ ] **Link to:** Link - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0100000004180902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-04180902.png)
+  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Twilight Princess (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034d0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034d0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Ocarina of Time (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034b0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034b0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Majora's Mask (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034c0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034c0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 
 ### Zelda - Tears of the Kingdom (amiibo) | Line: amiibo | Series: Legend of Zelda
-- [ ] **Link to:** Zelda & Loftwing (Legend Of Zelda) (amiibo) - ID: amiibo-0101030004140902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010300-04140902.png)
+- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
   - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Zelda (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003560902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03560902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Zelda - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003520902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03520902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
   - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Zelda (Super Smash Bros.) (amiibo) - ID: amiibo-01010000000e0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-000e0002.png)
@@ -537,70 +253,31 @@
 - [ ] **Link to:** Mega Man (Mega Man) (amiibo) - ID: amiibo-3480000003791502
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-03791502.png)
   - *Amiibo Series: Mega Man*
-- [ ] **Link to:** Mega Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-00030102023e0302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-023e0302.png)
-  - *Amiibo Series: Yoshi's Woolly World*
-- [ ] **Link to:** Mega Man - Gold Edition (Super Smash Bros.) (amiibo) - ID: amiibo-3480000002580002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-02580002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Mega Man (Super Smash Bros.) (amiibo) - ID: amiibo-3480000000310002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-00310002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Mega Man - Gold Edition (Super Smash Bros.) (amiibo) - ID: amiibo-3480000002580002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-02580002.png)
+  - *Amiibo Series: Super Smash Bros.*
 
 ### Samus Aran (amiibo) | Line: amiibo | Series: Metroid
-- [ ] **Link to:** Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c0000000060002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-00060002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Samus (Metroid) (amiibo) - ID: amiibo-05c00000043b1302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-043b1302.png)
-  - *Amiibo Series: Metroid*
-- [ ] **Link to:** Samus & Vi-O-La (Metroid) (amiibo) - ID: amiibo-05c00000043a1302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-043a1302.png)
-  - *Amiibo Series: Metroid*
-- [ ] **Link to:** Samus - Metroid Dread (Metroid) (amiibo) - ID: amiibo-05c0000004121302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-04121302.png)
-  - *Amiibo Series: Metroid*
-- [ ] **Link to:** Zero Suit Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c00100001d0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00100-001d0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Dark Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c3000003800002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c30000-03800002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Samus Aran (Metroid) (amiibo) - ID: amiibo-05c0000003651302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-03651302.png)
   - *Amiibo Series: Metroid*
-
-### Metroid (amiibo) | Line: amiibo | Series: Metroid
-- [ ] **Link to:** E.M.M.I. (Metroid) (amiibo) - ID: amiibo-05c4000004131302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c40000-04131302.png)
-  - *Amiibo Series: Metroid*
 - [ ] **Link to:** Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c0000000060002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-00060002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Samus (Metroid) (amiibo) - ID: amiibo-05c00000043b1302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-043b1302.png)
   - *Amiibo Series: Metroid*
-- [ ] **Link to:** Samus & Vi-O-La (Metroid) (amiibo) - ID: amiibo-05c00000043a1302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-043a1302.png)
-  - *Amiibo Series: Metroid*
-- [ ] **Link to:** Sylux (Metroid) (amiibo) - ID: amiibo-05c50000043c1302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c50000-043c1302.png)
+
+### Metroid (amiibo) | Line: amiibo | Series: Metroid
+- [ ] **Link to:** Metroid (Metroid) (amiibo) - ID: amiibo-05c1000003661302
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c10000-03661302.png)
   - *Amiibo Series: Metroid*
 - [ ] **Link to:** Samus - Metroid Dread (Metroid) (amiibo) - ID: amiibo-05c0000004121302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-04121302.png)
   - *Amiibo Series: Metroid*
-- [ ] **Link to:** Metroid (Metroid) (amiibo) - ID: amiibo-05c1000003661302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c10000-03661302.png)
-  - *Amiibo Series: Metroid*
-- [ ] **Link to:** Zero Suit Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c00100001d0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00100-001d0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Dark Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c3000003800002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c30000-03800002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Ridley (Super Smash Bros.) (amiibo) - ID: amiibo-05c20000037f0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c20000-037f0002.png)
-  - *Amiibo Series: Super Smash Bros.*
 
 ### Samus (amiibo) | Line: amiibo | Series: Metroid
 - [ ] **Link to:** Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c0000000060002
@@ -634,22 +311,10 @@
 - [ ] **Link to:** Ratha (Monster Hunter) (amiibo) - ID: amiibo-350c000004fa0f02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_350c0000-04fa0f02.png)
   - *Amiibo Series: Monster Hunter*
-- [ ] **Link to:** One-Eyed Rathalos and Rider - Female (Monster Hunter) (amiibo) - ID: amiibo-3500020002e20f02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35000200-02e20f02.png)
-  - *Amiibo Series: Monster Hunter*
-- [ ] **Link to:** One-Eyed Rathalos and Rider - Male (Monster Hunter) (amiibo) - ID: amiibo-3500010002e10f02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35000100-02e10f02.png)
-  - *Amiibo Series: Monster Hunter*
 
 ### One-Eyed Rathalos and Rider - Boy (amiibo) | Line: amiibo | Series: Monster Hunter
 - [ ] **Link to:** Ratha (Monster Hunter) (amiibo) - ID: amiibo-350c000004fa0f02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_350c0000-04fa0f02.png)
-  - *Amiibo Series: Monster Hunter*
-- [ ] **Link to:** One-Eyed Rathalos and Rider - Female (Monster Hunter) (amiibo) - ID: amiibo-3500020002e20f02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35000200-02e20f02.png)
-  - *Amiibo Series: Monster Hunter*
-- [ ] **Link to:** One-Eyed Rathalos and Rider - Male (Monster Hunter) (amiibo) - ID: amiibo-3500010002e10f02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35000100-02e10f02.png)
   - *Amiibo Series: Monster Hunter*
 
 ### Rathian and Cheval (amiibo) | Line: amiibo | Series: Monster Hunter
@@ -737,9 +402,6 @@
   - *Amiibo Series: Monster Hunter Rise*
 
 ### Pikmin (amiibo) | Line: amiibo | Series: Pikmin
-- [ ] **Link to:** Olimar (Super Smash Bros.) (amiibo) - ID: amiibo-06400100001e0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_06400100-001e0002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Pikmin (Pikmin) (amiibo) - ID: amiibo-06420000035f1102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_06420000-035f1102.png)
   - *Amiibo Series: Pikmin*
@@ -753,20 +415,11 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Shovel Knight (amiibo) | Line: amiibo | Series: Shovel Knight
-- [ ] **Link to:** Shovel Knight - Gold Edition (Shovel Knight) (amiibo) - ID: amiibo-35c0000003920a02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c00000-03920a02.png)
-  - *Amiibo Series: Shovel Knight*
-- [ ] **Link to:** King Knight (Shovel Knight) (amiibo) - ID: amiibo-35c30000036e0a02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c30000-036e0a02.png)
-  - *Amiibo Series: Shovel Knight*
 - [ ] **Link to:** Shovel Knight (Shovel Knight) (amiibo) - ID: amiibo-35c0000002500a02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c00000-02500a02.png)
   - *Amiibo Series: Shovel Knight*
-- [ ] **Link to:** Specter Knight (Shovel Knight) (amiibo) - ID: amiibo-35c20000036d0a02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c20000-036d0a02.png)
-  - *Amiibo Series: Shovel Knight*
-- [ ] **Link to:** Plague Knight (Shovel Knight) (amiibo) - ID: amiibo-35c10000036c0a02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c10000-036c0a02.png)
+- [ ] **Link to:** Shovel Knight - Gold Edition (Shovel Knight) (amiibo) - ID: amiibo-35c0000003920a02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c00000-03920a02.png)
   - *Amiibo Series: Shovel Knight*
 
 ### Plague Knight (amiibo) | Line: amiibo | Series: Shovel Knight
@@ -780,30 +433,9 @@
   - *Amiibo Series: Shovel Knight*
 
 ### King Knight (amiibo) | Line: amiibo | Series: Shovel Knight
-- [ ] **Link to:** King K. Rool (Super Smash Bros.) (amiibo) - ID: amiibo-00c00000037b0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00c00000-037b0002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** King Knight (Shovel Knight) (amiibo) - ID: amiibo-35c30000036e0a02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c30000-036e0a02.png)
   - *Amiibo Series: Shovel Knight*
-- [ ] **Link to:** Ganondorf - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-01020100041a0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01020100-041a0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** King Dedede (Super Smash Bros.) (amiibo) - ID: amiibo-1f02000000280002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-00280002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0100000004180902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-04180902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Captain Toad & Talking Flower (Super Mario Bros.) (amiibo) - ID: amiibo-000a010004c20102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0100-04c20102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** King Dedede (Kirby) (amiibo) - ID: amiibo-1f02000002560c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-02560c02.png)
-  - *Amiibo Series: Kirby*
 
 ### Shovel Knight - Gold Edition (amiibo) | Line: amiibo | Series: Shovel Knight
 - [ ] **Link to:** Shovel Knight - Gold Edition (Shovel Knight) (amiibo) - ID: amiibo-35c0000003920a02
@@ -814,30 +446,12 @@
   - *Amiibo Series: Shovel Knight*
 
 ### Inkling Girl (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
   - *Amiibo Series: Splatoon*
@@ -846,67 +460,31 @@
   - *Amiibo Series: Splatoon*
 
 ### Inkling Boy (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
   - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
+- [ ] **Link to:** Inkling Boy - Neon Green (Splatoon) (amiibo) - ID: amiibo-08000200036a0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-036a0402.png)
   - *Amiibo Series: Splatoon*
 
 ### Inkling Squid (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
   - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
 
 ### Callie (amiibo) | Line: amiibo | Series: Splatoon
@@ -926,195 +504,69 @@
   - *Amiibo Series: Splatoon*
 
 ### Inkling Girl (Lime Green) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
 
 ### Inkling Boy (Purple) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
 
 ### Inkling Squid (Orange) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
 
 ### Inkling Girl (Neon Pink) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
 
 ### Inkling Boy (Neon Green) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Boy - Neon Green (Splatoon) (amiibo) - ID: amiibo-08000200036a0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-036a0402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
 
 ### Inkling Squid (Neon Purple) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
   - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
 
 ### Pearl (amiibo) | Line: amiibo | Series: Splatoon
@@ -1134,43 +586,16 @@
   - *Amiibo Series: Splatoon*
 
 ### Octoling Girl (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Octoling Boy (Splatoon) (amiibo) - ID: amiibo-08050200038f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050200-038f0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Octoling Girl (Splatoon) (amiibo) - ID: amiibo-08050100038e0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050100-038e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling - Blue (Splatoon) (amiibo) - ID: amiibo-08050200041b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050200-041b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling Octopus (Splatoon) (amiibo) - ID: amiibo-0805030003900402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050300-03900402.png)
   - *Amiibo Series: Splatoon*
 
 ### Octoling Boy (amiibo) | Line: amiibo | Series: Splatoon
 - [ ] **Link to:** Octoling Boy (Splatoon) (amiibo) - ID: amiibo-08050200038f0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050200-038f0402.png)
   - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling Girl (Splatoon) (amiibo) - ID: amiibo-08050100038e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050100-038e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling - Blue (Splatoon) (amiibo) - ID: amiibo-08050200041b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050200-041b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling Octopus (Splatoon) (amiibo) - ID: amiibo-0805030003900402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050300-03900402.png)
-  - *Amiibo Series: Splatoon*
 
 ### Octoling Octopus (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Octoling Boy (Splatoon) (amiibo) - ID: amiibo-08050200038f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050200-038f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling Girl (Splatoon) (amiibo) - ID: amiibo-08050100038e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050100-038e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling - Blue (Splatoon) (amiibo) - ID: amiibo-08050200041b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050200-041b0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Octoling Octopus (Splatoon) (amiibo) - ID: amiibo-0805030003900402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050300-03900402.png)
   - *Amiibo Series: Splatoon*
@@ -1182,43 +607,10 @@
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy (Splatoon) (amiibo) - ID: amiibo-08000200003f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-003f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid (Splatoon) (amiibo) - ID: amiibo-0800030000400402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-00400402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Orange (Splatoon) (amiibo) - ID: amiibo-0800030002610402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-02610402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Purple (Splatoon) (amiibo) - ID: amiibo-0800020002600402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-02600402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Squid - Neon Purple (Splatoon) (amiibo) - ID: amiibo-08000300036b0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000300-036b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
-  - *Amiibo Series: Splatoon*
 
 ### Octoling (Blue) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Octoling Boy (Splatoon) (amiibo) - ID: amiibo-08050200038f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050200-038f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling Girl (Splatoon) (amiibo) - ID: amiibo-08050100038e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050100-038e0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Octoling - Blue (Splatoon) (amiibo) - ID: amiibo-08050200041b0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050200-041b0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Octoling Octopus (Splatoon) (amiibo) - ID: amiibo-0805030003900402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08050300-03900402.png)
   - *Amiibo Series: Splatoon*
 
 ### Smallfry (amiibo) | Line: amiibo | Series: Splatoon
@@ -1242,35 +634,35 @@
   - *Amiibo Series: Splatoon*
 
 ### Callie (Alterna) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Callie (Splatoon) (amiibo) - ID: amiibo-08010000025d0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08010000-025d0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Callie - Alterna (Splatoon) (amiibo) - ID: amiibo-0801000004360402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08010000-04360402.png)
   - *Amiibo Series: Splatoon*
+- [ ] **Link to:** Callie (Splatoon) (amiibo) - ID: amiibo-08010000025d0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08010000-025d0402.png)
+  - *Amiibo Series: Splatoon*
 
 ### Marie (Alterna) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Marie (Splatoon) (amiibo) - ID: amiibo-08020000025e0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08020000-025e0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Marie - Alterna (Splatoon) (amiibo) - ID: amiibo-0802000004370402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08020000-04370402.png)
   - *Amiibo Series: Splatoon*
+- [ ] **Link to:** Marie (Splatoon) (amiibo) - ID: amiibo-08020000025e0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08020000-025e0402.png)
+  - *Amiibo Series: Splatoon*
 
 ### Pearl (Side Order) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Pearl (Splatoon) (amiibo) - ID: amiibo-0803000003760402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08030000-03760402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Pearl - Side Order (Splatoon) (amiibo) - ID: amiibo-0803000004380402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08030000-04380402.png)
   - *Amiibo Series: Splatoon*
+- [ ] **Link to:** Pearl (Splatoon) (amiibo) - ID: amiibo-0803000003760402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08030000-03760402.png)
+  - *Amiibo Series: Splatoon*
 
 ### Marina (Side Order) (amiibo) | Line: amiibo | Series: Splatoon
-- [ ] **Link to:** Marina (Splatoon) (amiibo) - ID: amiibo-0804000003770402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08040000-03770402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Marina - Side Order (Splatoon) (amiibo) - ID: amiibo-0804000004390402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08040000-04390402.png)
+  - *Amiibo Series: Splatoon*
+- [ ] **Link to:** Marina (Splatoon) (amiibo) - ID: amiibo-0804000003770402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08040000-03770402.png)
   - *Amiibo Series: Splatoon*
 
 ### Luke (amiibo) | Line: amiibo | Series: Street Fighter
@@ -1289,47 +681,62 @@
   - *Amiibo Series: Street Fighter 6*
 
 ### Mario (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** Peach - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00020003039dff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020003-039dff02.png)
-  - *Amiibo Series: Super Nintendo World*
-- [ ] **Link to:** Boo (Super Mario Bros.) (amiibo) - ID: amiibo-0017000002680102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00170000-02680102.png)
+- [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Golden - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-000000030430ff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000003-0430ff02.png)
-  - *Amiibo Series: Super Nintendo World*
-- [ ] **Link to:** Rosalina (Super Mario Bros.) (amiibo) - ID: amiibo-0004000002620102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00040000-02620102.png)
+- [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Luigi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0001000404401c02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010004-04401c02.png)
+  - *Amiibo Series: My Mario Wooden Blocks*
+- [ ] **Link to:** Yoshi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0003000404421c02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030004-04421c02.png)
+  - *Amiibo Series: My Mario Wooden Blocks*
+- [ ] **Link to:** Mario - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-00000004043f1c02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000004-043f1c02.png)
+  - *Amiibo Series: My Mario Wooden Blocks*
+- [ ] **Link to:** 8-Bit Mario Modern Color (8-bit Mario) (amiibo) - ID: amiibo-0000000002390602
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-02390602.png)
+  - *Amiibo Series: 8-bit Mario*
+- [ ] **Link to:** Dr. Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000010000190002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000100-00190002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Mario - Cat (Super Mario Bros.) (amiibo) - ID: amiibo-0000030003a60102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000300-03a60102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Rosalina and Lumas (Super Mario Bros.) (amiibo) - ID: amiibo-0004010004ea0102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00040100-04ea0102.png)
+- [ ] **Link to:** Mario - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0000000003710102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-03710102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Rosalina & Luma (Super Smash Bros.) (amiibo) - ID: amiibo-0004010000130002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00040100-00130002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Wario (Super Smash Bros.) (amiibo) - ID: amiibo-00070000001a0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00070000-001a0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Diddy Kong (Super Smash Bros.) (amiibo) - ID: amiibo-00090000000d0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00090000-000d0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Luigi - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00010003039cff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010003-039cff02.png)
+- [ ] **Link to:** Elephant Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000040004c10102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000400-04c10102.png)
+  - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Peach - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0002000404411c02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020004-04411c02.png)
+  - *Amiibo Series: My Mario Wooden Blocks*
+- [ ] **Link to:** Mario - Gold Edition (Super Mario Bros.) (amiibo) - ID: amiibo-00000000003c0102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-003c0102.png)
+  - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Mario - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00000003039bff02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000003-039bff02.png)
   - *Amiibo Series: Super Nintendo World*
-- [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
-  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Mario - Silver Edition (Super Mario Bros.) (amiibo) - ID: amiibo-00000000003d0102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-003d0102.png)
+  - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** 8-Bit Mario Classic Color (8-bit Mario) (amiibo) - ID: amiibo-0000000002380602
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-02380602.png)
+  - *Amiibo Series: 8-bit Mario*
 
 ### Luigi (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** Luigi - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00010003039cff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010003-039cff02.png)
-  - *Amiibo Series: Super Nintendo World*
 - [ ] **Link to:** Luigi (Super Mario Bros.) (amiibo) - ID: amiibo-0001000000350102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010000-00350102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Luigi (Super Smash Bros.) (amiibo) - ID: amiibo-00010000000c0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010000-000c0002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Luigi - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00010003039cff02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010003-039cff02.png)
+  - *Amiibo Series: Super Nintendo World*
 - [ ] **Link to:** Luigi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0001000404401c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010004-04401c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
@@ -1338,6 +745,12 @@
   - *Amiibo Series: Super Mario Bros.*
 
 ### Peach (amiibo) | Line: amiibo | Series: Super Mario
+- [ ] **Link to:** Peach (Super Mario Bros.) (amiibo) - ID: amiibo-0002000000360102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00360102.png)
+  - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Peach (Super Smash Bros.) (amiibo) - ID: amiibo-0002000000010002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00010002.png)
+  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Peach - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00020003039dff02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020003-039dff02.png)
   - *Amiibo Series: Super Nintendo World*
@@ -1347,29 +760,20 @@
 - [ ] **Link to:** Peach - Cat (Super Mario Bros.) (amiibo) - ID: amiibo-0002010003a70102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020100-03a70102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Peach (Super Mario Bros.) (amiibo) - ID: amiibo-0002000000360102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00360102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Peach (Super Smash Bros.) (amiibo) - ID: amiibo-0002000000010002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00010002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Peach - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0002000404411c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020004-04411c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
 
 ### Yoshi (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** Poochy (Yoshi's Woolly World) (amiibo) - ID: amiibo-00800102035d0302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00800102-035d0302.png)
-  - *Amiibo Series: Yoshi's Woolly World*
 - [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Mega Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-00030102023e0302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-023e0302.png)
-  - *Amiibo Series: Yoshi's Woolly World*
 - [ ] **Link to:** Yoshi (Super Mario Bros.) (amiibo) - ID: amiibo-0003000000370102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00370102.png)
   - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Mega Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-00030102023e0302
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-023e0302.png)
+  - *Amiibo Series: Yoshi's Woolly World*
 - [ ] **Link to:** Yoshi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0003000404421c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030004-04421c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
@@ -1387,92 +791,50 @@
   - *Amiibo Series: Super Nintendo World*
 
 ### Toad (amiibo) | Line: amiibo | Series: Super Mario
+- [ ] **Link to:** Toad (Super Mario Bros.) (amiibo) - ID: amiibo-000a000000380102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0000-00380102.png)
+  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Toad - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-000a000303a0ff02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0003-03a0ff02.png)
   - *Amiibo Series: Super Nintendo World*
 - [ ] **Link to:** Captain Toad & Talking Flower (Super Mario Bros.) (amiibo) - ID: amiibo-000a010004c20102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0100-04c20102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Toad (Super Mario Bros.) (amiibo) - ID: amiibo-000a000000380102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0000-00380102.png)
-  - *Amiibo Series: Super Mario Bros.*
 
 ### Bowser (amiibo) | Line: amiibo | Series: Super Mario
+- [ ] **Link to:** Bowser (Super Smash Bros.) (amiibo) - ID: amiibo-0005000000140002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00140002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Bowser (Super Mario Bros.) (amiibo) - ID: amiibo-0005000000390102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00390102.png)
+  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Hammer Slam Bowser (Skylanders) (amiibo) - ID: amiibo-0005ff00023a0702
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_0005ff00-023a0702.png)
   - *Amiibo Series: Skylanders*
 - [ ] **Link to:** Bowser - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0005000003730102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-03730102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Bowser (Super Smash Bros.) (amiibo) - ID: amiibo-0005000000140002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00140002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Bowser Jr. (Super Smash Bros.) (amiibo) - ID: amiibo-0006000000150002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00060000-00150002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Bowser (Super Mario Bros.) (amiibo) - ID: amiibo-0005000000390102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00390102.png)
-  - *Amiibo Series: Super Mario Bros.*
 
 ### Mario - Gold Edition (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** Luigi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0001000404401c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010004-04401c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** Yoshi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0003000404421c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030004-04421c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
+- [ ] **Link to:** Mario - Gold Edition (Super Mario Bros.) (amiibo) - ID: amiibo-00000000003c0102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-003c0102.png)
+  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mario - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-00000004043f1c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000004-043f1c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** 8-Bit Mario Modern Color (8-bit Mario) (amiibo) - ID: amiibo-0000000002390602
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-02390602.png)
-  - *Amiibo Series: 8-bit Mario*
-- [ ] **Link to:** Dr. Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000010000190002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000100-00190002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Mario - Cat (Super Mario Bros.) (amiibo) - ID: amiibo-0000030003a60102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000300-03a60102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mario - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0000000003710102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-03710102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Elephant Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000040004c10102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000400-04c10102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Mario - Silver Edition (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** Luigi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0001000404401c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010004-04401c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** Yoshi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0003000404421c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030004-04421c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
+- [ ] **Link to:** Mario - Silver Edition (Super Mario Bros.) (amiibo) - ID: amiibo-00000000003d0102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-003d0102.png)
+  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mario - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-00000004043f1c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000004-043f1c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** 8-Bit Mario Modern Color (8-bit Mario) (amiibo) - ID: amiibo-0000000002390602
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-02390602.png)
-  - *Amiibo Series: 8-bit Mario*
-- [ ] **Link to:** Dr. Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000010000190002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000100-00190002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Mario - Cat (Super Mario Bros.) (amiibo) - ID: amiibo-0000030003a60102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000300-03a60102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mario - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0000000003710102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-03710102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Elephant Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000040004c10102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000400-04c10102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
@@ -1503,18 +865,15 @@
   - *Amiibo Series: Super Mario Bros.*
 
 ### Donkey Kong (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** King K. Rool (Super Smash Bros.) (amiibo) - ID: amiibo-00c00000037b0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00c00000-037b0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Turbo Charge Donkey Kong (Skylanders) (amiibo) - ID: amiibo-0008ff00023b0702
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_0008ff00-023b0702.png)
-  - *Amiibo Series: Skylanders*
 - [ ] **Link to:** Donkey Kong (Super Smash Bros.) (amiibo) - ID: amiibo-0008000000030002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00080000-00030002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Donkey Kong (Super Mario Bros.) (amiibo) - ID: amiibo-0008000002640102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00080000-02640102.png)
   - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Turbo Charge Donkey Kong (Skylanders) (amiibo) - ID: amiibo-0008ff00023b0702
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_0008ff00-023b0702.png)
+  - *Amiibo Series: Skylanders*
 - [ ] **Link to:** Donkey Kong & Pauline (Donkey Kong) (amiibo) - ID: amiibo-00080100042f1a02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00080100-042f1a02.png)
   - *Amiibo Series: Donkey Kong*
@@ -1523,15 +882,15 @@
   - *Amiibo Series: Super Nintendo World*
 
 ### Waluigi (amiibo) | Line: amiibo | Series: Super Mario
+- [ ] **Link to:** Waluigi (Super Mario Bros.) (amiibo) - ID: amiibo-0014000002670102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00140000-02670102.png)
+  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Luigi (Super Mario Bros.) (amiibo) - ID: amiibo-0001000000350102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010000-00350102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Luigi (Super Smash Bros.) (amiibo) - ID: amiibo-00010000000c0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010000-000c0002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Waluigi (Super Mario Bros.) (amiibo) - ID: amiibo-0014000002670102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00140000-02670102.png)
-  - *Amiibo Series: Super Mario Bros.*
 
 ### Daisy (amiibo) | Line: amiibo | Series: Super Mario
 - [ ] **Link to:** Daisy (Super Smash Bros.) (amiibo) - ID: amiibo-00130000037a0002
@@ -1566,46 +925,19 @@
   - *Amiibo Series: Super Mario Bros.*
 
 ### Mario - Wedding Outfit (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** Luigi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0001000404401c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010004-04401c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** Yoshi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0003000404421c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030004-04421c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
 - [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mario - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-00000004043f1c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000004-043f1c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** 8-Bit Mario Modern Color (8-bit Mario) (amiibo) - ID: amiibo-0000000002390602
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-02390602.png)
-  - *Amiibo Series: 8-bit Mario*
-- [ ] **Link to:** Dr. Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000010000190002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000100-00190002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Mario - Cat (Super Mario Bros.) (amiibo) - ID: amiibo-0000030003a60102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000300-03a60102.png)
-  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0000000003710102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-03710102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Elephant Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000040004c10102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000400-04c10102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Peach - Wedding Outfit (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** Peach - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00020003039dff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020003-039dff02.png)
-  - *Amiibo Series: Super Nintendo World*
 - [ ] **Link to:** Peach - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0002000003720102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-03720102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Peach - Cat (Super Mario Bros.) (amiibo) - ID: amiibo-0002010003a70102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020100-03a70102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Peach (Super Mario Bros.) (amiibo) - ID: amiibo-0002000000360102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00360102.png)
@@ -1613,22 +945,13 @@
 - [ ] **Link to:** Peach (Super Smash Bros.) (amiibo) - ID: amiibo-0002000000010002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00010002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Peach - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0002000404411c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020004-04411c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
 
 ### Bowser - Wedding Outfit (amiibo) | Line: amiibo | Series: Super Mario
-- [ ] **Link to:** Hammer Slam Bowser (Skylanders) (amiibo) - ID: amiibo-0005ff00023a0702
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_0005ff00-023a0702.png)
-  - *Amiibo Series: Skylanders*
 - [ ] **Link to:** Bowser - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0005000003730102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-03730102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Bowser (Super Smash Bros.) (amiibo) - ID: amiibo-0005000000140002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00140002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Bowser Jr. (Super Smash Bros.) (amiibo) - ID: amiibo-0006000000150002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00060000-00150002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Bowser (Super Mario Bros.) (amiibo) - ID: amiibo-0005000000390102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00390102.png)
@@ -1651,47 +974,34 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Mario - Classic Colors (amiibo) | Line: amiibo | Series: Super Mario Bros. 30th Anniversary
-- [ ] **Link to:** Luigi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0001000404401c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010004-04401c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** Yoshi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0003000404421c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030004-04421c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
 - [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mario - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-00000004043f1c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000004-043f1c02.png)
-  - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** 8-Bit Mario Modern Color (8-bit Mario) (amiibo) - ID: amiibo-0000000002390602
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-02390602.png)
-  - *Amiibo Series: 8-bit Mario*
-- [ ] **Link to:** Dr. Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000010000190002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000100-00190002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Mario - Cat (Super Mario Bros.) (amiibo) - ID: amiibo-0000030003a60102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000300-03a60102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mario - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0000000003710102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-03710102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Elephant Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000040004c10102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000400-04c10102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Mario - Modern Colors (amiibo) | Line: amiibo | Series: Super Mario Bros. 30th Anniversary
+- [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
+  - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
+  - *Amiibo Series: Super Smash Bros.*
+
+### Mario (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
+  - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
+  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Luigi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0001000404401c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010004-04401c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
 - [ ] **Link to:** Yoshi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0003000404421c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030004-04421c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
-- [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
-  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-00000004043f1c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000004-043f1c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
@@ -1710,43 +1020,29 @@
 - [ ] **Link to:** Elephant Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000040004c10102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000400-04c10102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
-  - *Amiibo Series: Super Smash Bros.*
-
-### Mario (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Peach - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00020003039dff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020003-039dff02.png)
-  - *Amiibo Series: Super Nintendo World*
-- [ ] **Link to:** Boo (Super Mario Bros.) (amiibo) - ID: amiibo-0017000002680102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00170000-02680102.png)
+- [ ] **Link to:** Peach - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0002000404411c02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020004-04411c02.png)
+  - *Amiibo Series: My Mario Wooden Blocks*
+- [ ] **Link to:** Mario - Gold Edition (Super Mario Bros.) (amiibo) - ID: amiibo-00000000003c0102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-003c0102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Golden - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-000000030430ff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000003-0430ff02.png)
+- [ ] **Link to:** Mario - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00000003039bff02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000003-039bff02.png)
   - *Amiibo Series: Super Nintendo World*
-- [ ] **Link to:** Rosalina (Super Mario Bros.) (amiibo) - ID: amiibo-0004000002620102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00040000-02620102.png)
+- [ ] **Link to:** Mario - Silver Edition (Super Mario Bros.) (amiibo) - ID: amiibo-00000000003d0102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-003d0102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Rosalina and Lumas (Super Mario Bros.) (amiibo) - ID: amiibo-0004010004ea0102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00040100-04ea0102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Rosalina & Luma (Super Smash Bros.) (amiibo) - ID: amiibo-0004010000130002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00040100-00130002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Wario (Super Smash Bros.) (amiibo) - ID: amiibo-00070000001a0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00070000-001a0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Diddy Kong (Super Smash Bros.) (amiibo) - ID: amiibo-00090000000d0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00090000-000d0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Luigi - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00010003039cff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010003-039cff02.png)
-  - *Amiibo Series: Super Nintendo World*
-- [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
-  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** 8-Bit Mario Classic Color (8-bit Mario) (amiibo) - ID: amiibo-0000000002380602
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-02380602.png)
+  - *Amiibo Series: 8-bit Mario*
 
 ### Peach (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Peach (Super Mario Bros.) (amiibo) - ID: amiibo-0002000000360102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00360102.png)
+  - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Peach (Super Smash Bros.) (amiibo) - ID: amiibo-0002000000010002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00010002.png)
+  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Peach - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00020003039dff02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020003-039dff02.png)
   - *Amiibo Series: Super Nintendo World*
@@ -1756,29 +1052,20 @@
 - [ ] **Link to:** Peach - Cat (Super Mario Bros.) (amiibo) - ID: amiibo-0002010003a70102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020100-03a70102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Peach (Super Mario Bros.) (amiibo) - ID: amiibo-0002000000360102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00360102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Peach (Super Smash Bros.) (amiibo) - ID: amiibo-0002000000010002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020000-00010002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Peach - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0002000404411c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00020004-04411c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
 
 ### Yoshi (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Poochy (Yoshi's Woolly World) (amiibo) - ID: amiibo-00800102035d0302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00800102-035d0302.png)
-  - *Amiibo Series: Yoshi's Woolly World*
 - [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Mega Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-00030102023e0302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-023e0302.png)
-  - *Amiibo Series: Yoshi's Woolly World*
 - [ ] **Link to:** Yoshi (Super Mario Bros.) (amiibo) - ID: amiibo-0003000000370102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00370102.png)
   - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Mega Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-00030102023e0302
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-023e0302.png)
+  - *Amiibo Series: Yoshi's Woolly World*
 - [ ] **Link to:** Yoshi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0003000404421c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030004-04421c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
@@ -1796,18 +1083,15 @@
   - *Amiibo Series: Super Nintendo World*
 
 ### Donkey Kong (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** King K. Rool (Super Smash Bros.) (amiibo) - ID: amiibo-00c00000037b0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00c00000-037b0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Turbo Charge Donkey Kong (Skylanders) (amiibo) - ID: amiibo-0008ff00023b0702
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_0008ff00-023b0702.png)
-  - *Amiibo Series: Skylanders*
 - [ ] **Link to:** Donkey Kong (Super Smash Bros.) (amiibo) - ID: amiibo-0008000000030002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00080000-00030002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Donkey Kong (Super Mario Bros.) (amiibo) - ID: amiibo-0008000002640102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00080000-02640102.png)
   - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Turbo Charge Donkey Kong (Skylanders) (amiibo) - ID: amiibo-0008ff00023b0702
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_0008ff00-023b0702.png)
+  - *Amiibo Series: Skylanders*
 - [ ] **Link to:** Donkey Kong & Pauline (Donkey Kong) (amiibo) - ID: amiibo-00080100042f1a02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00080100-042f1a02.png)
   - *Amiibo Series: Donkey Kong*
@@ -1846,16 +1130,22 @@
 - [ ] **Link to:** Link - Majora's Mask (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034c0902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034c0902.png)
   - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Link - Link's Awakening (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003990902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03990902.png)
+  - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Link - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0100000004180902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-04180902.png)
+  - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Toon Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100010000160002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-00160002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Link - Skyward Sword (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034e0902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034e0902.png)
+  - *Amiibo Series: Legend Of Zelda*
 
 ### Fox (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Wolf (Super Smash Bros.) (amiibo) - ID: amiibo-05840000037e0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05840000-037e0002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Fox (Super Smash Bros.) (amiibo) - ID: amiibo-0580000000050002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05800000-00050002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Falco (Super Smash Bros.) (amiibo) - ID: amiibo-05810000001c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05810000-001c0002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Samus (amiibo) | Line: amiibo | Series: Super Smash Bros.
@@ -1892,43 +1182,22 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Pikachu (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Detective Pikachu (Pokemon) (amiibo) - ID: amiibo-1d01000003750d02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1d010000-03750d02.png)
-  - *Amiibo Series: Pokemon*
 - [ ] **Link to:** Pikachu (Super Smash Bros.) (amiibo) - ID: amiibo-1919000000090002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_19190000-00090002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Detective Pikachu (Pokemon) (amiibo) - ID: amiibo-1d01000003750d02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1d010000-03750d02.png)
+  - *Amiibo Series: Pokemon*
 
 ### Kirby (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Meta Knight (Super Smash Bros.) (amiibo) - ID: amiibo-1f01000000270002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-00270002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Meta Knight (& Shadow Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f01000004c61e03
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-04c61e03.png)
-  - *Amiibo Series: Kirby Air Riders*
 - [ ] **Link to:** Kirby (Super Smash Bros.) (amiibo) - ID: amiibo-1f000000000a0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f000000-000a0002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Kirby (Kirby) (amiibo) - ID: amiibo-1f00000002540c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f000000-02540c02.png)
   - *Amiibo Series: Kirby*
-- [ ] **Link to:** King Dedede (Super Smash Bros.) (amiibo) - ID: amiibo-1f02000000280002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-00280002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Meta Knight (Kirby) (amiibo) - ID: amiibo-1f01000002550c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-02550c02.png)
-  - *Amiibo Series: Kirby*
-- [ ] **Link to:** Waddle Dee (Kirby) (amiibo) - ID: amiibo-1f03000002570c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f030000-02570c02.png)
-  - *Amiibo Series: Kirby*
-- [ ] **Link to:** King Dedede (Kirby) (amiibo) - ID: amiibo-1f02000002560c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-02560c02.png)
-  - *Amiibo Series: Kirby*
 - [ ] **Link to:** Kirby (& Warp Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f00000004c41e03
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f000000-04c41e03.png)
-  - *Amiibo Series: Kirby Air Riders*
-- [ ] **Link to:** Bandana Waddle Dee (& Winged Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f03010004c91e03
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f030100-04c91e03.png)
   - *Amiibo Series: Kirby Air Riders*
 
 ### Marth (amiibo) | Line: amiibo | Series: Super Smash Bros.
@@ -1937,35 +1206,20 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Zelda (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Zelda & Loftwing (Legend Of Zelda) (amiibo) - ID: amiibo-0101030004140902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010300-04140902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Guardian (Legend Of Zelda) (amiibo) - ID: amiibo-0140000003550902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01400000-03550902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Archer (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003530902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03530902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** 8-Bit Link (Legend Of Zelda) (amiibo) - ID: amiibo-01000000034f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-034f0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Link - Rider (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003540902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03540902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Zelda (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003560902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03560902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
+- [ ] **Link to:** Zelda (Super Smash Bros.) (amiibo) - ID: amiibo-01010000000e0002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-000e0002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Midna & Wolf Link (Legend Of Zelda) (amiibo) - ID: amiibo-01030000024f0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01030000-024f0902.png)
+- [ ] **Link to:** Zelda & Loftwing (Legend Of Zelda) (amiibo) - ID: amiibo-0101030004140902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010300-04140902.png)
+  - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Toon Zelda - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003520902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03520902.png)
+  - *Amiibo Series: Legend Of Zelda*
+- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
   - *Amiibo Series: Legend Of Zelda*
 
 ### Diddy Kong (amiibo) | Line: amiibo | Series: Super Smash Bros.
@@ -1980,15 +1234,15 @@
   - *Amiibo Series: Super Nintendo World*
 
 ### Luigi (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Luigi - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00010003039cff02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010003-039cff02.png)
-  - *Amiibo Series: Super Nintendo World*
 - [ ] **Link to:** Luigi (Super Mario Bros.) (amiibo) - ID: amiibo-0001000000350102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010000-00350102.png)
   - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Luigi (Super Smash Bros.) (amiibo) - ID: amiibo-00010000000c0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010000-000c0002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Luigi - Power Up Band (Super Nintendo World) (amiibo) - ID: amiibo-00010003039cff02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010003-039cff02.png)
+  - *Amiibo Series: Super Nintendo World*
 - [ ] **Link to:** Luigi - My Mario Wooden Blocks (My Mario Wooden Blocks) (amiibo) - ID: amiibo-0001000404401c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00010004-04401c02.png)
   - *Amiibo Series: My Mario Wooden Blocks*
@@ -2002,23 +1256,20 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Pit (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Dark Pit (Super Smash Bros.) (amiibo) - ID: amiibo-0741000000200002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07410000-00200002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Pit (Super Smash Bros.) (amiibo) - ID: amiibo-0740000000100002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07400000-00100002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Dark Pit (Super Smash Bros.) (amiibo) - ID: amiibo-0741000000200002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07410000-00200002.png)
+  - *Amiibo Series: Super Smash Bros.*
 
 ### Captain Falcon (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Falco (Super Smash Bros.) (amiibo) - ID: amiibo-05810000001c0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05810000-001c0002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Captain Falcon (Super Smash Bros.) (amiibo) - ID: amiibo-0600000000120002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_06000000-00120002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Captain Toad & Talking Flower (Super Mario Bros.) (amiibo) - ID: amiibo-000a010004c20102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0100-04c20102.png)
-  - *Amiibo Series: Super Mario Bros.*
+- [ ] **Link to:** Falco (Super Smash Bros.) (amiibo) - ID: amiibo-05810000001c0002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05810000-001c0002.png)
+  - *Amiibo Series: Super Smash Bros.*
 
 ### Rosalina (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Rosalina (Super Mario Bros.) (amiibo) - ID: amiibo-0004000002620102
@@ -2032,21 +1283,21 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Bowser (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Bowser (Super Smash Bros.) (amiibo) - ID: amiibo-0005000000140002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00140002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Bowser (Super Mario Bros.) (amiibo) - ID: amiibo-0005000000390102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00390102.png)
+  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Hammer Slam Bowser (Skylanders) (amiibo) - ID: amiibo-0005ff00023a0702
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_0005ff00-023a0702.png)
   - *Amiibo Series: Skylanders*
 - [ ] **Link to:** Bowser - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0005000003730102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-03730102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Bowser (Super Smash Bros.) (amiibo) - ID: amiibo-0005000000140002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00140002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Bowser Jr. (Super Smash Bros.) (amiibo) - ID: amiibo-0006000000150002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00060000-00150002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Bowser (Super Mario Bros.) (amiibo) - ID: amiibo-0005000000390102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00390102.png)
-  - *Amiibo Series: Super Mario Bros.*
 
 ### Lucario (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Lucario (Super Smash Bros.) (amiibo) - ID: amiibo-1ac0000000110002
@@ -2054,18 +1305,15 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Toon Link (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Toon Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100010000160002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-00160002.png)
+  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Toon Link - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0100010003500902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-03500902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Zelda - The Wind Waker (Legend Of Zelda) (amiibo) - ID: amiibo-0101000003520902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-03520902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Toon Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100010000160002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000100-00160002.png)
-  - *Amiibo Series: Super Smash Bros.*
 
 ### Sheik (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Sheik (Super Smash Bros.) (amiibo) - ID: amiibo-0101010000170002
@@ -2091,52 +1339,28 @@
 - [ ] **Link to:** Mega Man (Mega Man) (amiibo) - ID: amiibo-3480000003791502
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-03791502.png)
   - *Amiibo Series: Mega Man*
-- [ ] **Link to:** Mega Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-00030102023e0302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-023e0302.png)
-  - *Amiibo Series: Yoshi's Woolly World*
-- [ ] **Link to:** Mega Man - Gold Edition (Super Smash Bros.) (amiibo) - ID: amiibo-3480000002580002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-02580002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Mega Man (Super Smash Bros.) (amiibo) - ID: amiibo-3480000000310002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-00310002.png)
   - *Amiibo Series: Super Smash Bros.*
-
-### Mega Man - Gold Edition (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Mega Man (Mega Man) (amiibo) - ID: amiibo-3480000003791502
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-03791502.png)
-  - *Amiibo Series: Mega Man*
-- [ ] **Link to:** Mega Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-00030102023e0302
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-023e0302.png)
-  - *Amiibo Series: Yoshi's Woolly World*
 - [ ] **Link to:** Mega Man - Gold Edition (Super Smash Bros.) (amiibo) - ID: amiibo-3480000002580002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-02580002.png)
   - *Amiibo Series: Super Smash Bros.*
+
+### Mega Man - Gold Edition (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Mega Man - Gold Edition (Super Smash Bros.) (amiibo) - ID: amiibo-3480000002580002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-02580002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Mega Man (Mega Man) (amiibo) - ID: amiibo-3480000003791502
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-03791502.png)
+  - *Amiibo Series: Mega Man*
 - [ ] **Link to:** Mega Man (Super Smash Bros.) (amiibo) - ID: amiibo-3480000000310002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-00310002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### King Dedede (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** King K. Rool (Super Smash Bros.) (amiibo) - ID: amiibo-00c00000037b0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00c00000-037b0002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** King Knight (Shovel Knight) (amiibo) - ID: amiibo-35c30000036e0a02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c30000-036e0a02.png)
-  - *Amiibo Series: Shovel Knight*
-- [ ] **Link to:** Ganondorf - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-01020100041a0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01020100-041a0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** King Dedede (Super Smash Bros.) (amiibo) - ID: amiibo-1f02000000280002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-00280002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0100000004180902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-04180902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Captain Toad & Talking Flower (Super Mario Bros.) (amiibo) - ID: amiibo-000a010004c20102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0100-04c20102.png)
-  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** King Dedede (Kirby) (amiibo) - ID: amiibo-1f02000002560c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-02560c02.png)
   - *Amiibo Series: Kirby*
@@ -2145,12 +1369,12 @@
 - [ ] **Link to:** Meta Knight (Super Smash Bros.) (amiibo) - ID: amiibo-1f01000000270002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-00270002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Meta Knight (& Shadow Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f01000004c61e03
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-04c61e03.png)
-  - *Amiibo Series: Kirby Air Riders*
 - [ ] **Link to:** Meta Knight (Kirby) (amiibo) - ID: amiibo-1f01000002550c02
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-02550c02.png)
   - *Amiibo Series: Kirby*
+- [ ] **Link to:** Meta Knight (& Shadow Star) (Kirby Air Riders) (amiibo) - ID: amiibo-1f01000004c61e03
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f010000-04c61e03.png)
+  - *Amiibo Series: Kirby Air Riders*
 
 ### Robin (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Robin (Super Smash Bros.) (amiibo) - ID: amiibo-21030000002a0002
@@ -2196,12 +1420,12 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Palutena (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Ena (Monster Hunter) (amiibo) - ID: amiibo-35060000040d0f02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35060000-040d0f02.png)
-  - *Amiibo Series: Monster Hunter*
 - [ ] **Link to:** Palutena (Super Smash Bros.) (amiibo) - ID: amiibo-07420000001f0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07420000-001f0002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Ena (Monster Hunter) (amiibo) - ID: amiibo-35060000040d0f02
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35060000-040d0f02.png)
+  - *Amiibo Series: Monster Hunter*
 
 ### Dark Pit (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Dark Pit (Super Smash Bros.) (amiibo) - ID: amiibo-0741000000200002
@@ -2210,52 +1434,43 @@
 - [ ] **Link to:** Pit (Super Smash Bros.) (amiibo) - ID: amiibo-0740000000100002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07400000-00100002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Dark Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c3000003800002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c30000-03800002.png)
-  - *Amiibo Series: Super Smash Bros.*
 
 ### Zero Suit Samus (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Zero Suit Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c00100001d0002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00100-001d0002.png)
+  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c0000000060002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-00060002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Samus (Metroid) (amiibo) - ID: amiibo-05c00000043b1302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-043b1302.png)
   - *Amiibo Series: Metroid*
-- [ ] **Link to:** Zero Suit Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c00100001d0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00100-001d0002.png)
-  - *Amiibo Series: Super Smash Bros.*
 
 ### Ganondorf (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Ganondorf - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-01020100041a0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01020100-041a0902.png)
-  - *Amiibo Series: Legend Of Zelda*
 - [ ] **Link to:** Ganondorf (Super Smash Bros.) (amiibo) - ID: amiibo-01020100001b0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01020100-001b0002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Ganondorf - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-01020100041a0902
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01020100-041a0902.png)
+  - *Amiibo Series: Legend Of Zelda*
 
 ### Dr. Mario (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
-  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Dr. Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000010000190002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000100-00190002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Mario (Super Mario Bros.) (amiibo) - ID: amiibo-0000000000340102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00340102.png)
+  - *Amiibo Series: Super Mario Bros.*
 - [ ] **Link to:** Mario (Super Smash Bros.) (amiibo) - ID: amiibo-0000000000000002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00000000-00000002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Bowser Jr. (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Hammer Slam Bowser (Skylanders) (amiibo) - ID: amiibo-0005ff00023a0702
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_0005ff00-023a0702.png)
-  - *Amiibo Series: Skylanders*
-- [ ] **Link to:** Bowser - Wedding (Super Mario Bros.) (amiibo) - ID: amiibo-0005000003730102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-03730102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Bowser (Super Smash Bros.) (amiibo) - ID: amiibo-0005000000140002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00140002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Bowser Jr. (Super Smash Bros.) (amiibo) - ID: amiibo-0006000000150002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00060000-00150002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Bowser (Super Smash Bros.) (amiibo) - ID: amiibo-0005000000140002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00140002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Bowser (Super Mario Bros.) (amiibo) - ID: amiibo-0005000000390102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00050000-00390102.png)
@@ -2287,9 +1502,6 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### R.O.B. (NES) (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** R.O.B. - Famicom (Super Smash Bros.) (amiibo) - ID: amiibo-07810000002e0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07810000-002e0002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** R.O.B. - NES (Super Smash Bros.) (amiibo) - ID: amiibo-0781000000330002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07810000-00330002.png)
   - *Amiibo Series: Super Smash Bros.*
@@ -2336,9 +1548,6 @@
 - [ ] **Link to:** R.O.B. - Famicom (Super Smash Bros.) (amiibo) - ID: amiibo-07810000002e0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07810000-002e0002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** R.O.B. - NES (Super Smash Bros.) (amiibo) - ID: amiibo-0781000000330002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07810000-00330002.png)
-  - *Amiibo Series: Super Smash Bros.*
 
 ### Roy (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Roy (Super Smash Bros.) (amiibo) - ID: amiibo-2104000002520002
@@ -2359,11 +1568,11 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Cloud - Player 2 (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Cloud (Super Smash Bros.) (amiibo) - ID: amiibo-3600000002590002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_36000000-02590002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Cloud - Player 2 (Super Smash Bros.) (amiibo) - ID: amiibo-3600010003620002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_36000100-03620002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Cloud (Super Smash Bros.) (amiibo) - ID: amiibo-3600000002590002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_36000000-02590002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Corrin (amiibo) | Line: amiibo | Series: Super Smash Bros.
@@ -2375,19 +1584,19 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Corrin - Player 2 (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Corrin (Super Smash Bros.) (amiibo) - ID: amiibo-21050000025a0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_21050000-025a0002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Corrin - Player 2 (Super Smash Bros.) (amiibo) - ID: amiibo-2105010003630002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_21050100-03630002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Corrin (Super Smash Bros.) (amiibo) - ID: amiibo-21050000025a0002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_21050000-025a0002.png)
+  - *Amiibo Series: Super Smash Bros.*
 
 ### Bayonetta (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Bayonetta - Player 2 (Super Smash Bros.) (amiibo) - ID: amiibo-3240010003640002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_32400100-03640002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Bayonetta (Super Smash Bros.) (amiibo) - ID: amiibo-32400000025b0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_32400000-025b0002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Bayonetta - Player 2 (Super Smash Bros.) (amiibo) - ID: amiibo-3240010003640002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_32400100-03640002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Bayonetta - Player 2 (amiibo) | Line: amiibo | Series: Super Smash Bros.
@@ -2407,12 +1616,12 @@
   - *Amiibo Series: Legend Of Zelda*
 
 ### Inkling (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling (Super Smash Bros.) (amiibo) - ID: amiibo-0800010003820002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03820002.png)
   - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Inkling - Yellow (Splatoon) (amiibo) - ID: amiibo-0800010004150402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-04150402.png)
+  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Inkling Girl (Splatoon) (amiibo) - ID: amiibo-08000100003e0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-003e0402.png)
   - *Amiibo Series: Splatoon*
@@ -2437,6 +1646,9 @@
 - [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
   - *Amiibo Series: Splatoon*
+- [ ] **Link to:** Inkling Boy - Neon Green (Splatoon) (amiibo) - ID: amiibo-08000200036a0402
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-036a0402.png)
+  - *Amiibo Series: Splatoon*
 
 ### Ridley (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Ridley (Super Smash Bros.) (amiibo) - ID: amiibo-05c20000037f0002
@@ -2452,27 +1664,6 @@
 - [ ] **Link to:** King K. Rool (Super Smash Bros.) (amiibo) - ID: amiibo-00c00000037b0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00c00000-037b0002.png)
   - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** King Knight (Shovel Knight) (amiibo) - ID: amiibo-35c30000036e0a02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_35c30000-036e0a02.png)
-  - *Amiibo Series: Shovel Knight*
-- [ ] **Link to:** Ganondorf - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-01020100041a0902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01020100-041a0902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Zelda - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0101000004190902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01010000-04190902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** King Dedede (Super Smash Bros.) (amiibo) - ID: amiibo-1f02000000280002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-00280002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Link - Tears of the Kingdom (Legend Of Zelda) (amiibo) - ID: amiibo-0100000004180902
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-04180902.png)
-  - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Captain Toad & Talking Flower (Super Mario Bros.) (amiibo) - ID: amiibo-000a010004c20102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_000a0100-04c20102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** King Dedede (Kirby) (amiibo) - ID: amiibo-1f02000002560c02
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1f020000-02560c02.png)
-  - *Amiibo Series: Kirby*
 
 ### Ice Climbers (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Ice Climbers (Super Smash Bros.) (amiibo) - ID: amiibo-078f000003810002
@@ -2486,16 +1677,13 @@
 - [ ] **Link to:** Link - Link's Awakening (Legend Of Zelda) (amiibo) - ID: amiibo-0100000003990902
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-03990902.png)
   - *Amiibo Series: Legend Of Zelda*
-- [ ] **Link to:** Kazuya (Super Smash Bros.) (amiibo) - ID: amiibo-33c0000004200002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_33c00000-04200002.png)
-  - *Amiibo Series: Super Smash Bros.*
 
 ### Young Link (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Young Link (Super Smash Bros.) (amiibo) - ID: amiibo-01000000037c0002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-037c0002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Link (Super Smash Bros.) (amiibo) - ID: amiibo-0100000000040002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01000000-00040002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Daisy (amiibo) | Line: amiibo | Series: Super Smash Bros.
@@ -2515,11 +1703,19 @@
   - *Amiibo Series: Super Smash Bros.*
 
 ### Isabelle (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Isabelle (Super Smash Bros.) (amiibo) - ID: amiibo-01810000037d0002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01810000-037d0002.png)
+  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Isabelle - Summer Outfit (Animal Crossing) (amiibo) - ID: amiibo-01810000024b0502
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01810000-024b0502.png)
   - *Amiibo Series: Animal Crossing*
-- [ ] **Link to:** Isabelle (Super Smash Bros.) (amiibo) - ID: amiibo-01810000037d0002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01810000-037d0002.png)
+- [ ] **Link to:** Isabelle - Winter Outfit (Animal Crossing) (amiibo) - ID: amiibo-01810100023f0502
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_01810100-023f0502.png)
+  - *Amiibo Series: Animal Crossing*
+
+### Pokémon Trainer (amiibo) | Line: amiibo | Series: Super Smash Bros.
+- [ ] **Link to:** Pokemon Trainer (Super Smash Bros.) (amiibo) - ID: amiibo-1d40000003870002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1d400000-03870002.png)
   - *Amiibo Series: Super Smash Bros.*
 
 ### Snake (amiibo) | Line: amiibo | Series: Super Smash Bros.
@@ -2547,17 +1743,9 @@
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_1bd70000-03860002.png)
   - *Amiibo Series: Super Smash Bros.*
 
-### Chrom (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Chrom (Fire Emblem) (amiibo) - ID: amiibo-21080000036f1202
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_21080000-036f1202.png)
-  - *Amiibo Series: Fire Emblem*
-- [ ] **Link to:** Chrom (Super Smash Bros.) (amiibo) - ID: amiibo-2108000003880002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_21080000-03880002.png)
-  - *Amiibo Series: Super Smash Bros.*
-
 ### Dark Samus (amiibo) | Line: amiibo | Series: Super Smash Bros.
-- [ ] **Link to:** Dark Pit (Super Smash Bros.) (amiibo) - ID: amiibo-0741000000200002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_07410000-00200002.png)
+- [ ] **Link to:** Dark Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c3000003800002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c30000-03800002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c0000000060002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-00060002.png)
@@ -2565,9 +1753,6 @@
 - [ ] **Link to:** Samus (Metroid) (amiibo) - ID: amiibo-05c00000043b1302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c00000-043b1302.png)
   - *Amiibo Series: Metroid*
-- [ ] **Link to:** Dark Samus (Super Smash Bros.) (amiibo) - ID: amiibo-05c3000003800002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_05c30000-03800002.png)
-  - *Amiibo Series: Super Smash Bros.*
 
 ### Richter (amiibo) | Line: amiibo | Series: Super Smash Bros.
 - [ ] **Link to:** Richter (Super Smash Bros.) (amiibo) - ID: amiibo-37c10000038c0002
@@ -2650,37 +1835,31 @@
   - *Amiibo Series: Xenoblade Chronicles 3*
 
 ### Green Yarn Yoshi (amiibo) | Line: amiibo | Series: Yoshi's Wolly World
-- [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Yoshi (Super Mario Bros.) (amiibo) - ID: amiibo-0003000000370102
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00370102.png)
-  - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Inkling Girl - Lime Green (Splatoon) (amiibo) - ID: amiibo-08000100025f0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-025f0402.png)
-  - *Amiibo Series: Splatoon*
-- [ ] **Link to:** Inkling Boy - Neon Green (Splatoon) (amiibo) - ID: amiibo-08000200036a0402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000200-036a0402.png)
-  - *Amiibo Series: Splatoon*
 - [ ] **Link to:** Green Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-0003010200410302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-00410302.png)
   - *Amiibo Series: Yoshi's Woolly World*
-
-### Pink Yarn Yoshi (amiibo) | Line: amiibo | Series: Yoshi's Wolly World
 - [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
   - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Yoshi (Super Mario Bros.) (amiibo) - ID: amiibo-0003000000370102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00370102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Inkling Girl - Neon Pink (Splatoon) (amiibo) - ID: amiibo-0800010003690402
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_08000100-03690402.png)
-  - *Amiibo Series: Splatoon*
+
+### Pink Yarn Yoshi (amiibo) | Line: amiibo | Series: Yoshi's Wolly World
 - [ ] **Link to:** Pink Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-0003010200420302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-00420302.png)
   - *Amiibo Series: Yoshi's Woolly World*
+- [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
+  - *Amiibo Series: Super Smash Bros.*
+- [ ] **Link to:** Yoshi (Super Mario Bros.) (amiibo) - ID: amiibo-0003000000370102
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00370102.png)
+  - *Amiibo Series: Super Mario Bros.*
 
 ### Light-Blue Yarn Yoshi (amiibo) | Line: amiibo | Series: Yoshi's Wolly World
+- [ ] **Link to:** Light Blue Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-0003010200430302
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-00430302.png)
+  - *Amiibo Series: Yoshi's Woolly World*
 - [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
   - *Amiibo Series: Super Smash Bros.*
@@ -2689,42 +1868,18 @@
   - *Amiibo Series: Super Mario Bros.*
 
 ### Mega Yarn Yoshi (amiibo) | Line: amiibo | Series: Yoshi's Wolly World
-- [ ] **Link to:** Mega Man (Mega Man) (amiibo) - ID: amiibo-3480000003791502
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-03791502.png)
-  - *Amiibo Series: Mega Man*
-- [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
-  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Mega Yarn Yoshi (Yoshi's Woolly World) (amiibo) - ID: amiibo-00030102023e0302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030102-023e0302.png)
   - *Amiibo Series: Yoshi's Woolly World*
+- [ ] **Link to:** Yoshi (Super Smash Bros.) (amiibo) - ID: amiibo-0003000000020002
+  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00020002.png)
+  - *Amiibo Series: Super Smash Bros.*
 - [ ] **Link to:** Yoshi (Super Mario Bros.) (amiibo) - ID: amiibo-0003000000370102
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00030000-00370102.png)
   - *Amiibo Series: Super Mario Bros.*
-- [ ] **Link to:** Mega Man - Gold Edition (Super Smash Bros.) (amiibo) - ID: amiibo-3480000002580002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-02580002.png)
-  - *Amiibo Series: Super Smash Bros.*
-- [ ] **Link to:** Mega Man (Super Smash Bros.) (amiibo) - ID: amiibo-3480000000310002
-  - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_34800000-00310002.png)
-  - *Amiibo Series: Super Smash Bros.*
 
 ### Poochy (amiibo) | Line: amiibo | Series: Yoshi's Wolly World
 - [ ] **Link to:** Poochy (Yoshi's Woolly World) (amiibo) - ID: amiibo-00800102035d0302
   - ![image](https://raw.githubusercontent.com/8bitDream/AmiiboAPI/master/images/icon_00800102-035d0302.png)
   - *Amiibo Series: Yoshi's Woolly World*
 
-### New Amiibo Available (Not in Collection)
-The following items were found in the AmiiboAPI but are not in your collection yet:
-
-- **Zelda & Loftwing** (Legend Of Zelda)
-- **Inkling - Yellow** (Splatoon)
-- **Qbby** (BoxBoy!)
-- **Peach - Power Up Band** (Super Nintendo World)
-- **Ratha** (Monster Hunter)
-- **Ratha V** (Monster Hunter)
-- **Rudy** (Monster Hunter)
-- **Diana** (Pragmata)
-- **Golden - Power Up Band** (Super Nintendo World)
-- **8-Bit Link** (Legend Of Zelda)
-
-*...and 58 more items.*
