@@ -191,12 +191,14 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                 return;
             }
 
-            // Sync to Local D1 Instance
-            try {
-                const syncCmd = process.platform === 'win32' ? 'npm.cmd run sync-db' : 'npm run sync-db';
-                execSync(syncCmd, { stdio: 'inherit' });
-            } catch (syncErr) {
-                console.error('D1 Sync Error:', syncErr);
+            // Sync to Local D1 Instance (Skip in tests)
+            if (!process.env['VITEST']) {
+                try {
+                    const syncCmd = process.platform === 'win32' ? 'npm.cmd run sync-db' : 'npm run sync-db';
+                    execSync(syncCmd, { stdio: 'inherit' });
+                } catch (syncErr) {
+                    console.error('D1 Sync Error:', syncErr);
+                }
             }
 
             // Force Checkpoint
@@ -206,33 +208,35 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                 console.error('Checkpoint Error:', checkpointErr);
             }
 
-            // 3. Update Discovery Report (Remove matched item)
-            try {
-                const reportPath = path.join(process.cwd(), 'discovery_report.md');
-                if (fs.existsSync(reportPath)) {
-                    const content = fs.readFileSync(reportPath, 'utf8');
-                    const sections = content.split('\n### ');
+            // 3. Update Discovery Report (Remove matched item) - Skip in tests
+            if (!process.env['VITEST']) {
+                try {
+                    const reportPath = path.join(process.cwd(), 'discovery_report.md');
+                    if (fs.existsSync(reportPath)) {
+                        const content = fs.readFileSync(reportPath, 'utf8');
+                        const sections = content.split('\n### ');
 
-                    // Keep the first section (header) and filter out the matched one
-                    const header = sections[0];
-                    const remainingSections = sections.slice(1).filter(section => {
-                        const headerLine = section.split('\n')[0].trim();
-                        let targetHeader = isToy ? `${currentTitle} (amiibo)` : `${currentTitle} (${currentPlatform})`;
-                        
-                        // If we have metadata, use the rich header format
-                        if (currentLine && currentSeries) {
-                            targetHeader = `${currentTitle} (${currentPlatform}) | Line: ${currentLine} | Series: ${currentSeries}`;
-                        }
-                        
-                        return headerLine !== targetHeader.trim();
-                    });
+                        // Keep the first section (header) and filter out the matched one
+                        const header = sections[0];
+                        const remainingSections = sections.slice(1).filter(section => {
+                            const headerLine = section.split('\n')[0].trim();
+                            let targetHeader = isToy ? `${currentTitle} (amiibo)` : `${currentTitle} (${currentPlatform})`;
+                            
+                            // If we have metadata, use the rich header format
+                            if (currentLine && currentSeries) {
+                                targetHeader = `${currentTitle} (${currentPlatform}) | Line: ${currentLine} | Series: ${currentSeries}`;
+                            }
+                            
+                            return headerLine !== targetHeader.trim();
+                        });
 
-                    const newContent = [header, ...remainingSections].join('\n### ');
-                    fs.writeFileSync(reportPath, newContent, 'utf8');
-                    console.log('Updated discovery_report.md');
+                        const newContent = [header, ...remainingSections].join('\n### ');
+                        fs.writeFileSync(reportPath, newContent, 'utf8');
+                        console.log('Updated discovery_report.md');
+                    }
+                } catch (reportErr) {
+                    console.error('Report Update Error:', reportErr);
                 }
-            } catch (reportErr) {
-                console.error('Report Update Error:', reportErr);
             }
 
             res.end(JSON.stringify({ success: true }));
