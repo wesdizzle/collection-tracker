@@ -272,7 +272,7 @@ interface GameGroup {
     .card-art { width: 100%; height: 100%; object-fit: cover; }
     
     .region-flag {
-      position: absolute; top: 0.5rem; right: 0.5rem; padding: 0.2rem 0.4rem;
+      position: absolute; top: 0.75rem; right: 0.75rem; padding: 0.2rem 0.4rem;
       background: rgba(0,0,0,0.8); border-radius: 4px; font-size: 0.6rem; font-weight: 700;
       color: #fff; z-index: 2;
     }
@@ -343,7 +343,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   @ViewChild('scrollTrigger') scrollTrigger?: ElementRef;
  
   private restorationPending = true;
-  private stateInitialized = false;
+  private stateInitialized = signal(false);
 
   /** --- Reactive Application State --- */
   public currentTab = signal<'games' | 'toys'>('games');
@@ -652,7 +652,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
         scrollX: window.scrollX,
         scrollY: window.scrollY
       };
-      if (this.stateInitialized) {
+      if (this.stateInitialized()) {
         this.collectionService.updateListState(state);
       }
     });
@@ -666,9 +666,17 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   @HostListener('window:scroll')
   onScroll() {
     const currentState = this.collectionService.getListState(this.currentTab());
-    if (this.stateInitialized && currentState) {
+    if (this.stateInitialized()) {
+      const state: ListState = currentState || {
+        tab: this.currentTab(),
+        filters: this.filters(),
+        displayLimit: this.displayLimit(),
+        scrollX: 0,
+        scrollY: 0
+      };
+      
       this.collectionService.updateListState({
-        ...currentState,
+        ...state,
         scrollX: window.scrollX,
         scrollY: window.scrollY
       });
@@ -685,38 +693,48 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   private restoreScroll() {
     const savedState = this.collectionService.getListState(this.currentTab());
     if (!savedState || savedState.scrollY === undefined) {
-      this.stateInitialized = true;
+      this.stateInitialized.set(true);
       return;
     }
  
     let attempts = 0;
-    const maxAttempts = 10;
+    const maxAttempts = 30; // 3 seconds total with 100ms intervals
     
     const tryScroll = () => {
-      if (attempts >= maxAttempts) {
-        this.stateInitialized = true;
+      const targetY = savedState.scrollY || 0;
+      const currentHeight = document.documentElement.scrollHeight;
+      const viewportHeight = window.innerHeight;
+
+      // 1. Wait for document height to be sufficient to reach the target
+      // (or until we exhaust attempts)
+      if (currentHeight < targetY + viewportHeight && attempts < maxAttempts) {
+        attempts++;
+        setTimeout(tryScroll, 100);
         return;
       }
       
-      window.scrollTo({ left: savedState.scrollX, top: savedState.scrollY, behavior: 'auto' });
+      // 2. Perform the scroll
+      window.scrollTo({ left: savedState.scrollX, top: targetY, behavior: 'auto' });
       
-      // If we are close enough or have tried enough, mark as initialized
-      if (Math.abs(window.scrollY - (savedState.scrollY || 0)) < 2 || attempts > 5) {
-         this.stateInitialized = true;
+      // 3. Verify and finalize
+      const actualY = window.scrollY;
+      if (Math.abs(actualY - targetY) < 5 || attempts >= maxAttempts) {
+         this.stateInitialized.set(true);
       } else {
         attempts++;
         setTimeout(tryScroll, 100);
       }
     };
- 
-    setTimeout(tryScroll, 200);
+  
+    // Start restoration after a brief delay to allow initial Angular render cycle
+    setTimeout(tryScroll, 100);
   }
  
   /**
    * Component Lifecycle: Restores previous tab state and initiates data refresh.
    */
   async ngOnInit() {
-    this.stateInitialized = false;
+    this.stateInitialized.set(false);
     this.currentTab.set(this.route.snapshot.url[0]?.path as 'games' | 'toys' || 'games');
     
     const savedState = this.collectionService.getListState(this.currentTab());

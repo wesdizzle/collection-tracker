@@ -82,7 +82,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
         <div class="hero-section mb-xl">
           <div class="hero-grid">
             <div class="art-container">
-              <div class="art-frame">
+              <div class="art-frame" [class.toy-frame]="type() === 'toy'">
                 @if (i.image_url) {
                   <img [src]="i.image_url" alt="Cover Art" [class.glitch-load]="type() !== 'toy'" [class.toy-detail-art]="type() === 'toy'">
                 } @else {
@@ -274,6 +274,11 @@ import { toSignal } from '@angular/core/rxjs-interop';
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 0;
+      position: relative;
+    }
+
+    .art-frame.toy-frame {
       padding: 2rem;
     }
  
