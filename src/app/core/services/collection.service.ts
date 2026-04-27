@@ -240,5 +240,41 @@ export class CollectionService {
   applyDiscovery(payload: DiscoveryPayload): Observable<unknown> {
     return this.http.post('/api/discovery/apply', payload);
   }
+
+  /**
+   * Toggles the 'owned' status of a collection item.
+   * ONLY functional on local server via proxy.
+   */
+  toggleOwnership(id: string, type: 'game' | 'toy', owned: boolean): Observable<unknown> {
+    return this.http.post('/api/collection/toggle', { id, type, owned });
+  }
+
+  /** --- Global Confirmation Dialog State --- */
+  private _dialogState = signal<{
+    visible: boolean;
+    title: string;
+    message: string;
+    onConfirm?: () => void;
+  }>({ visible: false, title: '', message: '' });
+
+  public readonly dialogState = this._dialogState.asReadonly();
+
+  /**
+   * Triggers the global confirmation dialog.
+   * 
+   * @param title Dialog title.
+   * @param message Dialog message.
+   * @param onConfirm Callback function executed when user confirms.
+   */
+  public showConfirmation(title: string, message: string, onConfirm: () => void) {
+    this._dialogState.set({ visible: true, title, message, onConfirm });
+  }
+
+  /**
+   * Closes the global confirmation dialog.
+   */
+  public closeDialog() {
+    this._dialogState.set({ ...this._dialogState(), visible: false });
+  }
 }
 

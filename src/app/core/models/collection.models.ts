@@ -54,9 +54,15 @@ export interface Toy {
     sort_index?: number;
 }
 
+export interface ToySeriesGroup {
+    seriesName: string;
+    toys: Toy[];
+    totalCount: number;
+}
+
 export interface ToyGroup {
     lineName: string;
-    toys: Toy[];
+    seriesGroups: ToySeriesGroup[];
     totalCount: number;
 }
 

@@ -243,6 +243,44 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
         }
 
         /**
+         * ROUTE: POST /api/collection/toggle
+         */
+        else if (req.method === 'POST' && pathname === '/api/collection/toggle') {
+            try {
+                const body = await new Promise<string>((resolve, reject) => {
+                    let data = '';
+                    req.on('data', chunk => data += chunk);
+                    req.on('end', () => resolve(data));
+                    req.on('error', err => reject(err));
+                });
+
+                const { id, type, owned } = JSON.parse(body);
+                const table = type === 'game' ? 'games' : 'toys';
+                const ownedValue = owned ? 1 : 0;
+
+                db.prepare(`UPDATE ${table} SET owned = ? WHERE id = ?`).run(ownedValue, id);
+                console.log(`Updated ${type} status: ${id} -> owned=${ownedValue}`);
+
+                // Sync to Local D1 Instance
+                if (!process.env['VITEST']) {
+                    try {
+                        const syncCmd = process.platform === 'win32' ? 'npm.cmd run sync-db' : 'npm run sync-db';
+                        execSync(syncCmd, { stdio: 'inherit' });
+                    } catch (syncErr) {
+                        console.error('D1 Sync Error:', syncErr);
+                    }
+                }
+
+                res.end(JSON.stringify({ success: true }));
+            } catch (err: unknown) {
+                console.error('Toggle status failed:', err);
+                const error = err instanceof Error ? err : new Error('Unknown error');
+                res.statusCode = 500;
+                res.end(JSON.stringify({ error: error.message }));
+            }
+        }
+
+        /**
          * STANDALONE COLLECTION API HANDLERS
          * (Migrated from worker/worker.ts to ensure stability during local dev)
          */

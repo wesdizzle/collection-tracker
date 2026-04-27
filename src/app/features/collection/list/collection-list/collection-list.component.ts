@@ -22,7 +22,7 @@ import { Component, inject, OnInit, ViewChild, ElementRef, AfterViewInit, OnDest
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller } from '@angular/common';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Platform, FilterState, PlatformGroup, ToyGroup, ListState } from '../../../../core/models/collection.models';
+import { Game, Toy, Platform, FilterState, PlatformGroup, ToyGroup, ListState } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 
 interface GameGroup {
@@ -79,27 +79,45 @@ interface GameGroup {
               
               <div class="grid">
                 @for (game of group.games; track game.id) {
-                  <a [routerLink]="['/collection', 'game', game.id]" 
-                     class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
-                    <div class="card-art-frame">
-                      @if (game.image_url) {
-                        <img 
-                          [src]="game.image_url" 
-                          alt="Cover" 
-                          class="card-art"
-                          loading="lazy"
-                          decoding="async">
-                      } @else {
-                        <div class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide">
-                          No Image
+                    <a [routerLink]="['/collection', 'game', game.id]" 
+                       class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
+                      <div class="card-art-frame">
+                        @if (game.image_url) {
+                          <img 
+                            [src]="game.image_url" 
+                            alt="Cover" 
+                            class="card-art"
+                            loading="lazy"
+                            decoding="async">
+                        } @else {
+                          <div class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide">
+                            No Image
+                          </div>
+                        }
+                        <div class="region-flag" [title]="'Region: ' + game.region">
+                          {{ game.region }}
                         </div>
-                      }
-                      <div class="region-flag" [title]="'Region: ' + game.region">
-                        {{ game.region }}
+
+                        <!-- Status Badge -->
+                        <button 
+                          class="status-badge state-layer" 
+                          [class.owned]="game.owned"
+                          [class.interactive]="isLocalServer()"
+                          [title]="game.owned ? 'Owned' : 'Wanted'"
+                          (click)="onToggleStatus($event, game, 'game')">
+                          @if (game.owned) {
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                              <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+                            </svg>
+                          } @else {
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                            </svg>
+                          }
+                        </button>
                       </div>
-                    </div>
-                    
-                    <div class="card-content">
+                      
+                      <div class="card-content">
                       <div class="content-header">
                         <div class="flex gap-2xs items-center">
                           @if (game.igdb_id) {
@@ -146,55 +164,81 @@ interface GameGroup {
                 </div>
               </header>
   
-              <div class="grid">
-                @for (toy of group.toys; track toy.id) {
-                  <a [routerLink]="['/collection', 'toy', toy.id]" 
-                     class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
-                    <div class="card-art-frame toy-frame">
-                      @if (toy.image_url) {
-                        <img 
-                          [src]="toy.image_url" 
-                          alt="Toy" 
-                          class="card-art toy-art"
-                          loading="lazy"
-                          decoding="async">
-                      } @else {
-                        <div class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide">
-                          No Image
-                        </div>
+                @for (series of group.seriesGroups; track series.seriesName) {
+                  <div class="series-section mb-lg">
+                    <header class="series-header">
+                      <h3 class="series-title">{{ series.seriesName }}</h3>
+                      <div class="series-badge">{{ series.totalCount }} Items</div>
+                    </header>
+                    <div class="grid">
+                      @for (toy of series.toys; track toy.id) {
+                        <a [routerLink]="['/collection', 'toy', toy.id]" 
+                           class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
+                          <div class="card-art-frame toy-frame">
+                            @if (toy.image_url) {
+                              <img 
+                                [src]="toy.image_url" 
+                                alt="Toy" 
+                                class="card-art toy-art"
+                                loading="lazy"
+                                decoding="async">
+                            } @else {
+                              <div class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide">
+                                No Image
+                              </div>
+                            }
+                            <div class="region-flag" [title]="'Region: ' + toy.region">
+                              {{ toy.region }}
+                            </div>
+
+                            <!-- Status Badge -->
+                            <button 
+                              class="status-badge state-layer" 
+                              [class.owned]="toy.owned"
+                              [class.interactive]="isLocalServer()"
+                              [title]="toy.owned ? 'Owned' : 'Wanted'"
+                              (click)="onToggleStatus($event, toy, 'toy')">
+                              @if (toy.owned) {
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                                  <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+                                </svg>
+                              } @else {
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                                </svg>
+                              }
+                            </button>
+                          </div>
+        
+                          <div class="card-content">
+                            <div class="content-header">
+                              <div class="flex gap-2xs items-center">
+                                @if (toy.verified) {
+                                  <span class="igdb-icon" title="Verified Metadata">✨</span>
+                                }
+                                <span class="release-year">{{ toy.type }}</span>
+                              </div>
+                              @if (toy.release_date) {
+                                <span class="release-year">{{ toy.release_date.substring(0, 4) }}</span>
+                              }
+                            </div>
+                            <div class="text-2xs text-secondary font-medium uppercase letter-spacing-wide">{{toy.line}}</div>
+                            <h3 class="card-title mt-2xs">{{toy.name}}</h3>
+                            @if (toy.series_name) {
+                              <div class="card-subtitle" title="Series">{{toy.series_name}}</div>
+                            }
+                          </div>
+                        </a>
                       }
-                      <div class="region-flag" [title]="'Region: ' + toy.region">
-                        {{ toy.region }}
-                      </div>
                     </div>
-  
-                    <div class="card-content">
-                      <div class="content-header">
-                        <div class="flex gap-2xs items-center">
-                          @if (toy.verified) {
-                            <span class="igdb-icon" title="Verified Metadata">✨</span>
-                          }
-                          <span class="release-year">{{ toy.type }}</span>
-                        </div>
-                        @if (toy.release_date) {
-                          <span class="release-year">{{ toy.release_date.substring(0, 4) }}</span>
-                        }
-                      </div>
-                      <div class="text-2xs text-secondary font-medium uppercase letter-spacing-wide">{{toy.line}}</div>
-                      <h3 class="card-title mt-2xs">{{toy.name}}</h3>
-                      @if (toy.series_name) {
-                        <div class="card-subtitle" title="Series">{{toy.series_name}}</div>
-                      }
-                    </div>
-                  </a>
+                  </div>
                 }
-              </div>
             </div>
           }
         </div>
       }
     
-      <div #scrollTrigger class="scroll-trigger" style="height: 50px; width: 100%;"></div>
+    <div #scrollTrigger class="scroll-trigger" style="height: 50px; width: 100%;"></div>
     </div>
     `,
   styles: [`
@@ -332,6 +376,67 @@ interface GameGroup {
  
     .igdb-icon { font-size: 0.8rem; }
     .physical-badge { font-size: 0.8rem; }
+
+    .series-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      padding-left: 0.5rem;
+      border-left: 3px solid var(--m3-primary);
+    }
+
+    .series-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--m3-on-surface);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .series-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--m3-on-tertiary-container);
+      background: var(--m3-tertiary-container);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+    }
+
+    .status-badge {
+      position: absolute;
+      top: 0.75rem;
+      left: 0.75rem;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      border-radius: 50%;
+      color: var(--m3-outline);
+      z-index: 3;
+      border: 1px solid rgba(255,255,255,0.1);
+      cursor: default;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .status-badge.interactive {
+      cursor: pointer;
+    }
+
+    .status-badge.owned {
+      color: var(--m3-primary);
+      background: var(--m3-primary-container);
+      border-color: var(--m3-primary);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+
+    .status-badge.interactive:hover {
+      transform: scale(1.2);
+      filter: brightness(1.2);
+    }
   `]
 })
 export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy {
@@ -347,8 +452,10 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
 
   /** --- Reactive Application State --- */
   public currentTab = signal<'games' | 'toys'>('games');
-  public filters = signal<FilterState>({ ownership: 'owned', platform_id: undefined, line: '', type: '', series: '', seriesExact: false });
+  public filters = signal<FilterState>({ ownership: 'all', platform_id: undefined, line: '', type: '', series: '', seriesExact: false });
   public displayLimit = signal<number>(100);
+  public isLocalServer = signal(false);
+
  
   /**
    * Computes a grouped list of platforms for use in the filter dropdown.
@@ -591,30 +698,50 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     const displayed = this.displayToys();
     const allFiltered = this.filteredToys();
     
-    // 1. Get counts for all filtered toys per line
-    const counts = new Map<string, number>();
-    for (const f of allFiltered) {
-      const line = f.line || 'Unknown';
-      counts.set(line, (counts.get(line) || 0) + 1);
+    // 1. Get total counts per line and per series from ALL filtered toys
+    const lineCounts = new Map<string, number>();
+    const seriesCounts = new Map<string, Map<string, number>>();
+    
+    for (const toy of allFiltered) {
+      const line = toy.line || 'Unknown';
+      const series = toy.series_name || 'No Series';
+      
+      lineCounts.set(line, (lineCounts.get(line) || 0) + 1);
+      
+      if (!seriesCounts.has(line)) seriesCounts.set(line, new Map());
+      const sMap = seriesCounts.get(line)!;
+      sMap.set(series, (sMap.get(series) || 0) + 1);
     }
  
-    // 2. Build groups from DISPLAYED toys
+    // 2. Build nested groups from DISPLAYED toys
     const groups: ToyGroup[] = [];
-    const groupMap = new Map<string, ToyGroup>();
+    const lineMap = new Map<string, ToyGroup>();
     
     for (const toy of displayed) {
-      const line = toy.line || 'Unknown';
-      let group = groupMap.get(line);
-      if (!group) {
-        group = { 
-          lineName: line, 
-          toys: [],
-          totalCount: counts.get(line) || 0
+      const lineName = toy.line || 'Unknown';
+      const seriesName = toy.series_name || 'No Series';
+      
+      let lineGroup = lineMap.get(lineName);
+      if (!lineGroup) {
+        lineGroup = { 
+          lineName, 
+          seriesGroups: [],
+          totalCount: lineCounts.get(lineName) || 0
         };
-        groups.push(group);
-        groupMap.set(line, group);
+        groups.push(lineGroup);
+        lineMap.set(lineName, lineGroup);
       }
-      group.toys.push(toy);
+      
+      let seriesGroup = lineGroup.seriesGroups.find(sg => sg.seriesName === seriesName);
+      if (!seriesGroup) {
+        seriesGroup = {
+          seriesName,
+          toys: [],
+          totalCount: seriesCounts.get(lineName)?.get(seriesName) || 0
+        };
+        lineGroup.seriesGroups.push(seriesGroup);
+      }
+      seriesGroup.toys.push(toy);
     }
     return groups;
   });
@@ -644,6 +771,10 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
    * automatically mirrored in the CollectionService and sessionStorage.
    */
   constructor() {
+    if (typeof window !== 'undefined') {
+      this.isLocalServer.set(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    }
+
     effect(() => {
       const state: ListState = {
         tab: this.currentTab(),
@@ -780,4 +911,27 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
    * Resets the display limit to ensure performance.
    */
   onFiltersChange(newFilters: FilterState) { this.filters.set({ ...newFilters }); this.displayLimit.set(100); }
+
+  /** --- Toggle Ownership Handlers --- */
+  onToggleStatus(event: MouseEvent, item: Game | Toy, type: 'game' | 'toy') {
+    if (!this.isLocalServer()) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    const isOwned = !!item.owned;
+    const name = (item as Game).title || (item as Toy).name;
+    const action = isOwned ? 'Wanted' : 'Owned';
+    
+    this.collectionService.showConfirmation(
+      `Change Status`,
+      `Mark "${name}" as ${action}?`,
+      () => {
+        this.collectionService.toggleOwnership(item.id, type, !isOwned).subscribe({
+          next: () => this.collectionService.refreshAll(),
+          error: (err) => console.error('Failed to toggle status:', err)
+        });
+      }
+    );
+  }
 }
