@@ -5,11 +5,13 @@
  * Designed to be centered in the viewport with a blurred backdrop.
  */
 
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-confirmation-dialog',
   standalone: true,
+  imports: [FormsModule],
   template: `
     <div class="dialog-overlay" (click)="onCancel()">
       <div class="dialog-container m3-surface-container-high animate-expressive" (click)="$event.stopPropagation()">
@@ -18,6 +20,18 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
         </header>
         <div class="dialog-body">
           <p>{{ message }}</p>
+          
+          @if (type === 'input') {
+            <div class="input-container mt-md">
+              <input 
+                #numberInput
+                type="number" 
+                [(ngModel)]="inputValue" 
+                class="m3-input"
+                (keydown.enter)="onConfirm()"
+                (keydown.escape)="onCancel()">
+            </div>
+          }
         </div>
         <footer class="dialog-footer">
           <button class="m3-button m3-button-text state-layer" (click)="onCancel()">Cancel</button>
@@ -75,6 +89,29 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
       line-height: 1.6;
     }
 
+    .input-container {
+      margin-top: 1.5rem;
+    }
+
+    .m3-input {
+      width: 100%;
+      background: var(--m3-surface-container-highest);
+      border: 2px solid var(--m3-primary);
+      border-radius: var(--radius-sm);
+      padding: 1rem;
+      color: var(--m3-on-surface);
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-family: var(--font-heading);
+      text-align: center;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .m3-input:focus {
+      box-shadow: 0 0 0 4px var(--m3-primary-container);
+    }
+
     .dialog-footer {
       display: flex;
       justify-content: flex-end;
@@ -119,12 +156,34 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
     }
   `]
 })
-export class ConfirmationDialogComponent {
+export class ConfirmationDialogComponent implements AfterViewInit {
   @Input() title = 'Confirm Action';
   @Input() message = 'Are you sure you want to proceed?';
+  @Input() type: 'confirm' | 'input' = 'confirm';
+  @Input() inputValue?: string | number;
+  
   @Output() confirm = new EventEmitter<void>();
+  @Output() confirmWithInput = new EventEmitter<string | number>();
   @Output() cancel = new EventEmitter<void>();
 
-  onConfirm() { this.confirm.emit(); }
+  @ViewChild('numberInput') numberInput?: ElementRef<HTMLInputElement>;
+
+  ngAfterViewInit() {
+    if (this.type === 'input' && this.numberInput) {
+      setTimeout(() => {
+        this.numberInput?.nativeElement.focus();
+        this.numberInput?.nativeElement.select();
+      }, 100);
+    }
+  }
+
+  onConfirm() { 
+    if (this.type === 'input') {
+      this.confirmWithInput.emit(this.inputValue ?? '');
+    } else {
+      this.confirm.emit();
+    }
+  }
+
   onCancel() { this.cancel.emit(); }
 }

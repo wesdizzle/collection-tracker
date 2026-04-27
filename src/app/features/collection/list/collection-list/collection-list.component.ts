@@ -98,6 +98,16 @@ interface GameGroup {
                           {{ game.region }}
                         </div>
 
+                        <!-- Sort Index Badge -->
+                        @if (isLocalServer()) {
+                          <button 
+                            class="sort-badge state-layer" 
+                            title="Edit Sort Index"
+                            (click)="onEditSortIndex($event, game, 'game')">
+                            #{{ (game.sort_index ?? 0).toString().padStart(4, '0') }}
+                          </button>
+                        }
+
                         <!-- Status Badge -->
                         <button 
                           class="status-badge state-layer" 
@@ -190,6 +200,16 @@ interface GameGroup {
                             <div class="region-flag" [title]="'Region: ' + toy.region">
                               {{ toy.region }}
                             </div>
+
+                            <!-- Sort Index Badge -->
+                            @if (isLocalServer()) {
+                              <button 
+                                class="sort-badge state-layer" 
+                                title="Edit Sort Index"
+                                (click)="onEditSortIndex($event, toy, 'toy')">
+                                #{{ (toy.sort_index ?? 0).toString().padStart(4, '0') }}
+                              </button>
+                            }
 
                             <!-- Status Badge -->
                             <button 
@@ -436,6 +456,32 @@ interface GameGroup {
     .status-badge.interactive:hover {
       transform: scale(1.2);
       filter: brightness(1.2);
+    }
+
+    .sort-badge {
+      position: absolute;
+      top: 0.75rem;
+      left: 3.25rem;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 800;
+      font-family: var(--font-heading);
+      background: var(--m3-surface-container-highest);
+      color: var(--m3-primary);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--m3-outline-variant);
+      backdrop-filter: blur(8px);
+      z-index: 3;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .sort-badge:hover {
+      background: var(--m3-primary);
+      color: var(--m3-on-primary);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
     }
   `]
 })
@@ -930,6 +976,29 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
         this.collectionService.toggleOwnership(item.id, type, !isOwned).subscribe({
           next: () => this.collectionService.refreshAll(),
           error: (err) => console.error('Failed to toggle status:', err)
+        });
+      }
+    );
+  }
+
+  onEditSortIndex(event: MouseEvent, item: Game | Toy, type: 'game' | 'toy') {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const name = (item as Game).title || (item as Toy).name;
+    const currentSort = item.sort_index ?? 0;
+
+    this.collectionService.showInput(
+      `Edit Sort Index`,
+      `Set sort index for "${name}":`,
+      currentSort,
+      (newValue) => {
+        const numValue = (newValue === '' || newValue === null) ? 0 : (typeof newValue === 'string' ? parseInt(newValue, 10) : newValue);
+        if (isNaN(numValue)) return;
+
+        this.collectionService.updateSortIndex(item.id, type, numValue).subscribe({
+          next: () => this.collectionService.refreshAll(),
+          error: (err) => console.error('Failed to update sort index:', err)
         });
       }
     );

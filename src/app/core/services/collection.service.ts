@@ -249,13 +249,23 @@ export class CollectionService {
     return this.http.post('/api/collection/toggle', { id, type, owned });
   }
 
+  /**
+   * Updates the sort_index for a collection item.
+   * ONLY functional on local server via proxy.
+   */
+  updateSortIndex(id: string, type: 'game' | 'toy', sortIndex: number): Observable<unknown> {
+    return this.http.post('/api/collection/sort', { id, type, sort_index: sortIndex });
+  }
+
   /** --- Global Confirmation Dialog State --- */
   private _dialogState = signal<{
     visible: boolean;
+    type: 'confirm' | 'input';
     title: string;
     message: string;
-    onConfirm?: () => void;
-  }>({ visible: false, title: '', message: '' });
+    inputValue?: string | number;
+    onConfirm?: (value?: string | number) => void;
+  }>({ visible: false, type: 'confirm', title: '', message: '' });
 
   public readonly dialogState = this._dialogState.asReadonly();
 
@@ -267,7 +277,26 @@ export class CollectionService {
    * @param onConfirm Callback function executed when user confirms.
    */
   public showConfirmation(title: string, message: string, onConfirm: () => void) {
-    this._dialogState.set({ visible: true, title, message, onConfirm });
+    this._dialogState.set({ visible: true, type: 'confirm', title, message, onConfirm });
+  }
+
+  /**
+   * Triggers the global input dialog.
+   * 
+   * @param title Dialog title.
+   * @param message Dialog message.
+   * @param initialValue Initial value for the input field.
+   * @param onConfirm Callback function executed when user confirms.
+   */
+  public showInput(title: string, message: string, initialValue: string | number, onConfirm: (value: string | number) => void) {
+    this._dialogState.set({ 
+      visible: true, 
+      type: 'input', 
+      title, 
+      message, 
+      inputValue: initialValue,
+      onConfirm: (val) => { if (val !== undefined) onConfirm(val); }
+    });
   }
 
   /**

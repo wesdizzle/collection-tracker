@@ -6,7 +6,10 @@
   <app-confirmation-dialog
     [title]="dialogState().title"
     [message]="dialogState().message"
+    [type]="dialogState().type"
+    [inputValue]="dialogState().inputValue"
     (confirm)="onConfirm()"
+    (confirmWithInput)="onConfirm($event)"
     (cancel)="onCancel()">
   </app-confirmation-dialog>
 }

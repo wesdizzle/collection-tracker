@@ -14,10 +14,10 @@ export class AppComponent {
   private collectionService = inject(CollectionService);
   public dialogState = this.collectionService.dialogState;
 
-  onConfirm() {
+  onConfirm(value?: string | number) {
     const state = this.dialogState();
     if (state.onConfirm) {
-      state.onConfirm();
+      state.onConfirm(value);
     }
     this.collectionService.closeDialog();
   }
