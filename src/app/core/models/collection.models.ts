@@ -34,6 +34,7 @@ export interface Game {
 }
 
 export interface Toy {
+    stable_id: number;
     id: string;
     name: string;
     line: string;

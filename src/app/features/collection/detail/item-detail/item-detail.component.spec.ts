@@ -40,6 +40,7 @@ describe('ItemDetailComponent', () => {
   };
 
   const mockToy: Toy = {
+    stable_id: 1,
     id: 'amiibo-1',
     name: 'Mario',
     line: 'amiibo',
