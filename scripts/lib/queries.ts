@@ -34,14 +34,13 @@ export const GAME_DETAIL_QUERY = `
 
 export const PLATFORMS_LIST_QUERY = `
     SELECT p.* FROM platforms p 
-    LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
     WHERE EXISTS (
         SELECT 1 FROM games g 
         WHERE g.platform_id = p.id 
         OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
     )
     AND p.parent_platform_id IS NULL
-    ORDER BY COALESCE(pp.launch_date, p.launch_date) ASC, COALESCE(p.parent_platform_id, p.id) ASC
+    ORDER BY p.launch_date ASC, p.id ASC
 `;
 
 export const TOYS_LIST_QUERY = `

@@ -38,7 +38,8 @@ The application prioritizes a consistent browsing context by isolating collectio
 The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for maintaining collection integrity and discovering new content:
 - **Multi-Pass Search**: Automatically falls back to simplified title searches if a direct platform match isn't found, handling complex bundle and special edition naming patterns.
 - **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches. Ambiguous items are offloaded to a manual `discovery_report.md` for user verification.
-- **Robust Parsing & Matching**: The discovery pipeline correctly handles item names containing parentheses (e.g., variants like "Mario (SSB)") and uses precise matching criteria (Name + Series + Line) to ensure database updates are specific and accurate.
+- **amiibo Discovery**: The `--discovery` pass automatically identifies all missing amiibo (including cards) from the canonical AmiiboAPI and adds them to your collection as "Wanted" items.
+- **Metadata Refresh**: The `--refresh` pass periodically updates images, release dates, and technical metadata for all verified items. It also normalizes all database slugs to a canonical format and generates an `update_report.md` summarizing the changes.
 - **Verification Signals**: Uses the presence of an `igdb_id` or `pricecharting_url` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
 - **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys, including granular "Owned" vs "Wanted" status tracking for all collection lines.
@@ -51,8 +52,9 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 3.  **Run Local API Proxy**: `npx tsx scripts/local_server.ts`
 4.  **Metadata Scraping**:
     - **Reconcile**: `npx tsx scripts/scrape.ts` (Processes unmatched games and toys)
-    - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Finds missing games/toys in your series)
-    - **Toy Sync**: `npx tsx scripts/sync_toys.ts` (Updates toy metadata from external sources)
+    - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Automatically adds missing amiibo and finds series-based games)
+    - **Refresh**: `npx tsx scripts/scrape.ts --refresh` (Refreshes metadata for all verified items, updates slugs, and recomputes canonical series)
+    - **Recompute Series**: `npx tsx scripts/scrape.ts --recompute-series` (Only recomputes canonical series for all games)
     - **Sync**: `npx tsx scripts/sync_local_d1.ts` (Propagates all local changes to the dev server)
 5.  **Launch Frontend**: `npx ng serve`
 6.  **View locally**: `http://localhost:4200/`

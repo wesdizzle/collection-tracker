@@ -43,6 +43,7 @@ Thumbs.db
 
 # Private Credentials
 .env
+update_report.md
 .igdb_token_cache.json
 
 # Build & Scraper Artifacts

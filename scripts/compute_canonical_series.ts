@@ -93,7 +93,7 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
 
 // --- MAIN ---
 
-async function main() {
+export async function recomputeCanonicalSeries() {
     console.log('--- Canonical Series Updater ---');
     const db = new Database(CONFIG.dbPath);
     
@@ -227,6 +227,10 @@ async function main() {
     db.close();
 }
 
+if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
+    recomputeCanonicalSeries().catch(console.error);
+}
+
 async function runVectorTieBreaker(game: GameRow, candidates: string[], embedder: any): Promise<string> { // eslint-disable-line @typescript-eslint/no-explicit-any
     const gameText = `${game.title} ${game.summary || ''}`.trim();
     const targetOutput = await embedder(gameText, { pooling: 'mean', normalize: true });
@@ -247,4 +251,3 @@ async function runVectorTieBreaker(game: GameRow, candidates: string[], embedder
     return bestMatch;
 }
 
-main().catch(console.error);

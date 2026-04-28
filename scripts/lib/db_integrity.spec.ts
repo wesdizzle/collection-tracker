@@ -168,7 +168,7 @@ describe('Database Integrity', () => {
             // Verify the total count of all toys (amiibo, Skylanders, Starlink)
             // matches the master dataset snapshot.
             const totalToys = db.prepare('SELECT COUNT(*) as count FROM toys').get() as { count: number };
-            expect(totalToys.count).toBe(787);
+            expect(totalToys.count).toBe(1492);
         });
 
         it('should have the correct total number of toys owned', () => {
@@ -178,7 +178,7 @@ describe('Database Integrity', () => {
 
         it('should have the correct total number of toys wanted', () => {
             const wantedToys = db.prepare('SELECT COUNT(*) as count FROM toys WHERE owned = 0').get() as { count: number };
-            expect(wantedToys.count).toBe(161);
+            expect(wantedToys.count).toBe(866);
         });
 
         it('should have the correct number of owned and wanted toys per line', () => {
@@ -193,7 +193,8 @@ describe('Database Integrity', () => {
                 'Skylanders (Owned)': 351,
                 'Skylanders (Wanted)': 161,
                 'Starlink (Owned)': 35,
-                'amiibo (Owned)': 240
+                'amiibo (Owned)': 240,
+                'amiibo (Wanted)': 705
             };
 
             const actual = lineCounts.reduce((acc, row) => {

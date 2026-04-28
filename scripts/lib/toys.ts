@@ -12,12 +12,14 @@ import axios from 'axios';
 
 export interface Toy {
     id: string;
+    stable_id?: number;
     name: string;
     line: string;
     series_name: string;
     type: string;
     image_url: string | null;
     release_date?: string | null;
+    region?: string | null;
     verified?: boolean | number;
     amiibo_id?: string;
     metadata_json?: string;

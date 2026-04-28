@@ -517,7 +517,9 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
       grouped.get(b)!.push(p);
     });
     
-    return Array.from(grouped.entries()).map(([brand, platforms]) => ({ brand, platforms }));
+    return Array.from(grouped.entries())
+      .map(([brand, platforms]) => ({ brand, platforms }))
+      .sort((a, b) => a.brand.localeCompare(b.brand));
   });
  
   /**

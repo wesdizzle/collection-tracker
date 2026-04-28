@@ -23,14 +23,17 @@
 
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
-import { findGame, NormalizedGame, IGDBGame, calculateConfidence } from './lib/igdb.js';
+import { findGame, getGameById, NormalizedGame, IGDBGame, calculateConfidence } from './lib/igdb.js';
 import { scrapePriceCharting, scrapePlayStationStore } from './lib/web_scraper.js';
 import { getAmiiboSeries, Toy } from './lib/toys.js';
+import { recomputeCanonicalSeries } from './compute_canonical_series.js';
+import axios from 'axios';
 
 const db = new Database('collection.sqlite');
 
 interface GameRecord {
-    id: number;
+    id: string;
+    stable_id: string;
     title: string;
     platform: string;
     platform_id: number;
@@ -42,6 +45,10 @@ interface GameRecord {
     series?: string;
     igdb_id?: string;
     pricecharting_url?: string;
+    genres?: string;
+    collections?: string;
+    franchises?: string;
+    release_date?: string;
 }
 
 interface ToySuggestion {
@@ -75,6 +82,16 @@ interface ToyDiscovery {
     items: Toy[];
 }
 
+interface UpdateChange {
+    id: string | number;
+    title: string;
+    field: string;
+    oldValue: string | null;
+    newValue: string | null;
+}
+
+const slugify = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
 
 
 /**
@@ -94,10 +111,13 @@ function superNormalize(s: string): string {
 async function runScraper(): Promise<void> {
     const args = process.argv.slice(2);
     const runDiscovery = args.includes('--discovery');
+    const runRefresh = args.includes('--refresh');
+    const runRecomputeSeries = args.includes('--recompute-series');
 
-    console.log('--- Starting Gagglog Verification Phase ---');
+    console.log('--- Starting Gagglog Reconciliation Phase ---');
     const unmatchedGames: UnmatchedItem[] = [];
     const syncSuggestions: SyncSuggestion[] = [];
+    const updateChanges: UpdateChange[] = [];
     let autoMatchedCount = 0;
     const gameDiscoveryResults: GameDiscovery[] = [];
 
@@ -112,7 +132,81 @@ async function runScraper(): Promise<void> {
 
     for (const game of existingGames) {
         if (game.igdb_id || game.pricecharting_url) {
-            console.log(`Skipping already-verified Game: ${game.title} (${game.platform_display_name})`);
+            if (runRefresh && game.igdb_id) {
+                process.stdout.write(`Refreshing Game: ${game.title} (${game.platform_display_name})... `);
+                const fresh = await getGameById(Number(game.igdb_id), game.platform_igdb_id);
+                if (fresh) {
+                    const checkField = (field: string, oldVal: string | number | null | undefined, newVal: string | number | null | undefined) => {
+                        if (newVal !== undefined && newVal !== oldVal) {
+                            return true;
+                        }
+                        return false;
+                    };
+
+                    checkField('summary', game.summary, fresh.summary);
+                    checkField('image_url', game.image_url, fresh.image_url);
+                    checkField('genres', game.genres, fresh.genres);
+                    checkField('collections', game.collections, fresh.collections);
+                    checkField('franchises', game.franchises, fresh.franchises);
+                    checkField('release_date', game.release_date, fresh.release_date);
+
+                    // Canonical Slug Check
+                    let canonicalId = `${slugify(fresh.name)}-${slugify(game.platform_display_name || game.platform)}`;
+                    
+                    // Avoid collisions with other games
+                    const collision = db.prepare('SELECT stable_id FROM games WHERE id = ? AND stable_id != ?').get(canonicalId, game.stable_id);
+                    if (collision) {
+                        canonicalId += `-${game.id.split('-').pop()}`; // Fallback to current suffix if possible
+                    }
+                    
+
+                        const finalId = canonicalId;
+                        const finalSummary = fresh.summary || game.summary;
+                        const finalImageUrl = fresh.image_url || game.image_url;
+                        const finalGenres = fresh.genres || game.genres;
+                        const finalCollections = fresh.collections || game.collections;
+                        const finalFranchises = fresh.franchises || game.franchises;
+                        const finalReleaseDate = fresh.release_date || game.release_date;
+ 
+                    const hasActualChanges = finalId !== game.id || 
+                                             (fresh.summary !== undefined && fresh.summary !== null && fresh.summary !== game.summary) ||
+                                             (fresh.image_url !== undefined && fresh.image_url !== null && fresh.image_url !== game.image_url) ||
+                                             (fresh.genres !== undefined && fresh.genres !== null && fresh.genres !== game.genres) ||
+                                             (fresh.collections !== undefined && fresh.collections !== null && fresh.collections !== game.collections) ||
+                                             (fresh.franchises !== undefined && fresh.franchises !== null && fresh.franchises !== game.franchises) ||
+                                             (fresh.release_date !== undefined && fresh.release_date !== null && fresh.release_date !== game.release_date);
+
+                    if (hasActualChanges) {
+                        db.prepare(`
+                            UPDATE games 
+                            SET id = ?, summary = ?, image_url = ?, genres = ?, collections = ?, franchises = ?, release_date = ?
+                            WHERE stable_id = ?
+                        `).run(finalId, finalSummary, finalImageUrl, finalGenres, finalCollections, finalFranchises, finalReleaseDate, game.stable_id);
+                        
+                        // Only log changes that actually resulted in a different value in the DB
+                        const actualChanges: UpdateChange[] = [];
+                        if (finalId !== game.id) actualChanges.push({ id: game.id, title: game.title, field: 'id', oldValue: game.id, newValue: finalId });
+                        if (finalSummary !== game.summary && fresh.summary) actualChanges.push({ id: game.id, title: game.title, field: 'summary', oldValue: String(game.summary), newValue: String(finalSummary) });
+                        if (finalImageUrl !== game.image_url && fresh.image_url) actualChanges.push({ id: game.id, title: game.title, field: 'image_url', oldValue: String(game.image_url), newValue: String(finalImageUrl) });
+                        if (finalGenres !== game.genres && fresh.genres) actualChanges.push({ id: game.id, title: game.title, field: 'genres', oldValue: String(game.genres), newValue: String(finalGenres) });
+                        if (finalCollections !== game.collections && fresh.collections) actualChanges.push({ id: game.id, title: game.title, field: 'collections', oldValue: String(game.collections), newValue: String(finalCollections) });
+                        if (finalFranchises !== game.franchises && fresh.franchises) actualChanges.push({ id: game.id, title: game.title, field: 'franchises', oldValue: String(game.franchises), newValue: String(finalFranchises) });
+                        if (finalReleaseDate !== game.release_date && fresh.release_date) actualChanges.push({ id: game.id, title: game.title, field: 'release_date', oldValue: String(game.release_date), newValue: String(finalReleaseDate) });
+                        
+                        if (actualChanges.length > 0) {
+                            updateChanges.push(...actualChanges);
+                            appendUpdateReport(actualChanges);
+                        }
+                        console.log('Updated.');
+                    } else {
+                        console.log('No changes.');
+                    }
+                } else {
+                    console.log('API Error.');
+                }
+            } else {
+                console.log(`Skipping already-verified Game: ${game.title} (${game.platform_display_name})`);
+            }
             continue;
         }
 
@@ -223,6 +317,84 @@ async function runScraper(): Promise<void> {
 
 
     for (const toy of existingToys) {
+        // Handle Refresh
+        if (runRefresh && toy.amiibo_id && toy.verified) {
+            process.stdout.write(`Refreshing Toy: ${toy.name}... `);
+            try {
+                const response = await axios.get(`https://amiiboapi.org/api/amiibo/?id=${toy.amiibo_id}`);
+                const a = response.data.amiibo;
+                if (a) {
+                    const effectiveSeries = a.amiiboSeries === 'Others' ? a.gameSeries : a.amiiboSeries;
+                    const releaseDate = a.release?.na || a.release?.jp || a.release?.eu || a.release?.au || null;
+                    const region = a.release?.na ? 'NA' : (a.release?.jp ? 'JP' : (a.release?.eu ? 'EU' : 'AU'));
+ 
+                    const checkField = (field: string, oldVal: string | number | null | undefined, newVal: string | number | null | undefined) => {
+                        if (newVal !== undefined && newVal !== oldVal) {
+                            return true;
+                        }
+                        return false;
+                    };
+ 
+                    checkField('image_url', toy.image_url, a.image);
+                    checkField('series', toy.series, effectiveSeries);
+                    checkField('type', toy.type, a.type);
+                    checkField('release_date', toy.release_date, releaseDate);
+                    checkField('region', toy.region, region);
+
+                    // Canonical Slug Check
+                    let canonicalId = `${slugify(a.name)}-amiibo-${slugify(effectiveSeries)}`;
+                    
+                    // Collision check for toys
+                    const collision = db.prepare('SELECT stable_id FROM toys WHERE id = ? AND stable_id != ?').get(canonicalId, toy.stable_id);
+                    if (collision) {
+                        canonicalId += `-${toy.amiibo_id?.substring(0, 8) || toy.id.split('-').pop()}`;
+                    }
+
+                    const finalId = canonicalId;
+                    const finalImageUrl = a.image || toy.image_url;
+                    const finalSeries = effectiveSeries || toy.series;
+                    const finalType = a.type || toy.type;
+                    const finalReleaseDate = releaseDate || toy.release_date;
+                    const finalRegion = region || toy.region;
+                    const finalMetadata = JSON.stringify(a);
+
+                    const hasActualChanges = finalId !== toy.id ||
+                                             (a.image !== undefined && a.image !== null && a.image !== toy.image_url) ||
+                                             (effectiveSeries !== undefined && effectiveSeries !== null && effectiveSeries !== toy.series) ||
+                                             (a.type !== undefined && a.type !== null && a.type !== toy.type) ||
+                                             (releaseDate !== undefined && releaseDate !== null && releaseDate !== toy.release_date) ||
+                                             (region !== undefined && region !== null && region !== toy.region);
+
+                    if (hasActualChanges) {
+                        db.prepare(`
+                            UPDATE toys 
+                            SET id = ?, image_url = ?, series = ?, type = ?, release_date = ?, region = ?, metadata_json = ?
+                            WHERE stable_id = ?
+                        `).run(finalId, finalImageUrl, finalSeries, finalType, finalReleaseDate, finalRegion, finalMetadata, toy.stable_id);
+                        
+                        const localChanges: UpdateChange[] = [];
+                        if (finalId !== toy.id) localChanges.push({ id: toy.id, title: toy.name, field: 'id', oldValue: toy.id, newValue: finalId });
+                        if (finalImageUrl !== toy.image_url && a.image) localChanges.push({ id: toy.id, title: toy.name, field: 'image_url', oldValue: String(toy.image_url), newValue: String(finalImageUrl) });
+                        if (finalSeries !== toy.series && effectiveSeries) localChanges.push({ id: toy.id, title: toy.name, field: 'series', oldValue: String(toy.series), newValue: String(finalSeries) });
+                        if (finalType !== toy.type && a.type) localChanges.push({ id: toy.id, title: toy.name, field: 'type', oldValue: String(toy.type), newValue: String(finalType) });
+                        if (finalReleaseDate !== toy.release_date && releaseDate) localChanges.push({ id: toy.id, title: toy.name, field: 'release_date', oldValue: String(toy.release_date), newValue: String(finalReleaseDate) });
+                        if (finalRegion !== toy.region && region) localChanges.push({ id: toy.id, title: toy.name, field: 'region', oldValue: String(toy.region), newValue: String(finalRegion) });
+
+                        if (localChanges.length > 0) {
+                            updateChanges.push(...localChanges);
+                            appendUpdateReport(localChanges);
+                        }
+                        console.log('Updated.');
+                    } else {
+                        console.log('No changes.');
+                    }
+                }
+            } catch {
+                console.log('API Error.');
+            }
+            continue;
+        }
+
         // Skip if already linked or verified
         if (toy.verified || toy.amiibo_id) continue;
 
@@ -305,33 +477,14 @@ async function runScraper(): Promise<void> {
         */
 
 
-        // 4. Discovery: Toys (DISABLED - Ignoring other toy lines and new discoveries for now)
-        /*
-        const existingToyNorms = new Set(existingToys.map(f => superNormalize(f.name)));
-        const toySeriesList = db.prepare('SELECT DISTINCT line FROM toys WHERE line IS NOT NULL').all() as { line: string }[];
-
-        for (const { line: type } of toySeriesList) {
-            // No new amiibo should be suggested at this point
-            if (type.toLowerCase() === 'amiibo') continue;
-            
-            process.stdout.write(`Discovering Toys for line: ${type}... `);
-            let toys: Toy[] = [];
-            if (type.toLowerCase().includes('skylanders')) toys = await getSkylandersSeries(type);
-            else if (type.toLowerCase().includes('starlink')) toys = await getStarlinkSeries(type);
-
-                const missing = toys.filter(f => 
-                    !existingToyNorms.has(superNormalize(f.name)) &&
-                    !ignoredItems.includes(f.id)
-                );
-
-                if (missing.length > 0) {
-                    toyDiscoveryResults.push({ series: type, items: missing });
-                    console.log(`${missing.length} missing.`);
-                } else {
-                    console.log('None missing.');
-                }
+        // 4. Discovery: amiibo
+        if (runDiscovery) {
+            console.log('Starting full amiibo discovery pass...');
+            const discovered = await discoverAllAmiibo(existingToys);
+            if (discovered.length > 0) {
+                toyDiscoveryResults.push({ series: 'amiibo (Auto-Added)', items: discovered });
             }
-        */
+        }
         }
 
 
@@ -339,6 +492,10 @@ async function runScraper(): Promise<void> {
     console.log(`Manual Entries Processed: ${unmatchedGames.length + syncSuggestions.length + autoMatchedCount}`);
     console.log(`  - Auto-matched: ${autoMatchedCount}`);
     console.log(`  - Remaining in Report: ${unmatchedGames.length + syncSuggestions.length}`);
+    if (runRefresh) {
+        console.log(`  - Refreshed Items: ${updateChanges.length} changes detected`);
+        console.log('Report generated: update_report.md');
+    }
     if (runDiscovery) {
         console.log(`Discovery Results: ${gameDiscoveryResults.length} game series, ${toyDiscoveryResults.length} toy series`);
     } else {
@@ -346,6 +503,84 @@ async function runScraper(): Promise<void> {
     }
 
     generateReport(unmatchedGames, syncSuggestions, gameDiscoveryResults, toyDiscoveryResults);
+
+    // 4. Final Phase: Series Recomputation
+    if (runRefresh || runRecomputeSeries) {
+        console.log('\n--- Starting Series Recomputation Phase ---');
+        await recomputeCanonicalSeries();
+    }
+}
+
+/**
+ * UTILITY: discoverAllAmiibo
+ */
+async function discoverAllAmiibo(existingToys: Toy[]): Promise<Toy[]> {
+    console.log('Fetching master amiibo list...');
+    const allAmiibo = await getAmiiboSeries();
+    const existingAmiiboIds = new Set(existingToys.filter(t => t.line === 'amiibo').map(t => t.amiibo_id));
+    const added: Toy[] = [];
+
+    const insertStmt = db.prepare(`
+        INSERT INTO toys (id, name, line, series, type, image_url, amiibo_id, owned, verified, metadata_json, series_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertSeriesStmt = db.prepare('INSERT OR IGNORE INTO toy_series (id, line, name) VALUES (?, ?, ?)');
+
+    const usedSlugs = new Set((db.prepare('SELECT id FROM toys').all() as { id: string }[]).map(t => t.id));
+
+    for (const a of allAmiibo) {
+        if (existingAmiiboIds.has(a.id)) continue;
+
+        // a.id is head+tail from getAmiiboSeries
+        let canonicalId = `${slugify(a.name)}-amiibo-${slugify(a.series_name)}`;
+        if (usedSlugs.has(canonicalId)) {
+            canonicalId += `-${a.id.substring(0, 8)}`;
+        }
+        
+        usedSlugs.add(canonicalId);
+
+        const seriesId = `amiibo-${slugify(a.series_name)}`;
+        insertSeriesStmt.run(seriesId, 'amiibo', a.series_name);
+
+        insertStmt.run(
+            canonicalId,
+            a.name,
+            'amiibo',
+            a.series_name,
+            a.type,
+            a.image_url,
+            a.id,
+            0, // Wanted
+            1, // Verified
+            null, // We could store more if needed, but getAmiiboSeries only returns subset
+            seriesId
+        );
+        added.push(a);
+    }
+    console.log(`Added ${added.length} missing amiibo as Wanted.`);
+    return added;
+}
+
+/**
+ * UTILITY: appendUpdateReport
+ */
+function appendUpdateReport(changes: UpdateChange[]): void {
+    if (changes.length === 0) return;
+    
+    const reportPath = 'update_report.md';
+    if (!fs.existsSync(reportPath)) {
+        fs.writeFileSync(reportPath, '# Update Report\n\nThis report lists metadata updates performed during the refresh pass.\n\n');
+    }
+
+    const item = `${changes[0].title} (${changes[0].id})`;
+    let entry = `### ${item}\n`;
+    changes.forEach(c => {
+        entry += `- **${c.field}**: \`${c.oldValue}\` -> \`${c.newValue}\`\n`;
+    });
+    entry += '\n';
+
+    fs.appendFileSync(reportPath, entry);
 }
 
 /**
