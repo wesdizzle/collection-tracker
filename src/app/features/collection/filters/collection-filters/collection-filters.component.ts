@@ -17,12 +17,13 @@
 
 import { Component, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DatePipe } from '@angular/common';
 import { FilterState, PlatformGroup } from '../../../../core/models/collection.models';
 
 @Component({
   selector: 'app-collection-filters',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, DatePipe],
   template: `
     <div class="filter-wrapper animate-expressive animate-stagger-1">
       <div class="mobile-filter-row desktop-hidden">
@@ -130,8 +131,13 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
         </div>
   
       
-        <div class="filter-info ml-auto mobile-hidden">
-          <span>{{resultCount()}} items</span>
+        <div class="filter-info ml-auto mobile-hidden flex flex-col items-end gap-2xs">
+          <span class="count-badge">{{resultCount()}} items</span>
+          @if (lastUpdated()) {
+            <span class="sync-timestamp" [title]="'Last synced with server: ' + (lastUpdated() | date:'medium')">
+              Updated {{ lastUpdated() | date:'shortTime' }}
+            </span>
+          }
         </div>
       </div>
     </div>
@@ -254,13 +260,30 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
     }
     
     .filter-info {
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: var(--m3-on-surface-variant);
       padding: 0.5rem 1.25rem;
       background: var(--m3-surface-container-highest);
       border-radius: var(--radius-md);
+      border: 1px solid var(--m3-outline-variant);
     }
+
+    .count-badge {
+      font-size: 0.875rem;
+      font-weight: 700;
+      color: var(--m3-on-surface);
+    }
+
+    .sync-timestamp {
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--m3-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      opacity: 0.8;
+    }
+
+    .gap-2xs { gap: 0.25rem; }
+    .flex-col { flex-direction: column; }
+    .items-end { align-items: flex-end; }
  
     /* RESPONSIVE BREAKPOINTS */
     @media (min-width: 769px) {
@@ -304,6 +327,7 @@ export class CollectionFiltersComponent {
   public uniqueSeries = input<string[]>([]);
   public resultCount = input<number>(0);
   public filters = input.required<FilterState>();
+  public lastUpdated = input<Date | null>(null);
  
   /** --- Event Emitters --- */
   public filtersChange = output<FilterState>();

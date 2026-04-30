@@ -44,6 +44,20 @@ export class CollectionService {
   constructor() {
     if (typeof window !== 'undefined') {
       this.loadPersistedState();
+      this.loadLastUpdated();
+    }
+  }
+
+  /**
+   * Hydrates the lastUpdated signal from localStorage.
+   */
+  private loadLastUpdated() {
+    const saved = localStorage.getItem('gagglog_last_updated');
+    if (saved) {
+      const date = new Date(saved);
+      if (!isNaN(date.getTime())) {
+        this._lastUpdated.set(date);
+      }
     }
   }
 
@@ -129,6 +143,13 @@ export class CollectionService {
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
 
+  /** 
+   * Timestamp of the last successful server synchronization.
+   * Persisted to localStorage to provide context for stale data during offline use.
+   */
+  private _lastUpdated = signal<Date | null>(null);
+  public readonly lastUpdated = this._lastUpdated.asReadonly();
+
   /**
    * Orchestrates a full refresh of the collection data.
    * Fetches games, toys, and platforms in parallel to minimize load time.
@@ -148,6 +169,13 @@ export class CollectionService {
       this._games.set(games);
       this._toys.set(toys);
       this._platforms.set(platforms);
+
+      // Update sync timestamp if we are reasonably sure we hit the network
+      if (typeof window !== 'undefined' && window.navigator.onLine) {
+        const now = new Date();
+        this._lastUpdated.set(now);
+        localStorage.setItem('gagglog_last_updated', now.toISOString());
+      }
     } catch (err: unknown) {
       console.error('[CollectionService] Global refresh failed:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to load collection data. Please try again later.';

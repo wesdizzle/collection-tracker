@@ -47,6 +47,7 @@ interface GameGroup {
         [uniqueTypes]="uniqueTypes()"
         [uniqueSeries]="uniqueSeries()"
         [resultCount]="currentTab() === 'games' ? filteredGames().length : filteredToys().length"
+        [lastUpdated]="lastUpdated()"
         (filtersChange)="onFiltersChange($event)">
       </app-collection-filters>
     
@@ -501,6 +502,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
   public filters = signal<FilterState>({ ownership: 'all', platform_id: undefined, line: '', type: '', series: '', seriesExact: false });
   public displayLimit = signal<number>(100);
   public isLocalServer = signal(false);
+  public lastUpdated = this.collectionService.lastUpdated;
 
  
   /**

@@ -34,9 +34,25 @@
       ],
       "cacheConfig": {
         "maxSize": 100,
-        "maxAge": "1h",
+        "maxAge": "30d",
         "timeout": "5s",
         "strategy": "freshness"
+      }
+    },
+    {
+      "name": "external-assets",
+      "urls": [
+        "https://images.igdb.com/**",
+        "https://raw.githubusercontent.com/**",
+        "https://*.amiiboapi.com/**",
+        "https://www.pricecharting.com/**",
+        "https://*.igdb.com/**"
+      ],
+      "cacheConfig": {
+        "maxSize": 5000,
+        "maxAge": "30d",
+        "timeout": "10s",
+        "strategy": "performance"
       }
     }
   ]
