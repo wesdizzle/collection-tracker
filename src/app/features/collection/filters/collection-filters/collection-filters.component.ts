@@ -42,8 +42,10 @@ import { FilterState, PlatformGroup } from '../../../../core/models/collection.m
           <div class="input-wrapper">
             <select [ngModel]="filters().ownership" (ngModelChange)="onPartialChange('ownership', $event)" class="m3-input">
               <option value="all">All</option>
-              <option value="owned">Owned</option>
-              <option value="wanted">Wanted</option>
+              <option [ngValue]="1">Owned</option>
+              <option [ngValue]="2">Seeking</option>
+              <option [ngValue]="3">Ordered</option>
+              <option [ngValue]="0">Unowned</option>
             </select>
           </div>
         </div>

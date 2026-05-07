@@ -112,13 +112,21 @@ interface GameGroup {
                         <!-- Status Badge -->
                         <button 
                           class="status-badge state-layer" 
-                          [class.owned]="game.owned"
+                          [class]="'status-' + game.ownership_status"
                           [class.interactive]="isLocalServer()"
-                          [title]="game.owned ? 'Owned' : 'Wanted'"
+                          [title]="game.ownership_status === 1 ? 'Owned' : game.ownership_status === 2 ? 'Seeking' : game.ownership_status === 3 ? 'Ordered' : 'Unowned'"
                           (click)="onToggleStatus($event, game, 'game')">
-                          @if (game.owned) {
+                          @if (game.ownership_status === 1) {
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                               <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+                            </svg>
+                          } @else if (game.ownership_status === 2) {
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                            </svg>
+                          } @else if (game.ownership_status === 3) {
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                              <path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
                             </svg>
                           } @else {
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
@@ -215,13 +223,21 @@ interface GameGroup {
                             <!-- Status Badge -->
                             <button 
                               class="status-badge state-layer" 
-                              [class.owned]="toy.owned"
+                              [class]="'status-' + toy.ownership_status"
                               [class.interactive]="isLocalServer()"
-                              [title]="toy.owned ? 'Owned' : 'Wanted'"
+                              [title]="toy.ownership_status === 1 ? 'Owned' : toy.ownership_status === 2 ? 'Seeking' : toy.ownership_status === 3 ? 'Ordered' : 'Unowned'"
                               (click)="onToggleStatus($event, toy, 'toy')">
-                              @if (toy.owned) {
+                              @if (toy.ownership_status === 1) {
                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                                   <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/>
+                                </svg>
+                              } @else if (toy.ownership_status === 2) {
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                                  <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                                </svg>
+                              } @else if (toy.ownership_status === 3) {
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                                  <path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
                                 </svg>
                               } @else {
                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
@@ -447,10 +463,24 @@ interface GameGroup {
       cursor: pointer;
     }
 
-    .status-badge.owned {
+    .status-badge.status-1 {
       color: var(--m3-primary);
       background: var(--m3-primary-container);
       border-color: var(--m3-primary);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    
+    .status-badge.status-2 {
+      color: var(--m3-tertiary);
+      background: var(--m3-tertiary-container);
+      border-color: var(--m3-tertiary);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    
+    .status-badge.status-3 {
+      color: #3B82F6;
+      background: rgba(59, 130, 246, 0.2);
+      border-color: #3B82F6;
       box-shadow: 0 2px 8px rgba(0,0,0,0.4);
     }
 
@@ -499,7 +529,7 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
 
   /** --- Reactive Application State --- */
   public currentTab = signal<'games' | 'toys'>('games');
-  public filters = signal<FilterState>({ ownership: 'all', platform_id: undefined, line: '', type: '', series: '', seriesExact: false });
+  public filters = signal<FilterState>({ ownership: 1, platform_id: undefined, line: '', type: '', series: '', seriesExact: false });
   public displayLimit = signal<number>(100);
   public isLocalServer = signal(false);
   public lastUpdated = this.collectionService.lastUpdated;
@@ -533,9 +563,8 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     const f = this.filters();
     return allGames.filter(g => {
       // Basic Ownership Filter
-      const isOwned = g.owned === 1 || g.owned === true;
-      if (f.ownership === 'owned' && !isOwned) return false;
-      if (f.ownership === 'wanted' && isOwned) return false;
+      const status = g.ownership_status ?? 0;
+      if (f.ownership !== 'all' && f.ownership !== status) return false;
  
       // Platform Filter (Checks both direct platform and parent platform for cross-compatible hardware)
       if (f.platform_id) {
@@ -684,9 +713,8 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     const f = this.filters();
     return allToys.filter(toy => {
       // Ownership Filter
-      const isOwned = toy.owned === 1 || toy.owned === true;
-      if (f.ownership === 'owned' && !isOwned) return false;
-      if (f.ownership === 'wanted' && isOwned) return false;
+      const status = toy.ownership_status ?? 0;
+      if (f.ownership !== 'all' && f.ownership !== status) return false;
  
       // Line Filter (e.g. Amiibo, Skylanders)
       if (f.line && toy.line !== f.line) return false;
@@ -969,17 +997,24 @@ export class CollectionListComponent implements OnInit, AfterViewInit, OnDestroy
     event.preventDefault();
     event.stopPropagation();
     
-    const isOwned = !!item.owned;
     const name = (item as Game).title || (item as Toy).name;
-    const action = isOwned ? 'Wanted' : 'Owned';
     
-    this.collectionService.showConfirmation(
+    this.collectionService.showOptions(
       `Change Status`,
-      `Mark "${name}" as ${action}?`,
-      () => {
-        this.collectionService.toggleOwnership(item.id, type, !isOwned).subscribe({
+      `Set status for "${name}":`,
+      [
+        { label: 'Unowned', value: 0 },
+        { label: 'Owned', value: 1 },
+        { label: 'Seeking', value: 2 },
+        { label: 'Ordered', value: 3 }
+      ],
+      (newValue) => {
+        const numValue = typeof newValue === 'string' ? parseInt(newValue, 10) : newValue;
+        if (isNaN(numValue) || numValue < 0 || numValue > 3) return;
+
+        this.collectionService.toggleOwnership(item.id, type, numValue).subscribe({
           next: () => this.collectionService.refreshAll(),
-          error: (err) => console.error('Failed to toggle status:', err)
+          error: (err) => console.error('Failed to set status:', err)
         });
       }
     );

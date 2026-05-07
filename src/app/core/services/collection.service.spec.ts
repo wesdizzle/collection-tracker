@@ -71,7 +71,7 @@ describe('CollectionService', () => {
     it('should update and persist list state', () => {
       const mockState = {
         tab: 'games' as const,
-        filters: { ownership: 'owned' as const },
+        filters: { ownership: 1 as const },
         displayLimit: 200,
         scrollX: 0,
         scrollY: 500

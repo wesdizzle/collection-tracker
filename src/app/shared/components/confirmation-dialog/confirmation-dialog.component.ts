@@ -32,11 +32,27 @@ import { FormsModule } from '@angular/forms';
                 (keydown.escape)="onCancel()">
             </div>
           }
+          
+          @if (type === 'options' && options) {
+            <div class="options-container mt-md">
+              @for (opt of options; track opt.value) {
+                <button class="m3-button m3-button-filled state-layer option-btn" (click)="onOptionSelect(opt.value)">
+                  {{ opt.label }}
+                </button>
+              }
+            </div>
+          }
         </div>
-        <footer class="dialog-footer">
-          <button class="m3-button m3-button-text state-layer" (click)="onCancel()">Cancel</button>
-          <button class="m3-button m3-button-filled state-layer" (click)="onConfirm()">Confirm</button>
-        </footer>
+        @if (type !== 'options') {
+          <footer class="dialog-footer">
+            <button class="m3-button m3-button-text state-layer" (click)="onCancel()">Cancel</button>
+            <button class="m3-button m3-button-filled state-layer" (click)="onConfirm()">Confirm</button>
+          </footer>
+        } @else {
+          <footer class="dialog-footer options-footer">
+            <button class="m3-button m3-button-text state-layer" (click)="onCancel()">Cancel</button>
+          </footer>
+        }
       </div>
     </div>
   `,
@@ -154,13 +170,45 @@ import { FormsModule } from '@angular/forms';
     .m3-button-filled:active {
       transform: translateY(0);
     }
+    
+    .options-container {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-12);
+      margin-top: var(--spacing-24);
+    }
+    
+    .option-btn {
+      width: 100%;
+      padding: 1rem;
+      font-size: 1.1rem;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--m3-surface-container-highest);
+      color: var(--m3-on-surface);
+      border: 1px solid var(--m3-outline-variant);
+    }
+    
+    .option-btn:hover {
+      background: var(--m3-primary-container);
+      color: var(--m3-on-primary-container);
+      border-color: var(--m3-primary);
+    }
+    
+    .options-footer {
+      justify-content: center;
+      padding-top: var(--spacing-16);
+    }
   `]
 })
 export class ConfirmationDialogComponent implements AfterViewInit {
   @Input() title = 'Confirm Action';
   @Input() message = 'Are you sure you want to proceed?';
-  @Input() type: 'confirm' | 'input' = 'confirm';
+  @Input() type: 'confirm' | 'input' | 'options' = 'confirm';
   @Input() inputValue?: string | number;
+  @Input() options?: { label: string, value: string | number }[];
   
   @Output() confirm = new EventEmitter<void>();
   @Output() confirmWithInput = new EventEmitter<string | number>();
@@ -183,6 +231,10 @@ export class ConfirmationDialogComponent implements AfterViewInit {
     } else {
       this.confirm.emit();
     }
+  }
+
+  onOptionSelect(value: string | number) {
+    this.confirmWithInput.emit(value);
   }
 
   onCancel() { this.cancel.emit(); }

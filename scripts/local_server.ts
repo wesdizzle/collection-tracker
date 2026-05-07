@@ -254,12 +254,11 @@ export const handleRequest = (db: Database.Database) => async (req: http.Incomin
                     req.on('error', err => reject(err));
                 });
 
-                const { id, type, owned } = JSON.parse(body);
+                const { id, type, status } = JSON.parse(body);
                 const table = type === 'game' ? 'games' : 'toys';
-                const ownedValue = owned ? 1 : 0;
 
-                db.prepare(`UPDATE ${table} SET owned = ? WHERE id = ?`).run(ownedValue, id);
-                console.log(`Updated ${type} status: ${id} -> owned=${ownedValue}`);
+                db.prepare(`UPDATE ${table} SET ownership_status = ? WHERE id = ?`).run(status, id);
+                console.log(`Updated ${type} status: ${id} -> ownership_status=${status}`);
 
                 // Sync to Local D1 Instance
                 if (!process.env['VITEST']) {

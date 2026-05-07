@@ -5,6 +5,13 @@
  * Resolves circular dependencies between services and components.
  */
 
+export enum OwnershipStatus {
+    Unowned = 0,
+    Owned = 1,
+    Seeking = 2,
+    Ordered = 3
+}
+
 export interface Game {
     stable_id: number;
     id: string; // The durable slug: game-title-platform-name
@@ -17,7 +24,7 @@ export interface Game {
     igdb_id?: number;
     region?: string;
     display_name?: string;
-    owned: boolean | number;
+    ownership_status: OwnershipStatus;
     played: boolean | number;
     backed_up: boolean | number;
     image_url: string;
@@ -43,7 +50,7 @@ export interface Toy {
     series_line: string;
     series?: string;
     release_date: string;
-    owned: boolean | number;
+    ownership_status: OwnershipStatus;
     image_url: string;
     platform_id?: number;
     amiibo_id?: string;
@@ -106,7 +113,7 @@ export interface DiscoveryPayload {
 }
 
 export interface FilterState {
-  ownership: 'all' | 'owned' | 'wanted';
+  ownership: 'all' | OwnershipStatus;
   platform_id?: number;
   region?: string;
   is_linked?: boolean;

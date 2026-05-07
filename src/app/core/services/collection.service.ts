@@ -270,11 +270,11 @@ export class CollectionService {
   }
 
   /**
-   * Toggles the 'owned' status of a collection item.
+   * Toggles or updates the 'ownership_status' of a collection item.
    * ONLY functional on local server via proxy.
    */
-  toggleOwnership(id: string, type: 'game' | 'toy', owned: boolean): Observable<unknown> {
-    return this.http.post('/api/collection/toggle', { id, type, owned });
+  toggleOwnership(id: string, type: 'game' | 'toy', status: number): Observable<unknown> {
+    return this.http.post('/api/collection/toggle', { id, type, status });
   }
 
   /**
@@ -288,10 +288,11 @@ export class CollectionService {
   /** --- Global Confirmation Dialog State --- */
   private _dialogState = signal<{
     visible: boolean;
-    type: 'confirm' | 'input';
+    type: 'confirm' | 'input' | 'options';
     title: string;
     message: string;
     inputValue?: string | number;
+    options?: { label: string, value: string | number }[];
     onConfirm?: (value?: string | number) => void;
   }>({ visible: false, type: 'confirm', title: '', message: '' });
 
@@ -323,6 +324,25 @@ export class CollectionService {
       title, 
       message, 
       inputValue: initialValue,
+      onConfirm: (val) => { if (val !== undefined) onConfirm(val); }
+    });
+  }
+
+  /**
+   * Triggers the global options dialog.
+   * 
+   * @param title Dialog title.
+   * @param message Dialog message.
+   * @param options Array of options to present.
+   * @param onConfirm Callback function executed when user selects an option.
+   */
+  public showOptions(title: string, message: string, options: { label: string, value: string | number }[], onConfirm: (value: string | number) => void) {
+    this._dialogState.set({
+      visible: true,
+      type: 'options',
+      title,
+      message,
+      options,
       onConfirm: (val) => { if (val !== undefined) onConfirm(val); }
     });
   }

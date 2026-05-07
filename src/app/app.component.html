@@ -8,6 +8,7 @@
     [message]="dialogState().message"
     [type]="dialogState().type"
     [inputValue]="dialogState().inputValue"
+    [options]="dialogState().options"
     (confirm)="onConfirm()"
     (confirmWithInput)="onConfirm($event)"
     (cancel)="onCancel()">

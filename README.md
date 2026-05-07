@@ -27,7 +27,7 @@ The application features a **Material 3 Expressive** interface, prioritizing emo
 - **Glassmorphism**: Tonal surfaces utilize backdrop-blur effects (glassmorphism) to create depth and focus in complex layouts.
 - **Fluid Motion**: Collection items and UI transitions use expressive, spring-based animations to provide immediate, delightful feedback.
 - **Dual-Theme Engine**: Full support for Light, Dark, and System-aware modes with a built-in theme switcher.
-- **Status Pills**: Consolidated status markers (Owned, Played, Backed Up) use high-contrast expressive chip patterns for instant recognition.
+- **Status Pills**: Consolidated status markers (Ownership: Unowned/Owned/Seeking/Ordered, Played, Backed Up) use high-contrast expressive chip patterns for instant recognition.
 
 ### Navigation & Filter Logic
 The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Toys** collections:
@@ -38,11 +38,11 @@ The application prioritizes a consistent browsing context by isolating collectio
 The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for maintaining collection integrity and discovering new content:
 - **Multi-Pass Search**: Automatically falls back to simplified title searches if a direct platform match isn't found, handling complex bundle and special edition naming patterns.
 - **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches. Ambiguous items are offloaded to a manual `discovery_report.md` for user verification.
-- **amiibo Discovery**: The `--discovery` pass automatically identifies all missing amiibo (including cards) from the canonical AmiiboAPI and adds them to your collection as "Wanted" items.
+- **amiibo Discovery**: The `--discovery` pass automatically identifies all missing amiibo (including cards) from the canonical AmiiboAPI and adds them to your collection as "Unowned" items.
 - **Metadata Refresh**: The `--refresh` pass periodically updates images, release dates, and technical metadata for all verified items. It also normalizes all database slugs to a canonical format and generates an `update_report.md` summarizing the changes.
 - **Verification Signals**: Uses the presence of an `igdb_id` or `pricecharting_url` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
-- **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys, including granular "Owned" vs "Wanted" status tracking for all collection lines.
+- **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys, including granular ownership status tracking (Unowned, Owned, Seeking, Ordered) for all collection lines.
 
 
 ## 📦 Getting Started

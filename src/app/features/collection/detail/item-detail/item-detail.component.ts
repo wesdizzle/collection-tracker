@@ -46,9 +46,9 @@ import { toSignal } from '@angular/core/rxjs-interop';
                 <span class="icon">{{ g.backed_up ? '💾' : '❌' }}</span>
                 <span>{{ g.backed_up ? 'Backed Up' : 'No Backup' }}</span>
               </div>
-              <div class="stat-pill" [class.active]="g.owned">
-                <span class="icon">{{ g.owned ? '✅' : '🎯' }}</span>
-                <span>{{ g.owned ? 'Owned' : 'Wanted' }}</span>
+              <div class="stat-pill" [class.active]="g.ownership_status !== 0">
+                <span class="icon">{{ g.ownership_status === 1 ? '✅' : g.ownership_status === 2 ? '🔍' : g.ownership_status === 3 ? '📦' : '⭕' }}</span>
+                <span>{{ g.ownership_status === 1 ? 'Owned' : g.ownership_status === 2 ? 'Seeking' : g.ownership_status === 3 ? 'Ordered' : 'Unowned' }}</span>
               </div>
               @if (g.igdb_id) {
                 <div class="stat-pill active igdb">
@@ -65,9 +65,9 @@ import { toSignal } from '@angular/core/rxjs-interop';
             </div>
           } @else if (toy(); as t) {
             <div class="quick-stats flex gap-sm items-center">
-              <div class="stat-pill" [class.active]="t.owned">
-                <span class="icon">{{ t.owned ? '✅' : '🎯' }}</span>
-                <span>{{ t.owned ? 'Owned' : 'Wanted' }}</span>
+              <div class="stat-pill" [class.active]="t.ownership_status !== 0">
+                <span class="icon">{{ t.ownership_status === 1 ? '✅' : t.ownership_status === 2 ? '🔍' : t.ownership_status === 3 ? '📦' : '⭕' }}</span>
+                <span>{{ t.ownership_status === 1 ? 'Owned' : t.ownership_status === 2 ? 'Seeking' : t.ownership_status === 3 ? 'Ordered' : 'Unowned' }}</span>
               </div>
               @if (t.verified) {
                 <div class="stat-pill active physical">
@@ -509,7 +509,7 @@ export class ItemDetailComponent {
     } else {
       this.collectionService.updateListState({
         tab,
-        filters: { ownership: 'owned', series, seriesExact: true, line: '', type: '' },
+        filters: { ownership: 1, series, seriesExact: true, line: '', type: '' },
         displayLimit: 100,
         scrollX: 0,
         scrollY: 0

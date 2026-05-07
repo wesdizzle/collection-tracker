@@ -13,20 +13,22 @@ import Database from 'better-sqlite3';
 describe('Database Integrity', () => {
     const db = new Database('collection.sqlite');
 
-    it('should have the correct total number of games owned', () => {
-        // Query the 'games' table directly to ensure the raw count of owned items (owned = 1)
+    it('should have the correct total number of games for each ownership status', () => {
+        // Query the 'games' table directly to ensure the raw count of items by status
         // matches the hardcoded snapshot. This catches accidental deletions or status changes.
-        const ownedGames = db.prepare('SELECT COUNT(*) as count FROM games WHERE owned = 1').get() as { count: number };
-        expect(ownedGames.count).toBe(1977);
+        const counts = db.prepare('SELECT ownership_status, COUNT(*) as count FROM games GROUP BY ownership_status').all() as { ownership_status: number, count: number }[];
+        const actual = counts.reduce((acc, row) => {
+            acc[row.ownership_status] = row.count;
+            return acc;
+        }, {} as Record<number, number>);
+        
+        expect(actual[0] ?? 0).toBe(2363); // Unowned (Not in collection)
+        expect(actual[1] ?? 0).toBe(1977); // Owned (In collection)
+        expect(actual[2] ?? 0).toBe(0);    // Seeking (Actively looking to acquire)
+        expect(actual[3] ?? 0).toBe(0);    // Ordered (Purchased but not yet received)
     });
 
-    it('should have the correct total number of games wanted', () => {
-        // Query the 'games' table directly for wanted items (owned = 0).
-        const wantedGames = db.prepare('SELECT COUNT(*) as count FROM games WHERE owned = 0').get() as { count: number };
-        expect(wantedGames.count).toBe(2363);
-    });
-
-    it('should have the correct number of owned and wanted games per platform', () => {
+    it('should have the correct number of games per platform for each status', () => {
         /**
          * COMPLEX PLATFORM AGGREGATION QUERY
          * 
@@ -39,109 +41,109 @@ describe('Database Integrity', () => {
          *    the consistent ordering in the 'expected' object below.
          */
         const platformCounts = db.prepare(`
-            SELECT COALESCE(pp.display_name, p.display_name) as display_name, g.owned, COUNT(g.stable_id) as count
+            SELECT COALESCE(pp.display_name, p.display_name) as display_name, g.ownership_status, COUNT(g.stable_id) as count
             FROM games g
             JOIN platforms p ON g.platform_id = p.id
             LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-            GROUP BY COALESCE(pp.display_name, p.display_name), g.owned
-            ORDER BY COALESCE(pp.brand, p.brand) ASC, COALESCE(pp.launch_date, p.launch_date) ASC, g.owned DESC
-        `).all() as { display_name: string, owned: number, count: number }[];
+            GROUP BY COALESCE(pp.display_name, p.display_name), g.ownership_status
+            ORDER BY COALESCE(pp.brand, p.brand) ASC, COALESCE(pp.launch_date, p.launch_date) ASC, g.ownership_status DESC
+        `).all() as { display_name: string, ownership_status: number, count: number }[];
 
         const expected = {
-            "3DO Interactive Multiplayer (Wanted)": 3,
+            "3DO Interactive Multiplayer (Unowned)": 3,
             "Atari 2600 (Owned)": 6,
-            "Atari 2600 (Wanted)": 10,
+            "Atari 2600 (Unowned)": 10,
             "Atari 5200 (Owned)": 3,
-            "Atari 5200 (Wanted)": 4,
+            "Atari 5200 (Unowned)": 4,
             "Atari 7800 (Owned)": 2,
-            "Atari 7800 (Wanted)": 4,
-            "Atari Lynx (Wanted)": 5,
-            "Atari Jaguar (Wanted)": 5,
+            "Atari 7800 (Unowned)": 4,
+            "Atari Lynx (Unowned)": 5,
+            "Atari Jaguar (Unowned)": 5,
             "ColecoVision (Owned)": 1,
-            "ColecoVision (Wanted)": 1,
+            "ColecoVision (Unowned)": 1,
             "Intellivision (Owned)": 1,
-            "Intellivision (Wanted)": 4,
-            "Neo Geo Pocket Color (Wanted)": 2,
+            "Intellivision (Unowned)": 4,
+            "Neo Geo Pocket Color (Unowned)": 2,
             "Famicom (Owned)": 1,
             "Nintendo Entertainment System (Owned)": 49,
-            "Nintendo Entertainment System (Wanted)": 45,
+            "Nintendo Entertainment System (Unowned)": 45,
             "Game Boy (Owned)": 26,
-            "Game Boy (Wanted)": 62,
+            "Game Boy (Unowned)": 62,
             "Super Nintendo Entertainment System (Owned)": 42,
-            "Super Nintendo Entertainment System (Wanted)": 42,
+            "Super Nintendo Entertainment System (Unowned)": 42,
             "Virtual Boy (Owned)": 3,
-            "Virtual Boy (Wanted)": 1,
+            "Virtual Boy (Unowned)": 1,
             "Nintendo 64 (Owned)": 40,
-            "Nintendo 64 (Wanted)": 27,
+            "Nintendo 64 (Unowned)": 27,
             "Game Boy Color (Owned)": 18,
-            "Game Boy Color (Wanted)": 55,
+            "Game Boy Color (Unowned)": 55,
             "Game Boy Advance (Owned)": 69,
-            "Game Boy Advance (Wanted)": 123,
+            "Game Boy Advance (Unowned)": 123,
             "Nintendo GameCube (Owned)": 56,
-            "Nintendo GameCube (Wanted)": 85,
+            "Nintendo GameCube (Unowned)": 85,
             "Nintendo DS (Owned)": 71,
-            "Nintendo DS (Wanted)": 162,
+            "Nintendo DS (Unowned)": 162,
             "Wii (Owned)": 63,
-            "Wii (Wanted)": 103,
+            "Wii (Unowned)": 103,
             "Nintendo 3DS (Owned)": 71,
-            "Nintendo 3DS (Wanted)": 93,
+            "Nintendo 3DS (Unowned)": 93,
             "Wii U (Owned)": 50,
-            "Wii U (Wanted)": 41,
+            "Wii U (Unowned)": 41,
             "New Nintendo 3DS (Owned)": 3,
             "Nintendo Switch (Owned)": 333,
-            "Nintendo Switch (Wanted)": 96,
+            "Nintendo Switch (Unowned)": 96,
             "Nintendo Switch 2 (Owned)": 11,
             "Philips CD-i (Owned)": 3,
-            "Philips CD-i (Wanted)": 5,
+            "Philips CD-i (Unowned)": 5,
             "PlayStation (Owned)": 46,
-            "PlayStation (Wanted)": 80,
+            "PlayStation (Unowned)": 80,
             "PlayStation 2 (Owned)": 78,
-            "PlayStation 2 (Wanted)": 148,
+            "PlayStation 2 (Unowned)": 148,
             "PlayStation Portable (Owned)": 27,
-            "PlayStation Portable (Wanted)": 75,
+            "PlayStation Portable (Unowned)": 75,
             "PlayStation 3 (Owned)": 103,
-            "PlayStation 3 (Wanted)": 183,
+            "PlayStation 3 (Unowned)": 183,
             "PlayStation Vita (Owned)": 36,
-            "PlayStation Vita (Wanted)": 48,
+            "PlayStation Vita (Unowned)": 48,
             "PlayStation 4 (Owned)": 311,
-            "PlayStation 4 (Wanted)": 213,
+            "PlayStation 4 (Unowned)": 213,
             "PlayStation 5 (Owned)": 124,
-            "PlayStation 5 (Wanted)": 19,
+            "PlayStation 5 (Unowned)": 19,
             "Sega Master System (Owned)": 1,
-            "Sega Master System (Wanted)": 15,
+            "Sega Master System (Unowned)": 15,
             "Sega Genesis (Owned)": 14,
-            "Sega Genesis (Wanted)": 43,
+            "Sega Genesis (Unowned)": 43,
             "Sega Game Gear (Owned)": 14,
-            "Sega Game Gear (Wanted)": 28,
+            "Sega Game Gear (Unowned)": 28,
             "Sega CD (Owned)": 4,
-            "Sega CD (Wanted)": 6,
-            "Sega Pico (Wanted)": 3,
+            "Sega CD (Unowned)": 6,
+            "Sega Pico (Unowned)": 3,
             "Sega 32X (Owned)": 3,
-            "Sega 32X (Wanted)": 2,
+            "Sega 32X (Unowned)": 2,
             "Sega Saturn (Owned)": 4,
-            "Sega Saturn (Wanted)": 22,
+            "Sega Saturn (Unowned)": 22,
             "Dreamcast (Owned)": 8,
-            "Dreamcast (Wanted)": 20,
-            "Game.com (Wanted)": 1,
+            "Dreamcast (Unowned)": 20,
+            "Game.com (Unowned)": 1,
             "TurboGrafx-16 (Owned)": 6,
-            "TurboGrafx-16 (Wanted)": 3,
-            "TurboGrafx CD (Wanted)": 6,
+            "TurboGrafx-16 (Unowned)": 3,
+            "TurboGrafx CD (Unowned)": 6,
             "Xbox (Owned)": 25,
-            "Xbox (Wanted)": 95,
+            "Xbox (Unowned)": 95,
             "Xbox 360 (Owned)": 81,
-            "Xbox 360 (Wanted)": 202,
+            "Xbox 360 (Unowned)": 202,
             "Xbox One (Owned)": 153,
-            "Xbox One (Wanted)": 171,
+            "Xbox One (Unowned)": 171,
             "Xbox Series X (Owned)": 17,
-            "Xbox Series X (Wanted)": 2
+            "Xbox Series X (Unowned)": 2
         };
 
         // Reduce the SQL result rows into a flat lookup object formatted as "Platform (Status)": Count
         // e.g., "PlayStation 4 (Owned)": 311
         // This allows for a clean deep-equality check against the 'expected' snapshot.
         const actual = platformCounts.reduce((acc, row) => {
-            const status = row.owned === 1 ? 'Owned' : 'Wanted';
-            acc[`${row.display_name} (${status})`] = row.count;
+            const statusStr = row.ownership_status === 1 ? 'Owned' : row.ownership_status === 2 ? 'Seeking' : row.ownership_status === 3 ? 'Ordered' : 'Unowned';
+            acc[`${row.display_name} (${statusStr})`] = row.count;
             return acc;
         }, {} as Record<string, number>);
 
@@ -171,35 +173,38 @@ describe('Database Integrity', () => {
             expect(totalToys.count).toBe(1492);
         });
 
-        it('should have the correct total number of toys owned', () => {
-            const ownedToys = db.prepare('SELECT COUNT(*) as count FROM toys WHERE owned = 1').get() as { count: number };
-            expect(ownedToys.count).toBe(626);
+        it('should have the correct total number of toys for each ownership status', () => {
+            const counts = db.prepare('SELECT ownership_status, COUNT(*) as count FROM toys GROUP BY ownership_status').all() as { ownership_status: number, count: number }[];
+            const actual = counts.reduce((acc, row) => {
+                acc[row.ownership_status] = row.count;
+                return acc;
+            }, {} as Record<number, number>);
+            
+            expect(actual[0] ?? 0).toBe(866); // Unowned (Not in collection)
+            expect(actual[1] ?? 0).toBe(626); // Owned (In collection)
+            expect(actual[2] ?? 0).toBe(0);   // Seeking (Actively looking to acquire)
+            expect(actual[3] ?? 0).toBe(0);   // Ordered (Purchased but not yet received)
         });
 
-        it('should have the correct total number of toys wanted', () => {
-            const wantedToys = db.prepare('SELECT COUNT(*) as count FROM toys WHERE owned = 0').get() as { count: number };
-            expect(wantedToys.count).toBe(866);
-        });
-
-        it('should have the correct number of owned and wanted toys per line', () => {
+        it('should have the correct number of toys per line for each status', () => {
             const lineCounts = db.prepare(`
-                SELECT line, owned, COUNT(*) as count 
+                SELECT line, ownership_status, COUNT(*) as count 
                 FROM toys 
-                GROUP BY line, owned 
-                ORDER BY line ASC, owned DESC
-            `).all() as { line: string, owned: number, count: number }[];
+                GROUP BY line, ownership_status 
+                ORDER BY line ASC, ownership_status DESC
+            `).all() as { line: string, ownership_status: number, count: number }[];
 
             const expected = {
                 'Skylanders (Owned)': 351,
-                'Skylanders (Wanted)': 161,
+                'Skylanders (Unowned)': 161,
                 'Starlink (Owned)': 35,
                 'amiibo (Owned)': 240,
-                'amiibo (Wanted)': 705
+                'amiibo (Unowned)': 705
             };
 
             const actual = lineCounts.reduce((acc, row) => {
-                const status = row.owned === 1 ? 'Owned' : 'Wanted';
-                acc[`${row.line} (${status})`] = row.count;
+                const statusStr = row.ownership_status === 1 ? 'Owned' : row.ownership_status === 2 ? 'Seeking' : row.ownership_status === 3 ? 'Ordered' : 'Unowned';
+                acc[`${row.line} (${statusStr})`] = row.count;
                 return acc;
             }, {} as Record<string, number>);
 

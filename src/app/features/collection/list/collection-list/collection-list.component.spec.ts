@@ -59,7 +59,7 @@ describe('CollectionListComponent', () => {
     
     const mockState: ListState = {
       tab: 'games',
-      filters: { ownership: 'wanted' },
+      filters: { ownership: 0 },
       displayLimit: 500,
       scrollX: 0,
       scrollY: 1500
@@ -81,7 +81,7 @@ describe('CollectionListComponent', () => {
     
     await initPromise;
     
-    expect(component.filters().ownership).toBe('wanted');
+    expect(component.filters().ownership).toBe(0);
     expect(component.displayLimit()).toBe(500);
   });
 
@@ -93,8 +93,8 @@ describe('CollectionListComponent', () => {
     
     // Provide mock data with accents
     httpMock.expectOne('/api/games').flush([
-      { id: '1', title: 'Game 1', canonical_series: 'Pokémon', owned: 1, platform: 'Switch' },
-      { id: '2', title: 'Game 2', canonical_series: 'Mario', owned: 1, platform: 'Switch' }
+      { id: '1', title: 'Game 1', canonical_series: 'Pokémon', ownership_status: 1, platform: 'Switch' },
+      { id: '2', title: 'Game 2', canonical_series: 'Mario', ownership_status: 1, platform: 'Switch' }
     ]);
     httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
@@ -126,11 +126,11 @@ describe('CollectionListComponent', () => {
     
     // Provide 5 games for Switch, but we will set displayLimit to 2
     httpMock.expectOne('/api/games').flush([
-      { id: '1', title: 'G1', platform: 'Switch', owned: 1 },
-      { id: '2', title: 'G2', platform: 'Switch', owned: 1 },
-      { id: '3', title: 'G3', platform: 'Switch', owned: 1 },
-      { id: '4', title: 'G4', platform: 'Switch', owned: 1 },
-      { id: '5', title: 'G5', platform: 'Switch', owned: 1 }
+      { id: '1', title: 'G1', platform: 'Switch', ownership_status: 1 },
+      { id: '2', title: 'G2', platform: 'Switch', ownership_status: 1 },
+      { id: '3', title: 'G3', platform: 'Switch', ownership_status: 1 },
+      { id: '4', title: 'G4', platform: 'Switch', ownership_status: 1 },
+      { id: '5', title: 'G5', platform: 'Switch', ownership_status: 1 }
     ]);
     httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
@@ -155,8 +155,8 @@ describe('CollectionListComponent', () => {
     
     // PS4 (id 34), PSVR (id 51, parent 34)
     httpMock.expectOne('/api/games').flush([
-      { id: 'ps4-game', title: 'PS4 Game', platform_id: 34, owned: 1, platform: 'PS4' },
-      { id: 'psvr-game', title: 'PSVR Game', platform_id: 51, parent_platform_id: 34, owned: 1, platform: 'PSVR' }
+      { id: 'ps4-game', title: 'PS4 Game', platform_id: 34, ownership_status: 1, platform: 'PS4' },
+      { id: 'psvr-game', title: 'PSVR Game', platform_id: 51, parent_platform_id: 34, ownership_status: 1, platform: 'PSVR' }
     ]);
     httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
@@ -174,9 +174,9 @@ describe('CollectionListComponent', () => {
     const initPromise = component.ngOnInit();
     
     httpMock.expectOne('/api/games').flush([
-      { id: '1', title: 'N+', canonical_series: 'N', owned: 1, platform: 'PSP' },
-      { id: '2', title: 'N++', canonical_series: 'N', owned: 1, platform: 'Switch' },
-      { id: '3', title: 'Batman Arkham Knight', canonical_series: 'Batman', owned: 1, platform: 'PS4' }
+      { id: '1', title: 'N+', canonical_series: 'N', ownership_status: 1, platform: 'PSP' },
+      { id: '2', title: 'N++', canonical_series: 'N', ownership_status: 1, platform: 'Switch' },
+      { id: '3', title: 'Batman Arkham Knight', canonical_series: 'Batman', ownership_status: 1, platform: 'PS4' }
     ]);
     httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
@@ -204,16 +204,16 @@ describe('CollectionListComponent', () => {
     
     httpMock.expectOne('/api/games').flush([]);
     httpMock.expectOne('/api/toys').flush([
-      { id: 'f1', name: 'Mario', line: 'amiibo', type: 'Figure', series_name: 'Super Mario', owned: 1 },
-      { id: 'f2', name: 'Link', line: 'amiibo', type: 'Figure', series_name: 'Zelda', owned: 1 },
-      { id: 'f3', name: 'Isabelle', line: 'amiibo', type: 'Card', series_name: 'Animal Crossing', owned: 0 }
+      { id: 'f1', name: 'Mario', line: 'amiibo', type: 'Figure', series_name: 'Super Mario', ownership_status: 1 },
+      { id: 'f2', name: 'Link', line: 'amiibo', type: 'Figure', series_name: 'Zelda', ownership_status: 1 },
+      { id: 'f3', name: 'Isabelle', line: 'amiibo', type: 'Card', series_name: 'Animal Crossing', ownership_status: 0 }
     ]);
     httpMock.expectOne('/api/platforms').flush([]);
     
     await initPromise;
 
-    // Filter by ownership (wanted)
-    component.filters.set({ ownership: 'wanted', line: '', type: '', series: '' });
+    // Filter by ownership (unowned)
+    component.filters.set({ ownership: 0, line: '', type: '', series: '' });
     expect(component.filteredToys().length).toBe(1);
     expect(component.filteredToys()[0].name).toBe('Isabelle');
 
@@ -237,9 +237,9 @@ describe('CollectionListComponent', () => {
     
     httpMock.expectOne('/api/games').flush([]);
     httpMock.expectOne('/api/toys').flush([
-      { id: '1', name: 'A1', line: 'Line A', owned: 1 },
-      { id: '2', name: 'A2', line: 'Line A', owned: 1 },
-      { id: '3', name: 'B1', line: 'Line B', owned: 1 }
+      { id: '1', name: 'A1', line: 'Line A', ownership_status: 1 },
+      { id: '2', name: 'A2', line: 'Line A', ownership_status: 1 },
+      { id: '3', name: 'B1', line: 'Line B', ownership_status: 1 }
     ]);
     httpMock.expectOne('/api/platforms').flush([]);
     
@@ -257,11 +257,11 @@ describe('CollectionListComponent', () => {
     const initPromise = component.ngOnInit();
     
     httpMock.expectOne('/api/games').flush([
-      { id: 'g1', title: 'The Legend of Zelda', canonical_series: 'The Legend of Zelda', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', owned: 1 },
-      { id: 'g2', title: 'Metroid', canonical_series: 'Metroid', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', owned: 1 },
-      { id: 'g3', title: 'Pokémon', canonical_series: 'Pokémon', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', owned: 1 },
-      { id: 'g4', title: 'Game D', canonical_series: 'Series A', release_date: '2020-01-01', sort_index: 1, platform: 'P2', platform_launch_date: '1995-01-01', brand: 'Sega', owned: 1 },
-      { id: 'g5', title: 'Game E', canonical_series: 'Series A', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Apple', owned: 1 }
+      { id: 'g1', title: 'The Legend of Zelda', canonical_series: 'The Legend of Zelda', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', ownership_status: 1 },
+      { id: 'g2', title: 'Metroid', canonical_series: 'Metroid', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', ownership_status: 1 },
+      { id: 'g3', title: 'Pokémon', canonical_series: 'Pokémon', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Nintendo', ownership_status: 1 },
+      { id: 'g4', title: 'Game D', canonical_series: 'Series A', release_date: '2020-01-01', sort_index: 1, platform: 'P2', platform_launch_date: '1995-01-01', brand: 'Sega', ownership_status: 1 },
+      { id: 'g5', title: 'Game E', canonical_series: 'Series A', release_date: '2020-01-01', sort_index: 1, platform: 'P1', platform_launch_date: '2000-01-01', brand: 'Apple', ownership_status: 1 }
     ]);
     httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([]);
@@ -291,11 +291,11 @@ describe('CollectionListComponent', () => {
     
     httpMock.expectOne('/api/games').flush([]);
     httpMock.expectOne('/api/toys').flush([
-      { id: 't1', name: 'Toy 1', line: 'The Line B', series_name: 'Series A', release_date: '2020-01-01', sort_index: 1, owned: 1 },
-      { id: 't2', name: 'Toy 2', line: 'A Line A', series_name: 'The Series B', release_date: '2020-01-01', sort_index: 1, owned: 1 },
-      { id: 't3', name: 'Toy 3', line: 'Line A', series_name: 'An Series A', release_date: '2021-01-01', sort_index: 1, owned: 1 },
-      { id: 't4', name: 'Toy 4', line: 'Line A', series_name: 'Series A', release_date: '2020-01-01', sort_index: 2, owned: 1 },
-      { id: 't5', name: 'Toy 5', line: 'Line A', series_name: 'Series A', release_date: '2020-01-01', sort_index: 1, owned: 1 }
+      { id: 't1', name: 'Toy 1', line: 'The Line B', series_name: 'Series A', release_date: '2020-01-01', sort_index: 1, ownership_status: 1 },
+      { id: 't2', name: 'Toy 2', line: 'A Line A', series_name: 'The Series B', release_date: '2020-01-01', sort_index: 1, ownership_status: 1 },
+      { id: 't3', name: 'Toy 3', line: 'Line A', series_name: 'An Series A', release_date: '2021-01-01', sort_index: 1, ownership_status: 1 },
+      { id: 't4', name: 'Toy 4', line: 'Line A', series_name: 'Series A', release_date: '2020-01-01', sort_index: 2, ownership_status: 1 },
+      { id: 't5', name: 'Toy 5', line: 'Line A', series_name: 'Series A', release_date: '2020-01-01', sort_index: 1, ownership_status: 1 }
     ]);
     httpMock.expectOne('/api/platforms').flush([]);
     
@@ -329,11 +329,11 @@ describe('CollectionListComponent', () => {
     const initPromise = component.ngOnInit();
     
     httpMock.expectOne('/api/games').flush([
-      { id: 'g1', title: 'Game 1', canonical_series: 'Zelda', owned: 1 }
+      { id: 'g1', title: 'Game 1', canonical_series: 'Zelda', ownership_status: 1 }
     ]);
     httpMock.expectOne('/api/toys').flush([
-      { id: 'f1', name: 'Toy 1', series_name: 'Mario', owned: 1 },
-      { id: 'f2', name: 'Toy 2', series_name: 'Metroid', owned: 1 }
+      { id: 'f1', name: 'Toy 1', series_name: 'Mario', ownership_status: 1 },
+      { id: 'f2', name: 'Toy 2', series_name: 'Metroid', ownership_status: 1 }
     ]);
     httpMock.expectOne('/api/platforms').flush([]);
     
@@ -360,9 +360,9 @@ describe('CollectionListComponent', () => {
     
     httpMock.expectOne('/api/games').flush([]);
     httpMock.expectOne('/api/toys').flush([
-      { id: 't1', line: 'amiibo', owned: 1 },
-      { id: 't2', line: 'LEGO', owned: 1 },
-      { id: 't3', line: 'The Black Series', owned: 1 }
+      { id: 't1', line: 'amiibo', ownership_status: 1 },
+      { id: 't2', line: 'LEGO', ownership_status: 1 },
+      { id: 't3', line: 'The Black Series', ownership_status: 1 }
     ]);
     httpMock.expectOne('/api/platforms').flush([]);
     

@@ -34,7 +34,7 @@ describe('ItemDetailComponent', () => {
     image_url: 'mario.jpg',
     genres: 'Platformer',
     summary: 'A classic game.',
-    owned: true,
+    ownership_status: 1,
     played: true,
     backed_up: true
   };
@@ -49,7 +49,7 @@ describe('ItemDetailComponent', () => {
     series_line: 'Super Mario',
     release_date: '2014-11-21',
     image_url: 'mario-amiibo.jpg',
-    owned: true,
+    ownership_status: 1,
     verified: 1
   };
 
