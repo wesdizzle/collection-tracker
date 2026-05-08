@@ -87,5 +87,16 @@ The Collection Tracker is optimized for mobile use:
 
 ## 📋 Roadmap
 
-- [ ] **Worker-Side Image Caching**: Implement a KV-based cache for IGDB cover art to reduce external API dependency.
-- [ ] **Heuristic Scrubber**: Introduce an automated web-search heuristic to determine physical release status for IGDB games and only track those with physical releases.
+### 1. Game Page Status Editing
+**Goal**: Allow users to edit game and toy statuses directly from the individual game/toy detail pages.
+- **UI Update**: Make the existing chips interactive to launch a dedicated edit modal on the detail pages, matching the ownership editing flow on the collection page.
+- **State Management**: Ensure updates propagate back to the global signals state and persist to the database.
+
+### 2. Manual Game Discovery & Addition
+**Goal**: Allow users to manually search for games via IGDB from the discover page and add them to the database.
+- **Search Interface**: Implement a search bar on the discover page that queries the IGDB API and presents a list of matching games.
+- **Data Hydration**: Selecting a game should fetch full metadata from IGDB.
+- **Custom Statuses**: The flow must allow users to specify local-only data (Ownership status, Played, Backed Up) before persisting the new item to the database.
+- **Options**:
+  - *Option A (Modal Wizard)*: A multi-step dialog (Search -> Select -> Set Statuses -> Confirm).
+  - *Option B (Inline Form)*: Selecting a search result expands an inline form to fill in statuses before saving.
