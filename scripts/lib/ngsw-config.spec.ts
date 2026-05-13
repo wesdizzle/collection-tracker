@@ -25,12 +25,14 @@ describe('Service Worker Configuration (ngsw-config.json)', () => {
     const config = JSON.parse(configRaw) as NgswConfig;
 
     // 1. Verify the 'api-freshness' dataGroup exists and has a 30d maxAge
-    const apiGroup = config.dataGroups.find(g => g.name === 'api-freshness');
+    const apiGroup = config.dataGroups.find((g) => g.name === 'api-freshness');
     expect(apiGroup).toBeDefined();
     expect(apiGroup?.cacheConfig.maxAge).toBe('30d');
 
     // 2. Verify the 'external-assets' dataGroup exists, has 30d maxAge, and a large maxSize
-    const extGroup = config.dataGroups.find(g => g.name === 'external-assets');
+    const extGroup = config.dataGroups.find(
+      (g) => g.name === 'external-assets',
+    );
     expect(extGroup).toBeDefined();
     expect(extGroup?.cacheConfig.maxAge).toBe('30d');
     expect(extGroup?.cacheConfig.maxSize).toBeGreaterThanOrEqual(5000);

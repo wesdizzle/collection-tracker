@@ -7,7 +7,7 @@ import { CollectionService } from './core/services/collection.service';
   selector: 'app-root',
   imports: [RouterOutlet, ConfirmationDialogComponent],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.css'
+  styleUrl: './app.component.css',
 })
 export class AppComponent {
   public title = 'tracker';

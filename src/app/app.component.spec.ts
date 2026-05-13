@@ -8,8 +8,8 @@ import { AppComponent } from './app.component';
 
 /**
  * UNIT TEST: AppComponent
- * 
- * Verifies that the root application shell boots correctly 
+ *
+ * Verifies that the root application shell boots correctly
  * and provides the necessary router-outlet for feature navigation.
  * Updated for Angular 21 and Vitest.
  */
@@ -20,7 +20,7 @@ describe('AppComponent', () => {
       providers: [
         provideRouter([]),
         provideHttpClient(),
-        provideHttpClientTesting()
+        provideHttpClientTesting(),
       ],
     }).compileComponents();
   });

@@ -1,16 +1,16 @@
 /**
  * COLLECTION SERVICE
- * 
+ *
  * Central data orchestrator for the Gagglog Collection Tracker.
  * Manages the state of games, toys, and platforms using Angular Signals.
- * Handles API interactions, local state persistence via sessionStorage, 
+ * Handles API interactions, local state persistence via sessionStorage,
  * and data discovery workflows.
- * 
+ *
  * DESIGN RATIONALE:
  * - Uses private signals with public read-only views to enforce one-way data flow.
- * - Separates state persistence by 'tab' (games vs toys) to allow independent 
+ * - Separates state persistence by 'tab' (games vs toys) to allow independent
  *   browsing contexts.
- * - Utilizes firstValueFrom for async/await compatibility while keeping the 
+ * - Utilizes firstValueFrom for async/await compatibility while keeping the
  *   underlying API layer based on RxJS Observables.
  */
 
@@ -18,22 +18,29 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Observable, firstValueFrom, catchError, of } from 'rxjs';
-import { Game, Toy, Platform, DiscoveryItem, DiscoveryPayload, ListState } from '../models/collection.models';
+import {
+  Game,
+  Toy,
+  Platform,
+  DiscoveryItem,
+  DiscoveryPayload,
+  ListState,
+} from '../models/collection.models';
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class CollectionService {
   private http = inject(HttpClient);
   private router = inject(Router);
-  
+
   /**
    * Persistence state for UI navigation (Split by tab).
    * Stores filters, scroll positions, and display limits.
    */
   private _gamesState = signal<ListState | null>(null);
   private _toysState = signal<ListState | null>(null);
-  
+
   public readonly gamesState = this._gamesState.asReadonly();
   public readonly toysState = this._toysState.asReadonly();
 
@@ -63,19 +70,22 @@ export class CollectionService {
 
   /**
    * Persists the current list state for a specific tab to sessionStorage.
-   * 
+   *
    * @param tab The collection tab to persist ('games' or 'toys').
    */
   public persistState(tab: 'games' | 'toys') {
     const state = tab === 'games' ? this._gamesState() : this._toysState();
     if (state) {
-      sessionStorage.setItem(`gagglog_list_state_${tab}`, JSON.stringify(state));
+      sessionStorage.setItem(
+        `gagglog_list_state_${tab}`,
+        JSON.stringify(state),
+      );
     }
   }
 
   /**
    * Updates the in-memory state and immediately persists it.
-   * 
+   *
    * @param state The new state object containing filters and navigation data.
    */
   public updateListState(state: ListState) {
@@ -89,7 +99,7 @@ export class CollectionService {
 
   /**
    * Retrieves the current list state for a specific tab.
-   * 
+   *
    * @param tab The collection tab to query.
    * @returns The current ListState or null if not set.
    */
@@ -102,7 +112,7 @@ export class CollectionService {
    * Called during construction to hydrate signals before first render.
    */
   public loadPersistedState() {
-    ['games', 'toys'].forEach(tab => {
+    ['games', 'toys'].forEach((tab) => {
       const saved = sessionStorage.getItem(`gagglog_list_state_${tab}`);
       if (saved) {
         try {
@@ -110,7 +120,10 @@ export class CollectionService {
           if (tab === 'games') this._gamesState.set(state);
           else this._toysState.set(state);
         } catch (e) {
-          console.error(`[CollectionService] Failed to parse saved ${tab} state`, e);
+          console.error(
+            `[CollectionService] Failed to parse saved ${tab} state`,
+            e,
+          );
         }
       }
     });
@@ -143,7 +156,7 @@ export class CollectionService {
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
 
-  /** 
+  /**
    * Timestamp of the last successful server synchronization.
    * Persisted to localStorage to provide context for stale data during offline use.
    */
@@ -153,8 +166,8 @@ export class CollectionService {
   /**
    * Orchestrates a full refresh of the collection data.
    * Fetches games, toys, and platforms in parallel to minimize load time.
-   * 
-   * WHY: Parallellizing these requests ensures the application shell stays 
+   *
+   * WHY: Parallellizing these requests ensures the application shell stays
    * snappy even as the collection grows.
    */
   async refreshAll(): Promise<void> {
@@ -164,7 +177,7 @@ export class CollectionService {
       const [games, toys, platforms] = await Promise.all([
         firstValueFrom(this.getGames()),
         firstValueFrom(this.getToys()),
-        firstValueFrom(this.getPlatforms())
+        firstValueFrom(this.getPlatforms()),
       ]);
       this._games.set(games);
       this._toys.set(toys);
@@ -178,7 +191,10 @@ export class CollectionService {
       }
     } catch (err: unknown) {
       console.error('[CollectionService] Global refresh failed:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load collection data. Please try again later.';
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : 'Failed to load collection data. Please try again later.';
       this._error.set(errorMessage);
     } finally {
       this._loading.set(false);
@@ -196,10 +212,10 @@ export class CollectionService {
       url += `?platform_id=${platformId}`;
     }
     return this.http.get<Game[]>(url).pipe(
-      catchError(err => {
+      catchError((err) => {
         console.error('[CollectionService] Error fetching games:', err);
         return of([]);
-      })
+      }),
     );
   }
 
@@ -208,10 +224,10 @@ export class CollectionService {
    */
   getToys(): Observable<Toy[]> {
     return this.http.get<Toy[]>('/api/toys').pipe(
-      catchError(err => {
+      catchError((err) => {
         console.error('[CollectionService] Error fetching toys:', err);
         return of([]);
-      })
+      }),
     );
   }
 
@@ -220,32 +236,32 @@ export class CollectionService {
    */
   getPlatforms(): Observable<Platform[]> {
     return this.http.get<Platform[]>('/api/platforms').pipe(
-      catchError(err => {
+      catchError((err) => {
         console.error('[CollectionService] Error fetching platforms:', err);
         return of([]);
-      })
+      }),
     );
   }
 
   /**
    * Fetches a single game by its stable identifier.
    */
-  getGameById(id: string): Observable<Game> { 
-    return this.http.get<Game>(`/api/games/${id}`); 
+  getGameById(id: string): Observable<Game> {
+    return this.http.get<Game>(`/api/games/${id}`);
   }
-  
+
   /**
    * Fetches a single toy by its unique identifier.
    */
-  getToyById(id: string): Observable<Toy> { 
-    return this.http.get<Toy>(`/api/toys/${id}`); 
+  getToyById(id: string): Observable<Toy> {
+    return this.http.get<Toy>(`/api/toys/${id}`);
   }
-  
+
   /**
    * Fetches platform details by its unique identifier.
    */
-  getPlatformById(id: number): Observable<Platform> { 
-    return this.http.get<Platform>(`/api/platforms/${id}`); 
+  getPlatformById(id: number): Observable<Platform> {
+    return this.http.get<Platform>(`/api/platforms/${id}`);
   }
 
   /**
@@ -253,7 +269,9 @@ export class CollectionService {
    */
   async refreshDiscovery(): Promise<void> {
     try {
-      const items = await firstValueFrom(this.http.get<DiscoveryItem[]>('/api/discovery'));
+      const items = await firstValueFrom(
+        this.http.get<DiscoveryItem[]>('/api/discovery'),
+      );
       this._discoveryItems.set(items);
     } catch (err) {
       console.error('[CollectionService] Error refreshing discovery:', err);
@@ -262,7 +280,7 @@ export class CollectionService {
 
   /**
    * Applies a discovery match to the database.
-   * 
+   *
    * @param payload The mapping between current local metadata and external ID.
    */
   applyDiscovery(payload: DiscoveryPayload): Observable<unknown> {
@@ -273,7 +291,11 @@ export class CollectionService {
    * Toggles or updates the 'ownership_status' of a collection item.
    * ONLY functional on local server via proxy.
    */
-  toggleOwnership(id: string, type: 'game' | 'toy', status: number): Observable<unknown> {
+  toggleOwnership(
+    id: string,
+    type: 'game' | 'toy',
+    status: number,
+  ): Observable<unknown> {
     return this.http.post('/api/collection/toggle', { id, type, status });
   }
 
@@ -281,8 +303,16 @@ export class CollectionService {
    * Updates the sort_index for a collection item.
    * ONLY functional on local server via proxy.
    */
-  updateSortIndex(id: string, type: 'game' | 'toy', sortIndex: number): Observable<unknown> {
-    return this.http.post('/api/collection/sort', { id, type, sort_index: sortIndex });
+  updateSortIndex(
+    id: string,
+    type: 'game' | 'toy',
+    sortIndex: number,
+  ): Observable<unknown> {
+    return this.http.post('/api/collection/sort', {
+      id,
+      type,
+      sort_index: sortIndex,
+    });
   }
 
   /** --- Global Confirmation Dialog State --- */
@@ -292,7 +322,7 @@ export class CollectionService {
     title: string;
     message: string;
     inputValue?: string | number;
-    options?: { label: string, value: string | number }[];
+    options?: { label: string; value: string | number }[];
     onConfirm?: (value?: string | number) => void;
   }>({ visible: false, type: 'confirm', title: '', message: '' });
 
@@ -300,50 +330,74 @@ export class CollectionService {
 
   /**
    * Triggers the global confirmation dialog.
-   * 
+   *
    * @param title Dialog title.
    * @param message Dialog message.
    * @param onConfirm Callback function executed when user confirms.
    */
-  public showConfirmation(title: string, message: string, onConfirm: () => void) {
-    this._dialogState.set({ visible: true, type: 'confirm', title, message, onConfirm });
+  public showConfirmation(
+    title: string,
+    message: string,
+    onConfirm: () => void,
+  ) {
+    this._dialogState.set({
+      visible: true,
+      type: 'confirm',
+      title,
+      message,
+      onConfirm,
+    });
   }
 
   /**
    * Triggers the global input dialog.
-   * 
+   *
    * @param title Dialog title.
    * @param message Dialog message.
    * @param initialValue Initial value for the input field.
    * @param onConfirm Callback function executed when user confirms.
    */
-  public showInput(title: string, message: string, initialValue: string | number, onConfirm: (value: string | number) => void) {
-    this._dialogState.set({ 
-      visible: true, 
-      type: 'input', 
-      title, 
-      message, 
+  public showInput(
+    title: string,
+    message: string,
+    initialValue: string | number,
+    onConfirm: (value: string | number) => void,
+  ) {
+    this._dialogState.set({
+      visible: true,
+      type: 'input',
+      title,
+      message,
       inputValue: initialValue,
-      onConfirm: (val) => { if (val !== undefined) onConfirm(val); }
+      onConfirm: (val) => {
+        if (val !== undefined) onConfirm(val);
+      },
     });
   }
 
   /**
    * Triggers the global options dialog.
-   * 
+   *
    * @param title Dialog title.
    * @param message Dialog message.
    * @param options Array of options to present.
    * @param onConfirm Callback function executed when user selects an option.
    */
-  public showOptions(title: string, message: string, options: { label: string, value: string | number }[], onConfirm: (value: string | number) => void) {
+  public showOptions(
+    title: string,
+    message: string,
+    options: { label: string; value: string | number }[],
+    onConfirm: (value: string | number) => void,
+  ) {
     this._dialogState.set({
       visible: true,
       type: 'options',
       title,
       message,
       options,
-      onConfirm: (val) => { if (val !== undefined) onConfirm(val); }
+      onConfirm: (val) => {
+        if (val !== undefined) onConfirm(val);
+      },
     });
   }
 
@@ -354,4 +408,3 @@ export class CollectionService {
     this._dialogState.set({ ...this._dialogState(), visible: false });
   }
 }
-

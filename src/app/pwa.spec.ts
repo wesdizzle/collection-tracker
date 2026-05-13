@@ -7,9 +7,9 @@ import { of } from 'rxjs';
 describe('PWA Configuration', () => {
   it('should have ServiceWorker registered in appConfig', () => {
     TestBed.configureTestingModule({
-      providers: [...appConfig.providers]
+      providers: [...appConfig.providers],
     });
-    
+
     const swUpdate = TestBed.inject(SwUpdate);
     expect(swUpdate).toBeTruthy();
   });
@@ -21,8 +21,8 @@ describe('SwUpdate Service', () => {
   it('should be injectable if PWA is enabled', () => {
     TestBed.configureTestingModule({
       providers: [
-        { provide: SwUpdate, useValue: { isEnabled: true, available: of() } }
-      ]
+        { provide: SwUpdate, useValue: { isEnabled: true, available: of() } },
+      ],
     });
     const service = TestBed.inject(SwUpdate);
     expect(service).toBeTruthy();

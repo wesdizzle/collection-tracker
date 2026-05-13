@@ -2,9 +2,9 @@ name: Continuous Integration
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 jobs:
   build-and-test:
@@ -13,19 +13,19 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Use Node.js
-      uses: actions/setup-node@v5
-      with:
-        node-version: '24.x'
-        cache: 'npm'
+      - uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: npm ci
+      - name: Use Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: 'npm'
 
-    - name: Run Linting
-      run: npm run lint
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Run Unified Tests (Vitest)
-      run: npm run test
+      - name: Run Linting
+        run: npm run lint
+
+      - name: Run Unified Tests (Vitest)
+        run: npm run test

@@ -2,12 +2,15 @@ import '../../../test-setup';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
+import {
+  provideHttpClientTesting,
+  HttpTestingController,
+} from '@angular/common/http/testing';
 import { CollectionService } from './collection.service';
 
 /**
  * UNIT TEST: CollectionService
- * 
+ *
  * Verifies the core data-fetching logic and signal-based state management
  * for the game and toy collection.
  * Updated for Angular 21 and Vitest.
@@ -21,8 +24,8 @@ describe('CollectionService', () => {
       providers: [
         CollectionService,
         provideHttpClient(),
-        provideHttpClientTesting()
-      ]
+        provideHttpClientTesting(),
+      ],
     });
     service = TestBed.inject(CollectionService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -39,7 +42,7 @@ describe('CollectionService', () => {
   it('should fetch games list using relative path', () => {
     const mockGames = [{ stable_id: 1, title: 'Super Mario' }];
 
-    service.getGames().subscribe(games => {
+    service.getGames().subscribe((games) => {
       expect(games.length).toBe(1);
       expect(games[0].title).toBe('Super Mario');
     });
@@ -53,9 +56,9 @@ describe('CollectionService', () => {
   it('should fetch toys list using relative path', () => {
     const mockToys = [{ id: 1, name: 'Mario Amiibo' }];
 
-    service.getToys().subscribe(toys => {
-        expect(toys.length).toBe(1);
-        expect(toys[0].name).toBe('Mario Amiibo');
+    service.getToys().subscribe((toys) => {
+      expect(toys.length).toBe(1);
+      expect(toys[0].name).toBe('Mario Amiibo');
     });
 
     const req = httpMock.expectOne('/api/toys');
@@ -74,12 +77,12 @@ describe('CollectionService', () => {
         filters: { ownership: 1 as const },
         displayLimit: 200,
         scrollX: 0,
-        scrollY: 500
+        scrollY: 500,
       };
 
       service.updateListState(mockState);
       expect(service.gamesState()).toEqual(mockState);
-      
+
       const saved = sessionStorage.getItem('gagglog_list_state_games');
       expect(saved).toBeTruthy();
       expect(JSON.parse(saved!)).toEqual(mockState);
@@ -91,12 +94,15 @@ describe('CollectionService', () => {
         filters: { ownership: 'wanted' as const },
         displayLimit: 300,
         scrollX: 0,
-        scrollY: 1000
+        scrollY: 1000,
       };
 
-      sessionStorage.setItem('gagglog_list_state_toys', JSON.stringify(mockState));
+      sessionStorage.setItem(
+        'gagglog_list_state_toys',
+        JSON.stringify(mockState),
+      );
       service.loadPersistedState();
-      
+
       expect(service.toysState()).toEqual(mockState);
     });
 

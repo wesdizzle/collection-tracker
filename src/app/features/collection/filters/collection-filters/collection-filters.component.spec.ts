@@ -8,8 +8,8 @@ import { CollectionFiltersComponent } from './collection-filters.component';
 
 /**
  * UNIT TEST: CollectionFiltersComponent
- * 
- * Verifies that the filtering UI initializes correctly and can 
+ *
+ * Verifies that the filtering UI initializes correctly and can
  * communicate with the collection data layer.
  * Updated for Angular 21 and Vitest.
  */
@@ -23,18 +23,17 @@ describe('CollectionFiltersComponent', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideRouter([])
-      ]
-    })
-    .compileComponents();
+        provideRouter([]),
+      ],
+    }).compileComponents();
 
     fixture = TestBed.createComponent(CollectionFiltersComponent);
     component = fixture.componentInstance;
-    
+
     // Satisfy required high-performance signal inputs before initialization
     fixture.componentRef.setInput('currentTab', 'games');
     fixture.componentRef.setInput('filters', { ownership: 'all' });
-    
+
     fixture.detectChanges();
   });
 
@@ -45,8 +44,10 @@ describe('CollectionFiltersComponent', () => {
   it('should display "Type" label for toys tab', () => {
     fixture.componentRef.setInput('currentTab', 'toys');
     fixture.detectChanges();
-    
-    const label = fixture.nativeElement.querySelector('label[title*="Form factor"]');
+
+    const label = fixture.nativeElement.querySelector(
+      'label[title*="Form factor"]',
+    );
     expect(label).toBeTruthy();
     expect(label.textContent).toContain('Type');
   });

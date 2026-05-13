@@ -8,8 +8,8 @@ import { DiscoveryItem } from '../../../../core/models/collection.models';
 
 /**
  * UNIT TEST: DiscoveryListComponent
- * 
- * Verifies the discovery reconciliation workflow, ensuring that matches are 
+ *
+ * Verifies the discovery reconciliation workflow, ensuring that matches are
  * applied correctly and that the local UI state stays in sync with successful matches.
  */
 describe('DiscoveryListComponent', () => {
@@ -27,9 +27,15 @@ describe('DiscoveryListComponent', () => {
       title: 'Space Invaders',
       platform: 'Atari 2600',
       options: [
-        { id: 'igdb-123', name: 'Space Invaders', platform: 'NES', image_url: null, summary: null }
-      ]
-    }
+        {
+          id: 'igdb-123',
+          name: 'Space Invaders',
+          platform: 'NES',
+          image_url: null,
+          summary: null,
+        },
+      ],
+    },
   ];
 
   beforeEach(async () => {
@@ -37,14 +43,14 @@ describe('DiscoveryListComponent', () => {
       loading: signal(false),
       discoveryItems: signal(mockItems),
       refreshDiscovery: vi.fn().mockResolvedValue(undefined),
-      applyDiscovery: vi.fn().mockReturnValue(of({ success: true }))
+      applyDiscovery: vi.fn().mockReturnValue(of({ success: true })),
     };
 
     await TestBed.configureTestingModule({
       imports: [DiscoveryListComponent],
       providers: [
-        { provide: CollectionService, useValue: mockCollectionService }
-      ]
+        { provide: CollectionService, useValue: mockCollectionService },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(DiscoveryListComponent);
@@ -63,12 +69,14 @@ describe('DiscoveryListComponent', () => {
 
     await component.applyMatch(item, option);
 
-    expect(mockCollectionService.applyDiscovery).toHaveBeenCalledWith(expect.objectContaining({
-      currentTitle: 'Space Invaders',
-      currentPlatform: 'Atari 2600',
-      selectedIgdbId: 'igdb-123',
-      selectedName: 'Space Invaders'
-    }));
+    expect(mockCollectionService.applyDiscovery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentTitle: 'Space Invaders',
+        currentPlatform: 'Atari 2600',
+        selectedIgdbId: 'igdb-123',
+        selectedName: 'Space Invaders',
+      }),
+    );
   });
 
   it('should remove item from local list after successful match', async () => {
@@ -82,11 +90,15 @@ describe('DiscoveryListComponent', () => {
 
   it('should alert on error during match', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
-    mockCollectionService.applyDiscovery.mockReturnValue(throwError(() => new Error('API Error')));
-    
+    mockCollectionService.applyDiscovery.mockReturnValue(
+      throwError(() => new Error('API Error')),
+    );
+
     await component.applyMatch(mockItems[0], mockItems[0].options[0]);
 
-    expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining('Error matching item:\nAPI Error'));
+    expect(alertSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Error matching item:\nAPI Error'),
+    );
     expect(component.items().length).toBe(1); // Item should remain on error
   });
 });

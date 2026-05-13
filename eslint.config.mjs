@@ -5,12 +5,12 @@ import globals from 'globals';
 export default tseslint.config(
   {
     ignores: [
-      'dist/**', 
-      '.wrangler/**', 
-      'node_modules/**', 
+      'dist/**',
+      '.wrangler/**',
+      'node_modules/**',
       '.angular/**',
-      'scratch/**',    // Gitignored temporary/debug scripts
-      '*.js'          // Legacy root test/debug scripts
+      'scratch/**', // Gitignored temporary/debug scripts
+      '*.js', // Legacy root test/debug scripts
     ],
   },
   eslint.configs.recommended,
@@ -28,7 +28,10 @@ export default tseslint.config(
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_' },
+      ],
       'no-console': 'off',
     },
   },
@@ -45,5 +48,5 @@ export default tseslint.config(
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/no-var-requires': 'off',
     },
-  }
+  },
 );

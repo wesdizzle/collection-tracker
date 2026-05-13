@@ -29,9 +29,7 @@
   "dataGroups": [
     {
       "name": "api-freshness",
-      "urls": [
-        "**/api/**"
-      ],
+      "urls": ["**/api/**"],
       "cacheConfig": {
         "maxSize": 100,
         "maxAge": "30d",

@@ -20,7 +20,9 @@ A collection tracking application built with **Angular 21**.
 ## 🛠️ Architecture & Technical Standards
 
 ### Visual System
+
 The application features a **Material 3 Expressive** interface, prioritizing emotional vibrancy, organic motion, and bold brand expression:
+
 - **Expressive Palette**: Uses high-chroma, vibrant color schemes (Gold/Orange/Purple) that adapt to Light and Dark modes.
 - **Organic Shapes**: Implements a progressive shape system with increased corner radii (up to 48px) and fully rounded "pill" targets for a tactile feel.
 - **Expressive Typography**: Leverages **Roboto Flex** variable fonts for display and headlines, allowing for dynamic weight and width adjustments to emphasize visual hierarchy.
@@ -30,12 +32,17 @@ The application features a **Material 3 Expressive** interface, prioritizing emo
 - **Status Pills**: Consolidated status markers (Ownership: Unowned/Owned/Seeking/Ordered, Played, Backed Up) use high-contrast expressive chip patterns for instant recognition.
 
 ### Navigation & Filter Logic
+
 The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Toys** collections:
+
 - **Isolated Contexts**: Your active filters and scroll position on the Games page are stored separately from those on the Toys page. Switching between the two tabs will restore each respective state exactly as you left it.
 - **Intelligent Series Filtering**: The series filter is case and accent insensitive (e.g., searching for `poke` will match `Pokémon`), and supports substring matching for improved searchability.
 - **Persistent Context**: Clicking the "Gagglog" brand logo, using the browser's back button, or navigating via the "Back to Collection" link will all maintain your active context for the current tab.
+
 ### Metadata Reconciliation & Discovery
+
 The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for maintaining collection integrity and discovering new content:
+
 - **Multi-Pass Search**: Automatically falls back to simplified title searches if a direct platform match isn't found, handling complex bundle and special edition naming patterns.
 - **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches. Ambiguous items are offloaded to a manual `discovery_report.md` for user verification.
 - **amiibo Discovery**: The `--discovery` pass automatically identifies all missing amiibo (including cards) from the canonical AmiiboAPI and adds them to your collection as "Unowned" items.
@@ -43,7 +50,6 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Verification Signals**: Uses the presence of an `igdb_id` or `pricecharting_url` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
 - **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys, including granular ownership status tracking (Unowned, Owned, Seeking, Ordered) for all collection lines.
-
 
 ## 📦 Getting Started
 
@@ -62,12 +68,14 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 ### 🔑 Environment Configuration
 
 Create a `.env` file in the root directory with your IGDB credentials:
+
 ```env
 TWITCH_CLIENT_ID=your_client_id
 TWITCH_CLIENT_SECRET=your_client_secret
 ```
 
 ## 🛡️ Engineering Standards
+
 - **In-Code Comments**: All complex logic is thoroughly documented explaining the technical intent.
 - **Colocated Testing**: Unit tests reside alongside the components they validate.
 - **Premium Aesthetics**: Curated HSL palettes and sleek dark modes used throughout the application.
@@ -76,27 +84,33 @@ TWITCH_CLIENT_SECRET=your_client_secret
 ## 📱 Mobile & PWA Features
 
 The Collection Tracker is optimized for mobile use:
+
 - **Standalone Mode**: Install it on your iOS or Android device for a full-screen, app-like experience without browser chrome.
 - **Offline Access**: The core application shell and game lists are cached locally, allowing you to browse your collection without an active internet connection.
 - **Safe Area Support**: Full support for modern phone displays with notches and gesture indicators.
 - **Touch-First UI**: Refined touch targets and compact layouts for one-handed use.
 
 ### Installation
+
 - **iOS**: Open in Safari, tap "Share", and select "Add to Home Screen".
 - **Android**: Open in Chrome/Edge and tap "Install" or "Add to Home Screen" when prompted.
 
 ## 📋 Roadmap
 
 ### 1. Game Page Status Editing
+
 **Goal**: Allow users to edit game and toy statuses directly from the individual game/toy detail pages.
+
 - **UI Update**: Make the existing chips interactive to launch a dedicated edit modal on the detail pages, matching the ownership editing flow on the collection page.
 - **State Management**: Ensure updates propagate back to the global signals state and persist to the database.
 
 ### 2. Manual Game Discovery & Addition
+
 **Goal**: Allow users to manually search for games via IGDB from the discover page and add them to the database.
+
 - **Search Interface**: Implement a search bar on the discover page that queries the IGDB API and presents a list of matching games.
 - **Data Hydration**: Selecting a game should fetch full metadata from IGDB.
 - **Custom Statuses**: The flow must allow users to specify local-only data (Ownership status, Played, Backed Up) before persisting the new item to the database.
 - **Options**:
-  - *Option A (Modal Wizard)*: A multi-step dialog (Search -> Select -> Set Statuses -> Confirm).
-  - *Option B (Inline Form)*: Selecting a search result expands an inline form to fill in statuses before saving.
+  - _Option A (Modal Wizard)_: A multi-step dialog (Search -> Select -> Set Statuses -> Confirm).
+  - _Option B (Inline Form)_: Selecting a search result expands an inline form to fill in statuses before saving.

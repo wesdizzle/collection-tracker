@@ -3,7 +3,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter, Router, ParamMap } from '@angular/router';
+import {
+  ActivatedRoute,
+  convertToParamMap,
+  provideRouter,
+  Router,
+  ParamMap,
+} from '@angular/router';
 import { of, BehaviorSubject } from 'rxjs';
 import { ItemDetailComponent } from './item-detail.component';
 import { CollectionService } from '../../../../core/services/collection.service';
@@ -11,7 +17,7 @@ import { Game, Toy } from '../../../../core/models/collection.models';
 
 /**
  * UNIT TEST: ItemDetailComponent
- * 
+ *
  * Verifies that the detail view correctly loads and displays item information.
  * Uses modern Angular 21+ provider-based mocking for HTTP and Routing.
  */
@@ -36,7 +42,7 @@ describe('ItemDetailComponent', () => {
     summary: 'A classic game.',
     ownership_status: 1,
     played: true,
-    backed_up: true
+    backed_up: true,
   };
 
   const mockToy: Toy = {
@@ -50,11 +56,13 @@ describe('ItemDetailComponent', () => {
     release_date: '2014-11-21',
     image_url: 'mario-amiibo.jpg',
     ownership_status: 1,
-    verified: 1
+    verified: 1,
   };
 
   beforeEach(async () => {
-    paramMapSubject = new BehaviorSubject(convertToParamMap({ id: '1', type: 'game' }));
+    paramMapSubject = new BehaviorSubject(
+      convertToParamMap({ id: '1', type: 'game' }),
+    );
 
     await TestBed.configureTestingModule({
       imports: [ItemDetailComponent],
@@ -65,21 +73,20 @@ describe('ItemDetailComponent', () => {
         {
           provide: ActivatedRoute,
           useValue: {
-            paramMap: paramMapSubject.asObservable()
-          }
-        }
-      ]
-    })
-    .compileComponents();
+            paramMap: paramMapSubject.asObservable(),
+          },
+        },
+      ],
+    }).compileComponents();
 
     fixture = TestBed.createComponent(ItemDetailComponent);
     component = fixture.componentInstance;
     collectionService = TestBed.inject(CollectionService);
     router = TestBed.inject(Router);
-    
+
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(of(mockGame));
     vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(mockToy));
-    
+
     fixture.detectChanges();
   });
 
@@ -91,9 +98,11 @@ describe('ItemDetailComponent', () => {
 
     expect(component.game()).toEqual(mockGame);
     expect(component.formattedDate()).toContain('Wednesday, November 21, 1990');
-    
+
     const compiled = fixture.nativeElement;
-    expect(compiled.querySelector('.item-title').textContent).toContain('Super Mario World');
+    expect(compiled.querySelector('.item-title').textContent).toContain(
+      'Super Mario World',
+    );
   });
 
   it('should load and display toy details', async () => {
@@ -103,10 +112,14 @@ describe('ItemDetailComponent', () => {
 
     expect(component.toy()).toEqual(mockToy);
     expect(component.type()).toBe('toy');
-    
+
     const compiled = fixture.nativeElement;
-    expect(compiled.querySelector('.item-title').textContent).toContain('Mario');
-    expect(compiled.querySelector('.item-series').textContent).toContain('Super Mario');
+    expect(compiled.querySelector('.item-title').textContent).toContain(
+      'Mario',
+    );
+    expect(compiled.querySelector('.item-series').textContent).toContain(
+      'Super Mario',
+    );
   });
 
   it('should navigate to collection with exact series filter', () => {
@@ -115,18 +128,22 @@ describe('ItemDetailComponent', () => {
 
     component.filterBySeries('Mario');
 
-    expect(updateStateSpy).toHaveBeenCalledWith(expect.objectContaining({
-      filters: expect.objectContaining({
-        series: 'Mario',
-        seriesExact: true
-      })
-    }));
+    expect(updateStateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          series: 'Mario',
+          seriesExact: true,
+        }),
+      }),
+    );
     expect(navigateSpy).toHaveBeenCalledWith(['/collection', 'games']);
   });
 
   it('should handle missing release dates gracefully', async () => {
-    vi.spyOn(collectionService, 'getGameById').mockReturnValue(of({ ...mockGame, release_date: '' }));
-    
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({ ...mockGame, release_date: '' }),
+    );
+
     // Force reload
     paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
     fixture.detectChanges();

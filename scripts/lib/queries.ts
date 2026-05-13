@@ -1,8 +1,8 @@
 /**
  * SHARED SQL QUERIES
- * 
- * These templates are used by both the Cloudflare Worker (D1) and the 
- * Local API Server (better-sqlite3). Centralizing these prevents 
+ *
+ * These templates are used by both the Cloudflare Worker (D1) and the
+ * Local API Server (better-sqlite3). Centralizing these prevents
  * logic drift between production and development environments.
  */
 

@@ -25,14 +25,6 @@
     "strictInputAccessModifiers": true,
     "strictTemplates": true
   },
-  "include": [
-    "src/**/*.ts",
-    "worker/**/*.ts",
-    "scripts/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "scratch"
-  ]
+  "include": ["src/**/*.ts", "worker/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["node_modules", "dist", "scratch"]
 }
