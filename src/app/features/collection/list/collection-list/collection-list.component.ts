@@ -29,7 +29,7 @@ import {
   signal,
   computed,
   effect,
-  HostListener,
+  NgZone,
 } from '@angular/core';
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller } from '@angular/common';
@@ -546,6 +546,11 @@ interface GameGroup {
         }
       }
 
+      .m3-card {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 240px;
+      }
+
       .card-art-frame {
         width: 100%;
         aspect-ratio: 3/4;
@@ -749,6 +754,7 @@ export class CollectionListComponent
   private viewportScroller = inject(ViewportScroller);
   private observer?: IntersectionObserver;
   @ViewChild('scrollTrigger') scrollTrigger?: ElementRef;
+  private ngZone = inject(NgZone);
 
   private restorationPending = true;
   private stateInitialized = signal(false);
@@ -1148,29 +1154,34 @@ export class CollectionListComponent
   }
 
   /**
-   * Listens for scroll events to update the saved navigation context.
-   * This allows the user to return to their exact scroll position after viewing
-   * an item detail page.
+   * Listens for scroll events outside of Angular's zone to prevent change detection
+   * from firing on every frame, which causes severe scroll jank. Throttled.
    */
-  @HostListener('window:scroll')
-  onScroll() {
-    const currentState = this.collectionService.getListState(this.currentTab());
-    if (this.stateInitialized()) {
-      const state: ListState = currentState || {
-        tab: this.currentTab(),
-        filters: this.filters(),
-        displayLimit: this.displayLimit(),
-        scrollX: 0,
-        scrollY: 0,
-      };
+  private scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+  private onScrollHandler = () => {
+    if (this.scrollTimeout) return;
+    this.scrollTimeout = setTimeout(() => {
+      this.scrollTimeout = null;
+      if (this.stateInitialized()) {
+        const currentState = this.collectionService.getListState(
+          this.currentTab(),
+        );
+        const state: ListState = currentState || {
+          tab: this.currentTab(),
+          filters: this.filters(),
+          displayLimit: this.displayLimit(),
+          scrollX: 0,
+          scrollY: 0,
+        };
 
-      this.collectionService.updateListState({
-        ...state,
-        scrollX: window.scrollX,
-        scrollY: window.scrollY,
-      });
-    }
-  }
+        this.collectionService.updateListState({
+          ...state,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        });
+      }
+    }, 100);
+  };
 
   /**
    * Attempts to restore the previously saved scroll position after navigation.
@@ -1238,6 +1249,14 @@ export class CollectionListComponent
       this.displayLimit.set(savedState.displayLimit);
     }
 
+    if (typeof window !== 'undefined') {
+      this.ngZone.runOutsideAngular(() => {
+        window.addEventListener('scroll', this.onScrollHandler, {
+          passive: true,
+        });
+      });
+    }
+
     await this.collectionService.refreshAll();
     this.restoreScroll();
   }
@@ -1254,6 +1273,9 @@ export class CollectionListComponent
    */
   ngOnDestroy() {
     if (this.observer) this.observer.disconnect();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('scroll', this.onScrollHandler);
+    }
     this.collectionService.persistState(this.currentTab());
   }
 
