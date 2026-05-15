@@ -123,6 +123,8 @@ export interface DiscoveryPayload {
 
 export interface FilterState {
   ownership: 'all' | OwnershipStatus;
+  play_status?: 'all' | PlayStatus;
+  backup_status?: 'all' | 0 | 1;
   platform_id?: number;
   region?: string;
   is_linked?: boolean;

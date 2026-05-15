@@ -141,13 +141,13 @@ export class CollectionService {
     sessionStorage.removeItem('gagglog_list_state_toys');
   }
 
-  /** --- Internal Core Collection Signals --- */
   private _games = signal<Game[]>([]);
   private _toys = signal<Toy[]>([]);
   private _platforms = signal<Platform[]>([]);
   private _discoveryItems = signal<DiscoveryItem[]>([]);
   private _loading = signal<boolean>(false);
   private _error = signal<string | null>(null);
+  private _refreshTrigger = signal<number>(0);
 
   /** --- Public Read-only Signal Views --- */
   public readonly games = this._games.asReadonly();
@@ -156,6 +156,7 @@ export class CollectionService {
   public readonly discoveryItems = this._discoveryItems.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
+  public readonly refreshTrigger = this._refreshTrigger.asReadonly();
 
   /**
    * Timestamp of the last successful server synchronization.
@@ -183,6 +184,7 @@ export class CollectionService {
       this._games.set(games);
       this._toys.set(toys);
       this._platforms.set(platforms);
+      this._refreshTrigger.update((v) => v + 1);
 
       // Update sync timestamp if we are reasonably sure we hit the network
       if (typeof window !== 'undefined' && window.navigator.onLine) {

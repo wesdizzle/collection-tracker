@@ -65,6 +65,50 @@ import {
 
         @if (currentTab() === 'games') {
           <div class="filter-group">
+            <label class="m3-label">Play Status</label>
+            <div class="input-wrapper">
+              <select
+                [ngModel]="filters().play_status || 'all'"
+                (ngModelChange)="
+                  onPartialChange(
+                    'play_status',
+                    $event === 'all' ? 'all' : $event
+                  )
+                "
+                class="m3-input"
+              >
+                <option value="all">All</option>
+                <option [ngValue]="1">Played</option>
+                <option [ngValue]="2">Playing</option>
+                <option [ngValue]="3">Queued</option>
+                <option [ngValue]="4">Paused</option>
+                <option [ngValue]="5">Dropped</option>
+                <option [ngValue]="0">Unplayed</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <label class="m3-label">Backup</label>
+            <div class="input-wrapper">
+              <select
+                [ngModel]="filters().backup_status ?? 'all'"
+                (ngModelChange)="
+                  onPartialChange(
+                    'backup_status',
+                    $event === 'all' ? 'all' : $event
+                  )
+                "
+                class="m3-input"
+              >
+                <option value="all">All</option>
+                <option [ngValue]="1">Backed Up</option>
+                <option [ngValue]="0">No Backup</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="filter-group">
             <label class="m3-label">Platform</label>
             <div class="input-wrapper">
               <select

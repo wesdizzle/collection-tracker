@@ -757,6 +757,8 @@ export class CollectionListComponent
   public currentTab = signal<'games' | 'toys'>('games');
   public filters = signal<FilterState>({
     ownership: 1,
+    play_status: 'all',
+    backup_status: 'all',
     platform_id: undefined,
     line: '',
     type: '',
@@ -798,6 +800,18 @@ export class CollectionListComponent
         // Basic Ownership Filter
         const status = g.ownership_status ?? 0;
         if (f.ownership !== 'all' && f.ownership !== status) return false;
+
+        // Play Status Filter
+        if (f.play_status !== undefined && f.play_status !== 'all') {
+          const pStatus = g.play_status ?? 0;
+          if (f.play_status !== pStatus) return false;
+        }
+
+        // Backup Status Filter
+        if (f.backup_status !== undefined && f.backup_status !== 'all') {
+          const bStatus = g.backup_status ? 1 : 0;
+          if (f.backup_status !== bStatus) return false;
+        }
 
         // Platform Filter (Checks both direct platform and parent platform for cross-compatible hardware)
         if (f.platform_id) {

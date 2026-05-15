@@ -26,8 +26,9 @@ import {
   Platform,
   PlayStatus,
 } from '../../../../core/models/collection.models';
+import { combineLatest } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-item-detail',
@@ -583,8 +584,11 @@ export class ItemDetailComponent {
    * Dynamically fetches data from the CollectionService based on the route parameters.
    */
   public item = toSignal(
-    this.route.paramMap.pipe(
-      switchMap((params) => {
+    combineLatest([
+      this.route.paramMap,
+      toObservable(this.collectionService.refreshTrigger),
+    ]).pipe(
+      switchMap(([params, _]) => {
         const type = params.get('type') || '';
         const id = params.get('id');
         if (!id) throw new Error('No id');
