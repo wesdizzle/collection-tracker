@@ -12,6 +12,15 @@ export enum OwnershipStatus {
   Ordered = 3,
 }
 
+export enum PlayStatus {
+  Unplayed = 0,
+  Played = 1,
+  Playing = 2,
+  Queued = 3,
+  Paused = 4,
+  Dropped = 5,
+}
+
 export interface Game {
   stable_id: number;
   id: string; // The durable slug: game-title-platform-name
@@ -25,8 +34,8 @@ export interface Game {
   region?: string;
   display_name?: string;
   ownership_status: OwnershipStatus;
-  played: boolean | number;
-  backed_up: boolean | number;
+  play_status: PlayStatus;
+  backup_status: boolean | number;
   image_url: string;
   summary?: string;
   genres?: string;

@@ -29,7 +29,7 @@ The application features a **Material 3 Expressive** interface, prioritizing emo
 - **Glassmorphism**: Tonal surfaces utilize backdrop-blur effects (glassmorphism) to create depth and focus in complex layouts.
 - **Fluid Motion**: Collection items and UI transitions use expressive, spring-based animations to provide immediate, delightful feedback.
 - **Dual-Theme Engine**: Full support for Light, Dark, and System-aware modes with a built-in theme switcher.
-- **Status Pills**: Consolidated status markers (Ownership: Unowned/Owned/Seeking/Ordered, Played, Backed Up) use high-contrast expressive chip patterns for instant recognition.
+- **Interactive Status Pills**: Consolidated status markers (Ownership: Unowned/Owned/Seeking/Ordered, Play Status: Unplayed/Played/Playing/Queued/Paused/Dropped, Backup Status) use high-contrast expressive chip patterns for instant recognition. When running via the local proxy, these pills become fully interactive, allowing users to update metadata statuses directly from the detail pages via a sleek modal interface.
 
 ### Navigation & Filter Logic
 
@@ -97,14 +97,7 @@ The Collection Tracker is optimized for mobile use:
 
 ## 📋 Roadmap
 
-### 1. Game Page Status Editing
-
-**Goal**: Allow users to edit game and toy statuses directly from the individual game/toy detail pages.
-
-- **UI Update**: Make the existing chips interactive to launch a dedicated edit modal on the detail pages, matching the ownership editing flow on the collection page.
-- **State Management**: Ensure updates propagate back to the global signals state and persist to the database.
-
-### 2. Manual Game Discovery & Addition
+### 1. Manual Game Discovery & Addition
 
 **Goal**: Allow users to manually search for games via IGDB from the discover page and add them to the database.
 

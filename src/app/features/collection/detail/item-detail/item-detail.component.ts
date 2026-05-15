@@ -16,11 +16,16 @@
  *   match filter, streamlining franchise exploration.
  */
 
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule, Router } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Toy, Platform } from '../../../../core/models/collection.models';
+import {
+  Game,
+  Toy,
+  Platform,
+  PlayStatus,
+} from '../../../../core/models/collection.models';
 import { switchMap } from 'rxjs/operators';
 import { toSignal } from '@angular/core/rxjs-interop';
 
@@ -52,15 +57,30 @@ import { toSignal } from '@angular/core/rxjs-interop';
           </a>
           @if (game(); as g) {
             <div class="quick-stats flex gap-sm items-center">
-              <div class="stat-pill" [class.active]="!!g.played">
-                <span class="icon">{{ g.played ? '🎮' : '⏳' }}</span>
-                <span>{{ g.played ? 'Played' : 'Unplayed' }}</span>
+              <div
+                class="stat-pill"
+                [class.active]="g.play_status !== 0"
+                [class.interactive]="isLocalServer()"
+                (click)="isLocalServer() ? onEditPlayed(g) : null"
+              >
+                <span class="icon">{{ getPlayStatusIcon(g.play_status) }}</span>
+                <span>{{ getPlayStatusText(g.play_status) }}</span>
               </div>
-              <div class="stat-pill" [class.active]="!!g.backed_up">
-                <span class="icon">{{ g.backed_up ? '💾' : '❌' }}</span>
-                <span>{{ g.backed_up ? 'Backed Up' : 'No Backup' }}</span>
+              <div
+                class="stat-pill"
+                [class.active]="!!g.backup_status"
+                [class.interactive]="isLocalServer()"
+                (click)="isLocalServer() ? onEditBackedUp(g) : null"
+              >
+                <span class="icon">{{ g.backup_status ? '💾' : '❌' }}</span>
+                <span>{{ g.backup_status ? 'Backed Up' : 'No Backup' }}</span>
               </div>
-              <div class="stat-pill" [class.active]="g.ownership_status !== 0">
+              <div
+                class="stat-pill"
+                [class.active]="g.ownership_status !== 0"
+                [class.interactive]="isLocalServer()"
+                (click)="isLocalServer() ? onEditOwnership(g, 'game') : null"
+              >
                 <span class="icon">{{
                   g.ownership_status === 1
                     ? '✅'
@@ -99,7 +119,12 @@ import { toSignal } from '@angular/core/rxjs-interop';
             </div>
           } @else if (toy(); as t) {
             <div class="quick-stats flex gap-sm items-center">
-              <div class="stat-pill" [class.active]="t.ownership_status !== 0">
+              <div
+                class="stat-pill"
+                [class.active]="t.ownership_status !== 0"
+                [class.interactive]="isLocalServer()"
+                (click)="isLocalServer() ? onEditOwnership(t, 'toy') : null"
+              >
                 <span class="icon">{{
                   t.ownership_status === 1
                     ? '✅'
@@ -332,6 +357,17 @@ import { toSignal } from '@angular/core/rxjs-interop';
         text-decoration: none;
       }
 
+      .stat-pill.interactive {
+        cursor: pointer;
+      }
+
+      .stat-pill.interactive:hover {
+        transform: scale(1.05);
+        filter: brightness(1.1);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        border-color: var(--m3-primary);
+      }
+
       .hero-section {
         margin-bottom: var(--spacing-48);
       }
@@ -527,6 +563,12 @@ export class ItemDetailComponent {
   private router = inject(Router);
   private collectionService = inject(CollectionService);
 
+  public isLocalServer = signal(
+    typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1'),
+  );
+
   /** The current item type ('game', 'toy', or 'platform') derived from the route */
   public type = toSignal(
     this.route.paramMap.pipe(switchMap((p) => [p.get('type') || ''])),
@@ -640,5 +682,103 @@ export class ItemDetailComponent {
       });
     }
     this.router.navigate(['/collection', tab]);
+  }
+
+  getPlayStatusIcon(status: PlayStatus): string {
+    switch (status) {
+      case PlayStatus.Unplayed:
+        return '⏳';
+      case PlayStatus.Played:
+        return '🎮';
+      case PlayStatus.Playing:
+        return '▶️';
+      case PlayStatus.Queued:
+        return '📋';
+      case PlayStatus.Paused:
+        return '⏸️';
+      case PlayStatus.Dropped:
+        return '🛑';
+      default:
+        return '⏳';
+    }
+  }
+
+  getPlayStatusText(status: PlayStatus): string {
+    switch (status) {
+      case PlayStatus.Unplayed:
+        return 'Unplayed';
+      case PlayStatus.Played:
+        return 'Played';
+      case PlayStatus.Playing:
+        return 'Playing';
+      case PlayStatus.Queued:
+        return 'Queued';
+      case PlayStatus.Paused:
+        return 'Paused';
+      case PlayStatus.Dropped:
+        return 'Dropped';
+      default:
+        return 'Unplayed';
+    }
+  }
+
+  onEditOwnership(item: Game | Toy, type: 'game' | 'toy') {
+    this.collectionService.showOptions(
+      'Ownership Status',
+      'Select the ownership status for this item:',
+      [
+        { value: 1, label: 'Owned' },
+        { value: 2, label: 'Seeking' },
+        { value: 3, label: 'Ordered' },
+        { value: 0, label: 'Unowned' },
+      ],
+      (value: string | number) => {
+        this.collectionService
+          .toggleOwnership(item.id, type, Number(value))
+          .subscribe(() => {
+            this.collectionService.refreshAll();
+          });
+      },
+    );
+  }
+
+  onEditPlayed(game: Game) {
+    this.collectionService.showOptions(
+      'Play Status',
+      'Select the play status for this game:',
+      [
+        { value: PlayStatus.Played, label: 'Played' },
+        { value: PlayStatus.Playing, label: 'Playing' },
+        { value: PlayStatus.Queued, label: 'Queued' },
+        { value: PlayStatus.Paused, label: 'Paused' },
+        { value: PlayStatus.Dropped, label: 'Dropped' },
+        { value: PlayStatus.Unplayed, label: 'Unplayed' },
+      ],
+      (value: string | number) => {
+        this.collectionService
+          .updatePlayStatus(game.id, Number(value) as PlayStatus)
+          .subscribe(() => {
+            this.collectionService.refreshAll();
+          });
+      },
+    );
+  }
+
+  onEditBackedUp(game: Game) {
+    this.collectionService.showOptions(
+      'Backup Status',
+      'Select the backup status for this game:',
+      [
+        { value: 1, label: 'Backed Up' },
+        { value: 0, label: 'No Backup' },
+      ],
+      (value: string | number) => {
+        this.collectionService
+          .updateBackupStatus(game.id, Number(value))
+          .subscribe(() => {
+            this.collectionService.refreshAll();
+          });
+      },
+    );
   }
 }

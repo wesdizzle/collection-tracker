@@ -12,6 +12,7 @@
     (confirm)="onConfirm()"
     (confirmWithInput)="onConfirm($event)"
     (cancel)="onCancel()"
+    (window:keydown.escape)="onCancel()"
   >
   </app-confirmation-dialog>
 }

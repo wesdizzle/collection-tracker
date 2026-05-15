@@ -25,6 +25,7 @@ import {
   DiscoveryItem,
   DiscoveryPayload,
   ListState,
+  PlayStatus,
 } from '../models/collection.models';
 
 @Injectable({
@@ -296,7 +297,36 @@ export class CollectionService {
     type: 'game' | 'toy',
     status: number,
   ): Observable<unknown> {
-    return this.http.post('/api/collection/toggle', { id, type, status });
+    return this.http.post('/api/collection/toggle', {
+      id,
+      type,
+      status,
+      field: 'ownership_status',
+    });
+  }
+
+  /**
+   * Updates the 'play_status' of a game.
+   */
+  updatePlayStatus(id: string, status: PlayStatus): Observable<unknown> {
+    return this.http.post('/api/collection/toggle', {
+      id,
+      type: 'game',
+      status,
+      field: 'play_status',
+    });
+  }
+
+  /**
+   * Updates the 'backup_status' of a game.
+   */
+  updateBackupStatus(id: string, status: number): Observable<unknown> {
+    return this.http.post('/api/collection/toggle', {
+      id,
+      type: 'game',
+      status,
+      field: 'backup_status',
+    });
   }
 
   /**

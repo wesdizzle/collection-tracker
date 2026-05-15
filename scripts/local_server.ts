@@ -328,15 +328,28 @@ export const handleRequest =
             req.on('error', (err) => reject(err));
           });
 
-          const { id, type, status } = JSON.parse(body);
+          const {
+            id,
+            type,
+            status,
+            field = 'ownership_status',
+          } = JSON.parse(body);
           const table = type === 'game' ? 'games' : 'toys';
 
-          db.prepare(
-            `UPDATE ${table} SET ownership_status = ? WHERE id = ?`,
-          ).run(status, id);
-          console.log(
-            `Updated ${type} status: ${id} -> ownership_status=${status}`,
+          const allowedFields = [
+            'ownership_status',
+            'play_status',
+            'backup_status',
+          ];
+          if (!allowedFields.includes(field)) {
+            throw new Error(`Invalid field: ${field}`);
+          }
+
+          db.prepare(`UPDATE ${table} SET ${field} = ? WHERE id = ?`).run(
+            status,
+            id,
           );
+          console.log(`Updated ${type} status: ${id} -> ${field}=${status}`);
 
           // Sync to Local D1 Instance
           if (!process.env['VITEST']) {

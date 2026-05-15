@@ -13,7 +13,11 @@ import {
 import { of, BehaviorSubject } from 'rxjs';
 import { ItemDetailComponent } from './item-detail.component';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { Game, Toy } from '../../../../core/models/collection.models';
+import {
+  Game,
+  Toy,
+  PlayStatus,
+} from '../../../../core/models/collection.models';
 
 /**
  * UNIT TEST: ItemDetailComponent
@@ -41,8 +45,8 @@ describe('ItemDetailComponent', () => {
     genres: 'Platformer',
     summary: 'A classic game.',
     ownership_status: 1,
-    played: true,
-    backed_up: true,
+    play_status: PlayStatus.Played,
+    backup_status: 1,
   };
 
   const mockToy: Toy = {
