@@ -544,6 +544,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
         line-height: 1.8;
         color: var(--m3-on-surface-variant);
         max-width: 800px;
+        white-space: pre-wrap;
       }
 
       .loading-state {

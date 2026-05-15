@@ -489,22 +489,56 @@ export async function getGameById(
 
     // 1. If it's a bundle, fetch members and aggregate metadata
     if (category === 3) {
-      const memberQuery = `fields collections.name, franchises.name; where bundles = (${game.id});`;
+      const memberFields = `name, summary, cover.url, first_release_date, collections.name, franchises.id, franchises.name, genres.name`;
+      const memberQuery = `fields ${memberFields}; where bundles = (${game.id});`;
       const members = (await queryIGDB('games', memberQuery)) as IGDBGame[];
 
-      const collections = new Set(game.collections?.map((c) => c.name) || []);
-      const franchises = new Set(game.franchises?.map((f) => f.name) || []);
+      if (members.length > 0) {
+        // Aggregate collections/franchises
+        const collections = new Set(game.collections?.map((c) => c.name) || []);
+        const franchises = new Set(game.franchises?.map((f) => f.name) || []);
+        const genres = new Set(game.genres?.map((g) => g.name) || []);
 
-      for (const member of members) {
-        member.collections?.forEach((c) => collections.add(c.name));
-        member.franchises?.forEach((f) => franchises.add(f.name));
+        for (const member of members) {
+          member.collections?.forEach((c) => collections.add(c.name));
+          member.franchises?.forEach((f) => franchises.add(f.name));
+          member.genres?.forEach((g) => genres.add(g.name));
+        }
+
+        game.collections = Array.from(collections).map((name) => ({
+          id: 0,
+          name,
+        }));
+        game.franchises = Array.from(franchises).map((name) => ({
+          id: 0,
+          name,
+        }));
+        game.genres = Array.from(genres).map((name) => ({ name }));
+
+        // Aggregate Summary in release order if bundle summary is missing or short
+        if (!game.summary || game.summary.length < 50) {
+          const sortedMembers = [...members].sort(
+            (a, b) => (a.first_release_date || 0) - (b.first_release_date || 0),
+          );
+          const aggregatedSummary = sortedMembers
+            .map((m) => m.summary?.trim())
+            .filter((s) => !!s)
+            .join('\n\n');
+          if (aggregatedSummary) {
+            game.summary = aggregatedSummary;
+          }
+        }
+
+        // Use cover from most recent component if bundle cover is missing
+        if (!game.cover) {
+          const mostRecent = [...members].sort(
+            (a, b) => (b.first_release_date || 0) - (a.first_release_date || 0),
+          )[0];
+          if (mostRecent?.cover) {
+            game.cover = mostRecent.cover;
+          }
+        }
       }
-
-      game.collections = Array.from(collections).map((name) => ({
-        id: 0,
-        name,
-      }));
-      game.franchises = Array.from(franchises).map((name) => ({ id: 0, name }));
     }
 
     // 2. If it has a version_parent with collections/franchises, inherit them
