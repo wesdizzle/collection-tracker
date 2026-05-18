@@ -97,13 +97,40 @@ The Collection Tracker is optimized for mobile use:
 
 ## 📋 Roadmap
 
-### 1. Manual Game Discovery & Addition
+### 1. Manual & Automated Series Discovery
 
-**Goal**: Allow users to manually search for games via IGDB from the discover page and add them to the database.
+**Goal**: Allow users to discover and ingest new games via IGDB, supporting both direct name searches and intelligent automated series scanning for missing items.
 
-- **Search Interface**: Implement a search bar on the discover page that queries the IGDB API and presents a list of matching games.
-- **Data Hydration**: Selecting a game should fetch full metadata from IGDB.
-- **Custom Statuses**: The flow must allow users to specify local-only data (Ownership status, Played, Backed Up) before persisting the new item to the database.
-- **Options**:
-  - _Option A (Modal Wizard)_: A multi-step dialog (Search -> Select -> Set Statuses -> Confirm).
-  - _Option B (Inline Form)_: Selecting a search result expands an inline form to fill in statuses before saving.
+- **Dual-Mode Discovery Pipelines**:
+  - **Manual Name Search**: A responsive search interface on the discover page querying the IGDB API and displaying matches across targeted platforms.
+  - **One-Button Series Scan (Automated Discovery)**: A one-button scan feature that automatically analyzes the user's current collection to identify tracked series/franchises and platforms. It queries IGDB for all items in those series that are not yet in the local database but exist on our tracked platforms, presenting a list of highly relevant, missing canonical entries.
+- **Intelligent IGDB Filtering Heuristics**:
+  - Automatically filter discovery suggestions to only include games that:
+    1. Belong to a **series/franchise** already tracked in the database (e.g., _Super Mario_, _The Legend of Zelda_).
+    2. Are released on a **platform** currently present in the user's platform database.
+    3. Are **not yet tracked** in the local `games` table.
+- **Data Ingestion & Verification**:
+  - **Data Hydration**: Selecting a discovered game pulls its full canonical metadata (summary, genres, collections, franchises, release dates, high-resolution cover) from IGDB.
+  - **Custom Status Configuration**: Before persisting a newly discovered item, the ingestion flow must allow users to customize local collection metadata (Ownership status, Played status, and Backup status).
+- **UX & Interaction Design**:
+  - _Option A (Modal Wizard)_: A multi-step ingestion flow (Search/Scan results -> Configuration of statuses -> Database persist & sync).
+  - _Option B (Inline Form)_: Selecting a search or scan result expands an inline metadata customization form, saving the game directly within the feed.
+
+### 2. Physical Release Reconciliation via PriceCharting API
+
+**Goal**: Integrate the PriceCharting API/scraper into the metadata reconciliation engine to verify physical copies, resolve multiple physical editions of a single game, and optimize release date accuracy.
+
+- **Durable Verification & Edition Tracking**:
+  - **Physical Release Signal**: The presence of a `pricecharting_url` in a `Game` record serves as a verified physical release marker, allowing the application to distinguish physical collection pieces from digital counterparts.
+  - **Multi-Edition Mapping**: Acknowledge that a single IGDB canonical entry (e.g., `igdb-1234`) can map to multiple distinct physical releases on PriceCharting (e.g., Standard Edition, Collector's Edition, Steelbook Variant, or regional print runs). Design a mechanism to track these sub-variants under a parent game entry or via unique canonical slugs (e.g., `metroid-prime-steelbook-gamecube`).
+- **Data Ingestion & Merging Policy**:
+  - Implement a strict conflict-resolution strategy when both `igdb_id` and `pricecharting_url` exist on a game entry:
+    - **Release Date**: Prefer the physical release/street date retrieved from PriceCharting, as it accurately reflects when the physical cartridge/disc went on sale locally, overriding IGDB's digital/platform-wide release dates.
+    - **Visuals & Descriptions**: Retain IGDB's higher-resolution cover art (`image_url`) and comprehensive text description (`summary`), falling back to PriceCharting metadata only if IGDB values are missing or incomplete.
+- **Resilience, Fallbacks & Safety**:
+  - **No Auto-Deletion**: A failure to match or verify a physical item with IGDB or PriceCharting must _never_ result in automatic deletion or removal from the database.
+  - **Manual Intervention UI**: Physical editions often require human-in-the-loop validation. Extend the Discovery page (`discovery_report.md` pipeline) and the manual search modal on `ItemDetailComponent` to allow users to manually search, link, or paste a PriceCharting URL.
+  - **Unlisted Real-World Releases**: Recognize that community databases like PriceCharting may not have entries for extremely rare, custom, or newly discovered physical releases. The system must gracefully support "Unverified Physical" entries without losing local-only user statuses.
+- **Implementation Strategy**:
+  - _Backend / Scripts_: Extend `scripts/scrape.ts` to implement the dual-source merge policy in the `--refresh` and `--reconcile` passes. Transition from simple scraping (`scripts/lib/web_scraper.ts`) to structured PriceCharting API endpoints or enhanced search heuristics.
+  - _Frontend / UI_: Update the `ItemDetailComponent` to display a physical release badge, an active PriceCharting link (if verified), and a dropdown list of sub-variants/editions if multiple editions are owned.
