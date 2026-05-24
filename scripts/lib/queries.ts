@@ -7,29 +7,81 @@
  */
 
 export const GAMES_LIST_QUERY = `
-    SELECT g.*, 
+    SELECT COALESCE(r.id, g.id) as id,
+           g.id as game_id,
+           g.stable_id,
+           g.title,
+           g.series,
+           g.canonical_series,
+           r.release_date,
+           g.platform_id,
+           g.queued,
+           g.sort_index,
+           g.image_url,
+           g.play_status,
+           g.igdb_id,
+           g.summary,
+           g.genres,
+           g.collections,
+           g.franchises,
+           g.pricecharting_url,
+           g.verified,
+           g.metadata_json,
+           COALESCE(r.ownership_status, 0) as ownership_status,
+           COALESCE(r.region, g.region) as region,
+           r.variants,
+           r.rom_name,
+           r.rom_crc,
+           COALESCE(r.backup_status, 0) as backup_status,
            COALESCE(pp.display_name, p.display_name) as display_name, 
            COALESCE(pp.brand, p.brand) as brand, 
            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
            COALESCE(pp.image_url, p.image_url) as platform_logo,
            p.parent_platform_id
     FROM games g 
+    LEFT JOIN game_releases r ON g.stable_id = r.game_id
     LEFT JOIN platforms p ON g.platform_id = p.id
     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
     WHERE 1=1
 `;
 
 export const GAME_DETAIL_QUERY = `
-    SELECT g.*, 
+    SELECT COALESCE(r.id, g.id) as id,
+           g.id as game_id,
+           g.stable_id,
+           g.title,
+           g.series,
+           g.canonical_series,
+           r.release_date,
+           g.platform_id,
+           g.queued,
+           g.sort_index,
+           g.image_url,
+           g.play_status,
+           g.igdb_id,
+           g.summary,
+           g.genres,
+           g.collections,
+           g.franchises,
+           g.pricecharting_url,
+           g.verified,
+           g.metadata_json,
+           COALESCE(r.ownership_status, 0) as ownership_status,
+           COALESCE(r.region, g.region) as region,
+           r.variants,
+           r.rom_name,
+           r.rom_crc,
+           COALESCE(r.backup_status, 0) as backup_status,
            COALESCE(pp.display_name, p.display_name) as display_name, 
            COALESCE(pp.brand, p.brand) as brand, 
            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
            COALESCE(pp.image_url, p.image_url) as platform_logo,
            p.parent_platform_id
     FROM games g 
+    LEFT JOIN game_releases r ON g.stable_id = r.game_id
     LEFT JOIN platforms p ON g.platform_id = p.id 
     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-    WHERE g.id = ?
+    WHERE r.id = ? OR (r.id IS NULL AND g.id = ?)
 `;
 
 export const PLATFORMS_LIST_QUERY = `
@@ -71,6 +123,8 @@ export const GAMES_ORDER_BY = `
              COALESCE(p.parent_platform_id, p.id) ASC, 
              g.platform_id ASC, 
              CASE WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 5) WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 3) ELSE COALESCE(g.canonical_series, g.title) END COLLATE NOCASE ASC, 
-             g.release_date IS NULL ASC, g.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
-             CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC
+             r.release_date IS NULL ASC, r.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
+             CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC,
+             COALESCE(r.region, '') ASC,
+             COALESCE(r.id, g.id) ASC
 `;

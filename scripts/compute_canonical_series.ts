@@ -244,12 +244,16 @@ export async function recomputeCanonicalSeries() {
           .filter((s) => s.score === topScore)
           .map((s) => s.item);
         if (topCandidates.length === 1) canonicalSeries = topCandidates[0];
-        else
+        else {
+          console.log(
+            `[Vector Tie-breaker] Game: "${game.title}" (ID: ${game.id}), Candidates: ${JSON.stringify(topCandidates)}`,
+          );
           canonicalSeries = await runVectorTieBreaker(
             game,
             topCandidates,
             embedder,
           );
+        }
       }
     }
 
@@ -273,13 +277,24 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
   recomputeCanonicalSeries().catch(console.error);
 }
 
+const tieBreakerCache = new Map<string, string>();
+
 async function runVectorTieBreaker(
   game: GameRow,
   candidates: string[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   embedder: any,
 ): Promise<string> {
-  const gameText = `${game.title} ${game.summary || ''}`.trim();
+  const gameText = `${game.title} ${game.summary || ''}`
+    .substring(0, 1000)
+    .trim();
+  const sortedCandidates = [...candidates].sort().join('|');
+  const cacheKey = `${gameText}::${sortedCandidates}`;
+
+  if (tieBreakerCache.has(cacheKey)) {
+    return tieBreakerCache.get(cacheKey)!;
+  }
+
   const targetOutput = await embedder(gameText, {
     pooling: 'mean',
     normalize: true,
@@ -301,5 +316,7 @@ async function runVectorTieBreaker(
       bestMatch = candidate;
     }
   }
+
+  tieBreakerCache.set(cacheKey, bestMatch);
   return bestMatch;
 }

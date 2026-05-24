@@ -181,6 +181,17 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
               <h1 class="item-title text-gradient">
                 {{ game()?.title || toy()?.name || platform()?.name }}
               </h1>
+              @if (game()?.variants; as variants) {
+                <div class="flex flex-wrap gap-2xs mb-md">
+                  @for (variant of variants.split(','); track variant) {
+                    @if (variant.trim()) {
+                      <span class="variant-badge big">{{
+                        variant.trim()
+                      }}</span>
+                    }
+                  }
+                </div>
+              }
               @if (type() === 'toy' && toy()?.series_name) {
                 <p class="item-series">{{ toy()?.series_name }}</p>
               }
@@ -235,7 +246,41 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                     </div>
                   }
                 }
-                @if (game(); as g) {}
+                @if (game(); as g) {
+                  @if (g.variants) {
+                    <div class="meta-box">
+                      <span class="label">Release Variants</span>
+                      <span class="value flex flex-wrap gap-2xs mt-2xs">
+                        @for (variant of g.variants.split(','); track variant) {
+                          @if (variant.trim()) {
+                            <span class="variant-badge">{{
+                              variant.trim()
+                            }}</span>
+                          }
+                        }
+                      </span>
+                    </div>
+                  }
+                  @if (g.rom_name) {
+                    <div class="meta-box full-width">
+                      <span class="label">ROM Filename</span>
+                      <span class="value rom-text">{{ g.rom_name }}</span>
+                    </div>
+                  } @else if (g.id && g.id.endsWith('-default')) {
+                    <div class="meta-box full-width">
+                      <span class="label">ROM Filename</span>
+                      <span class="value rom-text warning-text"
+                        >⚠️ No dump exists in community DAT files</span
+                      >
+                    </div>
+                  }
+                  @if (g.rom_crc) {
+                    <div class="meta-box">
+                      <span class="label">ROM CRC32</span>
+                      <span class="value crc-text">{{ g.rom_crc }}</span>
+                    </div>
+                  }
+                }
                 @if (toy(); as t) {
                   <div class="meta-box">
                     <span class="label">Type</span>
@@ -556,6 +601,43 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         justify-content: center;
         gap: var(--spacing-16);
         color: var(--m3-on-surface-variant);
+      }
+
+      .variant-badge {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--m3-on-secondary-container);
+        background: var(--m3-secondary-container);
+        padding: 0.15rem 0.5rem;
+        border-radius: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        display: inline-block;
+      }
+      .variant-badge.big {
+        font-size: 0.875rem;
+        padding: 0.25rem 0.75rem;
+        border-radius: 8px;
+      }
+      .rom-text {
+        font-family: monospace;
+        font-size: 0.95rem;
+        word-break: break-all;
+        background: var(--m3-surface-container-high);
+        padding: 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--m3-outline-variant);
+      }
+      .rom-text.warning-text {
+        color: var(--m3-primary);
+        border: 1px dashed var(--m3-outline);
+        background: var(--m3-surface-container-highest);
+        opacity: 0.85;
+      }
+      .crc-text {
+        font-family: monospace;
+        font-size: 1rem;
+        color: var(--m3-primary);
       }
     `,
   ],

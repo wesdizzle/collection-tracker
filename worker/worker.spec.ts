@@ -43,10 +43,32 @@ describe('Worker API Logic', () => {
                 title TEXT, 
                 series TEXT, 
                 canonical_series TEXT,
-                release_date DATE, 
                 platform_id INTEGER, 
                 owned BOOLEAN,
-                sort_index INTEGER
+                sort_index INTEGER,
+                queued BOOLEAN,
+                image_url TEXT,
+                play_status TEXT,
+                igdb_id INTEGER,
+                summary TEXT,
+                genres TEXT,
+                collections TEXT,
+                franchises TEXT,
+                pricecharting_url TEXT,
+                verified BOOLEAN,
+                metadata_json TEXT,
+                region TEXT
+            );
+            CREATE TABLE game_releases (
+                id TEXT PRIMARY KEY,
+                game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
+                region TEXT,
+                variants TEXT,
+                rom_name TEXT,
+                rom_crc TEXT,
+                backup_status INTEGER NOT NULL DEFAULT 0,
+                ownership_status INTEGER NOT NULL DEFAULT 0,
+                release_date DATE
             );
             CREATE TABLE toys (
                 id INTEGER PRIMARY KEY, 
@@ -66,6 +88,7 @@ describe('Worker API Logic', () => {
             
             INSERT INTO platforms (id, display_name, brand, launch_date) VALUES (1, 'NES', 'Nintendo', '1985-10-18');
             INSERT INTO games (stable_id, id, title, series, platform_id, owned, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 1, 1, 0);
+            INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES ('gb-mario', 1, 'USA', null, null, null, 0, 1, '1985-10-18');
             INSERT INTO toy_series (id, name, line, sort_index) VALUES (1, 'Smash', 'Amiibo', 0);
             INSERT INTO toys (id, name, series_id, sort_index) VALUES (1, 'Link', 1, 0);
         `);
@@ -146,7 +169,39 @@ describe('Worker API Logic', () => {
     const db = new Database(':memory:');
     db.exec(`
             CREATE TABLE platforms (id INTEGER PRIMARY KEY, display_name TEXT, brand TEXT, launch_date DATE, parent_platform_id INTEGER, image_url TEXT);
-            CREATE TABLE games (stable_id INTEGER PRIMARY KEY, id TEXT, title TEXT, series TEXT, canonical_series TEXT, release_date DATE, platform_id INTEGER, owned BOOLEAN, sort_index INTEGER);
+            CREATE TABLE games (
+                stable_id INTEGER PRIMARY KEY, 
+                id TEXT, 
+                title TEXT, 
+                series TEXT, 
+                canonical_series TEXT, 
+                platform_id INTEGER, 
+                owned BOOLEAN, 
+                sort_index INTEGER,
+                queued BOOLEAN,
+                image_url TEXT,
+                play_status TEXT,
+                igdb_id INTEGER,
+                summary TEXT,
+                genres TEXT,
+                collections TEXT,
+                franchises TEXT,
+                pricecharting_url TEXT,
+                verified BOOLEAN,
+                metadata_json TEXT,
+                region TEXT
+            );
+            CREATE TABLE game_releases (
+                id TEXT PRIMARY KEY,
+                game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
+                region TEXT,
+                variants TEXT,
+                rom_name TEXT,
+                rom_crc TEXT,
+                backup_status INTEGER NOT NULL DEFAULT 0,
+                ownership_status INTEGER NOT NULL DEFAULT 0,
+                release_date DATE
+            );
             
             INSERT INTO platforms (id, display_name, brand, launch_date, parent_platform_id, image_url) 
             VALUES (34, 'PS4', 'Sony', '2013-11-15', NULL, 'ps4.png');
@@ -154,6 +209,8 @@ describe('Worker API Logic', () => {
             VALUES (51, 'PSVR', 'Sony', '2016-10-13', 34, 'psvr.png');
             INSERT INTO games (stable_id, id, title, platform_id, owned) 
             VALUES (2, 'vr-game', 'VR Game', 51, 1);
+            INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) 
+            VALUES ('vr-game', 2, 'USA', null, null, null, 0, 1, '2016-10-13');
         `);
 
     const localMockDb = {
@@ -187,7 +244,39 @@ describe('Worker API Logic', () => {
     const db = new Database(':memory:');
     db.exec(`
             CREATE TABLE platforms (id INTEGER PRIMARY KEY, display_name TEXT, brand TEXT, launch_date DATE, parent_platform_id INTEGER, image_url TEXT);
-            CREATE TABLE games (stable_id INTEGER PRIMARY KEY, id TEXT, title TEXT, series TEXT, canonical_series TEXT, release_date DATE, platform_id INTEGER, owned BOOLEAN, sort_index INTEGER);
+            CREATE TABLE games (
+                stable_id INTEGER PRIMARY KEY, 
+                id TEXT, 
+                title TEXT, 
+                series TEXT, 
+                canonical_series TEXT, 
+                platform_id INTEGER, 
+                owned BOOLEAN, 
+                sort_index INTEGER,
+                queued BOOLEAN,
+                image_url TEXT,
+                play_status TEXT,
+                igdb_id INTEGER,
+                summary TEXT,
+                genres TEXT,
+                collections TEXT,
+                franchises TEXT,
+                pricecharting_url TEXT,
+                verified BOOLEAN,
+                metadata_json TEXT,
+                region TEXT
+            );
+            CREATE TABLE game_releases (
+                id TEXT PRIMARY KEY,
+                game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
+                region TEXT,
+                variants TEXT,
+                rom_name TEXT,
+                rom_crc TEXT,
+                backup_status INTEGER NOT NULL DEFAULT 0,
+                ownership_status INTEGER NOT NULL DEFAULT 0,
+                release_date DATE
+            );
             
             INSERT INTO platforms (id, display_name, brand, launch_date, parent_platform_id, image_url) 
             VALUES (34, 'PS4', 'Sony', '2013-11-15', NULL, 'ps4.png');
@@ -195,6 +284,8 @@ describe('Worker API Logic', () => {
             VALUES (51, 'PSVR', 'Sony', '2016-10-13', 34, 'psvr.png');
             INSERT INTO games (stable_id, id, title, platform_id, owned) 
             VALUES (2, 'vr-game', 'VR Game', 51, 1);
+            INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) 
+            VALUES ('vr-game', 2, 'USA', null, null, null, 0, 1, '2016-10-13');
         `);
 
     const localMockDb = {

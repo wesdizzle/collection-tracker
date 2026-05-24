@@ -70,12 +70,16 @@ console.log(
 try {
   console.log('Pushing to Cloudflare D1 (collection-db)...');
   // On Windows, we need to ensure the command is executed through the shell correctly
-  execSync('npx wrangler d1 execute collection-db --remote --file=deploy.sql', {
-    stdio: 'inherit',
-    shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh',
-  });
+  const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  execSync(
+    `${cmd} wrangler d1 execute collection-db --remote --file=deploy.sql`,
+    {
+      stdio: 'inherit',
+      shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
+    },
+  );
   console.log('Successfully synchronized database to Cloudflare!');
-} catch {
-  console.error('Failed to sync database to Cloudflare.');
+} catch (err) {
+  console.error('Failed to sync database to Cloudflare:', err);
   process.exit(1);
 }

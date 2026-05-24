@@ -6,6 +6,7 @@ A collection tracking application built with **Angular 21**.
 
 - **Toy Collection & Grounding**: Full support for amiibo, Skylanders, and Starlink with verified metadata, regional tracking, and automated discovery.
 - **Durable Metadata**: Deep integration with IGDB for games and AmiiboAPI/SCL for toys.
+- **Physical Release Reconciliation**: Reconciliation of distinct physical release variants using No-Intro and Redump XML DAT files. All releases (including regional versions and revisions) are displayed as individual items in the UI to allow tracking of multiple copies.
 - **Manual Discovery Pipeline**: A suggestion-based matching workflow for ambiguous items, surfaced through a generated discovery report for human-in-the-loop verification.
 - **Signals-First Architecture**: Leveraging Angular 21 Signals for high-performance state management and reactive delivery.
 
@@ -14,7 +15,7 @@ A collection tracking application built with **Angular 21**.
 - **Frontend**: Angular 21 (Signals, Standalone Components)
 - **Styling**: Vanilla CSS with HSL-based design tokens
 - **Build/Test**: Vite & Vitest
-- **Database**: Cloudflare D1 (SQLite-compatible)
+- **Database**: Cloudflare D1 (SQLite-compatible with game releases table tracking distinct regions and release dates)
 - **Backend**: Cloudflare Workers
 
 ## 🛠️ Architecture & Technical Standards
@@ -46,7 +47,8 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Multi-Pass Search**: Automatically falls back to simplified title searches if a direct platform match isn't found, handling complex bundle and special edition naming patterns.
 - **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches. Ambiguous items are offloaded to a manual `discovery_report.md` for user verification.
 - **amiibo Discovery**: The `--discovery` pass automatically identifies all missing amiibo (including cards) from the canonical AmiiboAPI and adds them to your collection as "Unowned" items.
-- **Metadata Refresh**: The `--refresh` pass periodically updates images, release dates, and technical metadata for all verified items. It also normalizes all database slugs to a canonical format and generates an `update_report.md` summarizing the changes.
+- **Metadata Refresh**: The `--refresh` pass periodically updates images, technical metadata, and queries IGDB for regional release dates for all verified releases. It also normalizes all database slugs to a canonical format and generates an `update_report.md` summarizing the changes.
+- **Physical Release Sync**: The `--sync-dats` pass scans the gitignored `/dats/` directory for XML DAT files, parses their structure, and reconciles physical releases. It inserts distinct release variants (e.g. regional versions, revisions) into the `game_releases` table to track and display them independently.
 - **Verification Signals**: Uses the presence of an `igdb_id` or `pricecharting_url` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
 - **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys, including granular ownership status tracking (Unowned, Owned, Seeking, Ordered) for all collection lines.
@@ -61,6 +63,8 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
     - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Automatically adds missing amiibo and finds series-based games)
     - **Refresh**: `npx tsx scripts/scrape.ts --refresh` (Refreshes metadata for all verified items, updates slugs, and recomputes canonical series)
     - **Recompute Series**: `npx tsx scripts/scrape.ts --recompute-series` (Only recomputes canonical series for all games)
+    - **Sync DATs**: `npx tsx scripts/scrape.ts --sync-dats` (Scans `/dats/` directory, parses No-Intro/Redump XML files, and reconciles distinct physical releases in the database)
+    - **Scan Backups**: `npx tsx scratch/scan_backups.ts <path-to-backups>` (Scans a backup directory recursively for filename matches against the database's `rom_name` entries in platform folders, updating their backup status in a strictly read-only manner)
     - **Sync**: `npx tsx scripts/sync_local_d1.ts` (Propagates all local changes to the dev server)
 5.  **Launch Frontend**: `npx ng serve`
 6.  **View locally**: `http://localhost:4200/`
@@ -115,22 +119,3 @@ The Collection Tracker is optimized for mobile use:
 - **UX & Interaction Design**:
   - _Option A (Modal Wizard)_: A multi-step ingestion flow (Search/Scan results -> Configuration of statuses -> Database persist & sync).
   - _Option B (Inline Form)_: Selecting a search or scan result expands an inline metadata customization form, saving the game directly within the feed.
-
-### 2. Physical Release Reconciliation via PriceCharting API
-
-**Goal**: Integrate the PriceCharting API/scraper into the metadata reconciliation engine to verify physical copies, resolve multiple physical editions of a single game, and optimize release date accuracy.
-
-- **Durable Verification & Edition Tracking**:
-  - **Physical Release Signal**: The presence of a `pricecharting_url` in a `Game` record serves as a verified physical release marker, allowing the application to distinguish physical collection pieces from digital counterparts.
-  - **Multi-Edition Mapping**: Acknowledge that a single IGDB canonical entry (e.g., `igdb-1234`) can map to multiple distinct physical releases on PriceCharting (e.g., Standard Edition, Collector's Edition, Steelbook Variant, or regional print runs). Design a mechanism to track these sub-variants under a parent game entry or via unique canonical slugs (e.g., `metroid-prime-steelbook-gamecube`).
-- **Data Ingestion & Merging Policy**:
-  - Implement a strict conflict-resolution strategy when both `igdb_id` and `pricecharting_url` exist on a game entry:
-    - **Release Date**: Prefer the physical release/street date retrieved from PriceCharting, as it accurately reflects when the physical cartridge/disc went on sale locally, overriding IGDB's digital/platform-wide release dates.
-    - **Visuals & Descriptions**: Retain IGDB's higher-resolution cover art (`image_url`) and comprehensive text description (`summary`), falling back to PriceCharting metadata only if IGDB values are missing or incomplete.
-- **Resilience, Fallbacks & Safety**:
-  - **No Auto-Deletion**: A failure to match or verify a physical item with IGDB or PriceCharting must _never_ result in automatic deletion or removal from the database.
-  - **Manual Intervention UI**: Physical editions often require human-in-the-loop validation. Extend the Discovery page (`discovery_report.md` pipeline) and the manual search modal on `ItemDetailComponent` to allow users to manually search, link, or paste a PriceCharting URL.
-  - **Unlisted Real-World Releases**: Recognize that community databases like PriceCharting may not have entries for extremely rare, custom, or newly discovered physical releases. The system must gracefully support "Unverified Physical" entries without losing local-only user statuses.
-- **Implementation Strategy**:
-  - _Backend / Scripts_: Extend `scripts/scrape.ts` to implement the dual-source merge policy in the `--refresh` and `--reconcile` passes. Transition from simple scraping (`scripts/lib/web_scraper.ts`) to structured PriceCharting API endpoints or enhanced search heuristics.
-  - _Frontend / UI_: Update the `ItemDetailComponent` to display a physical release badge, an active PriceCharting link (if verified), and a dropdown list of sub-variants/editions if multiple editions are owned.

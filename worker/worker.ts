@@ -67,7 +67,9 @@ export default {
       else if (path.startsWith('/api/games/')) {
         const id = path.split('/').pop();
         const query = GAME_DETAIL_QUERY;
-        const game = await env.DB.prepare(query).bind(id).first();
+        // Bind the ID parameter twice to satisfy both placeholders in the detail query:
+        // WHERE r.id = ? OR (r.id IS NULL AND g.id = ?)
+        const game = await env.DB.prepare(query).bind(id, id).first();
         if (!game)
           return Response.json({ error: 'Not found' }, { status: 404 });
         return Response.json(game);

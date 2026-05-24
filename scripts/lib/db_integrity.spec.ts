@@ -12,11 +12,20 @@ describe('Database Integrity', () => {
   const db = new Database('collection.sqlite');
 
   it('should have the correct total number of games for each ownership status', () => {
-    // Query the 'games' table directly to ensure the raw count of items by status
+    // Query the 'game_releases' table joined with games to ensure the count of items by status
     // matches the hardcoded snapshot. This catches accidental deletions or status changes.
     const counts = db
       .prepare(
-        'SELECT ownership_status, COUNT(*) as count FROM games GROUP BY ownership_status',
+        `
+        SELECT COALESCE(max_ownership, 0) as ownership_status, COUNT(*) as count
+        FROM games g
+        LEFT JOIN (
+            SELECT game_id, MAX(ownership_status) as max_ownership
+            FROM game_releases
+            GROUP BY game_id
+        ) r ON g.stable_id = r.game_id
+        GROUP BY COALESCE(max_ownership, 0)
+      `,
       )
       .all() as { ownership_status: number; count: number }[];
     const actual = counts.reduce(
@@ -48,12 +57,17 @@ describe('Database Integrity', () => {
     const platformCounts = db
       .prepare(
         `
-            SELECT COALESCE(pp.display_name, p.display_name) as display_name, g.ownership_status, COUNT(g.stable_id) as count
+            SELECT COALESCE(pp.display_name, p.display_name) as display_name, COALESCE(r.ownership_status, 0) as ownership_status, COUNT(g.stable_id) as count
             FROM games g
+            LEFT JOIN (
+                SELECT game_id, MAX(ownership_status) as ownership_status
+                FROM game_releases
+                GROUP BY game_id
+            ) r ON g.stable_id = r.game_id
             JOIN platforms p ON g.platform_id = p.id
             LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-            GROUP BY COALESCE(pp.display_name, p.display_name), g.ownership_status
-            ORDER BY COALESCE(pp.brand, p.brand) ASC, COALESCE(pp.launch_date, p.launch_date) ASC, g.ownership_status DESC
+            GROUP BY COALESCE(pp.display_name, p.display_name), COALESCE(r.ownership_status, 0)
+            ORDER BY COALESCE(pp.brand, p.brand) ASC, COALESCE(pp.launch_date, p.launch_date) ASC, COALESCE(r.ownership_status, 0) DESC
         `,
       )
       .all() as {

@@ -66,6 +66,7 @@ interface GameGroup {
         [uniqueLines]="uniqueLines()"
         [uniqueTypes]="uniqueTypes()"
         [uniqueSeries]="uniqueSeries()"
+        [uniqueRegions]="uniqueRegions()"
         [resultCount]="
           currentTab() === 'games'
             ? filteredGames().length
@@ -248,6 +249,20 @@ interface GameGroup {
                       @if (game.canonical_series) {
                         <div class="card-subtitle" title="Series">
                           {{ game.canonical_series }}
+                        </div>
+                      }
+                      @if (game.variants) {
+                        <div class="flex flex-wrap gap-2xs mt-2xs">
+                          @for (
+                            variant of game.variants.split(',');
+                            track variant
+                          ) {
+                            @if (variant.trim()) {
+                              <span class="variant-badge">{{
+                                variant.trim()
+                              }}</span>
+                            }
+                          }
                         </div>
                       }
                     </div>
@@ -742,6 +757,17 @@ interface GameGroup {
         transform: translateY(-2px);
         box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
       }
+
+      .variant-badge {
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: var(--m3-on-secondary-container);
+        background: var(--m3-secondary-container);
+        padding: 0.1rem 0.4rem;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
     `,
   ],
 })
@@ -766,6 +792,7 @@ export class CollectionListComponent
     play_status: 'all',
     backup_status: 'all',
     platform_id: undefined,
+    regions: [],
     line: '',
     type: '',
     series: '',
@@ -829,7 +856,14 @@ export class CollectionListComponent
         }
 
         // Region Filter
-        if (f.region && g.region !== f.region) return false;
+        if (f.regions && f.regions.length > 0) {
+          const itemRegions = (g.region || '')
+            .split(',')
+            .map((r) => r.trim())
+            .filter(Boolean);
+          const match = itemRegions.some((r) => f.regions!.includes(r));
+          if (!match) return false;
+        }
 
         // Linked Status Filter (IGDB connectivity)
         if (f.is_linked !== undefined) {
@@ -887,7 +921,17 @@ export class CollectionListComponent
         // 5. Sort Index (ASC, nulls last)
         const sortA = a.sort_index ?? 9999;
         const sortB = b.sort_index ?? 9999;
-        return sortA - sortB;
+        if (sortA !== sortB) return sortA - sortB;
+
+        // 6. Region (ASC)
+        const regA = a.region || '';
+        const regB = b.region || '';
+        if (regA !== regB) return regA.localeCompare(regB);
+
+        // 7. Release ID (ASC)
+        const idA = a.id || '';
+        const idB = b.id || '';
+        return idA.localeCompare(idB);
       });
   });
 
@@ -988,7 +1032,14 @@ export class CollectionListComponent
         if (f.type && toy.type !== f.type) return false;
 
         // Region Filter
-        if (f.region && toy.region !== f.region) return false;
+        if (f.regions && f.regions.length > 0) {
+          const itemRegions = (toy.region || '')
+            .split(',')
+            .map((r) => r.trim())
+            .filter(Boolean);
+          const match = itemRegions.some((r) => f.regions!.includes(r));
+          if (!match) return false;
+        }
 
         // Series Filter (Case & Accent Insensitive)
         if (f.series) {
@@ -1124,6 +1175,30 @@ export class CollectionListComponent
           this.normalizeForSort(b || ''),
         ),
       );
+  });
+
+  public uniqueRegions = computed<string[]>(() => {
+    const regionsSet = new Set<string>();
+
+    for (const g of this.collectionService.games()) {
+      if (g.region) {
+        g.region.split(',').forEach((r) => {
+          const trimmed = r.trim();
+          if (trimmed) regionsSet.add(trimmed);
+        });
+      }
+    }
+
+    for (const t of this.collectionService.toys()) {
+      if (t.region) {
+        t.region.split(',').forEach((r) => {
+          const trimmed = r.trim();
+          if (trimmed) regionsSet.add(trimmed);
+        });
+      }
+    }
+
+    return Array.from(regionsSet).sort();
   });
 
   /**

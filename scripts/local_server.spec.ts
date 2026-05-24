@@ -44,10 +44,32 @@ describe('Local Server API Logic', () => {
                 title TEXT, 
                 series TEXT, 
                 canonical_series TEXT,
-                release_date DATE, 
                 platform_id INTEGER, 
                 owned BOOLEAN,
-                sort_index INTEGER
+                sort_index INTEGER,
+                queued BOOLEAN,
+                image_url TEXT,
+                play_status TEXT,
+                igdb_id INTEGER,
+                summary TEXT,
+                genres TEXT,
+                collections TEXT,
+                franchises TEXT,
+                pricecharting_url TEXT,
+                verified BOOLEAN,
+                metadata_json TEXT,
+                region TEXT
+            );
+            CREATE TABLE game_releases (
+                id TEXT PRIMARY KEY,
+                game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
+                region TEXT,
+                variants TEXT,
+                rom_name TEXT,
+                rom_crc TEXT,
+                backup_status INTEGER NOT NULL DEFAULT 0,
+                ownership_status INTEGER NOT NULL DEFAULT 0,
+                release_date DATE
             );
             CREATE TABLE toys (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,18 +99,34 @@ describe('Local Server API Logic', () => {
       .run(51, 'PlayStation VR', 'Sony', '2016-10-13', 34);
     mockDb
       .prepare(
-        'INSERT INTO games (stable_id, id, title, platform_id, release_date) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
       )
-      .run(1, 'game-1', 'Bloodborne', 34, '2015-03-24');
+      .run(1, 'game-1', 'Bloodborne', 34);
     mockDb
       .prepare(
-        'INSERT INTO games (stable_id, id, title, platform_id, release_date) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(2, 'game-2', 'PSVR Demo Disc', 51, '2016-10-13');
+      .run('game-1', 1, 'USA', null, null, null, 0, 1, '2015-03-24');
+
+    mockDb
+      .prepare(
+        'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+      )
+      .run(2, 'game-2', 'PSVR Demo Disc', 51);
+    mockDb
+      .prepare(
+        'INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run('game-2', 2, 'USA', null, null, null, 0, 1, '2016-10-13');
   });
 
   /**
-   * Helper to mock Node.js req/res
+   * Helper to mock Node.js req/res objects for testing request handlers.
+   *
+   * @param url - The target endpoint URL for the mock request.
+   * @param method - The HTTP request method (e.g. 'GET', 'POST').
+   * @returns An object containing the mocked Request and Response instances.
+   * @throws None.
    */
   const createMocks = (url: string, method = 'GET') => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -171,6 +209,16 @@ describe('Local Server API Logic', () => {
   });
 
   describe('Discovery Apply Logic', () => {
+    /**
+     * Helper to mock Node.js req/res objects specifically for discovery endpoints.
+     * Emits request body payload asynchronously in the next tick to simulate HTTP body reception.
+     *
+     * @param url - The target endpoint URL for the mock request.
+     * @param method - The HTTP request method (e.g. 'POST').
+     * @param body - The body payload to emit as JSON.
+     * @returns An object containing the mocked Request and Response instances.
+     * @throws None.
+     */
     const createDiscoveryMocks = (url: string, method = 'POST', body = {}) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const req = new EventEmitter() as any;

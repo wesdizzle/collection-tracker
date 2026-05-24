@@ -15,7 +15,15 @@
  *   inputs, following the "Data Down, Actions Up" architecture.
  */
 
-import { Component, input, output, signal } from '@angular/core';
+import {
+  Component,
+  input,
+  output,
+  signal,
+  HostListener,
+  ElementRef,
+  inject,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import {
@@ -207,20 +215,37 @@ import {
           </div>
         </div>
 
-        <div class="filter-group">
+        <div class="filter-group region-dropdown-container">
           <label class="m3-label">Region</label>
-          <div class="input-wrapper">
-            <select
-              [ngModel]="filters().region"
-              (ngModelChange)="onPartialChange('region', $event)"
-              class="m3-input"
+          <div class="input-wrapper dropdown-wrapper">
+            <button
+              type="button"
+              class="m3-input dropdown-trigger"
+              (click)="isRegionDropdownOpen.set(!isRegionDropdownOpen())"
             >
-              <option [ngValue]="undefined">All Regions</option>
-              <option value="EU">Europe</option>
-              <option value="JP">Japan</option>
-              <option value="NA">North America</option>
-              <option value="SEA">Southeast Asia</option>
-            </select>
+              <span class="trigger-text">{{ getRegionLabel() }}</span>
+              <span class="arrow-icon" [class.open]="isRegionDropdownOpen()"
+                >▼</span
+              >
+            </button>
+            @if (isRegionDropdownOpen()) {
+              <div class="dropdown-list animate-expressive">
+                @for (region of uniqueRegions(); track region) {
+                  <label class="dropdown-item state-layer">
+                    <input
+                      type="checkbox"
+                      [checked]="isRegionSelected(region)"
+                      (change)="onRegionToggle(region)"
+                      class="m3-checkbox"
+                    />
+                    <span class="item-label">{{ region }}</span>
+                  </label>
+                }
+                @if (uniqueRegions().length === 0) {
+                  <div class="dropdown-empty">No regions found</div>
+                }
+              </div>
+            }
           </div>
         </div>
 
@@ -244,6 +269,12 @@ import {
   `,
   styles: [
     `
+      :host {
+        display: block;
+        position: relative;
+        z-index: 20;
+      }
+
       .mb-lg {
         margin-bottom: var(--spacing-32);
       }
@@ -435,12 +466,76 @@ import {
           flex: 1 1 100%;
         }
       }
+
+      .region-dropdown-container {
+        position: relative;
+      }
+      .dropdown-wrapper {
+        position: relative;
+      }
+      .dropdown-trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        text-align: left;
+      }
+      .arrow-icon {
+        font-size: 0.65rem;
+        transition: transform 0.2s ease;
+        color: var(--m3-on-surface-variant);
+        margin-left: 0.5rem;
+      }
+      .arrow-icon.open {
+        transform: rotate(180deg);
+      }
+      .dropdown-list {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 50;
+        background: var(--m3-surface-container-high);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--m3-outline);
+        border-radius: var(--radius-sm);
+        padding: 0.5rem 0;
+        max-height: 250px;
+        overflow-y: auto;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+      }
+      .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-12);
+        padding: 0.6rem 1rem;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.2s ease;
+      }
+      .dropdown-item:hover {
+        background: var(--m3-surface-container-highest);
+      }
+      .item-label {
+        font-size: 0.9rem;
+        color: var(--m3-on-surface);
+        text-transform: none;
+        letter-spacing: normal;
+      }
+      .dropdown-empty {
+        padding: 0.75rem 1rem;
+        font-size: 0.85rem;
+        color: var(--m3-on-surface-variant);
+        text-align: center;
+      }
     `,
   ],
 })
 export class CollectionFiltersComponent {
   /** --- Internal UI State --- */
   public showFilters = signal(false);
+  public isRegionDropdownOpen = signal(false);
 
   /** --- Reactive Inputs --- */
   public currentTab = input.required<'games' | 'toys'>();
@@ -448,9 +543,12 @@ export class CollectionFiltersComponent {
   public uniqueLines = input<string[]>([]);
   public uniqueTypes = input<string[]>([]);
   public uniqueSeries = input<string[]>([]);
+  public uniqueRegions = input<string[]>([]);
   public resultCount = input<number>(0);
   public filters = input.required<FilterState>();
   public lastUpdated = input<Date | null>(null);
+
+  private elementRef = inject(ElementRef);
 
   /** --- Event Emitters --- */
   public filtersChange = output<FilterState>();
@@ -472,5 +570,37 @@ export class CollectionFiltersComponent {
       ...this.filters(),
       [key]: processedValue as FilterState[keyof FilterState],
     } as FilterState);
+  }
+
+  onRegionToggle(region: string) {
+    const currentRegions = this.filters().regions || [];
+    let newRegions: string[];
+    if (currentRegions.includes(region)) {
+      newRegions = currentRegions.filter((r) => r !== region);
+    } else {
+      newRegions = [...currentRegions, region];
+    }
+    this.onPartialChange('regions', newRegions);
+  }
+
+  isRegionSelected(region: string): boolean {
+    return (this.filters().regions || []).includes(region);
+  }
+
+  getRegionLabel(): string {
+    const selected = this.filters().regions || [];
+    if (selected.length === 0) return 'All Regions';
+    if (selected.length <= 2) return selected.join(', ');
+    return `${selected.length} Selected`;
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent) {
+    const dropdownEl = this.elementRef.nativeElement.querySelector(
+      '.region-dropdown-container',
+    );
+    if (dropdownEl && !dropdownEl.contains(event.target as Node)) {
+      this.isRegionDropdownOpen.set(false);
+    }
   }
 }

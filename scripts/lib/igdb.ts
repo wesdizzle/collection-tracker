@@ -54,6 +54,7 @@ export interface NormalizedGame {
   platforms: IGDBPlatform[];
   platform_ids: number[];
   release_date: string | null;
+  release_dates?: { region: number; date: number }[];
   collections: string | null;
   franchises: string | null;
   category?: number;
@@ -684,6 +685,7 @@ function normalizeIGDBGame(
       : game.first_release_date
         ? new Date(game.first_release_date * 1000).toISOString().split('T')[0]
         : null,
+    release_dates: game.release_dates || [],
     collections: game.collections
       ? game.collections.map((c) => c.name).join(', ')
       : null,

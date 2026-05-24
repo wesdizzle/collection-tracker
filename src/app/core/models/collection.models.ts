@@ -47,6 +47,9 @@ export interface Game {
   pricecharting_url?: string;
   parent_platform_id?: number;
   sort_index?: number;
+  variants?: string;
+  rom_name?: string;
+  rom_crc?: string;
 }
 
 export interface Toy {
@@ -126,7 +129,7 @@ export interface FilterState {
   play_status?: 'all' | PlayStatus;
   backup_status?: 'all' | 0 | 1;
   platform_id?: number;
-  region?: string;
+  regions?: string[];
   is_linked?: boolean;
   line?: string;
   type?: string;

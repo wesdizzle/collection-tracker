@@ -334,7 +334,6 @@ export const handleRequest =
             status,
             field = 'ownership_status',
           } = JSON.parse(body);
-          const table = type === 'game' ? 'games' : 'toys';
 
           const allowedFields = [
             'ownership_status',
@@ -345,11 +344,83 @@ export const handleRequest =
             throw new Error(`Invalid field: ${field}`);
           }
 
-          db.prepare(`UPDATE ${table} SET ${field} = ? WHERE id = ?`).run(
-            status,
-            id,
-          );
-          console.log(`Updated ${type} status: ${id} -> ${field}=${status}`);
+          if (type === 'game') {
+            if (field === 'play_status') {
+              // play_status: update games table
+              let stableId: number | null = null;
+              const release = db
+                .prepare('SELECT game_id FROM game_releases WHERE id = ?')
+                .get(id) as { game_id: number } | undefined;
+              if (release) {
+                stableId = release.game_id;
+              } else {
+                const game = db
+                  .prepare('SELECT stable_id FROM games WHERE id = ?')
+                  .get(id) as { stable_id: number } | undefined;
+                if (game) {
+                  stableId = game.stable_id;
+                }
+              }
+              if (stableId === null) {
+                throw new Error(`Could not find game/release with ID: ${id}`);
+              }
+              db.prepare(
+                'UPDATE games SET play_status = ? WHERE stable_id = ?',
+              ).run(status, stableId);
+            } else {
+              // ownership_status or backup_status: update game_releases table
+              const releaseExists = db
+                .prepare('SELECT 1 FROM game_releases WHERE id = ?')
+                .get(id);
+              if (releaseExists) {
+                db.prepare(
+                  `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+                ).run(status, id);
+              } else {
+                // Not a release ID; find game first by game ID
+                const game = db
+                  .prepare('SELECT stable_id, region FROM games WHERE id = ?')
+                  .get(id) as
+                  | { stable_id: number; region: string | null }
+                  | undefined;
+                if (!game) {
+                  throw new Error(`Game or Release not found: ${id}`);
+                }
+
+                // First, check if there's already a release for this game. If so, update the first one.
+                const releases = db
+                  .prepare(
+                    'SELECT id FROM game_releases WHERE game_id = ? ORDER BY id ASC',
+                  )
+                  .all(game.stable_id) as { id: string }[];
+                if (releases.length > 0) {
+                  db.prepare(
+                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+                  ).run(status, releases[0].id);
+                } else {
+                  // Create default virtual release if it somehow doesn't exist
+                  const releaseId = `${id}-default`;
+                  db.prepare(
+                    `
+                    INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status)
+                    VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0)
+                  `,
+                  ).run(releaseId, game.stable_id, game.region);
+                  db.prepare(
+                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+                  ).run(status, releaseId);
+                }
+              }
+            }
+            console.log(`Updated game status: ${id} -> ${field}=${status}`);
+          } else {
+            // Toys update
+            db.prepare(`UPDATE toys SET ${field} = ? WHERE id = ?`).run(
+              status,
+              id,
+            );
+            console.log(`Updated toy status: ${id} -> ${field}=${status}`);
+          }
 
           // Sync to Local D1 Instance
           if (!process.env['VITEST']) {
@@ -384,15 +455,39 @@ export const handleRequest =
           });
 
           const { id, type, sort_index } = JSON.parse(body);
-          const table = type === 'game' ? 'games' : 'toys';
-
-          db.prepare(`UPDATE ${table} SET sort_index = ? WHERE id = ?`).run(
-            sort_index,
-            id,
-          );
-          console.log(
-            `Updated ${type} sort_index: ${id} -> sort_index=${sort_index}`,
-          );
+          if (type === 'game') {
+            let stableId: number | null = null;
+            const release = db
+              .prepare('SELECT game_id FROM game_releases WHERE id = ?')
+              .get(id) as { game_id: number } | undefined;
+            if (release) {
+              stableId = release.game_id;
+            } else {
+              const game = db
+                .prepare('SELECT stable_id FROM games WHERE id = ?')
+                .get(id) as { stable_id: number } | undefined;
+              if (game) {
+                stableId = game.stable_id;
+              }
+            }
+            if (stableId === null) {
+              throw new Error(`Could not find game/release with ID: ${id}`);
+            }
+            db.prepare(
+              'UPDATE games SET sort_index = ? WHERE stable_id = ?',
+            ).run(sort_index, stableId);
+            console.log(
+              `Updated game sort_index: ${id} (stable_id: ${stableId}) -> sort_index=${sort_index}`,
+            );
+          } else {
+            db.prepare('UPDATE toys SET sort_index = ? WHERE id = ?').run(
+              sort_index,
+              id,
+            );
+            console.log(
+              `Updated toy sort_index: ${id} -> sort_index=${sort_index}`,
+            );
+          }
 
           // Sync to Local D1 Instance
           if (!process.env['VITEST']) {
@@ -449,7 +544,9 @@ export const handleRequest =
       else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
         const id = pathname.split('/').pop();
         const query = GAME_DETAIL_QUERY;
-        const game = db.prepare(query).get(id);
+        // Bind the ID parameter twice because the detail query checks both the release ID
+        // and the parent game fallback ID: WHERE r.id = ? OR (r.id IS NULL AND g.id = ?)
+        const game = db.prepare(query).get(id, id);
         if (!game) {
           res.statusCode = 404;
           res.end(JSON.stringify({ error: 'Not found' }));
