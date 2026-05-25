@@ -71,6 +71,7 @@ export interface Toy {
   verified?: boolean | number;
   metadata_json?: string;
   sort_index?: number;
+  series_index?: number;
 }
 
 export interface ToySeriesGroup {
@@ -133,7 +134,7 @@ export interface FilterState {
   is_linked?: boolean;
   line?: string;
   type?: string;
-  series?: string;
+  seriesOrName?: string;
   seriesExact?: boolean;
 }
 

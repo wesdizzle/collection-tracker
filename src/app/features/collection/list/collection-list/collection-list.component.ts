@@ -795,7 +795,7 @@ export class CollectionListComponent
     regions: [],
     line: '',
     type: '',
-    series: '',
+    seriesOrName: '',
     seriesExact: false,
   });
   public displayLimit = signal<number>(100);
@@ -871,16 +871,22 @@ export class CollectionListComponent
           if (f.is_linked !== hasIgdb) return false;
         }
 
-        // Series Filter (Case & Accent Insensitive)
-        if (f.series) {
-          const normalizedFilter = this.normalizeString(f.series);
+        // Name/Series Filter (Case & Accent Insensitive)
+        // Matches query against canonical series or game title (when not exact)
+        if (f.seriesOrName) {
+          const normalizedFilter = this.normalizeString(f.seriesOrName);
           const normalizedSeries = this.normalizeString(
             g.canonical_series || '',
           );
+          const normalizedTitle = this.normalizeString(g.title || '');
           if (f.seriesExact) {
             if (normalizedSeries !== normalizedFilter) return false;
           } else {
-            if (!normalizedSeries.includes(normalizedFilter)) return false;
+            if (
+              !normalizedSeries.includes(normalizedFilter) &&
+              !normalizedTitle.includes(normalizedFilter)
+            )
+              return false;
           }
         }
 
@@ -1041,14 +1047,20 @@ export class CollectionListComponent
           if (!match) return false;
         }
 
-        // Series Filter (Case & Accent Insensitive)
-        if (f.series) {
-          const normalizedFilter = this.normalizeString(f.series);
+        // Name/Series Filter (Case & Accent Insensitive)
+        // Matches query against toy series name or toy name (when not exact)
+        if (f.seriesOrName) {
+          const normalizedFilter = this.normalizeString(f.seriesOrName);
           const normalizedSeries = this.normalizeString(toy.series_name || '');
+          const normalizedName = this.normalizeString(toy.name || '');
           if (f.seriesExact) {
             if (normalizedSeries !== normalizedFilter) return false;
           } else {
-            if (!normalizedSeries.includes(normalizedFilter)) return false;
+            if (
+              !normalizedSeries.includes(normalizedFilter) &&
+              !normalizedName.includes(normalizedFilter)
+            )
+              return false;
           }
         }
 
@@ -1066,7 +1078,12 @@ export class CollectionListComponent
         const lineB = this.normalizeForSort(b.line);
         if (lineA !== lineB) return lineA.localeCompare(lineB);
 
-        // 2. Series (ASC)
+        // 2. Series Sort Index or Name (ASC)
+        const seriesIndexA = a.series_index ?? 9999;
+        const seriesIndexB = b.series_index ?? 9999;
+        if (seriesIndexA !== seriesIndexB) {
+          return seriesIndexA - seriesIndexB;
+        }
         const seriesA = this.normalizeForSort(a.series_name || '');
         const seriesB = this.normalizeForSort(b.series_name || '');
         if (seriesA !== seriesB) return seriesA.localeCompare(seriesB);
@@ -1163,18 +1180,43 @@ export class CollectionListComponent
   );
 
   public uniqueSeries = computed(() => {
-    const list =
-      this.currentTab() === 'games'
-        ? this.collectionService.games().map((g) => g.canonical_series)
-        : this.collectionService.toys().map((f) => f.series_name);
-
-    return Array.from(new Set(list))
-      .filter(Boolean)
-      .sort((a, b) =>
-        this.normalizeForSort(a || '').localeCompare(
-          this.normalizeForSort(b || ''),
-        ),
-      );
+    if (this.currentTab() === 'games') {
+      const list = this.collectionService
+        .games()
+        .map((g) => g.canonical_series);
+      return Array.from(new Set(list))
+        .filter(Boolean)
+        .sort((a, b) =>
+          this.normalizeForSort(a || '').localeCompare(
+            this.normalizeForSort(b || ''),
+          ),
+        );
+    } else {
+      const seriesMap = new Map<string, number | undefined>();
+      for (const toy of this.collectionService.toys()) {
+        if (toy.series_name) {
+          if (
+            !seriesMap.has(toy.series_name) ||
+            (seriesMap.get(toy.series_name) === undefined &&
+              toy.series_index !== undefined)
+          ) {
+            seriesMap.set(toy.series_name, toy.series_index);
+          }
+        }
+      }
+      return Array.from(seriesMap.keys())
+        .filter(Boolean)
+        .sort((a, b) => {
+          const indexA = seriesMap.get(a) ?? 9999;
+          const indexB = seriesMap.get(b) ?? 9999;
+          if (indexA !== indexB) {
+            return indexA - indexB;
+          }
+          return this.normalizeForSort(a).localeCompare(
+            this.normalizeForSort(b),
+          );
+        });
+    }
   });
 
   public uniqueRegions = computed<string[]>(() => {

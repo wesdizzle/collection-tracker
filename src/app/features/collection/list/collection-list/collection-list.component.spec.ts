@@ -87,7 +87,7 @@ describe('CollectionListComponent', () => {
     expect(component.displayLimit()).toBe(500);
   });
 
-  it('should filter games by series with case and accent insensitivity', async () => {
+  it('should filter games by title or series with case and accent insensitivity', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
 
     // Trigger ngOnInit to start data load
@@ -97,14 +97,14 @@ describe('CollectionListComponent', () => {
     httpMock.expectOne('/api/games').flush([
       {
         id: '1',
-        title: 'Game 1',
+        title: 'Pokémon Yellow',
         canonical_series: 'Pokémon',
         ownership_status: 1,
         platform: 'Switch',
       },
       {
         id: '2',
-        title: 'Game 2',
+        title: 'Super Mario Odyssey',
         canonical_series: 'Mario',
         ownership_status: 1,
         platform: 'Switch',
@@ -115,21 +115,31 @@ describe('CollectionListComponent', () => {
 
     await initPromise;
 
-    // Test case insensitive match
-    component.filters.set({ ownership: 'all', series: 'pokemon' });
+    // Test case insensitive series match
+    component.filters.set({ ownership: 'all', seriesOrName: 'pokemon' });
     expect(component.filteredGames().length).toBe(1);
     expect(component.filteredGames()[0].canonical_series).toBe('Pokémon');
 
-    // Test substring match
-    component.filters.set({ ownership: 'all', series: 'poke' });
+    // Test substring series match
+    component.filters.set({ ownership: 'all', seriesOrName: 'poke' });
     expect(component.filteredGames().length).toBe(1);
 
+    // Test title match (substring)
+    component.filters.set({ ownership: 'all', seriesOrName: 'yellow' });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].title).toBe('Pokémon Yellow');
+
+    // Test title match (case/accent insensitive)
+    component.filters.set({ ownership: 'all', seriesOrName: 'ODYSSEY' });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].title).toBe('Super Mario Odyssey');
+
     // Test accent insensitive match
-    component.filters.set({ ownership: 'all', series: 'POKEMON' });
+    component.filters.set({ ownership: 'all', seriesOrName: 'POKEMON' });
     expect(component.filteredGames().length).toBe(1);
 
     // Test non-match
-    component.filters.set({ ownership: 'all', series: 'Zelda' });
+    component.filters.set({ ownership: 'all', seriesOrName: 'Zelda' });
     expect(component.filteredGames().length).toBe(0);
   });
 
@@ -231,21 +241,29 @@ describe('CollectionListComponent', () => {
     // Without exact match, searching "n" should find everything with "n"
     component.filters.set({
       ownership: 'all',
-      series: 'n',
+      seriesOrName: 'n',
       seriesExact: false,
     });
     // "N" has "n", "Batman" has "n"
     expect(component.filteredGames().length).toBe(3);
 
     // With exact match, searching "n" should only find games in series "N"
-    component.filters.set({ ownership: 'all', series: 'n', seriesExact: true });
+    component.filters.set({
+      ownership: 'all',
+      seriesOrName: 'n',
+      seriesExact: true,
+    });
     expect(component.filteredGames().length).toBe(2);
     expect(
       component.filteredGames().every((g) => g.canonical_series === 'N'),
     ).toBe(true);
 
     // Should still be case and accent insensitive
-    component.filters.set({ ownership: 'all', series: 'N', seriesExact: true });
+    component.filters.set({
+      ownership: 'all',
+      seriesOrName: 'N',
+      seriesExact: true,
+    });
     expect(component.filteredGames().length).toBe(2);
   });
 
@@ -285,7 +303,12 @@ describe('CollectionListComponent', () => {
     await initPromise;
 
     // Filter by ownership (unowned)
-    component.filters.set({ ownership: 0, line: '', type: '', series: '' });
+    component.filters.set({
+      ownership: 0,
+      line: '',
+      type: '',
+      seriesOrName: '',
+    });
     expect(component.filteredToys().length).toBe(1);
     expect(component.filteredToys()[0].name).toBe('Isabelle');
 
@@ -294,7 +317,7 @@ describe('CollectionListComponent', () => {
       ownership: 'all',
       line: 'amiibo',
       type: '',
-      series: '',
+      seriesOrName: '',
     });
     expect(component.filteredToys().length).toBe(3);
 
@@ -303,7 +326,7 @@ describe('CollectionListComponent', () => {
       ownership: 'all',
       line: '',
       type: 'Figure',
-      series: '',
+      seriesOrName: '',
     });
     expect(component.filteredToys().length).toBe(2);
 
@@ -312,10 +335,20 @@ describe('CollectionListComponent', () => {
       ownership: 'all',
       line: '',
       type: '',
-      series: 'super mario',
+      seriesOrName: 'super mario',
     });
     expect(component.filteredToys().length).toBe(1);
     expect(component.filteredToys()[0].series_name).toBe('Super Mario');
+
+    // Filter by toy name (normalized)
+    component.filters.set({
+      ownership: 'all',
+      line: '',
+      type: '',
+      seriesOrName: 'isabelle',
+    });
+    expect(component.filteredToys().length).toBe(1);
+    expect(component.filteredToys()[0].name).toBe('Isabelle');
   });
 
   it('should group toys correctly with total counts', async () => {
@@ -559,5 +592,51 @@ describe('CollectionListComponent', () => {
     expect(lines[0]).toBe('amiibo');
     expect(lines[1]).toBe('The Black Series');
     expect(lines[2]).toBe('LEGO');
+  });
+
+  it('should sort toys by series_index when present', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        id: 't1',
+        name: 'Spyro',
+        line: 'Skylanders',
+        series_name: "Spyro's Adventure",
+        series_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 't2',
+        name: 'Tree Rex',
+        line: 'Skylanders',
+        series_name: 'Giants',
+        series_index: 2,
+        ownership_status: 1,
+      },
+      {
+        id: 't3',
+        name: 'Bash',
+        line: 'Skylanders',
+        series_name: "Spyro's Adventure",
+        series_index: 1,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    component.currentTab.set('toys');
+
+    const toys = component.filteredToys();
+    expect(toys[0].id).toBe('t1'); // Spyro
+    expect(toys[1].id).toBe('t3'); // Bash
+    expect(toys[2].id).toBe('t2'); // Tree Rex
+
+    const series = component.uniqueSeries();
+    expect(series[0]).toBe("Spyro's Adventure");
+    expect(series[1]).toBe('Giants');
   });
 });

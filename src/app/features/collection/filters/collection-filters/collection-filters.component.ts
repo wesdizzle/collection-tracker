@@ -187,7 +187,7 @@ import {
 
         <div class="filter-group">
           <div class="flex justify-between items-center pr-xs">
-            <label class="m3-label">Series</label>
+            <label class="m3-label">Name/Series</label>
             <label class="m3-checkbox-label" title="Exact Normalized Match">
               <input
                 type="checkbox"
@@ -201,13 +201,13 @@ import {
           <div class="input-wrapper">
             <input
               list="series-list"
-              [ngModel]="filters().series"
-              (ngModelChange)="onPartialChange('series', $event)"
+              [ngModel]="filters().seriesOrName"
+              (ngModelChange)="onPartialChange('seriesOrName', $event)"
               class="m3-input list-input"
-              placeholder="All Series"
+              placeholder="All"
             />
             <datalist id="series-list">
-              <option value="">All Series</option>
+              <option value="">All</option>
               @for (s of uniqueSeries(); track s) {
                 <option [value]="s"></option>
               }
@@ -230,6 +230,14 @@ import {
             </button>
             @if (isRegionDropdownOpen()) {
               <div class="dropdown-list animate-expressive">
+                <button
+                  type="button"
+                  class="dropdown-clear-btn state-layer"
+                  (click)="clearRegions()"
+                  [disabled]="(filters().regions || []).length === 0"
+                >
+                  Clear Selection
+                </button>
                 @for (region of uniqueRegions(); track region) {
                   <label class="dropdown-item state-layer">
                     <input
@@ -529,6 +537,35 @@ import {
         color: var(--m3-on-surface-variant);
         text-align: center;
       }
+      .dropdown-clear-btn {
+        display: block;
+        width: calc(100% - 1.5rem);
+        margin: 0.25rem 0.75rem 0.5rem 0.75rem;
+        padding: 0.55rem;
+        text-align: center;
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
+        border: none;
+        border-radius: var(--radius-sm);
+        font-family: var(--font-body);
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        transition: all 0.2s ease;
+      }
+      .dropdown-clear-btn:hover:not(:disabled) {
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+      .dropdown-clear-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface-variant);
+      }
     `,
   ],
 })
@@ -570,6 +607,10 @@ export class CollectionFiltersComponent {
       ...this.filters(),
       [key]: processedValue as FilterState[keyof FilterState],
     } as FilterState);
+  }
+
+  clearRegions() {
+    this.onPartialChange('regions', []);
   }
 
   onRegionToggle(region: string) {

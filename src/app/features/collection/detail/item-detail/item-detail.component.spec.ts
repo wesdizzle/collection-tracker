@@ -135,7 +135,7 @@ describe('ItemDetailComponent', () => {
     expect(updateStateSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         filters: expect.objectContaining({
-          series: 'Mario',
+          seriesOrName: 'Mario',
           seriesExact: true,
         }),
       }),

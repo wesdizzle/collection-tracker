@@ -286,10 +286,18 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                     <span class="label">Type</span>
                     <span class="value">{{ t.type }}</span>
                   </div>
-                  @if (t.series || t.series_name) {
+                  @if (
+                    t.line === 'Skylanders'
+                      ? t.series_name
+                      : t.series || t.series_name
+                  ) {
                     <div class="meta-box">
                       <span class="label">Series</span>
-                      <span class="value">{{ t.series || t.series_name }}</span>
+                      <span class="value">{{
+                        t.line === 'Skylanders'
+                          ? t.series_name
+                          : t.series || t.series_name
+                      }}</span>
                     </div>
                   }
                   @if (t.amiibo_id || t.scl_url) {
@@ -751,14 +759,18 @@ export class ItemDetailComponent {
     if (currentState) {
       this.collectionService.updateListState({
         ...currentState,
-        filters: { ...currentState.filters, series, seriesExact: true },
+        filters: {
+          ...currentState.filters,
+          seriesOrName: series,
+          seriesExact: true,
+        },
       });
     } else {
       this.collectionService.updateListState({
         tab,
         filters: {
           ownership: 1,
-          series,
+          seriesOrName: series,
           seriesExact: true,
           line: '',
           type: '',

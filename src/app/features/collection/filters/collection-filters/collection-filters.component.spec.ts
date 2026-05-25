@@ -5,6 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { CollectionFiltersComponent } from './collection-filters.component';
+import { FilterState } from '../../../../core/models/collection.models';
 
 /**
  * UNIT TEST: CollectionFiltersComponent
@@ -50,5 +51,22 @@ describe('CollectionFiltersComponent', () => {
     );
     expect(label).toBeTruthy();
     expect(label.textContent).toContain('Type');
+  });
+
+  it('should clear regions when clearRegions is called', () => {
+    fixture.componentRef.setInput('filters', {
+      ownership: 'all',
+      regions: ['US', 'JP'],
+    });
+    fixture.detectChanges();
+
+    let emittedFilters: FilterState | null = null;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.clearRegions();
+    expect(emittedFilters).toBeTruthy();
+    expect(emittedFilters!.regions).toEqual([]);
   });
 });
