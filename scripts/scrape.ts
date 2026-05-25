@@ -55,7 +55,6 @@ interface GameRecord {
   summary?: string;
   series?: string;
   igdb_id?: string;
-  pricecharting_url?: string;
   genres?: string;
   collections?: string;
   franchises?: string;
@@ -64,7 +63,7 @@ interface GameRecord {
   play_status?: number;
   backup_status?: number;
   canonical_series?: string;
-  verified?: number;
+  manually_verified?: number;
   metadata_json?: string;
   ownership_status?: number;
   rom_name?: string | null;
@@ -968,7 +967,7 @@ async function runScraper(): Promise<void> {
   console.log(`Processing ${existingGames.length} collection items...`);
 
   for (const game of existingGames) {
-    if (game.igdb_id || game.pricecharting_url) {
+    if (game.igdb_id || game.manually_verified) {
       if (runRefresh && game.igdb_id) {
         process.stdout.write(
           `Refreshing Game: ${game.title} (${game.platform_display_name})... `,
@@ -1788,10 +1787,10 @@ async function performWebValidation(
     db.prepare(
       `
             UPDATE games 
-            SET title = ?, pricecharting_url = ?, image_url = ?, summary = ?, played = 0, backed_up = 0
+            SET title = ?, image_url = ?, summary = ?, played = 0, backed_up = 0
             WHERE id = ?
         `,
-    ).run(scraped.title, scraped.pricecharting_url, imageUrl, summary, game.id);
+    ).run(scraped.title, imageUrl, summary, game.id);
 
     updateReleaseDatesForGameReleases(
       db,

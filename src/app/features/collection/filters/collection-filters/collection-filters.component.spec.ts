@@ -69,4 +69,39 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters).toBeTruthy();
     expect(emittedFilters!.regions).toEqual([]);
   });
+
+  it('should render physical verified filter on games tab and emit correct values on change', () => {
+    fixture.componentRef.setInput('currentTab', 'games');
+    fixture.detectChanges();
+
+    const select = fixture.nativeElement.querySelector(
+      '#filter-physical-verified',
+    ) as HTMLSelectElement;
+    expect(select).toBeTruthy();
+
+    let emittedFilters: FilterState | null = null;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.onPartialChange('physical_verified', 1);
+    expect(emittedFilters).toBeTruthy();
+    expect(emittedFilters!.physical_verified).toBe(1);
+
+    component.onPartialChange('physical_verified', 0);
+    expect(emittedFilters!.physical_verified).toBe(0);
+
+    component.onPartialChange('physical_verified', 'all');
+    expect(emittedFilters!.physical_verified).toBe('all');
+  });
+
+  it('should not render physical verified filter on toys tab', () => {
+    fixture.componentRef.setInput('currentTab', 'toys');
+    fixture.detectChanges();
+
+    const select = fixture.nativeElement.querySelector(
+      '#filter-physical-verified',
+    );
+    expect(select).toBeNull();
+  });
 });

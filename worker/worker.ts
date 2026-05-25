@@ -177,7 +177,7 @@ export default {
             await env.DB.prepare(
               `
               UPDATE games 
-              SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ?, verified = 1
+              SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ?, manually_verified = 1
               WHERE stable_id = ?
             `,
             )

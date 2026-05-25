@@ -31,6 +31,7 @@ The application features a **Material 3 Expressive** interface, prioritizing emo
 - **Fluid Motion**: Collection items and UI transitions use expressive, spring-based animations to provide immediate, delightful feedback.
 - **Dual-Theme Engine**: Full support for Light, Dark, and System-aware modes with a built-in theme switcher.
 - **Interactive Status Pills**: Consolidated status markers (Ownership: Unowned/Owned/Seeking/Ordered, Play Status: Unplayed/Played/Playing/Queued/Paused/Dropped, Backup Status) use high-contrast expressive chip patterns for instant recognition. When running via the local proxy, these pills become fully interactive, allowing users to update metadata statuses directly from the detail pages via a sleek modal interface.
+- **Verified Badges**: High-contrast indicator badges on both the collection list game cards and game detail pages. In addition to IGDB verification (`🆔`), a dedicated Physical Release Verified badge (`📦`) identifies physical releases backed by parsed No-Intro and Redump XML DAT files.
 
 ### Navigation & Filter Logic
 
@@ -49,7 +50,7 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **amiibo Discovery**: The `--discovery` pass automatically identifies all missing amiibo (including cards) from the canonical AmiiboAPI and adds them to your collection as "Unowned" items.
 - **Metadata Refresh**: The `--refresh` pass periodically updates images, technical metadata, and queries IGDB for regional release dates for all verified releases. It also normalizes all database slugs to a canonical format and generates an `update_report.md` summarizing the changes.
 - **Physical Release Sync**: The `--sync-dats` pass scans the gitignored `/dats/` directory for XML DAT files, parses their structure, and reconciles physical releases. It inserts distinct release variants (e.g. regional versions, revisions) into the `game_releases` table to track and display them independently.
-- **Verification Signals**: Uses the presence of an `igdb_id` or `pricecharting_url` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
+- **Verification Signals**: Uses the presence of an `igdb_id` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
 - **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys, including granular ownership status tracking (Unowned, Owned, Seeking, Ordered) for all collection lines.
 

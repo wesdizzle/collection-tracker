@@ -155,4 +155,34 @@ describe('ItemDetailComponent', () => {
 
     expect(component.formattedDate()).toBeNull();
   });
+
+  it('should display physical release verified badge and metadata when rom_name is present', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        rom_name: 'Super Mario World (USA).sfc',
+        rom_crc: 'B19DF4F3',
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    // Check for Physical Release Verified pill
+    const romPill = compiled.querySelector('.stat-pill.physical-release');
+    expect(romPill).toBeTruthy();
+    expect(romPill.textContent).toContain('Physical Release Verified');
+
+    // Check for ROM filename metadata box
+    const romMetaBox = compiled.querySelector('.meta-box.full-width');
+    expect(romMetaBox.textContent).toContain('ROM Filename');
+    expect(romMetaBox.textContent).toContain('Super Mario World (USA).sfc');
+
+    // Check for CRC metadata box
+    const crcMetaBox = compiled.querySelector('.crc-text');
+    expect(crcMetaBox).toBeTruthy();
+    expect(crcMetaBox.textContent).toContain('B19DF4F3');
+  });
 });

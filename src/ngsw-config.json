@@ -43,7 +43,6 @@
         "https://images.igdb.com/**",
         "https://raw.githubusercontent.com/**",
         "https://*.amiiboapi.com/**",
-        "https://www.pricecharting.com/**",
         "https://*.igdb.com/**"
       ],
       "cacheConfig": {

@@ -117,6 +117,27 @@ import {
           </div>
 
           <div class="filter-group">
+            <label class="m3-label">Physical Verified</label>
+            <div class="input-wrapper">
+              <select
+                [ngModel]="filters().physical_verified ?? 'all'"
+                (ngModelChange)="
+                  onPartialChange(
+                    'physical_verified',
+                    $event === 'all' ? 'all' : $event
+                  )
+                "
+                class="m3-input"
+                id="filter-physical-verified"
+              >
+                <option value="all">All</option>
+                <option [ngValue]="1">Verified</option>
+                <option [ngValue]="0">Unverified</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="filter-group">
             <label class="m3-label">Platform</label>
             <div class="input-wrapper">
               <select

@@ -11,3 +11,6 @@ not_found_handling = "single-page-application"
 binding = "DB"
 database_name = "collection-db"
 database_id = "1e5eedbd-58d6-443e-a15e-568577cd5596"
+
+[build]
+command = "node -e \"if(!process.env.CI && process.env.ALLOW_LOCAL_DEPLOY !== 'true') { console.error('Error: Direct wrangler deployment is disabled. Push to GitHub to deploy.'); process.exit(1); }\" && npm run build"

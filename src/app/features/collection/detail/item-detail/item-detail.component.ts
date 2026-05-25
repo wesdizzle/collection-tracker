@@ -107,15 +107,11 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   <span>IGDB Verified</span>
                 </div>
               }
-              @if (g.pricecharting_url) {
-                <a
-                  [href]="g.pricecharting_url"
-                  target="_blank"
-                  class="stat-pill active physical"
-                >
+              @if (g.rom_name) {
+                <div class="stat-pill active physical-release">
                   <span class="icon">📦</span>
-                  <span>Physical Verified</span>
-                </a>
+                  <span>Physical Release Verified</span>
+                </div>
               }
             </div>
           } @else if (toy(); as t) {
@@ -409,6 +405,12 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         color: var(--m3-on-primary-container);
         border-color: transparent;
         text-decoration: none;
+      }
+
+      .stat-pill.active.physical-release {
+        background: var(--m3-tertiary-container);
+        color: var(--m3-on-tertiary-container);
+        border-color: transparent;
       }
 
       .stat-pill.interactive {

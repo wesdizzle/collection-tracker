@@ -231,10 +231,10 @@ interface GameGroup {
                               >🆔</span
                             >
                           }
-                          @if (game.pricecharting_url) {
+                          @if (game.rom_name) {
                             <span
-                              class="physical-badge"
-                              title="Physical Release Verified"
+                              class="physical-release-badge"
+                              title="Physical Release Verified (No-Intro/Redump)"
                               >📦</span
                             >
                           }
@@ -653,7 +653,7 @@ interface GameGroup {
       .igdb-icon {
         font-size: 0.8rem;
       }
-      .physical-badge {
+      .physical-release-badge {
         font-size: 0.8rem;
       }
 
@@ -791,6 +791,7 @@ export class CollectionListComponent
     ownership: 1,
     play_status: 'all',
     backup_status: 'all',
+    physical_verified: 'all',
     platform_id: undefined,
     regions: [],
     line: '',
@@ -844,6 +845,15 @@ export class CollectionListComponent
         if (f.backup_status !== undefined && f.backup_status !== 'all') {
           const bStatus = g.backup_status ? 1 : 0;
           if (f.backup_status !== bStatus) return false;
+        }
+
+        // Physical Release Verified Filter
+        if (
+          f.physical_verified !== undefined &&
+          f.physical_verified !== 'all'
+        ) {
+          const isVerified = g.rom_name ? 1 : 0;
+          if (f.physical_verified !== isVerified) return false;
         }
 
         // Platform Filter (Checks both direct platform and parent platform for cross-compatible hardware)

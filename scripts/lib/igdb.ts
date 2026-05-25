@@ -61,7 +61,6 @@ export interface NormalizedGame {
   region: string;
   confidence: number;
   genres: string | null;
-  pricecharting_url: string | null;
 }
 
 // Map of local platform names to IGDB platform IDs
@@ -696,7 +695,6 @@ function normalizeIGDBGame(
     region: regionCode,
     confidence: calculateConfidence(targetTitle, game.name, game.category),
     genres: game.genres ? game.genres.map((g) => g.name).join(', ') : null,
-    pricecharting_url: null,
   };
 }
 

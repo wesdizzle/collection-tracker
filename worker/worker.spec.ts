@@ -54,8 +54,7 @@ describe('Worker API Logic', () => {
                 genres TEXT,
                 collections TEXT,
                 franchises TEXT,
-                pricecharting_url TEXT,
-                verified BOOLEAN,
+                manually_verified BOOLEAN,
                 metadata_json TEXT,
                 region TEXT
             );
@@ -186,8 +185,7 @@ describe('Worker API Logic', () => {
                 genres TEXT,
                 collections TEXT,
                 franchises TEXT,
-                pricecharting_url TEXT,
-                verified BOOLEAN,
+                manually_verified BOOLEAN,
                 metadata_json TEXT,
                 region TEXT
             );
@@ -261,8 +259,7 @@ describe('Worker API Logic', () => {
                 genres TEXT,
                 collections TEXT,
                 franchises TEXT,
-                pricecharting_url TEXT,
-                verified BOOLEAN,
+                manually_verified BOOLEAN,
                 metadata_json TEXT,
                 region TEXT
             );

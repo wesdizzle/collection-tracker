@@ -3,6 +3,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Safety Guard: Prevent accidental local database overrides
+if (!process.env['CI'] && process.env['ALLOW_LOCAL_DEPLOY'] !== 'true') {
+  console.error(
+    '\x1b[31mError: Direct local database deployment is disabled to prevent accidental production overrides.\x1b[0m\n' +
+      'Deployments should be triggered via CI/CD by pushing to GitHub.\n' +
+      'If you absolutely must deploy locally, set ALLOW_LOCAL_DEPLOY=true in your environment or .env file.\n',
+  );
+  process.exit(1);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,15 +82,10 @@ console.log(
 
 try {
   console.log('Pushing to Cloudflare D1 (collection-db)...');
-  // On Windows, we need to ensure the command is executed through the shell correctly
-  const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  execSync(
-    `${cmd} wrangler d1 execute collection-db --remote --file=deploy.sql`,
-    {
-      stdio: 'inherit',
-      shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
-    },
-  );
+  execSync(`wrangler d1 execute collection-db --remote --file=deploy.sql`, {
+    stdio: 'inherit',
+    shell: true as unknown as string,
+  });
   console.log('Successfully synchronized database to Cloudflare!');
 } catch (err) {
   console.error('Failed to sync database to Cloudflare:', err);

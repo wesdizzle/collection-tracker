@@ -34,7 +34,6 @@ export interface ScrapedMetadata {
   image_url?: string;
   description?: string;
   release_date?: string;
-  pricecharting_url?: string;
 }
 
 /**
@@ -161,10 +160,10 @@ export async function scrapePriceCharting(
           ? productResponse.data
           : JSON.stringify(productResponse.data);
       const $product = cheerio.load(productHtml);
-      return extractPriceChartingDetails($product, productUrl);
+      return extractPriceChartingDetails($product);
     }
 
-    return extractPriceChartingDetails($, productUrl);
+    return extractPriceChartingDetails($);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`PriceCharting scrape failed for ${title}:`, message);
@@ -172,10 +171,7 @@ export async function scrapePriceCharting(
   }
 }
 
-function extractPriceChartingDetails(
-  $: cheerio.CheerioAPI,
-  url: string,
-): ScrapedMetadata {
+function extractPriceChartingDetails($: cheerio.CheerioAPI): ScrapedMetadata {
   // PriceCharting title is usually in h1#product_name or h1.chart_title
   const titleEl = $('#product_name, h1.chart_title');
   let title = titleEl.contents().first().text().trim(); // Take only the direct text, excluding the <a> tag
@@ -198,7 +194,6 @@ function extractPriceChartingDetails(
   return {
     title: title || 'Unknown Title',
     image_url: finalImageUrl,
-    pricecharting_url: url,
   };
 }
 

@@ -205,6 +205,45 @@ describe('CollectionListComponent', () => {
     expect(component.filteredGames().length).toBe(2);
   });
 
+  it('should filter games by physical release verified status', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: '1',
+        title: 'Game 1',
+        ownership_status: 1,
+        platform: 'NES',
+        rom_name: 'Game 1.nes',
+      },
+      {
+        id: '2',
+        title: 'Game 2',
+        ownership_status: 1,
+        platform: 'NES',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Filter by Verified (value 1)
+    component.filters.set({ ownership: 'all', physical_verified: 1 });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].id).toBe('1');
+
+    // Filter by Unverified (value 0)
+    component.filters.set({ ownership: 'all', physical_verified: 0 });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].id).toBe('2');
+
+    // Filter by All
+    component.filters.set({ ownership: 'all', physical_verified: 'all' });
+    expect(component.filteredGames().length).toBe(2);
+  });
+
   it('should support exact normalized matching for series', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
 
@@ -638,5 +677,35 @@ describe('CollectionListComponent', () => {
     const series = component.uniqueSeries();
     expect(series[0]).toBe("Spyro's Adventure");
     expect(series[1]).toBe('Giants');
+  });
+
+  it('should display physical release verified badge on game card when rom_name is present', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'game-with-rom',
+        title: 'Game With ROM',
+        platform: 'NES',
+        ownership_status: 1,
+        rom_name: 'Game With ROM (USA).nes',
+        rom_crc: '12345678',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const physicalReleaseBadge = compiled.querySelector(
+      '.physical-release-badge',
+    );
+    expect(physicalReleaseBadge).toBeTruthy();
+    expect(physicalReleaseBadge.getAttribute('title')).toContain(
+      'Physical Release Verified',
+    );
   });
 });

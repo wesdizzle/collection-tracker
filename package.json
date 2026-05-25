@@ -20,9 +20,9 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
-    "deploy:db": "npx tsx scripts/deploy_db.ts",
-    "deploy": "npm run deploy:db && npm run build && npx wrangler deploy",
-    "scrape": "npx tsx scripts/scrape.ts",
+    "deploy:db": "node -e \"if(!process.env.CI && process.env.ALLOW_LOCAL_DEPLOY !== 'true') { console.error('Error: Direct local deployment is disabled. Push to GitHub to deploy.'); process.exit(1); }\" && tsx scripts/deploy_db.ts",
+    "deploy": "node -e \"if(!process.env.CI && process.env.ALLOW_LOCAL_DEPLOY !== 'true') { console.error('Error: Direct local deployment is disabled. Push to GitHub to deploy.'); process.exit(1); }\" && npm run deploy:db && npm run build && wrangler deploy",
+    "scrape": "tsx scripts/scrape.ts",
     "ci-check": "npm run lint && npm run type-check && npm test",
     "prepare": "husky"
   },

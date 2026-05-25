@@ -44,7 +44,6 @@ export interface Game {
   brand?: string;
   platform_launch_date?: string;
   platform_logo?: string;
-  pricecharting_url?: string;
   parent_platform_id?: number;
   sort_index?: number;
   variants?: string;
@@ -129,6 +128,7 @@ export interface FilterState {
   ownership: 'all' | OwnershipStatus;
   play_status?: 'all' | PlayStatus;
   backup_status?: 'all' | 0 | 1;
+  physical_verified?: 'all' | 0 | 1;
   platform_id?: number;
   regions?: string[];
   is_linked?: boolean;
