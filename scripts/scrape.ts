@@ -39,6 +39,10 @@ import { recomputeCanonicalSeries } from './compute_canonical_series.js';
 import axios from 'axios';
 import { parseDatFile } from './lib/dat_parser.js';
 import * as path from 'path';
+import {
+  titlesMatch,
+  normalizeTitleForMatching,
+} from './lib/title_matching.js';
 
 const db = new Database('collection.sqlite');
 
@@ -196,6 +200,24 @@ function findDbPlatform(
     'game boy advance': 'game boy advance',
     'nintendo 64': 'nintendo 64',
     'nintendo ds': 'nintendo ds',
+    'playstation vita': 'playstation vita',
+    'playstation portable': 'playstation portable',
+    'playstation 5': 'playstation 5',
+    'playstation 4': 'playstation 4',
+    'playstation 3': 'playstation 3',
+    'playstation 2': 'playstation 2',
+    playstation: 'playstation',
+    gamecube: 'gamecube',
+    'wii u': 'wii u',
+    wii: 'wii',
+    saturn: 'saturn',
+    '3do': '3do',
+    dreamcast: 'dreamcast',
+    '3ds': '3ds',
+    'game gear': 'game gear',
+    '32x': '32x',
+    lynx: 'lynx',
+    jaguar: 'jaguar',
   };
 
   const sortedFallbackKeys = Object.keys(fallbacks).sort(
@@ -239,88 +261,6 @@ function findDbPlatform(
   }
 
   return null;
-}
-
-/**
- * Normalizes a game title into a canonical alphabetic sorted token string.
- * Cleans common publisher names, prepositions, regional aliases (e.g. Earthbound Beginnings -> Mother),
- * transliterations (oo/uu -> o/u), and spelling discrepancies.
- *
- * @param title The game title.
- * @returns Normalized token string.
- */
-function normalizeTitleForMatching(title: string): string {
-  const ALIASES: Record<string, string> = Object.assign(Object.create(null), {
-    'earthbound beginnings': 'mother',
-  });
-
-  let t = title.toLowerCase().trim();
-
-  // Apply exact alias overrides if defined
-  if (ALIASES[t]) {
-    t = ALIASES[t];
-  }
-
-  t = t.replace(/&/g, 'and');
-
-  // Handle transliterations/macrons/umlauts
-  t = t.replace(/oo/g, 'o').replace(/uu/g, 'u');
-  t = t.replace(/cch/g, 'tch');
-
-  // Normalize common spelling discrepancies
-  t = t.replace(/mega\s+man/g, 'megaman');
-  t = t.replace(/pac\s+man/g, 'pacman');
-  t = t.replace(/super\s+mario/g, 'supermario');
-
-  // Remove publisher prefixes/suffixes
-  t = t.replace(
-    /\b(disney|sega|nintendo|sony|microsoft|capcom|konami|namco|square enix|square|enix|atari|ubisoft|ea|marvel|sid meiers?|tom clancys?|lego|nickelodeon)s?\b/gi,
-    '',
-  );
-
-  // Normalize diacritics
-  t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-  // Strip non-alphanumeric characters but keep spaces for word splitting
-  t = t.replace(/[^a-z0-9\s]/g, ' ');
-
-  // Filter out common articles and prepositions
-  t = t.replace(
-    /\b(the|a|an|and|in|of|for|with|on|at|to|by|or|from|version|edition)\b/gi,
-    '',
-  );
-
-  // Split into words, sort alphabetically, and join
-  const words = t
-    .split(/\s+/)
-    .filter((w) => w.length > 0)
-    .sort();
-  return words.join('');
-}
-
-/**
- * Evaluates whether a database game title matches a release title.
- * Splits titles containing alternative/regional options combined with '~' or '/'
- * and compares the normalized alternatives.
- *
- * @param gameTitle The database game title to evaluate.
- * @param releaseTitle The clean release title from the DAT file.
- * @returns True if any normalized alternative matches, false otherwise.
- */
-function titlesMatch(gameTitle: string, releaseTitle: string): boolean {
-  const gameAlts = gameTitle
-    .split(/[~/]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const releaseAlts = releaseTitle
-    .split(/[~/]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const gameNorms = gameAlts.map((alt) => normalizeTitleForMatching(alt));
-  const releaseNorms = releaseAlts.map((alt) => normalizeTitleForMatching(alt));
-
-  return gameNorms.some((gNorm) => releaseNorms.includes(gNorm));
 }
 
 /**
@@ -466,7 +406,6 @@ async function syncDats(): Promise<void> {
     const skipMarkers = [
       '(digital)',
       '(cdn)',
-      '(psn)',
       '(updates)',
       '(dlc)',
       '(eshop)',
@@ -526,9 +465,28 @@ async function syncDats(): Promise<void> {
     // Use a transaction for performance and safety during reconciliation
     const transaction = db.transaction(() => {
       for (const release of datContent.releases) {
-        // Skip releases without ROM definitions
-        const primaryRom = release.roms[0];
-        if (!primaryRom) continue;
+        // PlayStation Vita platform ID is 33. We only match physical .psv card dumps for this platform.
+        let roms = release.roms;
+        if (dbPlatform.id === 33) {
+          roms = roms.filter((r) => r.name.toLowerCase().endsWith('.psv'));
+        }
+        if (roms.length === 0) continue;
+
+        // Select the primary ROM. For folder-based/decrypted dumps (like Vita/PS3),
+        // we search for the main executable (e.g., eboot.bin / EBOOT.BIN) to use as the representative ROM.
+        let primaryRom = roms[0];
+        const executableRom = roms.find((r) => {
+          const nameLower = r.name.toLowerCase();
+          return (
+            nameLower.endsWith('eboot.bin') ||
+            nameLower.endsWith('boot.bin') ||
+            nameLower.endsWith('launch.elf') ||
+            nameLower.endsWith('default.xex')
+          );
+        });
+        if (executableRom) {
+          primaryRom = executableRom;
+        }
 
         const romName = primaryRom.name;
         const romCrc = primaryRom.crc || null;
@@ -579,13 +537,25 @@ async function syncDats(): Promise<void> {
 
         // Find candidate games in the database on this platform that match the title
         const matchingGames = dbGames.filter((g) =>
-          titlesMatch(g.title, baseTitle),
+          titlesMatch(g.title, baseTitle, release.name),
         );
 
         if (matchingGames.length === 0) {
           // No match in database, skip as we only want to track games the user has in their list
           continue;
         }
+
+        // Sort matching candidates by the absolute difference in normalized title length between the game and the release.
+        // This ensures the closest match (the exact base game or the closest sequel title) is always chosen first,
+        // resolving prefix segment collisions (e.g. preventing the release "Oddworld" from being stolen by the sequel "Oddworld: Stranger's Wrath HD").
+        matchingGames.sort((a, b) => {
+          const normA = normalizeTitleForMatching(a.title);
+          const normB = normalizeTitleForMatching(b.title);
+          const normRelease = normalizeTitleForMatching(baseTitle);
+          const diffA = Math.abs(normA.length - normRelease.length);
+          const diffB = Math.abs(normB.length - normRelease.length);
+          return diffA - diffB;
+        });
 
         // Associate the release with the matched game (using stable_id)
         const parentGame = matchingGames[0];
