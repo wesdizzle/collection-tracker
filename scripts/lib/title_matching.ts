@@ -14,34 +14,20 @@
  * @param title The game title to normalize.
  * @returns The normalized title string.
  */
-export function normalizeTitleForMatching(title: string): string {
-  // Explicit overrides for complex or heavily divergent database titles
-  const ALIASES: Record<string, string> = Object.assign(Object.create(null), {
-    'earthbound beginnings': 'mother',
-    'the legend of zelda: ocarina of time + the legend of zelda: ocarina of time - master quest: two-game bonus disc!':
-      'legend of zelda ocarina of time and master quest',
-    'the legend of zelda ocarina of time the legend of zelda ocarina of time master quest two game bonus disc':
-      'legend of zelda ocarina of time and master quest',
-    'pokémon colosseum bonus disc': 'pokemon colosseum bonus disc',
-    'prince of persia trilogy hd': 'prince of persia trilogy',
-    'jak and daxter collection': 'jak and daxter trilogy',
-    'ratchet & clank collection': 'ratchet & clank trilogy',
-    'the walking dead: season two':
-      'walking dead season two a telltale games series',
-    'the walking dead season two':
-      'walking dead season two a telltale games series',
-    'final fantasy x/x-2 hd remaster':
-      'final fantasy x / final fantasy x-2 / final fantasy x x-2 hd remaster',
-  });
-
+export function normalizeTitleForMatching(
+  title: string,
+  skipAliases = false,
+): string {
   let t = title.toLowerCase().trim();
 
-  // Apply exact overrides
-  if (t in ALIASES) {
-    t = ALIASES[t];
-  }
+  // Strip apostrophe-s ('s) early so publisher/franchise prefixes are cleanly removed.
+  // E.g. "Disney's DuckTales" -> "Disney DuckTales" -> "DuckTales"
+  t = t.replace(/'s\b/g, '');
 
   t = t.replace(/&/g, 'and');
+
+  // Normalize visual character substitutions like $ -> s (e.g. Game$! -> Games!)
+  t = t.replace(/\$/g, 's');
 
   // Handle transliterations and macrons
   t = t.replace(/oo/g, 'o').replace(/uu/g, 'u');
@@ -52,9 +38,9 @@ export function normalizeTitleForMatching(title: string): string {
   t = t.replace(/pac\s+man/g, 'pacman');
   t = t.replace(/super\s+mario/g, 'supermario');
 
-  // Remove publisher prefixes/suffixes
+  // Remove publisher prefixes/suffixes and franchise specific prefixes
   t = t.replace(
-    /\b(disney|sega|nintendo|sony|microsoft|capcom|konami|namco|square enix|square|enix|atari|ubisoft|ea|marvel|sid meiers?|tom clancys?|lego|nickelodeon)s?\b/gi,
+    /\b(disney|sega|nintendo|sony|microsoft|capcom|konami|namco|square enix|square|enix|atari|ubisoft|ea|marvel|sid meiers?|tom clancys?|lego|nickelodeon|lara croft)s?\b/gi,
     '',
   );
 
@@ -70,6 +56,12 @@ export function normalizeTitleForMatching(title: string): string {
   // Strip non-alphanumeric characters but keep spaces for word splitting
   t = t.replace(/[^a-z0-9\s]/g, ' ');
 
+  // Filter out trailing platform suffixes from database titles (e.g. "Plants vs. Zombies DS" -> "Plants vs. Zombies")
+  t = t.replace(
+    /\b(ds|gba|gbc|n64|nes|snes|ps3|ps2|ps1|wii|xbox|3ds)\b$/gi,
+    '',
+  );
+
   // Filter out common articles and prepositions
   t = t.replace(
     /\b(the|a|an|and|in|of|for|with|on|at|to|by|or|from|version|edition)\b/gi,
@@ -78,7 +70,52 @@ export function normalizeTitleForMatching(title: string): string {
 
   // Split into words, filter empty ones, and join preserving natural order
   const words = t.split(/\s+/).filter((w) => w.length > 0);
-  return words.join('');
+  const cleanTitle = words.join('');
+
+  // Explicit overrides using clean alphanumeric keys to resolve colons, spaces, and other punctuation differences.
+  const ALIASES: Record<string, string> = {
+    earthboundbeginnings: 'mother',
+    legendzeldaocarinatimelegendzeldaocarinatimemasterquesttwogamebonusdisc:
+      'legendzeldaocarinatimemasterquest',
+    legendzeldaocarinatimemasterquesttwogamebonusdisc:
+      'legendzeldaocarinatimemasterquest',
+    pokemoncolosseumbonusdisc: 'pokemoncolosseumbonusdisc',
+    princepersiatrilogyhd: 'princepersiatrilogy',
+    jakdaxtercollection: 'jakdaxtertrilogy',
+    ratchetclankcollection: 'ratchetclanktrilogy',
+    walkingdeadseasontwo: 'walkingdeadseasontwotelltalegamesseries',
+    finalfantasyxx2hdremaster:
+      'finalfantasyxfinalfantasyx2finalfantasyxx2hdremaster',
+    sonicclassics: 'soniccompilation',
+    n: 'nplus',
+    princepersia3d: 'princepersiaarabiannights',
+    lemmings3d: '3dlemmings',
+    harvestmonnewbeginning: 'harvestmon3dnewbeginning',
+    harvestmontaletwotowns: 'harvestmon3dtaletwotowns',
+    spacechannel5special: 'spacechannel5ulalacosmicattack',
+    dishonoreddefinitive: 'dishonoredgameyear',
+    bioshockinfinitecomplete: 'bioshockinfinitecompletebonuscontentdisc',
+    watchmenendisnigh: 'watchmenendisnighparts12',
+    classicscollection: 'classicscollectionvol1',
+    metalgearsolidlegacycollection: 'metalgearsolidlegacycollection19872012',
+    splintercelltrilogyhd: 'splintercelltrilogy',
+    dragonlairtrilogy: 'donbluthpresentsdragonlairtrilogy',
+    softwaretolworksstarwarschess: 'starwarschess',
+    simcopter64: 'simcopter',
+    tombraiderstarring: 'tombraider',
+    bioniclegame: 'bionicle',
+    grandtheftautoadvance: 'grandtheftauto',
+    starwarsepisodeijedipowerbattles: 'starwarsjedipowerbattles',
+    dissidia012finalfantasy: 'dissidia012duodecimfinalfantasy',
+  };
+
+  // If skipAliases is true, we bypass the explicit alias lookup.
+  // This allows comparing the raw un-aliased base titles for boundary checks.
+  if (!skipAliases && cleanTitle in ALIASES) {
+    return ALIASES[cleanTitle];
+  }
+
+  return cleanTitle;
 }
 
 /**
@@ -92,12 +129,14 @@ export function normalizeTitleForMatching(title: string): string {
  * @param gameTitle The database game title.
  * @param releaseTitle The clean release title from the DAT file (parentheticals stripped).
  * @param rawReleaseName The raw release name from the DAT file (parentheticals intact).
+ * @param platformId Optional database platform ID to handle platform-specific title mappings.
  * @returns True if the titles are considered a match, false otherwise.
  */
 export function titlesMatch(
   gameTitle: string,
   releaseTitle: string,
   rawReleaseName?: string,
+  platformId?: number,
 ): boolean {
   const PRE_SPLIT_ALIASES: Record<string, string> = {
     'final fantasy x/x-2 hd remaster':
@@ -106,9 +145,20 @@ export function titlesMatch(
     "assassin's creed chronicles: trilogy pack": "assassin's creed chronicles",
     // Wii U's physical release in dats is named "Shovel Knight" but owned title is "Shovel Knight: Treasure Trove"
     'shovel knight: treasure trove': 'shovel knight',
+    'the amazing spider-man vs. the kingpin':
+      'spider-man / spider-man vs. the kingpin / the amazing spider-man vs. the kingpin',
+    "x-men: gamesmaster's legacy": "x-men - gamemaster's legacy",
+    'final fantasy anthology':
+      'final fantasy anthology - final fantasy v / final fantasy anthology - final fantasy vi',
+    'minecraft: story mode - the complete adventure':
+      'minecraft - story mode - a telltale games series - the complete adventure / minecraft - story mode - the complete adventure',
+    'minecraft: story mode - season two':
+      'minecraft - story mode - season two - the telltale series / minecraft - story mode - season two',
   };
   const gLower = gameTitle.toLowerCase().trim();
-  if (gLower in PRE_SPLIT_ALIASES) {
+  if (platformId === 14 && gLower === 'the amazing spider-man 2') {
+    gameTitle = 'spider-man 2';
+  } else if (gLower in PRE_SPLIT_ALIASES) {
     gameTitle = PRE_SPLIT_ALIASES[gLower];
   }
 
@@ -116,6 +166,12 @@ export function titlesMatch(
     .split(/(?<!\d)[~/](?!\d)/)
     .map((s) => s.trim())
     .filter(Boolean);
+
+  // If the game title contains alternative delimiters, also include the full unsplit title
+  // as a candidate. This is crucial for matching compilation releases (e.g., "Marble Madness / Klax").
+  if (gameTitle.includes('/') || gameTitle.includes('~')) {
+    gameAlts.push(gameTitle);
+  }
 
   const releaseAlts = releaseTitle
     .split(/(?<!\d)[~/](?!\d)/)
@@ -150,8 +206,28 @@ function matchAlternative(
   const gameLower = gTitle.toLowerCase();
   const isZeldaMQ = gameLower.includes('master quest');
 
+  const gNorm = normalizeTitleForMatching(gTitle);
+  const rNorm = normalizeTitleForMatching(rAlt);
+
   // 1. Sequel / Season number check to prevent matching base games to sequels or vice-versa.
-  if (!isZeldaMQ) {
+  const isCompilation =
+    gTitle.includes('/') ||
+    gTitle.includes('~') ||
+    rAlt.includes('/') ||
+    rAlt.includes('~') ||
+    /\b\d+\s+games?\s+in\s+/i.test(gTitle) ||
+    /\b\d+\s+games?\s+in\s+/i.test(rAlt) ||
+    /\b\d+-in-\d+\b/i.test(gTitle) ||
+    /\b\d+-in-\d+\b/i.test(rAlt);
+
+  // Determine if the titles matched via an explicit alias mapping where their
+  // base, unaliased titles differ. If so, we bypass the sequel check to allow
+  // manual reconciliation overrides (e.g. matching SimCopter 64 to SimCopter).
+  const baseG = normalizeTitleForMatching(gTitle, true);
+  const baseR = normalizeTitleForMatching(rAlt, true);
+  const matchedViaAlias = gNorm === rNorm && baseG !== baseR;
+
+  if (!isZeldaMQ && !isCompilation && !matchedViaAlias) {
     const getNumberTokens = (str: string): Set<string> => {
       const tokens = new Set<string>();
       const lower = str.toLowerCase();
@@ -237,7 +313,10 @@ function matchAlternative(
       Array.from(getNumberTokens(rAlt)).map(canonicalNumber),
     );
 
-    // Determine the highest sequel/season number >= 2 present in either title
+    // Determine the highest sequel/season number >= 2 present in either title.
+    // Since we bypass the sequel check for explicit aliases, we can safely check
+    // all numeric indicators (including platform numbers like 64 or years like 1969/2005)
+    // to block incorrect base-to-sequel or base-to-expansion matching.
     const allNums = new Set([...gameNums, ...releaseNums]);
     const sequelNums = Array.from(allNums).filter((n) => {
       const parsed = parseInt(n, 10);
@@ -254,6 +333,8 @@ function matchAlternative(
   }
 
   // 2. Enforce boundary check to prevent matching a Bonus Disc to a main game (or vice versa).
+  // We only bypass this check for Master Quest/Zelda bonus discs, or when the titles match
+  // via an explicit alias (where their un-aliased base titles differ).
   if (!isZeldaMQ) {
     const isReleaseSpecial =
       rawLower.includes('bonus disc') ||
@@ -268,12 +349,15 @@ function matchAlternative(
       gameLower.includes('kakuchou disc');
 
     if (isReleaseSpecial !== isGameSpecial) {
-      return false;
+      const baseG = normalizeTitleForMatching(gTitle, true);
+      const baseR = normalizeTitleForMatching(rAlt, true);
+      // If their base unaliased titles are the same, they represent the same core game title
+      // but different disc types, so they must not be matched.
+      if (baseG === baseR) {
+        return false;
+      }
     }
   }
-
-  const gNorm = normalizeTitleForMatching(gTitle);
-  const rNorm = normalizeTitleForMatching(rAlt);
 
   // Strategy 1: Exact match on normalized strings
   if (gNorm === rNorm) {

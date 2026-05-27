@@ -20,6 +20,7 @@ export const GAMES_LIST_QUERY = `
            g.image_url,
            g.play_status,
            g.igdb_id,
+           g.igdb_url,
            g.summary,
            g.genres,
            g.collections,
@@ -58,6 +59,7 @@ export const GAME_DETAIL_QUERY = `
            g.image_url,
            g.play_status,
            g.igdb_id,
+           g.igdb_url,
            g.summary,
            g.genres,
            g.collections,
@@ -80,6 +82,12 @@ export const GAME_DETAIL_QUERY = `
     LEFT JOIN platforms p ON g.platform_id = p.id 
     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
     WHERE r.id = ? OR (r.id IS NULL AND g.id = ?)
+`;
+
+export const GAME_RELEASES_BY_GAME_ID_QUERY = `
+    SELECT id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status
+    FROM game_releases
+    WHERE game_id = ? AND region IS ? AND variants IS ?
 `;
 
 export const PLATFORMS_LIST_QUERY = `

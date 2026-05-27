@@ -36,7 +36,7 @@ describe('Database Integrity', () => {
       {} as Record<number, number>,
     );
 
-    expect(actual[0] ?? 0).toBe(2363); // Unowned (Not in collection)
+    expect(actual[0] ?? 0).toBe(2358); // Unowned (Not in collection)
     expect(actual[1] ?? 0).toBe(1977); // Owned (In collection)
     expect(actual[2] ?? 0).toBe(0); // Seeking (Actively looking to acquire)
     expect(actual[3] ?? 0).toBe(0); // Ordered (Purchased but not yet received)
@@ -85,7 +85,8 @@ describe('Database Integrity', () => {
       'Atari 7800 (Owned)': 2,
       'Atari 7800 (Unowned)': 4,
       'Atari Lynx (Unowned)': 5,
-      'Atari Jaguar (Unowned)': 5,
+      'Atari Jaguar (Unowned)': 4,
+      'Atari Jaguar CD (Unowned)': 1,
       'ColecoVision (Owned)': 1,
       'ColecoVision (Unowned)': 1,
       'Intellivision (Owned)': 1,
@@ -158,7 +159,7 @@ describe('Database Integrity', () => {
       'Xbox (Owned)': 25,
       'Xbox (Unowned)': 95,
       'Xbox 360 (Owned)': 81,
-      'Xbox 360 (Unowned)': 202,
+      'Xbox 360 (Unowned)': 197,
       'Xbox One (Owned)': 153,
       'Xbox One (Unowned)': 171,
       'Xbox Series X (Owned)': 17,

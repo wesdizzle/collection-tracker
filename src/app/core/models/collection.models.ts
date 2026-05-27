@@ -21,9 +21,21 @@ export enum PlayStatus {
   Dropped = 5,
 }
 
+export interface GameRelease {
+  id: string;
+  game_id: number;
+  region?: string;
+  variants?: string;
+  rom_name?: string;
+  rom_crc?: string;
+  backup_status: number;
+  ownership_status: number;
+}
+
 export interface Game {
   stable_id: number;
   id: string; // The durable slug: game-title-platform-name
+  game_id?: string; // Grouped game slug reference
   title: string;
   series: string;
   canonical_series: string;
@@ -31,6 +43,7 @@ export interface Game {
   platform: string;
   platform_id: number;
   igdb_id?: number;
+  igdb_url?: string;
   region?: string;
   display_name?: string;
   ownership_status: OwnershipStatus;
@@ -49,6 +62,7 @@ export interface Game {
   variants?: string;
   rom_name?: string;
   rom_crc?: string;
+  releases?: GameRelease[];
 }
 
 export interface Toy {

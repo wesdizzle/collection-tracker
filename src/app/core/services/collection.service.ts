@@ -17,7 +17,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { Observable, firstValueFrom, catchError, of } from 'rxjs';
+import { Observable, firstValueFrom, catchError, of, map } from 'rxjs';
 import {
   Game,
   Toy,
@@ -215,6 +215,7 @@ export class CollectionService {
       url += `?platform_id=${platformId}`;
     }
     return this.http.get<Game[]>(url).pipe(
+      map((games) => games.map((game) => this.enrichGameTitle(game))),
       catchError((err) => {
         console.error('[CollectionService] Error fetching games:', err);
         return of([]);
@@ -250,7 +251,9 @@ export class CollectionService {
    * Fetches a single game by its stable identifier.
    */
   getGameById(id: string): Observable<Game> {
-    return this.http.get<Game>(`/api/games/${id}`);
+    return this.http
+      .get<Game>(`/api/games/${id}`)
+      .pipe(map((game) => this.enrichGameTitle(game)));
   }
 
   /**
@@ -438,5 +441,42 @@ export class CollectionService {
    */
   public closeDialog() {
     this._dialogState.set({ ...this._dialogState(), visible: false });
+  }
+
+  /**
+   * Enriches a game object by overriding its title with the clean ROM filename
+   * (excluding the file extension) when a verified backup rom_name is present.
+   * This ensures the ROM filename is displayed in the UI and used for search filters.
+   *
+   * @param game The source Game object to enrich.
+   * @returns A new Game object with the title updated if a ROM name is present.
+   */
+  private enrichGameTitle(game: Game): Game {
+    if (game.rom_name) {
+      const lastDot = game.rom_name.lastIndexOf('.');
+      let name =
+        lastDot > 0 ? game.rom_name.substring(0, lastDot) : game.rom_name;
+
+      // Remove all parentheses and square brackets except when containing "Bonus Disc"
+      name = name.replace(/\(([^)]+)\)|\[([^\]]+)\]/g, (match) => {
+        if (/\bBonus\s+Disc\b/i.test(match)) {
+          return '(Bonus Disc)';
+        }
+        return '';
+      });
+
+      // Strip disc indicators outside brackets
+      name = name.replace(/\b-\s*disc\s+[0-9a-z]\b|\bdisc\s+[0-9a-z]\b/gi, '');
+
+      // Collapse whitespace and trim
+      name = name.replace(/\s+/g, ' ').trim();
+
+      const cleanTitle = name || game.title;
+      return {
+        ...game,
+        title: cleanTitle,
+      };
+    }
+    return game;
   }
 }

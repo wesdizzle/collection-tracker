@@ -6,7 +6,7 @@ A collection tracking application built with **Angular 21**.
 
 - **Toy Collection & Grounding**: Full support for amiibo, Skylanders, and Starlink with verified metadata, regional tracking, and automated discovery.
 - **Durable Metadata**: Deep integration with IGDB for games and AmiiboAPI/SCL for toys.
-- **Physical Release Reconciliation**: Reconciliation of distinct physical release variants using No-Intro and Redump XML DAT files. All releases (including regional versions and revisions) are displayed as individual items in the UI to allow tracking of multiple copies.
+- **Physical Release Reconciliation & ROM Display**: Reconciliation of distinct physical release variants using No-Intro and Redump XML DAT files. All releases (including regional versions and revisions) are displayed as individual items in the UI to allow tracking of multiple copies. When a game matches a physical release, the frontend dynamically overrides the displayed game title with the clean ROM filename (excluding its file extension). This clean ROM title is used everywhere in the UI and is fully supported by the name/series filter search.
 - **Manual Discovery Pipeline**: A suggestion-based matching workflow for ambiguous items, surfaced through a generated discovery report for human-in-the-loop verification.
 - **Signals-First Architecture**: Leveraging Angular 21 Signals for high-performance state management and reactive delivery.
 
@@ -50,11 +50,17 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **amiibo Discovery**: The `--discovery` pass automatically identifies all missing amiibo (including cards) from the canonical AmiiboAPI and adds them to your collection as "Unowned" items.
 - **Metadata Refresh**: The `--refresh` pass periodically updates images, technical metadata, and queries IGDB for regional release dates for all verified releases. It also normalizes all database slugs to a canonical format and generates an `update_report.md` summarizing the changes.
 - **Physical Release Sync & Title Matching**: The `--sync-dats` pass scans the `/dats/` directory for XML DAT files, parses their structure, and reconciles physical releases using a specialized title matching module (`scripts/lib/title_matching.ts`). It avoids word-scrambling side effects by maintaining natural word order, and employs a multi-strategy sequence:
-  - _Strategy 1 (Exact Match)_: Compares normalized titles (lowercased, diacritics normalized, punctuation stripped).
+  - _Strategy 1 (Exact Match)_: Compares normalized titles (lowercased, diacritics normalized, punctuation stripped). Normalization rules include:
+    - Early stripping of apostrophe-s (`'s`) to cleanly remove publisher/franchise prefixes (e.g., "Disney's" -> "Disney" -> stripped).
+    - Normalizing visual character substitutions such as replacing dollar signs (`$`) with `"s"` (e.g., `"Mega Party Game$!"` -> `"Mega Party Games"`).
+    - Stripping trailing platform suffixes (e.g., `ds`, `gba`, `3ds`, `wii`) to match database titles like "Plants vs. Zombies DS".
+    - Stripping franchise-specific prefixes like "Lara Croft" (e.g., "Lara Croft Tomb Raider - Legend" -> "Tomb Raider - Legend").
   - _Strategy 2 (Segment/Subtitle Matching)_: Splits titles on colons/dashes to match base games against subtitle variants (e.g., matching "Tomb Raider II" against "Tomb Raider II - Starring Lara Croft" or "Super Mario All-Stars" against "Super Mario All-Stars: Limited Edition").
   - _Strategy 3 (Middle-Segment Stripping)_: Handles mission packs and multi-segment layouts (e.g., matching "Grand Theft Auto: London 1969" against "Grand Theft Auto - Mission Pack 1 - London 1969").
   - _Strategy 4 (Bonus Disc Special Matching)_: Uses parenthetical identifiers to resolve bonus and special discs (e.g., "Pokémon Colosseum Bonus Disc").
-    It prevents sequel/season collisions by enforcing a strict digit matching check (e.g., separating "Grand Theft Auto" from "London 1969"). Distinct release variants (e.g. regional versions, revisions, and clean Title ID paths for Vita folder dumps) are inserted into the `game_releases` table to track them independently.
+    It prevents sequel/season collisions by enforcing a strict digit matching check (e.g., separating "Grand Theft Auto" from "London 1969"), while bypassing it for compilation games (e.g. "Marble Madness / Klax" matching "2 Games in One! - Marble Madness + Klax"). Distinct release variants (e.g. regional versions, revisions, and clean Title ID paths for Vita folder dumps) are inserted into the `game_releases` table to track them independently.
+- **Strict Format & Platform Constraints**: The sync scraper filters out digital installer `.pkg` files, unheadered NES ROM `.unh` files, digital/virtual releases containing `(Virtual Console)`, and emulator-wrapped collections like `(Genesis Mini)` or `(Anniversary Collection)`. For PlayStation Vita, it strictly parses physical `.psv` card formats, ignoring digital/homebrew folder dumps and `.vpk` packages.
+- **Multi-Disc Grouping Rules**: Multiple discs of a game are grouped together on the collection page only if their stripped ROM filenames are identical except for the disc indicators.
 - **Verification Signals**: Uses the presence of an `igdb_id` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
 - **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys, including granular ownership status tracking (Unowned, Owned, Seeking, Ordered) for all collection lines.
@@ -125,3 +131,14 @@ The Collection Tracker is optimized for mobile use:
 - **UX & Interaction Design**:
   - _Option A (Modal Wizard)_: A multi-step ingestion flow (Search/Scan results -> Configuration of statuses -> Database persist & sync).
   - _Option B (Inline Form)_: Selecting a search or scan result expands an inline metadata customization form, saving the game directly within the feed.
+
+### 2. Fix Bugs
+
+- Game release date was removed as we migrated to the releases table since that data comes from IGDB, but the releases table is reset with each pass, and the data is not fetched. We should make the dat matching non-destructive and not remove releases at the beginning of the script. When we are populating new releases, we should check igdb for the regional or variant release date. If there is nothing indicating the variant on igdb, we should use the correct regional release but keep these variants sorted after the main release.
+- Multi-disc handling is still not correct. I see things like `Rayman (USA) (Playable Game Preview).cue` included with the main game as if it were a multi-disc game instead of a completely separate release.
+- Platform launch date should not be shown on the game detail page since it is visually misleading, especially with the game release date missing. We should show the full platform launch date in the section header on the collection page, in the full spelled out format including the day of the week. It currently just lists the year.
+- `(Evercade)` should be included in the list of substrings marking releases to be ignored, as the Evercade is a line of devices to re-release retro games, and we are not tracking them.
+- When using the release rom name as the display title, we should reverse the handling of articles to be more human readable, e.g. `Misadventures of Tron Bonne, The (USA).cue` should be `The Misadventures of Tron Bonne`.
+- There are still several games on the Vita and older consoles that have not been properly matched to physical releases in the datfiles. We need to match these.
+- Special handling was added for the Pokemon Colosseum bonus disc, but it is being exploited when there is a bonus disc included with the release of another game. Examples include games from the Splinter Cell, BioShock, Viva Pinata, Dead Rising, and Gears of War series. In these cases, the regular game is being matched to the bonus disc release, and the actual game is being ignored. We should fix this. Perhaps, we should look for `Bonus Disc` in the game title before following the special handling for the Pokemon Colosseum Bonus Disc.
+- There is one downfall of using the release filename as the main display title; some titles have accented characters, which are not preserved in the filenames. We should try to preserve these if possible.

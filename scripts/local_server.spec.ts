@@ -51,6 +51,7 @@ describe('Local Server API Logic', () => {
                 image_url TEXT,
                 play_status TEXT,
                 igdb_id INTEGER,
+                igdb_url TEXT,
                 summary TEXT,
                 genres TEXT,
                 collections TEXT,

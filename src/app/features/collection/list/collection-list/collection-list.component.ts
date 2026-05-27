@@ -829,7 +829,43 @@ export class CollectionListComponent
   public filteredGames = computed(() => {
     const allGames = this.collectionService.games();
     const f = this.filters();
-    return allGames
+
+    // Group multiple discs of the same release version (game_id, region, variants, and base rom name)
+    const groupedMap = new Map<
+      string,
+      Game & { discIds: string[]; discBackups: number[] }
+    >();
+    for (const g of allGames) {
+      const strippedRom = this.stripDiscIndicator(g.rom_name);
+      const baseKey = `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${strippedRom}`;
+      if (!groupedMap.has(baseKey)) {
+        groupedMap.set(baseKey, {
+          ...g,
+          discIds: [g.id],
+          discBackups: [g.backup_status ? 1 : 0],
+        });
+      } else {
+        const existing = groupedMap.get(baseKey)!;
+        existing.discIds.push(g.id);
+        existing.discBackups.push(g.backup_status ? 1 : 0);
+        existing.ownership_status = Math.max(
+          existing.ownership_status,
+          g.ownership_status,
+        );
+        existing.play_status = Math.max(existing.play_status, g.play_status);
+      }
+    }
+
+    const groupedGames = Array.from(groupedMap.values()).map((g) => {
+      // Release is considered backed up if all its discs are backed up
+      const allBackedUp = g.discBackups.every((b) => b === 1) ? 1 : 0;
+      return {
+        ...g,
+        backup_status: allBackedUp,
+      };
+    });
+
+    return groupedGames
       .filter((g) => {
         // Basic Ownership Filter
         const status = g.ownership_status ?? 0;
@@ -981,6 +1017,40 @@ export class CollectionListComponent
     else if (s.startsWith('an ')) s = s.substring(3);
 
     return s.trim();
+  }
+
+  /**
+   * Strips disc-specific markers (e.g., (Disc 1), (Disc A), (Disc 1 of 2),
+   * - Disc A, Disc 1) and file extensions from a ROM filename.
+   * This allows grouping of multi-disc games that share the exact same release
+   * metadata and base ROM name.
+   *
+   * @param filename The ROM filename.
+   * @returns The stripped ROM name, or an empty string if not provided.
+   */
+  private stripDiscIndicator(filename: string | null | undefined): string {
+    if (!filename) {
+      return '';
+    }
+
+    // Extract base name without file extension (if any)
+    const lastDot = filename.lastIndexOf('.');
+    let base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+
+    // Regex to match and strip typical disc indicators (e.g. "Disc 1", "(Disc A)", etc.)
+    // Matches patterns like "Disc [0-9a-zA-Z]", "Disc [0-9]+ of [0-9]+", and similar patterns
+    // with optional leading dashes/underscores/spaces or surrounding parentheses.
+    base = base.replace(
+      /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/gi,
+      '',
+    );
+    base = base.replace(/[-_\s]*\(?Side\s+[a-zA-Z0-9]\)?/gi, '');
+
+    // Normalize extra spaces and trim any trailing separator characters
+    base = base.replace(/\s+/g, ' ').trim();
+    base = base.replace(/[-_]$/, '').trim();
+
+    return base.toLowerCase();
   }
 
   /** Virtual list window based on displayLimit for infinite scroll performance */

@@ -22,6 +22,7 @@ export interface IGDBGame {
   id: number;
   name: string;
   slug?: string;
+  url?: string;
   summary?: string;
   cover?: IGDBImage;
   first_release_date?: number;
@@ -47,6 +48,7 @@ export interface IGDBGame {
 export interface NormalizedGame {
   id: string;
   slug: string | null;
+  igdb_url: string | null;
   name: string;
   summary?: string;
   image_url: string | null;
@@ -299,14 +301,14 @@ export async function findGame(
   }
 
   const searchQuery = `
-        fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         search "${cleanTitle.replace(/"/g, '')}";
         ${platformFilter ? `where ${platformFilter};` : ''}
         limit 50;
     `;
 
   const nameQuery = `
-        fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
         where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & ${platformFilter}` : ''};
         limit 50;
     `;
@@ -331,13 +333,13 @@ export async function findGame(
           `  Falling back to simplified search: "${simplifiedTitle}"`,
         );
         const fallbackSearchQuery = `
-                    fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
                     search "${simplifiedTitle.replace(/"/g, '')}";
                     ${platformFilter ? `where platforms = (${platformId});` : ''}
                     limit 50;
                 `;
         const fallbackNameQuery = `
-                    fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
                     where name ~ "${simplifiedTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
                     limit 50;
                 `;
@@ -369,7 +371,7 @@ export async function findGame(
           `  Falling back to ultra-simplified search: "${ultraSimplified}"`,
         );
         const ultraSearchQuery = `
-                    fields name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
                     search "${ultraSimplified}";
                     ${platformFilter ? `where platforms = (${platformId});` : ''}
                     limit 50;
@@ -475,7 +477,7 @@ export async function getGameById(
   igdbId: number,
   platformId?: number,
 ): Promise<NormalizedGame | null> {
-  const fields = `name, slug, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.region, release_dates.date`;
+  const fields = `name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.region, release_dates.date`;
   const query = `
         fields ${fields};
         where id = ${igdbId};
@@ -671,6 +673,7 @@ function normalizeIGDBGame(
   return {
     id: `igdb-${game.id}`,
     slug: game.slug || null,
+    igdb_url: game.url || null,
     name: game.name,
     summary: game.summary,
     image_url: game.cover

@@ -21,6 +21,7 @@ import type { ApplyPayload } from './lib/discovery.js';
 import {
   GAMES_LIST_QUERY,
   GAME_DETAIL_QUERY,
+  GAME_RELEASES_BY_GAME_ID_QUERY,
   PLATFORMS_LIST_QUERY,
   TOYS_LIST_QUERY,
   TOY_DETAIL_QUERY,
@@ -538,19 +539,66 @@ export const handleRequest =
 
         const games = db.prepare(query).all(...params);
         res.end(JSON.stringify(games));
-      }
-
-      // GET /api/games/:id
-      else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
+      } else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
         const id = pathname.split('/').pop();
         const query = GAME_DETAIL_QUERY;
-        // Bind the ID parameter twice because the detail query checks both the release ID
-        // and the parent game fallback ID: WHERE r.id = ? OR (r.id IS NULL AND g.id = ?)
-        const game = db.prepare(query).get(id, id);
+        let game = db.prepare(query).get(id, id) as
+          | (Record<string, unknown> & {
+              releases?: unknown[];
+              rom_name?: string | null;
+              rom_crc?: string | null;
+              stable_id?: number;
+              region?: string | null;
+              variants?: string | null;
+              id?: string;
+              backup_status?: number;
+              ownership_status?: number;
+            })
+          | undefined;
+        if (!game) {
+          // Try to load by game ID directly (e.g. if we navigated using the game slug)
+          const gameBySlug = db
+            .prepare(
+              `
+            SELECT g.id as game_id, g.stable_id, COALESCE(r.id, g.id) as id
+            FROM games g
+            LEFT JOIN game_releases r ON g.stable_id = r.game_id
+            WHERE g.id = ?
+            LIMIT 1
+          `,
+            )
+            .get(id) as { id: string } | undefined;
+
+          if (gameBySlug) {
+            game = db
+              .prepare(query)
+              .get(gameBySlug.id, gameBySlug.id) as typeof game;
+          }
+        }
+
         if (!game) {
           res.statusCode = 404;
           res.end(JSON.stringify({ error: 'Not found' }));
         } else {
+          if (game.rom_name) {
+            const releases = db
+              .prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
+              .all(game.stable_id, game.region, game.variants);
+            game.releases = releases;
+          } else {
+            game.releases = [
+              {
+                id: game.id,
+                game_id: game.stable_id,
+                region: game.region || null,
+                variants: game.variants || null,
+                rom_name: game.rom_name || null,
+                rom_crc: game.rom_crc || null,
+                backup_status: game.backup_status || 0,
+                ownership_status: game.ownership_status || 0,
+              },
+            ];
+          }
           res.end(JSON.stringify(game));
         }
       }

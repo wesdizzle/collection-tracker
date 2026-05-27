@@ -26,5 +26,5 @@
     "strictTemplates": true
   },
   "include": ["src/**/*.ts", "worker/**/*.ts", "scripts/**/*.ts"],
-  "exclude": ["node_modules", "dist", "scratch"]
+  "exclude": ["node_modules", "dist", "scratch", "scripts/temp"]
 }

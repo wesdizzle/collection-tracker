@@ -25,6 +25,7 @@ import {
   Toy,
   Platform,
   PlayStatus,
+  GameRelease,
 } from '../../../../core/models/collection.models';
 import { combineLatest } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
@@ -69,15 +70,6 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
               </div>
               <div
                 class="stat-pill"
-                [class.active]="!!g.backup_status"
-                [class.interactive]="isLocalServer()"
-                (click)="isLocalServer() ? onEditBackedUp(g) : null"
-              >
-                <span class="icon">{{ g.backup_status ? '💾' : '❌' }}</span>
-                <span>{{ g.backup_status ? 'Backed Up' : 'No Backup' }}</span>
-              </div>
-              <div
-                class="stat-pill"
                 [class.active]="g.ownership_status !== 0"
                 [class.interactive]="isLocalServer()"
                 (click)="isLocalServer() ? onEditOwnership(g, 'game') : null"
@@ -101,11 +93,15 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                         : 'Unowned'
                 }}</span>
               </div>
-              @if (g.igdb_id) {
-                <div class="stat-pill active igdb">
+              @if (g.igdb_id && g.igdb_url) {
+                <a
+                  [href]="g.igdb_url"
+                  target="_blank"
+                  class="stat-pill active igdb interactive"
+                >
                   <span class="icon">🆔</span>
                   <span>IGDB Verified</span>
-                </div>
+                </a>
               }
               @if (g.rom_name) {
                 <div class="stat-pill active physical-release">
@@ -229,6 +225,10 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 </div>
                 @if (game(); as g) {
                   <div class="meta-box">
+                    <span class="label">Release Date</span>
+                    <span class="value">{{ g.release_date || 'Unknown' }}</span>
+                  </div>
+                  <div class="meta-box">
                     <span class="label">Launch Date</span>
                     <span class="value">{{ platformLaunchDate() }}</span>
                   </div>
@@ -257,10 +257,61 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                       </span>
                     </div>
                   }
-                  @if (g.rom_name) {
-                    <div class="meta-box full-width">
-                      <span class="label">ROM Filename</span>
-                      <span class="value rom-text">{{ g.rom_name }}</span>
+                  @if (g.releases && g.releases.length > 0) {
+                    <div class="meta-box full-width discs-section mt-lg">
+                      <span class="label">Physical Discs / ROMs</span>
+                      <div class="discs-list flex flex-col gap-md">
+                        @for (release of g.releases; track release.id) {
+                          <div
+                            class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
+                          >
+                            <div class="disc-info flex-1">
+                              @if (release.rom_name) {
+                                <div class="rom-text font-mono mb-2xs">
+                                  {{ release.rom_name }}
+                                </div>
+                              } @else {
+                                <div
+                                  class="rom-text warning-text font-mono mb-2xs"
+                                >
+                                  ⚠️ No dump exists in community DAT files
+                                </div>
+                              }
+                              @if (release.rom_crc) {
+                                <div
+                                  class="crc-text font-mono text-2xs text-secondary"
+                                >
+                                  CRC32: {{ release.rom_crc }}
+                                </div>
+                              }
+                            </div>
+                            <div class="disc-actions flex items-center gap-sm">
+                              <button
+                                class="stat-pill"
+                                [class.active]="!!release.backup_status"
+                                [class.interactive]="isLocalServer()"
+                                (click)="
+                                  isLocalServer()
+                                    ? onToggleDiscBackup(release)
+                                    : null
+                                "
+                                [title]="
+                                  isLocalServer() ? 'Toggle Backup Status' : ''
+                                "
+                              >
+                                <span class="icon">{{
+                                  release.backup_status ? '💾' : '❌'
+                                }}</span>
+                                <span>{{
+                                  release.backup_status
+                                    ? 'Backed Up'
+                                    : 'No Backup'
+                                }}</span>
+                              </button>
+                            </div>
+                          </div>
+                        }
+                      </div>
                     </div>
                   } @else if (g.id && g.id.endsWith('-default')) {
                     <div class="meta-box full-width">
@@ -268,12 +319,6 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                       <span class="value rom-text warning-text"
                         >⚠️ No dump exists in community DAT files</span
                       >
-                    </div>
-                  }
-                  @if (g.rom_crc) {
-                    <div class="meta-box">
-                      <span class="label">ROM CRC32</span>
-                      <span class="value crc-text">{{ g.rom_crc }}</span>
                     </div>
                   }
                 }
@@ -398,6 +443,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         background: var(--m3-secondary-container);
         color: var(--m3-on-secondary-container);
         border-color: transparent;
+        text-decoration: none;
       }
 
       .stat-pill.active.physical {
@@ -649,6 +695,37 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         font-size: 1rem;
         color: var(--m3-primary);
       }
+      .discs-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-16);
+        margin-top: var(--spacing-8);
+      }
+      .disc-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--spacing-16);
+        padding: var(--spacing-12) var(--spacing-16);
+        border-radius: var(--radius-md);
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline-variant);
+      }
+      .disc-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .disc-info .rom-text {
+        margin: 0;
+        border: none;
+        background: transparent;
+        padding: 0;
+      }
+      .disc-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-12);
+      }
     `,
   ],
 })
@@ -881,5 +958,50 @@ export class ItemDetailComponent {
           });
       },
     );
+  }
+
+  onToggleDiscBackup(release: GameRelease) {
+    this.collectionService.showOptions(
+      'Backup Status',
+      'Select the backup status for this disc:',
+      [
+        { value: 1, label: 'Backed Up' },
+        { value: 0, label: 'No Backup' },
+      ],
+      (value: string | number) => {
+        this.collectionService
+          .updateBackupStatus(release.id, Number(value))
+          .subscribe(() => {
+            this.collectionService.refreshAll();
+          });
+      },
+    );
+  }
+
+  /**
+   * Generates a URL to the game's page on IGDB based on its title.
+   * Since IGDB doesn't allow direct routing via numeric ID, we construct a slug
+   * from the game's title (e.g., "The Legend of Zelda" -> "the-legend-of-zelda").
+   *
+   * @param game The game object.
+   * @returns The fully qualified IGDB URL string.
+   */
+  getIgdbUrl(game: Game): string {
+    // Standard IGDB slug generation pattern:
+    // 1. Lowercase the title.
+    // 2. Replace accented characters with standard equivalents.
+    // 3. Remove non-alphanumeric/non-space characters.
+    // 4. Replace spaces/consecutive spaces with a single hyphen.
+    // 5. Trim leading/trailing hyphens.
+    const slug = game.title
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // remove diacritics
+      .replace(/[^a-z0-9\s-]/g, '') // remove special characters
+      .replace(/\s+/g, '-') // replace spaces with hyphens
+      .replace(/-+/g, '-') // collapse multiple hyphens
+      .replace(/^-+|-+$/g, ''); // trim leading/trailing hyphens
+
+    return `https://www.igdb.com/games/${slug}`;
   }
 }

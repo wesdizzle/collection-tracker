@@ -330,4 +330,150 @@ describe('Title Matching Strategies', () => {
       ),
     ).toBe(true);
   });
+
+  it('should match newly reconciled older platform edge cases (approved in implementation plan)', () => {
+    // Apostrophe-s stripping check
+    expect(titlesMatch("Disney's DuckTales", 'DuckTales')).toBe(true);
+    expect(titlesMatch("Sid Meier's Civilization II", 'Civilization II')).toBe(
+      true,
+    );
+
+    // Lara Croft prefix removal
+    expect(
+      titlesMatch('Tomb Raider: Legend', 'Lara Croft Tomb Raider - Legend'),
+    ).toBe(true);
+
+    // Character normalization (dollar sign to s)
+    expect(
+      titlesMatch(
+        'WarioWare, Inc.: Mega Party Games!',
+        'WarioWare, Inc. - Mega Party Game$!',
+      ),
+    ).toBe(true);
+
+    // Trailing platform suffix stripping
+    expect(titlesMatch('Plants vs. Zombies DS', 'Plants vs. Zombies')).toBe(
+      true,
+    );
+
+    // Aliases
+    expect(titlesMatch('N+', 'N Plus')).toBe(true);
+    expect(titlesMatch('Lemmings 3D', '3D Lemmings')).toBe(true);
+    expect(titlesMatch('Sonic Classics', 'Sonic Compilation')).toBe(true);
+
+    // Compilation split logic matching
+    expect(
+      titlesMatch(
+        'Marble Madness / Klax',
+        '2 Games in One! - Marble Madness + Klax',
+      ),
+    ).toBe(true);
+
+    // Newly reconciled older platform edge cases
+    expect(
+      titlesMatch('The Amazing Spider-Man vs. The Kingpin', 'Spider-Man'),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'The Amazing Spider-Man vs. The Kingpin',
+        'Spider-Man vs. The Kingpin',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch('The Amazing Spider-Man 2', 'Spider-Man 2', undefined, 14),
+    ).toBe(true); // Game Boy specific mapping
+    expect(titlesMatch('The Amazing Spider-Man 2', 'Spider-Man 2')).toBe(false); // Should not match globally anymore
+    expect(
+      titlesMatch('The Amazing Spider-Man 2', 'Amazing Spider-Man 2, The'),
+    ).toBe(true); // Matches on other platforms
+    expect(
+      titlesMatch("X-Men: Gamesmaster's Legacy", "X-Men - Gamemaster's Legacy"),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Star Wars Chess',
+        "Software Toolworks' Star Wars Chess, The",
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Final Fantasy Anthology',
+        'Final Fantasy Anthology - Final Fantasy V',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Final Fantasy Anthology',
+        'Final Fantasy Anthology - Final Fantasy VI',
+      ),
+    ).toBe(true);
+    expect(titlesMatch('SimCopter', 'SimCopter 64')).toBe(true);
+    expect(titlesMatch('Tomb Raider Starring Lara Croft', 'Tomb Raider')).toBe(
+      true,
+    );
+    expect(titlesMatch('Bionicle: The Game', 'Bionicle')).toBe(true);
+    expect(titlesMatch('Grand Theft Auto Advance', 'Grand Theft Auto')).toBe(
+      true,
+    );
+    expect(
+      titlesMatch(
+        'Space Channel 5 Special Edition',
+        "Space Channel 5 - Ulala's Cosmic Attack",
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Star Wars: Episode I - Jedi Power Battles',
+        'Star Wars - Jedi Power Battles',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Capcom Classics Collection',
+        'Capcom Classics Collection Vol. 1',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Dissidia 012 Final Fantasy',
+        'Dissidia 012 - Duodecim Final Fantasy',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Minecraft: Story Mode - Season Two',
+        'Minecraft - Story Mode - Season Two - The Telltale Series',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Minecraft: Story Mode - The Complete Adventure',
+        'Minecraft - Story Mode - A Telltale Games Series - The Complete Adventure',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'BioShock Infinite: The Complete Edition',
+        'BioShock Infinite - The Complete Edition - Bonus Content Disc',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        "Dragon's Lair Trilogy",
+        "Don Bluth Presents Dragon's Lair Trilogy",
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Harvest Moon: A New Beginning',
+        'Harvest Moon 3D - A New Beginning',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Harvest Moon: The Tale of Two Towns',
+        'Harvest Moon 3D - The Tale of Two Towns',
+      ),
+    ).toBe(true);
+  });
 });

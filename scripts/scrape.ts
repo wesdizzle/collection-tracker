@@ -45,6 +45,9 @@ import {
 } from './lib/title_matching.js';
 
 const db = new Database('collection.sqlite');
+const checkReleaseExistsStmt = db.prepare(
+  'SELECT 1 FROM game_releases WHERE id = ?',
+);
 
 interface GameRecord {
   id: string;
@@ -59,6 +62,7 @@ interface GameRecord {
   summary?: string;
   series?: string;
   igdb_id?: string;
+  igdb_url?: string | null;
   genres?: string;
   collections?: string;
   franchises?: string;
@@ -213,10 +217,13 @@ function findDbPlatform(
     saturn: 'saturn',
     '3do': '3do',
     dreamcast: 'dreamcast',
+    'new nintendo 3ds': 'new nintendo 3ds',
+    'new 3ds': 'new nintendo 3ds',
     '3ds': '3ds',
     'game gear': 'game gear',
     '32x': '32x',
     lynx: 'lynx',
+    'jaguar cd': 'atari jaguar cd',
     jaguar: 'jaguar',
   };
 
@@ -341,14 +348,73 @@ function extractVariants(name: string): string | null {
   return found.length > 0 ? found.join(', ') : null;
 }
 
-function isDigitalOrUpdate(romName: string): boolean {
+/**
+ * Evaluates whether a release or ROM should be ignored based on file format,
+ * digital platform markers, or platform-specific constraints (e.g. Vita .psv).
+ *
+ * @param releaseName The clean release title.
+ * @param romName The ROM filename.
+ * @param platformId The platform ID.
+ * @returns True if the release should be ignored, false otherwise.
+ */
+function isIgnoredFormatRelease(
+  releaseName: string,
+  romName: string,
+  platformId?: number,
+): boolean {
   const romLower = romName.toLowerCase();
-  const badExtensions = ['.tmd', '.tik', '.cert', '.app', '.cetk'];
-  if (badExtensions.includes(path.extname(romLower))) return true;
+  const relLower = releaseName.toLowerCase();
+  const ext = path.extname(romLower);
+
+  // 1. Unwanted file extensions (global or platform-specific)
+  const badExtensions = [
+    '.tmd',
+    '.tik',
+    '.cert',
+    '.app',
+    '.cetk',
+    '.pkg',
+    '.unh',
+  ];
+  if (badExtensions.includes(ext)) return true;
+
+  // For PS Vita (ID: 33), strictly only allow physical .psv card backups
+  if (platformId === 33 && ext !== '.psv') {
+    return true;
+  }
+
+  // 2. Numeric-only rom names or starting with tmd. (common in Wii/Wii U updates)
   if (romLower.startsWith('tmd.')) return true;
   const nameWithoutExt = path.parse(romLower).name;
-  if (/^\d+(\.\d+)*$/.test(romLower) || /^\d+(\.\d+)*$/.test(nameWithoutExt))
+  if (/^\d+(\.\d+)*$/.test(romLower) || /^\d+(\.\d+)*$/.test(nameWithoutExt)) {
     return true;
+  }
+
+  // 3. Substring indicators for digital platforms, DLC, updates, virtual console, or emulator-wrapped mini-compilations
+  const ignoredIndicators = [
+    '(psn)',
+    '(xbla)',
+    '(eshop)',
+    '(wiiware)',
+    '(minis)',
+    '(dlc)',
+    '(update)',
+    '(virtual console)',
+    '(sega genesis mini)',
+    '(mega drive mini)',
+    '(nintendo classic mini)',
+    '(classic mini)',
+    '(anniversary collection)',
+  ];
+  if (
+    ignoredIndicators.some(
+      (indicator) =>
+        relLower.includes(indicator) || romLower.includes(indicator),
+    )
+  ) {
+    return true;
+  }
+
   return false;
 }
 
@@ -378,13 +444,103 @@ function getFilesRecursive(dir: string): string[] {
 }
 
 /**
+ * Migrates all active user statuses (ownership_status and backup_status) from
+ * physical releases (non-default releases) to their parent games' virtual
+ * default releases ('*-default') before wiping physical releases for a clean sync.
+ * This ensures user-specified collection state is preserved.
+ *
+ * @param dbInstance The better-sqlite3 database instance.
+ * @throws Error if any database operation fails.
+ */
+function migratePhysicalStatusesToDefault(dbInstance: Database.Database): void {
+  console.log(
+    'Migrating statuses from physical releases to default releases...',
+  );
+
+  // 1. Ensure all games have a default/virtual release first so we have a target for migration.
+  const columns = dbInstance.prepare('PRAGMA table_info(games)').all() as {
+    name: string;
+  }[];
+  const hasReleaseDate = columns.some((c) => c.name === 'release_date');
+
+  const allGames = dbInstance
+    .prepare(
+      hasReleaseDate
+        ? 'SELECT stable_id, region, release_date FROM games'
+        : 'SELECT stable_id, region FROM games',
+    )
+    .all() as {
+    stable_id: number;
+    region: string | null;
+    release_date?: string | null;
+  }[];
+
+  const insertStmt = dbInstance.prepare(`
+    INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date)
+    VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, ?)
+  `);
+
+  dbInstance.transaction(() => {
+    for (const game of allGames) {
+      const virtualId = `${game.stable_id}-default`;
+      insertStmt.run(
+        virtualId,
+        game.stable_id,
+        game.region,
+        game.release_date || null,
+      );
+    }
+  })();
+
+  // 2. Find all physical releases with statuses and migrate them to their default release.
+  const physicalReleasesWithStatus = dbInstance
+    .prepare(
+      `
+    SELECT game_id, ownership_status, backup_status 
+    FROM game_releases 
+    WHERE id NOT LIKE '%-default' AND (ownership_status > 0 OR backup_status > 0)
+  `,
+    )
+    .all() as {
+    game_id: number;
+    ownership_status: number;
+    backup_status: number;
+  }[];
+
+  if (physicalReleasesWithStatus.length > 0) {
+    const updateStmt = dbInstance.prepare(`
+      UPDATE game_releases 
+      SET ownership_status = MAX(ownership_status, ?),
+          backup_status = MAX(backup_status, ?)
+      WHERE id = ?
+    `);
+
+    dbInstance.transaction(() => {
+      for (const pr of physicalReleasesWithStatus) {
+        const virtualId = `${pr.game_id}-default`;
+        updateStmt.run(pr.ownership_status, pr.backup_status, virtualId);
+      }
+    })();
+    console.log(
+      `Migrated statuses from ${physicalReleasesWithStatus.length} physical release(s) to virtual defaults.`,
+    );
+  }
+
+  // 3. Delete all physical releases.
+  const deleteResult = dbInstance
+    .prepare("DELETE FROM game_releases WHERE id NOT LIKE '%-default'")
+    .run();
+  console.log(`Deleted ${deleteResult.changes} physical release records.`);
+}
+
+/**
  * Scans the 'dats' directory for XML files, parses them as No-Intro/Redump DATs,
  * maps them to platforms, and reconciles DAT releases with database games.
  * For the first match of a game, updates the existing record's rom_name/rom_crc (if null).
  * For subsequent matches of a game, duplicates the record with ownership/backup status set to 0.
  *
- * This function enforces idempotency by checking if a release's rom_name or rom_crc
- * is already present in the database on that platform, skipping duplicate processing.
+ * This function enforces a clean rebuild by migrating user statuses to default releases,
+ * wiping existing physical releases, and rebuilding them from the DAT files.
  *
  * @returns A Promise that resolves when the DAT sync is complete.
  * @throws Error if the 'dats' directory cannot be read or database operations fail.
@@ -412,6 +568,10 @@ async function syncDats(): Promise<void> {
       '(development kit hard drives)',
       '(dlc and updates)',
       '(byteswapped)',
+      '(psn)',
+      '(xbla)',
+      '(wiiware)',
+      '(minis)',
     ];
     if (skipMarkers.some((marker) => base.includes(marker))) return false;
     return true;
@@ -421,6 +581,9 @@ async function syncDats(): Promise<void> {
     console.log('No DAT files (.xml or .dat) found in the dats directory.');
     return;
   }
+
+  // Migrate any active statuses to default releases and wipe old physical releases
+  migratePhysicalStatusesToDefault(db);
 
   // Load all platforms from the database to map platforms
   const dbPlatforms = db
@@ -459,16 +622,45 @@ async function syncDats(): Promise<void> {
       .prepare(`SELECT * FROM games WHERE platform_id IN (${placeholders})`)
       .all(...platformIds) as GameRecord[];
 
+    // Prepare SQLite statements outside the releases loop to eliminate overhead inside the loop
+    const existsStmt = db.prepare(`
+      SELECT id, region, variants FROM game_releases 
+      WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${placeholders})) AND (rom_name = ? OR (rom_crc = ? AND rom_crc IS NOT NULL))
+    `);
+
+    const updateReleaseStmt = db.prepare(`
+      UPDATE game_releases 
+      SET region = ?, variants = ?
+      WHERE id = ?
+    `);
+
+    const insertReleaseStmt = db.prepare(`
+      INSERT INTO game_releases (
+        id, game_id, region, variants, rom_name, rom_crc, backup_status, release_date
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, 0, ?
+      )
+    `);
+
     let matchedCount = 0;
     let addedCount = 0;
 
     // Use a transaction for performance and safety during reconciliation
     const transaction = db.transaction(() => {
       for (const release of datContent.releases) {
-        // PlayStation Vita platform ID is 33. We only match physical .psv card dumps for this platform.
+        // PlayStation Vita platform ID is 33. We prefer physical .psv card dumps for this platform,
+        // but if no .psv files are present (e.g. for PSN content DATs), we fall back to other extensions,
+        // while ignoring .rap license/activation files.
         let roms = release.roms;
         if (dbPlatform.id === 33) {
-          roms = roms.filter((r) => r.name.toLowerCase().endsWith('.psv'));
+          const hasPsv = roms.some((r) =>
+            r.name.toLowerCase().endsWith('.psv'),
+          );
+          if (hasPsv) {
+            roms = roms.filter((r) => r.name.toLowerCase().endsWith('.psv'));
+          } else {
+            roms = roms.filter((r) => !r.name.toLowerCase().endsWith('.rap'));
+          }
         }
         if (roms.length === 0) continue;
 
@@ -491,8 +683,8 @@ async function syncDats(): Promise<void> {
         const romName = primaryRom.name;
         const romCrc = primaryRom.crc || null;
 
-        // Skip digital files/updates
-        if (isDigitalOrUpdate(romName)) {
+        // Skip ignored formats, digital files, updates, or Vita non-.psv dumps
+        if (isIgnoredFormatRelease(release.name, romName, dbPlatform.id)) {
           continue;
         }
 
@@ -500,27 +692,14 @@ async function syncDats(): Promise<void> {
         const variants = extractVariants(release.name);
 
         // Idempotency check: does this physical release (rom_name/rom_crc) already exist on this platform(s)?
-        const exists = db
-          .prepare(
-            `
-          SELECT id, region, variants FROM game_releases 
-          WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${placeholders})) AND (rom_name = ? OR (rom_crc = ? AND rom_crc IS NOT NULL))
-        `,
-          )
-          .get(...platformIds, romName, romCrc) as
+        const exists = existsStmt.get(...platformIds, romName, romCrc) as
           | { id: string; region: string | null; variants: string | null }
           | undefined;
 
         if (exists) {
           // Already exists: update its region and variants if they differ from database values
           if (exists.region !== regions || exists.variants !== variants) {
-            db.prepare(
-              `
-              UPDATE game_releases 
-              SET region = ?, variants = ?
-              WHERE id = ?
-            `,
-            ).run(regions, variants, exists.id);
+            updateReleaseStmt.run(regions, variants, exists.id);
           }
           matchedCount++;
           continue;
@@ -537,7 +716,7 @@ async function syncDats(): Promise<void> {
 
         // Find candidate games in the database on this platform that match the title
         const matchingGames = dbGames.filter((g) =>
-          titlesMatch(g.title, baseTitle, release.name),
+          titlesMatch(g.title, baseTitle, release.name, dbPlatform.id),
         );
 
         if (matchingGames.length === 0) {
@@ -545,44 +724,47 @@ async function syncDats(): Promise<void> {
           continue;
         }
 
-        // Sort matching candidates by the absolute difference in normalized title length between the game and the release.
-        // This ensures the closest match (the exact base game or the closest sequel title) is always chosen first,
-        // resolving prefix segment collisions (e.g. preventing the release "Oddworld" from being stolen by the sequel "Oddworld: Stranger's Wrath HD").
-        matchingGames.sort((a, b) => {
-          const normA = normalizeTitleForMatching(a.title);
-          const normB = normalizeTitleForMatching(b.title);
+        // Helper to calculate the difference score for duplicate matching
+        const getDiffScore = (g: GameRecord): number => {
+          const normG = normalizeTitleForMatching(g.title);
           const normRelease = normalizeTitleForMatching(baseTitle);
-          const diffA = Math.abs(normA.length - normRelease.length);
-          const diffB = Math.abs(normB.length - normRelease.length);
-          return diffA - diffB;
-        });
+          let diff = Math.abs(normG.length - normRelease.length);
 
-        // Associate the release with the matched game (using stable_id)
-        const parentGame = matchingGames[0];
+          const brandRegex =
+            /^\s*['"]?(disney|sega|nintendo|sony|microsoft|capcom|konami|namco|square enix|square|enix|atari|ubisoft|ea|marvel|sid meiers?|tom clancys?|lego|nickelodeon|lara croft)s?\b/i;
+          const gHasBrand = brandRegex.test(g.title);
+          const relHasBrand = brandRegex.test(baseTitle);
 
-        // Generate a unique id slug
-        const baseSlug = `${parentGame.id}-${romCrc || slugify(romName)}`;
-        const uniqueId = generateUniqueId(baseSlug);
+          if (gHasBrand && !relHasBrand) diff += 1000;
+          return diff;
+        };
 
-        db.prepare(
-          `
-          INSERT INTO game_releases (
-            id, game_id, region, variants, rom_name, rom_crc, backup_status, release_date
-          ) VALUES (
-            ?, ?, ?, ?, ?, ?, 0, ?
-          )
-        `,
-        ).run(
-          uniqueId,
-          parentGame.stable_id,
-          regions,
-          variants,
-          romName,
-          romCrc,
-          parentGame.release_date || null,
+        // Sort matching candidates by difference score
+        matchingGames.sort((a, b) => getDiffScore(a) - getDiffScore(b));
+
+        const minScore = getDiffScore(matchingGames[0]);
+        // Filter to get all games sharing the minimum title difference score
+        const bestGames = matchingGames.filter(
+          (g) => getDiffScore(g) === minScore,
         );
 
-        addedCount++;
+        for (const parentGame of bestGames) {
+          // Generate a unique id slug
+          const baseSlug = `${parentGame.id}-${romCrc || slugify(romName)}`;
+          const uniqueId = generateUniqueId(baseSlug);
+
+          insertReleaseStmt.run(
+            uniqueId,
+            parentGame.stable_id,
+            regions,
+            variants,
+            romName,
+            romCrc,
+            parentGame.release_date || null,
+          );
+
+          addedCount++;
+        }
       }
     });
 
@@ -608,9 +790,7 @@ function generateUniqueId(baseId: string): string {
   let candidate = baseId;
   let counter = 1;
   while (true) {
-    const exists = db
-      .prepare('SELECT 1 FROM game_releases WHERE id = ?')
-      .get(candidate);
+    const exists = checkReleaseExistsStmt.get(candidate);
     if (!exists) {
       return candidate;
     }
@@ -697,9 +877,23 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
       id: string;
       game_id: number;
       region: string | null;
+      variants: string | null;
     }[];
 
     if (realReleases.length > 0) {
+      // Prioritize stable releases over beta/proto/demo variants
+      const getPriority = (variants: string | null): number => {
+        if (!variants) return 0;
+        const lower = variants.toLowerCase();
+        if (/\b(beta|proto|prototype|demo|kiosk|sample|promo)\b/i.test(lower)) {
+          return 2;
+        }
+        return 1;
+      };
+      realReleases.sort(
+        (a, b) => getPriority(a.variants) - getPriority(b.variants),
+      );
+
       // Only clean up/migrate if a real release with a matching region is found (or if vr.region is null)
       const game = dbInstance
         .prepare('SELECT region FROM games WHERE stable_id = ?')
@@ -985,6 +1179,7 @@ async function runScraper(): Promise<void> {
           const finalCollections = fresh.collections || game.collections;
           const finalFranchises = fresh.franchises || game.franchises;
           const finalReleaseDate = fresh.release_date || game.release_date;
+          const finalIgdbUrl = fresh.igdb_url || game.igdb_url;
 
           const hasActualChanges =
             finalId !== game.id ||
@@ -1002,13 +1197,16 @@ async function runScraper(): Promise<void> {
               fresh.collections !== game.collections) ||
             (fresh.franchises !== undefined &&
               fresh.franchises !== null &&
-              fresh.franchises !== game.franchises);
+              fresh.franchises !== game.franchises) ||
+            (fresh.igdb_url !== undefined &&
+              fresh.igdb_url !== null &&
+              fresh.igdb_url !== game.igdb_url);
 
           if (hasActualChanges) {
             db.prepare(
               `
                             UPDATE games 
-                            SET id = ?, summary = ?, image_url = ?, genres = ?, collections = ?, franchises = ?
+                            SET id = ?, summary = ?, image_url = ?, genres = ?, collections = ?, franchises = ?, igdb_url = ?
                             WHERE stable_id = ?
                         `,
             ).run(
@@ -1018,6 +1216,7 @@ async function runScraper(): Promise<void> {
               finalGenres,
               finalCollections,
               finalFranchises,
+              finalIgdbUrl,
               game.stable_id,
             );
 
@@ -1079,6 +1278,14 @@ async function runScraper(): Promise<void> {
                 oldValue: String(game.release_date),
                 newValue: String(finalReleaseDate),
               });
+            if (finalIgdbUrl !== game.igdb_url && fresh.igdb_url)
+              actualChanges.push({
+                id: game.id,
+                title: game.title,
+                field: 'igdb_url',
+                oldValue: String(game.igdb_url),
+                newValue: String(finalIgdbUrl),
+              });
 
             if (actualChanges.length > 0) {
               updateChanges.push(...actualChanges);
@@ -1135,12 +1342,13 @@ async function runScraper(): Promise<void> {
         db.prepare(
           `
                     UPDATE games 
-                    SET title = ?, igdb_id = ?, region = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0, collections = ?, franchises = ?
+                    SET title = ?, igdb_id = ?, igdb_url = ?, region = ?, summary = ?, genres = ?, image_url = ?, played = 0, backed_up = 0, collections = ?, franchises = ?
                     WHERE id = ?
                 `,
         ).run(
           bestMatch.name,
           bestMatch.id.replace('igdb-', ''),
+          bestMatch.igdb_url,
           bestMatch.region,
           bestMatch.summary || null,
           bestMatch.genres || null,

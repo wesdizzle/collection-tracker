@@ -708,4 +708,88 @@ describe('CollectionListComponent', () => {
       'Physical Release Verified',
     );
   });
+
+  describe('Multi-disc grouping and stripDiscIndicator', () => {
+    it('should correctly strip disc indicators and file extensions', () => {
+      const fn = (
+        component as unknown as {
+          stripDiscIndicator: (filename: string | null | undefined) => string;
+        }
+      ).stripDiscIndicator.bind(component);
+      expect(fn('Castlevania - Symphony of the Night (Disc 1).cue')).toBe(
+        'castlevania - symphony of the night',
+      );
+      expect(fn('Castlevania - Symphony of the Night (Disc 2).cue')).toBe(
+        'castlevania - symphony of the night',
+      );
+      expect(fn('Metal Gear Solid - Disc A.bin')).toBe('metal gear solid');
+      expect(fn('Command & Conquer (Disc 1 of 2).iso')).toBe(
+        'command & conquer',
+      );
+      expect(fn("Dragon's Lair - Disc A")).toBe("dragon's lair");
+      expect(fn('Game Side A.iso')).toBe('game');
+      expect(fn(null)).toBe('');
+    });
+
+    it('should group multi-disc releases only if their stripped ROM names match', async () => {
+      const httpMock = TestBed.inject(HttpTestingController);
+      const initPromise = component.ngOnInit();
+
+      httpMock.expectOne('/api/games').flush([
+        {
+          id: 'cv-1',
+          game_id: 101,
+          title: 'Castlevania: Symphony of the Night',
+          platform: 'PlayStation',
+          ownership_status: 1,
+          rom_name: 'Castlevania - Symphony of the Night (Disc 1).cue',
+          region: 'USA',
+          variants: '',
+        },
+        {
+          id: 'cv-2',
+          game_id: 101,
+          title: 'Castlevania: Symphony of the Night',
+          platform: 'PlayStation',
+          ownership_status: 1,
+          rom_name: 'Castlevania - Symphony of the Night (Disc 2).cue',
+          region: 'USA',
+          variants: '',
+        },
+        {
+          id: 'cv-jp-1',
+          game_id: 101,
+          title: 'Akumajou Dracula X: Gekka no Nocturne',
+          platform: 'PlayStation',
+          ownership_status: 1,
+          rom_name:
+            'Akumajou Dracula X - Gekka no Nocturne (Japan) (Disc 1).cue',
+          region: 'Japan',
+          variants: '',
+        },
+      ]);
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+
+      await initPromise;
+      fixture.detectChanges();
+
+      const games = component.filteredGames();
+      // Should have 2 grouped games:
+      // Group 1: Castlevania: Symphony of the Night (USA, grouping cv-1 and cv-2)
+      // Group 2: Akumajou Dracula X: Gekka no Nocturne (Japan, cv-jp-1)
+      expect(games.length).toBe(2);
+
+      const usaGroup = games.find((g) => g.region === 'USA');
+      expect(usaGroup).toBeTruthy();
+      expect(usaGroup?.discIds).toContain('cv-1');
+      expect(usaGroup?.discIds).toContain('cv-2');
+      expect(usaGroup?.discIds.length).toBe(2);
+
+      const jpGroup = games.find((g) => g.region === 'Japan');
+      expect(jpGroup).toBeTruthy();
+      expect(jpGroup?.discIds).toContain('cv-jp-1');
+      expect(jpGroup?.discIds.length).toBe(1);
+    });
+  });
 });

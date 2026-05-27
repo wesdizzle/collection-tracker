@@ -22,6 +22,7 @@
 import {
   GAMES_LIST_QUERY,
   GAME_DETAIL_QUERY,
+  GAME_RELEASES_BY_GAME_ID_QUERY,
   PLATFORMS_LIST_QUERY,
   TOYS_LIST_QUERY,
   TOY_DETAIL_QUERY,
@@ -31,6 +32,18 @@ import {
 export interface Env {
   DB: D1Database;
   ASSETS: { fetch: typeof fetch };
+}
+
+interface DbGame {
+  stable_id: number;
+  id: string;
+  region?: string | null;
+  variants?: string | null;
+  rom_name?: string | null;
+  rom_crc?: string | null;
+  backup_status?: number;
+  ownership_status?: number;
+  releases?: unknown[];
 }
 
 export default {
@@ -67,11 +80,54 @@ export default {
       else if (path.startsWith('/api/games/')) {
         const id = path.split('/').pop();
         const query = GAME_DETAIL_QUERY;
-        // Bind the ID parameter twice to satisfy both placeholders in the detail query:
-        // WHERE r.id = ? OR (r.id IS NULL AND g.id = ?)
-        const game = await env.DB.prepare(query).bind(id, id).first();
+        let game = (await env.DB.prepare(query)
+          .bind(id, id)
+          .first()) as DbGame | null;
+        if (!game) {
+          const gameBySlug = (await env.DB.prepare(
+            `
+            SELECT g.id as game_id, g.stable_id, COALESCE(r.id, g.id) as id
+            FROM games g
+            LEFT JOIN game_releases r ON g.stable_id = r.game_id
+            WHERE g.id = ?
+            LIMIT 1
+          `,
+          )
+            .bind(id)
+            .first()) as { id: string } | null;
+
+          if (gameBySlug) {
+            game = (await env.DB.prepare(query)
+              .bind(gameBySlug.id, gameBySlug.id)
+              .first()) as DbGame | null;
+          }
+        }
+
         if (!game)
           return Response.json({ error: 'Not found' }, { status: 404 });
+
+        if (game.rom_name) {
+          const { results } = await env.DB.prepare(
+            GAME_RELEASES_BY_GAME_ID_QUERY,
+          )
+            .bind(game.stable_id, game.region, game.variants)
+            .all();
+          game.releases = results;
+        } else {
+          game.releases = [
+            {
+              id: game.id,
+              game_id: game.stable_id,
+              region: game.region || null,
+              variants: game.variants || null,
+              rom_name: game.rom_name || null,
+              rom_crc: game.rom_crc || null,
+              backup_status: game.backup_status || 0,
+              ownership_status: game.ownership_status || 0,
+            },
+          ];
+        }
+
         return Response.json(game);
       }
 
