@@ -975,6 +975,23 @@ export class CollectionListComponent
         const sortB = b.sort_index ?? 9999;
         if (sortA !== sortB) return sortA - sortB;
 
+        // 5.5. Variant Priority (ASC)
+        const getVariantPriority = (
+          variants: string | null | undefined,
+        ): number => {
+          if (!variants) return 0;
+          const lower = variants.toLowerCase();
+          if (
+            /\b(beta|proto|prototype|demo|kiosk|sample|promo)\b/i.test(lower)
+          ) {
+            return 2;
+          }
+          return 1;
+        };
+        const prioA = getVariantPriority(a.variants);
+        const prioB = getVariantPriority(b.variants);
+        if (prioA !== prioB) return prioA - prioB;
+
         // 6. Region (ASC)
         const regA = a.region || '';
         const regB = b.region || '';
@@ -1049,6 +1066,9 @@ export class CollectionListComponent
       /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/gi,
       '',
     );
+
+    // Strip Japanese parenthetical counting indicators (e.g. "Ichi", "Ni" etc.) when used alongside or as disc indicators
+    base = base.replace(/[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/gi, '');
 
     base = base.replace(/\s+/g, ' ').trim();
     base = base.replace(/[-_]$/, '').trim();

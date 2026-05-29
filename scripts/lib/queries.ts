@@ -131,7 +131,11 @@ export const GAMES_ORDER_BY = `
              CASE WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 5) WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 3) ELSE COALESCE(g.canonical_series, g.title) END COLLATE NOCASE ASC, 
              r.release_date IS NULL ASC, r.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
              CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC,
-             CASE WHEN r.variants IS NULL THEN 0 ELSE 1 END ASC,
+             CASE 
+               WHEN r.variants IS NULL THEN 0 
+               WHEN r.variants LIKE '%beta%' OR r.variants LIKE '%proto%' OR r.variants LIKE '%demo%' OR r.variants LIKE '%kiosk%' OR r.variants LIKE '%sample%' OR r.variants LIKE '%promo%' THEN 2 
+               ELSE 1 
+             END ASC,
              COALESCE(r.region, '') ASC,
              COALESCE(r.id, g.id) ASC
 `;
@@ -167,6 +171,9 @@ export function stripDiscIndicator(
     /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/gi,
     '',
   );
+
+  // Strip Japanese parenthetical counting indicators (e.g. "Ichi", "Ni" etc.) when used alongside or as disc indicators
+  base = base.replace(/[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/gi, '');
 
   // Normalize extra spaces and trim any trailing separator characters
   base = base.replace(/\s+/g, ' ').trim();

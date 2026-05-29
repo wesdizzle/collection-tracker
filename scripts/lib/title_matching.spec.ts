@@ -475,5 +475,37 @@ describe('Title Matching Strategies', () => {
         'Harvest Moon 3D - The Tale of Two Towns',
       ),
     ).toBe(true);
+    expect(
+      titlesMatch(
+        'Harvest Moon: The Lost Valley',
+        'Harvest Moon 3D - The Lost Valley',
+      ),
+    ).toBe(true);
+    expect(titlesMatch('Metal Gear: Ghost Babel', 'Metal Gear Solid')).toBe(
+      true,
+    );
+    expect(titlesMatch('Wonder Boy III: Monster Lair', 'Monster Lair')).toBe(
+      true,
+    );
+    expect(
+      titlesMatch("Rayman: Hoodlums' Revenge", "Rayman - Hoodlum's Revenge"),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Metal Gear Solid - Special Missions',
+        'Metal Gear Solid: VR Missions',
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch('Metal Gear Solid', 'Metal Gear Solid - Special Missions'),
+    ).toBe(false);
+    expect(titlesMatch('Ōkami HD', 'Ookami - Zekkeiban')).toBe(true);
+    expect(titlesMatch('Tales of Graces', 'Tales of Graces f')).toBe(true);
+    expect(
+      titlesMatch(
+        'Xenosaga Episode II: Jenseits von Gut und Böse',
+        'Xenosaga Episode II - Jenseits von Gut und Boese',
+      ),
+    ).toBe(true);
   });
 });

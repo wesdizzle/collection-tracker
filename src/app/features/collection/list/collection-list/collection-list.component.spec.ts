@@ -734,6 +734,16 @@ describe('CollectionListComponent', () => {
         'single:rayman (usa) (playable game preview)',
       );
       expect(fn('Rayman (USA).cue')).toBe('single:rayman (usa)');
+      expect(
+        fn(
+          'Metal Gear Solid (Japan, Asia) (Disc 1) (Ichi) (Premium Package).cue',
+        ),
+      ).toBe('multi:metal gear solid (japan, asia) (premium package)');
+      expect(
+        fn(
+          'Metal Gear Solid (Japan, Asia) (Disc 2) (Ni) (Premium Package).cue',
+        ),
+      ).toBe('multi:metal gear solid (japan, asia) (premium package)');
       expect(fn(null)).toBe('');
     });
 
@@ -797,5 +807,61 @@ describe('CollectionListComponent', () => {
       expect(jpGroup?.discIds).toContain('cv-jp-1');
       expect(jpGroup?.discIds.length).toBe(1);
     });
+  });
+
+  it('should sort alternate/demo releases after the main release when sharing the same release date', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'g-demo',
+        title: 'Metal Gear Solid',
+        canonical_series: 'Metal Gear Solid',
+        platform: 'PlayStation',
+        release_date: '1998-09-03',
+        ownership_status: 1,
+        variants: 'Demo',
+        platform_launch_date: '1995-01-01',
+        brand: 'Sony',
+      },
+      {
+        id: 'g-main',
+        title: 'Metal Gear Solid',
+        canonical_series: 'Metal Gear Solid',
+        platform: 'PlayStation',
+        release_date: '1998-09-03',
+        ownership_status: 1,
+        variants: null,
+        platform_launch_date: '1995-01-01',
+        brand: 'Sony',
+      },
+      {
+        id: 'g-rev',
+        title: 'Metal Gear Solid',
+        canonical_series: 'Metal Gear Solid',
+        platform: 'PlayStation',
+        release_date: '1998-09-03',
+        ownership_status: 1,
+        variants: 'Rev 1',
+        platform_launch_date: '1995-01-01',
+        brand: 'Sony',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const games = component.filteredGames();
+    expect(games.length).toBe(3);
+    // Correct sorting order by variant priority:
+    // 1. g-main (variants is null, priority 0)
+    // 2. g-rev (variants is "Rev 1", priority 1)
+    // 3. g-demo (variants is "Demo", priority 2)
+    expect(games[0].id).toBe('g-main');
+    expect(games[1].id).toBe('g-rev');
+    expect(games[2].id).toBe('g-demo');
   });
 });

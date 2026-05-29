@@ -107,11 +107,21 @@ export function normalizeTitleForMatching(
     grandtheftautoadvance: 'grandtheftauto',
     starwarsepisodeijedipowerbattles: 'starwarsjedipowerbattles',
     dissidia012finalfantasy: 'dissidia012duodecimfinalfantasy',
+    harvestmonlostvalley: 'harvestmon3dlostvalley',
+    metalgearghostbabel: 'metalgearsolid',
+    wonderboyiiimonsterlair: 'monsterlair',
+    raymanhodlumsrevenge: 'raymanhodlumrevenge',
+    metalgearsolidspecialmissions: 'metalgearsolidvrmissions',
+    okamizekkeiban: 'okamihd',
+    talesgracesf: 'talesgraces',
+    xenosagaepisodeiijenseitsvongutundboese:
+      'xenosagaepisodeiijenseitsvongutundbose',
   };
 
-  // If skipAliases is true, we bypass the explicit alias lookup.
-  // This allows comparing the raw un-aliased base titles for boundary checks.
-  if (!skipAliases && cleanTitle in ALIASES) {
+  if (
+    !skipAliases &&
+    Object.prototype.hasOwnProperty.call(ALIASES, cleanTitle)
+  ) {
     return ALIASES[cleanTitle];
   }
 
@@ -158,7 +168,7 @@ export function titlesMatch(
   const gLower = gameTitle.toLowerCase().trim();
   if (platformId === 14 && gLower === 'the amazing spider-man 2') {
     gameTitle = 'spider-man 2';
-  } else if (gLower in PRE_SPLIT_ALIASES) {
+  } else if (Object.prototype.hasOwnProperty.call(PRE_SPLIT_ALIASES, gLower)) {
     gameTitle = PRE_SPLIT_ALIASES[gLower];
   }
 
@@ -356,6 +366,14 @@ function matchAlternative(
   // Strategy 1: Exact match on normalized strings
   if (gNorm === rNorm) {
     return true;
+  }
+
+  // Exclude Metal Gear Solid - Special Missions or VR Missions from matching base Metal Gear Solid
+  if (
+    gNorm === 'metalgearsolid' &&
+    (rNorm.includes('specialmissions') || rNorm.includes('vrmissions'))
+  ) {
+    return false;
   }
 
   // Strategy 2: Dash/colon segmentation split for subtitles/acronyms

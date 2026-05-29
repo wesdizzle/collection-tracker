@@ -36,8 +36,8 @@ describe('Database Integrity', () => {
       {} as Record<number, number>,
     );
 
-    expect(actual[0] ?? 0).toBe(2358); // Unowned (Not in collection)
-    expect(actual[1] ?? 0).toBe(1977); // Owned (In collection)
+    expect(actual[0] ?? 0).toBe(2355); // Unowned (Not in collection)
+    expect(actual[1] ?? 0).toBe(1979); // Owned (In collection)
     expect(actual[2] ?? 0).toBe(0); // Seeking (Actively looking to acquire)
     expect(actual[3] ?? 0).toBe(0); // Ordered (Purchased but not yet received)
   });
@@ -85,8 +85,7 @@ describe('Database Integrity', () => {
       'Atari 7800 (Owned)': 2,
       'Atari 7800 (Unowned)': 4,
       'Atari Lynx (Unowned)': 5,
-      'Atari Jaguar (Unowned)': 4,
-      'Atari Jaguar CD (Unowned)': 1,
+      'Atari Jaguar (Unowned)': 5,
       'ColecoVision (Owned)': 1,
       'ColecoVision (Unowned)': 1,
       'Intellivision (Owned)': 1,
@@ -133,8 +132,8 @@ describe('Database Integrity', () => {
       'PlayStation 3 (Unowned)': 183,
       'PlayStation Vita (Owned)': 36,
       'PlayStation Vita (Unowned)': 48,
-      'PlayStation 4 (Owned)': 311,
-      'PlayStation 4 (Unowned)': 213,
+      'PlayStation 4 (Owned)': 312,
+      'PlayStation 4 (Unowned)': 212,
       'PlayStation 5 (Owned)': 124,
       'PlayStation 5 (Unowned)': 19,
       'Sega Master System (Owned)': 1,
@@ -159,9 +158,9 @@ describe('Database Integrity', () => {
       'Xbox (Owned)': 25,
       'Xbox (Unowned)': 95,
       'Xbox 360 (Owned)': 81,
-      'Xbox 360 (Unowned)': 197,
-      'Xbox One (Owned)': 153,
-      'Xbox One (Unowned)': 171,
+      'Xbox 360 (Unowned)': 196,
+      'Xbox One (Owned)': 154,
+      'Xbox One (Unowned)': 170,
       'Xbox Series X (Owned)': 17,
       'Xbox Series X (Unowned)': 2,
     };

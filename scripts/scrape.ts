@@ -337,6 +337,12 @@ function isRegionOrLanguageOrDisc(content: string): boolean {
     return true;
   }
 
+  // Check if it is a Japanese disc count indicator (Ichi, Ni, etc.)
+  const jpDiscRegex = /^(?:ichi|ni|san|yon|shi|go)$/i;
+  if (jpDiscRegex.test(normalized)) {
+    return true;
+  }
+
   // 2. Check if it consists entirely of regions or languages
   const regions = new Set([
     'usa',
@@ -644,7 +650,14 @@ async function syncDats(): Promise<void> {
     // Prepare SQLite statements outside the releases loop to eliminate overhead inside the loop
     const existsStmt = db.prepare(`
       SELECT id, region, variants FROM game_releases 
-      WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${placeholders})) AND (rom_name = ? OR (rom_crc = ? AND rom_crc IS NOT NULL))
+      WHERE game_id = ? AND (rom_name = ? OR (rom_crc = ? AND rom_crc IS NOT NULL))
+    `);
+
+    const existingStatusStmt = db.prepare(`
+      SELECT ownership_status, backup_status FROM game_releases
+      WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${placeholders}))
+        AND (rom_name = ? OR (rom_crc = ? AND rom_crc IS NOT NULL))
+      LIMIT 1
     `);
 
     const updateReleaseStmt = db.prepare(`
@@ -655,9 +668,9 @@ async function syncDats(): Promise<void> {
 
     const insertReleaseStmt = db.prepare(`
       INSERT INTO game_releases (
-        id, game_id, region, variants, rom_name, rom_crc, backup_status, release_date
+        id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, 0, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
     `);
 
@@ -710,21 +723,6 @@ async function syncDats(): Promise<void> {
         const regions = extractRegions(release.name);
         const variants = extractVariants(release.name);
 
-        // Idempotency check: does this physical release (rom_name/rom_crc) already exist on this platform(s)?
-        const exists = existsStmt.get(...platformIds, romName, romCrc) as
-          | { id: string; region: string | null; variants: string | null }
-          | undefined;
-
-        if (exists) {
-          // Already exists: update its region and variants if they differ from database values
-          if (exists.region !== regions || exists.variants !== variants) {
-            updateReleaseStmt.run(regions, variants, exists.id);
-          }
-          syncedReleaseIds.add(exists.id);
-          matchedCount++;
-          continue;
-        }
-
         // Clean release name (strip region/variant parentheticals for matching)
         let baseTitle = release.name
           .replace(/\s*[([][^\])]*[)\]]/g, '')
@@ -768,23 +766,65 @@ async function syncDats(): Promise<void> {
           (g) => getDiffScore(g) === minScore,
         );
 
-        for (const parentGame of bestGames) {
-          // Generate a unique id slug
-          const baseSlug = `${parentGame.id}-${romCrc || slugify(romName)}`;
-          const uniqueId = generateUniqueId(baseSlug);
+        if (bestGames.length > 1) {
+          console.warn(
+            `[ALERT] Duplicate games found in database matching release "${release.name}": ` +
+              bestGames
+                .map(
+                  (g) =>
+                    `"${g.title}" (stable_id: ${g.stable_id}, slug: ${g.id})`,
+                )
+                .join(', '),
+          );
+        }
 
-          insertReleaseStmt.run(
-            uniqueId,
+        // Check if this ROM was already matched to some other game on the platform.
+        // If so, we want to migrate its user status (ownership and backup status) to the new candidate(s).
+        const prevStatus = existingStatusStmt.get(
+          ...platformIds,
+          romName,
+          romCrc,
+        ) as { ownership_status: number; backup_status: number } | undefined;
+        const ownership = prevStatus?.ownership_status || 0;
+        const backup = prevStatus?.backup_status || 0;
+
+        for (const parentGame of bestGames) {
+          // Idempotency check: does this physical release (rom_name/rom_crc) already exist for this specific game?
+          const exists = existsStmt.get(
             parentGame.stable_id,
-            regions,
-            variants,
             romName,
             romCrc,
-            parentGame.release_date || null,
-          );
+          ) as
+            | { id: string; region: string | null; variants: string | null }
+            | undefined;
 
-          syncedReleaseIds.add(uniqueId);
-          addedCount++;
+          if (exists) {
+            // Already exists: update its region and variants if they differ from database values
+            if (exists.region !== regions || exists.variants !== variants) {
+              updateReleaseStmt.run(regions, variants, exists.id);
+            }
+            syncedReleaseIds.add(exists.id);
+            matchedCount++;
+          } else {
+            // Generate a unique id slug
+            const baseSlug = `${parentGame.id}-${romCrc || slugify(romName)}`;
+            const uniqueId = generateUniqueId(baseSlug);
+
+            insertReleaseStmt.run(
+              uniqueId,
+              parentGame.stable_id,
+              regions,
+              variants,
+              romName,
+              romCrc,
+              ownership,
+              backup,
+              parentGame.release_date || null,
+            );
+
+            syncedReleaseIds.add(uniqueId);
+            addedCount++;
+          }
         }
       }
     });
@@ -1018,9 +1058,10 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
         .get(vr.game_id) as { region: string | null } | undefined;
       const gameRegion = game?.region || null;
 
-      const bestRelease = gameRegion
-        ? realReleases.find((r) => regionsMatch(r.region, gameRegion))
-        : realReleases[0];
+      const bestRelease =
+        (gameRegion
+          ? realReleases.find((r) => regionsMatch(r.region, gameRegion))
+          : null) || realReleases[0];
 
       if (bestRelease) {
         // If the virtual release had a set ownership status or backup status, migrate it
@@ -1177,17 +1218,7 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
         )
         .all(game.stable_id) as { region: string | null }[];
 
-      let needsVirtual = false;
-      if (releases.length === 0) {
-        needsVirtual = true;
-      } else if (game.region) {
-        const hasMatchingRegion = releases.some((r) =>
-          regionsMatch(r.region, game.region),
-        );
-        if (!hasMatchingRegion) {
-          needsVirtual = true;
-        }
-      }
+      const needsVirtual = releases.length === 0;
 
       if (needsVirtual) {
         const virtualId = `${game.stable_id}-default`;
