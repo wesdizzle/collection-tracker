@@ -36,8 +36,8 @@ describe('Database Integrity', () => {
       {} as Record<number, number>,
     );
 
-    expect(actual[0] ?? 0).toBe(2355); // Unowned (Not in collection)
-    expect(actual[1] ?? 0).toBe(1979); // Owned (In collection)
+    expect(actual[0] ?? 0).toBe(2349); // Unowned (Not in collection)
+    expect(actual[1] ?? 0).toBe(1976); // Owned (In collection)
     expect(actual[2] ?? 0).toBe(0); // Seeking (Actively looking to acquire)
     expect(actual[3] ?? 0).toBe(0); // Ordered (Purchased but not yet received)
   });
@@ -118,7 +118,7 @@ describe('Database Integrity', () => {
       'Wii U (Unowned)': 41,
       'New Nintendo 3DS (Owned)': 3,
       'Nintendo Switch (Owned)': 333,
-      'Nintendo Switch (Unowned)': 96,
+      'Nintendo Switch (Unowned)': 95,
       'Nintendo Switch 2 (Owned)': 11,
       'Philips CD-i (Owned)': 3,
       'Philips CD-i (Unowned)': 5,
@@ -127,15 +127,15 @@ describe('Database Integrity', () => {
       'PlayStation 2 (Owned)': 78,
       'PlayStation 2 (Unowned)': 148,
       'PlayStation Portable (Owned)': 27,
-      'PlayStation Portable (Unowned)': 75,
+      'PlayStation Portable (Unowned)': 74,
       'PlayStation 3 (Owned)': 103,
       'PlayStation 3 (Unowned)': 183,
       'PlayStation Vita (Owned)': 36,
       'PlayStation Vita (Unowned)': 48,
-      'PlayStation 4 (Owned)': 312,
+      'PlayStation 4 (Owned)': 311,
       'PlayStation 4 (Unowned)': 212,
       'PlayStation 5 (Owned)': 124,
-      'PlayStation 5 (Unowned)': 19,
+      'PlayStation 5 (Unowned)': 18,
       'Sega Master System (Owned)': 1,
       'Sega Master System (Unowned)': 15,
       'Sega Genesis (Owned)': 14,
@@ -158,9 +158,9 @@ describe('Database Integrity', () => {
       'Xbox (Owned)': 25,
       'Xbox (Unowned)': 95,
       'Xbox 360 (Owned)': 81,
-      'Xbox 360 (Unowned)': 196,
-      'Xbox One (Owned)': 154,
-      'Xbox One (Unowned)': 170,
+      'Xbox 360 (Unowned)': 195,
+      'Xbox One (Owned)': 152,
+      'Xbox One (Unowned)': 168,
       'Xbox Series X (Owned)': 17,
       'Xbox Series X (Unowned)': 2,
     };

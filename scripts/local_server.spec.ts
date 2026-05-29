@@ -144,6 +144,31 @@ describe('Local Server API Logic', () => {
     return { req, res };
   };
 
+  /**
+   * Helper to mock Node.js req/res objects specifically for endpoints requiring request bodies.
+   * Emits request body payload asynchronously in the next tick to simulate HTTP body reception.
+   */
+  const createDiscoveryMocks = (url: string, method = 'POST', body = {}) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const req = new EventEmitter() as any;
+    req.url = url;
+    req.method = method;
+    req.headers = { 'content-type': 'application/json' };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = new EventEmitter() as any;
+    res.setHeader = vi.fn();
+    res.end = vi.fn();
+    res.statusCode = 200;
+
+    process.nextTick(() => {
+      req.emit('data', Buffer.from(JSON.stringify(body)));
+      req.emit('end');
+    });
+
+    return { req, res };
+  };
+
   it('should return games list with normalized platform info', async () => {
     const { req, res } = createMocks('/api/games');
     const handler = handleRequest(mockDb);
@@ -209,37 +234,6 @@ describe('Local Server API Logic', () => {
   });
 
   describe('Discovery Apply Logic', () => {
-    /**
-     * Helper to mock Node.js req/res objects specifically for discovery endpoints.
-     * Emits request body payload asynchronously in the next tick to simulate HTTP body reception.
-     *
-     * @param url - The target endpoint URL for the mock request.
-     * @param method - The HTTP request method (e.g. 'POST').
-     * @param body - The body payload to emit as JSON.
-     * @returns An object containing the mocked Request and Response instances.
-     * @throws None.
-     */
-    const createDiscoveryMocks = (url: string, method = 'POST', body = {}) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const req = new EventEmitter() as any;
-      req.url = url;
-      req.method = method;
-      req.headers = { 'content-type': 'application/json' };
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const res = new EventEmitter() as any;
-      res.setHeader = vi.fn();
-      res.end = vi.fn();
-      res.statusCode = 200;
-
-      process.nextTick(() => {
-        req.emit('data', Buffer.from(JSON.stringify(body)));
-        req.emit('end');
-      });
-
-      return { req, res };
-    };
-
     it('should only update the specific toy when multiple have the same name', async () => {
       mockDb
         .prepare('INSERT INTO toys (name, line, series) VALUES (?, ?, ?)')
@@ -335,6 +329,137 @@ describe('Local Server API Logic', () => {
         .get() as ToyRow;
       expect(marioSSB.amiibo_id).toBe('0000000000000001');
       expect(marioSSB.verified).toBe(1);
+    });
+  });
+
+  describe('Collection Toggle Logic', () => {
+    beforeEach(() => {
+      // Seed a multi-disc game
+      mockDb
+        .prepare(
+          'INSERT INTO games (stable_id, id, title, platform_id, region) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(10, 'mgs-ps1', 'Metal Gear Solid', 34, 'USA');
+
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'mgs-disc1',
+          10,
+          'USA',
+          null,
+          'Metal Gear Solid (USA) (Disc 1).cue',
+          null,
+          0,
+          0,
+          '1998-09-03',
+        );
+
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'mgs-disc2',
+          10,
+          'USA',
+          null,
+          'Metal Gear Solid (USA) (Disc 2).cue',
+          null,
+          0,
+          0,
+          '1998-09-03',
+        );
+    });
+
+    it('should update ownership_status for all discs in the same release group', async () => {
+      const payload = {
+        id: 'mgs-disc1',
+        type: 'game',
+        status: 1,
+        field: 'ownership_status',
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/collection/toggle',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      const disc1 = mockDb
+        .prepare(
+          "SELECT ownership_status FROM game_releases WHERE id = 'mgs-disc1'",
+        )
+        .get() as { ownership_status: number };
+      const disc2 = mockDb
+        .prepare(
+          "SELECT ownership_status FROM game_releases WHERE id = 'mgs-disc2'",
+        )
+        .get() as { ownership_status: number };
+
+      expect(disc1.ownership_status).toBe(1);
+      expect(disc2.ownership_status).toBe(1);
+    });
+
+    it('should update backup_status individually for only the target release/disc', async () => {
+      const payload = {
+        id: 'mgs-disc1',
+        type: 'game',
+        status: 1,
+        field: 'backup_status',
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/collection/toggle',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      const disc1 = mockDb
+        .prepare(
+          "SELECT backup_status FROM game_releases WHERE id = 'mgs-disc1'",
+        )
+        .get() as { backup_status: number };
+      const disc2 = mockDb
+        .prepare(
+          "SELECT backup_status FROM game_releases WHERE id = 'mgs-disc2'",
+        )
+        .get() as { backup_status: number };
+
+      expect(disc1.backup_status).toBe(1);
+      expect(disc2.backup_status).toBe(0);
+    });
+
+    it('should update play_status on the games table', async () => {
+      const payload = {
+        id: 'mgs-disc1',
+        type: 'game',
+        status: 2, // Playing
+        field: 'play_status',
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/collection/toggle',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      const game = mockDb
+        .prepare('SELECT play_status FROM games WHERE stable_id = 10')
+        .get() as { play_status: string | number };
+
+      expect(Number(game.play_status)).toBe(2);
     });
   });
 });

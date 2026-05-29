@@ -371,13 +371,57 @@ export const handleRequest =
               ).run(status, stableId);
             } else {
               // ownership_status or backup_status: update game_releases table
-              const releaseExists = db
-                .prepare('SELECT 1 FROM game_releases WHERE id = ?')
-                .get(id);
-              if (releaseExists) {
-                db.prepare(
-                  `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
-                ).run(status, id);
+              const release = db
+                .prepare(
+                  'SELECT game_id, region, variants, rom_name FROM game_releases WHERE id = ?',
+                )
+                .get(id) as
+                | {
+                    game_id: number;
+                    region: string | null;
+                    variants: string | null;
+                    rom_name: string | null;
+                  }
+                | undefined;
+
+              if (release) {
+                if (field === 'ownership_status') {
+                  // We update all releases in the same group (matching region, variants, and base rom name group)
+                  // because ownership status is logically a release-wide setting rather than disc-level.
+                  // This prevents multi-disc games from remaining partially owned/unowned when only a single disc ID is toggled.
+                  const allReleases = db
+                    .prepare(
+                      'SELECT id, region, variants, rom_name FROM game_releases WHERE game_id = ?',
+                    )
+                    .all(release.game_id) as {
+                    id: string;
+                    region: string | null;
+                    variants: string | null;
+                    rom_name: string | null;
+                  }[];
+
+                  const targetKey = getRomGroupingKey(release.rom_name);
+                  const matchingReleases = allReleases.filter(
+                    (r) =>
+                      r.region === release.region &&
+                      r.variants === release.variants &&
+                      getRomGroupingKey(r.rom_name) === targetKey,
+                  );
+
+                  const updateStmt = db.prepare(
+                    `UPDATE game_releases SET ownership_status = ? WHERE id = ?`,
+                  );
+                  db.transaction(() => {
+                    for (const r of matchingReleases) {
+                      updateStmt.run(status, r.id);
+                    }
+                  })();
+                } else {
+                  // backup_status: update only the specific targeted disc release to allow individual tracking
+                  db.prepare(
+                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+                  ).run(status, id);
+                }
               } else {
                 // Not a release ID; find game first by game ID
                 const game = db
@@ -389,16 +433,28 @@ export const handleRequest =
                   throw new Error(`Game or Release not found: ${id}`);
                 }
 
-                // First, check if there's already a release for this game. If so, update the first one.
+                // First, check if there's already a release for this game. If so, update.
                 const releases = db
                   .prepare(
                     'SELECT id FROM game_releases WHERE game_id = ? ORDER BY id ASC',
                   )
                   .all(game.stable_id) as { id: string }[];
                 if (releases.length > 0) {
-                  db.prepare(
-                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
-                  ).run(status, releases[0].id);
+                  if (field === 'ownership_status') {
+                    // Update all releases of this game
+                    const updateStmt = db.prepare(
+                      `UPDATE game_releases SET ownership_status = ? WHERE id = ?`,
+                    );
+                    db.transaction(() => {
+                      for (const r of releases) {
+                        updateStmt.run(status, r.id);
+                      }
+                    })();
+                  } else {
+                    db.prepare(
+                      `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+                    ).run(status, releases[0].id);
+                  }
                 } else {
                   // Create default virtual release if it somehow doesn't exist
                   const releaseId = `${id}-default`;

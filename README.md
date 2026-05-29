@@ -76,7 +76,7 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
     - **Refresh**: `npx tsx scripts/scrape.ts --refresh` (Refreshes metadata for all verified items, updates slugs, and recomputes canonical series)
     - **Recompute Series**: `npx tsx scripts/scrape.ts --recompute-series` (Only recomputes canonical series for all games)
     - **Sync DATs**: `npx tsx scripts/scrape.ts --sync-dats` (Scans `/dats/` directory, parses No-Intro/Redump XML files, and reconciles distinct physical releases in the database)
-    - **Scan Backups**: `npx tsx scratch/scan_backups.ts <path-to-backups>` (Scans a backup directory recursively for filename matches against the database's `rom_name` entries in platform folders, updating their backup status in a strictly read-only manner)
+    - **Scan Backups**: `npm run scan-backups <path-to-backups>` (Scans a backup directory recursively for filename matches against the database's `rom_name` entries in platform folders, updating their backup status in a strictly read-only manner)
     - **Sync**: `npx tsx scripts/sync_local_d1.ts` (Propagates all local changes to the dev server)
 5.  **Launch Frontend**: `npx ng serve`
 6.  **View locally**: `http://localhost:4200/`

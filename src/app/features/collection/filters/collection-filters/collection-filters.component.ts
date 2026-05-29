@@ -55,7 +55,7 @@ import {
         [class.mobile-collapsed]="!showFilters()"
       >
         <div class="filter-group">
-          <label class="m3-label">Status</label>
+          <label class="m3-label">Ownership Status</label>
           <div class="input-wrapper">
             <select
               [ngModel]="filters().ownership"

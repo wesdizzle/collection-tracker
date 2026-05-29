@@ -7,6 +7,7 @@
     "start": "ng serve",
     "dev": "tsx scripts/dev.ts",
     "sync-db": "tsx scripts/sync_local_d1.ts",
+    "scan-backups": "tsx scripts/scan_backups.ts",
     "local-api": "tsx scripts/local_server.ts",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
