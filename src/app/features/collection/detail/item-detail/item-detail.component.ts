@@ -228,10 +228,6 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                     <span class="label">Release Date</span>
                     <span class="value">{{ g.release_date || 'Unknown' }}</span>
                   </div>
-                  <div class="meta-box">
-                    <span class="label">Launch Date</span>
-                    <span class="value">{{ platformLaunchDate() }}</span>
-                  </div>
                 } @else if (toy(); as t) {
                   @if (!formattedDate()) {
                     <div class="meta-box">

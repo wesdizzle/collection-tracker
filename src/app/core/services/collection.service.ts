@@ -451,7 +451,28 @@ export class CollectionService {
    * @param game The source Game object to enrich.
    * @returns A new Game object with the title updated if a ROM name is present.
    */
+  private formatTitle(title: string): string {
+    const match = title.match(/^(.*),\s*(the|a|an)$/i);
+    if (match) {
+      const article = match[2];
+      const rest = match[1];
+      const formattedArticle =
+        article.charAt(0).toUpperCase() + article.slice(1).toLowerCase();
+      return `${formattedArticle} ${rest}`;
+    }
+    return title;
+  }
+
+  /**
+   * Enriches a game object by overriding its title with the clean ROM filename
+   * (excluding the file extension) when a verified backup rom_name is present.
+   * This ensures the ROM filename is displayed in the UI and used for search filters.
+   *
+   * @param game The source Game object to enrich.
+   * @returns A new Game object with the title updated if a ROM name is present.
+   */
   private enrichGameTitle(game: Game): Game {
+    const baseTitle = this.formatTitle(game.title);
     if (game.rom_name) {
       const lastDot = game.rom_name.lastIndexOf('.');
       let name =
@@ -471,12 +492,31 @@ export class CollectionService {
       // Collapse whitespace and trim
       name = name.replace(/\s+/g, ' ').trim();
 
-      const cleanTitle = name || game.title;
+      const cleanTitle = this.formatTitle(name || baseTitle);
+
+      const superNormalize = (t: string): string => {
+        return t
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
+      };
+
+      if (superNormalize(cleanTitle) === superNormalize(baseTitle)) {
+        return {
+          ...game,
+          title: baseTitle,
+        };
+      }
+
       return {
         ...game,
         title: cleanTitle,
       };
     }
-    return game;
+    return {
+      ...game,
+      title: baseTitle,
+    };
   }
 }

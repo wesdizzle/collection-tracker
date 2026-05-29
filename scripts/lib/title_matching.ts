@@ -349,13 +349,7 @@ function matchAlternative(
       gameLower.includes('kakuchou disc');
 
     if (isReleaseSpecial !== isGameSpecial) {
-      const baseG = normalizeTitleForMatching(gTitle, true);
-      const baseR = normalizeTitleForMatching(rAlt, true);
-      // If their base unaliased titles are the same, they represent the same core game title
-      // but different disc types, so they must not be matched.
-      if (baseG === baseR) {
-        return false;
-      }
+      return false;
     }
   }
 

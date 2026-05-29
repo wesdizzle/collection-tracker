@@ -709,25 +709,31 @@ describe('CollectionListComponent', () => {
     );
   });
 
-  describe('Multi-disc grouping and stripDiscIndicator', () => {
-    it('should correctly strip disc indicators and file extensions', () => {
+  describe('Multi-disc grouping and getRomGroupingKey', () => {
+    it('should correctly build grouping keys for multi-disc vs single-disc files', () => {
       const fn = (
         component as unknown as {
-          stripDiscIndicator: (filename: string | null | undefined) => string;
+          getRomGroupingKey: (filename: string | null | undefined) => string;
         }
-      ).stripDiscIndicator.bind(component);
+      ).getRomGroupingKey.bind(component);
       expect(fn('Castlevania - Symphony of the Night (Disc 1).cue')).toBe(
-        'castlevania - symphony of the night',
+        'multi:castlevania - symphony of the night',
       );
       expect(fn('Castlevania - Symphony of the Night (Disc 2).cue')).toBe(
-        'castlevania - symphony of the night',
+        'multi:castlevania - symphony of the night',
       );
-      expect(fn('Metal Gear Solid - Disc A.bin')).toBe('metal gear solid');
+      expect(fn('Metal Gear Solid - Disc A.bin')).toBe(
+        'multi:metal gear solid',
+      );
       expect(fn('Command & Conquer (Disc 1 of 2).iso')).toBe(
-        'command & conquer',
+        'multi:command & conquer',
       );
-      expect(fn("Dragon's Lair - Disc A")).toBe("dragon's lair");
-      expect(fn('Game Side A.iso')).toBe('game');
+      expect(fn("Dragon's Lair - Disc A")).toBe("multi:dragon's lair");
+      expect(fn('Game Side A.iso')).toBe('single:game side a');
+      expect(fn('Rayman (USA) (Playable Game Preview).cue')).toBe(
+        'single:rayman (usa) (playable game preview)',
+      );
+      expect(fn('Rayman (USA).cue')).toBe('single:rayman (usa)');
       expect(fn(null)).toBe('');
     });
 

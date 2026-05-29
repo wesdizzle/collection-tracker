@@ -30,6 +30,7 @@ export interface GameRelease {
   rom_crc?: string;
   backup_status: number;
   ownership_status: number;
+  release_date?: string;
 }
 
 export interface Game {

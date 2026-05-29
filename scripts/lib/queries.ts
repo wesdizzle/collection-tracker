@@ -85,7 +85,7 @@ export const GAME_DETAIL_QUERY = `
 `;
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `
-    SELECT id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status
+    SELECT id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date
     FROM game_releases
     WHERE game_id = ? AND region IS ? AND variants IS ?
 `;
@@ -131,6 +131,63 @@ export const GAMES_ORDER_BY = `
              CASE WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 5) WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 3) ELSE COALESCE(g.canonical_series, g.title) END COLLATE NOCASE ASC, 
              r.release_date IS NULL ASC, r.release_date ASC, g.sort_index IS NULL ASC, g.sort_index ASC, 
              CASE WHEN g.title COLLATE NOCASE LIKE 'the %' THEN SUBSTR(g.title, 5) WHEN g.title COLLATE NOCASE LIKE 'a %' THEN SUBSTR(g.title, 3) ELSE g.title END COLLATE NOCASE ASC,
+             CASE WHEN r.variants IS NULL THEN 0 ELSE 1 END ASC,
              COALESCE(r.region, '') ASC,
              COALESCE(r.id, g.id) ASC
 `;
+
+/**
+ * Checks if the filename contains a disc indicator (e.g. "Disc 1", "(Disc A)").
+ */
+export function hasDiscIndicator(filename: string | null | undefined): boolean {
+  if (!filename) {
+    return false;
+  }
+  const discRegex =
+    /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/i;
+  return discRegex.test(filename);
+}
+
+/**
+ * Strips disc-specific markers and file extensions from a ROM filename.
+ */
+export function stripDiscIndicator(
+  filename: string | null | undefined,
+): string {
+  if (!filename) {
+    return '';
+  }
+
+  // Extract base name without file extension (if any)
+  const lastDot = filename.lastIndexOf('.');
+  let base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+
+  // Regex to match and strip typical disc indicators (e.g. "Disc 1", "(Disc A)", etc.)
+  base = base.replace(
+    /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/gi,
+    '',
+  );
+
+  // Normalize extra spaces and trim any trailing separator characters
+  base = base.replace(/\s+/g, ' ').trim();
+  base = base.replace(/[-_]$/, '').trim();
+
+  return base.toLowerCase();
+}
+
+/**
+ * Returns a robust grouping key for ROMs to correctly handle multi-disc sets
+ * while separating single-disc releases with different names/modifiers.
+ */
+export function getRomGroupingKey(filename: string | null | undefined): string {
+  if (!filename) {
+    return '';
+  }
+  if (hasDiscIndicator(filename)) {
+    return `multi:${stripDiscIndicator(filename)}`;
+  }
+  // For single-disc releases, group only by exact filename (without extension)
+  const lastDot = filename.lastIndexOf('.');
+  const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+  return `single:${base.toLowerCase()}`;
+}

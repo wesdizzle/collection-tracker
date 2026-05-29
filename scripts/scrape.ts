@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import {
   findGame,
   getGameById,
+  getGamesByIds,
   NormalizedGame,
   IGDBGame,
   calculateConfidence,
@@ -326,6 +327,116 @@ function extractRegions(name: string): string | null {
   return found.length > 0 ? found.join(', ') : null;
 }
 
+function isRegionOrLanguageOrDisc(content: string): boolean {
+  const normalized = content.toLowerCase().trim();
+
+  // 1. Check if it is a disc or side indicator
+  const discRegex =
+    /^(?:disc|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?$/i;
+  if (discRegex.test(normalized)) {
+    return true;
+  }
+
+  // 2. Check if it consists entirely of regions or languages
+  const regions = new Set([
+    'usa',
+    'europe',
+    'japan',
+    'world',
+    'asia',
+    'france',
+    'germany',
+    'australia',
+    'uk',
+    'canada',
+    'korea',
+    'brazil',
+    'spain',
+    'italy',
+    'netherlands',
+    'sweden',
+    'russia',
+    'china',
+    'taiwan',
+    'portugal',
+    'denmark',
+    'norway',
+    'finland',
+    'hong kong',
+    'hongkong',
+    'latam',
+    'nz',
+    'new zealand',
+  ]);
+
+  const languages = new Set([
+    'en',
+    'fr',
+    'de',
+    'es',
+    'it',
+    'nl',
+    'pt',
+    'sv',
+    'no',
+    'da',
+    'fi',
+    'pl',
+    'ru',
+    'ja',
+    'zh',
+    'ko',
+    'el',
+    'tr',
+    'uk',
+    'ar',
+    'he',
+    'th',
+    'vi',
+    'm1',
+    'm2',
+    'm3',
+    'm4',
+    'm5',
+    'm6',
+    'm7',
+    'm8',
+    'm9',
+    'multi1',
+    'multi2',
+    'multi3',
+    'multi4',
+    'multi5',
+    'multi6',
+    'multi7',
+    'multi8',
+    'multi9',
+    'english',
+    'french',
+    'german',
+    'spanish',
+    'italian',
+    'dutch',
+    'portuguese',
+    'swedish',
+    'norwegian',
+    'danish',
+    'finnish',
+    'polish',
+    'russian',
+    'japanese',
+    'chinese',
+    'korean',
+  ]);
+
+  const parts = normalized.split(/[\s,/\-\\+]+/);
+  return parts.every((part) => {
+    const p = part.trim();
+    if (!p) return true;
+    return regions.has(p) || languages.has(p);
+  });
+}
+
 function extractVariants(name: string): string | null {
   const found: string[] = [];
   const parentheticalMatches = name.match(/\(([^)]+)\)/g);
@@ -333,12 +444,7 @@ function extractVariants(name: string): string | null {
     for (const match of parentheticalMatches) {
       const content = match.slice(1, -1).trim();
 
-      // Match patterns: Rev \d+, v\d+\.\d+, Beta, Proto, Demo, Kiosk, Sample, Promo
-      if (
-        /^(rev|revision)\s+\d+$/i.test(content) ||
-        /^v\d+(\.\d+)*$/i.test(content) ||
-        /\b(beta|proto|prototype|demo|kiosk|sample|promo)\b/i.test(content)
-      ) {
+      if (!isRegionOrLanguageOrDisc(content)) {
         if (!found.includes(content)) {
           found.push(content);
         }
@@ -405,6 +511,7 @@ function isIgnoredFormatRelease(
     '(nintendo classic mini)',
     '(classic mini)',
     '(anniversary collection)',
+    '(evercade)',
   ];
   if (
     ignoredIndicators.some(
@@ -441,96 +548,6 @@ function getFilesRecursive(dir: string): string[] {
     console.error(`Error reading directory ${dir}:`, err);
   }
   return results;
-}
-
-/**
- * Migrates all active user statuses (ownership_status and backup_status) from
- * physical releases (non-default releases) to their parent games' virtual
- * default releases ('*-default') before wiping physical releases for a clean sync.
- * This ensures user-specified collection state is preserved.
- *
- * @param dbInstance The better-sqlite3 database instance.
- * @throws Error if any database operation fails.
- */
-function migratePhysicalStatusesToDefault(dbInstance: Database.Database): void {
-  console.log(
-    'Migrating statuses from physical releases to default releases...',
-  );
-
-  // 1. Ensure all games have a default/virtual release first so we have a target for migration.
-  const columns = dbInstance.prepare('PRAGMA table_info(games)').all() as {
-    name: string;
-  }[];
-  const hasReleaseDate = columns.some((c) => c.name === 'release_date');
-
-  const allGames = dbInstance
-    .prepare(
-      hasReleaseDate
-        ? 'SELECT stable_id, region, release_date FROM games'
-        : 'SELECT stable_id, region FROM games',
-    )
-    .all() as {
-    stable_id: number;
-    region: string | null;
-    release_date?: string | null;
-  }[];
-
-  const insertStmt = dbInstance.prepare(`
-    INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date)
-    VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, ?)
-  `);
-
-  dbInstance.transaction(() => {
-    for (const game of allGames) {
-      const virtualId = `${game.stable_id}-default`;
-      insertStmt.run(
-        virtualId,
-        game.stable_id,
-        game.region,
-        game.release_date || null,
-      );
-    }
-  })();
-
-  // 2. Find all physical releases with statuses and migrate them to their default release.
-  const physicalReleasesWithStatus = dbInstance
-    .prepare(
-      `
-    SELECT game_id, ownership_status, backup_status 
-    FROM game_releases 
-    WHERE id NOT LIKE '%-default' AND (ownership_status > 0 OR backup_status > 0)
-  `,
-    )
-    .all() as {
-    game_id: number;
-    ownership_status: number;
-    backup_status: number;
-  }[];
-
-  if (physicalReleasesWithStatus.length > 0) {
-    const updateStmt = dbInstance.prepare(`
-      UPDATE game_releases 
-      SET ownership_status = MAX(ownership_status, ?),
-          backup_status = MAX(backup_status, ?)
-      WHERE id = ?
-    `);
-
-    dbInstance.transaction(() => {
-      for (const pr of physicalReleasesWithStatus) {
-        const virtualId = `${pr.game_id}-default`;
-        updateStmt.run(pr.ownership_status, pr.backup_status, virtualId);
-      }
-    })();
-    console.log(
-      `Migrated statuses from ${physicalReleasesWithStatus.length} physical release(s) to virtual defaults.`,
-    );
-  }
-
-  // 3. Delete all physical releases.
-  const deleteResult = dbInstance
-    .prepare("DELETE FROM game_releases WHERE id NOT LIKE '%-default'")
-    .run();
-  console.log(`Deleted ${deleteResult.changes} physical release records.`);
 }
 
 /**
@@ -572,6 +589,7 @@ async function syncDats(): Promise<void> {
       '(xbla)',
       '(wiiware)',
       '(minis)',
+      '(evercade)',
     ];
     if (skipMarkers.some((marker) => base.includes(marker))) return false;
     return true;
@@ -582,13 +600,13 @@ async function syncDats(): Promise<void> {
     return;
   }
 
-  // Migrate any active statuses to default releases and wipe old physical releases
-  migratePhysicalStatusesToDefault(db);
-
   // Load all platforms from the database to map platforms
   const dbPlatforms = db
     .prepare('SELECT * FROM platforms')
     .all() as PlatformRecord[];
+
+  const syncedReleaseIds = new Set<string>();
+  const processedPlatformIds = new Set<number>();
 
   for (const filePath of datFiles) {
     const fileName = path.basename(filePath);
@@ -617,6 +635,7 @@ async function syncDats(): Promise<void> {
 
     // Fetch all existing games on this platform (including symmetrical ones, e.g. NES + Famicom)
     const platformIds = getScannedPlatformIds(dbPlatform.id);
+    platformIds.forEach((id) => processedPlatformIds.add(id));
     const placeholders = platformIds.map(() => '?').join(',');
     const dbGames = db
       .prepare(`SELECT * FROM games WHERE platform_id IN (${placeholders})`)
@@ -648,7 +667,7 @@ async function syncDats(): Promise<void> {
     // Use a transaction for performance and safety during reconciliation
     const transaction = db.transaction(() => {
       for (const release of datContent.releases) {
-        // PlayStation Vita platform ID is 33. We prefer physical .psv card dumps for this platform,
+        // PlayStation Vita platform ID is 33. We prefer physical .psv card backups for this platform,
         // but if no .psv files are present (e.g. for PSN content DATs), we fall back to other extensions,
         // while ignoring .rap license/activation files.
         let roms = release.roms;
@@ -701,6 +720,7 @@ async function syncDats(): Promise<void> {
           if (exists.region !== regions || exists.variants !== variants) {
             updateReleaseStmt.run(regions, variants, exists.id);
           }
+          syncedReleaseIds.add(exists.id);
           matchedCount++;
           continue;
         }
@@ -763,6 +783,7 @@ async function syncDats(): Promise<void> {
             parentGame.release_date || null,
           );
 
+          syncedReleaseIds.add(uniqueId);
           addedCount++;
         }
       }
@@ -772,6 +793,103 @@ async function syncDats(): Promise<void> {
     console.log(`Reconciliation finished for ${fileName}:`);
     console.log(`  - Reconciled/Updated: ${matchedCount} release(s)`);
     console.log(`  - Created/Duplicated: ${addedCount} release(s)`);
+  }
+
+  // Non-destructive pruning at the end of the sync
+  if (processedPlatformIds.size > 0) {
+    const processedIdsArr = Array.from(processedPlatformIds);
+    const placeholders = processedIdsArr.map(() => '?').join(',');
+
+    // 1. Find all existing physical releases for these processed platforms
+    const physicalReleases = db
+      .prepare(
+        `
+      SELECT r.id, r.game_id, r.ownership_status, r.backup_status
+      FROM game_releases r
+      JOIN games g ON r.game_id = g.stable_id
+      WHERE g.platform_id IN (${placeholders}) AND r.id NOT LIKE '%-default'
+    `,
+      )
+      .all(...processedIdsArr) as {
+      id: string;
+      game_id: number;
+      ownership_status: number;
+      backup_status: number;
+    }[];
+
+    // 2. Identify releases that were not synced in this run
+    const staleReleases = physicalReleases.filter(
+      (r) => !syncedReleaseIds.has(r.id),
+    );
+    if (staleReleases.length > 0) {
+      console.log(
+        `Pruning ${staleReleases.length} stale physical releases for processed platforms...`,
+      );
+
+      // Ensure default releases exist first before migrating status to them
+      const columns = db.prepare('PRAGMA table_info(games)').all() as {
+        name: string;
+      }[];
+      const hasReleaseDate = columns.some((c) => c.name === 'release_date');
+
+      const allGames = db
+        .prepare(
+          hasReleaseDate
+            ? `SELECT stable_id, region, release_date FROM games WHERE platform_id IN (${placeholders})`
+            : `SELECT stable_id, region FROM games WHERE platform_id IN (${placeholders})`,
+        )
+        .all(...processedIdsArr) as {
+        stable_id: number;
+        region: string | null;
+        release_date?: string | null;
+      }[];
+
+      const insertVirtualStmt = db.prepare(`
+        INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date)
+        VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, ?)
+      `);
+
+      db.transaction(() => {
+        for (const game of allGames) {
+          const virtualId = `${game.stable_id}-default`;
+          insertVirtualStmt.run(
+            virtualId,
+            game.stable_id,
+            game.region,
+            game.release_date || null,
+          );
+        }
+      })();
+
+      // Migrate user statuses to virtual default releases
+      const updateVirtualStmt = db.prepare(`
+        UPDATE game_releases 
+        SET ownership_status = MAX(ownership_status, ?),
+            backup_status = MAX(backup_status, ?)
+        WHERE id = ?
+      `);
+
+      const deleteReleaseStmt = db.prepare(`
+        DELETE FROM game_releases WHERE id = ?
+      `);
+
+      db.transaction(() => {
+        for (const r of staleReleases) {
+          if (r.ownership_status > 0 || r.backup_status > 0) {
+            const virtualId = `${r.game_id}-default`;
+            updateVirtualStmt.run(
+              r.ownership_status,
+              r.backup_status,
+              virtualId,
+            );
+          }
+          deleteReleaseStmt.run(r.id);
+        }
+      })();
+      console.log(
+        `Successfully migrated and pruned ${staleReleases.length} stale releases.`,
+      );
+    }
   }
 
   // Perform post-processing cleanup and virtual/default release enforcement
@@ -1130,16 +1248,35 @@ async function runScraper(): Promise<void> {
 
   console.log(`Processing ${existingGames.length} collection items...`);
 
+  const freshCache = new Map<number, NormalizedGame>();
+  if (runRefresh) {
+    const refreshGamesList = existingGames.filter((g) => g.igdb_id);
+    const refreshIds = refreshGamesList.map((g) => Number(g.igdb_id));
+    const platformIdMap: Record<number, number> = {};
+    for (const g of refreshGamesList) {
+      if (g.igdb_id && g.platform_igdb_id) {
+        platformIdMap[Number(g.igdb_id)] = g.platform_igdb_id;
+      }
+    }
+    console.log(
+      `Pre-fetching metadata for ${refreshIds.length} games in batches of 100...`,
+    );
+    const freshGames = await getGamesByIds(refreshIds, platformIdMap);
+    for (const fg of freshGames) {
+      const numericId = Number(fg.id.replace('igdb-', ''));
+      freshCache.set(numericId, fg);
+    }
+  }
+
   for (const game of existingGames) {
     if (game.igdb_id || game.manually_verified) {
       if (runRefresh && game.igdb_id) {
         process.stdout.write(
           `Refreshing Game: ${game.title} (${game.platform_display_name})... `,
         );
-        const fresh = await getGameById(
-          Number(game.igdb_id),
-          game.platform_igdb_id,
-        );
+        const fresh =
+          freshCache.get(Number(game.igdb_id)) ||
+          (await getGameById(Number(game.igdb_id), game.platform_igdb_id));
         if (fresh) {
           const checkField = (
             field: string,

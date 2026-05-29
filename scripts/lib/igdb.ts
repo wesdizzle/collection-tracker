@@ -853,3 +853,80 @@ export function getSimplifiedTitle(title: string): string {
   }
   return simplified.trim();
 }
+
+/**
+ * Fetches multiple games by their IGDB IDs in batches of 100.
+ *
+ * @param ids The array of IGDB IDs.
+ * @param platformIdMap Map of game ID to platform ID.
+ * @returns Array of NormalizedGame objects.
+ */
+export async function getGamesByIds(
+  ids: number[],
+  platformIdMap?: Record<number, number>,
+): Promise<NormalizedGame[]> {
+  if (ids.length === 0) return [];
+  const fields = `id, name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.region, release_dates.date`;
+
+  const chunks: number[][] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    chunks.push(ids.slice(i, i + 100));
+  }
+
+  const allNormalized: NormalizedGame[] = [];
+
+  for (const chunk of chunks) {
+    const query = `
+      fields ${fields};
+      where id = (${chunk.join(',')});
+      limit 100;
+    `;
+    const results = (await queryIGDB('games', query)) as IGDBGame[];
+    if (results && results.length > 0) {
+      for (const game of results) {
+        const platformId = platformIdMap ? platformIdMap[game.id] : undefined;
+        const category = game.game_type ?? game.category;
+
+        if (category === 3) {
+          // Bundles require special individual query to pull member data
+          const individual = await getGameById(game.id, platformId);
+          if (individual) {
+            allNormalized.push(individual);
+          }
+        } else {
+          // Version parent inheritance
+          if (game.version_parent && typeof game.version_parent === 'object') {
+            interface ParentInfo {
+              collections?: { name: string }[];
+              franchises?: { name: string }[];
+            }
+            const parent = game.version_parent as ParentInfo;
+            if (parent.collections || parent.franchises) {
+              const collections = new Set(
+                game.collections?.map((c) => c.name) || [],
+              );
+              const franchises = new Set(
+                game.franchises?.map((f) => f.name) || [],
+              );
+
+              parent.collections?.forEach((c) => collections.add(c.name));
+              parent.franchises?.forEach((f) => franchises.add(f.name));
+
+              game.collections = Array.from(collections).map((name) => ({
+                id: 0,
+                name,
+              }));
+              game.franchises = Array.from(franchises).map((name) => ({
+                id: 0,
+                name,
+              }));
+            }
+          }
+          allNormalized.push(normalizeIGDBGame(game, game.name, platformId));
+        }
+      }
+    }
+  }
+
+  return allNormalized;
+}

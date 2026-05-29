@@ -26,6 +26,7 @@ import {
   TOYS_LIST_QUERY,
   TOY_DETAIL_QUERY,
   GAMES_ORDER_BY,
+  getRomGroupingKey,
 } from './lib/queries.js';
 
 // Source of truth local database
@@ -553,6 +554,7 @@ export const handleRequest =
               id?: string;
               backup_status?: number;
               ownership_status?: number;
+              release_date?: string | null;
             })
           | undefined;
         if (!game) {
@@ -583,8 +585,13 @@ export const handleRequest =
           if (game.rom_name) {
             const releases = db
               .prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
-              .all(game.stable_id, game.region, game.variants);
-            game.releases = releases;
+              .all(game.stable_id, game.region, game.variants) as {
+              rom_name: string | null;
+            }[];
+            const targetKey = getRomGroupingKey(game.rom_name);
+            game.releases = releases.filter(
+              (r) => getRomGroupingKey(r.rom_name) === targetKey,
+            );
           } else {
             game.releases = [
               {
@@ -596,6 +603,7 @@ export const handleRequest =
                 rom_crc: game.rom_crc || null,
                 backup_status: game.backup_status || 0,
                 ownership_status: game.ownership_status || 0,
+                release_date: game.release_date || null,
               },
             ];
           }

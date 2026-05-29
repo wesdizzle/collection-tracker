@@ -143,7 +143,7 @@ describe('CollectionService', () => {
       service.getGames().subscribe((games) => {
         expect(games.length).toBe(5);
         expect(games[0].title).toBe('Super Mario 64');
-        expect(games[1].title).toBe('Legend of Zelda, The');
+        expect(games[1].title).toBe('The Legend of Zelda');
         expect(games[2].title).toBe('Pokemon Colosseum (Bonus Disc)');
         expect(games[3].title).toBe('Metroid');
         expect(games[4].title).toBe('Final Fantasy VII');

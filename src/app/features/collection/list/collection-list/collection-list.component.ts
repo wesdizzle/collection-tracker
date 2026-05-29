@@ -836,8 +836,8 @@ export class CollectionListComponent
       Game & { discIds: string[]; discBackups: number[] }
     >();
     for (const g of allGames) {
-      const strippedRom = this.stripDiscIndicator(g.rom_name);
-      const baseKey = `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${strippedRom}`;
+      const romKey = this.getRomGroupingKey(g.rom_name);
+      const baseKey = `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${romKey}`;
       if (!groupedMap.has(baseKey)) {
         groupedMap.set(baseKey, {
           ...g,
@@ -1028,29 +1028,44 @@ export class CollectionListComponent
    * @param filename The ROM filename.
    * @returns The stripped ROM name, or an empty string if not provided.
    */
+  private hasDiscIndicator(filename: string | null | undefined): boolean {
+    if (!filename) {
+      return false;
+    }
+    const discRegex =
+      /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/i;
+    return discRegex.test(filename);
+  }
+
   private stripDiscIndicator(filename: string | null | undefined): string {
     if (!filename) {
       return '';
     }
 
-    // Extract base name without file extension (if any)
     const lastDot = filename.lastIndexOf('.');
     let base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
 
-    // Regex to match and strip typical disc indicators (e.g. "Disc 1", "(Disc A)", etc.)
-    // Matches patterns like "Disc [0-9a-zA-Z]", "Disc [0-9]+ of [0-9]+", and similar patterns
-    // with optional leading dashes/underscores/spaces or surrounding parentheses.
     base = base.replace(
       /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/gi,
       '',
     );
-    base = base.replace(/[-_\s]*\(?Side\s+[a-zA-Z0-9]\)?/gi, '');
 
-    // Normalize extra spaces and trim any trailing separator characters
     base = base.replace(/\s+/g, ' ').trim();
     base = base.replace(/[-_]$/, '').trim();
 
     return base.toLowerCase();
+  }
+
+  private getRomGroupingKey(filename: string | null | undefined): string {
+    if (!filename) {
+      return '';
+    }
+    if (this.hasDiscIndicator(filename)) {
+      return `multi:${this.stripDiscIndicator(filename)}`;
+    }
+    const lastDot = filename.lastIndexOf('.');
+    const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+    return `single:${base.toLowerCase()}`;
   }
 
   /** Virtual list window based on displayLimit for infinite scroll performance */
@@ -1086,7 +1101,22 @@ export class CollectionListComponent
           platformName: p,
           platformLogo: game.platform_logo,
           launchYear: game.platform_launch_date
-            ? new Date(game.platform_launch_date).getFullYear().toString()
+            ? (() => {
+                const parts = game.platform_launch_date.split('-');
+                if (parts.length === 3) {
+                  const y = parseInt(parts[0], 10);
+                  const m = parseInt(parts[1], 10) - 1;
+                  const d = parseInt(parts[2], 10);
+                  const dt = new Date(y, m, d);
+                  return new Intl.DateTimeFormat('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  }).format(dt);
+                }
+                return game.platform_launch_date;
+              })()
             : undefined,
           games: [],
           totalCount: counts.get(p) || 0,

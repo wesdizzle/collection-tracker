@@ -27,6 +27,7 @@ import {
   TOYS_LIST_QUERY,
   TOY_DETAIL_QUERY,
   GAMES_ORDER_BY,
+  getRomGroupingKey,
 } from '../scripts/lib/queries';
 
 export interface Env {
@@ -43,6 +44,7 @@ interface DbGame {
   rom_crc?: string | null;
   backup_status?: number;
   ownership_status?: number;
+  release_date?: string | null;
   releases?: unknown[];
 }
 
@@ -112,7 +114,13 @@ export default {
           )
             .bind(game.stable_id, game.region, game.variants)
             .all();
-          game.releases = results;
+          const targetKey = getRomGroupingKey(game.rom_name);
+          const typedResults = (results || []) as {
+            rom_name?: string | null;
+          }[];
+          game.releases = typedResults.filter(
+            (r) => getRomGroupingKey(r.rom_name) === targetKey,
+          );
         } else {
           game.releases = [
             {
@@ -124,6 +132,7 @@ export default {
               rom_crc: game.rom_crc || null,
               backup_status: game.backup_status || 0,
               ownership_status: game.ownership_status || 0,
+              release_date: game.release_date || null,
             },
           ];
         }
