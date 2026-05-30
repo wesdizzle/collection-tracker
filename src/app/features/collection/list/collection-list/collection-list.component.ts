@@ -47,7 +47,7 @@ import { CollectionFiltersComponent } from '../../filters/collection-filters/col
 
 interface GameGroup {
   platformName: string;
-  platformLogo?: string;
+  platformLogo?: string | null;
   launchYear?: string;
   games: Game[];
   totalCount: number;

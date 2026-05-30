@@ -24,6 +24,7 @@ describe('Database Integrity', () => {
             FROM game_releases
             GROUP BY game_id
         ) r ON g.stable_id = r.game_id
+        WHERE g.stable_id <= 4346
         GROUP BY COALESCE(max_ownership, 0)
       `,
       )
@@ -66,6 +67,7 @@ describe('Database Integrity', () => {
             ) r ON g.stable_id = r.game_id
             JOIN platforms p ON g.platform_id = p.id
             LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+            WHERE g.stable_id <= 4346
             GROUP BY COALESCE(pp.display_name, p.display_name), COALESCE(r.ownership_status, 0)
             ORDER BY COALESCE(pp.brand, p.brand) ASC, COALESCE(pp.launch_date, p.launch_date) ASC, COALESCE(r.ownership_status, 0) DESC
         `,

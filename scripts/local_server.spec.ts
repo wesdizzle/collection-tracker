@@ -7,6 +7,74 @@ import axios from 'axios';
 vi.mock('axios');
 const mockedAxios = axios as Mocked<typeof axios>;
 
+vi.mock('./lib/dat_cache.js', () => ({
+  getPlatformDatReleases: vi.fn(() => [
+    {
+      name: 'Bloodborne (USA)',
+      romName: 'Bloodborne (USA).bin',
+      romCrc: '12345678',
+      region: 'USA',
+      variants: null,
+      releaseDate: null,
+    },
+  ]),
+}));
+
+vi.mock('./lib/igdb.js', () => ({
+  getGameById: vi.fn((id) =>
+    Promise.resolve({
+      id: `igdb-${id}`,
+      name: 'Bloodborne',
+      summary: 'A dark action RPG.',
+      image_url: 'http://example.com/cover.png',
+      platform: 'PlayStation 4',
+      platforms: [{ id: 48, name: 'PlayStation 4' }],
+      release_date: '2015-03-24',
+      collections: 'Bloodborne Series',
+      franchises: null,
+      genres: 'Role-playing (RPG)',
+    }),
+  ),
+  findGame: vi.fn(() =>
+    Promise.resolve([
+      {
+        id: 'igdb-101',
+        name: 'Bloodborne',
+        platform: 'PlayStation 4',
+        image_url: 'http://example.com/cover.png',
+      },
+    ]),
+  ),
+  getCollectionGames: vi.fn(() =>
+    Promise.resolve([
+      {
+        id: 101,
+        name: 'Bloodborne',
+        platforms: [{ id: 48, name: 'PlayStation 4' }],
+      },
+    ]),
+  ),
+  getGamesByIds: vi.fn((ids) =>
+    Promise.resolve(
+      ids.map((id: number) => ({
+        id: `igdb-${id}`,
+        name: 'Bloodborne',
+        summary: 'A dark action RPG.',
+        image_url: 'http://example.com/cover.png',
+        platforms: [{ id: 48, name: 'PlayStation 4' }],
+        release_date: '2015-03-24',
+        collections: 'Bloodborne Series',
+        franchises: null,
+        genres: 'Role-playing (RPG)',
+      })),
+    ),
+  ),
+  queryIGDB: vi.fn(() =>
+    Promise.resolve([{ id: 202, name: 'Bloodborne Series' }]),
+  ),
+  PLATFORM_MAP: { 'PlayStation 4': 48, 'PlayStation VR': 165 },
+}));
+
 /**
  * UNIT TEST: Local Server API Logic
  *
@@ -32,6 +100,7 @@ describe('Local Server API Logic', () => {
     mockDb.exec(`
             CREATE TABLE platforms (
                 id INTEGER PRIMARY KEY, 
+                name TEXT,
                 display_name TEXT, 
                 brand TEXT, 
                 launch_date DATE, 
@@ -89,14 +158,14 @@ describe('Local Server API Logic', () => {
     // Seed data
     mockDb
       .prepare(
-        'INSERT INTO platforms (id, display_name, brand, launch_date, parent_platform_id) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO platforms (id, name, display_name, brand, launch_date, parent_platform_id) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(34, 'PlayStation 4', 'Sony', '2013-11-15', null);
+      .run(34, 'PlayStation 4', 'PlayStation 4', 'Sony', '2013-11-15', null);
     mockDb
       .prepare(
-        'INSERT INTO platforms (id, display_name, brand, launch_date, parent_platform_id) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO platforms (id, name, display_name, brand, launch_date, parent_platform_id) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(51, 'PlayStation VR', 'Sony', '2016-10-13', 34);
+      .run(51, 'PlayStation VR', 'PlayStation VR', 'Sony', '2016-10-13', 34);
     mockDb
       .prepare(
         'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
@@ -460,6 +529,101 @@ describe('Local Server API Logic', () => {
         .get() as { play_status: string | number };
 
       expect(Number(game.play_status)).toBe(2);
+    });
+  });
+
+  describe('Ingestion and Discovery Endpoints', () => {
+    it('should search games on IGDB via /api/discovery/search', async () => {
+      const { req, res } = createMocks(
+        '/api/discovery/search?query=Bloodborne&platformId=34',
+      );
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output).toHaveLength(1);
+      expect(output[0].name).toBe('Bloodborne');
+    });
+
+    it('should get matches and details via /api/discovery/matches', async () => {
+      const { req, res } = createMocks(
+        '/api/discovery/matches?igdbId=101&platformId=34',
+      );
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.game.name).toBe('Bloodborne');
+      expect(output.matchedReleases).toHaveLength(1);
+      expect(output.matchedReleases[0].name).toBe('Bloodborne (USA)');
+    });
+
+    it('should transactionally add a game and releases via /api/discovery/add', async () => {
+      const payload = {
+        game: {
+          title: 'Bloodborne II',
+          platform_id: 34,
+          igdb_id: 102,
+          igdb_url: 'http://example.com/bloodborne2',
+          summary: 'A sequel.',
+          genres: 'RPG',
+          region: 'USA',
+          image_url: 'http://example.com/cover.png',
+        },
+        releases: [
+          {
+            region: 'USA',
+            variants: null,
+            rom_name: 'Bloodborne (USA).bin',
+            rom_crc: '12345678',
+            ownership_status: 1,
+            backup_status: 0,
+            release_date: '2015-03-24',
+          },
+        ],
+      };
+      const { req, res } = createDiscoveryMocks(
+        '/api/discovery/add',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.success).toBe(true);
+
+      const dbGame = mockDb
+        .prepare("SELECT * FROM games WHERE id = 'bloodborne-ii-playstation-4'")
+        .get() as { stable_id: number; title: string } | undefined;
+      expect(dbGame).toBeDefined();
+      expect(dbGame!.title).toBe('Bloodborne II');
+
+      // Verify inserted release
+      const dbRelease = mockDb
+        .prepare('SELECT * FROM game_releases WHERE game_id = ?')
+        .get(dbGame!.stable_id) as { rom_name: string } | undefined;
+      expect(dbRelease).toBeDefined();
+      expect(dbRelease!.rom_name).toBe('Bloodborne (USA).bin');
+    });
+
+    it('should scan for missing series games via /api/discovery/scan-series', async () => {
+      // Seed a game with canonical_series 'Bloodborne Series'
+      mockDb
+        .prepare(
+          "UPDATE games SET canonical_series = 'Bloodborne Series' WHERE stable_id = 1",
+        )
+        .run();
+
+      const { req, res } = createMocks('/api/discovery/scan-series');
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      console.log('--- SCAN-SERIES DEBUG OUTPUT ---', output);
+      expect(output.length).toBeGreaterThan(0);
+      expect(output[0].title).toBe('Bloodborne');
+      expect(output[0].releases).toBeDefined();
     });
   });
 });

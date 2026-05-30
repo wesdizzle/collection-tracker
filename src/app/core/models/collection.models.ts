@@ -24,45 +24,45 @@ export enum PlayStatus {
 export interface GameRelease {
   id: string;
   game_id: number;
-  region?: string;
-  variants?: string;
-  rom_name?: string;
-  rom_crc?: string;
+  region?: string | null;
+  variants?: string | null;
+  rom_name?: string | null;
+  rom_crc?: string | null;
   backup_status: number;
   ownership_status: number;
-  release_date?: string;
+  release_date?: string | null;
 }
 
 export interface Game {
   stable_id: number;
   id: string; // The durable slug: game-title-platform-name
-  game_id?: string; // Grouped game slug reference
+  game_id?: string | null; // Grouped game slug reference
   title: string;
   series: string;
   canonical_series: string;
   release_date: string;
   platform: string;
   platform_id: number;
-  igdb_id?: number;
-  igdb_url?: string;
-  region?: string;
-  display_name?: string;
+  igdb_id?: number | null;
+  igdb_url?: string | null;
+  region?: string | null;
+  display_name?: string | null;
   ownership_status: OwnershipStatus;
   play_status: PlayStatus;
   backup_status: boolean | number;
-  image_url: string;
-  summary?: string;
-  genres?: string;
-  collections?: string;
-  franchises?: string;
-  brand?: string;
-  platform_launch_date?: string;
-  platform_logo?: string;
-  parent_platform_id?: number;
-  sort_index?: number;
-  variants?: string;
-  rom_name?: string;
-  rom_crc?: string;
+  image_url?: string | null;
+  summary?: string | null;
+  genres?: string | null;
+  collections?: string | null;
+  franchises?: string | null;
+  brand?: string | null;
+  platform_launch_date?: string | null;
+  platform_logo?: string | null;
+  parent_platform_id?: number | null;
+  sort_index?: number | null;
+  variants?: string | null;
+  rom_name?: string | null;
+  rom_crc?: string | null;
   releases?: GameRelease[];
 }
 
@@ -164,4 +164,44 @@ export interface ListState {
   displayLimit: number;
   scrollX?: number;
   scrollY?: number;
+}
+
+export interface DiscoveryRelease {
+  name: string;
+  romName: string;
+  romCrc: string | null;
+  region: string | null;
+  variants: string | null;
+  releaseDate: string | null;
+}
+
+export interface IGDBSearchResult {
+  id: string | number;
+  name: string;
+  platform: string;
+  image_url: string | null;
+  summary?: string | null;
+  genres?: string | null;
+  igdb_url?: string | null;
+  collections?: string | null;
+  franchises?: string | null;
+  region?: string | null;
+  ownership_status?: number;
+  play_status?: number;
+  backup_status?: number;
+}
+
+export interface ScanSuggestion {
+  id: string | number;
+  title: string;
+  platform: string;
+  platform_id: number;
+  image_url: string | null;
+  summary?: string | null;
+  collections?: string | null;
+  franchises?: string | null;
+  genres?: string | null;
+  igdb_url?: string | null;
+  region?: string | null;
+  releases: DiscoveryRelease[];
 }

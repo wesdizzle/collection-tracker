@@ -113,21 +113,4 @@ The Collection Tracker is optimized for mobile use:
 
 ## 📋 Roadmap
 
-### 1. Manual & Automated Series Discovery
-
-**Goal**: Allow users to discover and ingest new games via IGDB, supporting both direct name searches and intelligent automated series scanning for missing items.
-
-- **Dual-Mode Discovery Pipelines**:
-  - **Manual Name Search**: A responsive search interface on the discover page querying the IGDB API and displaying matches across targeted platforms.
-  - **One-Button Series Scan (Automated Discovery)**: A one-button scan feature that automatically analyzes the user's current collection to identify tracked series/franchises and platforms. It queries IGDB for all items in those series that are not yet in the local database but exist on our tracked platforms, presenting a list of highly relevant, missing canonical entries.
-- **Intelligent IGDB Filtering Heuristics**:
-  - Automatically filter discovery suggestions to only include games that:
-    1. Belong to a **series/franchise** already tracked in the database (e.g., _Super Mario_, _The Legend of Zelda_).
-    2. Are released on a **platform** currently present in the user's platform database.
-    3. Are **not yet tracked** in the local `games` table.
-- **Data Ingestion & Verification**:
-  - **Data Hydration**: Selecting a discovered game pulls its full canonical metadata (summary, genres, collections, franchises, release dates, high-resolution cover) from IGDB.
-  - **Custom Status Configuration**: Before persisting a newly discovered item, the ingestion flow must allow users to customize local collection metadata (Ownership status, Played status, and Backup status).
-- **UX & Interaction Design**:
-  - _Option A (Modal Wizard)_: A multi-step ingestion flow (Search/Scan results -> Configuration of statuses -> Database persist & sync).
-  - _Option B (Inline Form)_: Selecting a search or scan result expands an inline metadata customization form, saving the game directly within the feed.
+### 1. Clean up the toy tracking with better backing data and images.

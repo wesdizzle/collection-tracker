@@ -26,6 +26,9 @@ import {
   DiscoveryPayload,
   ListState,
   PlayStatus,
+  IGDBSearchResult,
+  DiscoveryRelease,
+  ScanSuggestion,
 } from '../models/collection.models';
 
 @Injectable({
@@ -291,6 +294,83 @@ export class CollectionService {
    */
   applyDiscovery(payload: DiscoveryPayload): Observable<unknown> {
     return this.http.post('/api/discovery/apply', payload);
+  }
+
+  /**
+   * Searches for games on IGDB via the local discovery proxy.
+   *
+   * @param query The search query string.
+   * @param platformId The platform ID to filter matches.
+   * @returns Observable of normalized game search result candidates.
+   */
+  searchGames(
+    query: string,
+    platformId: number,
+  ): Observable<IGDBSearchResult[]> {
+    return this.http
+      .get<
+        IGDBSearchResult[]
+      >(`/api/discovery/search?query=${encodeURIComponent(query)}&platformId=${platformId}`)
+      .pipe(
+        catchError((err) => {
+          console.error('[CollectionService] Error searching games:', err);
+          return of([]);
+        }),
+      );
+  }
+
+  /**
+   * Retrieves detail metadata and physical DAT release matches for a specific IGDB game.
+   *
+   * @param igdbId The IGDB identifier.
+   * @param platformId The platform ID.
+   * @returns Observable containing the game metadata and matched releases checklist.
+   */
+  getGameMatches(
+    igdbId: string,
+    platformId: number,
+  ): Observable<{
+    game: IGDBSearchResult;
+    matchedReleases: DiscoveryRelease[];
+  }> {
+    return this.http.get<{
+      game: IGDBSearchResult;
+      matchedReleases: DiscoveryRelease[];
+    }>(`/api/discovery/matches?igdbId=${igdbId}&platformId=${platformId}`);
+  }
+
+  /**
+   * Adds a newly discovered game and its checklist of releases to the SQLite database.
+   *
+   * @param payload Object containing game fields and selected releases to track.
+   * @returns Observable denoting success status of the transactional insert.
+   */
+  addGame(payload: {
+    game: Partial<Game> & {
+      ownership_status?: number;
+      play_status?: number;
+      backup_status?: number;
+    };
+    releases: Partial<DiscoveryRelease>[];
+  }): Observable<{ success: boolean; gameId: string }> {
+    return this.http.post<{ success: boolean; gameId: string }>(
+      '/api/discovery/add',
+      payload,
+    );
+  }
+
+  /**
+   * Performs a series scan to discover missing games for tracked series and platforms.
+   *
+   * @returns Observable of missing game suggestions along with physical DAT release checklist info.
+   */
+  scanSeries(): Observable<ScanSuggestion[]> {
+    return this.http.get<ScanSuggestion[]>('/api/discovery/scan-series').pipe(
+      catchError((err) => {
+        console.error('[CollectionService] Error scanning series:', err);
+        return of([]);
+      }),
+    );
   }
 
   /**
