@@ -480,7 +480,7 @@ import { RouterModule } from '@angular/router';
     </div>
 
     <!-- INGESTION MODAL DIALOG -->
-    @if (showModal() && modalGame()) {
+    @if (showModal() && modalGame(); as game) {
       <div class="modal-backdrop" (click)="closeIngestionModal()">
         <div class="modal-content" (click)="$event.stopPropagation()">
           <div class="modal-header">
@@ -529,20 +529,20 @@ import { RouterModule } from '@angular/router';
               <!-- Game Header Summary -->
               <div class="flex gap-md mb-lg items-start">
                 <div class="modal-game-cover">
-                  @if (modalGame().image_url) {
-                    <img [src]="modalGame().image_url" alt="cover" />
+                  @if (game.image_url) {
+                    <img [src]="game.image_url" alt="cover" />
                   } @else {
                     <div class="no-image">No Cover</div>
                   }
                 </div>
                 <div>
-                  <h2 class="text-lg font-bold">{{ modalGame().name }}</h2>
+                  <h2 class="text-lg font-bold">{{ game.name }}</h2>
                   <span class="platform-badge mt-sm">{{
-                    modalGame().platform || 'Unknown Platform'
+                    game.platform || 'Unknown Platform'
                   }}</span>
-                  @if (modalGame().summary) {
+                  @if (game.summary) {
                     <p class="text-xs text-secondary mt-sm line-clamp-3">
-                      {{ modalGame().summary }}
+                      {{ game.summary }}
                     </p>
                   }
                 </div>
@@ -675,7 +675,7 @@ import { RouterModule } from '@angular/router';
             </button>
             <button
               class="m3-btn m3-btn-primary"
-              [disabled]="modalLoading() || !modalGame() || !modalPlatformId()"
+              [disabled]="modalLoading() || !game || !modalPlatformId()"
               (click)="submitIngestion()"
             >
               Ingest & Sync
