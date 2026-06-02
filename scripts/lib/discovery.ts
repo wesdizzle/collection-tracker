@@ -15,14 +15,26 @@ export interface DiscoveryItem {
 }
 
 export interface ApplyPayload {
+  /** The title of the unmatched item currently in the local database. */
   currentTitle: string;
+  /** The platform name of the unmatched item. */
   currentPlatform: string;
+  /** The product/toy line if applicable (e.g. 'Skylanders', 'amiibo', 'Starlink'). */
   currentLine?: string;
+  /** The series or franchise the unmatched item belongs to. */
   currentSeries?: string;
-  selectedIgdbId: string;
+  /** The matched ID from external metadata provider (IGDB ID, SCL name slug, or Amiibo hex ID). */
+  selectedIgdbId: string | number;
+  /** The name of the matched entity. */
   selectedName: string;
+  /** The platform name of the matched entity. */
   selectedPlatform: string;
+  /** The target release region (e.g. 'NA', 'JP', 'EU'). */
   region?: string;
+  /** A summary description of the matched item. */
+  summary?: string;
+  /** The image URL of the matched item. */
+  imageUrl?: string;
 }
 
 /**

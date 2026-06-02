@@ -105,74 +105,120 @@ export const handleRequest =
           currentSeries = payload.currentSeries || '';
           const { selectedIgdbId, selectedName, selectedPlatform, region } =
             payload;
-          isToy = selectedIgdbId.toString().startsWith('amiibo-');
+          isToy =
+            selectedIgdbId.toString().startsWith('amiibo-') ||
+            selectedIgdbId.toString().startsWith('skylanders-') ||
+            selectedIgdbId.toString().startsWith('starlink-');
 
           if (isToy) {
-            const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
-            try {
-              const apiUrl = `https://amiiboapi.org/api/amiibo/?id=${amiiboId}`;
-              console.log(`Fetching amiibo metadata: ${apiUrl}`);
-              const response = await axios.get(apiUrl, { timeout: 10000 });
-              const a = response.data.amiibo;
+            if (selectedIgdbId.toString().startsWith('amiibo-')) {
+              const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
+              try {
+                const apiUrl = `https://amiiboapi.org/api/amiibo/?id=${amiiboId}`;
+                console.log(`Fetching amiibo metadata: ${apiUrl}`);
+                const response = await axios.get(apiUrl, { timeout: 10000 });
+                const a = response.data.amiibo;
 
-              if (!a) {
+                if (!a) {
+                  throw new Error(
+                    `Amiibo API returned no results for ID: ${amiiboId}`,
+                  );
+                }
+                // Determine primary region and date
+                let releaseDate = a.release?.na;
+                let finalRegion = region || 'NA';
+
+                if (!releaseDate && a.release) {
+                  if (a.release.jp) {
+                    releaseDate = a.release.jp;
+                    finalRegion = 'JP';
+                  } else if (a.release.eu) {
+                    releaseDate = a.release.eu;
+                    finalRegion = 'EU';
+                  } else if (a.release.au) {
+                    releaseDate = a.release.au;
+                    finalRegion = 'AU';
+                  }
+                }
+
+                const effectiveSeries =
+                  a.amiiboSeries === 'Others' ? a.gameSeries : a.amiiboSeries;
+
+                db.prepare(
+                  `
+                              UPDATE toys 
+                              SET amiibo_id = ?, name = ?, type = ?, image_url = ?, series = ?, region = ?, release_date = ?, verified = 1, metadata_json = ?
+                              WHERE name = ? AND series = ? AND line = 'amiibo'
+                          `,
+                ).run(
+                  amiiboId,
+                  a.name,
+                  a.type,
+                  a.image,
+                  effectiveSeries,
+                  finalRegion,
+                  releaseDate || null,
+                  JSON.stringify(a),
+                  currentTitle,
+                  currentSeries,
+                );
+
+                console.log(
+                  `Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`,
+                );
+              } catch (apiErr: unknown) {
+                console.error(
+                  `Amiibo API fetch failed for ID ${amiiboId}:`,
+                  apiErr,
+                );
+                const apiErrMsg =
+                  apiErr instanceof Error ? apiErr.message : 'Unknown error';
+                // Throw specific error format so frontend displays it cleanly
                 throw new Error(
-                  `Amiibo API returned no results for ID: ${amiiboId}`,
+                  `Failed to fetch amiibo metadata: ${apiErrMsg}`,
+                  {
+                    cause: apiErr,
+                  },
                 );
               }
-              // Determine primary region and date
-              let releaseDate = a.release?.na;
-              let finalRegion = region || 'NA';
+            } else {
+              // Non-Amiibo toys (Skylanders, Starlink)
+              const line = selectedIgdbId.toString().startsWith('skylanders-')
+                ? 'Skylanders'
+                : 'Starlink';
 
-              if (!releaseDate && a.release) {
-                if (a.release.jp) {
-                  releaseDate = a.release.jp;
-                  finalRegion = 'JP';
-                } else if (a.release.eu) {
-                  releaseDate = a.release.eu;
-                  finalRegion = 'EU';
-                } else if (a.release.au) {
-                  releaseDate = a.release.au;
-                  finalRegion = 'AU';
-                }
-              }
-
-              const effectiveSeries =
-                a.amiiboSeries === 'Others' ? a.gameSeries : a.amiiboSeries;
+              const image = payload.imageUrl || null;
+              const sclUrl =
+                payload.summary &&
+                (payload.summary.startsWith('Checklist link: ') ||
+                  payload.summary.startsWith('SCL Link: '))
+                  ? payload.summary
+                      .replace('Checklist link: ', '')
+                      .replace('SCL Link: ', '')
+                  : null;
 
               db.prepare(
                 `
-                            UPDATE toys 
-                            SET amiibo_id = ?, name = ?, type = ?, image_url = ?, series = ?, region = ?, release_date = ?, verified = 1, metadata_json = ?
-                            WHERE name = ? AND series = ? AND line = 'amiibo'
-                        `,
+                UPDATE toys
+                SET image_url = ?, scl_url = COALESCE(?, scl_url), verified = 1, metadata_json = ?
+                WHERE name = ? AND series = ? AND line = ?
+              `,
               ).run(
-                amiiboId,
-                a.name,
-                a.type,
-                a.image,
-                effectiveSeries,
-                finalRegion,
-                releaseDate || null,
-                JSON.stringify(a),
+                image,
+                sclUrl,
+                JSON.stringify({
+                  matched_name: selectedName,
+                  matched_id: selectedIgdbId,
+                  date_applied: new Date().toISOString(),
+                }),
                 currentTitle,
                 currentSeries,
+                line,
               );
 
               console.log(
-                `Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`,
+                `Matched Toy (${line}): ${currentTitle} (Series: ${currentSeries}) -> [Image: ${image}]`,
               );
-            } catch (apiErr: unknown) {
-              console.error(
-                `Amiibo API fetch failed for ID ${amiiboId}:`,
-                apiErr,
-              );
-              const apiErrMsg =
-                apiErr instanceof Error ? apiErr.message : 'Unknown error';
-              // Throw specific error format so frontend displays it cleanly
-              throw new Error(`Failed to fetch amiibo metadata: ${apiErrMsg}`, {
-                cause: apiErr,
-              });
             }
           } else {
             // 1. Fetch Full Metadata from IGDB

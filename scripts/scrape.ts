@@ -35,7 +35,14 @@ import {
   scrapePriceCharting,
   scrapePlayStationStore,
 } from './lib/web_scraper.js';
-import { getAmiiboSeries, Toy } from './lib/toys.js';
+import {
+  getAmiiboSeries,
+  Toy,
+  scrapeSkylandersSitemap,
+  scrapeStarlinkConsole,
+  SitemapEntry,
+  PCProduct,
+} from './lib/toys.js';
 import { recomputeCanonicalSeries } from './compute_canonical_series.js';
 import axios from 'axios';
 import { parseDatFile } from './lib/dat_parser.js';
@@ -1243,6 +1250,243 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
   );
 }
 
+/**
+ * Matches a Skylanders toy to entries in the scraped sitemap.
+ */
+function findSkylandersMatch(
+  toy: Toy,
+  sitemap: SitemapEntry[],
+): SitemapEntry[] {
+  const toyNameLower = toy.name.toLowerCase();
+
+  // Custom match for Trap Team Traps (Series 4)
+  if (toy.series === '4' && toy.name.includes('(')) {
+    const base = toyNameLower.split('(')[0].trim();
+    const words = base.split(/\s+/).filter((w) => w.length > 0);
+    const match = sitemap.find((entry) => {
+      const slug = entry.loc.toLowerCase();
+      return words.every((w) => slug.includes(w)) && slug.includes('trap');
+    });
+    if (match) return [match];
+  }
+
+  // Custom match for Imaginators Creation Crystals (Series 6)
+  const isCrystal =
+    toy.series === '6' &&
+    (toyNameLower.includes('rune') ||
+      toyNameLower.includes('lantern') ||
+      toyNameLower.includes('rocket') ||
+      toyNameLower.includes('acorn') ||
+      toyNameLower.includes('reactor') ||
+      toyNameLower.includes('claw') ||
+      toyNameLower.includes('fanged') ||
+      toyNameLower.includes('pyramid') ||
+      toyNameLower.includes('angel') ||
+      toyNameLower.includes('chest'));
+  if (isCrystal) {
+    const words = toyNameLower.split(/\s+/).filter((w) => w.length > 0);
+    const match = sitemap.find((entry) => {
+      const slug = entry.loc.toLowerCase();
+      return (
+        words.every((w) => slug.includes(w)) &&
+        (slug.includes('creation') ||
+          slug.includes('crystal') ||
+          slug.includes('mystery-chests') ||
+          slug.includes('ctt'))
+      );
+    });
+    if (match) return [match];
+  }
+
+  // Split toy name into individual words, strip punctuation
+  const cleanWord = (w: string) => w.replace(/['’.]/g, '');
+  const toyWords = toyNameLower
+    .split(/[\s\-:()]+/)
+    .map(cleanWord)
+    .filter((w) => w.length > 0);
+
+  if (toyWords.length === 0) return [];
+
+  return sitemap.filter((entry) => {
+    const loc = entry.loc.toLowerCase();
+    const slug = loc
+      .replace('https://skylanderscharacterlist.com/', '')
+      .replace(/\/$/g, '');
+    const slugClean = slug.replace(/['’.]/g, '');
+
+    // 1. Basic filter: Exclude reviews, giveaways, cards, spells, hats, etc.
+    if (
+      slug.includes('review') ||
+      slug.includes('unboxing') ||
+      slug.includes('giveaway') ||
+      slug.includes('spell') ||
+      slug.includes('hat') ||
+      slug.includes('card')
+    ) {
+      return false;
+    }
+
+    // 2. All words in the toy name must be present in the slug (order-independent)
+    const matchesAllWords = toyWords.every((w) => {
+      return slugClean.includes(w);
+    });
+
+    if (!matchesAllWords) return false;
+
+    // 3. Prevent variant mismatch:
+    // If the slug contains a version indicator that is NOT in the toy name, reject.
+    const indicators = [
+      { term: 'series-2', norm: 'series2', matches: ['series2', 'series-2'] },
+      { term: 'series-3', norm: 'series3', matches: ['series3', 'series-3'] },
+      { term: 'series-4', norm: 'series4', matches: ['series4', 'series-4'] },
+      { term: 'legendary', norm: 'legendary', matches: ['legendary'] },
+      { term: 'dark', norm: 'dark', matches: ['dark'] },
+      {
+        term: 'lightcore',
+        norm: 'lightcore',
+        matches: ['lightcore', 'light-core'],
+      },
+      { term: 'elite', norm: 'elite', matches: ['elite', 'eons-elite'] },
+      { term: 'nitro', norm: 'nitro', matches: ['nitro'] },
+      { term: 'jolly', norm: 'jolly', matches: ['jolly'] },
+      { term: 'polar', norm: 'polar', matches: ['polar'] },
+      { term: 'punch', norm: 'punch', matches: ['punch'] },
+      { term: 'jade', norm: 'jade', matches: ['jade'] },
+      { term: 'granite', norm: 'granite', matches: ['granite'] },
+      { term: 'scarlet', norm: 'scarlet', matches: ['scarlet'] },
+      { term: 'gnarly', norm: 'gnarly', matches: ['gnarly'] },
+      { term: 'royal', norm: 'royal', matches: ['royal'] },
+      { term: 'springtime', norm: 'springtime', matches: ['springtime'] },
+      {
+        term: 'egg-bomber',
+        norm: 'eggbomber',
+        matches: ['egg-bomber', 'eggbomber'],
+      },
+      {
+        term: 'hard-boiled',
+        norm: 'hardboiled',
+        matches: ['hard-boiled', 'hardboiled'],
+      },
+      {
+        term: 'steel-plated',
+        norm: 'steelplated',
+        matches: ['steel-plated', 'steelplated'],
+      },
+      { term: 'kickoff', norm: 'kickoff', matches: ['kickoff', 'kick-off'] },
+      {
+        term: 'fizz-bottle',
+        norm: 'fizzbottle',
+        matches: ['fizzbottle', 'fizz-bottle'],
+      },
+      {
+        term: 'super-gulp',
+        norm: 'supergulp',
+        matches: ['supergulp', 'super-gulp'],
+      },
+      {
+        term: 'sure-shot',
+        norm: 'sureshot',
+        matches: ['sureshot', 'sure-shot'],
+      },
+      {
+        term: 'anchors-away',
+        norm: 'anchorsaway',
+        matches: ['anchorsaway', 'anchors-away'],
+      },
+      {
+        term: 'tidal-wave',
+        norm: 'tidalwave',
+        matches: ['tidalwave', 'tidal-wave'],
+      },
+      { term: 'knockout', norm: 'knockout', matches: ['knockout'] },
+      {
+        term: 'horn-blast',
+        norm: 'hornblast',
+        matches: ['hornblast', 'horn-blast'],
+      },
+      {
+        term: 'twin-blade',
+        norm: 'twinblade',
+        matches: ['twinblade', 'twin-blade'],
+      },
+      { term: 'fury', norm: 'fury', matches: ['fury'] },
+      {
+        term: 'heavy-duty',
+        norm: 'heavyduty',
+        matches: ['heavyduty', 'heavy-duty'],
+      },
+      {
+        term: 'full-blast',
+        norm: 'fullblast',
+        matches: ['fullblast', 'full-blast'],
+      },
+      { term: 'hog-wild', norm: 'hogwild', matches: ['hogwild', 'hog-wild'] },
+      { term: 'fizzy', norm: 'fizzy', matches: ['fizzy'] },
+      { term: 'big-bang', norm: 'bigbang', matches: ['bigbang', 'big-bang'] },
+      {
+        term: 'double-dare',
+        norm: 'doubledare',
+        matches: ['doubledare', 'double-dare'],
+      },
+    ];
+
+    for (const ind of indicators) {
+      const slugMentions = ind.matches.some((m) => slugClean.includes(m));
+      if (slugMentions) {
+        const toyMentions = ind.matches.some(
+          (m) =>
+            toyNameLower.includes(m.replace('-', ' ')) ||
+            toyNameLower.includes(m.replace('-', '')),
+        );
+        if (!toyMentions) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  });
+}
+
+/**
+ * Maps a Starlink component name to the parent retail bundle name on PriceCharting.
+ */
+function getStarlinkBundleName(toyName: string): string {
+  const name = toyName.toLowerCase();
+  if (name.includes('chase da silva') || name.includes('volcano')) {
+    return 'Pulse';
+  }
+  if (name.includes('shaid') || name.includes('nullifier')) {
+    return 'Nadir';
+  }
+  if (name.includes('hunter/hakka') || name.includes('hunter hakka')) {
+    return 'Lance';
+  }
+  if (name.includes('levi mccray') || name.includes('fury cannon')) {
+    return 'Scramble';
+  }
+  if (
+    name.includes('judge') ||
+    name.includes('levitator') ||
+    name.includes('imploder')
+  ) {
+    return 'Neptune';
+  }
+  // Starter Pack bundle items
+  if (
+    name.includes('mason rana') ||
+    name.includes('zenith') ||
+    name.includes('fox mccloud') ||
+    name.includes('arwing') ||
+    name.includes('flamethrower') ||
+    name.includes('frost barrage') ||
+    name.includes('shredder')
+  ) {
+    return 'Starter Pack';
+  }
+  return toyName;
+}
+
 async function runScraper(): Promise<void> {
   const args = process.argv.slice(2);
   const runDiscovery = args.includes('--discovery');
@@ -1612,6 +1856,26 @@ async function runScraper(): Promise<void> {
     allApiAmiibo = await getAmiiboSeries();
   }
 
+  // Fetch Skylanders and Starlink metadata caches if needed
+  let skylandersSitemap: SitemapEntry[] = [];
+  let starlinkConsole: PCProduct[] = [];
+
+  const hasSkylanders = existingToys.some(
+    (t) => t.line.toLowerCase() === 'skylanders',
+  );
+  const hasStarlink = existingToys.some(
+    (t) => t.line.toLowerCase() === 'starlink',
+  );
+
+  if (hasSkylanders) {
+    console.log('Fetching Skylanders Character List sitemaps...');
+    skylandersSitemap = await scrapeSkylandersSitemap();
+  }
+  if (hasStarlink) {
+    console.log('Fetching Starlink PriceCharting console data...');
+    starlinkConsole = await scrapeStarlinkConsole();
+  }
+
   for (const toy of existingToys) {
     // Handle Refresh
     if (runRefresh && toy.amiibo_id && toy.verified) {
@@ -1773,13 +2037,124 @@ async function runScraper(): Promise<void> {
       continue;
     }
 
-    // Skip if already linked or verified
-    if (toy.verified || toy.amiibo_id) continue;
+    // For non-amiibo toys, skip if they already have an image_url and we are not refreshing
+    if (toy.line.toLowerCase() !== 'amiibo' && toy.image_url && !runRefresh) {
+      continue;
+    }
 
-    // Strictly focus on Amiibo sync suggestions as requested
-    if (toy.line.toLowerCase() !== 'amiibo') continue;
+    // Skip if already linked or verified (amiibo specific check)
+    if (
+      toy.line.toLowerCase() === 'amiibo' &&
+      (toy.verified || toy.amiibo_id)
+    ) {
+      continue;
+    }
 
-    process.stdout.write(`Verifying Toy: ${toy.name}... `);
+    if (toy.line.toLowerCase() === 'skylanders') {
+      process.stdout.write(
+        `Verifying Skylanders: ${toy.name} (Series: ${toy.series})... `,
+      );
+      const candidates = findSkylandersMatch(toy, skylandersSitemap);
+
+      if (candidates.length === 1) {
+        // Auto-match if exactly 1 clean candidate is found
+        const match = candidates[0];
+        // Sieve images to find a character-specific one
+        const characterImage =
+          match.images.find(
+            (img) =>
+              !img.includes('logo') &&
+              !img.includes('Ebay') &&
+              !img.includes('Whatnot'),
+          ) ||
+          match.images[0] ||
+          null;
+
+        if (characterImage) {
+          db.prepare(
+            'UPDATE toys SET image_url = ?, scl_url = ?, verified = 1 WHERE stable_id = ?',
+          ).run(characterImage, match.loc, toy.stable_id);
+          console.log(`Auto-matched! [Image: ${characterImage}]`);
+          autoMatchedCount++;
+          continue;
+        }
+      }
+
+      if (candidates.length > 0) {
+        // Ambiguous match: generate triage choices
+        syncSuggestions.push({
+          type: 'Toy',
+          current: `${toy.name} (Skylanders) | Line: ${toy.line} | Series: ${toy.series}`,
+          options: candidates.slice(0, 10).map((c) => {
+            const img =
+              c.images.find(
+                (img) =>
+                  !img.includes('logo') &&
+                  !img.includes('Ebay') &&
+                  !img.includes('Whatnot'),
+              ) ||
+              c.images[0] ||
+              null;
+            const cleanName = c.loc
+              .replace('https://skylanderscharacterlist.com/', '')
+              .replace(/\/$/g, '');
+            return {
+              id: `skylanders-${cleanName}`,
+              name: cleanName
+                .split('-')
+                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(' '),
+              platform: 'Skylanders',
+              image_url: img,
+              summary: `SCL Link: ${c.loc}`,
+              category: 'Figure',
+            };
+          }),
+          localId: toy.id,
+        });
+        console.log(`${candidates.length} candidates found.`);
+      } else {
+        console.log('No candidates.');
+      }
+      continue;
+    }
+
+    if (toy.line.toLowerCase() === 'starlink') {
+      process.stdout.write(`Verifying Starlink: ${toy.name}... `);
+      const bundleName = getStarlinkBundleName(toy.name);
+
+      if (bundleName === 'Starter Pack') {
+        const starterPackImg =
+          'https://storage.googleapis.com/images.pricecharting.com/fe26ed547f453c71289f56f5eca1b2f17b475eb798d99f6ad61a9603e49c39cd/1600.jpg';
+        db.prepare(
+          'UPDATE toys SET image_url = ?, verified = 1 WHERE stable_id = ?',
+        ).run(starterPackImg, toy.stable_id);
+        console.log(`Auto-matched (Starter Pack)!`);
+        autoMatchedCount++;
+        continue;
+      }
+
+      // Look up PriceCharting products list
+      const normBundle = superNormalize(bundleName);
+      const matchedPC = starlinkConsole.find((p) => {
+        const pNorm = superNormalize(p.productName);
+        return pNorm.includes(normBundle) || normBundle.includes(pNorm);
+      });
+
+      if (matchedPC && matchedPC.imageUri) {
+        db.prepare(
+          'UPDATE toys SET image_url = ?, verified = 1 WHERE stable_id = ?',
+        ).run(matchedPC.imageUri, toy.stable_id);
+        console.log(`Auto-matched! [Product: ${matchedPC.productName}]`);
+        autoMatchedCount++;
+      } else {
+        console.log('No candidates.');
+      }
+      continue;
+    }
+
+    // Amiibo Verification Logic
+    process.stdout.write(`Verifying Amiibo: ${toy.name}... `);
 
     // Find broad candidates for manual matching
     const normName = superNormalize(toy.name);
@@ -1813,7 +2188,7 @@ async function runScraper(): Promise<void> {
             category: m.type,
           };
         }),
-        localId: toy.id as unknown as number,
+        localId: toy.id,
       });
       console.log(`${matches.length} candidates found.`);
     } else {
@@ -2025,11 +2400,11 @@ function generateReport(
     }
 
     if (toySync.length > 0) {
-      report += '## Toy Discovery (Amiibo)\n';
+      report += '## Toy Discovery\n';
       for (const s of toySync) {
         report += `### ${s.current}\n`;
         s.options.forEach((opt) => {
-          report += `- [ ] **Link to:** ${opt.name} (amiibo) - ID: ${opt.id}\n`;
+          report += `- [ ] **Link to:** ${opt.name} (${opt.platform}) - ID: ${opt.id}\n`;
           if (opt.image_url) report += `  - ![image](${opt.image_url})\n`;
           if (opt.summary) {
             report += `  - *${opt.summary}*\n`;

@@ -138,10 +138,22 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 }}</span>
               </div>
               @if (t.verified) {
-                <div class="stat-pill active physical">
-                  <span class="icon">✨</span>
-                  <span>Verified</span>
-                </div>
+                @if (t.scl_url) {
+                  <a
+                    [href]="t.scl_url"
+                    target="_blank"
+                    class="stat-pill active physical interactive"
+                    style="text-decoration: none;"
+                  >
+                    <span class="icon">✨</span>
+                    <span>Verified</span>
+                  </a>
+                } @else {
+                  <div class="stat-pill active physical">
+                    <span class="icon">✨</span>
+                    <span>Verified</span>
+                  </div>
+                }
               }
             </div>
           }

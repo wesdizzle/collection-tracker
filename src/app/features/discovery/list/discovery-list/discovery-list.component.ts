@@ -101,78 +101,146 @@ import { RouterModule } from '@angular/router';
           }
 
           @if (!collectionService.loading() && items().length > 0) {
-            <div class="discovery-grid">
-              @for (
-                item of items();
-                track item.title + item.platform;
-                let i = $index
-              ) {
-                <div class="discovery-card card-glass">
-                  <div class="card-header">
-                    <div>
-                      <h2 class="text-lg font-bold">{{ item.title }}</h2>
-                      <div class="flex gap-sm items-center mt-sm">
-                        <span
-                          class="platform-badge"
-                          [class.toy-badge]="item.platform === 'amiibo'"
-                          >{{ item.platform }}</span
-                        >
-                        @if (item.line) {
-                          <span class="metadata-badge"
-                            >Line: {{ item.line }}</span
-                          >
-                        }
-                        @if (item.series) {
-                          <span class="metadata-badge"
-                            >Series: {{ item.series }}</span
-                          >
-                        }
-                      </div>
-                    </div>
-                    <div class="count-badge">
-                      {{ item.options.length }} Candidates
-                    </div>
-                  </div>
-                  <div class="options-scroll">
-                    @for (opt of item.options; track opt.id) {
-                      <div class="option-row">
-                        <div class="option-cover">
-                          @if (opt.image_url) {
-                            <img [src]="opt.image_url" alt="cover" />
-                          } @else {
-                            <div class="no-image">No Cover</div>
-                          }
-                        </div>
-                        <div class="option-info">
-                          <div class="flex justify-between items-start">
-                            <div>
-                              <h4 class="option-name">{{ opt.name }}</h4>
-                              <p class="option-platform text-xs text-secondary">
-                                {{ opt.platform }}
-                              </p>
-                            </div>
-                            <button
-                              (click)="applyMatch(item, opt)"
-                              class="btn-match"
-                            >
-                              Match
-                            </button>
-                          </div>
-                          @if (opt.summary) {
-                            <p class="option-summary text-xs mt-sm">
-                              {{ opt.summary }}
-                            </p>
-                          }
-                          <div class="option-id text-xxs text-secondary mt-sm">
-                            ID: {{ opt.id }}
-                          </div>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                </div>
-              }
+            <!-- Sub-Tabs Navigation for Triage -->
+            <div class="sub-tabs-container mb-lg">
+              <button
+                class="sub-tab-button"
+                [class.active]="activeTriageSubTab() === 'all'"
+                (click)="activeTriageSubTab.set('all')"
+              >
+                All ({{ items().length }})
+              </button>
+              <button
+                class="sub-tab-button"
+                [class.active]="activeTriageSubTab() === 'games'"
+                (click)="activeTriageSubTab.set('games')"
+              >
+                Games ({{ gameItemsCount() }})
+              </button>
+              <button
+                class="sub-tab-button"
+                [class.active]="activeTriageSubTab() === 'toys'"
+                (click)="activeTriageSubTab.set('toys')"
+              >
+                Toys ({{ toyItemsCount() }})
+              </button>
             </div>
+
+            @if (filteredItems().length === 0) {
+              <div class="empty-state animate-slide-up">
+                <div class="empty-icon text-4xl">📂</div>
+                <h3>No Items Found</h3>
+                <p class="text-secondary">
+                  There are no staging items currently under the "{{
+                    activeTriageSubTab()
+                  }}" tab.
+                </p>
+              </div>
+            } @else {
+              <div class="discovery-grid animate-slide-up">
+                @for (
+                  item of filteredItems();
+                  track item.title + item.platform;
+                  let i = $index
+                ) {
+                  <div class="discovery-card card-glass">
+                    <div class="card-header">
+                      <div>
+                        <h2 class="text-lg font-bold">{{ item.title }}</h2>
+                        <div class="flex gap-sm items-center mt-sm">
+                          <span
+                            class="platform-badge"
+                            [class.toy-badge]="
+                              item.line || item.platform === 'amiibo'
+                            "
+                            >{{ item.platform }}</span
+                          >
+                          @if (item.line) {
+                            <span class="metadata-badge"
+                              >Line: {{ item.line }}</span
+                            >
+                          }
+                          @if (item.series) {
+                            <span class="metadata-badge"
+                              >Series: {{ item.series }}</span
+                            >
+                          }
+                        </div>
+                      </div>
+                      <div class="count-badge">
+                        {{ item.options.length }} Candidates
+                      </div>
+                    </div>
+                    <div class="options-scroll">
+                      @for (opt of item.options; track opt.id) {
+                        <div class="option-row">
+                          <div
+                            class="option-cover"
+                            [class.toy-cover]="item.line"
+                          >
+                            @if (opt.image_url) {
+                              <img [src]="opt.image_url" alt="cover" />
+                            } @else {
+                              <div class="no-image">No Cover</div>
+                            }
+                          </div>
+                          <div class="option-info">
+                            <div class="flex justify-between items-start">
+                              <div>
+                                <h4 class="option-name">{{ opt.name }}</h4>
+                                <p
+                                  class="option-platform text-xs text-secondary"
+                                >
+                                  {{ opt.platform }}
+                                </p>
+                              </div>
+                              <button
+                                (click)="applyMatch(item, opt)"
+                                class="btn-match"
+                              >
+                                Match
+                              </button>
+                            </div>
+                            @if (opt.summary) {
+                              <p class="option-summary text-xs mt-sm">
+                                @if (
+                                  opt.summary.startsWith('SCL Link: ') ||
+                                  opt.summary.startsWith('Checklist link: ')
+                                ) {
+                                  SCL Link:
+                                  <a
+                                    [href]="
+                                      opt.summary
+                                        .replace('SCL Link: ', '')
+                                        .replace('Checklist link: ', '')
+                                    "
+                                    target="_blank"
+                                    style="color: var(--m3-primary); text-decoration: underline;"
+                                  >
+                                    {{
+                                      opt.summary
+                                        .replace('SCL Link: ', '')
+                                        .replace('Checklist link: ', '')
+                                    }}
+                                  </a>
+                                } @else {
+                                  {{ opt.summary }}
+                                }
+                              </p>
+                            }
+                            <div
+                              class="option-id text-xxs text-secondary mt-sm"
+                            >
+                              ID: {{ opt.id }}
+                            </div>
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
           }
         </div>
       }
@@ -818,6 +886,37 @@ import { RouterModule } from '@angular/router';
         margin-left: var(--spacing-4);
       }
 
+      /* Triage Sub-Tabs */
+      .sub-tabs-container {
+        display: flex;
+        gap: var(--spacing-8);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: var(--spacing-8);
+        flex-wrap: wrap;
+      }
+      .sub-tab-button {
+        background: transparent;
+        border: none;
+        color: var(--m3-on-surface-variant);
+        font-family: var(--font-heading);
+        font-weight: 600;
+        font-size: 0.85rem;
+        padding: var(--spacing-6) var(--spacing-12);
+        cursor: pointer;
+        border-radius: var(--radius-xs);
+        transition: all 0.2s ease;
+        border: 1px solid transparent;
+      }
+      .sub-tab-button:hover {
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--m3-on-surface);
+      }
+      .sub-tab-button.active {
+        color: var(--m3-primary);
+        background: rgba(255, 185, 81, 0.05);
+        border-color: rgba(255, 185, 81, 0.25);
+      }
+
       /* Triage Pending */
       .info-banner {
         background: rgba(255, 255, 255, 0.03);
@@ -910,6 +1009,9 @@ import { RouterModule } from '@angular/router';
         align-items: center;
         justify-content: center;
         border: 1px solid var(--glass-border);
+      }
+      .option-cover.toy-cover {
+        background: #ffffff;
       }
       .option-cover img {
         width: 100%;
@@ -1563,6 +1665,19 @@ export class DiscoveryListComponent implements OnInit {
 
   /** Triage report items signals. */
   public items = signal<DiscoveryItem[]>([]);
+  public activeTriageSubTab = signal<'all' | 'games' | 'toys'>('all');
+  public gameItemsCount = computed(
+    () => this.items().filter((item) => !item.line).length,
+  );
+  public toyItemsCount = computed(
+    () => this.items().filter((item) => item.line).length,
+  );
+  public filteredItems = computed(() => {
+    const tab = this.activeTriageSubTab();
+    if (tab === 'games') return this.items().filter((item) => !item.line);
+    if (tab === 'toys') return this.items().filter((item) => item.line);
+    return this.items();
+  });
 
   /** Manual search logic signals. */
   public searchResults = signal<IGDBSearchResult[]>([]);
