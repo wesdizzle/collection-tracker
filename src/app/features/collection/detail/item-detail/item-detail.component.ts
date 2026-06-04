@@ -169,6 +169,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                     alt="Cover Art"
                     [class.glitch-load]="type() !== 'toy'"
                     [class.toy-detail-art]="type() === 'toy'"
+                    referrerpolicy="no-referrer"
                   />
                 } @else {
                   <div class="placeholder">No Image</div>

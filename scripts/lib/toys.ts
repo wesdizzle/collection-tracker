@@ -10,6 +10,8 @@
 
 import axios from 'axios';
 import { XMLParser } from 'fast-xml-parser';
+import * as cheerio from 'cheerio';
+import Database from 'better-sqlite3';
 
 export interface Toy {
   id: string;
@@ -26,6 +28,7 @@ export interface Toy {
   metadata_json?: string;
   scl_url?: string;
   series?: string;
+  series_id?: number | null;
 }
 
 /**
@@ -228,8 +231,8 @@ const HEADERS = {
  */
 export async function scrapeSkylandersSitemap(): Promise<SitemapEntry[]> {
   const sitemaps = [
-    'http://skylanderscharacterlist.com/post-sitemap.xml',
-    'http://skylanderscharacterlist.com/post-sitemap2.xml',
+    'https://skylanderscharacterlist.com/post-sitemap.xml',
+    'https://skylanderscharacterlist.com/post-sitemap2.xml',
   ];
   const allEntries: SitemapEntry[] = [];
   const parser = new XMLParser({
@@ -258,13 +261,22 @@ export async function scrapeSkylandersSitemap(): Promise<SitemapEntry[]> {
           const imgArray = Array.isArray(rawImages) ? rawImages : [rawImages];
           for (const img of imgArray) {
             if (img['image:loc']) {
-              images.push(img['image:loc']);
+              const secureImgUrl = img['image:loc'].replace(
+                /^http:\/\/skylanderscharacterlist\.com/i,
+                'https://skylanderscharacterlist.com',
+              );
+              images.push(secureImgUrl);
             }
           }
         }
 
+        const secureLocUrl = u.loc.replace(
+          /^http:\/\/skylanderscharacterlist\.com/i,
+          'https://skylanderscharacterlist.com',
+        );
+
         allEntries.push({
-          loc: u.loc,
+          loc: secureLocUrl,
           images,
         });
       }
@@ -333,4 +345,507 @@ export async function scrapeStarlinkConsole(): Promise<PCProduct[]> {
     );
     return [];
   }
+}
+
+export interface StarlinkToyMetadata {
+  type: 'Starship' | 'Pilot' | 'Weapon';
+  releaseDate: string;
+  sortIndex: number;
+}
+
+export const STARLINK_TOYS: Record<string, StarlinkToyMetadata> = {
+  // Ships
+  arwing: { type: 'Starship', releaseDate: '2018-10-16', sortIndex: 1001 },
+  cerberus: { type: 'Starship', releaseDate: '2018-10-16', sortIndex: 1002 },
+  lance: { type: 'Starship', releaseDate: '2018-10-16', sortIndex: 1003 },
+  nadir: { type: 'Starship', releaseDate: '2018-10-16', sortIndex: 1004 },
+  neptune: { type: 'Starship', releaseDate: '2018-10-16', sortIndex: 1005 },
+  pulse: { type: 'Starship', releaseDate: '2018-10-16', sortIndex: 1006 },
+  scramble: { type: 'Starship', releaseDate: '2018-10-16', sortIndex: 1007 },
+  zenith: { type: 'Starship', releaseDate: '2018-10-16', sortIndex: 1008 },
+
+  // Pilots
+  chasedasilva: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2001 },
+  eliarborwood: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2002 },
+  foxmccloud: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2003 },
+  hunterhakka: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2004 },
+  judge: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2005 },
+  kharlzeon: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2006 },
+  levimccray: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2007 },
+  masonrana: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2008 },
+  razorlemay: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2009 },
+  shaid: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2010 },
+  startail: { type: 'Pilot', releaseDate: '2018-10-16', sortIndex: 2011 },
+
+  // Weapons
+  crusher: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3001 },
+  flamethrower: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3002 },
+  freezeraymk2: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3003 },
+  frostbarrage: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3004 },
+  furycannon: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3005 },
+  gaussgunmk2: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3006 },
+  hailstorm: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3007 },
+  imploder: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3008 },
+  ironfist: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3009 },
+  levitator: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3010 },
+  meteormk2: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3011 },
+  nullifier: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3012 },
+  shockwave: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3013 },
+  shredder: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3014 },
+  shreddermk2: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3015 },
+  volcano: { type: 'Weapon', releaseDate: '2018-10-16', sortIndex: 3016 },
+};
+
+export interface CleanedToyName {
+  baseName: string;
+  variantName: string;
+}
+
+/**
+ * Strips common variant modifiers, series indicators, and element designations
+ * to find the base character name for grouping and sorting.
+ *
+ * @param name The original toy name (e.g. "Gnarly Tree Rex").
+ * @returns An object containing the extracted base name and variant modifiers.
+ * @throws None.
+ */
+export function extractBaseCharacterName(name: string): CleanedToyName {
+  let cleanName = name.replace(/\s+/g, ' ').trim();
+
+  // Remove series indicators (case-insensitive)
+  const seriesRegex = /\b(?:series\s*\d+|series-\d+)\b/gi;
+  cleanName = cleanName.replace(seriesRegex, '').replace(/\s+/g, ' ').trim();
+
+  // Known variant prefixes/modifiers (case-insensitive)
+  const modifiers = [
+    'gnarly',
+    'legendary',
+    'dark',
+    'lightcore',
+    'polar',
+    'molten',
+    'scarlet',
+    'punch',
+    'royal',
+    'sidekick',
+    'eggsellent',
+    'power punch',
+    'power blue',
+    'kickoff',
+    'springtime',
+    'double dare',
+    'big-bang',
+    'big bang',
+    'quick draw',
+    'phantom',
+    'steel plated',
+    'steel-plated',
+    'solar flare',
+    'candy-coated',
+    'candy coated',
+    'mystical',
+    'love potion',
+    'super gulp',
+    'sure shot',
+    'nitro',
+    'jade',
+    'jolly',
+    'enchanted',
+    'hyper beam',
+    'knockout',
+    'heavy duty',
+    'heavy-duty',
+    'winterfest',
+    'tidal wave',
+    'tidal-wave',
+    'anchors away',
+    'anchors-away',
+    'deep dive',
+    'fizzy frenzy',
+    'frightful',
+    'missile-tow',
+    'eggcited',
+    'jingle bell',
+    'lava barf',
+    'volcanic',
+    'fire bone',
+    'bone bash',
+    'birthday bash',
+    'twin blade',
+    'twin-beta',
+    'twin-blade',
+    'mega ram',
+    'mega-ram',
+    'horn blast',
+    'horn-blast',
+    'hyper',
+    'blizzard',
+    'event exclusive',
+    'gold',
+    'silver',
+    'bronze',
+    'platinum',
+  ];
+
+  let strippedSomething = true;
+  const activeModifiers: string[] = [];
+
+  while (strippedSomething) {
+    strippedSomething = false;
+    const lower = cleanName.toLowerCase();
+
+    // Exception gates for standard names that start with modifier keywords
+    if (lower === 'king pen') break;
+    if (lower === 'golden queen') break;
+    if (lower.startsWith('dark reactor')) break;
+    if (lower.startsWith('dark rune')) break;
+    if (lower.startsWith('dark pyramid')) break;
+
+    // Check list of known modifiers
+    for (const mod of modifiers) {
+      if (lower.startsWith(mod + ' ')) {
+        activeModifiers.push(cleanName.substring(0, mod.length));
+        cleanName = cleanName.substring(mod.length + 1).trim();
+        strippedSomething = true;
+        break;
+      }
+    }
+
+    // Special check for "King" (e.g. "King Cobra Cadabra" -> "Cobra Cadabra")
+    if (
+      !strippedSomething &&
+      lower.startsWith('king ') &&
+      lower !== 'king pen'
+    ) {
+      activeModifiers.push(cleanName.substring(0, 4));
+      cleanName = cleanName.substring(5).trim();
+      strippedSomething = true;
+    }
+  }
+
+  return {
+    baseName: cleanName,
+    variantName: activeModifiers.join(' '),
+  };
+}
+
+export interface SkylandersDetail {
+  element: string | null;
+  series: string | null;
+  releasedWith: string | null;
+  releaseDate: string | null;
+}
+
+/**
+ * Fetches and parses a Skylanders toy detail page from Skylanders Character List.
+ *
+ * @param url The SCL URL of the character (e.g. https://skylanderscharacterlist.com/bash-series-1/).
+ * @returns A promise resolving to the parsed character details or null on failure.
+ * @throws None.
+ */
+export async function scrapeSkylandersDetail(
+  url: string,
+): Promise<SkylandersDetail | null> {
+  try {
+    // Standard delay to respect SCL rate limit
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const response = await axios.get(url, {
+      headers: HEADERS,
+      timeout: 10000,
+    });
+    const $ = cheerio.load(response.data as string);
+
+    let element: string | null = null;
+    let series: string | null = null;
+    let releasedWith: string | null = null;
+
+    $('table tr').each((_, row) => {
+      const thText = $(row).find('th').text().trim().toLowerCase();
+      const tdText = $(row).find('td').text().trim();
+      if (thText.includes('element:')) {
+        element = tdText;
+      } else if (thText.includes('series:')) {
+        series = tdText;
+      } else if (thText.includes('released with:')) {
+        releasedWith = tdText;
+      }
+    });
+
+    // Parse release date paragraph from page body
+    let releaseDate: string | null = null;
+    const bodyText = $('body').text();
+
+    const monthMap: Record<string, string> = {
+      january: '01',
+      february: '02',
+      march: '03',
+      april: '04',
+      may: '05',
+      june: '06',
+      july: '07',
+      august: '08',
+      september: '09',
+      october: '10',
+      november: '11',
+      december: '12',
+    };
+
+    const months =
+      '(january|february|march|april|may|june|july|august|september|october|november|december)';
+    const dateRegex = new RegExp(
+      `\\b${months}\\s+(\\d{1,2}),?\\s+(\\d{4})\\b`,
+      'i',
+    );
+    const match = bodyText.match(dateRegex);
+    if (match) {
+      const monthNum = monthMap[match[1].toLowerCase()];
+      const day = match[2].padStart(2, '0');
+      const year = match[3];
+      releaseDate = `${year}-${monthNum}-${day}`;
+    } else {
+      const monthYearRegex = new RegExp(`\\b${months}\\s+(\\d{4})\\b`, 'i');
+      const matchMY = bodyText.match(monthYearRegex);
+      if (matchMY) {
+        const monthNum = monthMap[matchMY[1].toLowerCase()];
+        const year = matchMY[2];
+        releaseDate = `${year}-${monthNum}-01`;
+      }
+    }
+
+    // Fallback to game release dates if specific date not found in body text
+    if (!releaseDate && releasedWith) {
+      const cleanGame = (releasedWith as string).toLowerCase().trim();
+      const gameLaunchDates: Record<string, string> = {
+        "spyro's adventure": '2011-10-16',
+        giants: '2012-10-21',
+        'swap force': '2013-10-13',
+        'trap team': '2014-10-05',
+        superchargers: '2015-09-20',
+        imaginators: '2016-10-16',
+        "eon's elite": '2014-11-01',
+      };
+      for (const [key, dateVal] of Object.entries(gameLaunchDates)) {
+        if (cleanGame.includes(key) || key.includes(cleanGame)) {
+          releaseDate = dateVal;
+          break;
+        }
+      }
+    }
+
+    return {
+      element,
+      series,
+      releasedWith,
+      releaseDate,
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      `[Toys] Failed to scrape Skylanders detail page ${url}:`,
+      message,
+    );
+    return null;
+  }
+}
+
+/**
+ * Re-indexes all Skylanders toys in the database sequentially based on their
+ * Game Order, Element Order (alphabetical), Base Character Name, and Variant.
+ *
+ * @param db The SQLite database connection instance.
+ * @returns None.
+ * @throws Error if database operations fail.
+ */
+export function reindexSkylanders(db: Database.Database): void {
+  console.log('\n--- Reindexing Skylanders Sort Order ---');
+
+  const skylanders = db
+    .prepare("SELECT * FROM toys WHERE line = 'Skylanders'")
+    .all() as Toy[];
+  if (skylanders.length === 0) {
+    console.log('No Skylanders found to reindex.');
+    return;
+  }
+
+  const elementOrder: Record<string, number> = {
+    air: 1,
+    dark: 2,
+    earth: 3,
+    fire: 4,
+    life: 5,
+    light: 6,
+    magic: 7,
+    tech: 8,
+    undead: 9,
+    water: 10,
+  };
+
+  const getElement = (t: Toy): string => {
+    try {
+      if (t.metadata_json) {
+        const meta = JSON.parse(t.metadata_json);
+        if (meta.element) {
+          return meta.element.toLowerCase().trim();
+        }
+      }
+    } catch {
+      // Ignore JSON parsing errors
+    }
+    return 'kaos/other';
+  };
+
+  const sorted = skylanders
+    .map((t) => {
+      const parsed = extractBaseCharacterName(t.name);
+      const element = getElement(t);
+
+      let gameOrder = 99;
+      if (t.series_id) {
+        const seriesRow = db
+          .prepare('SELECT sort_index FROM toy_series WHERE id = ?')
+          .get(t.series_id) as { sort_index: number | null } | undefined;
+        if (seriesRow && seriesRow.sort_index !== null) {
+          gameOrder = seriesRow.sort_index;
+        }
+      }
+
+      const elemOrder = elementOrder[element] || 99;
+
+      return {
+        toy: t,
+        gameOrder,
+        elemOrder,
+        baseName: parsed.baseName.toLowerCase(),
+        variant: parsed.variantName.toLowerCase(),
+      };
+    })
+    .sort((a, b) => {
+      if (a.gameOrder !== b.gameOrder) {
+        return a.gameOrder - b.gameOrder;
+      }
+      if (a.elemOrder !== b.elemOrder) {
+        return a.elemOrder - b.elemOrder;
+      }
+      if (a.baseName !== b.baseName) {
+        return a.baseName.localeCompare(b.baseName);
+      }
+      if (a.variant === '' && b.variant !== '') {
+        return -1;
+      }
+      if (a.variant !== '' && b.variant === '') {
+        return 1;
+      }
+      return a.variant.localeCompare(b.variant);
+    });
+
+  const updateStmt = db.prepare(
+    'UPDATE toys SET sort_index = ? WHERE stable_id = ?',
+  );
+  const trans = db.transaction(() => {
+    sorted.forEach((item, index) => {
+      updateStmt.run(index + 1, item.toy.stable_id);
+    });
+  });
+  trans();
+
+  console.log(
+    `Successfully reindexed ${skylanders.length} Skylanders sort orders.`,
+  );
+}
+
+/**
+ * Generates all possible Fandom Wiki slug variations for a Starlink toy name.
+ *
+ * @param toyName The name of the toy.
+ * @returns An array of string slugs to try fetching.
+ * @throws None.
+ */
+export function getStarlinkSlugs(toyName: string): string[] {
+  let name = toyName.trim();
+
+  // Normalize slash in "Hunter/Hakka"
+  name = name.replace(/\//g, ' ');
+
+  // Capitalize words, keeping "da" or "de" lowercase
+  const words = name.split(/\s+/).map((w) => {
+    const lw = w.toLowerCase();
+    if (lw === 'da' || lw === 'de') {
+      return lw;
+    }
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  });
+
+  const formatted = words.join('_');
+  const slugs: string[] = [formatted];
+
+  // Specific overrides/replacements
+  if (
+    formatted.toLowerCase().includes('karl_zeon') ||
+    formatted.toLowerCase().includes('kharl_zeon')
+  ) {
+    slugs.unshift('Kharl_Zeon');
+  }
+  if (formatted.toLowerCase().includes('chase_da_silva')) {
+    slugs.unshift('Calisto_Chase_Da_Silva');
+    slugs.push('Chase');
+  }
+
+  // If name has Mk 2 / Mk2 / Mk. 2
+  if (name.match(/\bMk\.?\s*2\b/i)) {
+    const cleanBase = formatted.replace(/_Mk\.?\s*2\b/i, '');
+    slugs.unshift(cleanBase + '_Mk._2');
+    slugs.push(cleanBase + '_Mk2');
+    slugs.push(cleanBase); // Fallback to base weapon page
+  }
+
+  return Array.from(new Set(slugs));
+}
+
+/**
+ * Fetches and parses a Starlink toy image from the Starlink Wiki on Fandom.
+ *
+ * @param toyName The name of the Starlink toy (e.g. "Arwing", "Zenith", "Mason Rana").
+ * @returns A promise resolving to the image URL or null on failure.
+ * @throws None.
+ */
+export async function scrapeStarlinkWikiImage(
+  toyName: string,
+): Promise<string | null> {
+  const slugs = getStarlinkSlugs(toyName);
+
+  for (const slug of slugs) {
+    const title = slug.replace(/_/g, ' ');
+    const url = `https://starlink.fandom.com/api.php?action=query&prop=pageimages&titles=${encodeURIComponent(title)}&format=json&pithumbsize=1000&redirects=1`;
+    try {
+      console.log(`[Starlink Wiki API] Fetching details for: "${title}"...`);
+      const response = await axios.get(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        timeout: 8000,
+      });
+
+      const pages = response.data?.query?.pages;
+      if (pages) {
+        const pageId = Object.keys(pages)[0];
+        const page = pages[pageId];
+        if (page && page.thumbnail && page.thumbnail.source) {
+          let img = page.thumbnail.source;
+          if (
+            img &&
+            !img.includes('Site-community-image') &&
+            !img.includes('placeholder')
+          ) {
+            img = img.split('/revision/')[0] + '/revision/latest';
+            return img;
+          }
+        }
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log(
+        `[Starlink Wiki API] Failed to fetch for "${title}": ${errMsg}`,
+      );
+    }
+  }
+  return null;
 }

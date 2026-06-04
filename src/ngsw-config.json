@@ -43,7 +43,11 @@
         "https://images.igdb.com/**",
         "https://raw.githubusercontent.com/**",
         "https://*.amiiboapi.com/**",
-        "https://*.igdb.com/**"
+        "https://*.igdb.com/**",
+        "https://static.wikia.nocookie.net/**",
+        "https://*.wikia.nocookie.net/**",
+        "https://skylanderscharacterlist.com/**",
+        "https://*.skylanderscharacterlist.com/**"
       ],
       "cacheConfig": {
         "maxSize": 5000,

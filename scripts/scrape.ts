@@ -39,9 +39,11 @@ import {
   getAmiiboSeries,
   Toy,
   scrapeSkylandersSitemap,
-  scrapeStarlinkConsole,
   SitemapEntry,
-  PCProduct,
+  extractBaseCharacterName,
+  scrapeSkylandersDetail,
+  STARLINK_TOYS,
+  scrapeStarlinkWikiImage,
 } from './lib/toys.js';
 import { recomputeCanonicalSeries } from './compute_canonical_series.js';
 import axios from 'axios';
@@ -1448,45 +1450,6 @@ function findSkylandersMatch(
   });
 }
 
-/**
- * Maps a Starlink component name to the parent retail bundle name on PriceCharting.
- */
-function getStarlinkBundleName(toyName: string): string {
-  const name = toyName.toLowerCase();
-  if (name.includes('chase da silva') || name.includes('volcano')) {
-    return 'Pulse';
-  }
-  if (name.includes('shaid') || name.includes('nullifier')) {
-    return 'Nadir';
-  }
-  if (name.includes('hunter/hakka') || name.includes('hunter hakka')) {
-    return 'Lance';
-  }
-  if (name.includes('levi mccray') || name.includes('fury cannon')) {
-    return 'Scramble';
-  }
-  if (
-    name.includes('judge') ||
-    name.includes('levitator') ||
-    name.includes('imploder')
-  ) {
-    return 'Neptune';
-  }
-  // Starter Pack bundle items
-  if (
-    name.includes('mason rana') ||
-    name.includes('zenith') ||
-    name.includes('fox mccloud') ||
-    name.includes('arwing') ||
-    name.includes('flamethrower') ||
-    name.includes('frost barrage') ||
-    name.includes('shredder')
-  ) {
-    return 'Starter Pack';
-  }
-  return toyName;
-}
-
 async function runScraper(): Promise<void> {
   const args = process.argv.slice(2);
   const runDiscovery = args.includes('--discovery');
@@ -1856,24 +1819,16 @@ async function runScraper(): Promise<void> {
     allApiAmiibo = await getAmiiboSeries();
   }
 
-  // Fetch Skylanders and Starlink metadata caches if needed
+  // Fetch Skylanders sitemaps if needed
   let skylandersSitemap: SitemapEntry[] = [];
-  let starlinkConsole: PCProduct[] = [];
 
   const hasSkylanders = existingToys.some(
     (t) => t.line.toLowerCase() === 'skylanders',
-  );
-  const hasStarlink = existingToys.some(
-    (t) => t.line.toLowerCase() === 'starlink',
   );
 
   if (hasSkylanders) {
     console.log('Fetching Skylanders Character List sitemaps...');
     skylandersSitemap = await scrapeSkylandersSitemap();
-  }
-  if (hasStarlink) {
-    console.log('Fetching Starlink PriceCharting console data...');
-    starlinkConsole = await scrapeStarlinkConsole();
   }
 
   for (const toy of existingToys) {
@@ -2037,8 +1992,21 @@ async function runScraper(): Promise<void> {
       continue;
     }
 
-    // For non-amiibo toys, skip if they already have an image_url and we are not refreshing
-    if (toy.line.toLowerCase() !== 'amiibo' && toy.image_url && !runRefresh) {
+    // For non-amiibo toys, skip if they already have image_url AND release_date, and we are not refreshing
+    // Exception: If the toy is a Starlink item with a pack image, do not skip so it can be updated with a wiki image.
+    const isStarlinkPack =
+      toy.line.toLowerCase() === 'starlink' &&
+      toy.image_url &&
+      (toy.image_url.includes('pricecharting') ||
+        toy.image_url.includes('storage.googleapis.com'));
+
+    if (
+      toy.line.toLowerCase() !== 'amiibo' &&
+      toy.image_url &&
+      toy.release_date &&
+      !runRefresh &&
+      !isStarlinkPack
+    ) {
       continue;
     }
 
@@ -2051,6 +2019,38 @@ async function runScraper(): Promise<void> {
     }
 
     if (toy.line.toLowerCase() === 'skylanders') {
+      // If we already have the URL (verified or previously matched), but lack release_date, scrape the details
+      if (toy.scl_url && (runRefresh || !toy.release_date)) {
+        process.stdout.write(
+          `Backfilling/refreshing Skylanders details: ${toy.name}... `,
+        );
+        const details = await scrapeSkylandersDetail(toy.scl_url);
+        if (details) {
+          db.prepare(
+            `
+              UPDATE toys 
+              SET release_date = ?, metadata_json = ?, type = ?
+              WHERE stable_id = ?
+            `,
+          ).run(
+            details.releaseDate,
+            JSON.stringify({
+              element: details.element,
+              series: details.series,
+              released_with: details.releasedWith,
+            }),
+            details.series || toy.type || 'Figure',
+            toy.stable_id,
+          );
+          console.log(
+            `Updated [Release: ${details.releaseDate}, Element: ${details.element}]`,
+          );
+        } else {
+          console.log('Failed.');
+        }
+        continue;
+      }
+
       process.stdout.write(
         `Verifying Skylanders: ${toy.name} (Series: ${toy.series})... `,
       );
@@ -2076,6 +2076,35 @@ async function runScraper(): Promise<void> {
           ).run(characterImage, match.loc, toy.stable_id);
           console.log(`Auto-matched! [Image: ${characterImage}]`);
           autoMatchedCount++;
+
+          // Scrape details immediately after matching
+          process.stdout.write(
+            `Fetching newly matched details: ${toy.name}... `,
+          );
+          const details = await scrapeSkylandersDetail(match.loc);
+          if (details) {
+            db.prepare(
+              `
+                UPDATE toys 
+                SET release_date = ?, metadata_json = ?, type = ?
+                WHERE stable_id = ?
+              `,
+            ).run(
+              details.releaseDate,
+              JSON.stringify({
+                element: details.element,
+                series: details.series,
+                released_with: details.releasedWith,
+              }),
+              details.series || toy.type || 'Figure',
+              toy.stable_id,
+            );
+            console.log(
+              `Updated [Release: ${details.releaseDate}, Element: ${details.element}]`,
+            );
+          } else {
+            console.log('Failed.');
+          }
           continue;
         }
       }
@@ -2120,35 +2149,54 @@ async function runScraper(): Promise<void> {
     }
 
     if (toy.line.toLowerCase() === 'starlink') {
-      process.stdout.write(`Verifying Starlink: ${toy.name}... `);
-      const bundleName = getStarlinkBundleName(toy.name);
-
-      if (bundleName === 'Starter Pack') {
-        const starterPackImg =
-          'https://storage.googleapis.com/images.pricecharting.com/fe26ed547f453c71289f56f5eca1b2f17b475eb798d99f6ad61a9603e49c39cd/1600.jpg';
+      const normName = superNormalize(toy.name);
+      const metadata = STARLINK_TOYS[normName];
+      if (metadata) {
         db.prepare(
-          'UPDATE toys SET image_url = ?, verified = 1 WHERE stable_id = ?',
-        ).run(starterPackImg, toy.stable_id);
-        console.log(`Auto-matched (Starter Pack)!`);
-        autoMatchedCount++;
-        continue;
-      }
+          `
+            UPDATE toys 
+            SET release_date = ?, type = ?, sort_index = ?
+            WHERE stable_id = ?
+          `,
+        ).run(
+          metadata.releaseDate,
+          metadata.type,
+          metadata.sortIndex,
+          toy.stable_id,
+        );
 
-      // Look up PriceCharting products list
-      const normBundle = superNormalize(bundleName);
-      const matchedPC = starlinkConsole.find((p) => {
-        const pNorm = superNormalize(p.productName);
-        return pNorm.includes(normBundle) || normBundle.includes(pNorm);
-      });
+        const currentImg = toy.image_url;
+        const isPackImage =
+          currentImg &&
+          (currentImg.includes('pricecharting') ||
+            currentImg.includes('storage.googleapis.com'));
 
-      if (matchedPC && matchedPC.imageUri) {
-        db.prepare(
-          'UPDATE toys SET image_url = ?, verified = 1 WHERE stable_id = ?',
-        ).run(matchedPC.imageUri, toy.stable_id);
-        console.log(`Auto-matched! [Product: ${matchedPC.productName}]`);
-        autoMatchedCount++;
+        if (!currentImg || isPackImage) {
+          process.stdout.write(
+            `Fetching wiki image for Starlink: ${toy.name}... `,
+          );
+          try {
+            const wikiImage = await scrapeStarlinkWikiImage(toy.name);
+            if (wikiImage) {
+              db.prepare(
+                'UPDATE toys SET image_url = ?, verified = 1 WHERE stable_id = ?',
+              ).run(wikiImage, toy.stable_id);
+              console.log(`Updated with wiki image: ${wikiImage}`);
+              autoMatchedCount++;
+            } else {
+              console.log('Not found on Wiki.');
+            }
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.log(`Error: ${errMsg}`);
+          }
+        } else {
+          console.log(
+            `Starlink ${toy.name} metadata updated via static catalog.`,
+          );
+        }
       } else {
-        console.log('No candidates.');
+        console.log(`Starlink toy ${toy.name} not found in static catalog.`);
       }
       continue;
     }
@@ -2195,6 +2243,9 @@ async function runScraper(): Promise<void> {
       console.log('No candidates.');
     }
   }
+
+  // Reindex Skylanders sort orders after the scraping phase
+  reindexSkylanders();
 
   // const ignoredItems = (db.prepare('SELECT id FROM ignored_items').all() as { id: string }[]).map(i => i.id);
   const toyDiscoveryResults: ToyDiscovery[] = [];
@@ -2524,6 +2575,120 @@ async function performWebValidation(
     return true;
   }
   return false;
+}
+
+/**
+ * Re-indexes all Skylanders toys in the database sequentially based on their
+ * Game Order, Element Order (alphabetical), Base Character Name, and Variant.
+ *
+ * @returns None.
+ * @throws Error if database operations fail.
+ */
+function reindexSkylanders(): void {
+  console.log('\n--- Reindexing Skylanders Sort Order ---');
+
+  // 1. Get all Skylanders toys from the database
+  const skylanders = db
+    .prepare("SELECT * FROM toys WHERE line = 'Skylanders'")
+    .all() as Toy[];
+  if (skylanders.length === 0) {
+    console.log('No Skylanders found to reindex.');
+    return;
+  }
+
+  // 2. Map elements to alphabetical sort order
+  const elementOrder: Record<string, number> = {
+    air: 1,
+    dark: 2,
+    earth: 3,
+    fire: 4,
+    life: 5,
+    light: 6,
+    magic: 7,
+    tech: 8,
+    undead: 9,
+    water: 10,
+  };
+
+  // 3. Define helper to parse element from metadata_json
+  const getElement = (t: Toy): string => {
+    try {
+      if (t.metadata_json) {
+        const meta = JSON.parse(t.metadata_json);
+        if (meta.element) {
+          return meta.element.toLowerCase().trim();
+        }
+      }
+    } catch {
+      // Ignore JSON parsing errors
+    }
+    return 'kaos/other';
+  };
+
+  // 4. Group & sort Skylanders
+  const sorted = skylanders
+    .map((t) => {
+      const parsed = extractBaseCharacterName(t.name);
+      const element = getElement(t);
+
+      // Mapped game order from toy_series table sort_index (defaults to 99 if missing)
+      let gameOrder = 99;
+      if (t.series_id) {
+        const seriesRow = db
+          .prepare('SELECT sort_index FROM toy_series WHERE id = ?')
+          .get(t.series_id) as { sort_index: number | null } | undefined;
+        if (seriesRow && seriesRow.sort_index !== null) {
+          gameOrder = seriesRow.sort_index;
+        }
+      }
+
+      const elemOrder = elementOrder[element] || 99;
+
+      return {
+        toy: t,
+        gameOrder,
+        elemOrder,
+        baseName: parsed.baseName.toLowerCase(),
+        variant: parsed.variantName.toLowerCase(),
+      };
+    })
+    .sort((a, b) => {
+      // Sort by Game Order
+      if (a.gameOrder !== b.gameOrder) {
+        return a.gameOrder - b.gameOrder;
+      }
+      // Sort by Element Order (alphabetical)
+      if (a.elemOrder !== b.elemOrder) {
+        return a.elemOrder - b.elemOrder;
+      }
+      // Sort by Base Character Name
+      if (a.baseName !== b.baseName) {
+        return a.baseName.localeCompare(b.baseName);
+      }
+      // Sort standard version first (empty variant), then variants alphabetically
+      if (a.variant === '' && b.variant !== '') {
+        return -1;
+      }
+      if (a.variant !== '' && b.variant === '') {
+        return 1;
+      }
+      return a.variant.localeCompare(b.variant);
+    });
+
+  // 5. Update sort_index in database sequentially
+  const updateStmt = db.prepare(
+    'UPDATE toys SET sort_index = ? WHERE stable_id = ?',
+  );
+  const trans = db.transaction(() => {
+    sorted.forEach((item, index) => {
+      updateStmt.run(index + 1, item.toy.stable_id);
+    });
+  });
+  trans();
+
+  console.log(
+    `Successfully reindexed ${skylanders.length} Skylanders sort orders.`,
+  );
 }
 
 runScraper().catch(console.error);

@@ -13,6 +13,11 @@ import {
   scrapeSkylandersSitemap,
   scrapeStarlinkConsole,
   getAmiiboSeries,
+  extractBaseCharacterName,
+  scrapeSkylandersDetail,
+  STARLINK_TOYS,
+  getStarlinkSlugs,
+  scrapeStarlinkWikiImage,
 } from './toys.js';
 
 // Mock axios globally for these tests
@@ -159,6 +164,225 @@ describe('Toys Metadata Ingestion Helpers', () => {
 
       const toys = await getAmiiboSeries('Super Smash Bros.');
       expect(toys).toHaveLength(0);
+    });
+  });
+
+  describe('extractBaseCharacterName', () => {
+    it('should correctly strip modifiers and series markers to get the base name', () => {
+      const res1 = extractBaseCharacterName('Gnarly Tree Rex');
+      expect(res1.baseName).toBe('Tree Rex');
+      expect(res1.variantName).toBe('Gnarly');
+
+      const res2 = extractBaseCharacterName('Legendary LightCore Grim Creeper');
+      expect(res2.baseName).toBe('Grim Creeper');
+      expect(res2.variantName).toBe('Legendary LightCore');
+
+      const res3 = extractBaseCharacterName('Series 2 Trigger Happy');
+      expect(res3.baseName).toBe('Trigger Happy');
+      expect(res3.variantName).toBe('');
+    });
+
+    it('should preserve standard characters that begin with keywords as exception gates', () => {
+      const res1 = extractBaseCharacterName('King Pen');
+      expect(res1.baseName).toBe('King Pen');
+      expect(res1.variantName).toBe('');
+
+      const res2 = extractBaseCharacterName('Golden Queen');
+      expect(res2.baseName).toBe('Golden Queen');
+      expect(res2.variantName).toBe('');
+
+      const res3 = extractBaseCharacterName('Dark Reactor');
+      expect(res3.baseName).toBe('Dark Reactor');
+      expect(res3.variantName).toBe('');
+    });
+
+    it('should strip king prefix if it is not King Pen', () => {
+      const res = extractBaseCharacterName('King Cobra Cadabra');
+      expect(res.baseName).toBe('Cobra Cadabra');
+      expect(res.variantName).toBe('King');
+    });
+  });
+
+  describe('scrapeSkylandersDetail', () => {
+    it('should successfully parse elements, series, and release dates from detail page HTML', async () => {
+      const mockHtml = `
+        <html>
+          <body>
+            <table>
+              <tr>
+                <th>Element:</th>
+                <td>Earth</td>
+              </tr>
+              <tr>
+                <th>Series:</th>
+                <td>Series 1</td>
+              </tr>
+              <tr>
+                <th>Released With:</th>
+                <td>Spyro's Adventure</td>
+              </tr>
+            </table>
+            <p>Bash was released in Wave 1 in October 2011.</p>
+          </body>
+        </html>
+      `;
+
+      mockedAxios.get.mockResolvedValue({ data: mockHtml });
+
+      const details = await scrapeSkylandersDetail(
+        'https://skylanderscharacterlist.com/bash-series-1/',
+      );
+      expect(details).not.toBeNull();
+      expect(details!.element).toBe('Earth');
+      expect(details!.series).toBe('Series 1');
+      expect(details!.releasedWith).toBe("Spyro's Adventure");
+      expect(details!.releaseDate).toBe('2011-10-01');
+    });
+
+    it('should parse release dates with full month day year format', async () => {
+      const mockHtml = `
+        <html>
+          <body>
+            <p>Some toy was released on October 16, 2011.</p>
+          </body>
+        </html>
+      `;
+
+      mockedAxios.get.mockResolvedValue({ data: mockHtml });
+
+      const details = await scrapeSkylandersDetail(
+        'https://skylanderscharacterlist.com/some-toy/',
+      );
+      expect(details).not.toBeNull();
+      expect(details!.releaseDate).toBe('2011-10-16');
+    });
+
+    it('should handle request failures gracefully by returning null', async () => {
+      mockedAxios.get.mockRejectedValue(new Error('500 Internal Error'));
+
+      const details = await scrapeSkylandersDetail(
+        'https://skylanderscharacterlist.com/fail/',
+      );
+      expect(details).toBeNull();
+    });
+
+    it('should fallback to game release date if specific date not in body', async () => {
+      const mockHtml = `
+        <html>
+          <body>
+            <table>
+              <tr>
+                <th>Element:</th>
+                <td>Earth</td>
+              </tr>
+              <tr>
+                <th>Series:</th>
+                <td>Series 1</td>
+              </tr>
+              <tr>
+                <th>Released With:</th>
+                <td>Giants</td>
+              </tr>
+            </table>
+            <p>Some character text without release date.</p>
+          </body>
+        </html>
+      `;
+
+      mockedAxios.get.mockResolvedValue({ data: mockHtml });
+
+      const details = await scrapeSkylandersDetail(
+        'https://skylanderscharacterlist.com/some-character/',
+      );
+      expect(details).not.toBeNull();
+      expect(details!.releasedWith).toBe('Giants');
+      expect(details!.releaseDate).toBe('2012-10-21');
+    });
+  });
+
+  describe('STARLINK_TOYS static catalog', () => {
+    it('should possess entries for all known physical Starlink toys', () => {
+      expect(STARLINK_TOYS['arwing']).toEqual({
+        type: 'Starship',
+        releaseDate: '2018-10-16',
+        sortIndex: 1001,
+      });
+
+      expect(STARLINK_TOYS['chasedasilva']).toEqual({
+        type: 'Pilot',
+        releaseDate: '2018-10-16',
+        sortIndex: 2001,
+      });
+
+      expect(STARLINK_TOYS['volcano']).toEqual({
+        type: 'Weapon',
+        releaseDate: '2018-10-16',
+        sortIndex: 3016,
+      });
+    });
+  });
+
+  describe('getStarlinkSlugs', () => {
+    it('should generate correct slug variations including Mk. 2 overrides', () => {
+      const slugs1 = getStarlinkSlugs('Freeze Ray Mk2');
+      expect(slugs1).toContain('Freeze_Ray_Mk._2');
+      expect(slugs1).toContain('Freeze_Ray_Mk2');
+      expect(slugs1).toContain('Freeze_Ray');
+
+      const slugs2 = getStarlinkSlugs('Mason Rana');
+      expect(slugs2).toContain('Mason_Rana');
+
+      const slugs3 = getStarlinkSlugs('Karl Zeon');
+      expect(slugs3).toContain('Kharl_Zeon');
+      expect(slugs3).toContain('Karl_Zeon');
+    });
+  });
+
+  describe('scrapeStarlinkWikiImage', () => {
+    it('should retrieve thumbnail source from Starlink Wiki MediaWiki API', async () => {
+      const mockJson = {
+        query: {
+          pages: {
+            '196': {
+              pageid: 196,
+              title: 'Zenith',
+              thumbnail: {
+                source:
+                  'https://static.wikia.nocookie.net/starlink/images/1/1f/Zenith_ship.png/revision/latest?cb=20180913171620',
+              },
+            },
+          },
+        },
+      };
+
+      mockedAxios.get.mockResolvedValue({ data: mockJson });
+
+      const image = await scrapeStarlinkWikiImage('Zenith');
+      expect(image).toBe(
+        'https://static.wikia.nocookie.net/starlink/images/1/1f/Zenith_ship.png/revision/latest',
+      );
+    });
+
+    it('should ignore placeholder or community banner images in API results', async () => {
+      const mockJson = {
+        query: {
+          pages: {
+            '123': {
+              pageid: 123,
+              title: 'Zenith',
+              thumbnail: {
+                source:
+                  'https://static.wikia.nocookie.net/starlink/images/3/39/Site-community-image/revision/latest?cb=20251209150247',
+              },
+            },
+          },
+        },
+      };
+
+      mockedAxios.get.mockResolvedValue({ data: mockJson });
+
+      const image = await scrapeStarlinkWikiImage('Zenith');
+      expect(image).toBeNull();
     });
   });
 });

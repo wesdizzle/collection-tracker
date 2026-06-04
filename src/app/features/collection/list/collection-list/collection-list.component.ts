@@ -131,6 +131,7 @@ interface GameGroup {
                           class="card-art"
                           loading="lazy"
                           decoding="async"
+                          referrerpolicy="no-referrer"
                         />
                       } @else {
                         <div
@@ -323,6 +324,7 @@ interface GameGroup {
                               class="card-art toy-art"
                               loading="lazy"
                               decoding="async"
+                              referrerpolicy="no-referrer"
                             />
                           } @else {
                             <div

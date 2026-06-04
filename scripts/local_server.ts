@@ -29,6 +29,12 @@ import { recomputeCanonicalSeries } from './compute_canonical_series.js';
 import { parseDiscoveryReport } from './lib/discovery.js';
 import type { ApplyPayload } from './lib/discovery.js';
 import {
+  scrapeSkylandersDetail,
+  STARLINK_TOYS,
+  reindexSkylanders,
+  type SkylandersDetail,
+} from './lib/toys.js';
+import {
   GAMES_LIST_QUERY,
   GAME_DETAIL_QUERY,
   GAME_RELEASES_BY_GAME_ID_QUERY,
@@ -197,28 +203,106 @@ export const handleRequest =
                       .replace('SCL Link: ', '')
                   : null;
 
-              db.prepare(
-                `
-                UPDATE toys
-                SET image_url = ?, scl_url = COALESCE(?, scl_url), verified = 1, metadata_json = ?
-                WHERE name = ? AND series = ? AND line = ?
-              `,
-              ).run(
-                image,
-                sclUrl,
-                JSON.stringify({
+              if (line === 'Skylanders') {
+                // Skylanders metadata matching
+                let releaseDate: string | null = null;
+                let details: SkylandersDetail | null = null;
+
+                if (sclUrl) {
+                  try {
+                    console.log(
+                      `Scraping Skylanders details from SCL: ${sclUrl}...`,
+                    );
+                    details = await scrapeSkylandersDetail(sclUrl);
+                    if (details) {
+                      releaseDate = details.releaseDate;
+                    }
+                  } catch (scrapeErr) {
+                    console.error(
+                      `Failed to scrape Skylanders SCL details:`,
+                      scrapeErr,
+                    );
+                  }
+                }
+
+                db.prepare(
+                  `
+                  UPDATE toys
+                  SET image_url = ?, scl_url = COALESCE(?, scl_url), release_date = ?, verified = 1, metadata_json = ?
+                  WHERE name = ? AND series = ? AND line = 'Skylanders'
+                `,
+                ).run(
+                  image,
+                  sclUrl,
+                  releaseDate,
+                  JSON.stringify({
+                    matched_name: selectedName,
+                    matched_id: selectedIgdbId,
+                    date_applied: new Date().toISOString(),
+                    element: details?.element || null,
+                    series: details?.series || null,
+                    released_with: details?.releasedWith || null,
+                  }),
+                  currentTitle,
+                  currentSeries,
+                );
+
+                // Run Skylanders sorting re-indexing
+                try {
+                  reindexSkylanders(db);
+                } catch (reindexErr) {
+                  console.error('Failed to reindex Skylanders:', reindexErr);
+                }
+
+                console.log(
+                  `Matched Skylanders: ${currentTitle} (Series: ${currentSeries}) -> [Image: ${image}, Element: ${details?.element || 'N/A'}]`,
+                );
+              } else {
+                // Starlink metadata matching (from local static catalog)
+                const normName = selectedIgdbId
+                  .toString()
+                  .replace('starlink-', '')
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]/g, '');
+                const starlinkMeta = STARLINK_TOYS[normName];
+
+                let releaseDate: string | null = null;
+                let typeVal = 'Figure';
+                let sortIdx: number | null = null;
+                const metaObj: Record<string, string | number | null> = {
                   matched_name: selectedName,
                   matched_id: selectedIgdbId,
                   date_applied: new Date().toISOString(),
-                }),
-                currentTitle,
-                currentSeries,
-                line,
-              );
+                };
 
-              console.log(
-                `Matched Toy (${line}): ${currentTitle} (Series: ${currentSeries}) -> [Image: ${image}]`,
-              );
+                if (starlinkMeta) {
+                  releaseDate = starlinkMeta.releaseDate;
+                  typeVal = starlinkMeta.type;
+                  sortIdx = starlinkMeta.sortIndex;
+                  metaObj['type'] = starlinkMeta.type;
+                  metaObj['release_date'] = starlinkMeta.releaseDate;
+                }
+
+                db.prepare(
+                  `
+                  UPDATE toys
+                  SET image_url = ?, type = ?, release_date = ?, sort_index = ?, verified = 1, metadata_json = ?
+                  WHERE name = ? AND series = ? AND line = 'Starlink'
+                `,
+                ).run(
+                  image,
+                  typeVal,
+                  releaseDate,
+                  sortIdx,
+                  JSON.stringify(metaObj),
+                  currentTitle,
+                  currentSeries,
+                );
+
+                console.log(
+                  `Matched Starlink: ${currentTitle} (Series: ${currentSeries}) -> [Image: ${image}, Type: ${typeVal}]`,
+                );
+              }
             }
           } else {
             // 1. Fetch Full Metadata from IGDB

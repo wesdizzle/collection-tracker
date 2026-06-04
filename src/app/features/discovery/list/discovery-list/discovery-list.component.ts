@@ -179,7 +179,11 @@ import { RouterModule } from '@angular/router';
                             [class.toy-cover]="item.line"
                           >
                             @if (opt.image_url) {
-                              <img [src]="opt.image_url" alt="cover" />
+                              <img
+                                [src]="opt.image_url"
+                                alt="cover"
+                                referrerpolicy="no-referrer"
+                              />
                             } @else {
                               <div class="no-image">No Cover</div>
                             }
@@ -351,7 +355,11 @@ import { RouterModule } from '@angular/router';
                 <div class="game-result-card">
                   <div class="result-cover">
                     @if (game.image_url) {
-                      <img [src]="game.image_url" alt="cover" />
+                      <img
+                        [src]="game.image_url"
+                        alt="cover"
+                        referrerpolicy="no-referrer"
+                      />
                     } @else {
                       <div class="no-image">No Cover Available</div>
                     }
@@ -470,7 +478,11 @@ import { RouterModule } from '@angular/router';
 
                   <div class="series-game-cover">
                     @if (game.image_url) {
-                      <img [src]="game.image_url" alt="cover" />
+                      <img
+                        [src]="game.image_url"
+                        alt="cover"
+                        referrerpolicy="no-referrer"
+                      />
                     } @else {
                       <div class="no-image">No Cover</div>
                     }
@@ -598,7 +610,11 @@ import { RouterModule } from '@angular/router';
               <div class="flex gap-md mb-lg items-start">
                 <div class="modal-game-cover">
                   @if (game.image_url) {
-                    <img [src]="game.image_url" alt="cover" />
+                    <img
+                      [src]="game.image_url"
+                      alt="cover"
+                      referrerpolicy="no-referrer"
+                    />
                   } @else {
                     <div class="no-image">No Cover</div>
                   }

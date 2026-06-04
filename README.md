@@ -96,6 +96,7 @@ TWITCH_CLIENT_SECRET=your_client_secret
 - **Colocated Testing**: Unit tests reside alongside the components they validate.
 - **Premium Aesthetics**: Curated HSL palettes and sleek dark modes used throughout the application.
 - **Local CI Validation**: Developers must run `npm run ci-check` before pushing. This script performs Linting, strict Type-Checking, and Unit Testing sequentially.
+- **Hotlinking & Secure Image Delivery**: The application strips the `Referer` header at the element-fetch level (using `referrerpolicy="no-referrer"` on images) to bypass CDN hotlinking restrictions (such as on Fandom/Wikia). Additionally, external assets from SCL (`skylanderscharacterlist.com`) and Fandom are whitelisted in `ngsw-config.json` for service worker caching, and URLs are migrated to HTTPS to prevent Mixed Content security blocks.
 
 ## 📱 Mobile & PWA Features
 
