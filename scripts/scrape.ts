@@ -148,6 +148,23 @@ function superNormalize(s: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+/**
+ * UTILITY: cleanSclTitle
+ *
+ * Removes series indicators and other metadata suffixes from the SCL page title
+ * to get the clean toy name.
+ */
+function cleanSclTitle(title: string): string {
+  return title
+    .replace(
+      /\s*\(\s*(Series\s*\d+|LightCore|Eon's Elite|Elite|Giant|Swap Force|Trap Team|SuperChargers|Imaginators)\s*\)/gi,
+      '',
+    )
+    .replace(/\b(Series\s*\d+|LightCore|Eon's Elite|Elite)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 interface PlatformRecord {
   id: number;
   name: string;
@@ -1259,20 +1276,69 @@ function findSkylandersMatch(
   toy: Toy,
   sitemap: SitemapEntry[],
 ): SitemapEntry[] {
-  const toyNameLower = toy.name.toLowerCase();
+  const toyNameLower = toy.name
+    .toLowerCase()
+    .replace('eggscellent', 'eggsellent')
+    .replace('e3-exclusive', 'event-exclusive')
+    .replace('e3 exclusive', 'event-exclusive')
+    .replace(
+      'power blue trigger happy',
+      'power blue double dare trigger happy',
+    );
 
-  // Custom match for Trap Team Traps (Series 4)
-  if (toy.series === '4' && toy.name.includes('(')) {
-    const base = toyNameLower.split('(')[0].trim();
-    const words = base.split(/\s+/).filter((w) => w.length > 0);
-    const match = sitemap.find((entry) => {
-      const slug = entry.loc.toLowerCase();
-      return words.every((w) => slug.includes(w)) && slug.includes('trap');
-    });
+  // 1. Custom check for Captain's Hats
+  if (
+    toyNameLower.includes("undead captain's hat") ||
+    toyNameLower.includes('undead captain’s hat')
+  ) {
+    const match = sitemap.find((e) =>
+      e.loc.toLowerCase().includes('undead-spear-trap'),
+    );
+    if (match) return [match];
+  }
+  if (
+    toyNameLower.includes("fire captain's hat") ||
+    toyNameLower.includes('fire captain’s hat')
+  ) {
+    const match = sitemap.find((e) =>
+      e.loc.toLowerCase().includes('fire-spear-trap'),
+    );
     if (match) return [match];
   }
 
-  // Custom match for Imaginators Creation Crystals (Series 6)
+  // 1.5. Custom check for Ghost Swords (force to pirate-ghost-swords to avoid card/gear)
+  if (toyNameLower === 'ghost swords') {
+    const match = sitemap.find((e) =>
+      e.loc.toLowerCase().includes('pirate-ghost-swords'),
+    );
+    if (match) return [match];
+  }
+
+  // 2. Creation Crystal Static Map check
+  const CRYSTAL_MAP: Record<string, string> = {
+    'air-creation-crystal': 'Air Angel Creation Crystal',
+    'air-creation-crystal-2': 'Air Lantern Creation Crystal',
+    'dark-creation-crystal': 'Dark Rune Creation Crystal',
+    'dark-creation-crystal-2': 'Dark Pyramid Creation Crystal',
+    'earth-creation-crystal': 'Earth Rocket Creation Crystal',
+    'earth-armor-creation-crystal': 'Earth Armor Creation Crystal',
+    'fire-creation-crystal': 'Fire Reactor Creation Crystal',
+    'fire-creation-crystal-2': 'Fire Acorn Creation Crystal',
+    'life-creation-crystal': 'Life Rune Creation Crystal',
+    'life-creation-crystal-2': 'Life Acorn Creation Crystal',
+    'life-creation-crystal-3': 'Life Rocket Creation Crystal',
+    'light-creation-crystal': 'Light Fanged Creation Crystal',
+    'magic-creation-crystal': 'Magic Pyramid Creation Crystal',
+    'magic-creation-crystal-2': 'Magic Lantern Creation Crystal',
+    'magic-creation-crystal-3': 'Magic Claw Creation Crystal',
+    'tech-creation-crystal': 'Tech Reactor Creation Crystal',
+    'tech-creation-crystal-2': 'Tech Armor Creation Crystal',
+    'undead-creation-crystal': 'Undead Fanged Creation Crystal',
+    'undead-creation-crystal-2': 'Undead Claw Creation Crystal',
+    'water-creation-crystal': 'Water Rocket Creation Crystal',
+    'water-creation-crystal-2': 'Water Creation Crystal',
+  };
+
   const isCrystal =
     toy.series === '6' &&
     (toyNameLower.includes('rune') ||
@@ -1284,170 +1350,377 @@ function findSkylandersMatch(
       toyNameLower.includes('fanged') ||
       toyNameLower.includes('pyramid') ||
       toyNameLower.includes('angel') ||
-      toyNameLower.includes('chest'));
+      toyNameLower.includes('chest') ||
+      toyNameLower.includes('armor'));
+
   if (isCrystal) {
-    const words = toyNameLower.split(/\s+/).filter((w) => w.length > 0);
-    const match = sitemap.find((entry) => {
-      const slug = entry.loc.toLowerCase();
-      return (
-        words.every((w) => slug.includes(w)) &&
-        (slug.includes('creation') ||
-          slug.includes('crystal') ||
-          slug.includes('mystery-chests') ||
-          slug.includes('ctt'))
+    const toyNorm = superNormalize(toy.name);
+    let matchedSlug: string | null = null;
+    for (const [slug, title] of Object.entries(CRYSTAL_MAP)) {
+      const titleNorm = superNormalize(title);
+      if (titleNorm.includes(toyNorm) || toyNorm.includes(titleNorm)) {
+        matchedSlug = slug;
+        break;
+      }
+    }
+    if (matchedSlug) {
+      const fullUrl = `https://skylanderscharacterlist.com/${matchedSlug}/`;
+      const match = sitemap.find(
+        (e) => e.loc.toLowerCase() === fullUrl.toLowerCase(),
       );
-    });
+      if (match) return [match];
+    }
+  }
+
+  // 3. Custom check for Blue Chest CTT
+  if (
+    toyNameLower.includes('blue chest') &&
+    (toyNameLower.includes('cursed tiki temple') ||
+      toyNameLower.includes('ctt'))
+  ) {
+    const match = sitemap.find((e) =>
+      e.loc.toLowerCase().includes('blue-chest-ctt'),
+    );
     if (match) return [match];
   }
 
-  // Split toy name into individual words, strip punctuation
-  const cleanWord = (w: string) => w.replace(/['’.]/g, '');
-  const toyWords = toyNameLower
-    .split(/[\s\-:()]+/)
-    .map(cleanWord)
-    .filter((w) => w.length > 0);
+  const POSE_MODIFIERS = [
+    'ninja',
+    'turbo',
+    'full-blast',
+    'full blast',
+    'hog-wild',
+    'hog wild',
+    'horn-blast',
+    'horn blast',
+    'mega-ram',
+    'mega ram',
+    'heavy-duty',
+    'heavy duty',
+    'big-bang',
+    'big bang',
+    'twin-blade',
+    'twin blade',
+    'blizzard',
+    'anchors-away',
+    'anchors away',
+    'fizzy-frenzy',
+    'fizzy frenzy',
+    'sure-shot',
+    'sure shot',
+    'tidal-wave',
+    'tidal wave',
+    'deep-dive',
+    'deep dive',
+    'lava-barf',
+    'lava barf',
+    'volcanic',
+    'knockout',
+    'hyper-beam',
+    'hyper beam',
+    'thorn-horn',
+    'thorn horn',
+    'mega',
+    'ram',
+    'double-dare',
+    'double dare',
+    'double',
+    'dare',
+    'big',
+    'bang',
+    'heavy',
+    'duty',
+    'full',
+    'blast',
+    'hog',
+    'wild',
+    'fizzy',
+    'frenzy',
+    'sure',
+    'shot',
+    'tidal',
+    'wave',
+    'deep',
+    'dive',
+    'lava',
+    'barf',
+    'twin',
+    'blade',
+    'bone-bash',
+    'bone bash',
+    'bone',
+    'bash',
+    'hurricane',
+    'shark-shooter',
+    'shark',
+    'shooter',
+    'super-shot',
+    'super shot',
+    'super',
+    'shot',
+    'big-bubble',
+    'big bubble',
+    'bubble',
+    'lava-lance',
+    'lava lance',
+    'lance',
+    'fizz',
+  ];
 
-  if (toyWords.length === 0) return [];
+  const toyClean = extractBaseCharacterName(toy.name);
+  const toyBaseNorm = superNormalize(toyClean.baseName);
 
-  return sitemap.filter((entry) => {
+  // Build series list dynamically for rank-based series matching
+  const toys = db
+    .prepare("SELECT name, series FROM toys WHERE line = 'Skylanders'")
+    .all() as { name: string; series: string }[];
+  const seriesList: number[] = [];
+  for (const t of toys) {
+    const base = extractBaseCharacterName(t.name).baseName;
+    if (superNormalize(base) === toyBaseNorm) {
+      const seriesNum = parseInt(t.series, 10);
+      if (!isNaN(seriesNum) && !seriesList.includes(seriesNum)) {
+        seriesList.push(seriesNum);
+      }
+    }
+  }
+  seriesList.sort((a, b) => a - b);
+
+  let candidates = sitemap.filter((entry) => {
     const loc = entry.loc.toLowerCase();
-    const slug = loc
+    let slug = loc
       .replace('https://skylanderscharacterlist.com/', '')
       .replace(/\/$/g, '');
+
+    slug = slug
+      .replace('eggscellent', 'eggsellent')
+      .replace('e3-exclusive', 'event-exclusive')
+      .replace('e3exclusive', 'eventexclusive');
+
     const slugClean = slug.replace(/['’.]/g, '');
 
-    // 1. Basic filter: Exclude reviews, giveaways, cards, spells, hats, etc.
+    // Basic Exclusions
     if (
       slug.includes('review') ||
       slug.includes('unboxing') ||
       slug.includes('giveaway') ||
-      slug.includes('spell') ||
-      slug.includes('hat') ||
-      slug.includes('card')
+      slug.includes('servers-shutting-down')
     ) {
       return false;
     }
+    if (slug.includes('spell') && !toyNameLower.includes('spell')) return false;
+    if (slug.includes('hat') && !toyNameLower.includes('hat')) return false;
+    if (slug.includes('card') && !toyNameLower.includes('card')) return false;
+    if (
+      (slug.includes('skylander') || slug.includes('skylanders')) &&
+      !toyNameLower.includes('skylander') &&
+      !toyNameLower.includes('skylanders')
+    )
+      return false;
 
-    // 2. All words in the toy name must be present in the slug (order-independent)
-    const matchesAllWords = toyWords.every((w) => {
-      return slugClean.includes(w);
-    });
+    // Extract from slug
+    const slugName = slug.replace(/-/g, ' ');
+    const slugCleanInfo = extractBaseCharacterName(slugName);
+    const slugBaseNorm = superNormalize(slugCleanInfo.baseName);
 
-    if (!matchesAllWords) return false;
+    // Base character name check
+    if (toyBaseNorm !== slugBaseNorm) {
+      return false;
+    }
 
-    // 3. Prevent variant mismatch:
-    // If the slug contains a version indicator that is NOT in the toy name, reject.
-    const indicators = [
-      { term: 'series-2', norm: 'series2', matches: ['series2', 'series-2'] },
-      { term: 'series-3', norm: 'series3', matches: ['series3', 'series-3'] },
-      { term: 'series-4', norm: 'series4', matches: ['series4', 'series-4'] },
-      { term: 'legendary', norm: 'legendary', matches: ['legendary'] },
-      { term: 'dark', norm: 'dark', matches: ['dark'] },
-      {
-        term: 'lightcore',
-        norm: 'lightcore',
-        matches: ['lightcore', 'light-core'],
-      },
-      { term: 'elite', norm: 'elite', matches: ['elite', 'eons-elite'] },
-      { term: 'nitro', norm: 'nitro', matches: ['nitro'] },
-      { term: 'jolly', norm: 'jolly', matches: ['jolly'] },
-      { term: 'polar', norm: 'polar', matches: ['polar'] },
-      { term: 'punch', norm: 'punch', matches: ['punch'] },
-      { term: 'jade', norm: 'jade', matches: ['jade'] },
-      { term: 'granite', norm: 'granite', matches: ['granite'] },
-      { term: 'scarlet', norm: 'scarlet', matches: ['scarlet'] },
-      { term: 'gnarly', norm: 'gnarly', matches: ['gnarly'] },
-      { term: 'royal', norm: 'royal', matches: ['royal'] },
-      { term: 'springtime', norm: 'springtime', matches: ['springtime'] },
-      {
-        term: 'egg-bomber',
-        norm: 'eggbomber',
-        matches: ['egg-bomber', 'eggbomber'],
-      },
-      {
-        term: 'hard-boiled',
-        norm: 'hardboiled',
-        matches: ['hard-boiled', 'hardboiled'],
-      },
-      {
-        term: 'steel-plated',
-        norm: 'steelplated',
-        matches: ['steel-plated', 'steelplated'],
-      },
-      { term: 'kickoff', norm: 'kickoff', matches: ['kickoff', 'kick-off'] },
-      {
-        term: 'fizz-bottle',
-        norm: 'fizzbottle',
-        matches: ['fizzbottle', 'fizz-bottle'],
-      },
-      {
-        term: 'super-gulp',
-        norm: 'supergulp',
-        matches: ['supergulp', 'super-gulp'],
-      },
-      {
-        term: 'sure-shot',
-        norm: 'sureshot',
-        matches: ['sureshot', 'sure-shot'],
-      },
-      {
-        term: 'anchors-away',
-        norm: 'anchorsaway',
-        matches: ['anchorsaway', 'anchors-away'],
-      },
-      {
-        term: 'tidal-wave',
-        norm: 'tidalwave',
-        matches: ['tidalwave', 'tidal-wave'],
-      },
-      { term: 'knockout', norm: 'knockout', matches: ['knockout'] },
-      {
-        term: 'horn-blast',
-        norm: 'hornblast',
-        matches: ['hornblast', 'horn-blast'],
-      },
-      {
-        term: 'twin-blade',
-        norm: 'twinblade',
-        matches: ['twinblade', 'twin-blade'],
-      },
-      { term: 'fury', norm: 'fury', matches: ['fury'] },
-      {
-        term: 'heavy-duty',
-        norm: 'heavyduty',
-        matches: ['heavyduty', 'heavy-duty'],
-      },
-      {
-        term: 'full-blast',
-        norm: 'fullblast',
-        matches: ['fullblast', 'full-blast'],
-      },
-      { term: 'hog-wild', norm: 'hogwild', matches: ['hogwild', 'hog-wild'] },
-      { term: 'fizzy', norm: 'fizzy', matches: ['fizzy'] },
-      { term: 'big-bang', norm: 'bigbang', matches: ['bigbang', 'big-bang'] },
-      {
-        term: 'double-dare',
-        norm: 'doubledare',
-        matches: ['doubledare', 'double-dare'],
-      },
-    ];
+    // Series Check
+    let bypassSeriesCheck = false;
+    const isMiniSlug = slug.startsWith('mini-') || slug.includes('-mini');
+    const isSidekickSlug =
+      slug.startsWith('sidekick-') || slug.includes('-sidekick');
 
-    for (const ind of indicators) {
-      const slugMentions = ind.matches.some((m) => slugClean.includes(m));
-      if (slugMentions) {
-        const toyMentions = ind.matches.some(
-          (m) =>
-            toyNameLower.includes(m.replace('-', ' ')) ||
-            toyNameLower.includes(m.replace('-', '')),
-        );
-        if (!toyMentions) {
-          return false;
-        }
+    if (
+      toyNameLower.includes('lightcore') ||
+      slug.includes('lightcore') ||
+      toyNameLower.includes('dark') ||
+      slug.includes('dark') ||
+      toyNameLower.includes('legendary') ||
+      slug.includes('legendary') ||
+      toyNameLower.includes('springtime') ||
+      slug.includes('springtime') ||
+      toyNameLower.includes('double dare') ||
+      toyNameLower.includes('double-dare') ||
+      toyNameLower.includes('power blue') ||
+      toyNameLower.includes('power-blue') ||
+      toyNameLower.includes('bone bash') ||
+      toyNameLower.includes('bone-bash') ||
+      toyNameLower.includes('event exclusive') ||
+      toyNameLower.includes('event-exclusive') ||
+      toyNameLower.includes('e3 exclusive') ||
+      toyNameLower.includes('e3-exclusive') ||
+      isMiniSlug ||
+      isSidekickSlug
+    ) {
+      bypassSeriesCheck = true;
+    }
+
+    let expectedSeries: string | number = 1;
+    if (toy.series === "Eon's Elite") {
+      expectedSeries = "Eon's Elite";
+    } else {
+      const toySeriesNum = parseInt(toy.series || '', 10);
+      if (!isNaN(toySeriesNum)) {
+        expectedSeries = seriesList.indexOf(toySeriesNum) + 1; // Rank-based figure series
       }
+    }
+
+    let slugSeries: string | number | null = null;
+    if (slug.includes('series-2') || slug.includes('series2')) slugSeries = 2;
+    else if (slug.includes('series-3') || slug.includes('series3'))
+      slugSeries = 3;
+    else if (slug.includes('series-4') || slug.includes('series4'))
+      slugSeries = 4;
+    else if (slug.includes('eons-elite') || slug.includes('elite'))
+      slugSeries = "Eon's Elite";
+
+    if (bypassSeriesCheck) {
+      if (slugSeries !== null && expectedSeries !== slugSeries) {
+        return false;
+      }
+    } else {
+      const finalSlugSeries = slugSeries !== null ? slugSeries : 1;
+      if (expectedSeries !== finalSlugSeries) {
+        return false;
+      }
+    }
+
+    // Sensei vs Villain figure check for Series 6
+    if (toy.series === '6') {
+      const hasFigureInSlug = slug.endsWith('-figure');
+      const characterHasFigurePage = sitemap.some((e) => {
+        const s = e.loc
+          .toLowerCase()
+          .replace('https://skylanderscharacterlist.com/', '')
+          .replace(/\/$/g, '');
+        return (
+          s.endsWith('-figure') &&
+          superNormalize(s).replace('figure', '') === toyBaseNorm
+        );
+      });
+      if (characterHasFigurePage && !hasFigureInSlug) {
+        return false;
+      }
+    }
+
+    // Variant modifier checks:
+    const toyMods = toyClean.variantName
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 0);
+    const slugMods = slugCleanInfo.variantName
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 0);
+
+    const isVariantMismatch =
+      toyMods.some((m) => {
+        if (POSE_MODIFIERS.includes(m)) return false;
+        const mClean = m.replace(/-/g, '');
+        const slugCleanNoDash = slugClean.replace(/-/g, '');
+        return !slugCleanNoDash.includes(mClean);
+      }) ||
+      slugMods.some((m) => {
+        if (m === 'series' || m.match(/^\d+$/) || m === 'elite' || m === 'eon')
+          return false;
+        if (isMiniSlug && m === 'mini' && toy.series === '4') return false;
+        if (
+          isSidekickSlug &&
+          m === 'sidekick' &&
+          (toy.series === '1' || toy.series === '2')
+        )
+          return false;
+        if (
+          (m === 'elite' || m === 'eon' || m === 'eons') &&
+          toy.series === "Eon's Elite"
+        )
+          return false;
+
+        // Reject slug if it contains a pose modifier NOT in the toy name
+        if (POSE_MODIFIERS.includes(m)) {
+          const mClean = m.replace(/-/g, '');
+          const toyCleanNoDash = toyNameLower.replace(/[^a-z0-9]/g, '');
+          return !toyCleanNoDash.includes(mClean);
+        }
+
+        const mClean = m.replace(/-/g, '');
+        const toyCleanNoDash = toyNameLower.replace(/[^a-z0-9]/g, '');
+        return !toyCleanNoDash.includes(mClean);
+      });
+
+    if (isVariantMismatch) {
+      return false;
     }
 
     return true;
   });
+
+  // Tie breaker 1: Prefer exact pose modifier matches if toy name contains one
+  const toyPoseMods = toyClean.variantName
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => POSE_MODIFIERS.includes(w));
+  if (toyPoseMods.length > 0 && candidates.length > 1) {
+    const matchingPose = candidates.filter((c) => {
+      const cSlug = c.loc.toLowerCase();
+      return toyPoseMods.every((pm) =>
+        cSlug.replace(/-/g, '').includes(pm.replace(/-/g, '')),
+      );
+    });
+    if (matchingPose.length > 0) {
+      candidates = matchingPose;
+    }
+  }
+
+  // Tie breaker 2: Sky-Iron Shield / gear
+  if (candidates.length > 1) {
+    const nonGear = candidates.filter(
+      (c) => !c.loc.toLowerCase().includes('-gear'),
+    );
+    if (nonGear.length > 0) {
+      candidates = nonGear;
+    }
+  }
+
+  // Tie breaker 3: Prefer explicit series match if multiple candidates exist
+  if (candidates.length > 1) {
+    let expectedSeries: string | number = 1;
+    if (toy.series === "Eon's Elite") {
+      expectedSeries = "Eon's Elite";
+    } else {
+      const toySeriesNum = parseInt(toy.series || '', 10);
+      if (!isNaN(toySeriesNum)) {
+        expectedSeries = seriesList.indexOf(toySeriesNum) + 1;
+      }
+    }
+
+    const explicitSeriesMatches = candidates.filter((c) => {
+      const loc = c.loc.toLowerCase();
+      const slug = loc
+        .replace('https://skylanderscharacterlist.com/', '')
+        .replace(/\/$/g, '');
+      let slugSeries: string | number | null = null;
+      if (slug.includes('series-2') || slug.includes('series2')) slugSeries = 2;
+      else if (slug.includes('series-3') || slug.includes('series3'))
+        slugSeries = 3;
+      else if (slug.includes('series-4') || slug.includes('series4'))
+        slugSeries = 4;
+      else if (slug.includes('eons-elite') || slug.includes('elite'))
+        slugSeries = "Eon's Elite";
+
+      return slugSeries === expectedSeries;
+    });
+
+    if (explicitSeriesMatches.length > 0) {
+      candidates = explicitSeriesMatches;
+    }
+  }
+
+  return candidates;
 }
 
 async function runScraper(): Promise<void> {
@@ -2026,20 +2299,38 @@ async function runScraper(): Promise<void> {
         );
         const details = await scrapeSkylandersDetail(toy.scl_url);
         if (details) {
+          let adoptedName = toy.name;
+          if (details.title) {
+            const cleanTitle = cleanSclTitle(details.title);
+            const normDb = toy.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const normScl = cleanTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (normDb === normScl && toy.name !== cleanTitle) {
+              console.log(
+                `\nAdopting SCL name spelling: "${toy.name}" -> "${cleanTitle}"`,
+              );
+              adoptedName = cleanTitle;
+            }
+          }
+
+          const finalType = !details.element
+            ? 'Magic Item'
+            : details.series || toy.type || 'Figure';
           db.prepare(
             `
               UPDATE toys 
-              SET release_date = ?, metadata_json = ?, type = ?
+              SET name = ?, release_date = ?, metadata_json = ?, type = ?, details = ?
               WHERE stable_id = ?
             `,
           ).run(
+            adoptedName,
             details.releaseDate,
             JSON.stringify({
               element: details.element,
               series: details.series,
               released_with: details.releasedWith,
             }),
-            details.series || toy.type || 'Figure',
+            finalType,
+            details.description || null,
             toy.stable_id,
           );
           console.log(
@@ -2083,20 +2374,40 @@ async function runScraper(): Promise<void> {
           );
           const details = await scrapeSkylandersDetail(match.loc);
           if (details) {
+            let adoptedName = toy.name;
+            if (details.title) {
+              const cleanTitle = cleanSclTitle(details.title);
+              const normDb = toy.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+              const normScl = cleanTitle
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, '');
+              if (normDb === normScl && toy.name !== cleanTitle) {
+                console.log(
+                  `\nAdopting SCL name spelling: "${toy.name}" -> "${cleanTitle}"`,
+                );
+                adoptedName = cleanTitle;
+              }
+            }
+
+            const finalType = !details.element
+              ? 'Magic Item'
+              : details.series || toy.type || 'Figure';
             db.prepare(
               `
                 UPDATE toys 
-                SET release_date = ?, metadata_json = ?, type = ?
+                SET name = ?, release_date = ?, metadata_json = ?, type = ?, details = ?
                 WHERE stable_id = ?
               `,
             ).run(
+              adoptedName,
               details.releaseDate,
               JSON.stringify({
                 element: details.element,
                 series: details.series,
                 released_with: details.releasedWith,
               }),
-              details.series || toy.type || 'Figure',
+              finalType,
+              details.description || null,
               toy.stable_id,
             );
             console.log(
@@ -2644,10 +2955,70 @@ function reindexSkylanders(): void {
 
       const elemOrder = elementOrder[element] || 99;
 
+      // Group by Category: 1 = Characters, 2 = Vehicles, 3 = Crystals, 4 = Traps, 5 = Magic Items
+      let categoryOrder = 1;
+      const typeLower = (t.type || '').toLowerCase().trim();
+      if (typeLower === 'vehicle') {
+        categoryOrder = 2;
+      } else if (typeLower === 'creation crystal') {
+        categoryOrder = 3;
+      } else if (typeLower === 'trap') {
+        categoryOrder = 4;
+      } else if (
+        t.type === 'Magic Item' ||
+        !element ||
+        element === 'kaos/other'
+      ) {
+        categoryOrder = 5;
+      }
+
+      // Calculate Subtype priority within characters (category 1):
+      // 1 = Gimmick (Giants, SWAP Force, Trap Master, Sensei)
+      // 2 = Standard (Series 1-4, SuperCharger, Figure)
+      // 3 = LightCore
+      // 4 = Minis/Sidekicks (Mini, Sidekicks)
+      let subtypePriority = 5;
+      if (categoryOrder === 1) {
+        const tType = t.type || '';
+        if (
+          tType === 'Giants' ||
+          tType === 'SWAP Force' ||
+          tType === 'Trap Master' ||
+          tType === 'Sensei'
+        ) {
+          subtypePriority = 1;
+        } else if (
+          tType.startsWith('Series') ||
+          tType === 'SuperCharger' ||
+          tType === 'Figure'
+        ) {
+          subtypePriority = 2;
+        } else if (tType === 'LightCore') {
+          subtypePriority = 3;
+        } else if (tType === 'Mini' || tType === 'Sidekicks') {
+          subtypePriority = 4;
+        }
+      }
+
+      // groupPriority: Gimmick = 1, Standard/LightCore = 2, Mini = 3, other = 4
+      let groupPriority = 4;
+      if (categoryOrder === 1) {
+        if (subtypePriority === 1) {
+          groupPriority = 1;
+        } else if (subtypePriority === 2 || subtypePriority === 3) {
+          groupPriority = 2;
+        } else if (subtypePriority === 4) {
+          groupPriority = 3;
+        }
+      }
+
       return {
         toy: t,
         gameOrder,
+        categoryOrder,
         elemOrder,
+        subtypePriority,
+        groupPriority,
         baseName: parsed.baseName.toLowerCase(),
         variant: parsed.variantName.toLowerCase(),
       };
@@ -2657,13 +3028,25 @@ function reindexSkylanders(): void {
       if (a.gameOrder !== b.gameOrder) {
         return a.gameOrder - b.gameOrder;
       }
+      // Sort by Category Order
+      if (a.categoryOrder !== b.categoryOrder) {
+        return a.categoryOrder - b.categoryOrder;
+      }
       // Sort by Element Order (alphabetical)
       if (a.elemOrder !== b.elemOrder) {
         return a.elemOrder - b.elemOrder;
       }
+      // Sort by Group Priority
+      if (a.groupPriority !== b.groupPriority) {
+        return a.groupPriority - b.groupPriority;
+      }
       // Sort by Base Character Name
       if (a.baseName !== b.baseName) {
         return a.baseName.localeCompare(b.baseName);
+      }
+      // Sort by Subtype Priority
+      if (a.subtypePriority !== b.subtypePriority) {
+        return a.subtypePriority - b.subtypePriority;
       }
       // Sort standard version first (empty variant), then variants alphabetically
       if (a.variant === '' && b.variant !== '') {

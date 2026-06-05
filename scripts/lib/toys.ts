@@ -416,7 +416,21 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
   const seriesRegex = /\b(?:series\s*\d+|series-\d+)\b/gi;
   cleanName = cleanName.replace(seriesRegex, '').replace(/\s+/g, ' ').trim();
 
-  // Known variant prefixes/modifiers (case-insensitive)
+  // Remove trailing "gear" and "figure" words for items and figures
+  cleanName = cleanName
+    .replace(/\bgear\b/gi, '')
+    .replace(/\bfigure\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const lower = cleanName.toLowerCase();
+  const isException =
+    lower === 'king pen' ||
+    lower === 'golden queen' ||
+    lower.startsWith('dark reactor') ||
+    lower.startsWith('dark rune') ||
+    lower.startsWith('dark pyramid');
+
   const modifiers = [
     'gnarly',
     'legendary',
@@ -428,30 +442,40 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
     'punch',
     'royal',
     'sidekick',
+    'eggscellent',
     'eggsellent',
     'power punch',
+    'power-punch',
     'power blue',
+    'power-blue',
     'kickoff',
     'springtime',
     'double dare',
+    'double-dare',
     'big-bang',
     'big bang',
     'quick draw',
+    'quick-draw',
     'phantom',
     'steel plated',
     'steel-plated',
     'solar flare',
+    'solar-flare',
     'candy-coated',
     'candy coated',
     'mystical',
     'love potion',
+    'love-potion',
     'super gulp',
+    'super-gulp',
     'sure shot',
+    'sure-shot',
     'nitro',
     'jade',
     'jolly',
     'enchanted',
     'hyper beam',
+    'hyper-beam',
     'knockout',
     'heavy duty',
     'heavy-duty',
@@ -461,16 +485,23 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
     'anchors away',
     'anchors-away',
     'deep dive',
+    'deep-dive',
     'fizzy frenzy',
+    'fizzy-frenzy',
     'frightful',
     'missile-tow',
     'eggcited',
     'jingle bell',
+    'jingle-bell',
     'lava barf',
+    'lava-barf',
     'volcanic',
     'fire bone',
+    'fire-bone',
     'bone bash',
+    'bone-bash',
     'birthday bash',
+    'birthday-bash',
     'twin blade',
     'twin-beta',
     'twin-blade',
@@ -481,45 +512,74 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
     'hyper',
     'blizzard',
     'event exclusive',
+    'event-exclusive',
+    'e3 exclusive',
+    'e3-exclusive',
     'gold',
     'silver',
     'bronze',
     'platinum',
+    'ninja',
+    'turbo',
+    'full blast',
+    'full-blast',
+    'hog wild',
+    'hog-wild',
+    'rock candy',
+    'rock-candy',
+    'heartbreaker',
+    'dec-ember',
+    'december',
+    'pink',
+    'orange',
+    'blue',
+    'red',
+    'green',
+    'purple',
+    'white',
+    'chrome',
+    'metallic',
+    'clear',
+    'flocked',
+    'stone',
+    'pearl',
+    'sparkle',
+    'glow',
+    'patina',
+    'spring-ahead',
+    'sea-trophy',
+    'sky-trophy',
+    'mini',
+    'sidekick',
+    "eon's elite",
+    'eons elite',
+    "eon's",
+    'eons',
+    'elite',
+    'thorn-horn',
+    'thorn horn',
   ];
 
-  let strippedSomething = true;
   const activeModifiers: string[] = [];
 
-  while (strippedSomething) {
-    strippedSomething = false;
-    const lower = cleanName.toLowerCase();
-
-    // Exception gates for standard names that start with modifier keywords
-    if (lower === 'king pen') break;
-    if (lower === 'golden queen') break;
-    if (lower.startsWith('dark reactor')) break;
-    if (lower.startsWith('dark rune')) break;
-    if (lower.startsWith('dark pyramid')) break;
-
-    // Check list of known modifiers
+  if (!isException) {
+    // Strip modifiers globally from anywhere in the string while preserving original casing
     for (const mod of modifiers) {
-      if (lower.startsWith(mod + ' ')) {
-        activeModifiers.push(cleanName.substring(0, mod.length));
-        cleanName = cleanName.substring(mod.length + 1).trim();
-        strippedSomething = true;
-        break;
+      const regex = new RegExp(`\\b${mod}\\b`, 'gi');
+      const match = cleanName.match(regex);
+      if (match) {
+        activeModifiers.push(match[0]);
+        cleanName = cleanName.replace(regex, '').replace(/\s+/g, ' ').trim();
       }
     }
 
     // Special check for "King" (e.g. "King Cobra Cadabra" -> "Cobra Cadabra")
     if (
-      !strippedSomething &&
-      lower.startsWith('king ') &&
-      lower !== 'king pen'
+      cleanName.toLowerCase().startsWith('king ') &&
+      cleanName.toLowerCase() !== 'king pen'
     ) {
       activeModifiers.push(cleanName.substring(0, 4));
       cleanName = cleanName.substring(5).trim();
-      strippedSomething = true;
     }
   }
 
@@ -530,10 +590,12 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
 }
 
 export interface SkylandersDetail {
+  title: string | null;
   element: string | null;
   series: string | null;
   releasedWith: string | null;
   releaseDate: string | null;
+  description?: string | null;
 }
 
 /**
@@ -555,6 +617,10 @@ export async function scrapeSkylandersDetail(
       timeout: 10000,
     });
     const $ = cheerio.load(response.data as string);
+    const title =
+      $('h1.entry-title').text().trim() ||
+      $('h1').first().text().trim() ||
+      null;
 
     let element: string | null = null;
     let series: string | null = null;
@@ -633,11 +699,38 @@ export async function scrapeSkylandersDetail(
       }
     }
 
+    // Replace all <br> tags with newline text nodes to preserve line breaks in lists
+    $('br').replaceWith('\n');
+
+    const paragraphs: string[] = [];
+    $('.post-content p').each((_, el) => {
+      const text = $(el).text().trim();
+      if (!text) return;
+      if (
+        text.includes('eBay Partner Network') ||
+        text.includes('Amazon Associate') ||
+        text.includes('compensated if you make a purchase')
+      ) {
+        return;
+      }
+      if (
+        text.includes('Activision Blizzard') ||
+        text.includes('Version 33, LLC') ||
+        text.includes('not affiliated, associated')
+      ) {
+        return;
+      }
+      paragraphs.push(text);
+    });
+    const description = paragraphs.length > 0 ? paragraphs.join('\n') : null;
+
     return {
+      title,
       element,
       series,
       releasedWith,
       releaseDate,
+      description,
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -712,10 +805,70 @@ export function reindexSkylanders(db: Database.Database): void {
 
       const elemOrder = elementOrder[element] || 99;
 
+      // Group by Category: 1 = Characters, 2 = Vehicles, 3 = Crystals, 4 = Traps, 5 = Magic Items
+      let categoryOrder = 1;
+      const typeLower = (t.type || '').toLowerCase().trim();
+      if (typeLower === 'vehicle') {
+        categoryOrder = 2;
+      } else if (typeLower === 'creation crystal') {
+        categoryOrder = 3;
+      } else if (typeLower === 'trap') {
+        categoryOrder = 4;
+      } else if (
+        t.type === 'Magic Item' ||
+        !element ||
+        element === 'kaos/other'
+      ) {
+        categoryOrder = 5;
+      }
+
+      // Calculate Subtype priority within characters (category 1):
+      // 1 = Gimmick (Giants, SWAP Force, Trap Master, Sensei)
+      // 2 = Standard (Series 1-4, SuperCharger, Figure)
+      // 3 = LightCore
+      // 4 = Minis/Sidekicks (Mini, Sidekicks)
+      let subtypePriority = 5;
+      if (categoryOrder === 1) {
+        const tType = t.type || '';
+        if (
+          tType === 'Giants' ||
+          tType === 'SWAP Force' ||
+          tType === 'Trap Master' ||
+          tType === 'Sensei'
+        ) {
+          subtypePriority = 1;
+        } else if (
+          tType.startsWith('Series') ||
+          tType === 'SuperCharger' ||
+          tType === 'Figure'
+        ) {
+          subtypePriority = 2;
+        } else if (tType === 'LightCore') {
+          subtypePriority = 3;
+        } else if (tType === 'Mini' || tType === 'Sidekicks') {
+          subtypePriority = 4;
+        }
+      }
+
+      // groupPriority: Gimmick = 1, Standard/LightCore = 2, Mini = 3, other = 4
+      let groupPriority = 4;
+      if (categoryOrder === 1) {
+        if (subtypePriority === 1) {
+          groupPriority = 1;
+        } else if (subtypePriority === 2 || subtypePriority === 3) {
+          groupPriority = 2;
+        } else if (subtypePriority === 4) {
+          groupPriority = 3;
+        }
+      }
+
       return {
         toy: t,
         gameOrder,
+        categoryOrder,
         elemOrder,
+        subtypePriority,
+        groupPriority,
         baseName: parsed.baseName.toLowerCase(),
         variant: parsed.variantName.toLowerCase(),
       };
@@ -724,11 +877,20 @@ export function reindexSkylanders(db: Database.Database): void {
       if (a.gameOrder !== b.gameOrder) {
         return a.gameOrder - b.gameOrder;
       }
+      if (a.categoryOrder !== b.categoryOrder) {
+        return a.categoryOrder - b.categoryOrder;
+      }
       if (a.elemOrder !== b.elemOrder) {
         return a.elemOrder - b.elemOrder;
       }
+      if (a.groupPriority !== b.groupPriority) {
+        return a.groupPriority - b.groupPriority;
+      }
       if (a.baseName !== b.baseName) {
         return a.baseName.localeCompare(b.baseName);
+      }
+      if (a.subtypePriority !== b.subtypePriority) {
+        return a.subtypePriority - b.subtypePriority;
       }
       if (a.variant === '' && b.variant !== '') {
         return -1;

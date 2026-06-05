@@ -86,6 +86,7 @@ export interface Toy {
   metadata_json?: string;
   sort_index?: number;
   series_index?: number;
+  details?: string | null;
 }
 
 export interface ToySeriesGroup {

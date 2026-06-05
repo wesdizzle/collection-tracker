@@ -11,6 +11,7 @@ export default tseslint.config(
       '.angular/**',
       'scratch/**', // Gitignored temporary/debug scripts
       'scripts/temp/**', // Temporary debugging/analysis scripts
+      'scripts/temp_*', // Temporary debugging/analysis scripts prefixed with temp_
       '*.js', // Legacy root test/debug scripts
     ],
   },

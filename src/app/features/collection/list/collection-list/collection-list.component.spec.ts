@@ -565,12 +565,77 @@ describe('CollectionListComponent', () => {
     // Series A group: t3, t4, t5. Series B group: t2
     expect(toys[3].id).toBe('t2');
 
-    // 3. Release Date within Series A: t4/t5 (2020) vs t3 (2021)
-    expect(toys[2].id).toBe('t3');
+    // 3. Sort Index within Series A: t3/t5 (1) vs t4 (2)
+    expect(toys[2].id).toBe('t4');
 
-    // 4. Sort Index within 2020: t5 (1) vs t4 (2)
+    // 4. Release Date within Sort Index 1: t5 (2020) vs t3 (2021)
     expect(toys[0].id).toBe('t5');
-    expect(toys[1].id).toBe('t4');
+    expect(toys[1].id).toBe('t3');
+  });
+
+  it('should sort amiibo toys strictly by type, then release date, then sort index', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    component.currentTab.set('toys');
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        id: 'a1',
+        name: 'Isabelle Card',
+        line: 'amiibo',
+        type: 'Card',
+        series_name: 'Animal Crossing',
+        release_date: '2015-10-22',
+        sort_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 'a2',
+        name: 'Isabelle Figure',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Animal Crossing',
+        release_date: '2015-11-21',
+        sort_index: 2,
+        ownership_status: 1,
+      },
+      {
+        id: 'a3',
+        name: 'Mabel Figure',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Animal Crossing',
+        release_date: '2015-11-21',
+        sort_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 'a4',
+        name: 'Villager Figure',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Animal Crossing',
+        release_date: '2014-11-21',
+        sort_index: 5,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    const toys = component.filteredToys();
+    expect(toys.length).toBe(4);
+    // Expected order:
+    // 1. Type (Figure first, then Card) -> a4, a3, a2 are Figures, a1 is Card (so a1 is last)
+    // 2. Release Date among figures: a4 (2014) is earlier than a2/a3 (2015)
+    // 3. Sort Index among identical release dates: a3 (sort_index 1) vs a2 (sort_index 2)
+    // Final order: a4, a3, a2, a1
+    expect(toys[0].id).toBe('a4');
+    expect(toys[1].id).toBe('a3');
+    expect(toys[2].id).toBe('a2');
+    expect(toys[3].id).toBe('a1');
   });
 
   it('should calculate uniqueSeries based on the active tab', async () => {
@@ -670,8 +735,8 @@ describe('CollectionListComponent', () => {
     component.currentTab.set('toys');
 
     const toys = component.filteredToys();
-    expect(toys[0].id).toBe('t1'); // Spyro
-    expect(toys[1].id).toBe('t3'); // Bash
+    expect(toys[0].id).toBe('t3'); // Bash
+    expect(toys[1].id).toBe('t1'); // Spyro
     expect(toys[2].id).toBe('t2'); // Tree Rex
 
     const series = component.uniqueSeries();

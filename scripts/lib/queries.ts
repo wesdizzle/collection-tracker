@@ -109,8 +109,27 @@ export const TOYS_LIST_QUERY = `
              CASE WHEN fs.line COLLATE NOCASE LIKE 'the %' THEN SUBSTR(fs.line, 5) WHEN fs.line COLLATE NOCASE LIKE 'a %' THEN SUBSTR(fs.line, 3) ELSE fs.line END COLLATE NOCASE ASC, 
              fs.sort_index IS NULL ASC, fs.sort_index ASC, 
              CASE WHEN COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name), 5) WHEN COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name), 3) ELSE COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) END COLLATE NOCASE ASC, 
+             -- 1. Amiibo Type (Figures first, Cards last)
+             CASE 
+               WHEN f.line = 'amiibo' THEN 
+                 CASE f.type 
+                   WHEN 'Figure' THEN 1 
+                   WHEN 'Yarn' THEN 2 
+                   WHEN 'Block' THEN 3 
+                   WHEN 'Band' THEN 4 
+                   ELSE 5 
+                 END 
+               ELSE 1 
+             END ASC,
+             -- 2. Non-Amiibo Sort Index (since non-amiibos sort by sort_index first)
+             CASE WHEN f.line = 'amiibo' THEN 1 ELSE (CASE WHEN f.sort_index IS NULL THEN 1 ELSE 0 END) END ASC,
+             CASE WHEN f.line = 'amiibo' THEN 1 ELSE f.sort_index END ASC,
+             -- 3. Release Date
              f.release_date IS NULL ASC, f.release_date ASC, 
-             f.sort_index IS NULL ASC, f.sort_index ASC, 
+             -- 4. Amiibo Sort Index (since amiibos sort by type -> release_date -> sort_index)
+             CASE WHEN f.line = 'amiibo' THEN (CASE WHEN f.sort_index IS NULL THEN 1 ELSE 0 END) ELSE 1 END ASC,
+             CASE WHEN f.line = 'amiibo' THEN f.sort_index ELSE 1 END ASC,
+             -- 5. Fallback Name
              CASE WHEN f.name COLLATE NOCASE LIKE 'the %' THEN SUBSTR(f.name, 5) WHEN f.name COLLATE NOCASE LIKE 'a %' THEN SUBSTR(f.name, 3) ELSE f.name END COLLATE NOCASE ASC
 `;
 

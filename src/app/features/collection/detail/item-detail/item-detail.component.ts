@@ -391,6 +391,16 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
             </section>
           }
         }
+
+        @if (toy(); as t) {
+          @if (t.details) {
+            <section class="narrative-section animate-slide-up">
+              <div class="summary-text-airy" style="white-space: pre-line;">
+                {{ t.details }}
+              </div>
+            </section>
+          }
+        }
       </div>
     } @else {
       <div class="loading-state">

@@ -77,7 +77,9 @@ describe('Worker API Logic', () => {
                 series_id INTEGER, 
                 release_date DATE,
                 sort_index INTEGER,
-                series TEXT
+                series TEXT,
+                type TEXT,
+                details TEXT
             );
             CREATE TABLE toy_series (
                 id INTEGER PRIMARY KEY, 

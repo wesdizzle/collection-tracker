@@ -1220,15 +1220,45 @@ export class CollectionListComponent
         const seriesB = this.normalizeForSort(b.series_name || '');
         if (seriesA !== seriesB) return seriesA.localeCompare(seriesB);
 
-        // 3. Release Date (ASC, nulls last)
-        const relA = a.release_date || '9999-99-99';
-        const relB = b.release_date || '9999-99-99';
-        if (relA !== relB) return relA.localeCompare(relB);
+        // 3. Toy-level sorting
+        if (a.line === 'amiibo') {
+          // Priority 1: Type (Figure -> Yarn -> Block -> Band -> Card)
+          const typeOrder: Record<string, number> = {
+            Figure: 1,
+            Yarn: 2,
+            Block: 3,
+            Band: 4,
+            Card: 5,
+          };
+          const orderA = typeOrder[a.type] ?? 99;
+          const orderB = typeOrder[b.type] ?? 99;
+          if (orderA !== orderB) return orderA - orderB;
 
-        // 4. Sort Index (ASC, nulls last)
-        const sortA = a.sort_index ?? 9999;
-        const sortB = b.sort_index ?? 9999;
-        return sortA - sortB;
+          // Priority 2: Release Date (ASC, nulls last)
+          const relA = a.release_date || '9999-99-99';
+          const relB = b.release_date || '9999-99-99';
+          if (relA !== relB) return relA.localeCompare(relB);
+
+          // Priority 3: Sort Index (ASC, nulls last)
+          const sortA = a.sort_index ?? 9999;
+          const sortB = b.sort_index ?? 9999;
+          if (sortA !== sortB) return sortA - sortB;
+        } else {
+          // Non-amiibo Priority 1: Sort Index (ASC, nulls last)
+          const sortA = a.sort_index ?? 9999;
+          const sortB = b.sort_index ?? 9999;
+          if (sortA !== sortB) return sortA - sortB;
+
+          // Non-amiibo Priority 2: Release Date (ASC, nulls last)
+          const relA = a.release_date || '9999-99-99';
+          const relB = b.release_date || '9999-99-99';
+          if (relA !== relB) return relA.localeCompare(relB);
+        }
+
+        // 4. Name (ASC) fallback
+        const nameA = this.normalizeForSort(a.name || '');
+        const nameB = this.normalizeForSort(b.name || '');
+        return nameA.localeCompare(nameB);
       });
   });
 

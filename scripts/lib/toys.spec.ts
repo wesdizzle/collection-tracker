@@ -9,6 +9,7 @@
 
 import { describe, it, expect, vi, type Mocked } from 'vitest';
 import axios from 'axios';
+import Database from 'better-sqlite3';
 import {
   scrapeSkylandersSitemap,
   scrapeStarlinkConsole,
@@ -18,6 +19,7 @@ import {
   STARLINK_TOYS,
   getStarlinkSlugs,
   scrapeStarlinkWikiImage,
+  reindexSkylanders,
 } from './toys.js';
 
 // Mock axios globally for these tests
@@ -383,6 +385,302 @@ describe('Toys Metadata Ingestion Helpers', () => {
 
       const image = await scrapeStarlinkWikiImage('Zenith');
       expect(image).toBeNull();
+    });
+  });
+
+  describe('reindexSkylanders', () => {
+    it('should compute sort indexes based on category, element, and name', () => {
+      const db = new Database(':memory:');
+
+      // Create tables
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+        CREATE TABLE toy_series (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          line TEXT,
+          sort_index INTEGER
+        );
+      `);
+
+      // Insert toy series
+      const insertSeries = db.prepare(
+        'INSERT INTO toy_series (id, name, line, sort_index) VALUES (?, ?, ?, ?)',
+      );
+      insertSeries.run('series-1', "Spyro's Adventure", 'Skylanders', 1);
+      insertSeries.run('series-2', 'Giants', 'Skylanders', 2);
+
+      // Insert toys
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, metadata_json, sort_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      // Category priorities: Characters (1) -> Vehicles (2) -> Crystals (3) -> Traps (4) -> Magic Items (5)
+      // Within same series (series-1):
+      // Bash (Character, Earth element) - should sort before Magic Item (e.g. Dragon's Peak)
+      insertToy.run(
+        1,
+        'bash',
+        'Bash',
+        'Skylanders',
+        'series-1',
+        null,
+        JSON.stringify({ element: 'Earth' }),
+        null,
+      );
+      // Dragon's Peak (Magic Item, element kaos/other or null)
+      insertToy.run(
+        2,
+        'dragons-peak',
+        "Dragon's Peak",
+        'Skylanders',
+        'series-1',
+        null,
+        null,
+        null,
+      );
+      // Spitfire (Vehicle in series-2)
+      insertToy.run(
+        3,
+        'spitfire',
+        'Spitfire',
+        'Skylanders',
+        'series-2',
+        'Vehicle',
+        JSON.stringify({ element: 'Fire' }),
+        null,
+      );
+      // Gill Grunt (Character, Water element in series-1)
+      insertToy.run(
+        4,
+        'gill-grunt',
+        'Gill Grunt',
+        'Skylanders',
+        'series-1',
+        null,
+        JSON.stringify({ element: 'Water' }),
+        null,
+      );
+
+      reindexSkylanders(db);
+
+      const results = db
+        .prepare(
+          'SELECT stable_id, sort_index, name FROM toys ORDER BY sort_index ASC',
+        )
+        .all() as { stable_id: number; sort_index: number; name: string }[];
+
+      // Sorting order expectations for series-1 (sort_index 1):
+      // Elements: Earth (3) sorts before Water (10) -> Bash (Earth) sorts before Gill Grunt (Water)
+      // Category: Characters (1) sort before Magic Items (5) -> Bash (1), Gill Grunt (1) sort before Dragon's Peak (5)
+      // So for series-1: Bash (1st), Gill Grunt (2nd), Dragon's Peak (3rd)
+      // Then series-2 (sort_index 2): Spitfire (4th)
+      expect(results).toHaveLength(4);
+      expect(results[0].name).toBe('Bash');
+      expect(results[0].sort_index).toBe(1);
+      expect(results[1].name).toBe('Gill Grunt');
+      expect(results[1].sort_index).toBe(2);
+      expect(results[2].name).toBe("Dragon's Peak");
+      expect(results[2].sort_index).toBe(3);
+      expect(results[3].name).toBe('Spitfire');
+      expect(results[3].sort_index).toBe(4);
+    });
+
+    it('should prioritize gimmick characters over standard, LightCore, and minis/sidekicks within element groups', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+        CREATE TABLE toy_series (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          line TEXT,
+          sort_index INTEGER
+        );
+      `);
+
+      const insertSeries = db.prepare(
+        'INSERT INTO toy_series (id, name, line, sort_index) VALUES (?, ?, ?, ?)',
+      );
+      insertSeries.run('series-1', 'Test Series', 'Skylanders', 1);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, metadata_json, sort_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      // All Earth element, all in 'series-1'
+      // 1. Bash (Series 2) - Standard
+      insertToy.run(
+        1,
+        'bash-s2',
+        'Bash (Series 2)',
+        'Skylanders',
+        'series-1',
+        'Series 2',
+        JSON.stringify({ element: 'Earth' }),
+        null,
+      );
+      // 2. Crusher - Giants Gimmick
+      insertToy.run(
+        2,
+        'crusher',
+        'Crusher',
+        'Skylanders',
+        'series-1',
+        'Giants',
+        JSON.stringify({ element: 'Earth' }),
+        null,
+      );
+      // 3. Prism Break LightCore - LightCore
+      insertToy.run(
+        3,
+        'prism-break-lc',
+        'Prism Break LightCore',
+        'Skylanders',
+        'series-1',
+        'LightCore',
+        JSON.stringify({ element: 'Earth' }),
+        null,
+      );
+      // 4. Terrabite - Mini
+      insertToy.run(
+        4,
+        'terrabite',
+        'Mini Terrabite',
+        'Skylanders',
+        'series-1',
+        'Mini',
+        JSON.stringify({ element: 'Earth' }),
+        null,
+      );
+
+      reindexSkylanders(db);
+
+      const results = db
+        .prepare(
+          'SELECT stable_id, name, sort_index FROM toys ORDER BY sort_index ASC',
+        )
+        .all() as { stable_id: number; name: string; sort_index: number }[];
+
+      expect(results).toHaveLength(4);
+      // Expected order:
+      // 1. Crusher (Giants = Gimmick, priority 1)
+      // 2. Bash (Series 2 = Standard, priority 2)
+      // 3. Prism Break LightCore (LightCore, priority 3)
+      // 4. Terrabite (Mini, priority 4)
+      expect(results[0].name).toBe('Crusher');
+      expect(results[1].name).toBe('Bash (Series 2)');
+      expect(results[2].name).toBe('Prism Break LightCore');
+      expect(results[3].name).toBe('Mini Terrabite');
+    });
+
+    it('should group LightCore variants directly with their standard/in-game counterparts', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+        CREATE TABLE toy_series (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          line TEXT,
+          sort_index INTEGER
+        );
+      `);
+
+      const insertSeries = db.prepare(
+        'INSERT INTO toy_series (id, name, line, sort_index) VALUES (?, ?, ?, ?)',
+      );
+      insertSeries.run('series-1', 'Test Series', 'Skylanders', 1);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, metadata_json, sort_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      // All Air element, in 'series-1'
+      // 1. Warnado - Standard (baseName: 'warnado')
+      insertToy.run(
+        1,
+        'warnado',
+        'Warnado',
+        'Skylanders',
+        'series-1',
+        'Figure',
+        JSON.stringify({ element: 'Air' }),
+        null,
+      );
+      // 2. Jet-Vac LightCore - LightCore (baseName: 'jet-vac')
+      insertToy.run(
+        2,
+        'jet-vac-lc',
+        'Jet-Vac LightCore',
+        'Skylanders',
+        'series-1',
+        'LightCore',
+        JSON.stringify({ element: 'Air' }),
+        null,
+      );
+      // 3. Jet-Vac - Standard (baseName: 'jet-vac')
+      insertToy.run(
+        3,
+        'jet-vac',
+        'Jet-Vac',
+        'Skylanders',
+        'series-1',
+        'Figure',
+        JSON.stringify({ element: 'Air' }),
+        null,
+      );
+
+      reindexSkylanders(db);
+
+      const results = db
+        .prepare(
+          'SELECT stable_id, name, sort_index FROM toys ORDER BY sort_index ASC',
+        )
+        .all() as { stable_id: number; name: string; sort_index: number }[];
+
+      expect(results).toHaveLength(3);
+      // Expected order:
+      // 'jet-vac' sorts alphabetically before 'warnado'
+      // Within 'jet-vac': Standard (Jet-Vac) sorts before LightCore (Jet-Vac LightCore)
+      // So: Jet-Vac -> Jet-Vac LightCore -> Warnado
+      expect(results[0].name).toBe('Jet-Vac');
+      expect(results[1].name).toBe('Jet-Vac LightCore');
+      expect(results[2].name).toBe('Warnado');
     });
   });
 });
