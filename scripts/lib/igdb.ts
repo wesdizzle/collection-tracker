@@ -40,7 +40,7 @@ export interface IGDBGame {
         collections?: { id: number; name: string }[];
         franchises?: { id: number; name: string }[];
       };
-  release_dates?: { region: number; date: number }[];
+  release_dates?: { platform?: number; region: number; date: number }[];
   confidence?: number;
   bundles?: number[];
 }
@@ -56,13 +56,14 @@ export interface NormalizedGame {
   platforms: IGDBPlatform[];
   platform_ids: number[];
   release_date: string | null;
-  release_dates?: { region: number; date: number }[];
+  release_dates?: { platform?: number; region: number; date: number }[];
   collections: string | null;
   franchises: string | null;
   category?: number;
   region: string;
   confidence: number;
   genres: string | null;
+  flagged_outlier?: boolean;
 }
 
 // Map of local platform names to IGDB platform IDs
@@ -102,25 +103,82 @@ export const PLATFORM_MAP: Record<string, number> = {
   'PlayStation 5': 167,
   'Sega Master System': 64,
   'Sega Genesis': 29,
+  'Sega Game Gear': 35,
   'Game Gear': 35,
   'Sega CD': 78,
   'Sega 32X': 30,
   'Sega Saturn': 32,
   Dreamcast: 23,
   'TurboGrafx-16': 86,
+  'TurboGrafx 16': 86,
   Xbox: 11,
   'Xbox 360': 12,
   'Xbox One': 49,
   'Xbox Series X': 169,
   'Game.com': 379,
-  GameCube: 21,
+  'Neo Geo AES': 80,
   'Neo Geo Advanced Entertainment System': 80,
   'Neo Geo CD': 136,
+  'Neo Geo X': 80,
   'Philips CD-i': 117,
   'Sega Pico': 339,
   'TurboGrafx-CD': 150,
+  'TurboGrafx CD': 150,
   'PlayStation VR': 165,
   'PlayStation VR2': 390,
+  Famicom: 18,
+  'Nintendo Switch 2': 130,
+};
+
+/**
+ * Guideline active lifespan windows for platforms [startYear, endYear].
+ * Used to prioritize original platform release dates over digital re-releases (e.g. Virtual Console)
+ * while preserving late/boutique physical releases with outlier warning flags.
+ */
+export const PLATFORM_LIFESPANS: Record<number, [number, number]> = {
+  18: [1983, 1996], // NES
+  19: [1990, 2001], // SNES
+  4: [1996, 2003], // N64
+  21: [2001, 2008], // GameCube
+  5: [2006, 2017], // Wii
+  41: [2012, 2019], // Wii U
+  130: [2017, 2035], // Nintendo Switch
+  33: [1989, 2003], // Game Boy
+  22: [1998, 2004], // Game Boy Color
+  24: [2001, 2009], // Game Boy Advance
+  20: [2004, 2014], // Nintendo DS
+  37: [2011, 2023], // Nintendo 3DS (Physical releases through Fragrant Story/Andro Dunos 2 in 2022)
+  137: [2014, 2023], // New Nintendo 3DS
+  7: [1994, 2006], // PlayStation
+  8: [2000, 2014], // PlayStation 2
+  9: [2006, 2017], // PlayStation 3
+  48: [2013, 2026], // PlayStation 4
+  167: [2020, 2035], // PlayStation 5
+  38: [2004, 2015], // PSP
+  46: [2011, 2020], // PS Vita
+  64: [1985, 1997], // Sega Master System
+  29: [1988, 1999], // Sega Genesis
+  35: [1990, 1997], // Game Gear
+  78: [1991, 1997], // Sega CD
+  30: [1994, 1997], // Sega 32X
+  32: [1994, 2001], // Sega Saturn
+  23: [1998, 2007], // Dreamcast
+  86: [1987, 1995], // TurboGrafx-16
+  150: [1989, 1996], // TurboGrafx-CD
+  11: [2001, 2009], // Xbox
+  12: [2005, 2017], // Xbox 360
+  49: [2013, 2026], // Xbox One (Cross-gen physical releases ongoing)
+  169: [2020, 2035], // Xbox Series X
+  59: [1977, 1992], // Atari 2600
+  66: [1982, 1985], // Atari 5200
+  60: [1986, 1992], // Atari 7800
+  61: [1989, 1996], // Atari Lynx
+  62: [1993, 1997], // Atari Jaguar
+  67: [1982, 1985], // ColecoVision
+  68: [1979, 1990], // Intellivision
+  50: [1993, 1997], // 3DO
+  120: [1999, 2002], // Neo Geo Pocket Color
+  80: [1990, 2004], // Neo Geo AES
 };
 
 // Platforms that are primarily physical for historical consoles
@@ -162,6 +220,30 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
   'igdb-106274': 'EU', // Sonic the Hedgehog (Master System / GG)
   'igdb-72548': 'JP', // Meccha! Taiko no Tatsujin DS
 };
+
+/**
+ * DATE OVERRIDES
+ * Maps IGDB ID + Platform ID keys to exact release dates to override IGDB upstream data bugs.
+ */
+export const DATE_OVERRIDES: Record<string, string> = {
+  'igdb-41862-130': '2019-05-21', // Resident Evil: Origins Collection (Nintendo Switch)
+  'igdb-119280-130': '2019-09-20', // Ni no Kuni: Wrath of the White Witch (Nintendo Switch)
+  'igdb-191632-130': '2022-04-20', // Star Wars: The Force Unleashed (Nintendo Switch)
+  'igdb-1819-59': '1980-03-31', // Space Invaders (Atari 2600)
+  'igdb-1047-33': '1989-07-31', // Tetris (Game Boy)
+  'igdb-26197-24': '2001-12-05', // Star Wars: Episode I - Jedi Power Battles (Game Boy Advance)
+  'igdb-2933-21': '2004-08-30', // Pikmin 2 (Nintendo GameCube)
+};
+
+/**
+ * Recognized boutique / aftermarket physical releases on legacy hardware.
+ * Format: 'igdb-<igdb_id>-<igdb_platform_id>'
+ */
+export const BOUTIQUE_PHYSICAL_RELEASES = new Set<string>([
+  'igdb-203442-24', // Shantae Advance: Risky Revolution (Game Boy Advance)
+  'igdb-197992-37', // Fragrant Story (Nintendo 3DS)
+  'igdb-14694-9', // Shakedown: Hawaii (PlayStation 3)
+]);
 
 /**
  * UTILITY: queryIGDB
@@ -301,14 +383,14 @@ export async function findGame(
   }
 
   const searchQuery = `
-        fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
         search "${cleanTitle.replace(/"/g, '')}";
         ${platformFilter ? `where ${platformFilter};` : ''}
         limit 50;
     `;
 
   const nameQuery = `
-        fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+        fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
         where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & ${platformFilter}` : ''};
         limit 50;
     `;
@@ -333,13 +415,13 @@ export async function findGame(
           `  Falling back to simplified search: "${simplifiedTitle}"`,
         );
         const fallbackSearchQuery = `
-                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
                     search "${simplifiedTitle.replace(/"/g, '')}";
                     ${platformFilter ? `where platforms = (${platformId});` : ''}
                     limit 50;
                 `;
         const fallbackNameQuery = `
-                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
                     where name ~ "${simplifiedTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
                     limit 50;
                 `;
@@ -371,7 +453,7 @@ export async function findGame(
           `  Falling back to ultra-simplified search: "${ultraSimplified}"`,
         );
         const ultraSearchQuery = `
-                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
                     search "${ultraSimplified}";
                     ${platformFilter ? `where platforms = (${platformId});` : ''}
                     limit 50;
@@ -477,7 +559,7 @@ export async function getGameById(
   igdbId: number,
   platformId?: number,
 ): Promise<NormalizedGame | null> {
-  const fields = `name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.region, release_dates.date`;
+  const fields = `name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
   const query = `
         fields ${fields};
         where id = ${igdbId};
@@ -579,7 +661,7 @@ export async function getGameById(
 /**
  * UTILITY: Normalizes a raw IGDB game object into our internal format.
  */
-function normalizeIGDBGame(
+export function normalizeIGDBGame(
   game: IGDBGame,
   targetTitle: string,
   platformId?: number,
@@ -612,31 +694,88 @@ function normalizeIGDBGame(
     SEA: 7,
   };
 
-  let chosenDateObj: { region?: number; date: number } | undefined;
+  const targetPlatformId = platformId ? Number(platformId) : undefined;
+  const lifespan = targetPlatformId
+    ? PLATFORM_LIFESPANS[targetPlatformId]
+    : undefined;
+
+  // Filter by platform ID if available
+  let platformFilteredDates = targetPlatformId
+    ? allDates.filter((d) => d.platform === targetPlatformId)
+    : allDates;
+
+  // Disqualify impossible pre-platform launch dates (e.g. 2016 date for a Nintendo Switch game)
+  if (lifespan) {
+    platformFilteredDates = platformFilteredDates.filter((d) => {
+      if (!d.date) return false;
+      const year = new Date(d.date * 1000).getUTCFullYear();
+      return year >= lifespan[0];
+    });
+  }
+
+  // Fallback to all dates if no valid platform-specific dates exist
+  if (platformFilteredDates.length === 0) {
+    platformFilteredDates = lifespan
+      ? allDates.filter(
+          (d) =>
+            d.date && new Date(d.date * 1000).getUTCFullYear() >= lifespan[0],
+        )
+      : allDates;
+  }
+
+  // For historical platforms, candidate dates MUST be restricted to lifespan window [lifespan[0], lifespan[1]]
+  // unless the release is an explicitly recognized boutique physical release.
+  const isBoutiqueRelease = BOUTIQUE_PHYSICAL_RELEASES.has(
+    `igdb-${game.id}-${targetPlatformId}`,
+  );
+
+  let candidateDates = platformFilteredDates;
+  if (lifespan && !isBoutiqueRelease) {
+    const lifespanDates = platformFilteredDates.filter((d) => {
+      if (!d.date) return false;
+      const year = new Date(d.date * 1000).getUTCFullYear();
+      return year >= lifespan[0] && year <= lifespan[1];
+    });
+
+    if (lifespanDates.length > 0) {
+      candidateDates = lifespanDates;
+    } else if (game.first_release_date) {
+      const firstYear = new Date(
+        game.first_release_date * 1000,
+      ).getUTCFullYear();
+      if (firstYear >= lifespan[0] && firstYear <= lifespan[1]) {
+        candidateDates = [{ region: 2, date: game.first_release_date }];
+      }
+    }
+  }
+
+  let chosenDateObj:
+    | { platform?: number; region?: number; date: number }
+    | undefined;
 
   // 1. If we have an override region, try to find that specific date first
   if (regionCode) {
     const targetRegionId = regionToId[regionCode];
     if (targetRegionId) {
-      chosenDateObj = allDates.find((d) => d.region === targetRegionId);
+      chosenDateObj = candidateDates.find((d) => d.region === targetRegionId);
     }
   }
 
   // 2. Standard Priority: North America / US (Region 2)
   if (!chosenDateObj) {
-    chosenDateObj = allDates.find((d) => d.region === 2);
+    chosenDateObj = candidateDates.find((d) => d.region === 2);
     if (chosenDateObj && !regionCode) regionCode = 'NA';
   }
 
   // 3. Worldwide (Region 8)
   if (!chosenDateObj) {
-    chosenDateObj = allDates.find((d) => d.region === 8);
+    chosenDateObj = candidateDates.find((d) => d.region === 8);
     if (chosenDateObj && !regionCode) regionCode = 'WW';
   }
 
-  // 4. Earliest available fallback
-  if (!chosenDateObj && allDates.length > 0) {
-    chosenDateObj = allDates.reduce((prev, curr) =>
+  // 4. Earliest available fallback in candidateDates
+  if (!chosenDateObj && candidateDates.length > 0) {
+    chosenDateObj = candidateDates.reduce((prev, curr) =>
       prev.date < curr.date ? prev : curr,
     );
     if (!regionCode) {
@@ -646,9 +785,23 @@ function normalizeIGDBGame(
     }
   }
 
-  // Final default for region
-  if (!regionCode) regionCode = 'NA';
+  // 5. Ultimate fallback to allDates
+  if (!chosenDateObj && allDates.length > 0) {
+    chosenDateObj = allDates.reduce((prev, curr) =>
+      prev.date < curr.date ? prev : curr,
+    );
+  }
 
+  // Outlier Flag: Mark if selected release date falls outside active lifespan guidelines
+  let isOutlier = false;
+  if (chosenDateObj && lifespan) {
+    const selectedYear = new Date(chosenDateObj.date * 1000).getUTCFullYear();
+    if (selectedYear < lifespan[0] || selectedYear > lifespan[1]) {
+      isOutlier = true;
+    }
+  }
+
+  // Final default for region
   if (!regionCode) regionCode = 'NA';
 
   // Unwanted VR platforms to ignore
@@ -670,6 +823,17 @@ function normalizeIGDBGame(
       ? cleanPlatforms[0].name
       : 'Unknown';
 
+  const overrideDate = DATE_OVERRIDES[`igdb-${game.id}-${platformId}`];
+  const finalReleaseDate = overrideDate
+    ? overrideDate
+    : chosenDateObj?.date
+      ? new Date(chosenDateObj.date * 1000).toISOString().split('T')[0]
+      : game.first_release_date
+        ? new Date(game.first_release_date * 1000).toISOString().split('T')[0]
+        : null;
+
+  const finalIsOutlier = overrideDate ? false : isOutlier;
+
   return {
     id: `igdb-${game.id}`,
     slug: game.slug || null,
@@ -682,11 +846,7 @@ function normalizeIGDBGame(
     platform: platformName,
     platforms: cleanPlatforms,
     platform_ids: cleanPlatforms.map((p) => p.id),
-    release_date: chosenDateObj?.date
-      ? new Date(chosenDateObj.date * 1000).toISOString().split('T')[0]
-      : game.first_release_date
-        ? new Date(game.first_release_date * 1000).toISOString().split('T')[0]
-        : null,
+    release_date: finalReleaseDate,
     release_dates: game.release_dates || [],
     collections: game.collections
       ? game.collections.map((c) => c.name).join(', ')
@@ -698,6 +858,7 @@ function normalizeIGDBGame(
     region: regionCode,
     confidence: calculateConfidence(targetTitle, game.name, game.category),
     genres: game.genres ? game.genres.map((g) => g.name).join(', ') : null,
+    flagged_outlier: finalIsOutlier,
   };
 }
 
@@ -866,7 +1027,7 @@ export async function getGamesByIds(
   platformIdMap?: Record<number, number>,
 ): Promise<NormalizedGame[]> {
   if (ids.length === 0) return [];
-  const fields = `id, name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.region, release_dates.date`;
+  const fields = `id, name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
 
   const chunks: number[][] = [];
   for (let i = 0; i < ids.length; i += 100) {

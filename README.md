@@ -79,10 +79,11 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
     - **Reconcile**: `npx tsx scripts/scrape.ts` (Processes unmatched games and toys)
     - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Automatically adds missing amiibo and finds series-based games)
     - **Refresh**: `npx tsx scripts/scrape.ts --refresh` (Refreshes metadata for all verified items, updates slugs, and recomputes canonical series)
-    - **Recompute Series**: `npx tsx scripts/scrape.ts --recompute-series` (Only recomputes canonical series for all games)
+    - **Recompute Series**: `npx tsx scripts/compute_canonical_series.ts` (Recomputes canonical series using enhanced subtitle and collection heuristics)
+    - **Fix Outlier Release Dates**: `npm run fix-dates` (Scans database release dates against platform lifespan guidelines using `PLATFORM_MAP` lookups, resolving digital re-release date anomalies, updating remaster dates, and preserving boutique physical releases)
     - **Sync DATs**: `npx tsx scripts/scrape.ts --sync-dats` (Scans `/dats/` directory, parses No-Intro/Redump XML files, and reconciles distinct physical releases in the database)
     - **Scan Backups**: `npm run scan-backups <path-to-backups>` (Scans a backup directory recursively for filename matches against the database's `rom_name` entries in platform folders, updating their backup status in a strictly read-only manner)
-    - **Sync**: `npx tsx scripts/sync_local_d1.ts` (Propagates all local changes to the dev server)
+    - **Sync**: `npm run sync-db` (Propagates all local changes to Wrangler's internal D1 state)
 5.  **Launch Frontend**: `npx ng serve`
 6.  **View locally**: `http://localhost:4200/`
 
