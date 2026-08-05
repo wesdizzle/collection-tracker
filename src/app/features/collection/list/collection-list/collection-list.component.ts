@@ -564,8 +564,9 @@ interface GameGroup {
       }
 
       .m3-card {
-        content-visibility: auto;
-        contain-intrinsic-size: auto 240px;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
       }
 
       .card-art-frame {
@@ -1441,7 +1442,7 @@ export class CollectionListComponent
     if (this.scrollTimeout) return;
     this.scrollTimeout = setTimeout(() => {
       this.scrollTimeout = null;
-      if (this.stateInitialized()) {
+      if (this.stateInitialized() && window.scrollY > 0) {
         const currentState = this.collectionService.getListState(
           this.currentTab(),
         );
@@ -1463,11 +1464,9 @@ export class CollectionListComponent
   };
 
   /**
-   * Attempts to restore the previously saved scroll position after navigation.
-   * Uses a retry mechanism to account for lazy-loading and rendering delays.
-   *
-   * WHY: Since images are lazy-loaded and the DOM is reactive, the height of
-   * the page may shift several times during the first 500ms of loading.
+   * Restores the previously saved scroll position after rendering.
+   * Since displayLimit is hydrated before initial render, all items are present
+   * in the DOM tree upfront.
    */
   private restoreScroll() {
     const savedState = this.collectionService.getListState(this.currentTab());
@@ -1476,41 +1475,15 @@ export class CollectionListComponent
       return;
     }
 
-    let attempts = 0;
-    const maxAttempts = 30; // 3 seconds total with 100ms intervals
+    const targetY = savedState.scrollY || 0;
+    const targetX = savedState.scrollX || 0;
 
-    const tryScroll = () => {
-      const targetY = savedState.scrollY || 0;
-      const currentHeight = document.documentElement.scrollHeight;
-      const viewportHeight = window.innerHeight;
-
-      // 1. Wait for document height to be sufficient to reach the target
-      // (or until we exhaust attempts)
-      if (currentHeight < targetY + viewportHeight && attempts < maxAttempts) {
-        attempts++;
-        setTimeout(tryScroll, 100);
-        return;
-      }
-
-      // 2. Perform the scroll
-      window.scrollTo({
-        left: savedState.scrollX,
-        top: targetY,
-        behavior: 'auto',
-      });
-
-      // 3. Verify and finalize
-      const actualY = window.scrollY;
-      if (Math.abs(actualY - targetY) < 5 || attempts >= maxAttempts) {
-        this.stateInitialized.set(true);
-      } else {
-        attempts++;
-        setTimeout(tryScroll, 100);
-      }
-    };
-
-    // Start restoration after a brief delay to allow initial Angular render cycle
-    setTimeout(tryScroll, 100);
+    window.scrollTo({
+      left: targetX,
+      top: targetY,
+      behavior: 'instant' as ScrollBehavior,
+    });
+    this.stateInitialized.set(true);
   }
 
   /**
@@ -1528,6 +1501,9 @@ export class CollectionListComponent
       this.displayLimit.set(savedState.displayLimit);
     }
 
+    await this.collectionService.refreshAll();
+    this.restoreScroll();
+
     if (typeof window !== 'undefined') {
       this.ngZone.runOutsideAngular(() => {
         window.addEventListener('scroll', this.onScrollHandler, {
@@ -1535,9 +1511,6 @@ export class CollectionListComponent
         });
       });
     }
-
-    await this.collectionService.refreshAll();
-    this.restoreScroll();
   }
 
   /**

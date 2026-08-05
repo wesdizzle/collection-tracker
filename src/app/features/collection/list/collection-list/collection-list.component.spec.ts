@@ -1,5 +1,5 @@
 import '../../../../../test-setup';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import {
@@ -55,9 +55,12 @@ describe('CollectionListComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should restore state from service on init', async () => {
+  it('should restore state and invoke window.scrollTo on init', async () => {
     const service = TestBed.inject(CollectionService);
     const httpMock = TestBed.inject(HttpTestingController);
+    const scrollToSpy = vi
+      .spyOn(window, 'scrollTo')
+      .mockImplementation(() => {});
 
     const mockState: ListState = {
       tab: 'games',
@@ -85,6 +88,18 @@ describe('CollectionListComponent', () => {
 
     expect(component.filters().ownership).toBe(0);
     expect(component.displayLimit()).toBe(500);
+
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          expect(scrollToSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ top: 1500, left: 0 }),
+          );
+          scrollToSpy.mockRestore();
+          resolve();
+        });
+      });
+    });
   });
 
   it('should filter games by title or series with case and accent insensitivity', async () => {
