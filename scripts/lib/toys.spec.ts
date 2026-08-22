@@ -20,6 +20,11 @@ import {
   getStarlinkSlugs,
   scrapeStarlinkWikiImage,
   reindexSkylanders,
+  findSkylandersMatch,
+  cleanSclTitle,
+  superNormalize,
+  SitemapEntry,
+  Toy,
 } from './toys.js';
 
 // Mock axios globally for these tests
@@ -681,6 +686,502 @@ describe('Toys Metadata Ingestion Helpers', () => {
       expect(results[0].name).toBe('Jet-Vac');
       expect(results[1].name).toBe('Jet-Vac LightCore');
       expect(results[2].name).toBe('Warnado');
+    });
+  });
+
+  describe('superNormalize & cleanSclTitle', () => {
+    it('should normalize strings by removing accents, spaces, and punctuation', () => {
+      expect(superNormalize('Flare Wolf')).toBe('flarewolf');
+      expect(superNormalize('Dark LightCore Grim Creeper!')).toBe(
+        'darklightcoregrimcreeper',
+      );
+      expect(superNormalize('Blue Chest (Cursed Tiki Temple)')).toBe(
+        'bluechestcursedtikitemple',
+      );
+    });
+
+    it('should clean SCL title suffixes and series markers', () => {
+      expect(cleanSclTitle('Bash (Series 1)')).toBe('Bash');
+      expect(cleanSclTitle('Grim Creeper (LightCore)')).toBe('Grim Creeper');
+      expect(cleanSclTitle("Spyro (Eon's Elite)")).toBe('Spyro');
+      expect(cleanSclTitle('Starcast (Imaginators)')).toBe('Starcast');
+    });
+  });
+
+  describe('findSkylandersMatch', () => {
+    const sampleSitemap: SitemapEntry[] = [
+      {
+        loc: 'https://skylanderscharacterlist.com/grim-creeper/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2013/11/GrimCreeper1.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/grim-creeper-lightcore/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2013/06/GrimCreeper.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/legendary-lightcore-grim-creeper/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2013/08/LegendaryLightCoreGrimCreeper.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/bash-series-1/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2014/03/Bash.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/bash-series-2/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2012/10/BashSeries2.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/legendary-bash/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2013/03/LegendaryBash.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/turbo-jet-vac/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2013/10/TurboJetVac.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/full-blast-jet-vac/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2014/10/FullBlastJetVac.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/mini-barkley/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2014/10/Barkley.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/sidekick-barkley/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2012/10/SidekickBarkley.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/dark-rune-creation-crystal/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2016/10/DarkRune.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/bad-juju-figure/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2016/10/BadJuju.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/hard-boiled-flarewolf/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2017/04/HardBoiledFlarewolf.png',
+        ],
+      },
+      {
+        loc: 'https://skylanderscharacterlist.com/hard-boiled-flare-wolf/',
+        images: [
+          'https://skylanderscharacterlist.com/wp-content/uploads/2017/04/HardBoiledFlarewolf.png',
+        ],
+      },
+    ];
+
+    it('should strictly separate LightCore Grim Creeper from Legendary LightCore Grim Creeper', () => {
+      const lightCoreToy: Toy = {
+        id: 'lc-grim-creeper',
+        name: 'LightCore Grim Creeper',
+        line: 'Skylanders',
+        series_name: 'Swap Force',
+        series: '3',
+        type: 'LightCore',
+        image_url: null,
+      };
+
+      const legLightCoreToy: Toy = {
+        id: 'leg-lc-grim-creeper',
+        name: 'Legendary LightCore Grim Creeper',
+        line: 'Skylanders',
+        series_name: 'Swap Force',
+        series: '3',
+        type: 'LightCore',
+        image_url: null,
+      };
+
+      const standardToy: Toy = {
+        id: 'grim-creeper',
+        name: 'Grim Creeper',
+        line: 'Skylanders',
+        series_name: 'Swap Force',
+        series: '3',
+        type: 'Figure',
+        image_url: null,
+      };
+
+      const lcMatches = findSkylandersMatch(lightCoreToy, sampleSitemap);
+      expect(lcMatches).toHaveLength(1);
+      expect(lcMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/grim-creeper-lightcore/',
+      );
+      expect(lcMatches[0].images[0]).toContain('GrimCreeper.png');
+
+      const legMatches = findSkylandersMatch(legLightCoreToy, sampleSitemap);
+      expect(legMatches).toHaveLength(1);
+      expect(legMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/legendary-lightcore-grim-creeper/',
+      );
+      expect(legMatches[0].images[0]).toContain(
+        'LegendaryLightCoreGrimCreeper.png',
+      );
+
+      const standardMatches = findSkylandersMatch(standardToy, sampleSitemap);
+      expect(standardMatches).toHaveLength(1);
+      expect(standardMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/grim-creeper/',
+      );
+    });
+
+    it('should correctly match Series 2, 3, 4 pose figures and minis', () => {
+      const series2Bash: Toy = {
+        id: 's2-bash',
+        name: 'Series 2 Bash',
+        line: 'Skylanders',
+        series_name: 'Giants',
+        series: '2',
+        type: 'Figure',
+        image_url: null,
+      };
+      const bashMatches = findSkylandersMatch(series2Bash, sampleSitemap, [
+        { name: 'Bash', series: '1' },
+        { name: 'Series 2 Bash', series: '2' },
+      ]);
+      expect(bashMatches).toHaveLength(1);
+      expect(bashMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/bash-series-2/',
+      );
+
+      const turboJetVac: Toy = {
+        id: 'turbo-jv',
+        name: 'Turbo Jet-Vac',
+        line: 'Skylanders',
+        series_name: 'Swap Force',
+        series: '3',
+        type: 'Figure',
+        image_url: null,
+      };
+      const turboMatches = findSkylandersMatch(turboJetVac, sampleSitemap);
+      expect(turboMatches).toHaveLength(1);
+      expect(turboMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/turbo-jet-vac/',
+      );
+
+      const fullBlastJetVac: Toy = {
+        id: 'full-blast-jv',
+        name: 'Full Blast Jet-Vac',
+        line: 'Skylanders',
+        series_name: 'Trap Team',
+        series: '4',
+        type: 'Figure',
+        image_url: null,
+      };
+      const fbMatches = findSkylandersMatch(fullBlastJetVac, sampleSitemap);
+      expect(fbMatches).toHaveLength(1);
+      expect(fbMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/full-blast-jet-vac/',
+      );
+
+      const miniBarkley: Toy = {
+        id: 'mini-barkley',
+        name: 'Barkley',
+        line: 'Skylanders',
+        series_name: 'Trap Team',
+        series: '4',
+        type: 'Mini',
+        image_url: null,
+      };
+      const barkleyMatches = findSkylandersMatch(miniBarkley, sampleSitemap);
+      expect(barkleyMatches).toHaveLength(1);
+      expect(barkleyMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/mini-barkley/',
+      );
+    });
+
+    it('should correctly match Series 6 Sensei figure pages and Creation Crystals', () => {
+      const badJuju: Toy = {
+        id: 'bad-juju',
+        name: 'Bad Juju',
+        line: 'Skylanders',
+        series_name: 'Imaginators',
+        series: '6',
+        type: 'Sensei',
+        image_url: null,
+      };
+      const bjMatches = findSkylandersMatch(badJuju, sampleSitemap);
+      expect(bjMatches).toHaveLength(1);
+      expect(bjMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/bad-juju-figure/',
+      );
+
+      const darkRune: Toy = {
+        id: 'dark-rune',
+        name: 'Dark Rune',
+        line: 'Skylanders',
+        series_name: 'Imaginators',
+        series: '6',
+        type: 'Creation Crystal',
+        image_url: null,
+      };
+      const drMatches = findSkylandersMatch(darkRune, [
+        {
+          loc: 'https://skylanderscharacterlist.com/dark-creation-crystal/',
+          images: ['https://skylanderscharacterlist.com/dark-rune.png'],
+        },
+      ]);
+      expect(drMatches).toHaveLength(1);
+      expect(drMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/dark-creation-crystal/',
+      );
+    });
+
+    it('should correctly match all Creation Crystals including Light Rune, Dark Reactor, and Life Claw', () => {
+      const lightRune: Toy = {
+        id: 'light-rune',
+        name: 'Light Rune',
+        line: 'Skylanders',
+        series_name: 'Imaginators',
+        series: '6',
+        type: 'Creation Crystal',
+        image_url: null,
+      };
+      const lrMatches = findSkylandersMatch(lightRune, [
+        {
+          loc: 'https://skylanderscharacterlist.com/light-creation-crystal-2/',
+          images: ['https://skylanderscharacterlist.com/light-rune.png'],
+        },
+      ]);
+      expect(lrMatches).toHaveLength(1);
+      expect(lrMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/light-creation-crystal-2/',
+      );
+
+      const darkReactor: Toy = {
+        id: 'dark-reactor',
+        name: 'Dark Reactor',
+        line: 'Skylanders',
+        series_name: 'Imaginators',
+        series: '6',
+        type: 'Creation Crystal',
+        image_url: null,
+      };
+      const drMatches = findSkylandersMatch(darkReactor, [
+        {
+          loc: 'https://skylanderscharacterlist.com/dark-creation-crystal-3/',
+          images: ['https://skylanderscharacterlist.com/dark-reactor.png'],
+        },
+      ]);
+      expect(drMatches).toHaveLength(1);
+      expect(drMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/dark-creation-crystal-3/',
+      );
+    });
+
+    it('should correctly match Traps to SCL trap slugs', () => {
+      const airHourglass: Toy = {
+        id: 'air-hourglass',
+        name: 'Air Hourglass (Tempest Timer)',
+        line: 'Skylanders',
+        series_name: 'Trap Team',
+        series: '4',
+        type: 'Trap',
+        image_url: null,
+      };
+      const ahMatches = findSkylandersMatch(airHourglass, [
+        {
+          loc: 'https://skylanderscharacterlist.com/air-hourglass-trap/',
+          images: ['https://skylanderscharacterlist.com/air-hourglass.png'],
+        },
+      ]);
+      expect(ahMatches).toHaveLength(1);
+      expect(ahMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/air-hourglass-trap/',
+      );
+
+      const kaosTrap: Toy = {
+        id: 'kaos-trap',
+        name: 'Kaos Trap',
+        line: 'Skylanders',
+        series_name: 'Trap Team',
+        series: '4',
+        type: 'Trap',
+        image_url: null,
+      };
+      const ktMatches = findSkylandersMatch(kaosTrap, [
+        {
+          loc: 'https://skylanderscharacterlist.com/kaos-trap/',
+          images: ['https://skylanderscharacterlist.com/kaos-trap.png'],
+        },
+      ]);
+      expect(ktMatches).toHaveLength(1);
+      expect(ktMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/kaos-trap/',
+      );
+    });
+
+    it('should correctly match Sensei variants without requiring -figure suffix in slug', () => {
+      const mysticalBadJuju: Toy = {
+        id: 'mystical-bad-juju',
+        name: 'Mystical Bad Juju',
+        line: 'Skylanders',
+        series_name: 'Imaginators',
+        series: '6',
+        type: 'Sensei',
+        image_url: null,
+      };
+      const mbjMatches = findSkylandersMatch(mysticalBadJuju, [
+        {
+          loc: 'https://skylanderscharacterlist.com/bad-juju-figure/',
+          images: ['https://skylanderscharacterlist.com/bad-juju.png'],
+        },
+        {
+          loc: 'https://skylanderscharacterlist.com/mystical-bad-juju/',
+          images: ['https://skylanderscharacterlist.com/mystical-bad-juju.png'],
+        },
+      ]);
+      expect(mbjMatches).toHaveLength(1);
+      expect(mbjMatches[0].loc).toBe(
+        'https://skylanderscharacterlist.com/mystical-bad-juju/',
+      );
+    });
+
+    it('should correctly reindex Skylanders with Terrafin before Sidekick Terrabite and Kaos Trap after Water Traps', () => {
+      const runMock = vi.fn();
+      const mockDb = {
+        prepare: vi.fn((sql: string) => {
+          if (sql.includes('SELECT * FROM toys')) {
+            return {
+              all: () => [
+                {
+                  stable_id: 1,
+                  id: 'terrafin',
+                  name: 'Terrafin',
+                  line: 'Skylanders',
+                  series_name: "Spyro's Adventure",
+                  series_id: 'skylanders-spyro-s-adventure',
+                  series: '1',
+                  type: 'Series 1',
+                  metadata_json: JSON.stringify({ element: 'Earth' }),
+                },
+                {
+                  stable_id: 2,
+                  id: 'sidekick-terrabite',
+                  name: 'Sidekick Terrabite',
+                  line: 'Skylanders',
+                  series_name: "Spyro's Adventure",
+                  series_id: 'skylanders-spyro-s-adventure',
+                  series: '1',
+                  type: 'Sidekick',
+                  metadata_json: JSON.stringify({ element: 'Earth' }),
+                },
+                {
+                  stable_id: 3,
+                  id: 'air-hourglass',
+                  name: 'Air Hourglass (Tempest Timer)',
+                  line: 'Skylanders',
+                  series_name: 'Trap Team',
+                  series_id: 'skylanders-trap-team',
+                  series: '4',
+                  type: 'Trap',
+                  metadata_json: JSON.stringify({ element: 'Air' }),
+                },
+                {
+                  stable_id: 4,
+                  id: 'water-tiki',
+                  name: 'Water Tiki (Tidal Tiki)',
+                  line: 'Skylanders',
+                  series_name: 'Trap Team',
+                  series_id: 'skylanders-trap-team',
+                  series: '4',
+                  type: 'Trap',
+                  metadata_json: JSON.stringify({ element: 'Water' }),
+                },
+                {
+                  stable_id: 5,
+                  id: 'kaos-trap',
+                  name: 'Kaos Trap',
+                  line: 'Skylanders',
+                  series_name: 'Trap Team',
+                  series_id: 'skylanders-trap-team',
+                  series: '4',
+                  type: 'Trap',
+                  metadata_json: JSON.stringify({ element: 'Kaos' }),
+                },
+                {
+                  stable_id: 6,
+                  id: 'hand-of-fate',
+                  name: 'Hand of Fate',
+                  line: 'Skylanders',
+                  series_name: 'Trap Team',
+                  series_id: 'skylanders-trap-team',
+                  series: '4',
+                  type: 'Magic Item',
+                  metadata_json: JSON.stringify({ element: null }),
+                },
+              ],
+            };
+          }
+          if (sql.includes('SELECT sort_index FROM toy_series')) {
+            return {
+              get: (id: string) => {
+                if (id === 'skylanders-spyro-s-adventure')
+                  return { sort_index: 1 };
+                if (id === 'skylanders-trap-team') return { sort_index: 4 };
+                return { sort_index: 99 };
+              },
+            };
+          }
+          if (sql.includes('UPDATE toys SET sort_index')) {
+            return {
+              run: runMock,
+            };
+          }
+          return { all: () => [], get: () => null, run: () => {} };
+        }),
+        transaction: vi.fn((fn: () => void) => fn),
+      };
+
+      reindexSkylanders(mockDb as unknown as import('better-sqlite3').Database);
+
+      const updateCalls = runMock.mock.calls;
+
+      // Extract order of stable_ids
+      const assignedOrder = updateCalls.map((call: unknown[]) => ({
+        sort_index: Number(call[0]),
+        stable_id: Number(call[1]),
+      }));
+
+      const getIndex = (id: number) =>
+        assignedOrder.find((o) => o.stable_id === id)?.sort_index;
+
+      // 1. Terrafin (stable_id: 1) should sort BEFORE Sidekick Terrabite (stable_id: 2)
+      expect(getIndex(1)).toBeLessThan(getIndex(2)!);
+
+      // 2. Air Trap (stable_id: 3) should sort before Water Trap (stable_id: 4)
+      expect(getIndex(3)).toBeLessThan(getIndex(4)!);
+
+      // 3. Water Trap (stable_id: 4) should sort before Kaos Trap (stable_id: 5)
+      expect(getIndex(4)).toBeLessThan(getIndex(5)!);
+
+      // 4. Kaos Trap (stable_id: 5) should sort before Magic Item (stable_id: 6)
+      expect(getIndex(5)).toBeLessThan(getIndex(6)!);
     });
   });
 });

@@ -51,8 +51,10 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Skylanders Matching & Ingestion**: Matches Skylanders figures against the SCL (Skylanders Character List) sitemap using:
   - Base character name parsing (stripping variant modifiers and trailing "gear"/"figure" words globally, while preserving exception gates like "King Pen").
   - Dynamically computed series ranking (checking a character's release list within the database to determine its expected SCL series suffix).
+  - Strict critical variant modifier isolation (ensuring variants like `legendary`, `lightcore`, `dark`, `gold`, `metallic`, and `gitd` (glow in the dark) cannot cross-match with standard or other sculpt variants).
   - A static element/shape map for Creation Crystals to match Element + Shape (e.g. "Air Lantern" -> "Air Lantern Creation Crystal").
   - A multi-strategy variant verification pass that handles pose modifiers, gear exclusions, and explicit series tie-breakers to resolve ambiguity.
+  - An audit pass in `scripts/scrape.ts` that audits all database records against SCL URLs, automatically correcting mismatched images (such as LightCore Grim Creeper vs Legendary LightCore Grim Creeper) and backfilling missing artwork.
 - **Metadata Refresh**: The `--refresh` pass periodically updates images, technical metadata, and queries IGDB for regional release dates for all verified releases. It also normalizes all database slugs to a canonical format and generates an `update_report.md` summarizing the changes.
 - **Physical Release Sync & Title Matching**: The `--sync-dats` pass scans the `/dats/` directory for XML DAT files, parses their structure, and reconciles physical releases using a specialized title matching module (`scripts/lib/title_matching.ts`). It avoids word-scrambling side effects by maintaining natural word order, and employs a multi-strategy sequence:
   - _Strategy 1 (Exact Match)_: Compares normalized titles (lowercased, diacritics normalized, punctuation stripped). Normalization rules include:
