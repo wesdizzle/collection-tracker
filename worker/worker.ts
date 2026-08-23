@@ -168,6 +168,19 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // Handle CORS preflight requests
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers':
+            'Content-Type, Authorization, Cf-Access-Authenticated-User-Email, Cf-Access-Jwt-Assertion',
+          'Access-Control-Max-Age': '86400',
+        },
+      });
+    }
+
     try {
       /**
        * PUBLIC READ-ONLY API ENDPOINTS
@@ -282,9 +295,13 @@ export default {
         return Response.json([]);
       }
 
-      // Endpoint: GET /api/admin/login or GET /admin/login
+      // Endpoint: GET /api/admin/login or GET /admin/login or /cdn-cgi/access/authorized
       // Provides a direct browser navigation entry point to trigger Cloudflare Access login
-      else if (path === '/api/admin/login' || path === '/admin/login') {
+      else if (
+        path === '/api/admin/login' ||
+        path === '/admin/login' ||
+        path.startsWith('/cdn-cgi/access/authorized')
+      ) {
         return Response.redirect(
           new URL('/collection/games', request.url).toString(),
           302,

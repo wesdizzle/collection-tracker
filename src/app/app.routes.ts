@@ -43,4 +43,11 @@ export const routes: Routes = [
       },
     ],
   },
+  {
+    path: 'cdn-cgi/access/authorized',
+    redirectTo: 'collection/games',
+    pathMatch: 'full',
+  },
+  { path: 'admin/login', redirectTo: 'collection/games', pathMatch: 'full' },
+  { path: '**', redirectTo: 'collection/games' },
 ];

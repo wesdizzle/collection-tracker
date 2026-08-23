@@ -29,7 +29,14 @@
   "dataGroups": [
     {
       "name": "api-freshness",
-      "urls": ["**/api/**"],
+      "urls": [
+        "/api/games",
+        "/api/games/**",
+        "/api/toys",
+        "/api/toys/**",
+        "/api/platforms",
+        "/api/platforms/**"
+      ],
       "cacheConfig": {
         "maxSize": 100,
         "maxAge": "30d",
