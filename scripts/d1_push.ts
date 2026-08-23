@@ -4,6 +4,9 @@
  * Synchronizes local `collection.sqlite` changes up to the remote Cloudflare D1 database.
  * Includes safety guards to prevent accidental production overrides.
  *
+ * In CI/CD environments (such as Cloudflare Pages/Workers build or GitHub Actions) where
+ * Cloudflare D1 is the primary database, this script gracefully no-ops.
+ *
  * USAGE:
  *   ALLOW_LOCAL_DEPLOY=true npx tsx scripts/d1_push.ts
  */
@@ -17,25 +20,28 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Safety Guard: Prevent accidental local database overrides without explicit confirmation
-if (!process.env['CI'] && process.env['ALLOW_LOCAL_DEPLOY'] !== 'true') {
-  console.error(
-    '\x1b[31m[D1Push] Error: Direct push to remote Cloudflare D1 requires ALLOW_LOCAL_DEPLOY=true.\x1b[0m\n' +
-      'To push your local changes, run:\n' +
-      '  ALLOW_LOCAL_DEPLOY=true npm run db:push\n' +
-      'or set ALLOW_LOCAL_DEPLOY=true in your .env file.\n',
-  );
-  process.exit(1);
-}
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.join(__dirname, '..');
 const dbPath = path.join(rootDir, 'collection.sqlite');
 
-if (!fs.existsSync(dbPath)) {
+// CI / Cloudflare Build Environment Check
+// When building in CI/CD, Cloudflare D1 is already the authoritative primary database.
+if (process.env['CI'] || process.env['CF_PAGES'] || !fs.existsSync(dbPath)) {
+  console.log(
+    '[D1Push] Build environment or missing local SQLite detected.\n' +
+      '[D1Push] Skipping SQLite push — Cloudflare D1 is the authoritative primary database.',
+  );
+  process.exit(0);
+}
+
+// Safety Guard: Prevent accidental local database overrides without explicit confirmation
+if (process.env['ALLOW_LOCAL_DEPLOY'] !== 'true') {
   console.error(
-    `[D1Push] Error: Local collection.sqlite not found at ${dbPath}`,
+    '\x1b[31m[D1Push] Error: Direct push to remote Cloudflare D1 requires ALLOW_LOCAL_DEPLOY=true.\x1b[0m\n' +
+      'To push your local changes, run:\n' +
+      '  ALLOW_LOCAL_DEPLOY=true npm run db:push\n' +
+      'or set ALLOW_LOCAL_DEPLOY=true in your .env file.\n',
   );
   process.exit(1);
 }
