@@ -56,5 +56,6 @@
         "strategy": "performance"
       }
     }
-  ]
+  ],
+  "navigationUrls": ["/**", "!/admin/**", "!/api/**"]
 }

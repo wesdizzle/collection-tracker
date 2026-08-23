@@ -36,6 +36,14 @@ import { CollectionService } from '../../../../core/services/collection.service'
           </button>
 
           <a
+            href="/admin/login"
+            class="m3-button-icon state-layer"
+            title="Admin Login (Cloudflare Access)"
+          >
+            🔒
+          </a>
+
+          <a
             href="https://github.com/wesdizzle/collection-tracker"
             target="_blank"
             class="github-btn m3-button-icon state-layer"

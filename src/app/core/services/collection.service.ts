@@ -388,12 +388,13 @@ export class CollectionService {
       err &&
       typeof err === 'object' &&
       'status' in err &&
-      ((err as { status: number }).status === 401 ||
+      ((err as { status: number }).status === 0 ||
+        (err as { status: number }).status === 401 ||
         (err as { status: number }).status === 403)
     ) {
       this.showConfirmation(
         'Authentication Required',
-        'You must sign in as the collection admin to update item statuses. Would you like to sign in with Cloudflare Access now?',
+        'You are not signed in. Would you like to sign in as the collection admin now?',
         () => {
           if (typeof window !== 'undefined') {
             window.location.href = '/admin/login';
