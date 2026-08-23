@@ -67,16 +67,14 @@ import { CollectionService } from '../../../../core/services/collection.service'
           <span class="label">Toys</span>
           <div class="indicator"></div>
         </a>
-        @if (isDev) {
-          <a
-            routerLink="/collection/discovery"
-            routerLinkActive="active"
-            class="nav-item dev-item"
-          >
-            <span class="label">Discovery</span>
-            <div class="indicator"></div>
-          </a>
-        }
+        <a
+          routerLink="/collection/discovery"
+          routerLinkActive="active"
+          class="nav-item dev-item"
+        >
+          <span class="label">Discovery</span>
+          <div class="indicator"></div>
+        </a>
       </nav>
 
       <main class="content-area animate-expressive">
@@ -323,13 +321,6 @@ export class CollectionLayoutComponent {
       this.theme.set(saved);
       this.applyTheme(saved);
     }
-  }
-
-  get isDev(): boolean {
-    return (
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1'
-    );
   }
 
   toggleTheme() {

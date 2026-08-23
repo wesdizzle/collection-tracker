@@ -148,23 +148,20 @@ interface GameGroup {
                       </div>
 
                       <!-- Sort Index Badge -->
-                      @if (isLocalServer()) {
-                        <button
-                          class="sort-badge state-layer"
-                          title="Edit Sort Index"
-                          (click)="onEditSortIndex($event, game, 'game')"
-                        >
-                          #{{
-                            (game.sort_index ?? 0).toString().padStart(4, '0')
-                          }}
-                        </button>
-                      }
+                      <button
+                        class="sort-badge state-layer"
+                        title="Edit Sort Index"
+                        (click)="onEditSortIndex($event, game, 'game')"
+                      >
+                        #{{
+                          (game.sort_index ?? 0).toString().padStart(4, '0')
+                        }}
+                      </button>
 
                       <!-- Status Badge -->
                       <button
-                        class="status-badge state-layer"
+                        class="status-badge state-layer interactive"
                         [class]="'status-' + game.ownership_status"
-                        [class.interactive]="isLocalServer()"
                         [title]="
                           game.ownership_status === 1
                             ? 'Owned'
@@ -341,25 +338,20 @@ interface GameGroup {
                           </div>
 
                           <!-- Sort Index Badge -->
-                          @if (isLocalServer()) {
-                            <button
-                              class="sort-badge state-layer"
-                              title="Edit Sort Index"
-                              (click)="onEditSortIndex($event, toy, 'toy')"
-                            >
-                              #{{
-                                (toy.sort_index ?? 0)
-                                  .toString()
-                                  .padStart(4, '0')
-                              }}
-                            </button>
-                          }
+                          <button
+                            class="sort-badge state-layer"
+                            title="Edit Sort Index"
+                            (click)="onEditSortIndex($event, toy, 'toy')"
+                          >
+                            #{{
+                              (toy.sort_index ?? 0).toString().padStart(4, '0')
+                            }}
+                          </button>
 
                           <!-- Status Badge -->
                           <button
-                            class="status-badge state-layer"
+                            class="status-badge state-layer interactive"
                             [class]="'status-' + toy.ownership_status"
-                            [class.interactive]="isLocalServer()"
                             [title]="
                               toy.ownership_status === 1
                                 ? 'Owned'
@@ -803,7 +795,6 @@ export class CollectionListComponent
     seriesExact: false,
   });
   public displayLimit = signal<number>(100);
-  public isLocalServer = signal(false);
   public lastUpdated = this.collectionService.lastUpdated;
 
   /**
@@ -1412,13 +1403,6 @@ export class CollectionListComponent
    * automatically mirrored in the CollectionService and sessionStorage.
    */
   constructor() {
-    if (typeof window !== 'undefined') {
-      this.isLocalServer.set(
-        window.location.hostname === 'localhost' ||
-          window.location.hostname === '127.0.0.1',
-      );
-    }
-
     effect(() => {
       const state: ListState = {
         tab: this.currentTab(),
@@ -1565,8 +1549,6 @@ export class CollectionListComponent
 
   /** --- Toggle Ownership Handlers --- */
   onToggleStatus(event: MouseEvent, item: Game | Toy, type: 'game' | 'toy') {
-    if (!this.isLocalServer()) return;
-
     event.preventDefault();
     event.stopPropagation();
 

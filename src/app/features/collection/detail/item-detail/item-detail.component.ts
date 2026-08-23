@@ -16,7 +16,7 @@
  *   match filter, streamlining franchise exploration.
  */
 
-import { Component, inject, computed, signal } from '@angular/core';
+import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule, Router } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
@@ -60,19 +60,17 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
           @if (game(); as g) {
             <div class="quick-stats flex gap-sm items-center">
               <div
-                class="stat-pill"
+                class="stat-pill interactive"
                 [class.active]="g.play_status !== 0"
-                [class.interactive]="isLocalServer()"
-                (click)="isLocalServer() ? onEditPlayed(g) : null"
+                (click)="onEditPlayed(g)"
               >
                 <span class="icon">{{ getPlayStatusIcon(g.play_status) }}</span>
                 <span>{{ getPlayStatusText(g.play_status) }}</span>
               </div>
               <div
-                class="stat-pill"
+                class="stat-pill interactive"
                 [class.active]="g.ownership_status !== 0"
-                [class.interactive]="isLocalServer()"
-                (click)="isLocalServer() ? onEditOwnership(g, 'game') : null"
+                (click)="onEditOwnership(g, 'game')"
               >
                 <span class="icon">{{
                   g.ownership_status === 1
@@ -113,10 +111,9 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
           } @else if (toy(); as t) {
             <div class="quick-stats flex gap-sm items-center">
               <div
-                class="stat-pill"
+                class="stat-pill interactive"
                 [class.active]="t.ownership_status !== 0"
-                [class.interactive]="isLocalServer()"
-                (click)="isLocalServer() ? onEditOwnership(t, 'toy') : null"
+                (click)="onEditOwnership(t, 'toy')"
               >
                 <span class="icon">{{
                   t.ownership_status === 1
@@ -296,17 +293,10 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                             </div>
                             <div class="disc-actions flex items-center gap-sm">
                               <button
-                                class="stat-pill"
+                                class="stat-pill interactive"
                                 [class.active]="!!release.backup_status"
-                                [class.interactive]="isLocalServer()"
-                                (click)="
-                                  isLocalServer()
-                                    ? onToggleDiscBackup(release)
-                                    : null
-                                "
-                                [title]="
-                                  isLocalServer() ? 'Toggle Backup Status' : ''
-                                "
+                                (click)="onToggleDiscBackup(release)"
+                                title="Toggle Backup Status"
                               >
                                 <span class="icon">{{
                                   release.backup_status ? '💾' : '❌'
@@ -752,12 +742,6 @@ export class ItemDetailComponent {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private collectionService = inject(CollectionService);
-
-  public isLocalServer = signal(
-    typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1'),
-  );
 
   /** The current item type ('game', 'toy', or 'platform') derived from the route */
   public type = toSignal(
