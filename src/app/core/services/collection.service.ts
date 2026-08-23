@@ -17,7 +17,14 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { Observable, firstValueFrom, catchError, of, map } from 'rxjs';
+import {
+  Observable,
+  firstValueFrom,
+  catchError,
+  of,
+  map,
+  throwError,
+} from 'rxjs';
 import {
   Game,
   Toy,
@@ -374,60 +381,90 @@ export class CollectionService {
   }
 
   /**
+   * Handles authentication errors by prompting the user with a sign-in confirmation dialog.
+   */
+  private handleMutationError = (err: unknown) => {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'status' in err &&
+      ((err as { status: number }).status === 401 ||
+        (err as { status: number }).status === 403)
+    ) {
+      this.showConfirmation(
+        'Authentication Required',
+        'You must sign in as the collection admin to update item statuses. Would you like to sign in with Cloudflare Access now?',
+        () => {
+          if (typeof window !== 'undefined') {
+            window.location.href = '/admin/login';
+          }
+        },
+      );
+    }
+    return throwError(() => err);
+  };
+
+  /**
    * Toggles or updates the 'ownership_status' of a collection item.
-   * ONLY functional on local server via proxy.
    */
   toggleOwnership(
     id: string,
     type: 'game' | 'toy',
     status: number,
   ): Observable<unknown> {
-    return this.http.post('/api/collection/toggle', {
-      id,
-      type,
-      status,
-      field: 'ownership_status',
-    });
+    return this.http
+      .post('/api/collection/toggle', {
+        id,
+        type,
+        status,
+        field: 'ownership_status',
+      })
+      .pipe(catchError(this.handleMutationError));
   }
 
   /**
    * Updates the 'play_status' of a game.
    */
   updatePlayStatus(id: string, status: PlayStatus): Observable<unknown> {
-    return this.http.post('/api/collection/toggle', {
-      id,
-      type: 'game',
-      status,
-      field: 'play_status',
-    });
+    return this.http
+      .post('/api/collection/toggle', {
+        id,
+        type: 'game',
+        status,
+        field: 'play_status',
+      })
+      .pipe(catchError(this.handleMutationError));
   }
 
   /**
    * Updates the 'backup_status' of a game.
    */
   updateBackupStatus(id: string, status: number): Observable<unknown> {
-    return this.http.post('/api/collection/toggle', {
-      id,
-      type: 'game',
-      status,
-      field: 'backup_status',
-    });
+    return this.http
+      .post('/api/collection/toggle', {
+        id,
+        type: 'game',
+        status,
+        field: 'backup_status',
+      })
+      .pipe(catchError(this.handleMutationError));
   }
 
   /**
    * Updates the sort_index for a collection item.
-   * ONLY functional on local server via proxy.
    */
   updateSortIndex(
     id: string,
     type: 'game' | 'toy',
     sortIndex: number,
   ): Observable<unknown> {
-    return this.http.post('/api/collection/sort', {
-      id,
-      type,
-      sort_index: sortIndex,
-    });
+    return this.http
+      .post('/api/collection/sort', {
+        id,
+        type,
+        sort_index: sortIndex,
+      })
+      .pipe(catchError(this.handleMutationError));
   }
 
   /** --- Global Confirmation Dialog State --- */

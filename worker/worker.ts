@@ -277,6 +277,33 @@ export default {
         return Response.json(results);
       }
 
+      // Endpoint: GET /api/discovery
+      else if (path === '/api/discovery') {
+        return Response.json([]);
+      }
+
+      // Endpoint: GET /api/admin/login or GET /admin/login
+      // Provides a direct browser navigation entry point to trigger Cloudflare Access login
+      else if (path === '/api/admin/login' || path === '/admin/login') {
+        return Response.redirect(
+          new URL('/collection/games', request.url).toString(),
+          302,
+        );
+      }
+
+      // Endpoint: GET /api/admin/me
+      else if (path === '/api/admin/me') {
+        const accessEmail = request.headers.get(
+          'Cf-Access-Authenticated-User-Email',
+        );
+        const authorized = isAuthorizedAdmin(request, env);
+        return Response.json({
+          authenticated: !!accessEmail,
+          authorized,
+          email: accessEmail || null,
+        });
+      }
+
       /**
        * AUTHENTICATED MUTATION ENDPOINTS
        */

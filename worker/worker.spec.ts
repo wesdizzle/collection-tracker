@@ -306,6 +306,41 @@ describe('Worker API Logic', () => {
     expect(parsed.tables.platforms.length).toBe(1);
   });
 
+  it('GET /api/discovery returns empty array on edge', async () => {
+    const req = new Request('http://localhost/api/discovery');
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data)).toBe(true);
+  });
+
+  it('GET /admin/login redirects to collection page', async () => {
+    const req = new Request('https://tracker.example.com/admin/login');
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe(
+      'https://tracker.example.com/collection/games',
+    );
+  });
+
+  it('GET /api/admin/me returns authentication status', async () => {
+    const unauthReq = new Request('https://tracker.example.com/api/admin/me');
+    const unauthRes = await worker.fetch(unauthReq, mockEnv);
+    const unauthData = (await unauthRes.json()) as { authenticated: boolean };
+    expect(unauthData.authenticated).toBe(false);
+
+    const authReq = new Request('https://tracker.example.com/api/admin/me', {
+      headers: { 'Cf-Access-Authenticated-User-Email': 'admin@example.com' },
+    });
+    const authRes = await worker.fetch(authReq, mockEnv);
+    const authData = (await authRes.json()) as {
+      authenticated: boolean;
+      email: string;
+    };
+    expect(authData.authenticated).toBe(true);
+    expect(authData.email).toBe('admin@example.com');
+  });
+
   it('isAuthorizedAdmin correctly identifies authorized identities', () => {
     const localReq = new Request('http://localhost/api/test');
     expect(isAuthorizedAdmin(localReq, mockEnv)).toBe(true);
