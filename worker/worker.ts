@@ -64,7 +64,51 @@ export function isAuthorizedAdmin(request: Request, env: Env): boolean {
     url.hostname === '0.0.0.0';
   if (isLocalDev) return true;
 
-  const accessEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+  // 1. Direct header injected by Cloudflare Access when route is in Zero Trust
+  let accessEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+
+  // 2. Fallback: Parse CF_Authorization cookie from browser session
+  if (!accessEmail) {
+    const cookieHeader = request.headers.get('Cookie') || '';
+    const cookies = Object.fromEntries(
+      cookieHeader
+        .split(';')
+        .map((c) => {
+          const idx = c.indexOf('=');
+          if (idx === -1) return ['', ''];
+          return [c.slice(0, idx).trim(), c.slice(idx + 1).trim()];
+        })
+        .filter(([k]) => !!k),
+    );
+
+    const jwt =
+      cookies['CF_Authorization'] ||
+      request.headers.get('Cf-Access-Jwt-Assertion');
+
+    if (jwt && jwt.includes('.')) {
+      try {
+        const parts = jwt.split('.');
+        if (parts.length >= 2) {
+          const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const decodedJson = atob(payloadBase64);
+          const payload = JSON.parse(decodedJson) as {
+            email?: string;
+            exp?: number;
+          };
+          const now = Math.floor(Date.now() / 1000);
+          if (payload.exp && payload.exp > now && payload.email) {
+            accessEmail = payload.email;
+          }
+        }
+      } catch (err) {
+        console.warn(
+          '[isAuthorizedAdmin] Failed to parse CF_Authorization cookie:',
+          err,
+        );
+      }
+    }
+  }
+
   if (accessEmail) {
     if (env.ADMIN_EMAIL) {
       return accessEmail.toLowerCase() === env.ADMIN_EMAIL.toLowerCase();

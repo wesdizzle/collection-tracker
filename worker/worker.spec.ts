@@ -357,5 +357,28 @@ describe('Worker API Logic', () => {
       headers: { 'Cf-Access-Authenticated-User-Email': 'other@example.com' },
     });
     expect(isAuthorizedAdmin(prodWrongEmail, mockEnv)).toBe(false);
+
+    // Test CF_Authorization cookie extraction
+    const futureExp = Math.floor(Date.now() / 1000) + 3600;
+    const validJwtPayload = btoa(
+      JSON.stringify({ email: 'admin@example.com', exp: futureExp }),
+    );
+    const validJwt = `header.${validJwtPayload}.signature`;
+
+    const cookieReq = new Request('https://tracker.com/api/test', {
+      headers: { Cookie: `CF_Authorization=${validJwt}` },
+    });
+    expect(isAuthorizedAdmin(cookieReq, mockEnv)).toBe(true);
+
+    const pastExp = Math.floor(Date.now() / 1000) - 3600;
+    const expiredJwtPayload = btoa(
+      JSON.stringify({ email: 'admin@example.com', exp: pastExp }),
+    );
+    const expiredJwt = `header.${expiredJwtPayload}.signature`;
+
+    const expiredCookieReq = new Request('https://tracker.com/api/test', {
+      headers: { Cookie: `CF_Authorization=${expiredJwt}` },
+    });
+    expect(isAuthorizedAdmin(expiredCookieReq, mockEnv)).toBe(false);
   });
 });
