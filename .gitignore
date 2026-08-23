@@ -50,7 +50,10 @@ update_report.md
 deploy.sql
 *.sqlite-wal
 *.sqlite-shm
-
+collection.sqlite
+collection_SAFETY_COPY.sqlite
+backup_full_dump.sql
+backup_collection.json
 
 .wrangler/
 /scratch/

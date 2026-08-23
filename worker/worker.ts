@@ -1,22 +1,18 @@
 /**
  * PRODUCTION CLOUDFLARE WORKER
  *
- * This worker acts as the edge API and static asset server for the collection
- * tracker. It provides a thin, highly performant layer over Cloudflare D1.
+ * This worker acts as the edge API, static asset server, and automated backup engine
+ * for the Gagglog Collection Tracker.
  *
  * ARCHITECTURAL DESIGN:
  * 1. **Centralized Query Sharing**: Imports SQL constants from `../scripts/lib/queries`
- *    to ensure that the local development server (better-sqlite3) and the
- *    production edge (D1) share identical logic, preventing query drift.
- * 2. **Workers Assets Integration**: Implements a 'fallback-to-assets' pattern
- *    using the `env.ASSETS` binding. This allows for a single deployment
- *    target where the API and the Angular SPA coexist seamlessly.
- * 3. **Stateless Edge Computing**: Uses the D1 binding directly, avoiding the
- *    need for a traditional backend server and ensuring global latency
- *    optimization for metadata retrieval.
- * 4. **Regional-Awareness**: The `GAMES_ORDER_BY` logic (shared from queries)
- *    is applied at the edge to ensure consistent cross-regional sorting for
- *    international collectors.
+ *    to ensure query consistency between environments.
+ * 2. **Workers Assets Integration**: Seamlessly serves the Angular SPA via `env.ASSETS` fallback.
+ * 3. **Role-Based Edge Authentication**: Gates mutation endpoints (`/api/collection/toggle`,
+ *    `/api/collection/sort`, `/api/discovery/apply`) behind Cloudflare Access identity validation
+ *    (`Cf-Access-Authenticated-User-Email` matching `env.ADMIN_EMAIL` or Cloudflare Access policy) while public browsing is uninhibited.
+ * 4. **Automated R2 Snapshots**: Implements a `scheduled` cron handler that automatically dumps
+ *    all D1 tables into structured, timestamped JSON backups in Cloudflare R2 indefinitely.
  */
 
 import {
@@ -33,6 +29,9 @@ import {
 export interface Env {
   DB: D1Database;
   ASSETS: { fetch: typeof fetch };
+  BACKUP_BUCKET?: R2Bucket;
+  ADMIN_EMAIL?: string;
+  ADMIN_KEY?: string;
 }
 
 interface DbGame {
@@ -48,18 +47,133 @@ interface DbGame {
   releases?: unknown[];
 }
 
+/**
+ * Validates whether the incoming request is authorized to execute mutation actions.
+ * Supports Cloudflare Access (Cf-Access-Authenticated-User-Email header), custom admin key,
+ * and localhost bypass during local testing.
+ *
+ * @param request The incoming HTTP Request
+ * @param env Cloudflare worker environment bindings
+ * @returns true if authorized, false otherwise
+ */
+export function isAuthorizedAdmin(request: Request, env: Env): boolean {
+  const url = new URL(request.url);
+  const isLocalDev =
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    url.hostname === '0.0.0.0';
+  if (isLocalDev) return true;
+
+  const accessEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+  if (accessEmail) {
+    if (env.ADMIN_EMAIL) {
+      return accessEmail.toLowerCase() === env.ADMIN_EMAIL.toLowerCase();
+    }
+    // If ADMIN_EMAIL is not explicitly set, trust the Cloudflare Access authenticated email
+    return true;
+  }
+
+  const adminKey = request.headers.get('x-admin-key');
+  if (env.ADMIN_KEY && adminKey && adminKey === env.ADMIN_KEY) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Dumps all tables from D1 and writes an immutable snapshot to Cloudflare R2.
+ *
+ * @param env Cloudflare worker environment bindings
+ * @returns Summary object containing table counts and written snapshot key
+ */
+export async function performScheduledBackup(
+  env: Env,
+): Promise<{ key: string; rowCount: number }> {
+  if (!env.BACKUP_BUCKET) {
+    console.warn(
+      '[WorkerBackup] BACKUP_BUCKET binding not configured. Skipping snapshot.',
+    );
+    return { key: 'none', rowCount: 0 };
+  }
+
+  const tables = [
+    'platforms',
+    'toy_series',
+    'ignored_items',
+    'games',
+    'toys',
+    'toy_game_compatibility',
+    'game_releases',
+  ];
+
+  const backupData: Record<string, unknown[]> = {};
+  let totalRows = 0;
+
+  for (const table of tables) {
+    try {
+      const { results } = await env.DB.prepare(`SELECT * FROM ${table}`).all();
+      backupData[table] = results || [];
+      totalRows += (results || []).length;
+    } catch (err) {
+      console.error(`[WorkerBackup] Failed to dump table ${table}:`, err);
+      backupData[table] = [];
+    }
+  }
+
+  const now = new Date();
+  const timestamp = now.toISOString();
+  const dateStr = timestamp.slice(0, 10);
+
+  const payload = JSON.stringify(
+    {
+      metadata: {
+        timestamp,
+        date: dateStr,
+        version: 1,
+        totalRows,
+        tableCounts: Object.fromEntries(
+          Object.entries(backupData).map(([tbl, rows]) => [tbl, rows.length]),
+        ),
+      },
+      tables: backupData,
+    },
+    null,
+    2,
+  );
+
+  const snapshotKey = `snapshots/backup-${dateStr}-${now.getTime()}.json`;
+  const latestKey = 'snapshots/latest.json';
+
+  await env.BACKUP_BUCKET.put(snapshotKey, payload, {
+    httpMetadata: { contentType: 'application/json' },
+  });
+
+  await env.BACKUP_BUCKET.put(latestKey, payload, {
+    httpMetadata: { contentType: 'application/json' },
+  });
+
+  console.log(
+    `[WorkerBackup] Successfully saved daily snapshot ${snapshotKey} (${totalRows} rows)`,
+  );
+
+  return { key: snapshotKey, rowCount: totalRows };
+}
+
 export default {
+  /**
+   * Main fetch router handling edge API requests and falling back to static SPA assets.
+   */
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
     try {
       /**
-       * API ENDPOINTS
+       * PUBLIC READ-ONLY API ENDPOINTS
        */
 
       // Endpoint: GET /api/games
-      // Fetches games with optional platform filtering and complex regional-aware sorting.
       if (path === '/api/games') {
         const platformId = url.searchParams.get('platform');
         const params: string[] = [];
@@ -163,8 +277,251 @@ export default {
         return Response.json(results);
       }
 
+      /**
+       * AUTHENTICATED MUTATION ENDPOINTS
+       */
+
+      // Endpoint: POST /api/collection/toggle
+      else if (request.method === 'POST' && path === '/api/collection/toggle') {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
+        const body = (await request.json()) as {
+          id: string;
+          type: 'game' | 'toy';
+          status: number;
+          field?: string;
+        };
+        const { id, type, status, field = 'ownership_status' } = body;
+
+        const allowedFields = [
+          'ownership_status',
+          'play_status',
+          'backup_status',
+        ];
+        if (!allowedFields.includes(field)) {
+          return Response.json(
+            { error: `Invalid field: ${field}` },
+            { status: 400 },
+          );
+        }
+
+        if (type === 'game') {
+          if (field === 'play_status') {
+            let stableId: number | null = null;
+            const release = (await env.DB.prepare(
+              'SELECT game_id FROM game_releases WHERE id = ?',
+            )
+              .bind(id)
+              .first()) as { game_id: number } | null;
+            if (release) {
+              stableId = release.game_id;
+            } else {
+              const game = (await env.DB.prepare(
+                'SELECT stable_id FROM games WHERE id = ?',
+              )
+                .bind(id)
+                .first()) as { stable_id: number } | null;
+              if (game) stableId = game.stable_id;
+            }
+
+            if (stableId === null) {
+              return Response.json(
+                { error: `Could not find game/release with ID: ${id}` },
+                { status: 404 },
+              );
+            }
+
+            await env.DB.prepare(
+              'UPDATE games SET play_status = ? WHERE stable_id = ?',
+            )
+              .bind(status, stableId)
+              .run();
+          } else {
+            // ownership_status or backup_status on game_releases
+            const release = (await env.DB.prepare(
+              'SELECT game_id, region, variants, rom_name FROM game_releases WHERE id = ?',
+            )
+              .bind(id)
+              .first()) as {
+              game_id: number;
+              region: string | null;
+              variants: string | null;
+              rom_name: string | null;
+            } | null;
+
+            if (release) {
+              if (field === 'ownership_status') {
+                const { results: allReleases } = await env.DB.prepare(
+                  'SELECT id, region, variants, rom_name FROM game_releases WHERE game_id = ?',
+                )
+                  .bind(release.game_id)
+                  .all();
+
+                const targetKey = getRomGroupingKey(release.rom_name);
+                const typedReleases = (allReleases || []) as {
+                  id: string;
+                  region: string | null;
+                  variants: string | null;
+                  rom_name: string | null;
+                }[];
+
+                const matchingReleases = typedReleases.filter(
+                  (r) =>
+                    r.region === release.region &&
+                    r.variants === release.variants &&
+                    getRomGroupingKey(r.rom_name) === targetKey,
+                );
+
+                const statements = matchingReleases.map((r) =>
+                  env.DB.prepare(
+                    'UPDATE game_releases SET ownership_status = ? WHERE id = ?',
+                  ).bind(status, r.id),
+                );
+                if (statements.length > 0) {
+                  await env.DB.batch(statements);
+                }
+              } else {
+                await env.DB.prepare(
+                  `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+                )
+                  .bind(status, id)
+                  .run();
+              }
+            } else {
+              const game = (await env.DB.prepare(
+                'SELECT stable_id, region FROM games WHERE id = ?',
+              )
+                .bind(id)
+                .first()) as {
+                stable_id: number;
+                region: string | null;
+              } | null;
+
+              if (!game) {
+                return Response.json(
+                  { error: `Game or Release not found: ${id}` },
+                  { status: 404 },
+                );
+              }
+
+              const { results: releases } = await env.DB.prepare(
+                'SELECT id FROM game_releases WHERE game_id = ? ORDER BY id ASC',
+              )
+                .bind(game.stable_id)
+                .all();
+
+              const typedReleases = (releases || []) as { id: string }[];
+              if (typedReleases.length > 0) {
+                if (field === 'ownership_status') {
+                  const statements = typedReleases.map((r) =>
+                    env.DB.prepare(
+                      'UPDATE game_releases SET ownership_status = ? WHERE id = ?',
+                    ).bind(status, r.id),
+                  );
+                  await env.DB.batch(statements);
+                } else {
+                  await env.DB.prepare(
+                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+                  )
+                    .bind(status, typedReleases[0].id)
+                    .run();
+                }
+              } else {
+                const releaseId = `${id}-default`;
+                await env.DB.prepare(
+                  `INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status)
+                   VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0)`,
+                )
+                  .bind(releaseId, game.stable_id, game.region)
+                  .run();
+
+                await env.DB.prepare(
+                  `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+                )
+                  .bind(status, releaseId)
+                  .run();
+              }
+            }
+          }
+        } else {
+          // Toys update
+          await env.DB.prepare(`UPDATE toys SET ${field} = ? WHERE id = ?`)
+            .bind(status, id)
+            .run();
+        }
+
+        return Response.json({ success: true });
+      }
+
+      // Endpoint: POST /api/collection/sort
+      else if (request.method === 'POST' && path === '/api/collection/sort') {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
+        const body = (await request.json()) as {
+          id: string;
+          type: 'game' | 'toy';
+          sort_index: number;
+        };
+        const { id, type, sort_index } = body;
+
+        if (type === 'game') {
+          let stableId: number | null = null;
+          const release = (await env.DB.prepare(
+            'SELECT game_id FROM game_releases WHERE id = ?',
+          )
+            .bind(id)
+            .first()) as { game_id: number } | null;
+          if (release) {
+            stableId = release.game_id;
+          } else {
+            const game = (await env.DB.prepare(
+              'SELECT stable_id FROM games WHERE id = ?',
+            )
+              .bind(id)
+              .first()) as { stable_id: number } | null;
+            if (game) stableId = game.stable_id;
+          }
+
+          if (stableId === null) {
+            return Response.json(
+              { error: `Could not find game/release with ID: ${id}` },
+              { status: 404 },
+            );
+          }
+
+          await env.DB.prepare(
+            'UPDATE games SET sort_index = ? WHERE stable_id = ?',
+          )
+            .bind(sort_index, stableId)
+            .run();
+        } else {
+          await env.DB.prepare('UPDATE toys SET sort_index = ? WHERE id = ?')
+            .bind(sort_index, id)
+            .run();
+        }
+
+        return Response.json({ success: true });
+      }
+
       // Endpoint: POST /api/discovery/apply
       else if (request.method === 'POST' && path === '/api/discovery/apply') {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
         const payload = (await request.json()) as {
           currentTitle: string;
           currentPlatform: string;
@@ -189,8 +546,6 @@ export default {
 
         if (isToy) {
           const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
-          // Note: In production worker, we use the metadata passed in the payload
-          // because we don't necessarily have AmiiboAPI/IGDB auth secrets configured at the edge.
           await env.DB.prepare(
             `
             UPDATE toys 
@@ -210,7 +565,6 @@ export default {
         } else {
           const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
 
-          // Find the game
           const game = (await env.DB.prepare(
             `
             SELECT g.stable_id FROM games g
@@ -266,7 +620,6 @@ export default {
 
       /**
        * FALLBACK: Serve from Static Assets
-       * This leverages the [assets] binding defined in wrangler.toml (Workers Assets v3)
        */
       return env.ASSETS.fetch(request);
     } catch (e: unknown) {
@@ -275,5 +628,17 @@ export default {
       console.error('Worker Error:', errorMessage);
       return Response.json({ error: errorMessage }, { status: 500 });
     }
+  },
+
+  /**
+   * Scheduled cron event handler invoked by Cloudflare to generate daily R2 backups.
+   */
+  async scheduled(
+    _event: ScheduledEvent,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    console.log('[WorkerCron] Executing scheduled daily snapshot backup...');
+    await performScheduledBackup(env);
   },
 };

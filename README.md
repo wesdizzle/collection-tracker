@@ -69,25 +69,43 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Strict Format & Platform Constraints**: The sync scraper filters out digital installer `.pkg` files, unheadered NES ROM `.unh` files, digital/virtual releases containing `(Virtual Console)`, and emulator-wrapped collections like `(Genesis Mini)` or `(Anniversary Collection)`. For PlayStation Vita, it strictly parses physical `.psv` card formats, ignoring digital/homebrew folder dumps and `.vpk` packages.
 - **Multi-Disc Grouping Rules**: Multiple discs of a game are grouped together on the collection page only if their stripped ROM filenames are identical except for the disc indicators.
 - **Verification Signals**: Uses the presence of an `igdb_id` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
-- **Local D1 Synchronization**: A dedicated sync script ensures changes made to the local SQLite source-of-truth are propagated to Wrangler's internal state.
-- **Database Integrity Guard**: A dedicated test suite (`scripts/lib/db_integrity.spec.ts`) protects the core SQLite file from accidental deletions or additions by asserting precise counts for games and toys, including granular ownership status tracking (Unowned, Owned, Seeking, Ordered) for all collection lines.
+- **Database & Storage Architecture**:
+  - **Cloudflare D1 (Primary Database)**: Cloudflare D1 serves as the primary live database with edge routing for read queries and authenticated mutations.
+  - **Cloudflare R2 (Indefinite Backups)**: A scheduled worker cron trigger (`0 4 * * *`) automatically generates daily timestamped snapshots into Cloudflare R2 (`collection-backups`), preserving complete database states indefinitely with zero egress fees.
+  - **Decoupled Local Staging**: Heavy scraping (DAT matching, IGDB ingestion, backup folder scanning) is executed locally against staging SQLite and synchronized to D1 with explicit safeguards (`npm run db:pull` and `npm run db:push`).
 
-## 📦 Getting Started
+## 📦 Getting Started & Fork Setup
 
-1.  **Clone the repository**
-2.  **Install dependencies**: `npm install`
-3.  **Run Local API Proxy**: `npx tsx scripts/local_server.ts`
-4.  **Metadata Scraping**:
-    - **Reconcile**: `npx tsx scripts/scrape.ts` (Processes unmatched games and toys)
-    - **Discover**: `npx tsx scripts/scrape.ts --discovery` (Automatically adds missing amiibo and finds series-based games)
-    - **Refresh**: `npx tsx scripts/scrape.ts --refresh` (Refreshes metadata for all verified items, updates slugs, and recomputes canonical series)
-    - **Recompute Series**: `npx tsx scripts/compute_canonical_series.ts` (Recomputes canonical series using enhanced subtitle and collection heuristics)
-    - **Fix Outlier Release Dates**: `npm run fix-dates` (Scans database release dates against platform lifespan guidelines using `PLATFORM_MAP` lookups, resolving digital re-release date anomalies, updating remaster dates, and preserving boutique physical releases)
-    - **Sync DATs**: `npx tsx scripts/scrape.ts --sync-dats` (Scans `/dats/` directory, parses No-Intro/Redump XML files, and reconciles distinct physical releases in the database)
-    - **Scan Backups**: `npm run scan-backups <path-to-backups>` (Scans a backup directory recursively for filename matches against the database's `rom_name` entries in platform folders, updating their backup status in a strictly read-only manner)
-    - **Sync**: `npm run sync-db` (Propagates all local changes to Wrangler's internal D1 state)
-5.  **Launch Frontend**: `npx ng serve`
-6.  **View locally**: `http://localhost:4200/`
+### Option A: Local Development & Staging Setup
+
+1. **Clone the repository**: `git clone <your-fork-url>`
+2. **Install dependencies**: `npm install`
+3. **Initialize Database**: `npm run db:init` (Creates local `collection.sqlite` with canonical schema, 53 pre-configured gaming platforms, and toy series catalogs)
+4. **Run Local API & Frontend**: `npm run dev` (or `npm start`)
+
+### Option B: Cloudflare D1 Deployment
+
+1. **Create your Cloudflare D1 database**:
+   ```bash
+   npx wrangler d1 create collection-db
+   ```
+2. **Update `wrangler.toml`**: Replace `database_id` with the ID generated above.
+3. **Apply Initial Schema & Seed Reference Data**:
+   ```bash
+   npx wrangler d1 migrations apply collection-db --remote
+   ```
+4. **Create R2 Backup Bucket**: In Cloudflare Dashboard, create an R2 bucket named `collection-backups`.
+5. **Deploy**:
+   ```bash
+   ALLOW_LOCAL_DEPLOY=true npm run deploy
+   ```
+
+### 🛠️ Local Staging & Sync CLI Commands
+
+- **Initialize Local Database**: `npm run db:init` (Builds fresh `collection.sqlite` from schema)
+- **Backup Cold Copy**: `npm run db:backup` (Generates binary, SQL text, and JSON backups locally)
+- **Pull Remote D1**: `npm run db:pull` (Exports remote D1 state to local staging SQLite)
+- **Push to Remote D1**: `ALLOW_LOCAL_DEPLOY=true npm run db:push` (Pushes local staging changes up to Cloudflare D1)
 
 ### 🔑 Environment Configuration
 
