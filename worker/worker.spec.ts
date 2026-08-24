@@ -314,13 +314,12 @@ describe('Worker API Logic', () => {
     expect(Array.isArray(data)).toBe(true);
   });
 
-  it('GET /admin/login redirects to collection page', async () => {
+  it('GET /admin/login returns HTML with refresh redirect', async () => {
     const req = new Request('https://tracker.example.com/admin/login');
     const res = await worker.fetch(req, mockEnv);
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe(
-      'https://tracker.example.com/collection/games',
-    );
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('/collection/games');
   });
 
   it('GET /api/admin/me returns authentication status', async () => {

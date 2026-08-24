@@ -89,15 +89,24 @@ export function isAuthorizedAdmin(request: Request, env: Env): boolean {
       try {
         const parts = jwt.split('.');
         if (parts.length >= 2) {
-          const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          let payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          while (payloadBase64.length % 4 !== 0) {
+            payloadBase64 += '=';
+          }
           const decodedJson = atob(payloadBase64);
           const payload = JSON.parse(decodedJson) as {
             email?: string;
+            sub?: string;
             exp?: number;
           };
           const now = Math.floor(Date.now() / 1000);
-          if (payload.exp && payload.exp > now && payload.email) {
-            accessEmail = payload.email;
+          const candidateEmail =
+            payload.email ||
+            (typeof payload.sub === 'string' && payload.sub.includes('@')
+              ? payload.sub
+              : undefined);
+          if (payload.exp && payload.exp > now && candidateEmail) {
+            accessEmail = candidateEmail;
           }
         }
       } catch (err) {
@@ -346,9 +355,26 @@ export default {
         path === '/admin/login' ||
         path.startsWith('/cdn-cgi/access/authorized')
       ) {
-        return Response.redirect(
-          new URL('/collection/games', request.url).toString(),
-          302,
+        return new Response(
+          `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Admin Authenticated</title>
+  <meta http-equiv="refresh" content="0; url=/collection/games">
+</head>
+<body style="background:#130b24;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+  <p>Authenticated. Redirecting to collection...</p>
+  <script>window.location.replace('/collection/games');</script>
+</body>
+</html>`,
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+            },
+          },
         );
       }
 
@@ -357,11 +383,15 @@ export default {
         const accessEmail = request.headers.get(
           'Cf-Access-Authenticated-User-Email',
         );
+        const cookieHeader = request.headers.get('Cookie') || '';
+        const hasCookie = cookieHeader.includes('CF_Authorization');
         const authorized = isAuthorizedAdmin(request, env);
         return Response.json({
-          authenticated: !!accessEmail,
+          authenticated: authorized,
           authorized,
-          email: accessEmail || null,
+          hasCookie,
+          email:
+            accessEmail || (authorized ? env.ADMIN_EMAIL || 'admin' : null),
         });
       }
 
