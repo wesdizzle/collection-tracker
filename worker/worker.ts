@@ -116,6 +116,19 @@ export function isAuthorizedAdmin(request: Request, env: Env): boolean {
         );
       }
     }
+
+    if (accessEmail) {
+      if (env.ADMIN_EMAIL) {
+        return accessEmail.toLowerCase() === env.ADMIN_EMAIL.toLowerCase();
+      }
+      // If ADMIN_EMAIL is not explicitly set, trust the Cloudflare Access authenticated email
+      return true;
+    }
+
+    // 3. Fallback: Active Cloudflare Access session cookie on the domain
+    if (cookies['CF_AppSession'] && cookies['CF_AppSession'].length > 0) {
+      return true;
+    }
   }
 
   if (accessEmail) {
@@ -384,7 +397,9 @@ export default {
           'Cf-Access-Authenticated-User-Email',
         );
         const cookieHeader = request.headers.get('Cookie') || '';
-        const hasCookie = cookieHeader.includes('CF_Authorization');
+        const hasCookie =
+          cookieHeader.includes('CF_Authorization') ||
+          cookieHeader.includes('CF_AppSession');
         const authorized = isAuthorizedAdmin(request, env);
         return Response.json({
           authenticated: authorized,

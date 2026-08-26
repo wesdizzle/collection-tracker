@@ -379,5 +379,11 @@ describe('Worker API Logic', () => {
       headers: { Cookie: `CF_Authorization=${expiredJwt}` },
     });
     expect(isAuthorizedAdmin(expiredCookieReq, mockEnv)).toBe(false);
+
+    // Test CF_AppSession cookie authentication
+    const appSessionReq = new Request('https://tracker.com/api/test', {
+      headers: { Cookie: 'CF_AppSession=valid-session-token-12345' },
+    });
+    expect(isAuthorizedAdmin(appSessionReq, mockEnv)).toBe(true);
   });
 });
