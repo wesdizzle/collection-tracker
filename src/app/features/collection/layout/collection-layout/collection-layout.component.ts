@@ -1,6 +1,5 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { RouterModule } from '@angular/router';
-import { CollectionService } from '../../../../core/services/collection.service';
 
 @Component({
   selector: 'app-collection-layout',
@@ -38,7 +37,7 @@ import { CollectionService } from '../../../../core/services/collection.service'
           <a
             href="/admin/login"
             class="m3-button-icon state-layer"
-            title="Admin Login (Cloudflare Access)"
+            title="Admin Login (Cloudflare Access OTP)"
           >
             🔒
           </a>
@@ -316,10 +315,16 @@ import { CollectionService } from '../../../../core/services/collection.service'
   ],
 })
 export class CollectionLayoutComponent {
-  private collectionService = inject(CollectionService);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
 
   constructor() {
+    if (
+      typeof window !== 'undefined' &&
+      window.location.search.includes('nonce=')
+    ) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
     const saved = localStorage.getItem('gagglog-theme') as
       | 'light'
       | 'dark'

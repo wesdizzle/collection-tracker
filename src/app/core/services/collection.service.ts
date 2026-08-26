@@ -380,8 +380,20 @@ export class CollectionService {
     );
   }
 
+  public promptAdminLogin() {
+    this.showConfirmation(
+      'Admin Authentication',
+      'Sign in with Cloudflare Access (Email OTP) to manage and update your collection?',
+      () => {
+        if (typeof window !== 'undefined') {
+          window.location.href = '/admin/login';
+        }
+      },
+    );
+  }
+
   /**
-   * Handles authentication errors by prompting the user with a sign-in confirmation dialog.
+   * Handles authentication errors by prompting the user to sign in with Cloudflare Access OTP.
    */
   private handleMutationError = (err: unknown) => {
     if (
@@ -392,15 +404,7 @@ export class CollectionService {
         (err as { status: number }).status === 401 ||
         (err as { status: number }).status === 403)
     ) {
-      this.showConfirmation(
-        'Authentication Required',
-        'You are not signed in. Would you like to sign in as the collection admin now?',
-        () => {
-          if (typeof window !== 'undefined') {
-            window.location.href = '/admin/login';
-          }
-        },
-      );
+      this.promptAdminLogin();
     }
     return throwError(() => err);
   };
