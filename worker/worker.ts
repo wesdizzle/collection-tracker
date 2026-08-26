@@ -32,6 +32,7 @@ export interface Env {
   BACKUP_BUCKET?: R2Bucket;
   ADMIN_EMAIL?: string;
   ADMIN_KEY?: string;
+  TEAM_DOMAIN?: string;
 }
 
 interface DbGame {
@@ -392,18 +393,25 @@ export default {
       }
 
       // Endpoint: GET /api/admin/logout or GET /admin/logout
-      // Revokes session cookies and delegates to Cloudflare Access logout handler
+      // Revokes session cookies and delegates to Cloudflare Access global team logout handler
       else if (path === '/api/admin/logout' || path === '/admin/logout') {
+        const teamDomain =
+          env.TEAM_DOMAIN || 'wesleymiller.cloudflareaccess.com';
+        const returnUrl = new URL('/collection/games', request.url).toString();
+        const logoutUrl = `https://${teamDomain}/cdn-cgi/access/logout?return_to=${encodeURIComponent(
+          returnUrl,
+        )}`;
+
         const logoutHtml = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>Logging Out</title>
-  <meta http-equiv="refresh" content="0; url=/cdn-cgi/access/logout">
+  <meta http-equiv="refresh" content="0; url=${logoutUrl}">
 </head>
 <body style="background:#130b24;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
   <p>Logging out and clearing session...</p>
-  <script>window.location.replace('/cdn-cgi/access/logout');</script>
+  <script>window.location.replace('${logoutUrl}');</script>
 </body>
 </html>`;
         const res = new Response(logoutHtml, {

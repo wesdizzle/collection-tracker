@@ -23,6 +23,7 @@ import {
   catchError,
   of,
   map,
+  tap,
   throwError,
 } from 'rxjs';
 import {
@@ -432,6 +433,7 @@ export class CollectionService {
         (err as { status: number }).status === 401 ||
         (err as { status: number }).status === 403)
     ) {
+      this._isAdmin.set(false);
       this.promptAdminLogin();
     }
     return throwError(() => err);
@@ -452,7 +454,10 @@ export class CollectionService {
         status,
         field: 'ownership_status',
       })
-      .pipe(catchError(this.handleMutationError));
+      .pipe(
+        tap(() => this._isAdmin.set(true)),
+        catchError(this.handleMutationError),
+      );
   }
 
   /**
@@ -466,7 +471,10 @@ export class CollectionService {
         status,
         field: 'play_status',
       })
-      .pipe(catchError(this.handleMutationError));
+      .pipe(
+        tap(() => this._isAdmin.set(true)),
+        catchError(this.handleMutationError),
+      );
   }
 
   /**
@@ -480,7 +488,10 @@ export class CollectionService {
         status,
         field: 'backup_status',
       })
-      .pipe(catchError(this.handleMutationError));
+      .pipe(
+        tap(() => this._isAdmin.set(true)),
+        catchError(this.handleMutationError),
+      );
   }
 
   /**
