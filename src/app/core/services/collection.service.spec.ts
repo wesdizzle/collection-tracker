@@ -29,6 +29,9 @@ describe('CollectionService', () => {
     });
     service = TestBed.inject(CollectionService);
     httpMock = TestBed.inject(HttpTestingController);
+
+    const meReqs = httpMock.match('/api/admin/me');
+    meReqs.forEach((r) => r.flush({ authenticated: false, authorized: false }));
   });
 
   afterEach(() => {

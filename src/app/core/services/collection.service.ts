@@ -55,6 +55,9 @@ export class CollectionService {
   public readonly gamesState = this._gamesState.asReadonly();
   public readonly toysState = this._toysState.asReadonly();
 
+  private _isAdmin = signal<boolean>(false);
+  public readonly isAdmin = this._isAdmin.asReadonly();
+
   /**
    * Initializes the service and restores any saved navigation state from sessionStorage.
    * This ensures that when a user returns from a detail page, their context is restored.
@@ -63,7 +66,20 @@ export class CollectionService {
     if (typeof window !== 'undefined') {
       this.loadPersistedState();
       this.loadLastUpdated();
+      this.checkAdminStatus();
     }
+  }
+
+  /**
+   * Checks whether the current user has an active, authorized admin session.
+   */
+  public checkAdminStatus() {
+    this.http
+      .get<{ authenticated: boolean; authorized: boolean }>('/api/admin/me')
+      .pipe(catchError(() => of({ authenticated: false, authorized: false })))
+      .subscribe((res) => {
+        this._isAdmin.set(!!res.authorized);
+      });
   }
 
   /**

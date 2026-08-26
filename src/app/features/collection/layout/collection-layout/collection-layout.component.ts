@@ -1,5 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { CollectionService } from '../../../../core/services/collection.service';
 
 @Component({
   selector: 'app-collection-layout',
@@ -37,9 +38,17 @@ import { ActivatedRoute, Router, RouterModule } from '@angular/router';
           <button
             (click)="onAdminLogin()"
             class="m3-button-icon state-layer"
-            title="Admin Login (Cloudflare Access OTP)"
+            [title]="
+              isAdmin()
+                ? 'Admin Authenticated (Cloudflare Access OTP)'
+                : 'Admin Login (Cloudflare Access OTP)'
+            "
           >
-            🔒
+            @if (isAdmin()) {
+              🔓
+            } @else {
+              🔒
+            }
           </button>
 
           <a
@@ -317,7 +326,9 @@ import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 export class CollectionLayoutComponent {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+  private collectionService = inject(CollectionService);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
+  public isAdmin = this.collectionService.isAdmin;
 
   constructor() {
     if (
