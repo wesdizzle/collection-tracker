@@ -1,5 +1,5 @@
-import { Component, signal } from '@angular/core';
-import { RouterModule } from '@angular/router';
+import { Component, inject, signal } from '@angular/core';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-collection-layout',
@@ -34,13 +34,13 @@ import { RouterModule } from '@angular/router';
             }
           </button>
 
-          <a
-            href="/admin/login"
+          <button
+            (click)="onAdminLogin()"
             class="m3-button-icon state-layer"
             title="Admin Login (Cloudflare Access OTP)"
           >
             🔒
-          </a>
+          </button>
 
           <a
             href="https://github.com/wesdizzle/collection-tracker"
@@ -315,6 +315,8 @@ import { RouterModule } from '@angular/router';
   ],
 })
 export class CollectionLayoutComponent {
+  private router = inject(Router);
+  private route = inject(ActivatedRoute);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
 
   constructor() {
@@ -322,7 +324,11 @@ export class CollectionLayoutComponent {
       typeof window !== 'undefined' &&
       window.location.search.includes('nonce=')
     ) {
-      window.history.replaceState({}, '', window.location.pathname);
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: {},
+        replaceUrl: true,
+      });
     }
 
     const saved = localStorage.getItem('gagglog-theme') as
@@ -333,6 +339,12 @@ export class CollectionLayoutComponent {
     if (saved) {
       this.theme.set(saved);
       this.applyTheme(saved);
+    }
+  }
+
+  onAdminLogin() {
+    if (typeof window !== 'undefined') {
+      window.location.assign('/admin/login');
     }
   }
 

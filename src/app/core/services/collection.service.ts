@@ -386,7 +386,7 @@ export class CollectionService {
       'Sign in with Cloudflare Access (Email OTP) to manage and update your collection?',
       () => {
         if (typeof window !== 'undefined') {
-          window.location.href = '/admin/login';
+          window.location.assign('/admin/login');
         }
       },
     );
