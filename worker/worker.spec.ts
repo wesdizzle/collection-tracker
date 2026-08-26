@@ -322,6 +322,16 @@ describe('Worker API Logic', () => {
     expect(body).toContain('/collection/games');
   });
 
+  it('GET /admin/logout revokes cookies and redirects to Cloudflare logout', async () => {
+    const req = new Request('https://tracker.example.com/admin/logout');
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('/cdn-cgi/access/logout');
+    const setCookie = res.headers.get('Set-Cookie') || '';
+    expect(setCookie).toContain('Max-Age=0');
+  });
+
   it('GET /api/admin/me returns authentication status', async () => {
     const unauthReq = new Request('https://tracker.example.com/api/admin/me');
     const unauthRes = await worker.fetch(unauthReq, mockEnv);

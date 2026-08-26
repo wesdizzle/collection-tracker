@@ -36,11 +36,11 @@ import { CollectionService } from '../../../../core/services/collection.service'
           </button>
 
           <button
-            (click)="onAdminLogin()"
+            (click)="onAdminClick()"
             class="m3-button-icon state-layer"
             [title]="
               isAdmin()
-                ? 'Admin Authenticated (Cloudflare Access OTP)'
+                ? 'Admin Authenticated (Click to Log Out)'
                 : 'Admin Login (Cloudflare Access OTP)'
             "
           >
@@ -353,9 +353,13 @@ export class CollectionLayoutComponent {
     }
   }
 
-  onAdminLogin() {
-    if (typeof window !== 'undefined') {
-      window.location.assign('/admin/login');
+  onAdminClick() {
+    if (this.isAdmin()) {
+      this.collectionService.logoutAdmin();
+    } else {
+      if (typeof window !== 'undefined') {
+        window.location.assign('/admin/login');
+      }
     }
   }
 

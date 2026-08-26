@@ -408,6 +408,18 @@ export class CollectionService {
     );
   }
 
+  public logoutAdmin() {
+    this.showConfirmation(
+      'Admin Log Out',
+      'Are you sure you want to log out of Admin mode? This will revoke your session cookie and lock edit permissions.',
+      () => {
+        if (typeof window !== 'undefined') {
+          window.location.assign('/admin/logout');
+        }
+      },
+    );
+  }
+
   /**
    * Handles authentication errors by prompting the user to sign in with Cloudflare Access OTP.
    */

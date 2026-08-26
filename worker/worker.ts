@@ -391,6 +391,47 @@ export default {
         );
       }
 
+      // Endpoint: GET /api/admin/logout or GET /admin/logout
+      // Revokes session cookies and delegates to Cloudflare Access logout handler
+      else if (path === '/api/admin/logout' || path === '/admin/logout') {
+        const logoutHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Logging Out</title>
+  <meta http-equiv="refresh" content="0; url=/cdn-cgi/access/logout">
+</head>
+<body style="background:#130b24;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+  <p>Logging out and clearing session...</p>
+  <script>window.location.replace('/cdn-cgi/access/logout');</script>
+</body>
+</html>`;
+        const res = new Response(logoutHtml, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          },
+        });
+        res.headers.append(
+          'Set-Cookie',
+          'CF_AppSession=; Path=/; Domain=gagglog.wesleymiller.me; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
+        );
+        res.headers.append(
+          'Set-Cookie',
+          'CF_AppSession=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
+        );
+        res.headers.append(
+          'Set-Cookie',
+          'CF_Authorization=; Path=/; Domain=gagglog.wesleymiller.me; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
+        );
+        res.headers.append(
+          'Set-Cookie',
+          'CF_Authorization=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
+        );
+        return res;
+      }
+
       // Endpoint: GET /api/admin/me
       else if (path === '/api/admin/me') {
         const accessEmail = request.headers.get(
