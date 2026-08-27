@@ -35,12 +35,13 @@ vi.mock('./lib/igdb.js', () => ({
       genres: 'Role-playing (RPG)',
     }),
   ),
-  findGame: vi.fn(() =>
+  findGame: vi.fn((query) =>
     Promise.resolve([
       {
-        id: 'igdb-101',
-        name: 'Bloodborne',
+        id: query === 'Elden Ring' ? 'igdb-999' : 'igdb-101',
+        name: query || 'Bloodborne',
         platform: 'PlayStation 4',
+        platform_ids: [48],
         image_url: 'http://example.com/cover.png',
       },
     ]),
@@ -141,17 +142,25 @@ describe('Local Server API Logic', () => {
                 release_date DATE
             );
             CREATE TABLE toys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT UNIQUE,
                 name TEXT NOT NULL,
                 line TEXT NOT NULL,
+                series_id TEXT,
+                series_name TEXT,
+                series_line TEXT,
                 series TEXT,
-                amiibo_id TEXT,
+                type TEXT,
+                release_date DATE,
+                sort_index INTEGER,
+                ownership_status INTEGER DEFAULT 0,
                 verified BOOLEAN DEFAULT 0,
                 metadata_json TEXT,
-                type TEXT,
                 image_url TEXT,
+                amiibo_id TEXT,
+                scl_url TEXT,
                 region TEXT,
-                release_date DATE
+                details TEXT
             );
         `);
 
@@ -302,90 +311,74 @@ describe('Local Server API Logic', () => {
     expect(output[0].parent_platform_id).toBeNull();
   });
 
-  describe('Discovery Apply Logic', () => {
-    it('should only update the specific toy when multiple have the same name', async () => {
+  describe('Discovery Amiibo & Toy Ingestion Logic', () => {
+    it('should scan amiibo and return missing items', async () => {
       mockDb
-        .prepare('INSERT INTO toys (name, line, series) VALUES (?, ?, ?)')
-        .run('Mario', 'amiibo', 'Super Mario');
-      mockDb
-        .prepare('INSERT INTO toys (name, line, series) VALUES (?, ?, ?)')
-        .run('Mario (SSB)', 'amiibo', 'Super Smash Bros.');
+        .prepare(
+          'INSERT INTO toys (id, name, line, series, amiibo_id) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(
+          'amiibo-mario',
+          'Mario',
+          'amiibo',
+          'Super Mario',
+          '0000000000000002',
+        );
 
       mockedAxios.get.mockResolvedValue({
         data: {
-          amiibo: {
-            name: 'Mario',
-            type: 'Figure',
-            image: 'http://example.com/mario.png',
-            gameSeries: 'Super Mario',
-            amiiboSeries: 'Super Mario',
-            release: { na: '2015-03-20' },
-          },
+          amiibo: [
+            {
+              head: '00000000',
+              tail: '00000002',
+              name: 'Mario',
+              type: 'Figure',
+              image: 'http://example.com/mario.png',
+              gameSeries: 'Super Mario',
+              amiiboSeries: 'Super Mario',
+            },
+            {
+              head: '01030000',
+              tail: '003f0502',
+              name: 'Zelda - TOTK',
+              type: 'Figure',
+              image: 'http://example.com/zelda.png',
+              gameSeries: 'The Legend of Zelda',
+              amiiboSeries: 'The Legend of Zelda',
+              release: { na: '2023-11-03' },
+            },
+          ],
         },
       });
 
-      const payload = {
-        currentTitle: 'Mario',
-        currentPlatform: 'amiibo',
-        currentLine: 'amiibo',
-        currentSeries: 'Super Mario',
-        selectedIgdbId: 'amiibo-0000000000000002',
-        selectedName: 'Mario',
-        selectedPlatform: 'amiibo',
-      };
-
       const { req, res } = createDiscoveryMocks(
-        '/api/discovery/apply',
-        'POST',
-        payload,
+        '/api/discovery/scan-amiibo',
+        'GET',
       );
       const handler = handleRequest(mockDb);
 
       await handler(req, res);
 
-      const mario1 = mockDb
-        .prepare("SELECT * FROM toys WHERE series = 'Super Mario'")
-        .get() as ToyRow;
-      expect(mario1.amiibo_id).toBe('0000000000000002');
-      expect(mario1.verified).toBe(1);
-
-      const mario2 = mockDb
-        .prepare("SELECT * FROM toys WHERE series = 'Super Smash Bros.'")
-        .get() as ToyRow;
-      expect(mario2.amiibo_id).toBeNull();
-      expect(mario2.verified).toBe(0);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.length).toBe(1);
+      expect(output[0].name).toBe('Zelda - TOTK');
+      expect(output[0].amiibo_id).toBe('01030000003f0502');
     });
 
-    it('should correctly match toys with parentheses in the title', async () => {
-      mockDb
-        .prepare('INSERT INTO toys (name, line, series) VALUES (?, ?, ?)')
-        .run('Mario (SSB)', 'amiibo', 'Super Smash Bros.');
-
-      mockedAxios.get.mockResolvedValue({
-        data: {
-          amiibo: {
-            name: 'Mario',
-            type: 'Figure',
-            image: 'http://example.com/mario_ssb.png',
-            gameSeries: 'Super Smash Bros.',
-            amiiboSeries: 'Super Smash Bros.',
-            release: { na: '2014-11-21' },
-          },
-        },
-      });
-
+    it('should ingest a new toy via /api/discovery/add-toy', async () => {
       const payload = {
-        currentTitle: 'Mario (SSB)',
-        currentPlatform: 'amiibo',
-        currentLine: 'amiibo',
-        currentSeries: 'Super Smash Bros.',
-        selectedIgdbId: 'amiibo-0000000000000001',
-        selectedName: 'Mario',
-        selectedPlatform: 'amiibo',
+        name: 'Zelda - TOTK',
+        line: 'amiibo',
+        series_name: 'The Legend of Zelda',
+        amiibo_id: '01030000003f0502',
+        type: 'Figure',
+        image_url: 'http://example.com/zelda.png',
+        ownership_status: 1,
       };
 
       const { req, res } = createDiscoveryMocks(
-        '/api/discovery/apply',
+        '/api/discovery/add-toy',
         'POST',
         payload,
       );
@@ -393,11 +386,16 @@ describe('Local Server API Logic', () => {
 
       await handler(req, res);
 
-      const marioSSB = mockDb
-        .prepare("SELECT * FROM toys WHERE series = 'Super Smash Bros.'")
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.success).toBe(true);
+
+      const inserted = mockDb
+        .prepare("SELECT * FROM toys WHERE amiibo_id = '01030000003f0502'")
         .get() as ToyRow;
-      expect(marioSSB.amiibo_id).toBe('0000000000000001');
-      expect(marioSSB.verified).toBe(1);
+      expect(inserted).toBeDefined();
+      expect(inserted.name).toBe('Zelda - TOTK');
+      expect(inserted.verified).toBe(1);
     });
   });
 
@@ -535,14 +533,25 @@ describe('Local Server API Logic', () => {
   describe('Ingestion and Discovery Endpoints', () => {
     it('should search games on IGDB via /api/discovery/search', async () => {
       const { req, res } = createMocks(
-        '/api/discovery/search?query=Bloodborne&platformId=34',
+        '/api/discovery/search?query=Elden+Ring&platformId=34',
       );
       const handler = handleRequest(mockDb);
       await handler(req, res);
       expect(res.end).toHaveBeenCalled();
       const output = JSON.parse(res.end.mock.calls[0][0]);
       expect(output).toHaveLength(1);
-      expect(output[0].name).toBe('Bloodborne');
+      expect(output[0].name).toBe('Elden Ring');
+    });
+
+    it('should filter out already collected games in /api/discovery/search', async () => {
+      const { req, res } = createMocks(
+        '/api/discovery/search?query=Bloodborne&platformId=34',
+      );
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output).toHaveLength(0);
     });
 
     it('should get matches and details via /api/discovery/matches', async () => {

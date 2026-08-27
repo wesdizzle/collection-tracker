@@ -43,6 +43,7 @@ Thumbs.db
 
 # Private Credentials
 .env
+.dev.vars
 update_report.md
 .igdb_token_cache.json
 

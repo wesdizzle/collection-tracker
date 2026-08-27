@@ -109,12 +109,31 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 
 ### 🔑 Environment Configuration
 
-Create a `.env` file in the root directory with your IGDB credentials:
+#### Local Development
+
+Create a `.dev.vars` file in the root directory with your IGDB Twitch credentials:
 
 ```env
 TWITCH_CLIENT_ID=your_client_id
 TWITCH_CLIENT_SECRET=your_client_secret
 ```
+
+#### Production (Cloudflare Workers)
+
+Configure your Twitch credentials as Cloudflare Worker Secrets so the Edge API can query IGDB directly in production:
+
+```bash
+npx wrangler secret put TWITCH_CLIENT_ID
+npx wrangler secret put TWITCH_CLIENT_SECRET
+```
+
+### 🔍 Edge-Native Discovery
+
+The **Discovery** tab provides three workflows directly within the web app:
+
+1. **Game Search**: Search the entire IGDB database across any platform and ingest games into Cloudflare D1 with custom status tracking.
+2. **Franchise Discovery**: Automatically scans existing series in your collection against IGDB to surface uncollected sequels, spin-offs, and ports.
+3. **Amiibo Discovery**: Connects directly to AmiiboAPI to detect unreleased or missing amiibo figures and cards, supporting one-click and bulk ingestion into your collection.
 
 ## 🛡️ Engineering Standards
 

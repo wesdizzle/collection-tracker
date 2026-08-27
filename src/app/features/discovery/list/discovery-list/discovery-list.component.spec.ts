@@ -1,49 +1,59 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DiscoveryListComponent } from './discovery-list.component';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { of, throwError } from 'rxjs';
+import { of } from 'rxjs';
 import { signal, WritableSignal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import {
-  DiscoveryItem,
   Platform,
   IGDBSearchResult,
+  ScanSuggestion,
+  AmiiboDiscoveryItem,
 } from '../../../../core/models/collection.models';
 
 /**
  * UNIT TEST: DiscoveryListComponent
  *
- * Verifies the discovery reconciliation workflow, manual search global searches,
- * target platform modal selection, and bottom toast notifications.
+ * Verifies the Manual Game Search, Franchise Discovery, and Amiibo Discovery workflows,
+ * modal platform selection, and toast notifications.
  */
 describe('DiscoveryListComponent', () => {
   let component: DiscoveryListComponent;
   let fixture: ComponentFixture<DiscoveryListComponent>;
   let mockCollectionService: {
     loading: WritableSignal<boolean>;
-    discoveryItems: WritableSignal<DiscoveryItem[]>;
-    refreshDiscovery: Mock;
-    applyDiscovery: Mock;
     platforms: WritableSignal<Platform[]>;
     searchGames: Mock;
     getGameMatches: Mock;
     addGame: Mock;
+    scanSeries: Mock;
+    scanAmiibo: Mock;
+    addToy: Mock;
     refreshAll: Mock;
   };
 
-  const mockItems: DiscoveryItem[] = [
+  const mockAmiiboItems: AmiiboDiscoveryItem[] = [
     {
-      title: 'Space Invaders',
-      platform: 'Atari 2600',
-      options: [
-        {
-          id: 'igdb-123',
-          name: 'Space Invaders',
-          platform: 'NES',
-          image_url: null,
-          summary: null,
-        },
-      ],
+      id: '0000000000000002',
+      amiibo_id: '0000000000000002',
+      name: 'Mario',
+      line: 'amiibo',
+      series_name: 'Super Mario',
+      type: 'Figure',
+      image_url: 'https://raw.githubusercontent.com/mario.png',
+      release_date: '2014-11-21',
+      region: 'NA',
+    },
+    {
+      id: '0001000000000002',
+      amiibo_id: '0001000000000002',
+      name: 'Isabelle',
+      line: 'amiibo',
+      series_name: 'Animal Crossing',
+      type: 'Card',
+      image_url: 'https://raw.githubusercontent.com/isabelle.png',
+      release_date: '2015-11-13',
+      region: 'NA',
     },
   ];
 
@@ -51,9 +61,6 @@ describe('DiscoveryListComponent', () => {
     vi.useFakeTimers();
     mockCollectionService = {
       loading: signal(false),
-      discoveryItems: signal(mockItems),
-      refreshDiscovery: vi.fn().mockResolvedValue(undefined),
-      applyDiscovery: vi.fn().mockReturnValue(of({ success: true })),
       platforms: signal<Platform[]>([
         {
           id: 1,
@@ -93,7 +100,25 @@ describe('DiscoveryListComponent', () => {
           ],
         }),
       ),
-      addGame: vi.fn().mockReturnValue(of({ success: true })),
+      addGame: vi
+        .fn()
+        .mockReturnValue(of({ success: true, gameId: 'saros-ps5' })),
+      scanSeries: vi.fn().mockReturnValue(
+        of([
+          {
+            id: 222,
+            title: 'Metroid Fusion',
+            platform: 'Game Boy Advance',
+            platform_id: 24,
+            image_url: null,
+            releases: [],
+          },
+        ] as ScanSuggestion[]),
+      ),
+      scanAmiibo: vi.fn().mockReturnValue(of(mockAmiiboItems)),
+      addToy: vi
+        .fn()
+        .mockReturnValue(of({ success: true, id: 'amiibo-mario' })),
       refreshAll: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -113,48 +138,8 @@ describe('DiscoveryListComponent', () => {
     vi.useRealTimers();
   });
 
-  it('should refresh discovery on init', () => {
-    expect(mockCollectionService.refreshDiscovery).toHaveBeenCalled();
-    expect(component.items()).toEqual(mockItems);
-  });
-
-  it('should send correct payload in applyMatch', async () => {
-    const item = mockItems[0];
-    const option = item.options[0];
-
-    await component.applyMatch(item, option);
-
-    expect(mockCollectionService.applyDiscovery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        currentTitle: 'Space Invaders',
-        currentPlatform: 'Atari 2600',
-        selectedIgdbId: 'igdb-123',
-        selectedName: 'Space Invaders',
-      }),
-    );
-  });
-
-  it('should remove item from local list after successful match', async () => {
-    const item = mockItems[0];
-    const option = item.options[0];
-
-    await component.applyMatch(item, option);
-
-    expect(component.items().length).toBe(0);
-  });
-
-  it('should alert on error during match', async () => {
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
-    mockCollectionService.applyDiscovery.mockReturnValue(
-      throwError(() => new Error('API Error')),
-    );
-
-    await component.applyMatch(mockItems[0], mockItems[0].options[0]);
-
-    expect(alertSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Error matching item:\nAPI Error'),
-    );
-    expect(component.items().length).toBe(1); // Item should remain on error
+  it('should default to search tab on init', () => {
+    expect(component.activeTab()).toBe('search');
   });
 
   it('should compute platformGroups correctly', () => {
@@ -176,7 +161,7 @@ describe('DiscoveryListComponent', () => {
   });
 
   it('should trigger search for all platforms', async () => {
-    await component.triggerSearch('Saros', ''); // platformIdStr is empty (All Platforms)
+    await component.triggerSearch('Saros', '');
     expect(mockCollectionService.searchGames).toHaveBeenCalledWith('Saros', 0);
     expect(component.searchResults().length).toBe(1);
   });
@@ -188,7 +173,7 @@ describe('DiscoveryListComponent', () => {
       platform: 'PlayStation 5',
       image_url: null,
     };
-    await component.openIngestionModal(game, ''); // platformId = 0
+    await component.openIngestionModal(game, '');
 
     expect(component.showModal()).toBe(true);
     expect(component.modalGame()).toEqual(game);
@@ -216,5 +201,82 @@ describe('DiscoveryListComponent', () => {
     expect(mockCollectionService.getGameMatches).toHaveBeenCalledWith('111', 5);
     expect(component.matchedReleases().length).toBe(1);
     expect(component.matchedReleases()[0].romCrc).toBe('crc123');
+  });
+
+  it('should submit game ingestion and refresh', async () => {
+    const game: IGDBSearchResult = {
+      id: 'igdb-111',
+      name: 'Saros',
+      platform: 'PlayStation 5',
+      image_url: null,
+    };
+    component.modalGame.set(game);
+    component.modalPlatformId.set(1);
+    component.searchResults.set([game]);
+
+    await component.submitIngestion();
+
+    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        game: expect.objectContaining({
+          title: 'Saros',
+          platform_id: 1,
+        }),
+      }),
+    );
+    expect(component.showModal()).toBe(false);
+    expect(component.searchResults().length).toBe(0);
+    expect(mockCollectionService.refreshAll).toHaveBeenCalled();
+  });
+
+  it('should trigger franchise series scan and add suggested game', async () => {
+    component.activeTab.set('scan');
+    await component.triggerSeriesScan();
+
+    expect(mockCollectionService.scanSeries).toHaveBeenCalled();
+    expect(component.scanResults().length).toBe(1);
+
+    const suggestion = component.scanResults()[0];
+    await component.addGameFromSeries(suggestion);
+
+    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        game: expect.objectContaining({
+          title: 'Metroid Fusion',
+          platform_id: 24,
+        }),
+      }),
+    );
+    expect(component.scanResults().length).toBe(0);
+  });
+
+  it('should trigger amiibo scan, filter results, and ingest single amiibo', async () => {
+    component.activeTab.set('amiibo');
+    await component.triggerAmiiboScan();
+
+    expect(mockCollectionService.scanAmiibo).toHaveBeenCalled();
+    expect(component.amiiboResults().length).toBe(2);
+    expect(component.amiiboSeriesList()).toEqual([
+      'Animal Crossing',
+      'Super Mario',
+    ]);
+    expect(component.amiiboTypesList()).toEqual(['Card', 'Figure']);
+
+    // Filter by type 'Figure'
+    component.amiiboTypeFilter.set('Figure');
+    expect(component.filteredAmiiboResults().length).toBe(1);
+    expect(component.filteredAmiiboResults()[0].name).toBe('Mario');
+
+    // Add single amiibo
+    await component.addSingleAmiibo(mockAmiiboItems[0]);
+
+    expect(mockCollectionService.addToy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Mario',
+        line: 'amiibo',
+        amiibo_id: '0000000000000002',
+      }),
+    );
+    expect(component.amiiboResults().length).toBe(1);
   });
 });

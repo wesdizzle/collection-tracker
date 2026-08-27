@@ -303,8 +303,13 @@ export async function findGame(
   title: string,
   platformId: number,
 ): Promise<NormalizedGame[] | null> {
-  // Categories: 0: Main Game, 8: Remake, 9: Remaster, 10: Expanded Game, 11: Port
-  let platformFilter = platformId ? `platforms = (${platformId})` : '';
+  const trackedIgdbIds = Array.from(
+    new Set(Object.values(PLATFORM_MAP)),
+  ).filter((id): id is number => typeof id === 'number' && id > 0);
+
+  let platformFilter = platformId
+    ? `platforms = (${platformId})`
+    : `platforms = (${trackedIgdbIds.join(',')})`;
 
   // VR Heuristic: If searching for PS4/PS5, also look for PSVR/PSVR2
   if (platformId === 48) platformFilter = 'platforms = (48, 165)';

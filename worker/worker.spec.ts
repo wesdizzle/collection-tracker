@@ -86,19 +86,25 @@ describe('Worker API Logic', () => {
         release_date DATE
       );
       CREATE TABLE toys (
-        stable_id INTEGER PRIMARY KEY,
+        stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT UNIQUE, 
-        name TEXT, 
-        line TEXT,
+        name TEXT NOT NULL, 
+        line TEXT NOT NULL,
         series_id TEXT, 
-        release_date DATE,
-        sort_index INTEGER,
+        series_name TEXT,
+        series_line TEXT,
         series TEXT,
         type TEXT,
+        release_date DATE,
+        sort_index INTEGER,
         ownership_status INTEGER DEFAULT 0,
         verified BOOLEAN DEFAULT 0,
         metadata_json TEXT,
-        image_url TEXT
+        image_url TEXT,
+        amiibo_id TEXT,
+        scl_url TEXT,
+        region TEXT,
+        details TEXT
       );
       CREATE TABLE toy_series (
         id TEXT PRIMARY KEY, 
@@ -306,12 +312,125 @@ describe('Worker API Logic', () => {
     expect(parsed.tables.platforms.length).toBe(1);
   });
 
-  it('GET /api/discovery returns empty array on edge', async () => {
-    const req = new Request('http://localhost/api/discovery');
+  it('POST /api/discovery/add inserts game and releases transactionally', async () => {
+    const req = new Request('http://localhost/api/discovery/add', {
+      method: 'POST',
+      body: JSON.stringify({
+        game: {
+          title: 'Super Metroid',
+          platform_id: 1,
+          igdb_id: 1234,
+          summary: 'Classic SNES game',
+          region: 'NA',
+          ownership_status: 1,
+          play_status: 1,
+          backup_status: 1,
+        },
+        releases: [
+          {
+            region: 'USA',
+            rom_name: 'Super Metroid (USA).sfc',
+            rom_crc: 'D63ED5F8',
+            ownership_status: 1,
+            backup_status: 1,
+          },
+        ],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
     const res = await worker.fetch(req, mockEnv);
     expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+    const data = (await res.json()) as { success: boolean; gameId: string };
+    expect(data.success).toBe(true);
+    expect(data.gameId).toContain('super-metroid');
+
+    const insertedGame = db
+      .prepare('SELECT title, igdb_id FROM games WHERE id = ?')
+      .get(data.gameId) as { title: string; igdb_id: number };
+    expect(insertedGame.title).toBe('Super Metroid');
+    expect(insertedGame.igdb_id).toBe(1234);
+
+    const releases = db
+      .prepare('SELECT rom_name, rom_crc FROM game_releases WHERE id LIKE ?')
+      .all(`${data.gameId}%`) as { rom_name: string; rom_crc: string }[];
+    expect(releases.length).toBe(1);
+    expect(releases[0].rom_crc).toBe('D63ED5F8');
+  });
+
+  it('POST /api/discovery/add-toy inserts or updates amiibo toys', async () => {
+    const req = new Request('http://localhost/api/discovery/add-toy', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Zelda - Tears of the Kingdom',
+        line: 'amiibo',
+        series_name: 'The Legend of Zelda',
+        amiibo_id: '01030000003f0502',
+        type: 'Figure',
+        image_url: 'https://raw.githubusercontent.com/zelda.png',
+        ownership_status: 1,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { success: boolean; id: string };
+    expect(data.success).toBe(true);
+
+    const insertedToy = db
+      .prepare('SELECT name, amiibo_id, line FROM toys WHERE id = ?')
+      .get(data.id) as { name: string; amiibo_id: string; line: string };
+    expect(insertedToy.name).toBe('Zelda - Tears of the Kingdom');
+    expect(insertedToy.amiibo_id).toBe('01030000003f0502');
+  });
+
+  it('GET /api/discovery/scan-amiibo queries AmiiboAPI and filters existing items', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockImplementation((url: string | URL | Request) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('amiiboapi.org')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                amiibo: [
+                  {
+                    head: '00000000',
+                    tail: '00000002',
+                    name: 'Mario',
+                    amiiboSeries: 'Super Mario',
+                    type: 'Figure',
+                    image: 'https://raw.githubusercontent.com/mario.png',
+                  },
+                  {
+                    head: '99999999',
+                    tail: '99999999',
+                    name: 'Ganondorf - TOTK',
+                    amiiboSeries: 'The Legend of Zelda',
+                    type: 'Figure',
+                    image: 'https://raw.githubusercontent.com/ganondorf.png',
+                  },
+                ],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        return originalFetch(url);
+      });
+
+    try {
+      const req = new Request('http://localhost/api/discovery/scan-amiibo');
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+      const items = (await res.json()) as { name: string; amiibo_id: string }[];
+      // Mario already exists in seed DB (link-amiibo or mario), Ganondorf should be discovered
+      expect(items.some((i) => i.name === 'Ganondorf - TOTK')).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('GET /admin/login returns HTML with refresh redirect', async () => {

@@ -206,3 +206,16 @@ export interface ScanSuggestion {
   region?: string | null;
   releases: DiscoveryRelease[];
 }
+
+export interface AmiiboDiscoveryItem {
+  id: string;
+  amiibo_id: string;
+  name: string;
+  line: string;
+  series_name: string;
+  game_series?: string | null;
+  type: string;
+  image_url: string;
+  release_date?: string | null;
+  region?: string | null;
+}

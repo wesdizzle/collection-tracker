@@ -1,32 +1,31 @@
 /**
- * GAME DISCOVERY & INGESTION COMPONENT
+ * GAME & TOY DISCOVERY CENTER COMPONENT
  *
- * This component handles the discovery and ingestion flows for the collection tracker.
- * It provides three main workflows for catalog management:
- * 1. Triage Report (Default): Displays pending scrape items that need reconciliation with IGDB.
- * 2. Manual Search: Allows user-triggered IGDB searches on a specific platform, physical DAT file matching,
- *    and configuration of metadata (ownership status, play status, and backup status) before adding to SQLite.
- * 3. Series Scan: Triggers an automated scan of all tracked franchises/series on IGDB to suggest missing games,
- *    supporting one-click and bulk checkboxes ingestion.
+ * This component provides three comprehensive discovery and ingestion workflows:
+ * 1. Manual Search: Allows user-triggered IGDB searches on a specific platform, physical DAT file matching,
+ *    and configuration of metadata (ownership status, play status, backup status) before adding to SQLite / D1.
+ * 2. Series Discovery: Triggers an automated scan of all tracked franchises/series on IGDB to suggest missing games,
+ *    supporting one-click and bulk checkbox ingestion.
+ * 3. Amiibo Discovery: Scans the canonical AmiiboAPI to discover unowned/newly released figures & cards missing
+ *    from the user's collection, supporting one-click and bulk ingestion.
  *
  * DESIGN DECISIONS:
- * - Tabbed navigation separates maintenance (triage) from exploration (manual search & series scan).
- * - Rich HSL/M3 styling & glassmorphic containers provide a premium aesthetics feel.
- * - Robust fallback logic handles the unit tests context where some service signals are mocked/undefined.
+ * - Direct, tabbed navigation between Game Search, Franchise Discovery, and Amiibo Discovery.
+ * - M3 styling and glassmorphic aesthetics for a responsive, clean collection experience.
+ * - Robust fallback logic to handle unit tests context where some service signals are mocked.
  */
 
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { CollectionService } from '../../../../core/services/collection.service';
 import {
-  DiscoveryItem,
-  DiscoveryOption,
-  DiscoveryPayload,
   Platform,
   PlatformGroup,
   IGDBSearchResult,
   ScanSuggestion,
   DiscoveryRelease,
+  AmiiboDiscoveryItem,
+  Toy,
 } from '../../../../core/models/collection.models';
 import { RouterModule } from '@angular/router';
 
@@ -35,12 +34,12 @@ import { RouterModule } from '@angular/router';
   standalone: true,
   imports: [RouterModule],
   template: `
-    <div class="discovery-container animate-expressive">
+    <div class="discovery-container">
       <!-- Header Area -->
       <div class="discovery-header-panel mb-lg">
-        <h1 class="text-gradient">Game Discovery Center</h1>
+        <h1 class="text-gradient">Discovery Center</h1>
         <p class="text-secondary text-sm">
-          Discover, match, and ingest games into your local database.
+          Discover, match, and ingest new games and amiibo into your collection.
         </p>
       </div>
 
@@ -48,208 +47,31 @@ import { RouterModule } from '@angular/router';
       <div class="tabs-container mb-lg">
         <button
           class="tab-button"
-          [class.active]="activeTab() === 'triage'"
-          (click)="activeTab.set('triage')"
-        >
-          <span class="tab-icon">📋</span> Triage Report
-          @if (items().length > 0) {
-            <span class="tab-badge">{{ items().length }}</span>
-          }
-        </button>
-        <button
-          class="tab-button"
           [class.active]="activeTab() === 'search'"
           (click)="activeTab.set('search')"
         >
-          <span class="tab-icon">🔍</span> Manual Search
+          <span class="tab-icon">🔍</span> Game Search
         </button>
         <button
           class="tab-button"
           [class.active]="activeTab() === 'scan'"
           (click)="activeTab.set('scan')"
         >
-          <span class="tab-icon">🔄</span> Series Discovery
+          <span class="tab-icon">🔄</span> Franchise Discovery
+        </button>
+        <button
+          class="tab-button"
+          [class.active]="activeTab() === 'amiibo'"
+          (click)="activeTab.set('amiibo')"
+        >
+          <span class="tab-icon">👾</span> Amiibo Discovery
+          @if (amiiboResults().length > 0) {
+            <span class="tab-badge">{{ amiiboResults().length }}</span>
+          }
         </button>
       </div>
 
-      <!-- TAB 1: TRIAGE REPORT -->
-      @if (activeTab() === 'triage') {
-        <div class="tab-content animate-slide-up">
-          <div class="info-banner mb-md">
-            <span class="icon">ℹ️</span>
-            <p>
-              Select matches for raw scraping outputs imported from
-              physical/digital files.
-            </p>
-          </div>
-
-          @if (collectionService.loading()) {
-            <div class="flex justify-center p-xl">
-              <div class="spinner"></div>
-            </div>
-          }
-
-          @if (!collectionService.loading() && items().length === 0) {
-            <div class="empty-state">
-              <div class="empty-icon text-4xl">✅</div>
-              <h3>No Pending Triage Items</h3>
-              <p class="text-secondary">
-                All scraped items reconciled. Run <code>npm run scrape</code> to
-                scan files again.
-              </p>
-            </div>
-          }
-
-          @if (!collectionService.loading() && items().length > 0) {
-            <!-- Sub-Tabs Navigation for Triage -->
-            <div class="sub-tabs-container mb-lg">
-              <button
-                class="sub-tab-button"
-                [class.active]="activeTriageSubTab() === 'all'"
-                (click)="activeTriageSubTab.set('all')"
-              >
-                All ({{ items().length }})
-              </button>
-              <button
-                class="sub-tab-button"
-                [class.active]="activeTriageSubTab() === 'games'"
-                (click)="activeTriageSubTab.set('games')"
-              >
-                Games ({{ gameItemsCount() }})
-              </button>
-              <button
-                class="sub-tab-button"
-                [class.active]="activeTriageSubTab() === 'toys'"
-                (click)="activeTriageSubTab.set('toys')"
-              >
-                Toys ({{ toyItemsCount() }})
-              </button>
-            </div>
-
-            @if (filteredItems().length === 0) {
-              <div class="empty-state animate-slide-up">
-                <div class="empty-icon text-4xl">📂</div>
-                <h3>No Items Found</h3>
-                <p class="text-secondary">
-                  There are no staging items currently under the "{{
-                    activeTriageSubTab()
-                  }}" tab.
-                </p>
-              </div>
-            } @else {
-              <div class="discovery-grid animate-slide-up">
-                @for (
-                  item of filteredItems();
-                  track item.title + item.platform;
-                  let i = $index
-                ) {
-                  <div class="discovery-card card-glass">
-                    <div class="card-header">
-                      <div>
-                        <h2 class="text-lg font-bold">{{ item.title }}</h2>
-                        <div class="flex gap-sm items-center mt-sm">
-                          <span
-                            class="platform-badge"
-                            [class.toy-badge]="
-                              item.line || item.platform === 'amiibo'
-                            "
-                            >{{ item.platform }}</span
-                          >
-                          @if (item.line) {
-                            <span class="metadata-badge"
-                              >Line: {{ item.line }}</span
-                            >
-                          }
-                          @if (item.series) {
-                            <span class="metadata-badge"
-                              >Series: {{ item.series }}</span
-                            >
-                          }
-                        </div>
-                      </div>
-                      <div class="count-badge">
-                        {{ item.options.length }} Candidates
-                      </div>
-                    </div>
-                    <div class="options-scroll">
-                      @for (opt of item.options; track opt.id) {
-                        <div class="option-row">
-                          <div
-                            class="option-cover"
-                            [class.toy-cover]="item.line"
-                          >
-                            @if (opt.image_url) {
-                              <img
-                                [src]="opt.image_url"
-                                alt="cover"
-                                referrerpolicy="no-referrer"
-                              />
-                            } @else {
-                              <div class="no-image">No Cover</div>
-                            }
-                          </div>
-                          <div class="option-info">
-                            <div class="flex justify-between items-start">
-                              <div>
-                                <h4 class="option-name">{{ opt.name }}</h4>
-                                <p
-                                  class="option-platform text-xs text-secondary"
-                                >
-                                  {{ opt.platform }}
-                                </p>
-                              </div>
-                              <button
-                                (click)="applyMatch(item, opt)"
-                                class="btn-match"
-                              >
-                                Match
-                              </button>
-                            </div>
-                            @if (opt.summary) {
-                              <p class="option-summary text-xs mt-sm">
-                                @if (
-                                  opt.summary.startsWith('SCL Link: ') ||
-                                  opt.summary.startsWith('Checklist link: ')
-                                ) {
-                                  SCL Link:
-                                  <a
-                                    [href]="
-                                      opt.summary
-                                        .replace('SCL Link: ', '')
-                                        .replace('Checklist link: ', '')
-                                    "
-                                    target="_blank"
-                                    style="color: var(--m3-primary); text-decoration: underline;"
-                                  >
-                                    {{
-                                      opt.summary
-                                        .replace('SCL Link: ', '')
-                                        .replace('Checklist link: ', '')
-                                    }}
-                                  </a>
-                                } @else {
-                                  {{ opt.summary }}
-                                }
-                              </p>
-                            }
-                            <div
-                              class="option-id text-xxs text-secondary mt-sm"
-                            >
-                              ID: {{ opt.id }}
-                            </div>
-                          </div>
-                        </div>
-                      }
-                    </div>
-                  </div>
-                }
-              </div>
-            }
-          }
-        </div>
-      }
-
-      <!-- TAB 2: MANUAL SEARCH -->
+      <!-- TAB 1: MANUAL GAME SEARCH -->
       @if (activeTab() === 'search') {
         <div class="tab-content animate-slide-up">
           <!-- Control Panel -->
@@ -385,18 +207,17 @@ import { RouterModule } from '@angular/router';
         </div>
       }
 
-      <!-- TAB 3: SERIES SCAN -->
+      <!-- TAB 2: SERIES DISCOVERY -->
       @if (activeTab() === 'scan') {
         <div class="tab-content animate-slide-up">
           <!-- CTA Action panel -->
           @if (!scanLoading() && scanResults().length === 0) {
             <div class="scan-cta-card">
               <div class="text-4xl mb-md">🧭</div>
-              <h2>Scan Existing Franchise Series</h2>
+              <h2>Scan Tracked Franchises</h2>
               <p class="text-secondary mb-lg max-w-md mx-auto">
-                Scan tracked collections on IGDB. We will match against platform
-                release DATs and suggest missing titles. This ignores
-                unsupported platforms automatically.
+                Scan tracked collections against IGDB to surface missing
+                canonical entries on supported platforms.
               </p>
               <button
                 class="m3-btn m3-btn-primary"
@@ -414,7 +235,7 @@ import { RouterModule } from '@angular/router';
               <h3>Franchise Scan in Progress</h3>
               <p class="text-secondary text-sm max-w-sm">
                 Fetching series metadata, compiling missing matches, and
-                cross-referencing DAT catalogs. This takes a moment...
+                cross-referencing catalogs. This takes a moment...
               </p>
             </div>
           }
@@ -435,7 +256,7 @@ import { RouterModule } from '@angular/router';
               <div>
                 <h3>{{ scanResults().length }} Suggestions Found</h3>
                 <p class="text-secondary text-xs">
-                  Series scans assume games are unowned and not backed up.
+                  Series scans assume games are unowned and unplayed by default.
                 </p>
               </div>
               <div class="flex gap-sm">
@@ -523,33 +344,196 @@ import { RouterModule } from '@angular/router';
                         {{ game.summary }}
                       </p>
                     }
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
 
-                    @if (game.releases && game.releases.length > 0) {
-                      <div class="mt-md">
-                        <p
-                          class="text-xxs text-secondary font-bold uppercase mb-sm"
-                        >
-                          Matched DAT Releases ({{ game.releases.length }})
-                        </p>
-                        <div class="flex flex-wrap">
-                          @for (r of game.releases.slice(0, 10); track r.name) {
-                            <span class="release-chip"
-                              >{{ r.region || 'Unknown' }} - {{ r.name }}</span
-                            >
-                          }
-                          @if (game.releases.length > 10) {
-                            <span class="release-chip font-bold"
-                              >+{{ game.releases.length - 10 }} more</span
+      <!-- TAB 3: AMIIBO DISCOVERY -->
+      @if (activeTab() === 'amiibo') {
+        <div class="tab-content animate-slide-up">
+          <!-- CTA Action panel if not scanned yet -->
+          @if (
+            !amiiboLoading() &&
+            amiiboResults().length === 0 &&
+            !amiiboPerformed()
+          ) {
+            <div class="scan-cta-card">
+              <div class="text-4xl mb-md">👾</div>
+              <h2>Scan Amiibo Catalog</h2>
+              <p class="text-secondary mb-lg max-w-md mx-auto">
+                Query the canonical AmiiboAPI database to discover newly
+                released figures and cards that are missing from your
+                collection.
+              </p>
+              <button
+                class="m3-btn m3-btn-primary"
+                (click)="triggerAmiiboScan()"
+              >
+                👾 Scan Missing Amiibo
+              </button>
+            </div>
+          }
+
+          <!-- Scan Loading state -->
+          @if (amiiboLoading()) {
+            <div class="scan-loading-card">
+              <div class="progress-pulse"></div>
+              <h3>Amiibo Scan in Progress</h3>
+              <p class="text-secondary text-sm max-w-sm">
+                Fetching amiibo catalog from AmiiboAPI and cross-referencing
+                with your collection...
+              </p>
+            </div>
+          }
+
+          <!-- Scan Error State -->
+          @if (amiiboError()) {
+            <div class="error-banner mb-md">
+              <span class="icon">⚠️</span>
+              <p>{{ amiiboError() }}</p>
+            </div>
+          }
+
+          <!-- Empty Result State -->
+          @if (
+            !amiiboLoading() &&
+            amiiboResults().length === 0 &&
+            !amiiboError() &&
+            amiiboPerformed()
+          ) {
+            <div class="empty-state animate-slide-up">
+              <div class="empty-icon text-4xl">🎉</div>
+              <h3>All Amiibo Reconciled!</h3>
+              <p class="text-secondary mb-md">
+                Your collection includes every amiibo currently registered in
+                the database.
+              </p>
+              <button
+                class="m3-btn m3-btn-secondary btn-sm"
+                (click)="triggerAmiiboScan()"
+              >
+                🔄 Scan Again
+              </button>
+            </div>
+          }
+
+          <!-- Amiibo Results List -->
+          @if (!amiiboLoading() && amiiboResults().length > 0) {
+            <!-- Controls & Filters -->
+            <div class="amiibo-filters-bar mb-md">
+              <div class="flex flex-wrap gap-sm items-center flex-1">
+                <input
+                  type="text"
+                  placeholder="Filter by name..."
+                  class="m3-input amiibo-search-input"
+                  [value]="amiiboSearchQuery()"
+                  (input)="onAmiiboSearchInput($event)"
+                />
+
+                <select
+                  class="m3-select amiibo-select"
+                  [value]="amiiboSeriesFilter()"
+                  (change)="onAmiiboSeriesChange($event)"
+                >
+                  <option value="all">All Series</option>
+                  @for (s of amiiboSeriesList(); track s) {
+                    <option [value]="s">{{ s }}</option>
+                  }
+                </select>
+
+                <select
+                  class="m3-select amiibo-select"
+                  [value]="amiiboTypeFilter()"
+                  (change)="onAmiiboTypeChange($event)"
+                >
+                  <option value="all">All Types</option>
+                  @for (t of amiiboTypesList(); track t) {
+                    <option [value]="t">{{ t }}</option>
+                  }
+                </select>
+              </div>
+
+              <div class="flex gap-sm items-center">
+                <button
+                  class="m3-btn m3-btn-secondary btn-sm"
+                  (click)="toggleSelectAllAmiibo()"
+                >
+                  {{
+                    selectedAmiiboIds().size === filteredAmiiboResults().length
+                      ? 'Deselect All'
+                      : 'Select All'
+                  }}
+                </button>
+                <button
+                  class="m3-btn m3-btn-primary btn-sm"
+                  [disabled]="selectedAmiiboIds().size === 0"
+                  (click)="bulkAddAmiibo()"
+                >
+                  Bulk Ingest ({{ selectedAmiiboIds().size }})
+                </button>
+              </div>
+            </div>
+
+            <!-- Discovered Amiibo Cards Grid -->
+            <div class="series-grid">
+              @for (
+                item of filteredAmiiboResults();
+                track item.amiibo_id || item.id
+              ) {
+                <div class="series-game-card">
+                  <input
+                    type="checkbox"
+                    class="series-card-checkbox"
+                    [checked]="
+                      selectedAmiiboIds().has(item.amiibo_id || item.id)
+                    "
+                    (change)="toggleAmiiboSelection(item)"
+                  />
+
+                  <div class="amiibo-card-cover">
+                    @if (item.image_url) {
+                      <img
+                        [src]="item.image_url"
+                        alt="amiibo"
+                        referrerpolicy="no-referrer"
+                      />
+                    } @else {
+                      <div class="no-image">No Image</div>
+                    }
+                  </div>
+
+                  <div class="series-game-info">
+                    <div
+                      class="flex justify-between items-start flex-wrap gap-sm"
+                    >
+                      <div>
+                        <h4 class="text-base font-bold">{{ item.name }}</h4>
+                        <div class="flex gap-sm items-center mt-sm flex-wrap">
+                          <span class="platform-badge toy-badge">amiibo</span>
+                          <span class="metadata-badge"
+                            >Series: {{ item.series_name }}</span
+                          >
+                          <span class="metadata-badge"
+                            >Type: {{ item.type }}</span
+                          >
+                          @if (item.release_date) {
+                            <span class="metadata-badge"
+                              >Released: {{ item.release_date }}</span
                             >
                           }
                         </div>
                       </div>
-                    } @else {
-                      <p class="text-xxs text-secondary italic mt-md">
-                        No matching DAT releases. A virtual release will be
-                        created.
-                      </p>
-                    }
+                      <button
+                        class="m3-btn m3-btn-secondary btn-sm"
+                        (click)="addSingleAmiibo(item)"
+                      >
+                        One-click Ingest
+                      </button>
+                    </div>
                   </div>
                 </div>
               }
@@ -676,76 +660,6 @@ import { RouterModule } from '@angular/router';
                   </select>
                 </div>
               </div>
-
-              <!-- Physical Releases checklist -->
-              <div class="release-checklist-section">
-                <div class="checklist-header">
-                  <label class="font-bold text-xs uppercase"
-                    >Physical DAT Matches (Select to track)</label
-                  >
-                  @if (matchedReleases().length > 0) {
-                    <div class="flex gap-sm">
-                      <button
-                        class="m3-btn m3-btn-secondary btn-sm py-1 px-3 text-xs"
-                        (click)="selectAllReleases(matchedReleases())"
-                      >
-                        All
-                      </button>
-                      <button
-                        class="m3-btn m3-btn-secondary btn-sm py-1 px-3 text-xs"
-                        (click)="selectNoReleases()"
-                      >
-                        None
-                      </button>
-                    </div>
-                  }
-                </div>
-
-                @if (matchedReleases().length === 0) {
-                  <p class="text-xs text-secondary italic">
-                    No matching physical releases in DAT file. A virtual default
-                    release will be generated.
-                  </p>
-                } @else {
-                  <div class="checklist-list">
-                    @for (
-                      rel of matchedReleases();
-                      track rel.romCrc + '-' + rel.name
-                    ) {
-                      <div
-                        class="checklist-item"
-                        [class.selected]="
-                          selectedReleaseIds().has(rel.romCrc || rel.name)
-                        "
-                        (click)="toggleReleaseSelection(rel)"
-                      >
-                        <input
-                          type="checkbox"
-                          [checked]="
-                            selectedReleaseIds().has(rel.romCrc || rel.name)
-                          "
-                          (click)="
-                            $event.stopPropagation();
-                            toggleReleaseSelection(rel)
-                          "
-                        />
-                        <div>
-                          <div class="release-name">{{ rel.name }}</div>
-                          <div class="release-meta">
-                            Region: {{ rel.region || 'Unknown' }}
-                            @if (rel.romCrc) {
-                              | CRC: {{ rel.romCrc }}
-                            }
-                            @if (rel.variants) {
-                              | Variants: {{ rel.variants }}
-                            }
-                          </div>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                }
-              </div>
             }
           </div>
 
@@ -772,25 +686,48 @@ import { RouterModule } from '@angular/router';
     <!-- Sticky Floating Action Bar for Bulk operations -->
     <div
       class="bulk-action-bar"
-      [class.visible]="selectedScanGameIds().size > 0"
+      [class.visible]="
+        selectedScanGameIds().size > 0 ||
+        (activeTab() === 'amiibo' && selectedAmiiboIds().size > 0)
+      "
     >
-      <span class="text-sm font-bold"
-        >{{ selectedScanGameIds().size }} Games Selected</span
-      >
-      <div class="flex gap-sm">
-        <button
-          class="m3-btn m3-btn-secondary btn-sm py-2"
-          (click)="clearScanSelection()"
+      @if (activeTab() === 'scan') {
+        <span class="text-sm font-bold"
+          >{{ selectedScanGameIds().size }} Games Selected</span
         >
-          Cancel
-        </button>
-        <button
-          class="m3-btn m3-btn-primary btn-sm py-2"
-          (click)="bulkAddSeriesGames()"
+        <div class="flex gap-sm">
+          <button
+            class="m3-btn m3-btn-secondary btn-sm py-2"
+            (click)="clearScanSelection()"
+          >
+            Cancel
+          </button>
+          <button
+            class="m3-btn m3-btn-primary btn-sm py-2"
+            (click)="bulkAddSeriesGames()"
+          >
+            Ingest Bulk
+          </button>
+        </div>
+      } @else if (activeTab() === 'amiibo') {
+        <span class="text-sm font-bold"
+          >{{ selectedAmiiboIds().size }} Amiibo Selected</span
         >
-          Ingest Bulk
-        </button>
-      </div>
+        <div class="flex gap-sm">
+          <button
+            class="m3-btn m3-btn-secondary btn-sm py-2"
+            (click)="clearAmiiboSelection()"
+          >
+            Cancel
+          </button>
+          <button
+            class="m3-btn m3-btn-primary btn-sm py-2"
+            (click)="bulkAddAmiibo()"
+          >
+            Ingest Bulk
+          </button>
+        </div>
+      }
     </div>
 
     <!-- Toast Notification -->
@@ -821,12 +758,15 @@ import { RouterModule } from '@angular/router';
       .text-gradient {
         font-size: 2.5rem;
         margin: 0;
+        background: linear-gradient(135deg, #fff, var(--m3-primary-light));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
       }
       .max-w-md {
         max-width: 28rem;
       }
       .max-w-sm {
-        max-w: 24rem;
+        max-width: 24rem;
       }
       .mx-auto {
         margin-left: auto;
@@ -850,480 +790,377 @@ import { RouterModule } from '@angular/router';
         padding-top: 0.5rem;
         padding-bottom: 0.5rem;
       }
-
+      .text-xxs {
+        font-size: 0.65rem;
+      }
       .tabs-container {
         display: flex;
-        gap: var(--spacing-12);
-        border-bottom: 1px solid var(--glass-border);
-        padding-bottom: var(--spacing-12);
-        flex-wrap: wrap;
+        gap: var(--spacing-8);
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: var(--spacing-8);
       }
       .tab-button {
         background: transparent;
         border: none;
-        color: var(--m3-on-surface-variant);
-        font-family: var(--font-heading);
+        color: var(--text-secondary);
+        font-size: 1rem;
         font-weight: 600;
-        font-size: 0.95rem;
         padding: var(--spacing-8) var(--spacing-16);
+        border-radius: var(--radius-md);
         cursor: pointer;
-        border-radius: var(--radius-sm);
         display: flex;
         align-items: center;
         gap: var(--spacing-8);
-        transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
-        position: relative;
+        transition: all 0.2s ease;
       }
       .tab-button:hover {
-        background: rgba(255, 255, 255, 0.05);
-        color: var(--m3-primary);
+        background: var(--surface-hover);
+        color: var(--text-primary);
       }
       .tab-button.active {
-        color: var(--m3-primary);
-        background: rgba(255, 185, 81, 0.08);
-      }
-      .tab-button.active::after {
-        content: '';
-        position: absolute;
-        bottom: -13px;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: var(--m3-primary);
-        border-radius: var(--radius-full);
-      }
-      .tab-badge {
-        font-size: 0.7rem;
-        background: var(--m3-primary);
-        color: var(--m3-on-primary);
-        padding: 0.1rem 0.4rem;
-        border-radius: var(--radius-full);
-        font-weight: bold;
-        margin-left: var(--spacing-4);
-      }
-
-      /* Triage Sub-Tabs */
-      .sub-tabs-container {
-        display: flex;
-        gap: var(--spacing-8);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        padding-bottom: var(--spacing-8);
-        flex-wrap: wrap;
-      }
-      .sub-tab-button {
-        background: transparent;
-        border: none;
-        color: var(--m3-on-surface-variant);
-        font-family: var(--font-heading);
-        font-weight: 600;
-        font-size: 0.85rem;
-        padding: var(--spacing-6) var(--spacing-12);
-        cursor: pointer;
-        border-radius: var(--radius-xs);
-        transition: all 0.2s ease;
-        border: 1px solid transparent;
-      }
-      .sub-tab-button:hover {
-        background: rgba(255, 255, 255, 0.03);
-        color: var(--m3-on-surface);
-      }
-      .sub-tab-button.active {
-        color: var(--m3-primary);
-        background: rgba(255, 185, 81, 0.05);
-        border-color: rgba(255, 185, 81, 0.25);
-      }
-
-      /* Triage Pending */
-      .info-banner {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid var(--glass-border);
-        padding: var(--spacing-12) var(--spacing-16);
-        border-radius: var(--radius-xs);
-        display: flex;
-        gap: var(--spacing-12);
-        align-items: center;
-      }
-      .info-banner p {
-        margin: 0;
-        font-size: 0.85rem;
-        color: var(--m3-on-surface-variant);
-      }
-
-      .discovery-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-        gap: var(--spacing-16);
-      }
-      .discovery-card {
-        display: flex;
-        flex-direction: column;
-        height: 480px;
-        background: rgba(30, 41, 59, 0.3);
-        border: 1px solid var(--glass-border);
-        border-radius: var(--radius-md);
-        overflow: hidden;
-      }
-      .card-header {
-        padding: var(--spacing-16);
-        border-bottom: 1px solid var(--glass-border);
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        background: rgba(255, 255, 255, 0.02);
-      }
-      .platform-badge {
-        font-size: 0.75rem;
-        background: rgba(255, 255, 255, 0.08);
-        padding: 0.2rem 0.5rem;
-        border-radius: 4px;
-        color: var(--m3-on-surface-variant);
-        font-weight: 600;
-      }
-      .toy-badge {
-        background: rgba(255, 185, 81, 0.15);
+        background: var(--m3-primary-container);
         color: var(--m3-primary);
       }
-      .metadata-badge {
-        font-size: 0.7rem;
-        background: rgba(255, 255, 255, 0.04);
-        padding: 0.15rem 0.4rem;
-        border-radius: 4px;
-        color: var(--m3-on-surface-variant);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-      }
-      .count-badge {
-        font-size: 0.75rem;
-        color: var(--m3-primary);
-        font-weight: 600;
-      }
-      .options-scroll {
-        flex: 1;
-        overflow-y: auto;
-        padding: var(--spacing-8);
-      }
-      .option-row {
-        display: flex;
-        gap: var(--spacing-12);
-        padding: var(--spacing-12);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        transition: background 0.2s;
-      }
-      .option-row:hover {
-        background: rgba(255, 255, 255, 0.03);
-      }
-      .option-row:last-child {
-        border-bottom: none;
-      }
-      .option-cover {
-        width: 54px;
-        height: 72px;
-        flex-shrink: 0;
-        border-radius: var(--radius-xs);
-        overflow: hidden;
-        background: #101726;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid var(--glass-border);
-      }
-      .option-cover.toy-cover {
-        background: #ffffff;
-      }
-      .option-cover img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-      .no-image {
-        font-size: 0.6rem;
-        color: var(--m3-on-surface-variant);
-        text-align: center;
-      }
-      .option-info {
-        flex: 1;
-        min-width: 0;
-      }
-      .option-name {
-        font-weight: 700;
-        color: var(--m3-on-surface);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-size: 0.95rem;
-      }
-      .option-summary {
-        color: var(--m3-on-surface-variant);
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        line-height: 1.4;
-      }
-      .btn-match {
-        background: var(--m3-primary);
-        border: none;
-        color: var(--m3-on-primary);
-        padding: 0.3rem 0.75rem;
-        border-radius: var(--radius-xs);
-        cursor: pointer;
-        font-size: 0.75rem;
-        font-weight: 700;
-        transition: all 0.2s;
-      }
-      .btn-match:hover {
-        background: #ffa826;
-        transform: scale(1.05);
-      }
-
-      /* Manual Search controls */
       .search-controls {
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid var(--glass-border);
-        border-radius: var(--radius-md);
-        padding: var(--spacing-16);
         display: flex;
-        gap: var(--spacing-16);
-        flex-wrap: wrap;
+        gap: var(--spacing-12);
         align-items: center;
+        flex-wrap: wrap;
       }
       .m3-input-wrapper {
+        position: relative;
         flex: 1;
         min-width: 260px;
-        position: relative;
-      }
-      .m3-input {
-        width: 100%;
-        background: rgba(0, 0, 0, 0.25);
-        border: 1px solid var(--m3-outline-variant);
-        border-radius: var(--radius-xs);
-        padding: var(--spacing-12) var(--spacing-16) var(--spacing-12) 40px;
-        color: var(--m3-on-surface);
-        font-family: var(--font-body);
-        font-size: 0.95rem;
-        outline: none;
-        transition: all 0.3s ease;
-      }
-      .m3-input:focus {
-        border-color: var(--m3-primary);
-        box-shadow: 0 0 0 3px rgba(255, 185, 81, 0.15);
       }
       .input-prefix-icon {
         position: absolute;
-        left: 14px;
+        left: 12px;
         top: 50%;
         transform: translateY(-50%);
-        font-size: 1.1rem;
-        color: var(--m3-on-surface-variant);
+        pointer-events: none;
+        opacity: 0.6;
       }
-      .m3-select {
-        background: var(--m3-surface-container-high);
-        border: 1px solid var(--m3-outline);
-        border-radius: var(--radius-sm);
-        padding: var(--spacing-12) var(--spacing-16);
-        color: var(--m3-on-surface);
-        font-family: var(--font-body);
+      .m3-input {
+        width: 100%;
+        padding: var(--spacing-12) var(--spacing-16) var(--spacing-12) 36px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+        background: var(--surface-card);
+        color: var(--text-primary);
         font-size: 0.95rem;
+        box-sizing: border-box;
+      }
+      .m3-input:focus {
         outline: none;
-        cursor: pointer;
-        min-width: 200px;
-        transition: all 0.3s ease;
-      }
-      .m3-select:focus {
         border-color: var(--m3-primary);
-        background: var(--m3-surface-container-highest);
-        box-shadow: 0 0 0 1px var(--m3-primary);
       }
-      .m3-select option,
-      .m3-select optgroup {
-        background: var(--m3-surface-container-highest);
-        color: var(--m3-on-surface);
+      .amiibo-search-input {
+        min-width: 200px;
+        max-width: 280px;
+        padding: var(--spacing-8) var(--spacing-12);
       }
       .select-wrapper {
-        position: relative;
+        min-width: 220px;
       }
-
-      .m3-btn {
-        font-family: var(--font-heading);
-        font-weight: 600;
+      .m3-select {
+        width: 100%;
+        padding: var(--spacing-12) var(--spacing-16);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+        background: var(--surface-card);
+        color: var(--text-primary);
         font-size: 0.95rem;
-        padding: var(--spacing-12) var(--spacing-24);
-        border-radius: var(--radius-full);
-        border: none;
         cursor: pointer;
-        transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+        box-sizing: border-box;
+      }
+      .amiibo-select {
+        width: auto;
+        min-width: 150px;
+        padding: var(--spacing-8) var(--spacing-12);
+      }
+      .amiibo-filters-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--spacing-12);
+        flex-wrap: wrap;
+        background: var(--surface-card);
+        padding: var(--spacing-12) var(--spacing-16);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-color);
+      }
+      .m3-btn {
+        padding: 12px 24px;
+        min-height: 44px;
+        border-radius: var(--radius-md);
+        font-family: inherit;
+        font-size: 0.95rem;
+        font-weight: 700;
+        cursor: pointer;
+        border: none;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: var(--spacing-8);
+        transition: all 0.2s ease;
+        text-decoration: none;
+        box-sizing: border-box;
+        line-height: 1.2;
       }
       .m3-btn:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
-        transform: none !important;
-        box-shadow: none !important;
       }
       .m3-btn-primary {
         background: var(--m3-primary);
-        color: var(--m3-on-primary);
+        color: var(--m3-on-primary, #452b00);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
       }
-      .m3-btn-primary:hover {
-        background: #ffa826;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(255, 185, 81, 0.3);
+      .m3-btn-primary:hover:not(:disabled) {
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container, #ffddb3);
+        box-shadow: 0 4px 14px rgba(255, 185, 81, 0.25);
       }
       .m3-btn-secondary {
-        background: var(--m3-surface-container-highest);
-        color: var(--m3-on-surface);
-        border: 1px solid var(--m3-outline-variant);
+        background: var(--m3-surface-container-high, rgba(255, 255, 255, 0.08));
+        color: var(--m3-on-surface, #e9e1d9);
+        border: 1px solid var(--border-color);
       }
-      .m3-btn-secondary:hover {
-        background: rgba(255, 255, 255, 0.05);
-        transform: translateY(-2px);
+      .m3-btn-secondary:hover:not(:disabled) {
+        background: var(
+          --m3-surface-container-highest,
+          rgba(255, 255, 255, 0.16)
+        );
+        color: #ffffff;
+      }
+      .tab-badge {
+        background: var(--m3-primary);
+        color: var(--m3-on-primary, #452b00);
+        font-weight: 700;
+        font-size: 0.75rem;
+        padding: 2px 6px;
+        border-radius: var(--radius-full);
       }
       .btn-sm {
-        padding: 0.4rem 0.8rem;
-        font-size: 0.8rem;
+        padding: 8px 16px;
+        min-height: 36px;
+        font-size: 0.85rem;
       }
-
+      .empty-state {
+        text-align: center;
+        padding: var(--spacing-48) var(--spacing-16);
+        background: var(--surface-card);
+        border-radius: var(--radius-xl);
+        border: 1px dashed var(--border-color);
+      }
+      .scan-cta-card {
+        text-align: center;
+        padding: var(--spacing-48) var(--spacing-24);
+        background: var(--surface-card);
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--border-color);
+      }
+      .scan-loading-card {
+        text-align: center;
+        padding: var(--spacing-48) var(--spacing-24);
+        background: var(--surface-card);
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--spacing-12);
+      }
       .results-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-        gap: var(--spacing-24);
+        gap: var(--spacing-16);
       }
       .game-result-card {
+        background: var(--surface-card);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-color);
+        overflow: hidden;
         display: flex;
         flex-direction: column;
-        height: 100%;
-        background: rgba(30, 41, 59, 0.3);
-        border: 1px solid var(--glass-border);
-        border-radius: var(--radius-md);
-        overflow: hidden;
-        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-      }
-      .game-result-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
-        border-color: var(--m3-primary);
       }
       .result-cover {
-        height: 220px;
-        background: #101726;
+        aspect-ratio: 3/4;
+        background: #110e19;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
-        border-bottom: 1px solid var(--glass-border);
       }
       .result-cover img {
         width: 100%;
         height: 100%;
         object-fit: cover;
-        transition: transform 0.5s ease;
-      }
-      .game-result-card:hover .result-cover img {
-        transform: scale(1.05);
       }
       .result-details {
-        padding: var(--spacing-16);
+        padding: var(--spacing-12);
         flex: 1;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
       }
       .result-title {
-        font-size: 1rem;
+        font-size: 0.95rem;
+        margin: 0 0 var(--spacing-6) 0;
         font-weight: 700;
-        margin: 0 0 var(--spacing-8) 0;
-        color: var(--m3-on-surface);
-        white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
       }
-
-      /* Ingestion Modal Styles */
-      .modal-backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.75);
-        backdrop-filter: blur(8px);
-        z-index: 1000;
+      .platform-badge {
+        font-size: 0.75rem;
+        background: var(--surface-hover);
+        color: var(--text-secondary);
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
+        display: inline-block;
+      }
+      .toy-badge {
+        background: rgba(234, 88, 12, 0.2);
+        color: #fb923c;
+      }
+      .metadata-badge {
+        font-size: 0.75rem;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-secondary);
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
+        display: inline-block;
+      }
+      .series-grid {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-12);
+      }
+      .series-game-card {
+        background: var(--surface-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-12);
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-16);
+      }
+      .series-card-checkbox {
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+        accent-color: var(--m3-primary);
+      }
+      .series-game-cover {
+        width: 64px;
+        height: 80px;
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        background: #110e19;
+        flex-shrink: 0;
+      }
+      .series-game-cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .amiibo-card-cover {
+        width: 64px;
+        height: 80px;
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        background: #110e19;
+        flex-shrink: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: var(--spacing-24);
-        animation: fadeIn 0.3s ease forwards;
       }
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-        }
-        to {
-          opacity: 1;
-        }
+      .amiibo-card-cover img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
+      .series-game-info {
+        flex: 1;
+      }
+      .modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.75);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        padding: var(--spacing-16);
+        box-sizing: border-box;
       }
       .modal-content {
-        background: var(--m3-surface-container-high);
-        border: 1px solid var(--glass-border);
-        border-radius: var(--radius-lg);
+        background: var(--m3-surface-container, #241d15);
+        color: var(--m3-on-surface, #e9e1d9);
+        border: 1px solid var(--m3-outline-variant, rgba(255, 255, 255, 0.15));
+        border-radius: var(--radius-xl);
         width: 100%;
-        max-width: 680px;
-        max-height: 85vh;
+        max-width: 600px;
+        max-height: 90vh;
         overflow-y: auto;
-        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
-        animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        padding: var(--spacing-24);
+        box-sizing: border-box;
+        box-shadow:
+          0 20px 60px rgba(0, 0, 0, 0.8),
+          0 0 0 1px rgba(255, 255, 255, 0.1);
+        animation: modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       }
-      @keyframes slideUp {
+      @keyframes modalFadeIn {
         from {
-          transform: translateY(30px) scale(0.95);
           opacity: 0;
+          transform: scale(0.95) translateY(8px);
         }
         to {
-          transform: translateY(0) scale(1);
           opacity: 1;
+          transform: scale(1) translateY(0);
         }
       }
       .modal-header {
-        padding: var(--spacing-16) var(--spacing-24);
-        border-bottom: 1px solid var(--glass-border);
         display: flex;
         justify-content: space-between;
         align-items: center;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: var(--spacing-12);
+        margin-bottom: var(--spacing-16);
       }
       .modal-header h3 {
-        margin: 0;
-        color: var(--m3-primary);
         font-size: 1.25rem;
-      }
-      .modal-body {
-        padding: var(--spacing-24);
-      }
-      .modal-footer {
-        padding: var(--spacing-16) var(--spacing-24);
-        border-top: 1px solid var(--glass-border);
-        display: flex;
-        justify-content: flex-end;
-        gap: var(--spacing-12);
-        background: rgba(0, 0, 0, 0.1);
+        font-weight: 700;
+        margin: 0;
+        color: #ffffff;
       }
       .close-btn {
         background: transparent;
         border: none;
-        font-size: 1.8rem;
+        color: var(--text-secondary);
+        font-size: 1.75rem;
         cursor: pointer;
-        color: var(--m3-on-surface-variant);
-        transition: color 0.2s;
         line-height: 1;
+        padding: 0 4px;
       }
       .close-btn:hover {
-        color: var(--m3-primary);
+        color: #ffffff;
       }
       .modal-game-cover {
-        width: 75px;
+        width: 80px;
         height: 100px;
-        border-radius: var(--radius-xs);
+        border-radius: var(--radius-md);
         overflow: hidden;
-        background: #101726;
-        border: 1px solid var(--glass-border);
+        background: #110e19;
         flex-shrink: 0;
       }
       .modal-game-cover img {
@@ -1331,252 +1168,120 @@ import { RouterModule } from '@angular/router';
         height: 100%;
         object-fit: cover;
       }
-
       .modal-meta-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: var(--spacing-16);
-        margin-bottom: var(--spacing-24);
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: var(--spacing-12);
+        margin-top: var(--spacing-16);
       }
       .form-field {
         display: flex;
         flex-direction: column;
-        gap: var(--spacing-8);
+        gap: var(--spacing-4);
       }
       .form-field label {
-        font-size: 0.85rem;
-        font-weight: 700;
-        color: var(--m3-on-surface-variant);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-secondary);
       }
-      .form-field select {
-        width: 100%;
-      }
-
-      .release-checklist-section {
-        background: rgba(0, 0, 0, 0.2);
-        border: 1px solid var(--glass-border);
-        border-radius: var(--radius-md);
-        padding: var(--spacing-16);
-      }
-      .checklist-header {
+      .modal-footer {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: var(--spacing-12);
-      }
-      .checklist-list {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-8);
-        max-height: 220px;
-        overflow-y: auto;
-        padding-right: var(--spacing-4);
-      }
-      .checklist-item {
-        display: flex;
-        align-items: center;
+        justify-content: flex-end;
         gap: var(--spacing-12);
-        background: rgba(255, 255, 255, 0.02);
-        padding: var(--spacing-12);
-        border-radius: var(--radius-xs);
-        border: 1px solid transparent;
-        cursor: pointer;
-        transition: all 0.2s;
+        margin-top: var(--spacing-24);
+        border-top: 1px solid var(--border-color);
+        padding-top: var(--spacing-16);
       }
-      .checklist-item:hover {
-        background: rgba(255, 255, 255, 0.04);
-        border-color: var(--glass-border);
-      }
-      .checklist-item.selected {
-        background: rgba(255, 185, 81, 0.05);
-        border-color: rgba(255, 185, 81, 0.25);
-      }
-      .checklist-item input[type='checkbox'] {
-        accent-color: var(--m3-primary);
-        width: 18px;
-        height: 18px;
-        cursor: pointer;
-        flex-shrink: 0;
-      }
-      .release-name {
-        font-size: 0.9rem;
-        font-weight: 700;
-        color: var(--m3-on-surface);
-      }
-      .release-meta {
-        font-size: 0.75rem;
-        color: var(--m3-on-surface-variant);
-        margin-top: 2px;
-      }
-
-      /* Series Scan styles */
-      .scan-cta-card {
-        background: linear-gradient(
-          135deg,
-          rgba(255, 185, 81, 0.08),
-          rgba(178, 240, 141, 0.05)
-        );
-        border: 1px solid rgba(255, 185, 81, 0.15);
-        border-radius: var(--radius-lg);
-        padding: 48px;
-        text-align: center;
-        margin-bottom: var(--spacing-24);
-      }
-      .scan-cta-card h2 {
-        font-size: 1.8rem;
-        color: var(--m3-primary);
-        margin-bottom: var(--spacing-8);
-      }
-      .scan-loading-card {
-        background: rgba(30, 41, 59, 0.25);
-        border: 1px solid var(--glass-border);
-        border-radius: var(--radius-lg);
-        padding: 48px;
-        text-align: center;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--spacing-24);
-        margin-bottom: var(--spacing-24);
-      }
-      .progress-pulse {
-        width: 64px;
-        height: 64px;
-        border-radius: 50%;
-        background: var(--m3-primary);
-        box-shadow: 0 0 0 0 rgba(255, 185, 81, 0.4);
-        animation: pulse 1.5s infinite;
-      }
-      @keyframes pulse {
-        0% {
-          transform: scale(0.95);
-          box-shadow: 0 0 0 0 rgba(255, 185, 81, 0.6);
-        }
-        70% {
-          transform: scale(1);
-          box-shadow: 0 0 0 20px rgba(255, 185, 81, 0);
-        }
-        100% {
-          transform: scale(0.95);
-          box-shadow: 0 0 0 0 rgba(255, 185, 81, 0);
-        }
-      }
-
-      .series-grid {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-16);
-        margin-bottom: 96px;
-      }
-      .series-game-card {
-        display: flex;
-        gap: var(--spacing-16);
-        background: rgba(30, 41, 59, 0.25);
-        border: 1px solid var(--glass-border);
-        border-radius: var(--radius-md);
-        padding: var(--spacing-16);
-        align-items: flex-start;
-        transition: border-color 0.3s;
-      }
-      .series-game-card:hover {
-        border-color: rgba(255, 185, 81, 0.3);
-      }
-      .series-card-checkbox {
-        margin-top: 6px;
-        width: 20px;
-        height: 20px;
-        accent-color: var(--m3-primary);
-        cursor: pointer;
-        flex-shrink: 0;
-      }
-      .series-game-cover {
-        width: 72px;
-        height: 96px;
-        background: #101726;
-        border-radius: var(--radius-xs);
-        overflow: hidden;
-        flex-shrink: 0;
-        border: 1px solid var(--glass-border);
-      }
-      .series-game-cover img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-      .series-game-info {
-        flex: 1;
-        min-width: 0;
-      }
-      .release-chip {
-        display: inline-block;
-        font-size: 0.7rem;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid var(--glass-border);
-        padding: 2px var(--spacing-8);
-        border-radius: var(--radius-full);
-        color: var(--m3-on-surface-variant);
-        margin-right: 6px;
-        margin-bottom: 6px;
-        font-weight: 500;
-      }
-
-      .error-banner {
-        background: rgba(255, 81, 81, 0.1);
-        border: 1px solid rgba(255, 81, 81, 0.3);
-        color: #ff8080;
-        padding: var(--spacing-12) var(--spacing-16);
-        border-radius: var(--radius-xs);
-        display: flex;
-        gap: var(--spacing-12);
-        align-items: center;
-      }
-      .error-banner p {
-        margin: 0;
-        font-size: 0.85rem;
-      }
-
-      /* Bulk action bar */
       .bulk-action-bar {
         position: fixed;
         bottom: 24px;
         left: 50%;
-        transform: translateX(-50%) translateY(120px);
-        background: var(--m3-surface-container-highest);
-        border: 1.5px solid var(--m3-primary);
-        border-radius: var(--radius-full);
+        transform: translateX(-50%) translateY(100px);
+        background: #25193e;
+        border: 1px solid var(--m3-primary);
         padding: var(--spacing-12) var(--spacing-24);
+        border-radius: var(--radius-full);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         display: flex;
         align-items: center;
         gap: var(--spacing-24);
-        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
         z-index: 900;
-        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       }
       .bulk-action-bar.visible {
         transform: translateX(-50%) translateY(0);
       }
-
-      .empty-state {
-        text-align: center;
-        padding: 48px 24px;
-        background: rgba(30, 41, 59, 0.2);
+      .m3-toast-container {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        z-index: 1100;
+      }
+      .m3-toast-card {
+        background: var(--surface-card);
+        border: 1px solid var(--m3-primary);
+        padding: var(--spacing-12) var(--spacing-16);
         border-radius: var(--radius-lg);
-        border: 1px dashed var(--glass-border);
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-12);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      }
+      .m3-toast-close {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 1.2rem;
+      }
+      .error-banner {
+        background: rgba(239, 68, 68, 0.15);
+        border: 1px solid #ef4444;
+        color: #fca5a5;
+        padding: var(--spacing-12) var(--spacing-16);
+        border-radius: var(--radius-md);
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-8);
+      }
+      .progress-pulse {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: var(--m3-primary);
+        animation: pulse 1.5s infinite;
+      }
+      @keyframes pulse {
+        0% {
+          transform: scale(0.8);
+          opacity: 0.5;
+        }
+        50% {
+          transform: scale(1.1);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(0.8);
+          opacity: 0.5;
+        }
       }
       .spinner {
-        width: 36px;
-        height: 36px;
-        border: 3px solid rgba(255, 255, 255, 0.08);
+        width: 32px;
+        height: 32px;
+        border: 3px solid var(--border-color);
         border-top-color: var(--m3-primary);
         border-radius: 50%;
-        animation: spin 1s linear infinite;
+        animation: spin 0.8s linear infinite;
       }
       @keyframes spin {
         to {
           transform: rotate(360deg);
         }
+      }
+      .no-image {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        text-align: center;
       }
       .line-clamp-3 {
         display: -webkit-box;
@@ -1584,116 +1289,14 @@ import { RouterModule } from '@angular/router';
         -webkit-box-orient: vertical;
         overflow: hidden;
       }
-
-      /* Toast Notification */
-      .m3-toast-container {
-        position: fixed;
-        bottom: 32px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 2000;
-        display: flex;
-        justify-content: center;
-        pointer-events: none;
-      }
-      .m3-toast-card {
-        pointer-events: auto;
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-12);
-        background: rgba(26, 32, 44, 0.85);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 185, 81, 0.3);
-        box-shadow:
-          0 10px 30px rgba(0, 0, 0, 0.5),
-          inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        padding: var(--spacing-12) var(--spacing-20);
-        border-radius: var(--radius-full);
-        color: var(--m3-on-surface);
-        min-width: 280px;
-        max-width: 450px;
-      }
-      .m3-toast-icon {
-        color: var(--m3-primary);
-        font-size: 1.1rem;
-      }
-      .m3-toast-text {
-        font-family: var(--font-body);
-        font-size: 0.9rem;
-        font-weight: 500;
-        flex: 1;
-        line-height: 1.4;
-      }
-      .m3-toast-close {
-        background: transparent;
-        border: none;
-        color: var(--m3-on-surface-variant);
-        cursor: pointer;
-        font-size: 1.2rem;
-        line-height: 1;
-        padding: 0 var(--spacing-4);
-        transition: color 0.2s;
-      }
-      .m3-toast-close:hover {
-        color: var(--m3-primary);
-      }
-      @keyframes toastSlideIn {
-        from {
-          transform: translateY(20px);
-          opacity: 0;
-        }
-        to {
-          transform: translateY(0);
-          opacity: 1;
-        }
-      }
-      .animate-toast {
-        animation: toastSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-      }
-
-      @media (max-width: 640px) {
-        .discovery-grid,
-        .results-grid {
-          grid-template-columns: 1fr;
-        }
-        .series-game-card {
-          flex-direction: column;
-        }
-        .series-card-checkbox {
-          align-self: flex-start;
-        }
-        .bulk-action-bar {
-          width: 90%;
-          border-radius: var(--radius-md);
-          justify-content: space-between;
-          padding: var(--spacing-12) var(--spacing-16);
-        }
-      }
     `,
   ],
 })
 export class DiscoveryListComponent implements OnInit {
   public collectionService = inject(CollectionService);
 
-  /** Active navigation tab state. */
-  public activeTab = signal<'triage' | 'search' | 'scan'>('triage');
-
-  /** Triage report items signals. */
-  public items = signal<DiscoveryItem[]>([]);
-  public activeTriageSubTab = signal<'all' | 'games' | 'toys'>('all');
-  public gameItemsCount = computed(
-    () => this.items().filter((item) => !item.line).length,
-  );
-  public toyItemsCount = computed(
-    () => this.items().filter((item) => item.line).length,
-  );
-  public filteredItems = computed(() => {
-    const tab = this.activeTriageSubTab();
-    if (tab === 'games') return this.items().filter((item) => !item.line);
-    if (tab === 'toys') return this.items().filter((item) => item.line);
-    return this.items();
-  });
+  /** Active navigation tab. Defaults to Game Search ('search'). */
+  public activeTab = signal<'search' | 'scan' | 'amiibo'>('search');
 
   /** Manual search logic signals. */
   public searchResults = signal<IGDBSearchResult[]>([]);
@@ -1708,6 +1311,16 @@ export class DiscoveryListComponent implements OnInit {
   public scanError = signal<string | null>(null);
   public selectedScanGameIds = signal<Set<string>>(new Set());
 
+  /** Amiibo discovery logic signals. */
+  public amiiboResults = signal<AmiiboDiscoveryItem[]>([]);
+  public amiiboLoading = signal<boolean>(false);
+  public amiiboError = signal<string | null>(null);
+  public amiiboPerformed = signal<boolean>(false);
+  public selectedAmiiboIds = signal<Set<string>>(new Set());
+  public amiiboSeriesFilter = signal<string>('all');
+  public amiiboTypeFilter = signal<string>('all');
+  public amiiboSearchQuery = signal<string>('');
+
   /** Ingestion modal status signals. */
   public showModal = signal<boolean>(false);
   public modalLoading = signal<boolean>(false);
@@ -1721,7 +1334,7 @@ export class DiscoveryListComponent implements OnInit {
   public playStatus = signal<number>(0);
   public backupStatus = signal<number>(0);
 
-  /** Tracks the initial platform ID selected when the modal is opened. Used to show the platform select inside the modal for global searches. */
+  /** Tracks the initial platform ID selected when the modal is opened. */
   public modalInitialPlatformId = signal<number>(0);
 
   /** Active toast message displayed at the bottom of the screen. */
@@ -1748,18 +1361,47 @@ export class DiscoveryListComponent implements OnInit {
       .sort((a, b) => a.brand.localeCompare(b.brand));
   });
 
+  /** Computes unique Amiibo series options for filtering. */
+  public amiiboSeriesList = computed<string[]>(() => {
+    const seriesSet = new Set<string>();
+    this.amiiboResults().forEach((a) => {
+      if (a.series_name) seriesSet.add(a.series_name);
+    });
+    return Array.from(seriesSet).sort();
+  });
+
+  /** Computes unique Amiibo types for filtering. */
+  public amiiboTypesList = computed<string[]>(() => {
+    const typeSet = new Set<string>();
+    this.amiiboResults().forEach((a) => {
+      if (a.type) typeSet.add(a.type);
+    });
+    return Array.from(typeSet).sort();
+  });
+
+  /** Filtered Amiibo view. */
+  public filteredAmiiboResults = computed<AmiiboDiscoveryItem[]>(() => {
+    const sFilter = this.amiiboSeriesFilter();
+    const tFilter = this.amiiboTypeFilter();
+    const query = this.amiiboSearchQuery().toLowerCase().trim();
+
+    return this.amiiboResults().filter((item) => {
+      if (sFilter !== 'all' && item.series_name !== sFilter) return false;
+      if (tFilter !== 'all' && item.type !== tFilter) return false;
+      if (query && !item.name.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  });
+
   /**
    * Initializes component and triggers load.
    */
   ngOnInit() {
-    this.refresh();
     this.loadPlatformsGracefully();
   }
 
   /**
    * Defensive getter for database platforms to support testing mocks.
-   *
-   * @returns Array of loaded platforms or empty array.
    */
   get platformsList() {
     return this.collectionService.platforms
@@ -1769,9 +1411,6 @@ export class DiscoveryListComponent implements OnInit {
 
   /**
    * Loads platforms list during initialization if not populated.
-   * Defensive against missing service functions in test specs.
-   *
-   * @returns Promise resolving when platforms are hydrated.
    */
   async loadPlatformsGracefully() {
     if (
@@ -1789,76 +1428,16 @@ export class DiscoveryListComponent implements OnInit {
   }
 
   /**
-   * Refreshes the staging triage items from the scraper database.
-   *
-   * @returns Promise representing async completion of refresh action.
-   */
-  async refresh() {
-    if (this.collectionService.refreshDiscovery) {
-      await this.collectionService.refreshDiscovery();
-    }
-    if (this.collectionService.discoveryItems) {
-      this.items.set(this.collectionService.discoveryItems());
-    }
-  }
-
-  /**
-   * Submits a triage match decision to the backend.
-   *
-   * @param item The source DiscoveryItem containing current metadata.
-   * @param option The matched DiscoveryOption details from IGDB.
-   * @returns Promise representing completion of match request.
-   */
-  async applyMatch(item: DiscoveryItem, option: DiscoveryOption) {
-    const payload: DiscoveryPayload = {
-      currentTitle: item.title,
-      currentPlatform: item.platform,
-      currentLine: item.line,
-      currentSeries: item.series,
-      selectedIgdbId: option.id,
-      selectedName: option.name,
-      selectedPlatform: option.platform,
-      region: 'NA',
-      summary: option.summary || undefined,
-      imageUrl: option.image_url || undefined,
-    };
-
-    try {
-      await firstValueFrom(this.collectionService.applyDiscovery(payload));
-      this.items.update((current) => current.filter((i) => i !== item));
-    } catch (e: unknown) {
-      console.error('[DiscoveryList] Match failed:', e);
-      let errorMsg = 'Unknown error';
-      if (e instanceof Error) {
-        errorMsg = e.message;
-      }
-
-      const httpError = e as {
-        error?: { error?: string; details?: string };
-        message?: string;
-      };
-      if (httpError?.error?.error) {
-        errorMsg = `${httpError.error.error}${httpError.error.details ? `\n\nDetails: ${httpError.error.details}` : ''}`;
-      } else if (httpError?.message) {
-        errorMsg = httpError.message;
-      }
-      alert('Error matching item:\n' + errorMsg);
-    }
-  }
-
-  /**
    * Invokes manual search on IGDB.
    *
    * @param query The search term.
    * @param platformIdStr The platform ID select option value.
-   * @returns Promise representing search completion.
    */
   async triggerSearch(query: string, platformIdStr: string) {
     if (!query) {
       alert('Please enter a search query.');
       return;
     }
-    // Convert selected option to number; 0 represents "All Platforms"
     const platformId = Number(platformIdStr || 0);
 
     if (!this.collectionService.searchGames) {
@@ -1910,23 +1489,28 @@ export class DiscoveryListComponent implements OnInit {
   }
 
   /**
-   * Fetches DAT releases and opens the ingestion setup modal wizard.
+   * Fetches releases and opens the ingestion setup modal wizard.
    *
    * @param game The search candidate game object.
    * @param platformIdStr The selected platform ID.
-   * @returns Promise representing modal hydration.
    */
   async openIngestionModal(game: IGDBSearchResult, platformIdStr: string) {
-    const platformId = Number(platformIdStr || 0);
+    let platformId = Number(platformIdStr || 0);
+    if (!platformId && game.platform) {
+      const match = this.platformsList.find(
+        (p) =>
+          (p.display_name &&
+            p.display_name.toLowerCase() === game.platform.toLowerCase()) ||
+          (p.name && p.name.toLowerCase() === game.platform.toLowerCase()),
+      );
+      if (match) {
+        platformId = match.id;
+      }
+    }
     const cleanIgdbId = game.id.toString().replace('igdb-', '');
 
-    if (!this.collectionService.getGameMatches) {
-      console.warn('[DiscoveryList] getGameMatches API is not available.');
-      return;
-    }
-
     this.showModal.set(true);
-    this.modalLoading.set(true);
+    this.modalLoading.set(false);
     this.modalGame.set(game);
     this.modalPlatformId.set(platformId);
     this.modalInitialPlatformId.set(platformId);
@@ -1938,41 +1522,32 @@ export class DiscoveryListComponent implements OnInit {
     this.playStatus.set(0);
     this.backupStatus.set(0);
 
-    // If platform is undetermined (0), defer fetching releases until platform selection
-    if (platformId === 0) {
-      this.modalLoading.set(false);
-      return;
+    if (typeof document !== 'undefined') {
+      document.body.style.overflow = 'hidden';
     }
 
-    try {
-      const data = await firstValueFrom(
-        this.collectionService.getGameMatches(cleanIgdbId, platformId),
-      );
-      if (data) {
-        if (data.game) {
-          this.modalGame.set(data.game);
+    if (platformId && this.collectionService.getGameMatches) {
+      this.modalLoading.set(true);
+      try {
+        const data = await firstValueFrom(
+          this.collectionService.getGameMatches(cleanIgdbId, platformId),
+        );
+        if (data) {
+          if (data.game) {
+            this.modalGame.set(data.game);
+          }
+          this.matchedReleases.set(data.matchedReleases || []);
         }
-        this.matchedReleases.set(data.matchedReleases || []);
-        // Pre-select all matched releases to assist user review
-        this.selectAllReleases(data.matchedReleases || []);
+      } catch (err: unknown) {
+        console.warn('[DiscoveryList] Matches lookup fallback:', err);
+      } finally {
+        this.modalLoading.set(false);
       }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert('Failed to load physical releases checklist: ' + msg);
-      this.closeIngestionModal();
-    } finally {
-      this.modalLoading.set(false);
     }
   }
 
   /**
    * Handles platform selection changes from within the manual ingestion modal.
-   * This is used when a global search ("All Platforms") was performed, and the user chooses
-   * a specific target platform. It will trigger a lookup of physical releases for that platform.
-   *
-   * @param event The DOM change event containing the chosen platform ID value.
-   * @returns Promise representing the completion of fetching matches.
-   * @throws None. Any exceptions are caught and displayed via alert.
    */
   async onModalPlatformChange(event: Event) {
     const platformId = Number((event.target as HTMLSelectElement).value || 0);
@@ -1989,15 +1564,9 @@ export class DiscoveryListComponent implements OnInit {
 
     const cleanIgdbId = game.id.toString().replace('igdb-', '');
 
-    if (!this.collectionService.getGameMatches) {
-      console.warn('[DiscoveryList] getGameMatches API is not available.');
-      return;
-    }
+    if (!this.collectionService.getGameMatches) return;
 
     this.modalLoading.set(true);
-    this.matchedReleases.set([]);
-    this.selectedReleaseIds.set(new Set());
-
     try {
       const data = await firstValueFrom(
         this.collectionService.getGameMatches(cleanIgdbId, platformId),
@@ -2007,12 +1576,9 @@ export class DiscoveryListComponent implements OnInit {
           this.modalGame.set(data.game);
         }
         this.matchedReleases.set(data.matchedReleases || []);
-        // Pre-select all matched releases to assist user review
-        this.selectAllReleases(data.matchedReleases || []);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert('Failed to load physical releases checklist: ' + msg);
+      console.warn('[DiscoveryList] Modal matches lookup error:', err);
     } finally {
       this.modalLoading.set(false);
     }
@@ -2020,10 +1586,6 @@ export class DiscoveryListComponent implements OnInit {
 
   /**
    * Displays a toast notification message at the bottom of the screen.
-   * Clears any existing auto-dismiss timeouts and sets a new one for 4 seconds.
-   *
-   * @param message The text message to display in the toast card.
-   * @returns Void.
    */
   public showToast(message: string) {
     if (this.toastTimeout) {
@@ -2043,73 +1605,25 @@ export class DiscoveryListComponent implements OnInit {
     this.modalGame.set(null);
     this.matchedReleases.set([]);
     this.selectedReleaseIds.set(new Set());
-  }
-
-  /**
-   * Selection helpers for physical releases checklists.
-   *
-   * @param releases Array of matched releases.
-   */
-  selectAllReleases(releases: DiscoveryRelease[]) {
-    const set = new Set<string>();
-    releases.forEach((r) => set.add(r.romCrc || r.name));
-    this.selectedReleaseIds.set(set);
-  }
-
-  /**
-   * Unchecks all releases from tracking checklist.
-   */
-  selectNoReleases() {
-    this.selectedReleaseIds.set(new Set());
-  }
-
-  /**
-   * Toggles tracking checkbox for a single release.
-   *
-   * @param release The target release item.
-   */
-  toggleReleaseSelection(release: DiscoveryRelease) {
-    const key = release.romCrc || release.name;
-    const current = new Set(this.selectedReleaseIds());
-    if (current.has(key)) {
-      current.delete(key);
-    } else {
-      current.add(key);
+    if (typeof document !== 'undefined') {
+      document.body.style.overflow = '';
     }
-    this.selectedReleaseIds.set(current);
   }
 
-  /**
-   * Handles select ownership drop-down event.
-   *
-   * @param event The DOM event.
-   */
   onOwnershipChange(event: Event) {
     this.ownershipStatus.set(Number((event.target as HTMLSelectElement).value));
   }
 
-  /**
-   * Handles select play-status drop-down event.
-   *
-   * @param event The DOM event.
-   */
   onPlayChange(event: Event) {
     this.playStatus.set(Number((event.target as HTMLSelectElement).value));
   }
 
-  /**
-   * Handles select backup status drop-down event.
-   *
-   * @param event The DOM event.
-   */
   onBackupChange(event: Event) {
     this.backupStatus.set(Number((event.target as HTMLSelectElement).value));
   }
 
   /**
    * Finalizes ingestion from manual search by calling addGame.
-   *
-   * @returns Promise representing ingestion completion.
    */
   async submitIngestion() {
     const game = this.modalGame();
@@ -2160,7 +1674,7 @@ export class DiscoveryListComponent implements OnInit {
       await firstValueFrom(this.collectionService.addGame(payload));
       this.closeIngestionModal();
 
-      // Remove from search results if matches title for immediate visual confirmation
+      // Remove from search results for immediate visual feedback
       this.searchResults.update((current) =>
         current.filter((g) => g.id.toString() !== game.id.toString()),
       );
@@ -2179,9 +1693,6 @@ export class DiscoveryListComponent implements OnInit {
 
   /**
    * Series Discovery functions.
-   * Triggers background search scans for missing games on tracked franchise series.
-   *
-   * @returns Promise representing scan execution completion.
    */
   async triggerSeriesScan() {
     if (!this.collectionService.scanSeries) {
@@ -2206,11 +1717,6 @@ export class DiscoveryListComponent implements OnInit {
     }
   }
 
-  /**
-   * Toggles scan checklist selection for series bulk-add.
-   *
-   * @param game Suggested missing game item.
-   */
   toggleScanSelection(game: ScanSuggestion) {
     const key = game.id + '-' + game.platform_id;
     const current = new Set(this.selectedScanGameIds());
@@ -2222,9 +1728,6 @@ export class DiscoveryListComponent implements OnInit {
     this.selectedScanGameIds.set(current);
   }
 
-  /**
-   * Toggles select all suggested series items.
-   */
   toggleSelectAllScan() {
     const current = this.selectedScanGameIds();
     const results = this.scanResults();
@@ -2237,13 +1740,6 @@ export class DiscoveryListComponent implements OnInit {
     }
   }
 
-  /**
-   * Ingests a single series suggestion game directly.
-   * Assumes games are unowned, unplayed, and not backed up.
-   *
-   * @param game The suggested game.
-   * @returns Promise representing adding action.
-   */
   async addGameFromSeries(game: ScanSuggestion) {
     if (!this.collectionService.addGame) return;
 
@@ -2267,7 +1763,7 @@ export class DiscoveryListComponent implements OnInit {
         ? game.releases.map((r: DiscoveryRelease) => ({
             region: r.region || null,
             variants: r.variants || null,
-            rom_name: r.name || r.romName || null,
+            rom_name: r.name || null,
             rom_crc: r.romCrc || null,
             ownership_status: 0,
             backup_status: 0,
@@ -2300,12 +1796,6 @@ export class DiscoveryListComponent implements OnInit {
     }
   }
 
-  /**
-   * Bulks adds all currently checked series scan suggestions.
-   * Iterates through selection list and triggers sequential API requests.
-   *
-   * @returns Promise representing completion of bulk operation.
-   */
   async bulkAddSeriesGames() {
     const selected = this.scanResults().filter((g) =>
       this.selectedScanGameIds().has(g.id + '-' + g.platform_id),
@@ -2330,7 +1820,7 @@ export class DiscoveryListComponent implements OnInit {
           image_url: game.image_url,
           collections: game.collections,
           franchises: game.franchises,
-          ownership_status: 0, // Unowned
+          ownership_status: 0,
           play_status: 0,
           backup_status: 0,
         },
@@ -2338,7 +1828,7 @@ export class DiscoveryListComponent implements OnInit {
           ? game.releases.map((r: DiscoveryRelease) => ({
               region: r.region || null,
               variants: r.variants || null,
-              rom_name: r.name || r.romName || null,
+              rom_name: r.name || null,
               rom_crc: r.romCrc || null,
               ownership_status: 0,
               backup_status: 0,
@@ -2351,7 +1841,6 @@ export class DiscoveryListComponent implements OnInit {
         await firstValueFrom(this.collectionService.addGame(payload));
         count++;
 
-        // Immediate UI removal
         this.scanResults.update((current) =>
           current.filter(
             (g) => !(g.id === game.id && g.platform_id === game.platform_id),
@@ -2377,10 +1866,177 @@ export class DiscoveryListComponent implements OnInit {
     );
   }
 
-  /**
-   * Resets/clears the checked series scan selections set.
-   */
   clearScanSelection() {
     this.selectedScanGameIds.set(new Set());
+  }
+
+  /**
+   * Amiibo Discovery Functions.
+   */
+  async triggerAmiiboScan() {
+    if (!this.collectionService.scanAmiibo) return;
+
+    this.amiiboLoading.set(true);
+    this.amiiboError.set(null);
+    this.amiiboResults.set([]);
+    this.selectedAmiiboIds.set(new Set());
+    this.amiiboPerformed.set(false);
+
+    try {
+      const results = await firstValueFrom(this.collectionService.scanAmiibo());
+      this.amiiboResults.set(results || []);
+      this.amiiboPerformed.set(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Amiibo scan failed.';
+      this.amiiboError.set(msg);
+    } finally {
+      this.amiiboLoading.set(false);
+    }
+  }
+
+  onAmiiboSearchInput(event: Event) {
+    this.amiiboSearchQuery.set((event.target as HTMLInputElement).value || '');
+  }
+
+  onAmiiboSeriesChange(event: Event) {
+    this.amiiboSeriesFilter.set(
+      (event.target as HTMLSelectElement).value || 'all',
+    );
+  }
+
+  onAmiiboTypeChange(event: Event) {
+    this.amiiboTypeFilter.set(
+      (event.target as HTMLSelectElement).value || 'all',
+    );
+  }
+
+  toggleAmiiboSelection(item: AmiiboDiscoveryItem) {
+    const key = item.amiibo_id || item.id;
+    const current = new Set(this.selectedAmiiboIds());
+    if (current.has(key)) {
+      current.delete(key);
+    } else {
+      current.add(key);
+    }
+    this.selectedAmiiboIds.set(current);
+  }
+
+  toggleSelectAllAmiibo() {
+    const visible = this.filteredAmiiboResults();
+    const current = this.selectedAmiiboIds();
+    if (current.size === visible.length) {
+      this.selectedAmiiboIds.set(new Set());
+    } else {
+      const set = new Set<string>();
+      visible.forEach((a) => set.add(a.amiibo_id || a.id));
+      this.selectedAmiiboIds.set(set);
+    }
+  }
+
+  clearAmiiboSelection() {
+    this.selectedAmiiboIds.set(new Set());
+  }
+
+  async addSingleAmiibo(item: AmiiboDiscoveryItem) {
+    if (!this.collectionService.addToy) return;
+    try {
+      const slugify = (s: string) =>
+        (s || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+
+      const toyPayload: Partial<Toy> = {
+        id: `amiibo-${slugify(item.name)}-${slugify(item.series_name || 'amiibo')}`,
+        name: item.name,
+        line: 'amiibo',
+        series: item.series_name,
+        series_name: item.series_name,
+        type: item.type || 'Figure',
+        image_url: item.image_url,
+        release_date: item.release_date || undefined,
+        region: item.region || 'NA',
+        amiibo_id: item.amiibo_id,
+        ownership_status: 1, // Owned
+        verified: 1,
+        metadata_json: JSON.stringify(item),
+      };
+
+      await firstValueFrom(this.collectionService.addToy(toyPayload));
+      this.amiiboResults.update((list) =>
+        list.filter(
+          (a) => (a.amiibo_id || a.id) !== (item.amiibo_id || item.id),
+        ),
+      );
+      this.selectedAmiiboIds.update((s) => {
+        s.delete(item.amiibo_id || item.id);
+        return s;
+      });
+
+      if (this.collectionService.refreshAll) {
+        await this.collectionService.refreshAll();
+      }
+      this.showToast(`Successfully added amiibo "${item.name}"!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Failed to add amiibo "${item.name}": ` + msg);
+    }
+  }
+
+  async bulkAddAmiibo() {
+    if (!this.collectionService.addToy) return;
+    const selectedIds = this.selectedAmiiboIds();
+    const itemsToAdd = this.amiiboResults().filter((a) =>
+      selectedIds.has(a.amiibo_id || a.id),
+    );
+    if (itemsToAdd.length === 0) return;
+
+    this.amiiboLoading.set(true);
+    let count = 0;
+    const slugify = (s: string) =>
+      (s || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+    for (const item of itemsToAdd) {
+      try {
+        const toyPayload: Partial<Toy> = {
+          id: `amiibo-${slugify(item.name)}-${slugify(item.series_name || 'amiibo')}`,
+          name: item.name,
+          line: 'amiibo',
+          series: item.series_name,
+          series_name: item.series_name,
+          type: item.type || 'Figure',
+          image_url: item.image_url,
+          release_date: item.release_date || undefined,
+          region: item.region || 'NA',
+          amiibo_id: item.amiibo_id,
+          ownership_status: 1,
+          verified: 1,
+          metadata_json: JSON.stringify(item),
+        };
+        await firstValueFrom(this.collectionService.addToy(toyPayload));
+        count++;
+
+        this.amiiboResults.update((list) =>
+          list.filter(
+            (a) => (a.amiibo_id || a.id) !== (item.amiibo_id || item.id),
+          ),
+        );
+        this.selectedAmiiboIds.update((s) => {
+          s.delete(item.amiibo_id || item.id);
+          return s;
+        });
+      } catch (e) {
+        console.error(`Failed to ingest amiibo ${item.name}:`, e);
+      }
+    }
+
+    this.amiiboLoading.set(false);
+    if (this.collectionService.refreshAll) {
+      await this.collectionService.refreshAll();
+    }
+    this.showToast(`Successfully ingested ${count} amiibo items.`);
   }
 }

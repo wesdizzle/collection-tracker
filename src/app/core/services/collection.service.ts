@@ -30,13 +30,12 @@ import {
   Game,
   Toy,
   Platform,
-  DiscoveryItem,
-  DiscoveryPayload,
   ListState,
   PlayStatus,
   IGDBSearchResult,
   DiscoveryRelease,
   ScanSuggestion,
+  AmiiboDiscoveryItem,
 } from '../models/collection.models';
 
 @Injectable({
@@ -171,7 +170,6 @@ export class CollectionService {
   private _games = signal<Game[]>([]);
   private _toys = signal<Toy[]>([]);
   private _platforms = signal<Platform[]>([]);
-  private _discoveryItems = signal<DiscoveryItem[]>([]);
   private _loading = signal<boolean>(false);
   private _error = signal<string | null>(null);
   private _refreshTrigger = signal<number>(0);
@@ -180,7 +178,6 @@ export class CollectionService {
   public readonly games = this._games.asReadonly();
   public readonly toys = this._toys.asReadonly();
   public readonly platforms = this._platforms.asReadonly();
-  public readonly discoveryItems = this._discoveryItems.asReadonly();
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
   public readonly refreshTrigger = this._refreshTrigger.asReadonly();
@@ -298,26 +295,31 @@ export class CollectionService {
   }
 
   /**
-   * Refreshes the list of discovery items (unmatched or suggested items).
+   * Performs an Amiibo scan against the AmiiboAPI to discover unowned/missing figures & cards.
+   *
+   * @returns Observable of missing amiibo items.
    */
-  async refreshDiscovery(): Promise<void> {
-    try {
-      const items = await firstValueFrom(
-        this.http.get<DiscoveryItem[]>('/api/discovery'),
+  scanAmiibo(): Observable<AmiiboDiscoveryItem[]> {
+    return this.http
+      .get<AmiiboDiscoveryItem[]>('/api/discovery/scan-amiibo')
+      .pipe(
+        catchError((err) => {
+          console.error('[CollectionService] Error scanning amiibo:', err);
+          return of([]);
+        }),
       );
-      this._discoveryItems.set(items);
-    } catch (err) {
-      console.error('[CollectionService] Error refreshing discovery:', err);
-    }
   }
 
   /**
-   * Applies a discovery match to the database.
+   * Ingests a new toy (e.g. amiibo) into the collection.
    *
-   * @param payload The mapping between current local metadata and external ID.
+   * @param toy Object containing toy fields to insert or update.
+   * @returns Observable denoting success status of the ingestion.
    */
-  applyDiscovery(payload: DiscoveryPayload): Observable<unknown> {
-    return this.http.post('/api/discovery/apply', payload);
+  addToy(toy: Partial<Toy>): Observable<{ success: boolean; id: string }> {
+    return this.http
+      .post<{ success: boolean; id: string }>('/api/discovery/add-toy', toy)
+      .pipe(catchError(this.handleMutationError));
   }
 
   /**

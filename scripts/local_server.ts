@@ -10,15 +10,13 @@
  */
 
 import * as http from 'http';
-import * as fs from 'fs';
-import * as path from 'path';
 import axios from 'axios';
 import Database from 'better-sqlite3';
 import { execSync } from 'child_process';
 import {
-  getGameById,
   PLATFORM_MAP,
   findGame,
+  getGameById,
   getCollectionGames,
   queryIGDB,
   getGamesByIds,
@@ -26,14 +24,6 @@ import {
 import { getPlatformDatReleases, PlatformRecord } from './lib/dat_cache.js';
 import { titlesMatch } from './lib/title_matching.js';
 import { recomputeCanonicalSeries } from './compute_canonical_series.js';
-import { parseDiscoveryReport } from './lib/discovery.js';
-import type { ApplyPayload } from './lib/discovery.js';
-import {
-  scrapeSkylandersDetail,
-  STARLINK_TOYS,
-  reindexSkylanders,
-  type SkylandersDetail,
-} from './lib/toys.js';
 import {
   GAMES_LIST_QUERY,
   GAME_DETAIL_QUERY,
@@ -74,28 +64,91 @@ export const handleRequest =
 
     try {
       /**
-       * ROUTE: GET /api/discovery
+       * ROUTE: GET /api/discovery/scan-amiibo
        */
-      if (req.method === 'GET' && pathname === '/api/discovery') {
-        const reportPath = path.join(process.cwd(), 'discovery_report.md');
-        if (!fs.existsSync(reportPath)) {
-          res.end(JSON.stringify([]));
-          return;
+      if (req.method === 'GET' && pathname === '/api/discovery/scan-amiibo') {
+        try {
+          const response = await axios.get(
+            'https://amiiboapi.org/api/amiibo/',
+            {
+              headers: { 'User-Agent': 'CollectionTracker/1.0' },
+              timeout: 10000,
+            },
+          );
+          const data = response.data as {
+            amiibo: Array<{
+              head: string;
+              tail: string;
+              name: string;
+              amiiboSeries: string;
+              gameSeries?: string;
+              type: string;
+              image: string;
+              release?: { na?: string; jp?: string; eu?: string };
+            }>;
+          };
+
+          const existingRows = db
+            .prepare(
+              `SELECT id, name, amiibo_id FROM toys WHERE line = 'amiibo'`,
+            )
+            .all() as { id: string; name: string; amiibo_id?: string | null }[];
+
+          const existingIds = new Set<string>();
+          const existingNames = new Set<string>();
+          existingRows.forEach((r) => {
+            if (r.amiibo_id) existingIds.add(r.amiibo_id);
+            if (r.id) existingIds.add(r.id);
+            if (r.name) existingNames.add(r.name.toLowerCase().trim());
+          });
+
+          const missingAmiibo: unknown[] = [];
+          for (const a of data.amiibo || []) {
+            const amiiboId = `${a.head}${a.tail}`;
+            const cleanName = (a.name || '').toLowerCase().trim();
+            if (existingIds.has(amiiboId) || existingNames.has(cleanName)) {
+              continue;
+            }
+
+            const effectiveSeries =
+              a.amiiboSeries === 'Others' && a.gameSeries
+                ? a.gameSeries
+                : a.amiiboSeries || 'Other';
+
+            missingAmiibo.push({
+              id: amiiboId,
+              amiibo_id: amiiboId,
+              name: a.name,
+              line: 'amiibo',
+              series_name: effectiveSeries,
+              game_series: a.gameSeries || null,
+              type: a.type || 'Figure',
+              image_url: a.image,
+              release_date:
+                a.release?.na || a.release?.jp || a.release?.eu || null,
+              region: a.release?.na
+                ? 'NA'
+                : a.release?.jp
+                  ? 'JP'
+                  : a.release?.eu
+                    ? 'EU'
+                    : 'NA',
+            });
+          }
+
+          res.end(JSON.stringify(missingAmiibo));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: msg }));
         }
-
-        const content = fs.readFileSync(reportPath, 'utf8');
-        const discoveryItems = parseDiscoveryReport(content);
-        res.end(JSON.stringify(discoveryItems));
-      } else if (req.method === 'POST' && pathname === '/api/discovery/apply') {
+      } else if (
+        req.method === 'POST' &&
+        pathname === '/api/discovery/add-toy'
+      ) {
         /**
-         * ROUTE: POST /api/discovery/apply
+         * ROUTE: POST /api/discovery/add-toy
          */
-        let currentTitle = '';
-        let currentPlatform = '';
-        let currentLine = '';
-        let currentSeries = '';
-        let isToy = false;
-
         try {
           const body = await new Promise<string>((resolve, reject) => {
             let data = '';
@@ -104,357 +157,96 @@ export const handleRequest =
             req.on('error', (err) => reject(err));
           });
 
-          const payload: ApplyPayload = JSON.parse(body);
-          currentTitle = payload.currentTitle;
-          currentPlatform = payload.currentPlatform;
-          currentLine = payload.currentLine || '';
-          currentSeries = payload.currentSeries || '';
-          const { selectedIgdbId, selectedName, selectedPlatform, region } =
-            payload;
-          isToy =
-            selectedIgdbId.toString().startsWith('amiibo-') ||
-            selectedIgdbId.toString().startsWith('skylanders-') ||
-            selectedIgdbId.toString().startsWith('starlink-');
-
-          if (isToy) {
-            if (selectedIgdbId.toString().startsWith('amiibo-')) {
-              const amiiboId = selectedIgdbId.toString().replace('amiibo-', '');
-              try {
-                const apiUrl = `https://amiiboapi.org/api/amiibo/?id=${amiiboId}`;
-                console.log(`Fetching amiibo metadata: ${apiUrl}`);
-                const response = await axios.get(apiUrl, { timeout: 10000 });
-                const a = response.data.amiibo;
-
-                if (!a) {
-                  throw new Error(
-                    `Amiibo API returned no results for ID: ${amiiboId}`,
-                  );
-                }
-                // Determine primary region and date
-                let releaseDate = a.release?.na;
-                let finalRegion = region || 'NA';
-
-                if (!releaseDate && a.release) {
-                  if (a.release.jp) {
-                    releaseDate = a.release.jp;
-                    finalRegion = 'JP';
-                  } else if (a.release.eu) {
-                    releaseDate = a.release.eu;
-                    finalRegion = 'EU';
-                  } else if (a.release.au) {
-                    releaseDate = a.release.au;
-                    finalRegion = 'AU';
-                  }
-                }
-
-                const effectiveSeries =
-                  a.amiiboSeries === 'Others' ? a.gameSeries : a.amiiboSeries;
-
-                db.prepare(
-                  `
-                              UPDATE toys 
-                              SET amiibo_id = ?, name = ?, type = ?, image_url = ?, series = ?, region = ?, release_date = ?, verified = 1, metadata_json = ?
-                              WHERE name = ? AND series = ? AND line = 'amiibo'
-                          `,
-                ).run(
-                  amiiboId,
-                  a.name,
-                  a.type,
-                  a.image,
-                  effectiveSeries,
-                  finalRegion,
-                  releaseDate || null,
-                  JSON.stringify(a),
-                  currentTitle,
-                  currentSeries,
-                );
-
-                console.log(
-                  `Matched Toy: ${currentTitle} -> ${a.name} [ID: ${amiiboId}]`,
-                );
-              } catch (apiErr: unknown) {
-                console.error(
-                  `Amiibo API fetch failed for ID ${amiiboId}:`,
-                  apiErr,
-                );
-                const apiErrMsg =
-                  apiErr instanceof Error ? apiErr.message : 'Unknown error';
-                // Throw specific error format so frontend displays it cleanly
-                throw new Error(
-                  `Failed to fetch amiibo metadata: ${apiErrMsg}`,
-                  {
-                    cause: apiErr,
-                  },
-                );
-              }
-            } else {
-              // Non-Amiibo toys (Skylanders, Starlink)
-              const line = selectedIgdbId.toString().startsWith('skylanders-')
-                ? 'Skylanders'
-                : 'Starlink';
-
-              const image = payload.imageUrl || null;
-              const sclUrl =
-                payload.summary &&
-                (payload.summary.startsWith('Checklist link: ') ||
-                  payload.summary.startsWith('SCL Link: '))
-                  ? payload.summary
-                      .replace('Checklist link: ', '')
-                      .replace('SCL Link: ', '')
-                  : null;
-
-              if (line === 'Skylanders') {
-                // Skylanders metadata matching
-                let releaseDate: string | null = null;
-                let details: SkylandersDetail | null = null;
-
-                if (sclUrl) {
-                  try {
-                    console.log(
-                      `Scraping Skylanders details from SCL: ${sclUrl}...`,
-                    );
-                    details = await scrapeSkylandersDetail(sclUrl);
-                    if (details) {
-                      releaseDate = details.releaseDate;
-                    }
-                  } catch (scrapeErr) {
-                    console.error(
-                      `Failed to scrape Skylanders SCL details:`,
-                      scrapeErr,
-                    );
-                  }
-                }
-
-                db.prepare(
-                  `
-                  UPDATE toys
-                  SET image_url = ?, scl_url = COALESCE(?, scl_url), release_date = ?, verified = 1, metadata_json = ?
-                  WHERE name = ? AND series = ? AND line = 'Skylanders'
-                `,
-                ).run(
-                  image,
-                  sclUrl,
-                  releaseDate,
-                  JSON.stringify({
-                    matched_name: selectedName,
-                    matched_id: selectedIgdbId,
-                    date_applied: new Date().toISOString(),
-                    element: details?.element || null,
-                    series: details?.series || null,
-                    released_with: details?.releasedWith || null,
-                  }),
-                  currentTitle,
-                  currentSeries,
-                );
-
-                // Run Skylanders sorting re-indexing
-                try {
-                  reindexSkylanders(db);
-                } catch (reindexErr) {
-                  console.error('Failed to reindex Skylanders:', reindexErr);
-                }
-
-                console.log(
-                  `Matched Skylanders: ${currentTitle} (Series: ${currentSeries}) -> [Image: ${image}, Element: ${details?.element || 'N/A'}]`,
-                );
-              } else {
-                // Starlink metadata matching (from local static catalog)
-                const normName = selectedIgdbId
-                  .toString()
-                  .replace('starlink-', '')
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]/g, '');
-                const starlinkMeta = STARLINK_TOYS[normName];
-
-                let releaseDate: string | null = null;
-                let typeVal = 'Figure';
-                let sortIdx: number | null = null;
-                const metaObj: Record<string, string | number | null> = {
-                  matched_name: selectedName,
-                  matched_id: selectedIgdbId,
-                  date_applied: new Date().toISOString(),
-                };
-
-                if (starlinkMeta) {
-                  releaseDate = starlinkMeta.releaseDate;
-                  typeVal = starlinkMeta.type;
-                  sortIdx = starlinkMeta.sortIndex;
-                  metaObj['type'] = starlinkMeta.type;
-                  metaObj['release_date'] = starlinkMeta.releaseDate;
-                }
-
-                db.prepare(
-                  `
-                  UPDATE toys
-                  SET image_url = ?, type = ?, release_date = ?, sort_index = ?, verified = 1, metadata_json = ?
-                  WHERE name = ? AND series = ? AND line = 'Starlink'
-                `,
-                ).run(
-                  image,
-                  typeVal,
-                  releaseDate,
-                  sortIdx,
-                  JSON.stringify(metaObj),
-                  currentTitle,
-                  currentSeries,
-                );
-
-                console.log(
-                  `Matched Starlink: ${currentTitle} (Series: ${currentSeries}) -> [Image: ${image}, Type: ${typeVal}]`,
-                );
-              }
-            }
-          } else {
-            // 1. Fetch Full Metadata from IGDB
-            let summary: string | null = null;
-            let imageUrl: string | null = null;
-            let genres: string | null = null;
-            let finalName = selectedName;
-            const finalIgdbId = selectedIgdbId.toString().replace('igdb-', '');
-
-            try {
-              const igdbPlatformId =
-                PLATFORM_MAP[selectedPlatform || currentPlatform];
-              const igdbData = await getGameById(
-                Number(finalIgdbId),
-                igdbPlatformId,
-              );
-
-              if (igdbData) {
-                summary = igdbData.summary || null;
-                imageUrl = igdbData.image_url || null;
-                genres = igdbData.genres || null;
-                finalName = igdbData.name; // Use canonical name from IGDB
-              }
-            } catch (igdbErr) {
-              console.error(
-                'Failed to fetch rich metadata from IGDB:',
-                igdbErr,
-              );
-            }
-
-            // 2. Update the Local SQLite Source-of-Truth
-            const game = db
-              .prepare(
-                `
-                        SELECT g.id FROM games g
-                        JOIN platforms p ON g.platform_id = p.id
-                        WHERE (g.title = ? OR g.title = ?) AND p.display_name = ?
-                    `,
-              )
-              .get(currentTitle, finalName, currentPlatform) as
-              | { id: number }
-              | undefined;
-
-            if (game) {
-              let finalPlatformId = null;
-              if (selectedPlatform && selectedPlatform !== currentPlatform) {
-                const platform = db
-                  .prepare('SELECT id FROM platforms WHERE display_name = ?')
-                  .get(selectedPlatform) as { id: number } | undefined;
-                if (platform) {
-                  finalPlatformId = platform.id;
-                }
-              }
-
-              const slugify = (s: string) =>
-                (s || '')
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, '-')
-                  .replace(/^-+|-+$/g, '');
-              const newId = `${slugify(finalName)}-${slugify(selectedPlatform || currentPlatform)}`;
-
-              db.prepare(
-                `
-                            UPDATE games 
-                            SET id = ?, title = ?, platform_id = COALESCE(?, platform_id), igdb_id = ?, region = ?, summary = ?, image_url = ?, genres = ? 
-                            WHERE id = ?
-                        `,
-              ).run(
-                newId,
-                finalName,
-                finalPlatformId,
-                finalIgdbId,
-                region || 'NA',
-                summary,
-                imageUrl,
-                genres,
-                game.id,
-              );
-
-              console.log(
-                `Matched Game: ${currentTitle} (${currentPlatform}) -> ${finalName} (${selectedPlatform || currentPlatform}) [ID: ${finalIgdbId}]`,
-              );
-            }
+          const toy = JSON.parse(body);
+          if (!toy || !toy.name) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'Invalid toy payload' }));
+            return;
           }
-        } catch (err: unknown) {
-          console.error('Discovery Apply failed:', err);
-          const error = err instanceof Error ? err : new Error('Unknown error');
-          res.statusCode = 500;
-          res.end(
-            JSON.stringify({
-              error:
-                error.message || 'Internal server error during discovery apply',
-              details: error.stack,
-            }),
+
+          const slugify = (s: string) =>
+            (s || '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '');
+
+          const candidateId =
+            toy.id ||
+            `amiibo-${slugify(toy.name)}-${slugify(toy.series_name || 'amiibo')}`;
+
+          const existingToy = db
+            .prepare(
+              `SELECT id, stable_id FROM toys WHERE (amiibo_id IS NOT NULL AND amiibo_id = ?) OR id = ? OR name = ?`,
+            )
+            .get(toy.amiibo_id || candidateId, candidateId, toy.name) as
+            | { id: string; stable_id: number }
+            | undefined;
+
+          if (existingToy) {
+            db.prepare(
+              `UPDATE toys 
+               SET ownership_status = COALESCE(?, ownership_status),
+                   verified = 1,
+                   image_url = COALESCE(?, image_url),
+                   metadata_json = COALESCE(?, metadata_json),
+                   amiibo_id = COALESCE(?, amiibo_id)
+               WHERE stable_id = ?`,
+            ).run(
+              toy.ownership_status ?? 1,
+              toy.image_url || null,
+              toy.metadata_json || null,
+              toy.amiibo_id || null,
+              existingToy.stable_id,
+            );
+            res.end(JSON.stringify({ success: true, id: existingToy.id }));
+            return;
+          }
+
+          const maxSortIndexRow = db
+            .prepare(
+              'SELECT MAX(sort_index) as max_idx FROM toys WHERE line = ?',
+            )
+            .get(toy.line || 'amiibo') as { max_idx: number | null };
+
+          const sortIndex =
+            (maxSortIndexRow?.max_idx !== null &&
+            maxSortIndexRow?.max_idx !== undefined
+              ? maxSortIndexRow.max_idx
+              : 0) + 1;
+
+          db.prepare(
+            `
+            INSERT INTO toys (
+              id, name, line, series_name, series_line, series, type, release_date,
+              ownership_status, image_url, amiibo_id, verified, metadata_json, sort_index, region
+            ) VALUES (
+              ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, 1, ?, ?, ?
+            )
+          `,
+          ).run(
+            candidateId,
+            toy.name,
+            toy.line || 'amiibo',
+            toy.series_name || 'Other',
+            toy.line || 'amiibo',
+            toy.series || toy.series_name || 'Other',
+            toy.type || 'Figure',
+            toy.release_date || null,
+            toy.ownership_status ?? 1,
+            toy.image_url || null,
+            toy.amiibo_id || null,
+            toy.metadata_json || null,
+            sortIndex,
+            toy.region || 'NA',
           );
-          return;
+
+          res.end(JSON.stringify({ success: true, id: candidateId }));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: msg }));
         }
-
-        // Sync to Local D1 Instance (Skip in tests)
-        if (!process.env['VITEST']) {
-          try {
-            const syncCmd =
-              process.platform === 'win32'
-                ? 'npm.cmd run sync-db'
-                : 'npm run sync-db';
-            execSync(syncCmd, { stdio: 'inherit' });
-          } catch (syncErr) {
-            console.error('D1 Sync Error:', syncErr);
-          }
-        }
-
-        // Force Checkpoint
-        try {
-          db.pragma('wal_checkpoint(FULL)');
-        } catch (checkpointErr) {
-          console.error('Checkpoint Error:', checkpointErr);
-        }
-
-        // 3. Update Discovery Report (Remove matched item) - Skip in tests
-        if (!process.env['VITEST']) {
-          try {
-            const reportPath = path.join(process.cwd(), 'discovery_report.md');
-            if (fs.existsSync(reportPath)) {
-              const content = fs.readFileSync(reportPath, 'utf8');
-              const sections = content.split('\n### ');
-
-              // Keep the first section (header) and filter out the matched one
-              const header = sections[0];
-              const remainingSections = sections.slice(1).filter((section) => {
-                const headerLine = section.split('\n')[0].trim();
-                let targetHeader = isToy
-                  ? `${currentTitle} (amiibo)`
-                  : `${currentTitle} (${currentPlatform})`;
-
-                // If we have metadata, use the rich header format
-                if (currentLine && currentSeries) {
-                  targetHeader = `${currentTitle} (${currentPlatform}) | Line: ${currentLine} | Series: ${currentSeries}`;
-                }
-
-                return headerLine !== targetHeader.trim();
-              });
-
-              const newContent = [header, ...remainingSections].join('\n### ');
-              fs.writeFileSync(reportPath, newContent, 'utf8');
-              console.log('Updated discovery_report.md');
-            }
-          } catch (reportErr) {
-            console.error('Report Update Error:', reportErr);
-          }
-        }
-
-        res.end(JSON.stringify({ success: true }));
       } else if (
         req.method === 'POST' &&
         pathname === '/api/collection/toggle'
@@ -732,7 +524,95 @@ export const handleRequest =
           }
         }
         const matches = await findGame(query, igdbPlatformId);
-        res.end(JSON.stringify(matches || []));
+
+        const platformRows = db
+          .prepare('SELECT id, display_name, name FROM platforms')
+          .all() as Array<{ id: number; display_name: string; name: string }>;
+        const igdbToLocalPlatform = new Map<number, number>();
+        platformRows.forEach((p) => {
+          const igdbId = PLATFORM_MAP[p.display_name] || PLATFORM_MAP[p.name];
+          if (igdbId) {
+            igdbToLocalPlatform.set(igdbId, p.id);
+          }
+        });
+
+        const existing = db
+          .prepare('SELECT igdb_id, platform_id, title FROM games')
+          .all() as Array<{
+          igdb_id: number | null;
+          platform_id: number;
+          title: string;
+        }>;
+        const existingSet = new Set<string>();
+        existing.forEach((g) => {
+          if (g.igdb_id) existingSet.add(`igdb-${g.igdb_id}-${g.platform_id}`);
+          if (g.title) {
+            existingSet.add(
+              `title-${g.title.toLowerCase().replace(/[^a-z0-9]/g, '')}-${g.platform_id}`,
+            );
+          }
+        });
+
+        const filteredMatches = (matches || []).filter((m) => {
+          const cleanTitle = (m.name || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '');
+          const cleanIgdbId = Number(m.id.toString().replace('igdb-', ''));
+
+          // Collect all candidate local platform IDs
+          const targetPlatformIds = new Set<number>();
+
+          if (Array.isArray(m.platform_ids)) {
+            for (const pid of m.platform_ids) {
+              const localPid = igdbToLocalPlatform.get(pid);
+              if (localPid) targetPlatformIds.add(localPid);
+            }
+          }
+
+          if (Array.isArray(m.platforms)) {
+            for (const p of m.platforms) {
+              if (typeof p.id === 'number') {
+                const localPid = igdbToLocalPlatform.get(p.id);
+                if (localPid) targetPlatformIds.add(localPid);
+              }
+            }
+          }
+
+          if (m.platform) {
+            const igdbPid = PLATFORM_MAP[m.platform];
+            if (igdbPid) {
+              const localPid = igdbToLocalPlatform.get(igdbPid);
+              if (localPid) targetPlatformIds.add(localPid);
+            }
+            const directMatch = platformRows.find(
+              (p) =>
+                (p.display_name &&
+                  p.display_name.toLowerCase() === m.platform.toLowerCase()) ||
+                (p.name && p.name.toLowerCase() === m.platform.toLowerCase()),
+            );
+            if (directMatch) {
+              targetPlatformIds.add(directMatch.id);
+            }
+          }
+
+          if (targetPlatformIds.size === 0) {
+            const isOwnedGlobally = Array.from(existingSet).some((key) =>
+              key.startsWith(`igdb-${cleanIgdbId}-`),
+            );
+            return !isOwnedGlobally;
+          }
+
+          const hasUnowned = Array.from(targetPlatformIds).some((localPid) => {
+            const isOwned =
+              existingSet.has(`igdb-${cleanIgdbId}-${localPid}`) ||
+              existingSet.has(`title-${cleanTitle}-${localPid}`);
+            return !isOwned;
+          });
+
+          return hasUnowned;
+        });
+
+        res.end(JSON.stringify(filteredMatches));
       } else if (
         /**
          * ROUTE: GET /api/discovery/matches
