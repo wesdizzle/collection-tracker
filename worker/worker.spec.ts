@@ -72,7 +72,10 @@ describe('Worker API Logic', () => {
         collections TEXT,
         franchises TEXT,
         manually_verified BOOLEAN,
-        metadata_json TEXT
+        metadata_json TEXT,
+        physical_status TEXT DEFAULT 'unverified',
+        verification_tier INTEGER DEFAULT 0,
+        barcode TEXT
       );
       CREATE TABLE game_releases (
         id TEXT PRIMARY KEY,
@@ -83,7 +86,26 @@ describe('Worker API Logic', () => {
         rom_crc TEXT,
         backup_status INTEGER NOT NULL DEFAULT 0,
         ownership_status INTEGER NOT NULL DEFAULT 0,
-        release_date DATE
+        release_date DATE,
+        canonical_release_id INTEGER,
+        barcode TEXT,
+        is_physical INTEGER DEFAULT 1
+      );
+      CREATE TABLE canonical_releases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform_id INTEGER NOT NULL,
+        raw_title TEXT NOT NULL,
+        normalized_title TEXT NOT NULL,
+        region TEXT,
+        variants TEXT,
+        rom_name TEXT,
+        rom_crc TEXT,
+        serial_code TEXT,
+        barcode TEXT,
+        publisher TEXT,
+        source TEXT NOT NULL DEFAULT 'dat',
+        is_verified_physical INTEGER NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
       CREATE TABLE toys (
         stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,6 +198,8 @@ describe('Worker API Logic', () => {
       },
       BACKUP_BUCKET: mockBucket as unknown as Env['BACKUP_BUCKET'],
       ADMIN_EMAIL: 'admin@example.com',
+      TWITCH_CLIENT_ID: 'test-twitch-id',
+      TWITCH_CLIENT_SECRET: 'test-twitch-secret',
     };
   });
 
@@ -514,5 +538,196 @@ describe('Worker API Logic', () => {
       headers: { Cookie: 'CF_AppSession=valid-session-token-12345' },
     });
     expect(isAuthorizedAdmin(appSessionReq, mockEnv)).toBe(true);
+  });
+
+  it('GET /api/discovery/search annotates physical release status and filters digital fluff', async () => {
+    // Seed platform and canonical releases
+    db.prepare(
+      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+    ).run(19, 'Game Boy Advance', 'Game Boy Advance', 'Nintendo', '2001-06-11');
+    db.prepare(
+      `
+      INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, is_verified_physical)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    ).run(
+      19,
+      'Metroid Fusion',
+      'metroidfusion',
+      'USA',
+      null,
+      'Metroid Fusion (USA).gba',
+      '8F523456',
+      1,
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockImplementation((url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                access_token: 'mock-token',
+                expires_in: 3600,
+                token_type: 'bearer',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        if (urlStr.includes('api.igdb.com/v4/games')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([
+                {
+                  id: 101,
+                  name: 'Metroid Fusion',
+                  platforms: [{ id: 24, name: 'Game Boy Advance' }],
+                  cover: { image_id: 'fusion123' },
+                  first_release_date: 1037577600, // 2002
+                },
+                {
+                  id: 102,
+                  name: 'Super Mario Bros. (Virtual Console)',
+                  platforms: [{ id: 24, name: 'Game Boy Advance' }],
+                  cover: { image_id: 'smb123' },
+                  first_release_date: 500000000, // 1985 (Era discrepancy)
+                },
+              ]),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        return originalFetch(url, init);
+      });
+
+    try {
+      // 1. Search without digital filter
+      const req = new Request(
+        'http://localhost/api/discovery/search?query=Metroid&platformId=19',
+      );
+      const res = await worker.fetch(req, mockEnv);
+      if (res.status !== 200) {
+        console.error('Search error body:', await res.text());
+      }
+      expect(res.status).toBe(200);
+      const results = (await res.json()) as Array<{
+        name: string;
+        physical_status: string;
+        verification_tier: number;
+        is_physical: boolean;
+      }>;
+      expect(results).toHaveLength(2);
+      expect(results[0].name).toBe('Metroid Fusion');
+      expect(results[0].physical_status).toBe('verified_physical');
+      expect(results[0].verification_tier).toBe(1);
+      expect(results[0].is_physical).toBe(true);
+
+      expect(results[1].name).toBe('Super Mario Bros. (Virtual Console)');
+      expect(results[1].physical_status).toBe('digital_only');
+      expect(results[1].verification_tier).toBe(3);
+      expect(results[1].is_physical).toBe(false);
+
+      // 2. Search WITH digital filter
+      const filterReq = new Request(
+        'http://localhost/api/discovery/search?query=Metroid&platformId=19&filterDigital=true',
+      );
+      const filterRes = await worker.fetch(filterReq, mockEnv);
+      expect(filterRes.status).toBe(200);
+      const filteredResults = (await filterRes.json()) as Array<{
+        name: string;
+      }>;
+      expect(filteredResults).toHaveLength(1);
+      expect(filteredResults[0].name).toBe('Metroid Fusion');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('GET /api/discovery/matches returns matched physical releases and verification tier', async () => {
+    db.prepare(
+      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+    ).run(19, 'Game Boy Advance', 'Game Boy Advance', 'Nintendo', '2001-06-11');
+    db.prepare(
+      `
+      INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, is_verified_physical)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    ).run(
+      19,
+      'Metroid Fusion',
+      'metroidfusion',
+      'USA',
+      'Rev 1',
+      'Metroid Fusion (USA) (Rev 1).gba',
+      'AABBCCDD',
+      1,
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockImplementation((url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                access_token: 'mock-token',
+                expires_in: 3600,
+                token_type: 'bearer',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        if (urlStr.includes('api.igdb.com/v4/games')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([
+                {
+                  id: 101,
+                  name: 'Metroid Fusion',
+                  platforms: [{ id: 24, name: 'Game Boy Advance' }],
+                  cover: { image_id: 'fusion123' },
+                  first_release_date: 1037577600,
+                },
+              ]),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        return originalFetch(url, init);
+      });
+
+    try {
+      const req = new Request(
+        'http://localhost/api/discovery/matches?igdbId=101&platformId=19',
+      );
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as {
+        game: { name: string; physical_status: string };
+        matchedReleases: Array<{
+          name: string;
+          romCrc: string;
+          region: string;
+        }>;
+        physical_status: string;
+        verification_tier: number;
+      };
+
+      expect(data.game.name).toBe('Metroid Fusion');
+      expect(data.physical_status).toBe('verified_physical');
+      expect(data.verification_tier).toBe(1);
+      expect(data.matchedReleases).toHaveLength(1);
+      expect(data.matchedReleases[0].romCrc).toBe('AABBCCDD');
+      expect(data.matchedReleases[0].region).toBe('USA');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

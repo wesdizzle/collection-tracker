@@ -164,6 +164,32 @@ describe('DiscoveryListComponent', () => {
     await component.triggerSearch('Saros', '');
     expect(mockCollectionService.searchGames).toHaveBeenCalledWith('Saros', 0);
     expect(component.searchResults().length).toBe(1);
+    expect(component.filteredSearchResults().length).toBe(1);
+  });
+
+  it('should reactively filter search results when filterDigital is toggled', () => {
+    const physicalGame: IGDBSearchResult = {
+      id: 'igdb-1',
+      name: 'Super Mario 64',
+      platform: 'N64',
+      image_url: null,
+      physical_status: 'verified_physical',
+    };
+    const digitalGame: IGDBSearchResult = {
+      id: 'igdb-2',
+      name: 'Super Mario 64 (Virtual Console)',
+      platform: 'Wii U',
+      image_url: null,
+      physical_status: 'digital_only',
+    };
+
+    component.searchResults.set([physicalGame, digitalGame]);
+    component.filterDigital.set(true);
+    expect(component.filteredSearchResults().length).toBe(1);
+    expect(component.filteredSearchResults()[0].id).toBe('igdb-1');
+
+    component.filterDigital.set(false);
+    expect(component.filteredSearchResults().length).toBe(2);
   });
 
   it('should defer release matches when opening ingestion modal with platform = 0', async () => {
@@ -172,6 +198,8 @@ describe('DiscoveryListComponent', () => {
       name: 'Saros',
       platform: 'PlayStation 5',
       image_url: null,
+      physical_status: 'verified_physical',
+      verification_tier: 1,
     };
     await component.openIngestionModal(game, '');
 
@@ -183,7 +211,7 @@ describe('DiscoveryListComponent', () => {
     expect(component.matchedReleases().length).toBe(0);
   });
 
-  it('should fetch releases when selecting a platform in modal', async () => {
+  it('should fetch releases and auto-select variants when selecting a platform in modal', async () => {
     const game: IGDBSearchResult = {
       id: 'igdb-111',
       name: 'Saros',
@@ -201,14 +229,21 @@ describe('DiscoveryListComponent', () => {
     expect(mockCollectionService.getGameMatches).toHaveBeenCalledWith('111', 5);
     expect(component.matchedReleases().length).toBe(1);
     expect(component.matchedReleases()[0].romCrc).toBe('crc123');
+    expect(component.selectedReleaseIds().has('crc123')).toBe(true);
+
+    // Toggle selection off
+    component.toggleReleaseSelection(component.matchedReleases()[0]);
+    expect(component.selectedReleaseIds().has('crc123')).toBe(false);
   });
 
-  it('should submit game ingestion and refresh', async () => {
+  it('should submit game ingestion and refresh with physical status', async () => {
     const game: IGDBSearchResult = {
       id: 'igdb-111',
       name: 'Saros',
       platform: 'PlayStation 5',
       image_url: null,
+      physical_status: 'verified_physical',
+      verification_tier: 1,
     };
     component.modalGame.set(game);
     component.modalPlatformId.set(1);
@@ -221,6 +256,8 @@ describe('DiscoveryListComponent', () => {
         game: expect.objectContaining({
           title: 'Saros',
           platform_id: 1,
+          physical_status: 'verified_physical',
+          verification_tier: 1,
         }),
       }),
     );

@@ -10,6 +10,8 @@
     "db:backup": "tsx scripts/safety_backup.ts",
     "db:pull": "tsx scripts/d1_pull.ts",
     "db:push": "tsx scripts/d1_push.ts",
+    "dats:sync": "tsx scripts/sync_canonical_dats.ts",
+    "dats:dry-run": "tsx scripts/sync_canonical_dats.ts --dry-run",
     "sync-db": "tsx scripts/sync_local_d1.ts",
     "fix-dates": "tsx scripts/fix_outlier_release_dates.ts",
     "scan-backups": "tsx scripts/scan_backups.ts",

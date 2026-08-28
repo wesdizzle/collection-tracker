@@ -327,22 +327,24 @@ export class CollectionService {
    *
    * @param query The search query string.
    * @param platformId The platform ID to filter matches.
+   * @param filterDigital Whether to hide digital-only / Virtual Console fluff.
    * @returns Observable of normalized game search result candidates.
    */
   searchGames(
     query: string,
     platformId: number,
+    filterDigital = false,
   ): Observable<IGDBSearchResult[]> {
-    return this.http
-      .get<
-        IGDBSearchResult[]
-      >(`/api/discovery/search?query=${encodeURIComponent(query)}&platformId=${platformId}`)
-      .pipe(
-        catchError((err) => {
-          console.error('[CollectionService] Error searching games:', err);
-          return of([]);
-        }),
-      );
+    let url = `/api/discovery/search?query=${encodeURIComponent(query)}&platformId=${platformId}`;
+    if (filterDigital) {
+      url += '&filterDigital=true';
+    }
+    return this.http.get<IGDBSearchResult[]>(url).pipe(
+      catchError((err) => {
+        console.error('[CollectionService] Error searching games:', err);
+        return of([]);
+      }),
+    );
   }
 
   /**
@@ -388,10 +390,14 @@ export class CollectionService {
   /**
    * Performs a series scan to discover missing games for tracked series and platforms.
    *
+   * @param filterDigital Whether to hide digital-only / Virtual Console fluff.
    * @returns Observable of missing game suggestions along with physical DAT release checklist info.
    */
-  scanSeries(): Observable<ScanSuggestion[]> {
-    return this.http.get<ScanSuggestion[]>('/api/discovery/scan-series').pipe(
+  scanSeries(filterDigital = false): Observable<ScanSuggestion[]> {
+    const url = filterDigital
+      ? '/api/discovery/scan-series?filterDigital=true'
+      : '/api/discovery/scan-series';
+    return this.http.get<ScanSuggestion[]>(url).pipe(
       catchError((err) => {
         console.error('[CollectionService] Error scanning series:', err);
         return of([]);

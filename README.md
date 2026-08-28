@@ -103,6 +103,7 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 ### 🛠️ Local Staging & Sync CLI Commands
 
 - **Initialize Local Database**: `npm run db:init` (Builds fresh `collection.sqlite` from schema)
+- **Sync Canonical DATs**: `npm run dats:sync` (Indexes canonical No-Intro / Redump DAT releases into `canonical_releases` and creates seed chunks for Cloudflare D1)
 - **Backup Cold Copy**: `npm run db:backup` (Generates binary, SQL text, and JSON backups locally)
 - **Pull Remote D1**: `npm run db:pull` (Exports remote D1 state to local staging SQLite)
 - **Push to Remote D1**: `ALLOW_LOCAL_DEPLOY=true npm run db:push` (Pushes local staging changes up to Cloudflare D1)
@@ -127,13 +128,19 @@ npx wrangler secret put TWITCH_CLIENT_ID
 npx wrangler secret put TWITCH_CLIENT_SECRET
 ```
 
-### 🔍 Edge-Native Discovery
+### 🔍 Edge-Native Discovery & 3-Tier Physical Verification
 
-The **Discovery** tab provides three workflows directly within the web app:
+The **Discovery** tab provides three workflows directly within the web app with built-in physical vs digital release verification:
 
-1. **Game Search**: Search the entire IGDB database across any platform and ingest games into Cloudflare D1 with custom status tracking.
-2. **Franchise Discovery**: Automatically scans existing series in your collection against IGDB to surface uncollected sequels, spin-offs, and ports.
+1. **Game Search**: Search the entire IGDB database across any platform, filter out digital-only and Virtual Console fluff, inspect verified physical status badges (🟢 Verified Physical, 🟡 Likely Physical, ⚪ Digital Only), and ingest games into Cloudflare D1 with custom status tracking.
+2. **Franchise Discovery**: Automatically scans existing series in your collection against IGDB to surface uncollected sequels, spin-offs, and ports with canonical physical variant cross-referencing.
 3. **Amiibo Discovery**: Connects directly to AmiiboAPI to detect unreleased or missing amiibo figures and cards, supporting one-click and bulk ingestion into your collection.
+
+#### Physical Verification Architecture (Zero Paid APIs)
+
+- **Tier 1 (Canonical DAT Grounding - 100% Confidence)**: Cross-references game titles against 80,000+ indexed canonical No-Intro cartridge and Redump optical disc releases stored directly in D1/SQLite.
+- **Tier 2 (Modern Heuristics & Open Datasets)**: Validates modern games (Switch, PS4/PS5, Xbox) using free physical signals (physical packaging formats, curated physical publisher whitelist, retail barcodes, and platform serial code patterns).
+- **Tier 3 (Digital Fluff Elimination)**: Filters out DLC, expansion packs, Virtual Console/arcade re-releases, and digital ports exhibiting platform launch era discrepancies (>3 years prior to platform launch).
 
 ## 🛡️ Engineering Standards
 

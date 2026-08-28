@@ -116,6 +116,18 @@ import { RouterModule } from '@angular/router';
             >
               Search IGDB
             </button>
+
+            <div class="filter-toggle-wrapper">
+              <label class="filter-toggle-label">
+                <input
+                  type="checkbox"
+                  class="filter-checkbox"
+                  [checked]="filterDigital()"
+                  (change)="onFilterDigitalChange($event)"
+                />
+                <span>Hide Digital-Only</span>
+              </label>
+            </div>
           </div>
 
           <!-- Search States -->
@@ -170,10 +182,33 @@ import { RouterModule } from '@angular/router';
             </div>
           }
 
+          @if (
+            !searchLoading() &&
+            searchResults().length > 0 &&
+            filteredSearchResults().length === 0 &&
+            !searchError() &&
+            searchPerformed()
+          ) {
+            <div class="empty-state animate-slide-up">
+              <div class="empty-icon text-4xl">⚪</div>
+              <h3>All {{ searchResults().length }} Results are Digital-Only</h3>
+              <p class="text-secondary mb-md">
+                Uncheck "Hide Digital-Only" above to view digital releases for
+                "{{ lastQuery() }}".
+              </p>
+              <button
+                class="m3-btn m3-btn-secondary btn-sm"
+                (click)="filterDigital.set(false)"
+              >
+                Show Digital Results
+              </button>
+            </div>
+          }
+
           <!-- Search Results Grid -->
-          @if (!searchLoading() && searchResults().length > 0) {
+          @if (!searchLoading() && filteredSearchResults().length > 0) {
             <div class="results-grid">
-              @for (game of searchResults(); track game.id) {
+              @for (game of filteredSearchResults(); track game.id) {
                 <div class="game-result-card">
                   <div class="result-cover">
                     @if (game.image_url) {
@@ -191,7 +226,30 @@ import { RouterModule } from '@angular/router';
                       <h4 class="result-title" [title]="game.name">
                         {{ game.name }}
                       </h4>
-                      <span class="platform-badge">{{ game.platform }}</span>
+                      <div class="flex gap-xs items-center flex-wrap mt-xs">
+                        <span class="platform-badge">{{ game.platform }}</span>
+                        @if (game.physical_status === 'verified_physical') {
+                          <span
+                            class="physical-badge verified"
+                            title="Canonical Physical Cartridge / Disc Match"
+                            >🟢 Verified Physical</span
+                          >
+                        } @else if (
+                          game.physical_status === 'likely_physical'
+                        ) {
+                          <span
+                            class="physical-badge likely"
+                            title="Modern Retail Publisher / Barcode Match"
+                            >🟡 Likely Physical</span
+                          >
+                        } @else if (game.physical_status === 'digital_only') {
+                          <span
+                            class="physical-badge digital"
+                            title="Digital-Only / Virtual Console Re-release"
+                            >⚪ Digital Only</span
+                          >
+                        }
+                      </div>
                     </div>
                     <button
                       class="m3-btn m3-btn-secondary mt-md w-full"
@@ -248,13 +306,38 @@ import { RouterModule } from '@angular/router';
             </div>
           }
 
+          <!-- Scan Empty State for Digital Only Filter -->
+          @if (
+            !scanLoading() &&
+            scanResults().length > 0 &&
+            filteredScanResults().length === 0 &&
+            !scanError()
+          ) {
+            <div class="empty-state animate-slide-up">
+              <div class="empty-icon text-4xl">⚪</div>
+              <h3>
+                All {{ scanResults().length }} Suggestions are Digital-Only
+              </h3>
+              <p class="text-secondary mb-md">
+                Uncheck "Hide Digital-Only" in the Game Search tab to view
+                digital series suggestions.
+              </p>
+              <button
+                class="m3-btn m3-btn-secondary btn-sm"
+                (click)="filterDigital.set(false)"
+              >
+                Show Digital Results
+              </button>
+            </div>
+          }
+
           <!-- Scan Results Grid -->
-          @if (!scanLoading() && scanResults().length > 0) {
+          @if (!scanLoading() && filteredScanResults().length > 0) {
             <div
               class="scan-results-header mb-md flex justify-between items-center"
             >
               <div>
-                <h3>{{ scanResults().length }} Suggestions Found</h3>
+                <h3>{{ filteredScanResults().length }} Suggestions Found</h3>
                 <p class="text-secondary text-xs">
                   Series scans assume games are unowned and unplayed by default.
                 </p>
@@ -265,7 +348,7 @@ import { RouterModule } from '@angular/router';
                   (click)="toggleSelectAllScan()"
                 >
                   {{
-                    selectedScanGameIds().size === scanResults().length
+                    selectedScanGameIds().size === filteredScanResults().length
                       ? 'Deselect All'
                       : 'Select All'
                   }}
@@ -282,7 +365,7 @@ import { RouterModule } from '@angular/router';
 
             <div class="series-grid">
               @for (
-                game of scanResults();
+                game of filteredScanResults();
                 track game.id + '-' + game.platform_id
               ) {
                 <div class="series-game-card">
@@ -315,10 +398,31 @@ import { RouterModule } from '@angular/router';
                     >
                       <div>
                         <h4 class="text-base font-bold">{{ game.title }}</h4>
-                        <div class="flex gap-sm items-center mt-sm">
+                        <div class="flex gap-sm items-center mt-sm flex-wrap">
                           <span class="platform-badge">{{
                             game.platform
                           }}</span>
+                          @if (game.physical_status === 'verified_physical') {
+                            <span
+                              class="physical-badge verified"
+                              title="Canonical Physical Cartridge / Disc Match"
+                              >🟢 Verified Physical</span
+                            >
+                          } @else if (
+                            game.physical_status === 'likely_physical'
+                          ) {
+                            <span
+                              class="physical-badge likely"
+                              title="Modern Retail Publisher / Barcode Match"
+                              >🟡 Likely Physical</span
+                            >
+                          } @else if (game.physical_status === 'digital_only') {
+                            <span
+                              class="physical-badge digital"
+                              title="Digital-Only / Virtual Console Re-release"
+                              >⚪ Digital Only</span
+                            >
+                          }
                           @if (game.collections) {
                             <span class="metadata-badge"
                               >Series: {{ game.collections }}</span
@@ -605,9 +709,24 @@ import { RouterModule } from '@angular/router';
                 </div>
                 <div>
                   <h2 class="text-lg font-bold">{{ game.name }}</h2>
-                  <span class="platform-badge mt-sm">{{
-                    game.platform || 'Unknown Platform'
-                  }}</span>
+                  <div class="flex gap-xs items-center mt-sm flex-wrap">
+                    <span class="platform-badge">{{
+                      game.platform || 'Unknown Platform'
+                    }}</span>
+                    @if (game.physical_status === 'verified_physical') {
+                      <span class="physical-badge verified"
+                        >🟢 Verified Physical</span
+                      >
+                    } @else if (game.physical_status === 'likely_physical') {
+                      <span class="physical-badge likely"
+                        >🟡 Likely Physical</span
+                      >
+                    } @else if (game.physical_status === 'digital_only') {
+                      <span class="physical-badge digital"
+                        >⚪ Digital Only</span
+                      >
+                    }
+                  </div>
                   @if (game.summary) {
                     <p class="text-xs text-secondary mt-sm line-clamp-3">
                       {{ game.summary }}
@@ -615,6 +734,69 @@ import { RouterModule } from '@angular/router';
                   }
                 </div>
               </div>
+
+              <!-- Matched Canonical Physical Releases Checklist -->
+              @if (matchedReleases().length > 0) {
+                <div class="form-field mb-lg">
+                  <label
+                    class="font-bold flex justify-between items-center mb-xs"
+                  >
+                    <span
+                      >Canonical Physical Releases ({{
+                        matchedReleases().length
+                      }}
+                      found)</span
+                    >
+                    <span class="text-xs text-secondary font-normal"
+                      >Select variants to track</span
+                    >
+                  </label>
+                  <div class="releases-checklist">
+                    @for (
+                      rel of matchedReleases();
+                      track rel.romCrc || rel.romName || rel.name
+                    ) {
+                      <label class="release-item">
+                        <input
+                          type="checkbox"
+                          class="release-checkbox"
+                          [checked]="
+                            selectedReleaseIds().has(
+                              rel.romCrc || rel.romName || rel.name
+                            )
+                          "
+                          (change)="toggleReleaseSelection(rel)"
+                        />
+                        <div class="release-details">
+                          <span class="release-title">{{ rel.name }}</span>
+                          <div class="flex gap-xs mt-xs flex-wrap">
+                            @if (rel.region) {
+                              <span class="tag-pill region-pill">{{
+                                rel.region
+                              }}</span>
+                            }
+                            @if (rel.variants) {
+                              <span class="tag-pill variant-pill">{{
+                                rel.variants
+                              }}</span>
+                            }
+                            @if (rel.serial_code) {
+                              <span class="tag-pill serial-pill">{{
+                                rel.serial_code
+                              }}</span>
+                            }
+                            @if (rel.romCrc) {
+                              <span class="tag-pill crc-pill"
+                                >CRC: {{ rel.romCrc }}</span
+                              >
+                            }
+                          </div>
+                        </div>
+                      </label>
+                    }
+                  </div>
+                </div>
+              }
 
               <!-- Ingestion status parameters -->
               <div class="modal-meta-grid">
@@ -1289,6 +1471,111 @@ import { RouterModule } from '@angular/router';
         -webkit-box-orient: vertical;
         overflow: hidden;
       }
+      .filter-toggle-wrapper {
+        display: flex;
+        align-items: center;
+      }
+      .filter-toggle-label {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-8);
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        user-select: none;
+      }
+      .filter-checkbox {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        accent-color: var(--m3-primary);
+      }
+      .physical-badge {
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: var(--radius-full);
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .physical-badge.verified {
+        background: rgba(34, 197, 94, 0.18);
+        color: #4ade80;
+        border: 1px solid rgba(34, 197, 94, 0.35);
+      }
+      .physical-badge.likely {
+        background: rgba(234, 179, 8, 0.18);
+        color: #facc15;
+        border: 1px solid rgba(234, 179, 8, 0.35);
+      }
+      .physical-badge.digital {
+        background: rgba(148, 163, 184, 0.15);
+        color: #cbd5e1;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+      }
+      .releases-checklist {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-8);
+        max-height: 180px;
+        overflow-y: auto;
+        padding: var(--spacing-8);
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+      }
+      .release-item {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--spacing-8);
+        padding: var(--spacing-6);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      .release-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .release-checkbox {
+        width: 16px;
+        height: 16px;
+        margin-top: 2px;
+        cursor: pointer;
+        accent-color: var(--m3-primary);
+      }
+      .release-details {
+        flex: 1;
+        min-width: 0;
+      }
+      .release-title {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        word-break: break-word;
+      }
+      .tag-pill {
+        font-size: 0.65rem;
+        padding: 1px 6px;
+        border-radius: var(--radius-sm);
+        display: inline-block;
+      }
+      .region-pill {
+        background: rgba(59, 130, 246, 0.2);
+        color: #93c5fd;
+      }
+      .variant-pill {
+        background: rgba(168, 85, 247, 0.2);
+        color: #d8b4fe;
+      }
+      .serial-pill {
+        background: rgba(234, 179, 8, 0.2);
+        color: #fde047;
+      }
+      .crc-pill {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text-secondary);
+      }
     `,
   ],
 })
@@ -1304,6 +1591,7 @@ export class DiscoveryListComponent implements OnInit {
   public searchError = signal<string | null>(null);
   public searchPerformed = signal<boolean>(false);
   public lastQuery = signal<string>('');
+  public filterDigital = signal<boolean>(true);
 
   /** Series scan logic signals. */
   public scanResults = signal<ScanSuggestion[]>([]);
@@ -1379,6 +1667,24 @@ export class DiscoveryListComponent implements OnInit {
     return Array.from(typeSet).sort();
   });
 
+  /** Filtered search results based on the Hide Digital-Only toggle. */
+  public filteredSearchResults = computed<IGDBSearchResult[]>(() => {
+    const results = this.searchResults();
+    if (!this.filterDigital()) {
+      return results;
+    }
+    return results.filter((g) => g.physical_status !== 'digital_only');
+  });
+
+  /** Filtered franchise series scan results based on the Hide Digital-Only toggle. */
+  public filteredScanResults = computed<ScanSuggestion[]>(() => {
+    const results = this.scanResults();
+    if (!this.filterDigital()) {
+      return results;
+    }
+    return results.filter((g) => g.physical_status !== 'digital_only');
+  });
+
   /** Filtered Amiibo view. */
   public filteredAmiiboResults = computed<AmiiboDiscoveryItem[]>(() => {
     const sFilter = this.amiiboSeriesFilter();
@@ -1425,6 +1731,22 @@ export class DiscoveryListComponent implements OnInit {
         }
       }
     }
+  }
+
+  onFilterDigitalChange(event: Event) {
+    const isChecked = (event.target as HTMLInputElement).checked;
+    this.filterDigital.set(isChecked);
+  }
+
+  toggleReleaseSelection(rel: DiscoveryRelease) {
+    const key = rel.romCrc || rel.romName || rel.name;
+    const current = new Set(this.selectedReleaseIds());
+    if (current.has(key)) {
+      current.delete(key);
+    } else {
+      current.add(key);
+    }
+    this.selectedReleaseIds.set(current);
   }
 
   /**
@@ -1536,7 +1858,13 @@ export class DiscoveryListComponent implements OnInit {
           if (data.game) {
             this.modalGame.set(data.game);
           }
-          this.matchedReleases.set(data.matchedReleases || []);
+          const rels = data.matchedReleases || [];
+          this.matchedReleases.set(rels);
+          const autoSelected = new Set<string>();
+          rels.forEach((r) =>
+            autoSelected.add(r.romCrc || r.romName || r.name),
+          );
+          this.selectedReleaseIds.set(autoSelected);
         }
       } catch (err: unknown) {
         console.warn('[DiscoveryList] Matches lookup fallback:', err);
@@ -1575,7 +1903,11 @@ export class DiscoveryListComponent implements OnInit {
         if (data.game) {
           this.modalGame.set(data.game);
         }
-        this.matchedReleases.set(data.matchedReleases || []);
+        const rels = data.matchedReleases || [];
+        this.matchedReleases.set(rels);
+        const autoSelected = new Set<string>();
+        rels.forEach((r) => autoSelected.add(r.romCrc || r.romName || r.name));
+        this.selectedReleaseIds.set(autoSelected);
       }
     } catch (err: unknown) {
       console.warn('[DiscoveryList] Modal matches lookup error:', err);
@@ -1638,7 +1970,7 @@ export class DiscoveryListComponent implements OnInit {
     const allReleases = this.matchedReleases();
     const selectedKeys = this.selectedReleaseIds();
     const selectedReleases = allReleases.filter((r) =>
-      selectedKeys.has(r.romCrc || r.name),
+      selectedKeys.has(r.romCrc || r.romName || r.name),
     );
 
     const payload = {
@@ -1656,15 +1988,21 @@ export class DiscoveryListComponent implements OnInit {
         ownership_status: this.ownershipStatus(),
         play_status: this.playStatus(),
         backup_status: this.backupStatus(),
+        physical_status: game.physical_status || 'unverified',
+        verification_tier: game.verification_tier || 0,
       },
       releases: selectedReleases.map((r) => ({
         region: r.region || null,
         variants: r.variants || null,
-        rom_name: r.name || null,
+        rom_name: r.romName || r.name || null,
         rom_crc: r.romCrc || null,
         ownership_status: this.ownershipStatus(),
         backup_status: this.backupStatus(),
         release_date: r.releaseDate || null,
+        canonical_release_id: r.canonical_release_id || null,
+        serial_code: r.serial_code || null,
+        barcode: r.barcode || null,
+        is_physical: r.is_physical ?? 1,
       })),
     };
 
@@ -1730,7 +2068,7 @@ export class DiscoveryListComponent implements OnInit {
 
   toggleSelectAllScan() {
     const current = this.selectedScanGameIds();
-    const results = this.scanResults();
+    const results = this.filteredScanResults();
     if (current.size === results.length) {
       this.selectedScanGameIds.set(new Set());
     } else {
@@ -1758,16 +2096,22 @@ export class DiscoveryListComponent implements OnInit {
         ownership_status: 0, // Unowned
         play_status: 0, // Unplayed
         backup_status: 0, // Not Backed Up
+        physical_status: game.physical_status || 'unverified',
+        verification_tier: game.verification_tier || 0,
       },
       releases: game.releases
         ? game.releases.map((r: DiscoveryRelease) => ({
             region: r.region || null,
             variants: r.variants || null,
-            rom_name: r.name || null,
+            rom_name: r.romName || r.name || null,
             rom_crc: r.romCrc || null,
             ownership_status: 0,
             backup_status: 0,
             release_date: r.releaseDate || null,
+            canonical_release_id: r.canonical_release_id || null,
+            serial_code: r.serial_code || null,
+            barcode: r.barcode || null,
+            is_physical: r.is_physical ?? 1,
           }))
         : [],
     };
@@ -1797,7 +2141,7 @@ export class DiscoveryListComponent implements OnInit {
   }
 
   async bulkAddSeriesGames() {
-    const selected = this.scanResults().filter((g) =>
+    const selected = this.filteredScanResults().filter((g) =>
       this.selectedScanGameIds().has(g.id + '-' + g.platform_id),
     );
     if (selected.length === 0) return;
@@ -1823,16 +2167,22 @@ export class DiscoveryListComponent implements OnInit {
           ownership_status: 0,
           play_status: 0,
           backup_status: 0,
+          physical_status: game.physical_status || 'unverified',
+          verification_tier: game.verification_tier || 0,
         },
         releases: game.releases
           ? game.releases.map((r: DiscoveryRelease) => ({
               region: r.region || null,
               variants: r.variants || null,
-              rom_name: r.name || null,
+              rom_name: r.romName || r.name || null,
               rom_crc: r.romCrc || null,
               ownership_status: 0,
               backup_status: 0,
               release_date: r.releaseDate || null,
+              canonical_release_id: r.canonical_release_id || null,
+              serial_code: r.serial_code || null,
+              barcode: r.barcode || null,
+              is_physical: r.is_physical ?? 1,
             }))
           : [],
       };

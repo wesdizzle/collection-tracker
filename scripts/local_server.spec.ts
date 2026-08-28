@@ -128,7 +128,10 @@ describe('Local Server API Logic', () => {
                 franchises TEXT,
                 manually_verified BOOLEAN,
                 metadata_json TEXT,
-                region TEXT
+                region TEXT,
+                physical_status TEXT DEFAULT 'unverified',
+                verification_tier INTEGER DEFAULT 0,
+                barcode TEXT
             );
             CREATE TABLE game_releases (
                 id TEXT PRIMARY KEY,
@@ -139,7 +142,26 @@ describe('Local Server API Logic', () => {
                 rom_crc TEXT,
                 backup_status INTEGER NOT NULL DEFAULT 0,
                 ownership_status INTEGER NOT NULL DEFAULT 0,
-                release_date DATE
+                release_date DATE,
+                canonical_release_id INTEGER,
+                barcode TEXT,
+                is_physical INTEGER DEFAULT 1
+            );
+            CREATE TABLE canonical_releases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform_id INTEGER NOT NULL,
+                raw_title TEXT NOT NULL,
+                normalized_title TEXT NOT NULL,
+                region TEXT,
+                variants TEXT,
+                rom_name TEXT,
+                rom_crc TEXT,
+                serial_code TEXT,
+                barcode TEXT,
+                publisher TEXT,
+                source TEXT NOT NULL DEFAULT 'dat',
+                is_verified_physical INTEGER NOT NULL DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE toys (
                 stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -555,6 +577,15 @@ describe('Local Server API Logic', () => {
     });
 
     it('should get matches and details via /api/discovery/matches', async () => {
+      mockDb
+        .prepare(
+          `
+          INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source, is_verified_physical)
+          VALUES (34, 'Bloodborne', 'bloodborne', 'USA', NULL, 'Bloodborne (USA).bin', '12345678', 'dat', 1)
+        `,
+        )
+        .run();
+
       const { req, res } = createMocks(
         '/api/discovery/matches?igdbId=101&platformId=34',
       );
@@ -564,7 +595,8 @@ describe('Local Server API Logic', () => {
       const output = JSON.parse(res.end.mock.calls[0][0]);
       expect(output.game.name).toBe('Bloodborne');
       expect(output.matchedReleases).toHaveLength(1);
-      expect(output.matchedReleases[0].name).toBe('Bloodborne (USA)');
+      expect(output.matchedReleases[0].name).toBe('Bloodborne');
+      expect(output.physical_status).toBe('verified_physical');
     });
 
     it('should transactionally add a game and releases via /api/discovery/add', async () => {

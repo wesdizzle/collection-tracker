@@ -17,34 +17,51 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.join(__dirname, '..');
 const dbPath = path.join(rootDir, 'collection.sqlite');
-const migrationPath = path.join(
-  rootDir,
-  'migrations',
-  '0001_initial_schema.sql',
-);
+const migrationsDir = path.join(rootDir, 'migrations');
 
-if (!fs.existsSync(migrationPath)) {
-  console.error(`[InitDb] Error: Migration file not found at ${migrationPath}`);
+if (!fs.existsSync(migrationsDir)) {
+  console.error(
+    `[InitDb] Error: Migrations directory not found at ${migrationsDir}`,
+  );
   process.exit(1);
 }
 
-console.log('[InitDb] Initializing fresh local collection.sqlite database...');
-
-if (fs.existsSync(dbPath)) {
-  console.log(
-    '[InitDb] Applying schema and seed data to existing local collection.sqlite...',
-  );
-} else {
-  console.log('[InitDb] Creating new collection.sqlite database...');
-}
+console.log('[InitDb] Initializing local collection.sqlite database...');
 
 const db = new Database(dbPath);
-const migrationSql = fs.readFileSync(migrationPath, 'utf8');
 
 try {
-  db.exec(migrationSql);
+  const migrationFiles = fs
+    .readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+
+  for (const file of migrationFiles) {
+    console.log(`[InitDb] Applying migration: ${file}...`);
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    // Split on statements or execute directly; if an ALTER TABLE fails because column exists, handle gracefully
+    const statements = sql
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    for (const stmt of statements) {
+      try {
+        db.exec(stmt);
+      } catch (stmtErr: unknown) {
+        const msg =
+          stmtErr instanceof Error ? stmtErr.message : String(stmtErr);
+        if (msg.includes('duplicate column name')) {
+          // Column already exists, safe to ignore
+          continue;
+        }
+        throw stmtErr;
+      }
+    }
+  }
+
   console.log(
-    '✅ Successfully initialized database schema and base reference catalog!',
+    '✅ Successfully applied all migrations and base reference catalog!',
   );
 
   // Print summary counts

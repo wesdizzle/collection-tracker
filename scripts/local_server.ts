@@ -21,8 +21,12 @@ import {
   queryIGDB,
   getGamesByIds,
 } from './lib/igdb.js';
-import { getPlatformDatReleases, PlatformRecord } from './lib/dat_cache.js';
-import { titlesMatch } from './lib/title_matching.js';
+import { PlatformRecord } from './lib/dat_cache.js';
+import {
+  detectPhysicalReleaseStatus,
+  CanonicalRelease,
+} from './lib/canonical_releases.js';
+import { computeGameCanonicalSeries } from './lib/canonical_series.js';
 import { recomputeCanonicalSeries } from './compute_canonical_series.js';
 import {
   GAMES_LIST_QUERY,
@@ -525,16 +529,39 @@ export const handleRequest =
         }
         const matches = await findGame(query, igdbPlatformId);
 
+        const filterDigital = url.searchParams.get('filterDigital') === 'true';
         const platformRows = db
-          .prepare('SELECT id, display_name, name FROM platforms')
-          .all() as Array<{ id: number; display_name: string; name: string }>;
+          .prepare('SELECT id, display_name, name, launch_date FROM platforms')
+          .all() as Array<{
+          id: number;
+          display_name: string;
+          name: string;
+          launch_date: string | null;
+        }>;
+        const platformMapById = new Map<
+          number,
+          {
+            id: number;
+            display_name: string;
+            name: string;
+            launch_date: string | null;
+          }
+        >();
         const igdbToLocalPlatform = new Map<number, number>();
         platformRows.forEach((p) => {
+          platformMapById.set(p.id, p);
           const igdbId = PLATFORM_MAP[p.display_name] || PLATFORM_MAP[p.name];
           if (igdbId) {
             igdbToLocalPlatform.set(igdbId, p.id);
           }
         });
+
+        const canonicalRows = db
+          .prepare(
+            `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
+             FROM canonical_releases`,
+          )
+          .all() as CanonicalRelease[];
 
         const existing = db
           .prepare('SELECT igdb_id, platform_id, title FROM games')
@@ -553,64 +580,100 @@ export const handleRequest =
           }
         });
 
-        const filteredMatches = (matches || []).filter((m) => {
-          const cleanTitle = (m.name || '')
-            .toLowerCase()
-            .replace(/[^a-z0-9]/g, '');
-          const cleanIgdbId = Number(m.id.toString().replace('igdb-', ''));
+        const filteredMatches = (matches || [])
+          .map((m) => {
+            const cleanTitle = (m.name || '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, '');
+            const cleanIgdbId = Number(m.id.toString().replace('igdb-', ''));
 
-          // Collect all candidate local platform IDs
-          const targetPlatformIds = new Set<number>();
+            // Collect all candidate local platform IDs
+            const targetPlatformIds = new Set<number>();
 
-          if (Array.isArray(m.platform_ids)) {
-            for (const pid of m.platform_ids) {
-              const localPid = igdbToLocalPlatform.get(pid);
-              if (localPid) targetPlatformIds.add(localPid);
-            }
-          }
-
-          if (Array.isArray(m.platforms)) {
-            for (const p of m.platforms) {
-              if (typeof p.id === 'number') {
-                const localPid = igdbToLocalPlatform.get(p.id);
+            if (Array.isArray(m.platform_ids)) {
+              for (const pid of m.platform_ids) {
+                const localPid = igdbToLocalPlatform.get(pid);
                 if (localPid) targetPlatformIds.add(localPid);
               }
             }
-          }
 
-          if (m.platform) {
-            const igdbPid = PLATFORM_MAP[m.platform];
-            if (igdbPid) {
-              const localPid = igdbToLocalPlatform.get(igdbPid);
-              if (localPid) targetPlatformIds.add(localPid);
+            if (Array.isArray(m.platforms)) {
+              for (const p of m.platforms) {
+                if (typeof p.id === 'number') {
+                  const localPid = igdbToLocalPlatform.get(p.id);
+                  if (localPid) targetPlatformIds.add(localPid);
+                }
+              }
             }
-            const directMatch = platformRows.find(
-              (p) =>
-                (p.display_name &&
-                  p.display_name.toLowerCase() === m.platform.toLowerCase()) ||
-                (p.name && p.name.toLowerCase() === m.platform.toLowerCase()),
-            );
-            if (directMatch) {
-              targetPlatformIds.add(directMatch.id);
+
+            if (m.platform) {
+              const igdbPid = PLATFORM_MAP[m.platform];
+              if (igdbPid) {
+                const localPid = igdbToLocalPlatform.get(igdbPid);
+                if (localPid) targetPlatformIds.add(localPid);
+              }
+              const directMatch = platformRows.find(
+                (p) =>
+                  (p.display_name &&
+                    p.display_name.toLowerCase() ===
+                      m.platform.toLowerCase()) ||
+                  (p.name && p.name.toLowerCase() === m.platform.toLowerCase()),
+              );
+              if (directMatch) {
+                targetPlatformIds.add(directMatch.id);
+              }
             }
-          }
 
-          if (targetPlatformIds.size === 0) {
-            const isOwnedGlobally = Array.from(existingSet).some((key) =>
-              key.startsWith(`igdb-${cleanIgdbId}-`),
-            );
-            return !isOwnedGlobally;
-          }
+            if (targetPlatformIds.size === 0) {
+              const isOwnedGlobally = Array.from(existingSet).some((key) =>
+                key.startsWith(`igdb-${cleanIgdbId}-`),
+              );
+              if (isOwnedGlobally) return null;
+            } else {
+              const hasUnowned = Array.from(targetPlatformIds).some(
+                (localPid) => {
+                  const isOwned =
+                    existingSet.has(`igdb-${cleanIgdbId}-${localPid}`) ||
+                    existingSet.has(`title-${cleanTitle}-${localPid}`);
+                  return !isOwned;
+                },
+              );
+              if (!hasUnowned) return null;
+            }
 
-          const hasUnowned = Array.from(targetPlatformIds).some((localPid) => {
-            const isOwned =
-              existingSet.has(`igdb-${cleanIgdbId}-${localPid}`) ||
-              existingSet.has(`title-${cleanTitle}-${localPid}`);
-            return !isOwned;
-          });
+            const chosenLocalPid =
+              localPid || Array.from(targetPlatformIds)[0] || 0;
+            const chosenPlatformRow = chosenLocalPid
+              ? platformMapById.get(chosenLocalPid)
+              : undefined;
 
-          return hasUnowned;
-        });
+            const verification = detectPhysicalReleaseStatus({
+              platformId: chosenLocalPid,
+              gameTitle: m.name,
+              firstReleaseDate: m.release_date || null,
+              platformLaunchDate: chosenPlatformRow?.launch_date || null,
+              igdbCategory: (m as unknown as { category?: number }).category,
+              canonicalReleases: canonicalRows,
+            });
+
+            if (
+              filterDigital &&
+              verification.physical_status === 'digital_only'
+            ) {
+              return null;
+            }
+
+            return {
+              ...m,
+              physical_status: verification.physical_status,
+              verification_tier: verification.verification_tier,
+              is_physical: verification.is_physical,
+              physical_regions: verification.physical_regions,
+              verification_reasons: verification.reasons,
+              matched_releases: verification.matched_releases,
+            };
+          })
+          .filter(Boolean);
 
         res.end(JSON.stringify(filteredMatches));
       } else if (
@@ -647,18 +710,57 @@ export const handleRequest =
           res.end(JSON.stringify({ error: 'Game not found on IGDB' }));
           return;
         }
-        const datReleases = getPlatformDatReleases(db, localPid);
-        const matchedReleases = datReleases.filter((r) => {
-          let baseTitle = r.name
-            .replace(/\s*[([][^\])]*[)\]]/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (baseTitle.includes(', The')) {
-            baseTitle = 'The ' + baseTitle.replace(', The', '');
-          }
-          return titlesMatch(game.name, baseTitle, r.name, Number(platformId));
+
+        const platformRow = db
+          .prepare('SELECT launch_date FROM platforms WHERE id = ?')
+          .get(localPid) as { launch_date: string | null } | undefined;
+
+        const canonicalRows = db
+          .prepare(
+            `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
+             FROM canonical_releases WHERE platform_id = ?`,
+          )
+          .all(localPid) as CanonicalRelease[];
+
+        const verification = detectPhysicalReleaseStatus({
+          platformId: localPid,
+          gameTitle: game.name,
+          firstReleaseDate: game.release_date || null,
+          platformLaunchDate: platformRow?.launch_date || null,
+          igdbCategory: (game as unknown as { category?: number }).category,
+          canonicalReleases: canonicalRows,
         });
-        res.end(JSON.stringify({ game, matchedReleases }));
+
+        const matchedReleases = verification.matched_releases.map((mr) => ({
+          name: mr.raw_title,
+          romName: mr.rom_name || mr.raw_title,
+          romCrc: mr.rom_crc || null,
+          region: mr.region || null,
+          variants: mr.variants || null,
+          releaseDate: null,
+          canonical_release_id: mr.id || null,
+          serial_code: mr.serial_code || null,
+          barcode: mr.barcode || null,
+          is_physical: mr.is_verified_physical,
+        }));
+
+        res.end(
+          JSON.stringify({
+            game: {
+              ...game,
+              physical_status: verification.physical_status,
+              verification_tier: verification.verification_tier,
+              is_physical: verification.is_physical,
+              physical_regions: verification.physical_regions,
+              verification_reasons: verification.reasons,
+            },
+            matchedReleases,
+            physical_status: verification.physical_status,
+            verification_tier: verification.verification_tier,
+            physical_regions: verification.physical_regions,
+            verification_reasons: verification.reasons,
+          }),
+        );
       } else if (req.method === 'POST' && pathname === '/api/discovery/add') {
         /**
          * ROUTE: POST /api/discovery/add
@@ -731,15 +833,23 @@ export const handleRequest =
             (maxSortIndexRow.max_idx !== null ? maxSortIndexRow.max_idx : 0) +
             1;
 
+          const canonicalSeries = computeGameCanonicalSeries({
+            title: game.title,
+            collections: game.collections || undefined,
+            franchises: game.franchises || undefined,
+          });
+
           let stableId: number;
           db.transaction(() => {
             const insertGame = db.prepare(`
               INSERT INTO games (
                 id, title, platform_id, queued, sort_index, image_url, play_status,
-                igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified
+                igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
+                physical_status, verification_tier, barcode, canonical_series
               ) VALUES (
                 ?, ?, ?, 0, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, 1
+                ?, ?, ?, ?, ?, ?, ?, 1,
+                ?, ?, ?, ?
               )
             `);
 
@@ -757,6 +867,10 @@ export const handleRequest =
               game.region || 'NA',
               game.collections || null,
               game.franchises || null,
+              game.physical_status || 'unverified',
+              game.verification_tier || 0,
+              game.barcode || null,
+              canonicalSeries,
             );
 
             stableId = Number(result.lastInsertRowid);
@@ -764,8 +878,9 @@ export const handleRequest =
             if (releases && releases.length > 0) {
               const insertRelease = db.prepare(`
                 INSERT INTO game_releases (
-                  id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
+                  canonical_release_id, barcode, is_physical
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `);
 
               for (const rel of releases) {
@@ -782,6 +897,9 @@ export const handleRequest =
                   rel.ownership_status || 0,
                   rel.backup_status || 0,
                   rel.release_date || null,
+                  rel.canonical_release_id || null,
+                  rel.barcode || null,
+                  rel.is_physical ?? 1,
                 );
               }
             } else {
@@ -789,16 +907,14 @@ export const handleRequest =
               db.prepare(
                 `
                 INSERT INTO game_releases (
-                  id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date
-                ) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?)
+                  id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date, is_physical
+                ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, NULL, ?)
               `,
               ).run(
                 virtualId,
                 stableId,
                 game.region || 'NA',
-                game.ownership_status || 0,
-                game.backup_status || 0,
-                game.release_date || null,
+                game.physical_status === 'digital_only' ? 0 : 1,
               );
             }
           })();
@@ -841,6 +957,9 @@ export const handleRequest =
         pathname === '/api/discovery/scan-series'
       ) {
         try {
+          const filterDigital =
+            url.searchParams.get('filterDigital') === 'true';
+
           const seriesRows = db
             .prepare(
               `
@@ -852,8 +971,10 @@ export const handleRequest =
           const seriesNames = seriesRows.map((r) => r.canonical_series);
 
           const dbPlatforms = db
-            .prepare('SELECT id, name, display_name FROM platforms')
-            .all() as PlatformRecord[];
+            .prepare(
+              'SELECT id, name, display_name, launch_date FROM platforms',
+            )
+            .all() as Array<PlatformRecord & { launch_date?: string | null }>;
           const trackedIgdbPlatformIds = new Set<number>();
           const igdbToLocalPlatformId: Record<number, number> = {};
           const igdbToLocalPlatformName: Record<number, string> = {};
@@ -872,6 +993,13 @@ export const handleRequest =
             .prepare('SELECT igdb_id FROM games WHERE igdb_id IS NOT NULL')
             .all() as { igdb_id: number }[];
           const trackedIgdbIds = new Set(trackedGames.map((g) => g.igdb_id));
+
+          const canonicalRows = db
+            .prepare(
+              `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
+               FROM canonical_releases`,
+            )
+            .all() as CanonicalRelease[];
 
           const scanResults: unknown[] = [];
           const gameIdToPlatforms = new Map<number, Set<number>>();
@@ -929,23 +1057,40 @@ export const handleRequest =
               for (const igdbPlatformId of platformIds) {
                 const localPlatformId = igdbToLocalPlatformId[igdbPlatformId];
                 const platformName = igdbToLocalPlatformName[igdbPlatformId];
+                const localPlatformRow = dbPlatforms.find(
+                  (p) => p.id === localPlatformId,
+                );
 
-                const datReleases = getPlatformDatReleases(db, localPlatformId);
-                const matchedReleases = datReleases.filter((r) => {
-                  let baseTitle = r.name
-                    .replace(/\s*[([][^\])]*[)\]]/g, '')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-                  if (baseTitle.includes(', The')) {
-                    baseTitle = 'The ' + baseTitle.replace(', The', '');
-                  }
-                  return titlesMatch(
-                    game.name,
-                    baseTitle,
-                    r.name,
-                    localPlatformId,
-                  );
+                const verification = detectPhysicalReleaseStatus({
+                  platformId: localPlatformId,
+                  gameTitle: game.name,
+                  firstReleaseDate: game.release_date || null,
+                  platformLaunchDate: localPlatformRow?.launch_date || null,
+                  igdbCategory: (game as unknown as { category?: number })
+                    .category,
+                  canonicalReleases: canonicalRows,
                 });
+
+                if (
+                  filterDigital &&
+                  verification.physical_status === 'digital_only'
+                ) {
+                  continue;
+                }
+
+                const matchedReleasesFormatted =
+                  verification.matched_releases.map((mr) => ({
+                    name: mr.raw_title,
+                    romName: mr.rom_name || mr.raw_title,
+                    romCrc: mr.rom_crc || null,
+                    region: mr.region || null,
+                    variants: mr.variants || null,
+                    releaseDate: null,
+                    canonical_release_id: mr.id || null,
+                    serial_code: mr.serial_code || null,
+                    barcode: mr.barcode || null,
+                    is_physical: mr.is_verified_physical,
+                  }));
 
                 scanResults.push({
                   id: game.id,
@@ -959,7 +1104,12 @@ export const handleRequest =
                   franchises: game.franchises || null,
                   region: game.region || 'NA',
                   release_date: game.release_date || null,
-                  releases: matchedReleases,
+                  releases: matchedReleasesFormatted,
+                  physical_status: verification.physical_status,
+                  verification_tier: verification.verification_tier,
+                  is_physical: verification.is_physical,
+                  physical_regions: verification.physical_regions,
+                  verification_reasons: verification.reasons,
                 });
               }
             }

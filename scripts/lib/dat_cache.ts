@@ -58,22 +58,6 @@ function getFilesRecursive(dir: string): string[] {
 }
 
 /**
- * Normalizes a platform name for comparison.
- *
- * @param s String to normalize.
- * @returns Cleaned lowercase string with platform brands removed.
- */
-function cleanPlatformName(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(
-      /\b(nintendo|sony|sega|microsoft|philips|atari|tiger|snk|nec)\b/gi,
-      '',
-    )
-    .replace(/[^a-z0-9]/g, '');
-}
-
-/**
  * Maps a platform name from a DAT file header to a database platform definition.
  * Uses explicit string fallbacks followed by exact and substring matching.
  *
@@ -85,82 +69,133 @@ export function isPlatformMatch(
   datPlatformName: string,
   targetPlatform: PlatformRecord,
 ): boolean {
-  const datClean = cleanPlatformName(datPlatformName);
-  const lowerDat = datPlatformName.toLowerCase();
+  const normalize = (s: string) =>
+    s
+      .replace(/&amp;/gi, ' and ')
+      .replace(/&/g, ' and ')
+      .replace(/\(parent-clone\)/gi, '')
+      .replace(/parent-clone/gi, '')
+      .toLowerCase()
+      .replace(
+        /\b(nintendo|sony|sega|microsoft|philips|atari|tiger|snk|nec|panasonic|mattel|coleco|bandai|casio|commodore|fujitsu|interton|pce|tg16|interactive multimedia system|interactive multiplayer|interactive multimedia|video computer system|mark iii|bigendian|byteswapped|headered|headerless|decrypted|encrypted|bin|lyx|a78|j64|jag|abs|cof|rom|psvgamesd|blackfinpsv|nonpdrm|parentclone|parent clone)\b/gi,
+        '',
+      )
+      .replace(/[^a-z0-9]/g, '');
 
-  // Explicit mapping overrides matching scripts/scrape.ts
-  const fallbacks: Record<string, string> = {
-    'pc engine cd & turbografx cd': 'turbografx cd',
-    'pc engine cd': 'turbografx cd',
-    'turbografx cd': 'turbografx cd',
-    'mega cd': 'sega cd',
-    'sega cd': 'sega cd',
-    'pc engine': 'turbografx-16',
-    turbografx: 'turbografx-16',
-    'super nintendo entertainment system':
-      'super nintendo entertainment system',
-    'nintendo entertainment system': 'nintendo entertainment system',
-    megadrive: 'genesis',
-    'mega drive': 'genesis',
-    genesis: 'genesis',
-    gameboy: 'game boy',
-    'game boy color': 'game boy color',
-    'game boy advance': 'game boy advance',
-    'nintendo 64': 'nintendo 64',
-    'nintendo ds': 'nintendo ds',
-    'playstation vita': 'playstation vita',
-    'playstation portable': 'playstation portable',
-    'playstation 5': 'playstation 5',
-    'playstation 4': 'playstation 4',
-    'playstation 3': 'playstation 3',
-    'playstation 2': 'playstation 2',
-    playstation: 'playstation',
-    gamecube: 'gamecube',
-    'wii u': 'wii u',
-    wii: 'wii',
-    saturn: 'saturn',
-    '3do': '3do',
-    dreamcast: 'dreamcast',
-    'new nintendo 3ds': 'new nintendo 3ds',
-    'new 3ds': 'new nintendo 3ds',
-    '3ds': '3ds',
-    'game gear': 'game gear',
-    '32x': '32x',
-    lynx: 'lynx',
-    'jaguar cd': 'atari jaguar cd',
-    jaguar: 'jaguar',
-  };
-
-  const sortedFallbackKeys = Object.keys(fallbacks).sort(
-    (a, b) => b.length - a.length,
-  );
-
-  const targetDisplayName = (
-    targetPlatform.display_name || targetPlatform.name
-  ).toLowerCase();
-
-  for (const key of sortedFallbackKeys) {
-    const dbVal = fallbacks[key];
-    if (lowerDat.includes(key)) {
-      if (targetDisplayName.includes(dbVal)) {
-        return true;
-      }
-    }
-  }
-
-  // Exact match on cleaned titles
-  const targetClean = cleanPlatformName(
+  const datClean = normalize(datPlatformName);
+  const targetClean = normalize(
     targetPlatform.display_name || targetPlatform.name,
   );
-  if (datClean === targetClean) {
+
+  // Exact match on normalized names
+  if (datClean && targetClean && datClean === targetClean) {
     return true;
   }
 
-  // Substring match on clean platform titles (ignoring short platform abbreviations)
-  if (targetClean.length > 2) {
-    if (datClean.includes(targetClean) || targetClean.includes(datClean)) {
-      return true;
-    }
+  // Mega Drive / Genesis combined DAT header match
+  if (
+    datClean === 'megadrivegenesis' &&
+    (targetClean === 'genesis' || targetClean === 'megadrive')
+  ) {
+    return true;
+  }
+
+  // Explicit mappings from DAT headers/names to database platform IDs
+  const explicitPlatformMap: Record<string, number> = {
+    // Disc systems (Redump)
+    '3do': 1,
+    '3dointeractivemultiplayer': 1,
+    jaguarcd: 6,
+    neogeocd: 10,
+    gamecube: 20,
+    nintendogamecube: 20,
+    wii: 22,
+    wiiu: 24,
+    cdi: 28,
+    philipscdi: 28,
+    playstation: 29,
+    playstation2: 30,
+    playstationportable: 31,
+    psp: 31,
+    playstation3: 32,
+    playstationvita: 33,
+    psvita: 33,
+    playstation4: 34,
+    playstation5: 35,
+    segacd: 39,
+    megacd: 39,
+    megacdandsegacd: 39,
+    megacdsegacd: 39,
+    saturn: 42,
+    segasaturn: 42,
+    dreamcast: 43,
+    pcenginecd: 46,
+    turbografxcd: 46,
+    pcenginecdandturbografxcd: 46,
+    pcenginecdturbografxcd: 46,
+    xbox: 47,
+    xbox360: 48,
+    xboxone: 49,
+    xboxseriesx: 50,
+    xboxseries: 50,
+
+    // Cartridge systems (No-Intro)
+    atari2600: 2,
+    '2600': 2,
+    atari5200: 3,
+    '5200': 3,
+    atari7800: 4,
+    '7800': 4,
+    lynx: 5,
+    atarilynx: 5,
+    jaguar: 6,
+    atarijaguar: 6,
+    colecovision: 7,
+    intellivision: 8,
+    neogeoaes: 9,
+    neogeopocketcolor: 11,
+    neogeopocket: 11,
+    'entertainment system': 13,
+    entertainmentsystem: 13,
+    nintendoentertainmentsystem: 13,
+    nes: 13,
+    gameboy: 14,
+    superentertainmentsystem: 15,
+    supernintendoentertainmentsystem: 15,
+    snes: 15,
+    virtualboy: 16,
+    '64': 17,
+    nintendo64: 17,
+    n64: 17,
+    gameboycolor: 18,
+    gbc: 18,
+    gameboyadvance: 19,
+    gba: 19,
+    ds: 21,
+    nintendods: 21,
+    '3ds': 23,
+    nintendo3ds: 23,
+    new3ds: 25,
+    newnintendo3ds: 25,
+    switch: 26,
+    nintendoswitch: 26,
+    mastersystem: 36,
+    genesis: 37,
+    megadrive: 37,
+    megadrivegenesis: 37,
+    gamegear: 38,
+    pico: 40,
+    '32x': 41,
+    gamecom: 44,
+    turbografx16: 45,
+    pcengine: 45,
+    pcengineturbografx16: 45,
+    famicom: 53,
+  };
+
+  const matchedId = explicitPlatformMap[datClean];
+  if (matchedId && matchedId === targetPlatform.id) {
+    return true;
   }
 
   return false;
@@ -420,9 +455,55 @@ export function findDatFileForPlatform(
   if (!fs.existsSync(datsDir)) return null;
 
   const allFiles = getFilesRecursive(datsDir);
+  const ignoredPatterns = [
+    /\(psn\)/i,
+    /\(digital\)/i,
+    /\(updates\)/i,
+    /\(dlc\)/i,
+    /\(development kit/i,
+    /\(dev\b/i,
+    /\(themes\)/i,
+    /\(avatars\)/i,
+    /\(wallpapers\)/i,
+    /\(tapes\)/i,
+    /\(kryoflux\)/i,
+    /\(flux/i,
+    /\(waveform\)/i,
+    /\(bitstream/i,
+    /\(floppies\)/i,
+    /\(desura\)/i,
+    /\(steam\)/i,
+    /\(hentai\)/i,
+    /\(deprecated\)/i,
+    /\(cdn\)/i,
+    /\(content\)/i,
+    /\(spotpass\)/i,
+    /\(minis\)/i,
+    /\(lotcheck\)/i,
+    /\(download play\)/i,
+    /\(dsvision/i,
+    /\(e-reader\)/i,
+    /\(multiboot\)/i,
+    /\(play-yan\)/i,
+    /\(video\)/i,
+    /\(kiosk/i,
+    /\(loosefilesarchive\)/i,
+    /\(extracted\)/i,
+    /\(encrypted\)/i,
+  ];
+
   const datFiles = allFiles.filter((f) => {
     const ext = path.extname(f).toLowerCase();
-    return ext === '.xml' || ext === '.dat';
+    if (ext !== '.xml' && ext !== '.dat') return false;
+    const base = path.basename(f);
+    return !ignoredPatterns.some((p) => p.test(base));
+  });
+
+  // Sort: prioritize root DAT files (Redump) for disc systems, and direct No-Intro DATs for cart systems
+  datFiles.sort((a, b) => {
+    const aInRoot = path.dirname(a) === datsDir ? 0 : 1;
+    const bInRoot = path.dirname(b) === datsDir ? 0 : 1;
+    return aInRoot - bInRoot;
   });
 
   for (const filePath of datFiles) {

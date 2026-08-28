@@ -31,6 +31,9 @@ export interface GameRelease {
   backup_status: number;
   ownership_status: number;
   release_date?: string | null;
+  canonical_release_id?: number | null;
+  barcode?: string | null;
+  is_physical?: boolean | number;
 }
 
 export interface Game {
@@ -63,6 +66,13 @@ export interface Game {
   variants?: string | null;
   rom_name?: string | null;
   rom_crc?: string | null;
+  physical_status?:
+    | 'verified_physical'
+    | 'likely_physical'
+    | 'digital_only'
+    | 'unverified';
+  verification_tier?: number;
+  barcode?: string | null;
   releases?: GameRelease[];
 }
 
@@ -174,12 +184,17 @@ export interface DiscoveryRelease {
   region: string | null;
   variants: string | null;
   releaseDate: string | null;
+  canonical_release_id?: number | null;
+  serial_code?: string | null;
+  barcode?: string | null;
+  is_physical?: boolean | number;
 }
 
 export interface IGDBSearchResult {
   id: string | number;
   name: string;
   platform: string;
+  platform_id?: number;
   image_url: string | null;
   summary?: string | null;
   genres?: string | null;
@@ -190,6 +205,16 @@ export interface IGDBSearchResult {
   ownership_status?: number;
   play_status?: number;
   backup_status?: number;
+  physical_status?:
+    | 'verified_physical'
+    | 'likely_physical'
+    | 'digital_only'
+    | 'unverified';
+  verification_tier?: number;
+  is_physical?: boolean;
+  physical_regions?: string[];
+  matched_releases?: DiscoveryRelease[];
+  verification_reasons?: string[];
 }
 
 export interface ScanSuggestion {
@@ -205,6 +230,15 @@ export interface ScanSuggestion {
   igdb_url?: string | null;
   region?: string | null;
   releases: DiscoveryRelease[];
+  physical_status?:
+    | 'verified_physical'
+    | 'likely_physical'
+    | 'digital_only'
+    | 'unverified';
+  verification_tier?: number;
+  is_physical?: boolean;
+  physical_regions?: string[];
+  verification_reasons?: string[];
 }
 
 export interface AmiiboDiscoveryItem {
