@@ -494,7 +494,7 @@ export default {
           : `where platforms = (${trackedIgdbIds.join(',')});`;
         const igdbQuery = `
           search "${sanitizedQuery}";
-          fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, release_dates.packaging, release_dates.game_format, involved_companies.company.name, involved_companies.publisher;
+          fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher;
           ${whereClause}
           limit 30;
         `;
@@ -563,7 +563,11 @@ export default {
             collections?: Array<{ name: string }>;
             franchises?: Array<{ name: string }>;
             category?: number;
-            release_dates?: Array<{ packaging?: number; game_format?: string }>;
+            release_dates?: Array<{
+              platform?: number;
+              region?: number;
+              date?: number;
+            }>;
             involved_companies?: Array<{
               company?: { name: string };
               publisher?: boolean;
@@ -583,11 +587,15 @@ export default {
           if (candidatePlatIds.size > 0) {
             const platIdArr = Array.from(candidatePlatIds);
             const placeholders = platIdArr.map(() => '?').join(',');
+            const searchClean = sanitizedQuery
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, '');
+            const searchPattern = `%${searchClean}%`;
             const { results: canonicalRows } = await env.DB.prepare(
               `SELECT platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-               FROM canonical_releases WHERE platform_id IN (${placeholders})`,
+               FROM canonical_releases WHERE platform_id IN (${placeholders}) AND (normalized_title LIKE ? OR raw_title LIKE ?)`,
             )
-              .bind(...platIdArr)
+              .bind(...platIdArr, searchPattern, `%${sanitizedQuery}%`)
               .all();
             canonicalReleasesList = (canonicalRows ||
               []) as unknown as CanonicalRelease[];
@@ -635,8 +643,6 @@ export default {
               const publisherName =
                 g.involved_companies?.find((ic) => ic.publisher)?.company
                   ?.name || null;
-              const packaging = g.release_dates?.[0]?.packaging ?? null;
-              const gameFormat = g.release_dates?.[0]?.game_format ?? null;
 
               const verification = detectPhysicalReleaseStatus({
                 platformId: localPlatformId,
@@ -645,8 +651,6 @@ export default {
                 platformLaunchDate: localPrimary?.launchDate,
                 publisher: publisherName,
                 igdbCategory: g.category,
-                igdbPackaging: packaging,
-                igdbGameFormat: gameFormat,
                 canonicalReleases: canonicalReleasesList,
               });
 
@@ -714,7 +718,7 @@ export default {
         try {
           const rawGames = (await queryIGDBEdge(
             'games',
-            `fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, release_dates.packaging, release_dates.game_format, involved_companies.company.name, involved_companies.publisher; where id = ${cleanIgdbId}; limit 1;`,
+            `fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher; where id = ${cleanIgdbId}; limit 1;`,
             env,
           )) as Array<{
             id: number;
@@ -728,7 +732,11 @@ export default {
             collections?: Array<{ name: string }>;
             franchises?: Array<{ name: string }>;
             category?: number;
-            release_dates?: Array<{ packaging?: number; game_format?: string }>;
+            release_dates?: Array<{
+              platform?: number;
+              region?: number;
+              date?: number;
+            }>;
             involved_companies?: Array<{
               company?: { name: string };
               publisher?: boolean;
@@ -781,18 +789,17 @@ export default {
           }
 
           // Fetch canonical releases from D1 for this platform
+          const gameClean = g.name.toLowerCase().replace(/[^a-z0-9]/g, '');
           const { results: canonicalRows } = await env.DB.prepare(
             `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-             FROM canonical_releases WHERE platform_id = ?`,
+             FROM canonical_releases WHERE platform_id = ? AND (normalized_title LIKE ? OR raw_title LIKE ?)`,
           )
-            .bind(localPlatformId)
+            .bind(localPlatformId, `%${gameClean}%`, `%${g.name}%`)
             .all();
 
           const publisherName =
             g.involved_companies?.find((ic) => ic.publisher)?.company?.name ||
             null;
-          const packaging = g.release_dates?.[0]?.packaging ?? null;
-          const gameFormat = g.release_dates?.[0]?.game_format ?? null;
 
           const verification = detectPhysicalReleaseStatus({
             platformId: localPlatformId,
@@ -801,8 +808,6 @@ export default {
             platformLaunchDate,
             publisher: publisherName,
             igdbCategory: g.category,
-            igdbPackaging: packaging,
-            igdbGameFormat: gameFormat,
             canonicalReleases: (canonicalRows ||
               []) as unknown as CanonicalRelease[],
           });
@@ -921,7 +926,7 @@ export default {
           for (const series of sampleSeries) {
             const sanitized = series.replace(/["\\]/g, '');
             const igdbQuery = `
-              fields name, cover.url, cover.image_id, first_release_date, summary, genres.name, url, collections.name, franchises.name, platforms.id, platforms.name, category, release_dates.packaging, release_dates.game_format, involved_companies.company.name, involved_companies.publisher;
+              fields name, cover.url, cover.image_id, first_release_date, summary, genres.name, url, collections.name, franchises.name, platforms.id, platforms.name, category, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher;
               where collections.name = "${sanitized}" | franchises.name = "${sanitized}";
               limit 30;
             `;
@@ -943,14 +948,27 @@ export default {
                 franchises?: Array<{ name: string }>;
                 category?: number;
                 release_dates?: Array<{
-                  packaging?: number;
-                  game_format?: string;
+                  platform?: number;
+                  region?: number;
+                  date?: number;
                 }>;
                 involved_companies?: Array<{
                   company?: { name: string };
                   publisher?: boolean;
                 }>;
               }>;
+
+              const seriesClean = sanitized
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, '');
+              const { results: canonicalRows } = await env.DB.prepare(
+                `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
+                 FROM canonical_releases WHERE normalized_title LIKE ?`,
+              )
+                .bind(`%${seriesClean}%`)
+                .all();
+              const seriesCanonicalReleases = (canonicalRows ||
+                []) as unknown as CanonicalRelease[];
 
               for (const g of games || []) {
                 if (!g.platforms) continue;
@@ -971,18 +989,9 @@ export default {
                     imageUrl = imageUrl.replace('/t_thumb/', '/t_cover_big/');
                   }
 
-                  const { results: canonicalRows } = await env.DB.prepare(
-                    `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-                     FROM canonical_releases WHERE platform_id = ?`,
-                  )
-                    .bind(mapped.id)
-                    .all();
-
                   const publisherName =
                     g.involved_companies?.find((ic) => ic.publisher)?.company
                       ?.name || null;
-                  const packaging = g.release_dates?.[0]?.packaging ?? null;
-                  const gameFormat = g.release_dates?.[0]?.game_format ?? null;
 
                   const verification = detectPhysicalReleaseStatus({
                     platformId: mapped.id,
@@ -991,10 +1000,7 @@ export default {
                     platformLaunchDate: mapped.launchDate,
                     publisher: publisherName,
                     igdbCategory: g.category,
-                    igdbPackaging: packaging,
-                    igdbGameFormat: gameFormat,
-                    canonicalReleases: (canonicalRows ||
-                      []) as unknown as CanonicalRelease[],
+                    canonicalReleases: seriesCanonicalReleases,
                   });
 
                   if (

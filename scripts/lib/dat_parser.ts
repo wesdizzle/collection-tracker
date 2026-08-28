@@ -27,15 +27,34 @@ export interface DatFileContent {
 }
 
 /**
- * Parses a No-Intro or Redump XML DAT file and returns normalized content.
+ * Parses a No-Intro or Redump DAT file (XML or CLRMamePro format) and returns normalized content.
  *
- * @param filePath Path to the XML DAT file.
+ * @param filePath Path to the XML or CLRMamePro DAT file.
  * @returns Parsed and normalized DAT file content.
- * @throws Error if the XML DAT file cannot be read, or if the <datafile> root element is missing.
+ * @throws Error if the DAT file cannot be read, or if the format is invalid.
  */
 export function parseDatFile(filePath: string): DatFileContent {
   const fileContent = fs.readFileSync(filePath, 'utf-8');
 
+  // Check if file is XML (<datafile>) or CLRMamePro plain text
+  if (
+    fileContent.includes('<datafile>') ||
+    fileContent.trim().startsWith('<?xml')
+  ) {
+    return parseXmlDat(fileContent, filePath);
+  } else if (
+    fileContent.includes('clrmamepro') ||
+    fileContent.includes('game (')
+  ) {
+    return parseClrMameProDat(fileContent);
+  }
+
+  throw new Error(
+    `Invalid DAT file: ${filePath} is missing <datafile> root element and CLRMamePro header.`,
+  );
+}
+
+function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '',
@@ -107,4 +126,56 @@ export function parseDatFile(filePath: string): DatFileContent {
     platformName,
     releases,
   };
+}
+
+function parseClrMameProDat(fileContent: string): DatFileContent {
+  const isUnofficialPattern =
+    /\((unl|pirate|unlicensed|aftermarket|homebrew)\b/i;
+
+  let platformName = 'Unknown Platform';
+  const headerMatch = fileContent.match(/clrmamepro\s*\(\s*name\s*"([^"]+)"/i);
+  if (headerMatch) {
+    platformName = headerMatch[1];
+  }
+
+  const releases: DatRelease[] = [];
+  const gameBlocks = fileContent.split(/(?=game\s*\()/gi);
+
+  for (const block of gameBlocks) {
+    const nameMatch = block.match(/name\s*"([^"]+)"/i);
+    if (!nameMatch) continue;
+
+    const gameName = nameMatch[1].trim();
+    if (isUnofficialPattern.test(gameName)) {
+      continue;
+    }
+
+    const romMatches = block.matchAll(
+      /rom\s*\(\s*name\s*"([^"]+)"(?:\s+size\s+(\d+))?(?:\s+crc\s+([a-f0-9]+))?(?:\s+md5\s+([a-f0-9]+))?(?:\s+sha1\s+([a-f0-9]+))?/gi,
+    );
+
+    const roms: DatRom[] = [];
+    for (const match of romMatches) {
+      const romName = match[1].trim();
+      if (isUnofficialPattern.test(romName)) continue;
+      if (romName.toLowerCase().endsWith('.v64')) continue;
+
+      roms.push({
+        name: romName,
+        size: match[2] ? Number(match[2]) : 0,
+        crc: match[3] ? match[3].toLowerCase() : undefined,
+        md5: match[4] ? match[4].toLowerCase() : undefined,
+        sha1: match[5] ? match[5].toLowerCase() : undefined,
+      });
+    }
+
+    if (roms.length > 0) {
+      releases.push({
+        name: gameName,
+        roms,
+      });
+    }
+  }
+
+  return { platformName, releases };
 }

@@ -103,7 +103,10 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 ### 🛠️ Local Staging & Sync CLI Commands
 
 - **Initialize Local Database**: `npm run db:init` (Builds fresh `collection.sqlite` from schema)
-- **Sync Canonical DATs**: `npm run dats:sync` (Indexes canonical No-Intro / Redump DAT releases into `canonical_releases` and creates seed chunks for Cloudflare D1)
+- **Download Canonical DATs**: `npm run dats:download` (Downloads the latest official No-Intro and Redump XML DATs from canonical sources into `dats/`)
+- **Update & Sync All DATs**: `npm run dats:update` (Downloads latest DATs and immediately parses/indexes them into `canonical_releases`)
+- **Sync Canonical DATs**: `npm run dats:sync` (Indexes local No-Intro / Redump DAT releases into `canonical_releases` and creates seed chunks for Cloudflare D1)
+- **Dry-Run DAT Quota Check**: `npm run dats:dry-run` (Analyzes canonical DAT files and evaluates Cloudflare D1 free-tier quota impact without modifying data)
 - **Backup Cold Copy**: `npm run db:backup` (Generates binary, SQL text, and JSON backups locally)
 - **Pull Remote D1**: `npm run db:pull` (Exports remote D1 state to local staging SQLite)
 - **Push to Remote D1**: `ALLOW_LOCAL_DEPLOY=true npm run db:push` (Pushes local staging changes up to Cloudflare D1)

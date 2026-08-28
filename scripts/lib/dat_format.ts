@@ -313,6 +313,8 @@ export function isPlatformMatch(
     playstation5: 35,
     segacd: 39,
     megacd: 39,
+    megacdandcd: 39,
+    megacdcd: 39,
     megacdandsegacd: 39,
     megacdsegacd: 39,
     saturn: 42,

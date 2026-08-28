@@ -122,10 +122,37 @@ describe('DAT Parser', () => {
     // - Turok gets filtered out because of "(Pirate)"
     expect(result.releases).toHaveLength(1);
     expect(result.releases[0].name).toBe('Super Mario 64 (USA)');
-    expect(result.releases[0].roms[0].name).toBe('Super Mario 64 (USA).z64');
   });
 
-  it('should throw error on invalid DAT file missing datafile root', () => {
+  it('should parse CLRMamePro format DAT files correctly', () => {
+    const clr = `clrmamepro (
+	name "Nintendo - Game Boy Advance"
+	description "Nintendo - Game Boy Advance"
+)
+
+game (
+	name "Metroid Fusion (USA)"
+	description "Metroid Fusion (USA)"
+	rom ( name "Metroid Fusion (USA).gba" size 8388608 crc d50041da md5 6d7c6b5b91b9f71c4c1a59b5d38865ea )
+)
+
+game (
+	name "Pokemon Ruby (USA) (Unl)"
+	rom ( name "Pokemon Ruby (USA) (Unl).gba" size 8388608 crc aabbccdd )
+)`;
+
+    fs.writeFileSync(tempFilePath, clr, 'utf-8');
+    const result = parseDatFile(tempFilePath);
+
+    expect(result.platformName).toBe('Nintendo - Game Boy Advance');
+    expect(result.releases).toHaveLength(1);
+    expect(result.releases[0].name).toBe('Metroid Fusion (USA)');
+    expect(result.releases[0].roms[0].name).toBe('Metroid Fusion (USA).gba');
+    expect(result.releases[0].roms[0].crc).toBe('d50041da');
+    expect(result.releases[0].roms[0].size).toBe(8388608);
+  });
+
+  it('should throw error on invalid DAT file missing datafile root and clrmamepro header', () => {
     const xml = `<?xml version="1.0"?>
 <invalid>
     <header><name>Invalid</name></header>

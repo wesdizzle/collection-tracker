@@ -142,11 +142,14 @@ export function findDatFileForPlatform(
 
   for (const filePath of datFiles) {
     try {
-      // Speed Optimization: Read the first 2000 characters rather than parsing the full XML file
+      // Speed Optimization: Read the first 2000 characters rather than parsing the full file
       const fileHead = fs
         .readFileSync(filePath, { encoding: 'utf8', flag: 'r' })
         .substring(0, 2000);
-      const nameMatch = fileHead.match(/<name>([^<]+)<\/name>/i);
+      const nameMatch =
+        fileHead.match(/<name>([^<]+)<\/name>/i) ||
+        fileHead.match(/clrmamepro\s*\(\s*name\s*"([^"]+)"/i) ||
+        fileHead.match(/name\s*"([^"]+)"/i);
       if (nameMatch) {
         const platformName = nameMatch[1].trim();
         if (isPlatformMatch(platformName, platform)) {
