@@ -13,7 +13,7 @@ import {
   extractRegions,
   extractVariants,
   isIgnoredFormatRelease,
-} from './dat_cache.js';
+} from './dat_format.js';
 
 export interface CanonicalRelease {
   id?: number;
