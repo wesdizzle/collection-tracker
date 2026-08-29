@@ -1,12 +1,15 @@
 /**
  * CANONICAL SERIES UPDATER
  *
- * Uses scripts/lib/canonical_series.ts to update games in collection.sqlite.
+ * Uses scripts/lib/canonical_series.ts to update games in collection.sqlite
+ * and optionally outputs a targeted SQL update script for Cloudflare D1.
  *
  * Usage: npx tsx scripts/compute_canonical_series.ts
  */
 
 import Database from 'better-sqlite3';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   computeGameCanonicalSeries,
   GameMetadata,
@@ -14,7 +17,9 @@ import {
 
 const CONFIG = {
   dbPath: 'collection.sqlite',
+  sqlExportPath: 'update_canonical_series.sql',
   columns: {
+    stableId: 'stable_id',
     id: 'id',
     title: 'title',
     summary: 'summary',
@@ -29,27 +34,50 @@ export async function recomputeCanonicalSeries() {
   const db = new Database(CONFIG.dbPath);
 
   const games = db.prepare(`SELECT * FROM games`).all() as (GameMetadata & {
-    id: number | string;
+    stable_id: number;
+    id: string;
     canonical_series?: string;
   })[];
   const updateStmt = db.prepare(
-    `UPDATE games SET ${CONFIG.columns.target} = ? WHERE id = ?`,
+    `UPDATE games SET ${CONFIG.columns.target} = ? WHERE stable_id = ?`,
   );
 
   console.log(`Processing ${games.length} games...`);
 
   let updateCount = 0;
+  const sqlUpdates: string[] = [];
 
   for (const game of games) {
     const computedSeries = computeGameCanonicalSeries(game);
 
     if (computedSeries !== game.canonical_series) {
-      updateStmt.run(computedSeries, game.id);
+      updateStmt.run(computedSeries, game.stable_id);
       updateCount++;
+
+      // Escape single quotes for SQL statement
+      const escapedSeries = computedSeries.replace(/'/g, "''");
+      sqlUpdates.push(
+        `UPDATE games SET canonical_series = '${escapedSeries}' WHERE stable_id = ${game.stable_id};`,
+      );
     }
   }
 
-  console.log(`Done. Updated ${updateCount}/${games.length} games.`);
+  // Generate surgical update script for Cloudflare D1 if there were updates
+  if (sqlUpdates.length > 0) {
+    const fullSql = `-- Automated Canonical Series D1 Update Migration\n-- Total affected records: ${sqlUpdates.length}\n\n${sqlUpdates.join('\n')}\n`;
+    fs.writeFileSync(
+      path.resolve(process.cwd(), CONFIG.sqlExportPath),
+      fullSql,
+      'utf8',
+    );
+    console.log(
+      `Generated '${CONFIG.sqlExportPath}' with ${sqlUpdates.length} update statements.`,
+    );
+  }
+
+  console.log(
+    `Done. Updated ${updateCount}/${games.length} games in local database.`,
+  );
   db.close();
 }
 

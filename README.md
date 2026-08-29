@@ -110,6 +110,8 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Backup Cold Copy**: `npm run db:backup` (Generates binary, SQL text, and JSON backups locally)
 - **Pull Remote D1**: `npm run db:pull` (Exports remote D1 state to local staging SQLite)
 - **Push to Remote D1**: `ALLOW_LOCAL_DEPLOY=true npm run db:push` (Pushes local staging changes up to Cloudflare D1)
+- **Update Canonical Series (D1)**: `ALLOW_REMOTE_DEPLOY=true npm run d1:update-canonical` (Applies surgical canonical series updates to remote Cloudflare D1 and executes smoke test)
+- **Smoke Test Canonical Series (D1)**: `npm run d1:smoke-test` (Runs remote sentinel smoke test verifying series classifications across all taxonomies)
 
 ### 🔑 Environment Configuration
 

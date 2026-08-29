@@ -49,6 +49,8 @@ update_report.md
 
 # Build & Scraper Artifacts
 deploy.sql
+update_canonical_series.sql
+d1_export_temp.sql
 *.sqlite-wal
 *.sqlite-shm
 collection.sqlite

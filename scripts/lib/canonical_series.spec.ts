@@ -56,6 +56,28 @@ describe('Canonical Series Logic Integrity Suite', () => {
       computeGameCanonicalSeries({ title: 'The Typing of the Dead' }),
       'The House of the Dead',
     );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Kid Dracula' }),
+      'Castlevania',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'DK: Jungle Climber' }),
+      'Donkey Kong',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Sonic & Sega All-Stars Racing with Banjo-Kazooie',
+        franchises: 'Sonic The Hedgehog, Banjo & Kazooie',
+      }),
+      'Sonic the Hedgehog',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Banjo-Tooie',
+        franchises: 'Banjo & Kazooie',
+      }),
+      'Banjo-Kazooie',
+    );
   });
 
   it('should assign compilations and multi-game packs to compilation titles', () => {
@@ -101,6 +123,13 @@ describe('Canonical Series Logic Integrity Suite', () => {
       computeGameCanonicalSeries({ title: 'Nintendo Land' }),
       'Nintendo Land',
     );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Llamasoft: The Jeff Minter Story',
+        collections: 'Gold Master Series, Gridrunner',
+      }),
+      'Gold Master Series',
+    );
   });
 
   it('should strip author/creator prefixes', () => {
@@ -130,7 +159,7 @@ describe('Canonical Series Logic Integrity Suite', () => {
     );
   });
 
-  it('should strip numbers and Roman numerals for series naming', () => {
+  it('should strip numbers and Roman numerals for series naming while protecting core numbered IPs', () => {
     assert.equal(
       computeGameCanonicalSeries({
         title: 'Pikmin 2',
@@ -150,9 +179,27 @@ describe('Canonical Series Logic Integrity Suite', () => {
       'Quake',
     );
     assert.equal(computeGameCanonicalSeries({ title: 'Quake II' }), 'Quake');
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Final Fantasy XII' }),
+      'Final Fantasy',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Dragon Quest XI' }),
+      'Dragon Quest',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Mighty No. 9' }),
+      'Mighty No. 9',
+    );
+    assert.equal(computeGameCanonicalSeries({ title: 'Area 51' }), 'Area 51');
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Cyberpunk 2077' }),
+      'Cyberpunk 2077',
+    );
+    assert.equal(computeGameCanonicalSeries({ title: '1942' }), '1942');
   });
 
-  it('should consolidate Mario platformers and handle Mario spin-offs', () => {
+  it('should consolidate Mario platformers and handle Mario spin-offs with WarioWare and sports precision', () => {
     assert.equal(
       computeGameCanonicalSeries({ title: 'Super Mario Bros.' }),
       'Super Mario',
@@ -216,6 +263,22 @@ describe('Canonical Series Logic Integrity Suite', () => {
       'Mario Tennis',
     );
     assert.equal(
+      computeGameCanonicalSeries({ title: 'Mario Strikers Charged' }),
+      'Mario Strikers',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Mario Super Sluggers' }),
+      'Mario Baseball',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'WarioWare: Smooth Moves' }),
+      'WarioWare',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Wario Land 4' }),
+      'Wario',
+    );
+    assert.equal(
       computeGameCanonicalSeries({ title: 'Mario & Luigi: Superstar Saga' }),
       'Mario & Luigi',
     );
@@ -232,13 +295,6 @@ describe('Canonical Series Logic Integrity Suite', () => {
       }),
       'Mario',
     );
-    assert.equal(
-      computeGameCanonicalSeries({
-        title: 'Mario Super Sluggers',
-        franchises: 'Mario,Yoshi,Donkey Kong',
-      }),
-      'Mario',
-    );
     assert.equal(computeGameCanonicalSeries({ title: 'Mario Paint' }), 'Mario');
     assert.equal(
       computeGameCanonicalSeries({
@@ -249,14 +305,31 @@ describe('Canonical Series Logic Integrity Suite', () => {
     );
   });
 
-  it('should handle Donkey Kong, Game & Watch, and guest character filtering', () => {
+  it('should handle Donkey Kong and Game & Watch with correct precedence over Mario crossover tags', () => {
     assert.equal(
       computeGameCanonicalSeries({ title: 'Donkey Kong Country' }),
       'Donkey Kong',
     );
     assert.equal(
-      computeGameCanonicalSeries({ title: 'Game & Watch Gallery 2' }),
-      'Game & Watch Gallery',
+      computeGameCanonicalSeries({
+        title: 'Game & Watch Gallery',
+        franchises: 'Mario, Yoshi, Donkey Kong',
+      }),
+      'Game & Watch',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Game & Watch Gallery 2',
+        franchises: 'Mario, Donkey Kong, Yoshi',
+      }),
+      'Game & Watch',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Game & Watch Collection',
+        franchises: 'Donkey Kong, Mario',
+      }),
+      'Game & Watch',
     );
     assert.equal(
       computeGameCanonicalSeries({
@@ -265,9 +338,171 @@ describe('Canonical Series Logic Integrity Suite', () => {
       }),
       'Skylanders',
     );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Crash Nitro Kart',
+        collections: 'Crash Racing',
+        franchises: 'Crash Bandicoot, Spyro the Dragon',
+      }),
+      'Crash Bandicoot',
+    );
   });
 
-  it('should handle Sims, Persona, LOTR, and Sonic sub-series', () => {
+  it('should split superheroes into hero/team series and partition LEGO themes', () => {
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Batman: Return of the Joker' }),
+      'Batman',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Batman: Arkham City' }),
+      'Batman',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Superman: Shadow of Apokolips' }),
+      'Superman',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Injustice 2' }),
+      'Injustice',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Spider-Man 2' }),
+      'Spider-Man',
+    );
+    assert.equal(computeGameCanonicalSeries({ title: 'Wolverine' }), 'X-Men');
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'X-Men Origins: Wolverine' }),
+      'X-Men',
+    );
+    assert.equal(computeGameCanonicalSeries({ title: 'Iron Man' }), 'Iron Man');
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Marvel: Ultimate Alliance' }),
+      'Marvel',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'DC Universe Online' }),
+      'DC',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'LEGO Star Wars II: The Original Trilogy',
+      }),
+      'LEGO Star Wars',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'LEGO Batman: The Videogame' }),
+      'LEGO Batman',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'LEGO Marvel Super Heroes' }),
+      'LEGO Marvel',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'LEGO Harry Potter: Years 1-4' }),
+      'LEGO Harry Potter',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Bionicle Heroes' }),
+      'Bionicle',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'LEGO Island' }),
+      'LEGO Island',
+    );
+  });
+
+  it('should handle dedicated multi-franchise crossovers and Musou host universes', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Marvel vs. Capcom 2: New Age of Heroes',
+      }),
+      'Marvel vs. Capcom',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Mario & Sonic at the Rio 2016 Olympic Games',
+      }),
+      'Mario & Sonic at the Olympic Games',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Mortal Kombat vs. DC Universe',
+      }),
+      'Mortal Kombat vs. DC Universe',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Puyo Puyo Tetris 2',
+      }),
+      'Puyo Puyo Tetris',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Capcom vs. SNK 2',
+      }),
+      'Capcom vs. SNK',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Street Fighter X Tekken',
+      }),
+      'Street Fighter X Tekken',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Hyrule Warriors: Definitive Edition',
+        franchises: 'The Legend of Zelda, Musou',
+      }),
+      'The Legend of Zelda',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Dragon Quest Heroes II',
+        franchises: 'Dragon Quest, Musou',
+      }),
+      'Dragon Quest',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Fire Emblem Warriors: Three Hopes',
+      }),
+      'Fire Emblem',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Yakuza 0',
+      }),
+      'Like a Dragon',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Judgment',
+      }),
+      'Like a Dragon',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Lost Judgment',
+      }),
+      'Like a Dragon',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Castlevania Judgment',
+        franchises: 'Castlevania',
+      }),
+      'Castlevania',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Gears of War: Judgment',
+        franchises: 'Gears of War',
+      }),
+      'Gears of War',
+    );
+  });
+
+  it('should handle Sims, Persona, LOTR, and Sonic sub-series with casing normalization', () => {
     assert.equal(
       computeGameCanonicalSeries({ title: 'MySims Kingdom' }),
       'MySims',
@@ -284,7 +519,7 @@ describe('Canonical Series Logic Integrity Suite', () => {
     assert.equal(
       computeGameCanonicalSeries({
         title: 'Persona 5 Strikers',
-        franchises: 'Shin Megami Tensei',
+        franchises: 'Shin Megami Tensei, Musou',
       }),
       'Persona',
     );
@@ -301,29 +536,25 @@ describe('Canonical Series Logic Integrity Suite', () => {
       'Sonic the Hedgehog',
     );
     assert.equal(
-      computeGameCanonicalSeries({ title: 'Sonic Rush' }),
+      computeGameCanonicalSeries({
+        title: 'Tails and the Music Maker',
+        franchises: 'Sonic The Hedgehog',
+      }),
       'Sonic the Hedgehog',
-    );
-  });
-
-  it('should handle superhero and LEGO brand consolidations', () => {
-    assert.equal(
-      computeGameCanonicalSeries({ title: 'Batman: Return of the Joker' }),
-      'DC',
-    );
-    assert.equal(
-      computeGameCanonicalSeries({ title: 'Spider-Man 2' }),
-      'Marvel',
-    );
-    assert.equal(
-      computeGameCanonicalSeries({ title: 'LEGO Star Wars' }),
-      'LEGO',
     );
     assert.equal(
       computeGameCanonicalSeries({
-        title: "Dragon Warrior Monsters 2: Cobi's Journey",
+        title: 'Watch Dogs 2',
+        franchises: 'Watch_Dogs',
       }),
-      'Dragon Quest',
+      'Watch Dogs',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'EarthBound',
+        franchises: 'Earthbound',
+      }),
+      'EarthBound',
     );
   });
 });
