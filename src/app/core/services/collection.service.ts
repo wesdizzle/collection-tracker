@@ -633,59 +633,64 @@ export class CollectionService {
   }
 
   /**
-   * Enriches a game object by overriding its title with the clean ROM filename
-   * (excluding the file extension) when a verified backup rom_name is present.
-   * This ensures the ROM filename is displayed in the UI and used for search filters.
+   * Enriches a game object by formatting its title and appending special descriptors
+   * (such as "(Bonus Disc)") from verified backup rom_name metadata while preserving
+   * the canonical database / IGDB title (avoiding DAT/ROM title mutilation or 's removal).
    *
    * @param game The source Game object to enrich.
-   * @returns A new Game object with the title updated if a ROM name is present.
+   * @returns A new Game object with the appropriately formatted title.
    */
   private enrichGameTitle(game: Game): Game {
-    const baseTitle = this.formatTitle(game.title);
-    if (game.rom_name) {
-      const lastDot = game.rom_name.lastIndexOf('.');
-      let name =
-        lastDot > 0 ? game.rom_name.substring(0, lastDot) : game.rom_name;
-
-      // Remove all parentheses and square brackets except when containing "Bonus Disc"
-      name = name.replace(/\(([^)]+)\)|\[([^\]]+)\]/g, (match) => {
-        if (/\bBonus\s+Disc\b/i.test(match)) {
-          return '(Bonus Disc)';
-        }
-        return '';
-      });
-
-      // Strip disc indicators outside brackets
-      name = name.replace(/\b-\s*disc\s+[0-9a-z]\b|\bdisc\s+[0-9a-z]\b/gi, '');
-
-      // Collapse whitespace and trim
-      name = name.replace(/\s+/g, ' ').trim();
-
-      const cleanTitle = this.formatTitle(name || baseTitle);
-
-      const superNormalize = (t: string): string => {
-        return t
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, '');
-      };
-
-      if (superNormalize(cleanTitle) === superNormalize(baseTitle)) {
-        return {
-          ...game,
-          title: baseTitle,
-        };
-      }
-
+    const baseTitle = this.formatTitle(game.title || '');
+    if (!game.rom_name) {
       return {
         ...game,
-        title: cleanTitle,
+        title: baseTitle,
       };
     }
+
+    // Check if the ROM has a Bonus Disc indicator
+    const isBonusDisc = /\bBonus\s+Disc\b/i.test(game.rom_name);
+    const hasBonusDiscInBase = /\bBonus\s+Disc\b/i.test(baseTitle);
+
+    if (baseTitle) {
+      if (isBonusDisc && !hasBonusDiscInBase) {
+        return {
+          ...game,
+          title: `${baseTitle} (Bonus Disc)`,
+        };
+      }
+      return {
+        ...game,
+        title: baseTitle,
+      };
+    }
+
+    // Fallback only if baseTitle is missing
+    const lastDot = game.rom_name.lastIndexOf('.');
+    let name =
+      lastDot > 0 ? game.rom_name.substring(0, lastDot) : game.rom_name;
+
+    // Ignore Xbox 360 Title Update hash paths
+    if (name.includes('\\') || /^[0-9a-f]{8}\\/i.test(name)) {
+      return {
+        ...game,
+        title: baseTitle || 'Unknown Game',
+      };
+    }
+
+    name = name.replace(/\(([^)]+)\)|\[([^\]]+)\]/g, (match) => {
+      if (/\bBonus\s+Disc\b/i.test(match)) {
+        return '(Bonus Disc)';
+      }
+      return '';
+    });
+    name = name.replace(/\b-\s*disc\s+[0-9a-z]\b|\bdisc\s+[0-9a-z]\b/gi, '');
+    name = name.replace(/\s+/g, ' ').trim();
+
     return {
       ...game,
-      title: baseTitle,
+      title: this.formatTitle(name) || 'Unknown Game',
     };
   }
 }

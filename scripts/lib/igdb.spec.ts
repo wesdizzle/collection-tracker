@@ -88,7 +88,7 @@ describe('IGDB Normalization Utilities', () => {
 
     it('should honor DATE_OVERRIDES for specific IGDB entries', () => {
       const mockGame = {
-        id: 119280,
+        id: 119390,
         name: 'Ni no Kuni: Wrath of the White Witch Remastered',
         platforms: [{ id: 130, name: 'Nintendo Switch' }],
         release_dates: [{ platform: 130, region: 2, date: 473385600 }], // Corrupt mock timestamp

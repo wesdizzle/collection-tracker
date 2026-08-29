@@ -118,53 +118,65 @@ describe('CollectionService', () => {
   });
 
   describe('Game Title Enrichment', () => {
-    it('should enrich game title with rom_name minus extension, regions, and disc indicators, retaining bonus disc', () => {
+    it('should preserve canonical database title and not overwrite with DAT ROM naming discrepancies', () => {
       const mockGames = [
         {
           stable_id: 1,
-          title: 'Super Mario 64',
-          rom_name: 'Super Mario 64 (USA).z64',
+          title: "Marvel's Spider-Man",
+          rom_name: 'Marvel Spider-Man (USA, Brazil) (En,Fr,Es,Pt).iso',
         },
         {
           stable_id: 2,
-          title: 'Zelda',
-          rom_name: 'Legend of Zelda, The (USA) (Rev A).nes',
+          title: "Marvel's Iron Man VR",
+          rom_name: 'Marvel Iron Man VR (USA).iso',
         },
         {
           stable_id: 3,
-          title: 'Pokemon',
+          title: 'Spider-Man: Edge of Time',
+          rom_name: '13B1B679\\TU_10LC25I_0000008000000.0000000000082',
+        },
+        {
+          stable_id: 4,
+          title: 'Pokemon Colosseum',
           rom_name: 'Pokemon Colosseum (USA) (Bonus Disc).gcm',
         },
-        { stable_id: 4, title: 'Metroid', rom_name: undefined },
         {
           stable_id: 5,
+          title: 'Legend of Zelda, The',
+          rom_name: 'Legend of Zelda, The (USA) (Rev A).nes',
+        },
+        {
+          stable_id: 6,
           title: 'Final Fantasy VII',
           rom_name: 'Final Fantasy VII (USA) (Disc 1).cue',
         },
+        { stable_id: 7, title: 'Metroid', rom_name: undefined },
       ];
 
       service.getGames().subscribe((games) => {
-        expect(games.length).toBe(5);
-        expect(games[0].title).toBe('Super Mario 64');
-        expect(games[1].title).toBe('The Legend of Zelda');
-        expect(games[2].title).toBe('Pokemon Colosseum (Bonus Disc)');
-        expect(games[3].title).toBe('Metroid');
-        expect(games[4].title).toBe('Final Fantasy VII');
+        expect(games.length).toBe(7);
+        expect(games[0].title).toBe("Marvel's Spider-Man");
+        expect(games[1].title).toBe("Marvel's Iron Man VR");
+        expect(games[2].title).toBe('Spider-Man: Edge of Time');
+        expect(games[3].title).toBe('Pokemon Colosseum (Bonus Disc)');
+        expect(games[4].title).toBe('The Legend of Zelda');
+        expect(games[5].title).toBe('Final Fantasy VII');
+        expect(games[6].title).toBe('Metroid');
       });
 
       const req = httpMock.expectOne('/api/games');
       req.flush(mockGames);
     });
 
-    it('should enrich single game by ID with cleaned rom_name', () => {
+    it('should enrich single game by ID while preserving canonical title', () => {
       const mockGame = {
         stable_id: 1,
-        title: 'Super Mario 64',
-        rom_name: 'Super Mario 64 (USA) (Disc 1).z64',
+        title: "Marvel's Spider-Man",
+        rom_name: 'Marvel Spider-Man (USA) (Disc 1).iso',
       };
 
       service.getGameById('1').subscribe((game) => {
-        expect(game.title).toBe('Super Mario 64');
+        expect(game.title).toBe("Marvel's Spider-Man");
       });
 
       const req = httpMock.expectOne('/api/games/1');

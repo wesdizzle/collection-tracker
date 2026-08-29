@@ -227,12 +227,13 @@ export const REGIONAL_OVERRIDES: Record<string, string> = {
  */
 export const DATE_OVERRIDES: Record<string, string> = {
   'igdb-41862-130': '2019-05-21', // Resident Evil: Origins Collection (Nintendo Switch)
-  'igdb-119280-130': '2019-09-20', // Ni no Kuni: Wrath of the White Witch (Nintendo Switch)
-  'igdb-191632-130': '2022-04-20', // Star Wars: The Force Unleashed (Nintendo Switch)
+  'igdb-119390-130': '2019-09-20', // Ni no Kuni: Wrath of the White Witch Remastered (Nintendo Switch)
+  'igdb-198108-130': '2022-04-20', // Star Wars: The Force Unleashed (Nintendo Switch)
   'igdb-1819-59': '1980-03-31', // Space Invaders (Atari 2600)
   'igdb-1047-33': '1989-07-31', // Tetris (Game Boy)
-  'igdb-26197-24': '2001-12-05', // Star Wars: Episode I - Jedi Power Battles (Game Boy Advance)
-  'igdb-2933-21': '2004-08-30', // Pikmin 2 (Nintendo GameCube)
+  'igdb-301489-24': '2001-12-05', // Star Wars: Jedi Power Battles (Game Boy Advance)
+  'igdb-2240-21': '2004-08-30', // Pikmin 2 (Nintendo GameCube)
+  'igdb-2239-21': '2001-12-03', // Pikmin (Nintendo GameCube)
 };
 
 /**
