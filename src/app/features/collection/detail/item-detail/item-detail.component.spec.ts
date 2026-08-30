@@ -221,4 +221,79 @@ describe('ItemDetailComponent', () => {
     );
     expect(igdbLink.getAttribute('target')).toBe('_blank');
   });
+
+  it('should display extracted archival ROM provenance and badge', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        title: 'EarthBound Beginnings',
+        platform: 'NES',
+        physical_status: 'digital_extracted_rom',
+        release_medium: 'digital_extracted_rom',
+        origin_metadata: JSON.stringify({
+          origin_type: 'extracted_virtual_console',
+          origin_platform: 'Wii U Virtual Console',
+          origin_channel: 'Wii U Virtual Console',
+          origin_year: 2015,
+          target_hardware: 'Nintendo Entertainment System / Famicom',
+          notes: 'First official English localization release.',
+        }),
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    // Check extracted ROM pill
+    const extractedPill = compiled.querySelector('.stat-pill.extracted-rom');
+    expect(extractedPill).toBeTruthy();
+    expect(extractedPill.textContent).toContain('Extracted Archival ROM');
+
+    // Check provenance card
+    const provenanceCard = compiled.querySelector('.provenance-section');
+    expect(provenanceCard).toBeTruthy();
+    expect(provenanceCard.textContent).toContain('Wii U Virtual Console');
+    expect(provenanceCard.textContent).toContain('2015');
+    expect(provenanceCard.textContent).toContain(
+      'First official English localization release.',
+    );
+  });
+
+  it('should display included bundled games and bonus discs', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        title: 'Bayonetta 2',
+        platform: 'Wii U',
+        bundled_games: [
+          {
+            stable_id: 201,
+            id: 'bayonetta-wiiu-disc2',
+            title: 'Bayonetta',
+            platform_id: 24,
+            platform_name: 'Wii U',
+            bundle_disc_number: 2,
+            rom_name: 'Bayonetta (USA) (Disc 2).wux',
+            backup_status: 1,
+          },
+        ],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const bundlesSection = compiled.querySelector('.bundles-section');
+    expect(bundlesSection).toBeTruthy();
+    expect(bundlesSection.textContent).toContain(
+      'Included Games & Bonus Discs (In-Box)',
+    );
+    expect(bundlesSection.textContent).toContain('Bayonetta');
+    expect(bundlesSection.textContent).toContain('Disc 2');
+    expect(bundlesSection.textContent).toContain('Backed Up');
+  });
 });

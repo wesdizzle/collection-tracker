@@ -27,6 +27,14 @@ export const GAMES_LIST_QUERY = `
            g.franchises,
            g.manually_verified,
            g.metadata_json,
+           g.physical_status,
+           g.verification_tier,
+           g.barcode,
+           g.release_medium,
+           g.origin_metadata,
+           g.bundle_parent_id,
+           g.bundle_disc_number,
+           (SELECT COUNT(*) FROM games bg WHERE bg.bundle_parent_id = g.stable_id) as bundle_count,
            COALESCE(r.ownership_status, 0) as ownership_status,
            COALESCE(r.region, g.region) as region,
            r.variants,
@@ -66,6 +74,14 @@ export const GAME_DETAIL_QUERY = `
            g.franchises,
            g.manually_verified,
            g.metadata_json,
+           g.physical_status,
+           g.verification_tier,
+           g.barcode,
+           g.release_medium,
+           g.origin_metadata,
+           g.bundle_parent_id,
+           g.bundle_disc_number,
+           (SELECT COUNT(*) FROM games bg WHERE bg.bundle_parent_id = g.stable_id) as bundle_count,
            COALESCE(r.ownership_status, 0) as ownership_status,
            COALESCE(r.region, g.region) as region,
            r.variants,
@@ -88,6 +104,25 @@ export const GAME_RELEASES_BY_GAME_ID_QUERY = `
     SELECT id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date
     FROM game_releases
     WHERE game_id = ? AND region IS ? AND variants IS ?
+`;
+
+export const BUNDLED_GAMES_BY_PARENT_QUERY = `
+    SELECT g.stable_id,
+           g.id,
+           g.title,
+           g.platform_id,
+           g.bundle_disc_number,
+           g.release_medium,
+           g.origin_metadata,
+           COALESCE(r.rom_name, g.title) as rom_name,
+           COALESCE(r.backup_status, g.backup_status, 0) as backup_status,
+           COALESCE(pp.display_name, p.display_name) as platform_name
+    FROM games g
+    LEFT JOIN game_releases r ON g.stable_id = r.game_id
+    LEFT JOIN platforms p ON g.platform_id = p.id
+    LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+    WHERE g.bundle_parent_id = ?
+    ORDER BY g.bundle_disc_number ASC, g.title ASC
 `;
 
 export const PLATFORMS_LIST_QUERY = `

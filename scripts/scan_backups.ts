@@ -19,7 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Database from 'better-sqlite3';
 
-interface PlatformRow {
+export interface PlatformRow {
   id: number;
   name: string;
   display_name: string | null;
@@ -28,7 +28,7 @@ interface PlatformRow {
   parent_platform_id: number | null;
 }
 
-interface ReleaseRow {
+export interface ReleaseRow {
   id: string;
   game_id: number;
   title: string;
@@ -40,7 +40,7 @@ interface ReleaseRow {
 /**
  * Valid game file extensions to verify base-name matching.
  */
-const GAME_EXTENSIONS = new Set([
+export const GAME_EXTENSIONS = new Set([
   '.rvz',
   '.gcm',
   '.iso',
@@ -100,7 +100,7 @@ function cleanPlatformName(name: string): string {
  * @param platformId The database platform ID.
  * @returns Array of symmetrical platform IDs.
  */
-function getScannedPlatformIds(platformId: number): number[] {
+export function getScannedPlatformIds(platformId: number): number[] {
   if (platformId === 13 || platformId === 53) {
     return [13, 53];
   }
@@ -113,7 +113,7 @@ function getScannedPlatformIds(platformId: number): number[] {
  * @param filename The filename to evaluate.
  * @returns True if the file should be ignored from scanning and unmatched alerts.
  */
-function isIgnoredFile(filename: string): boolean {
+export function isIgnoredFile(filename: string): boolean {
   const lower = filename.toLowerCase();
 
   // Exact name matches
@@ -147,7 +147,10 @@ function isIgnoredFile(filename: string): boolean {
  * @param filename The base filename.
  * @returns Object containing the cleaned base name and the extension.
  */
-function getGameFileParts(filename: string): { base: string; ext: string } {
+export function getGameFileParts(filename: string): {
+  base: string;
+  ext: string;
+} {
   const lower = filename.toLowerCase();
 
   let ext: string;
@@ -183,7 +186,7 @@ function getGameFileParts(filename: string): { base: string; ext: string } {
  * @param baseTitle The cleaned base title.
  * @returns Array of segment strings.
  */
-function getTitleSegments(baseTitle: string): string[] {
+export function getTitleSegments(baseTitle: string): string[] {
   let normalized = baseTitle.replace(/\s+-\s+/g, '___SPLIT___');
   normalized = normalized.replace(/[~/:]/g, '___SPLIT___');
   return normalized
@@ -199,7 +202,7 @@ function getTitleSegments(baseTitle: string): string[] {
  * @param dbPlatforms Array of platform records from the database.
  * @returns The matched platform database record, or null if no match is found.
  */
-function findDbPlatform(
+export function findDbPlatform(
   subDirName: string,
   dbPlatforms: PlatformRow[],
 ): PlatformRow | null {
@@ -475,7 +478,7 @@ function getBaseName(filename: string): string {
  * @param releases Array of physical database releases on the platform.
  * @returns The best matched release database record, or null.
  */
-function findBestReleaseMatch(
+export function findBestReleaseMatch(
   filename: string,
   releases: ReleaseRow[],
 ): ReleaseRow | null {
@@ -508,7 +511,7 @@ function findBestReleaseMatch(
  * @param releases Array of physical database releases on the platform.
  * @returns The best tolerantly matched release database record, or null.
  */
-function findTolerantReleaseMatch(
+export function findTolerantReleaseMatch(
   filename: string,
   releases: ReleaseRow[],
 ): ReleaseRow | null {
@@ -830,4 +833,10 @@ function main(): void {
   );
 }
 
-main();
+if (
+  process.argv[1] &&
+  (process.argv[1].endsWith('scan_backups.ts') ||
+    process.argv[1].endsWith('scan_backups.js'))
+) {
+  main();
+}

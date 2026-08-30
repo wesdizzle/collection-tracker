@@ -95,6 +95,28 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters!.physical_verified).toBe('all');
   });
 
+  it('should render media type filter on games tab and emit correct values on change', () => {
+    fixture.componentRef.setInput('currentTab', 'games');
+    fixture.detectChanges();
+
+    const select = fixture.nativeElement.querySelector(
+      '#filter-media-type',
+    ) as HTMLSelectElement;
+    expect(select).toBeTruthy();
+
+    let emittedFilters: FilterState | null = null;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.onPartialChange('media_type', 'all');
+    expect(emittedFilters).toBeTruthy();
+    expect(emittedFilters!.media_type).toBe('all');
+
+    component.onPartialChange('media_type', 'digital_extracted');
+    expect(emittedFilters!.media_type).toBe('digital_extracted');
+  });
+
   it('should not render physical verified filter on toys tab', () => {
     fixture.componentRef.setInput('currentTab', 'toys');
     fixture.detectChanges();

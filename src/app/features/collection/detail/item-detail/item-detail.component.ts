@@ -101,7 +101,15 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   <span>IGDB Verified</span>
                 </a>
               }
-              @if (g.rom_name) {
+              @if (
+                g.physical_status === 'digital_extracted_rom' ||
+                g.release_medium === 'digital_extracted_rom'
+              ) {
+                <div class="stat-pill active extracted-rom">
+                  <span class="icon">💾</span>
+                  <span>Extracted Archival ROM</span>
+                </div>
+              } @else if (g.rom_name) {
                 <div class="stat-pill active physical-release">
                   <span class="icon">📦</span>
                   <span>Physical Release Verified</span>
@@ -261,6 +269,85 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                           }
                         }
                       </span>
+                    </div>
+                  }
+                  @if (parsedOriginMetadata(); as origin) {
+                    <div class="meta-box full-width provenance-section mt-md">
+                      <span class="label">Archival Origin Provenance</span>
+                      <div
+                        class="provenance-card p-sm rounded-md bg-surface-container-high border border-outline-variant mt-2xs"
+                      >
+                        <div class="flex items-center gap-sm mb-2xs">
+                          <span class="font-bold text-sm"
+                            >Release Channel:</span
+                          >
+                          <span>{{
+                            origin.origin_channel || origin.origin_platform
+                          }}</span>
+                          @if (origin.origin_year) {
+                            <span class="text-secondary text-sm"
+                              >({{ origin.origin_year }})</span
+                            >
+                          }
+                        </div>
+                        @if (origin.target_hardware) {
+                          <div class="text-xs text-secondary mb-2xs">
+                            Target Playback Hardware:
+                            <strong>{{ origin.target_hardware }}</strong>
+                          </div>
+                        }
+                        @if (origin.notes) {
+                          <p class="text-sm text-secondary m-0">
+                            {{ origin.notes }}
+                          </p>
+                        }
+                      </div>
+                    </div>
+                  }
+                  @if (g.bundled_games && g.bundled_games.length > 0) {
+                    <div class="meta-box full-width bundles-section mt-lg">
+                      <span class="label"
+                        >Included Games & Bonus Discs (In-Box)</span
+                      >
+                      <div class="discs-list flex flex-col gap-md mt-2xs">
+                        @for (b of g.bundled_games; track b.id || b.stable_id) {
+                          <div
+                            class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
+                          >
+                            <div class="disc-info flex-1">
+                              <div class="flex items-center gap-sm mb-2xs">
+                                <span class="variant-badge"
+                                  >Disc {{ b.bundle_disc_number || 2 }}</span
+                                >
+                                <strong class="text-sm">{{ b.title }}</strong>
+                                @if (b.platform_name) {
+                                  <span class="crc-text"
+                                    >[{{ b.platform_name }}]</span
+                                  >
+                                }
+                              </div>
+                              @if (b.rom_name) {
+                                <div class="rom-text font-mono text-2xs">
+                                  {{ b.rom_name }}
+                                </div>
+                              }
+                            </div>
+                            <div class="disc-actions flex items-center gap-sm">
+                              <div
+                                class="stat-pill"
+                                [class.active]="!!b.backup_status"
+                              >
+                                <span class="icon">{{
+                                  b.backup_status ? '💾' : '❌'
+                                }}</span>
+                                <span>{{
+                                  b.backup_status ? 'Backed Up' : 'No Backup'
+                                }}</span>
+                              </div>
+                            </div>
+                          </div>
+                        }
+                      </div>
                     </div>
                   }
                   @if (g.releases && g.releases.length > 0) {
@@ -789,6 +876,21 @@ export class ItemDetailComponent {
   public platform = computed(() =>
     this.type() === 'platform' ? (this.item() as Platform) : null,
   );
+
+  /**
+   * Computes parsed archival origin provenance metadata for digital extracted ROMs.
+   */
+  public parsedOriginMetadata = computed(() => {
+    const g = this.game();
+    if (!g || !g.origin_metadata) return null;
+    try {
+      return typeof g.origin_metadata === 'string'
+        ? JSON.parse(g.origin_metadata)
+        : g.origin_metadata;
+    } catch {
+      return { origin_channel: g.origin_metadata };
+    }
+  });
 
   /**
    * Computes a human-readable, long-form release date.

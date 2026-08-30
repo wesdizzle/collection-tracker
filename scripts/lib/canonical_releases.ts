@@ -36,19 +36,294 @@ export interface CanonicalRelease {
   is_verified_physical: number;
 }
 
+export type ReleaseMedium =
+  | 'physical_retail'
+  | 'physical_limited'
+  | 'digital_extracted_rom'
+  | 'digital_native'
+  | 'unreleased_prototype';
+
 export type PhysicalStatus =
   | 'verified_physical'
   | 'likely_physical'
+  | 'digital_extracted_rom'
   | 'digital_only'
+  | 'unreleased_prototype'
   | 'unverified';
+
+export interface OriginMetadata {
+  origin_type:
+    | 'virtual_console'
+    | 'nintendo_switch_online'
+    | 'classic_mini'
+    | 'compilation_extraction'
+    | 'digital_translation'
+    | 'prototype';
+  origin_platform?: string;
+  origin_channel?: string;
+  origin_year?: number;
+  origin_package_title?: string;
+  target_hardware?: string;
+  notes?: string;
+}
 
 export interface PhysicalVerificationResult {
   physical_status: PhysicalStatus;
-  verification_tier: number; // 1 = DAT/Redump, 2 = Barcode/Publisher/IGDB, 3 = Heuristic Fluff, 0 = Unverified
+  verification_tier: number; // 1 = DAT/Redump, 2 = Barcode/Publisher/IGDB, 3 = Heuristic Fluff/Extracted, 0 = Unverified
   is_physical: boolean;
   reasons: string[];
   matched_releases: CanonicalRelease[];
   physical_regions: string[];
+  origin_metadata?: OriginMetadata;
+}
+
+export interface ExtractedRomDefinition {
+  targetPlatformId: number;
+  cleanTitle: string;
+  normalizedTitle: string;
+  region: string;
+  romName: string;
+  romCrc?: string;
+  originMetadata: OriginMetadata;
+  aliases: string[];
+}
+
+export const CANONICAL_EXTRACTED_ROMS: ExtractedRomDefinition[] = [
+  {
+    targetPlatformId: 13, // NES
+    cleanTitle: 'EarthBound Beginnings',
+    normalizedTitle: 'earthbound beginnings',
+    region: 'USA, Europe',
+    romName: 'EarthBound Beginnings (USA, Europe) (Virtual Console).nes',
+    originMetadata: {
+      origin_type: 'virtual_console',
+      origin_platform: 'Wii U',
+      origin_channel: 'Wii U Virtual Console / Nintendo Switch Online',
+      origin_year: 2015,
+      origin_package_title: 'EarthBound Beginnings (Wii U Virtual Console)',
+      target_hardware: 'Nintendo Entertainment System',
+      notes:
+        'Official 1990 English localization released for the first time on Wii U Virtual Console in 2015.',
+    },
+    aliases: ['mother', 'earth bound', 'earthbound zero'],
+  },
+  {
+    targetPlatformId: 19, // SNES
+    cleanTitle: 'Star Fox 2',
+    normalizedTitle: 'star fox 2',
+    region: 'USA, Europe',
+    romName: 'Star Fox 2 (USA, Europe).sfc',
+    originMetadata: {
+      origin_type: 'classic_mini',
+      origin_platform: 'Super NES Classic Edition',
+      origin_channel: 'Super NES Classic Edition / Nintendo Switch Online',
+      origin_year: 2017,
+      origin_package_title: 'Super NES Classic Edition',
+      target_hardware: 'Super Nintendo Entertainment System',
+      notes:
+        'Completed in 1995; officially released for the first time in 2017 on Super NES Classic Edition.',
+    },
+    aliases: ['star fox 2'],
+  },
+  {
+    targetPlatformId: 19, // SNES
+    cleanTitle: 'Trials of Mana',
+    normalizedTitle: 'trials of mana',
+    region: 'USA, Europe',
+    romName: 'Trials of Mana (USA, Europe).sfc',
+    originMetadata: {
+      origin_type: 'compilation_extraction',
+      origin_platform: 'Nintendo Switch',
+      origin_channel: 'Collection of Mana',
+      origin_year: 2019,
+      origin_package_title: 'Collection of Mana',
+      target_hardware: 'Super Nintendo Entertainment System',
+      notes:
+        'Original 1995 Super Famicom game (Seiken Densetsu 3) officially translated into English for Collection of Mana.',
+    },
+    aliases: ['seiken densetsu 3'],
+  },
+  {
+    targetPlatformId: 37, // Sega Genesis
+    cleanTitle: 'Monster World IV',
+    normalizedTitle: 'monster world iv',
+    region: 'USA, Europe',
+    romName: 'Monster World IV (USA, Europe) (Virtual Console).md',
+    originMetadata: {
+      origin_type: 'digital_translation',
+      origin_platform: 'Wii',
+      origin_channel: 'Wii Virtual Console / XBLA / PSN',
+      origin_year: 2012,
+      origin_package_title: 'Sega Vintage Collection: Monster World',
+      target_hardware: 'Sega Genesis / Mega Drive',
+      notes:
+        '1994 Japanese Mega Drive exclusive officially translated into English in 2012 by M2.',
+    },
+    aliases: ['monster world 4'],
+  },
+  {
+    targetPlatformId: 13, // NES
+    cleanTitle: 'Fire Emblem: Shadow Dragon and the Blade of Light',
+    normalizedTitle: 'fire emblem shadow dragon and the blade of light',
+    region: 'USA, Europe',
+    romName:
+      'Fire Emblem - Shadow Dragon and the Blade of Light (USA) (Switch Online).nes',
+    originMetadata: {
+      origin_type: 'digital_translation',
+      origin_platform: 'Nintendo Switch',
+      origin_channel: 'Nintendo eShop (30th Anniversary)',
+      origin_year: 2020,
+      origin_package_title:
+        'Fire Emblem: Shadow Dragon and the Blade of Light 30th Anniversary',
+      target_hardware: 'Nintendo Entertainment System',
+      notes:
+        '1990 Famicom game officially translated into English for the 30th Anniversary Switch release in 2020.',
+    },
+    aliases: ['fire emblem: ankoku ryu to hikari no ken', 'fire emblem 1'],
+  },
+  {
+    targetPlatformId: 17, // Nintendo 64
+    cleanTitle: 'Sin and Punishment',
+    normalizedTitle: 'sin and punishment',
+    region: 'USA, Europe',
+    romName: 'Sin and Punishment (USA, Europe) (Virtual Console).z64',
+    originMetadata: {
+      origin_type: 'virtual_console',
+      origin_platform: 'Wii',
+      origin_channel: 'Wii Virtual Console / Nintendo Switch Online',
+      origin_year: 2007,
+      origin_package_title: 'Sin and Punishment (Wii Virtual Console)',
+      target_hardware: 'Nintendo 64',
+      notes:
+        '2000 Japanese N64 exclusive released internationally with translated English menus on Wii Virtual Console in 2007.',
+    },
+    aliases: ['tsumi to batsu: hoshi no keishousha'],
+  },
+  {
+    targetPlatformId: 19, // SNES
+    cleanTitle: 'Clock Tower',
+    normalizedTitle: 'clock tower',
+    region: 'USA, Europe',
+    romName: 'Clock Tower (USA, Europe) (Carbon Engine).sfc',
+    originMetadata: {
+      origin_type: 'compilation_extraction',
+      origin_platform: 'Nintendo Switch / PS5',
+      origin_channel: 'Clock Tower: Rewind',
+      origin_year: 2024,
+      origin_package_title: 'Clock Tower: Rewind',
+      target_hardware: 'Super Nintendo Entertainment System',
+      notes:
+        '1995 Super Famicom game officially translated into English using Carbon Engine in 2024.',
+    },
+    aliases: ['clock tower: the first fear'],
+  },
+];
+
+/**
+ * Finds a canonical extracted ROM entry by title and target platform ID.
+ */
+export function findCanonicalExtractedRom(
+  title: string,
+  platformId: number,
+): ExtractedRomDefinition | null {
+  if (!title) return null;
+  const norm = normalizeTitleForMatching(
+    cleanTitleWithoutParentheticals(title),
+  );
+  for (const def of CANONICAL_EXTRACTED_ROMS) {
+    if (def.targetPlatformId !== platformId) continue;
+    if (
+      normalizeTitleForMatching(def.cleanTitle) === norm ||
+      normalizeTitleForMatching(def.normalizedTitle) === norm
+    ) {
+      return def;
+    }
+    for (const alias of def.aliases) {
+      if (normalizeTitleForMatching(alias) === norm) return def;
+    }
+  }
+  return null;
+}
+
+export interface IncludedBundleGame {
+  title: string;
+  platformId: number;
+  discNumber: number;
+  romNamePattern: string;
+  notes?: string;
+}
+
+export interface BundleDefinition {
+  parentTitle: string;
+  parentPlatformId: number;
+  bundleType:
+    | 'same_platform_multidisc'
+    | 'cross_platform_multidisc'
+    | 'compilation_cart';
+  includedGames: IncludedBundleGame[];
+}
+
+export const CANONICAL_BUNDLES: BundleDefinition[] = [
+  {
+    parentTitle: 'Bayonetta 2',
+    parentPlatformId: 24, // Wii U
+    bundleType: 'same_platform_multidisc',
+    includedGames: [
+      {
+        title: 'Bayonetta 2',
+        platformId: 24,
+        discNumber: 1,
+        romNamePattern: 'Bayonetta 2',
+        notes: 'Primary retail game (Disc 1)',
+      },
+      {
+        title: 'Bayonetta',
+        platformId: 24,
+        discNumber: 2,
+        romNamePattern: 'Bayonetta',
+        notes: 'Included full game (Disc 2)',
+      },
+    ],
+  },
+  {
+    parentTitle: 'Rodea the Sky Soldier',
+    parentPlatformId: 24, // Wii U
+    bundleType: 'cross_platform_multidisc',
+    includedGames: [
+      {
+        title: 'Rodea the Sky Soldier',
+        platformId: 24, // Wii U
+        discNumber: 1,
+        romNamePattern: 'Rodea the Sky Soldier',
+        notes: 'Wii U primary version (Disc 1)',
+      },
+      {
+        title: 'Rodea the Sky Soldier',
+        platformId: 22, // Wii
+        discNumber: 2,
+        romNamePattern: 'Rodea the Sky Soldier',
+        notes: 'Original Wii version on physical bonus disc (Disc 2)',
+      },
+    ],
+  },
+];
+
+/**
+ * Finds a bundle definition by parent title and platform ID.
+ */
+export function findCanonicalBundle(
+  title: string,
+  platformId: number,
+): BundleDefinition | null {
+  if (!title) return null;
+  const norm = normalizeTitleForMatching(
+    cleanTitleWithoutParentheticals(title),
+  );
+  for (const b of CANONICAL_BUNDLES) {
+    if (b.parentPlatformId !== platformId) continue;
+    if (normalizeTitleForMatching(b.parentTitle) === norm) return b;
+  }
+  return null;
 }
 
 /**
@@ -270,6 +545,23 @@ export function detectPhysicalReleaseStatus(options: {
       reasons,
       matched_releases: matchedReleases,
       physical_regions: regions,
+    };
+  }
+
+  // Tier 1b: Curated Canonical Extracted ROMs (e.g. EarthBound Beginnings on NES, Star Fox 2 on SNES)
+  const canonicalExtracted = findCanonicalExtractedRom(gameTitle, platformId);
+  if (canonicalExtracted) {
+    reasons.push(
+      `Identified as canonical official digital extracted ROM (${canonicalExtracted.originMetadata.origin_channel})`,
+    );
+    return {
+      physical_status: 'digital_extracted_rom',
+      verification_tier: 3,
+      is_physical: false,
+      reasons,
+      matched_releases: [],
+      physical_regions: [canonicalExtracted.region],
+      origin_metadata: canonicalExtracted.originMetadata,
     };
   }
 

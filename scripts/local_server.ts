@@ -32,6 +32,7 @@ import {
   GAMES_LIST_QUERY,
   GAME_DETAIL_QUERY,
   GAME_RELEASES_BY_GAME_ID_QUERY,
+  BUNDLED_GAMES_BY_PARENT_QUERY,
   PLATFORMS_LIST_QUERY,
   TOYS_LIST_QUERY,
   TOY_DETAIL_QUERY,
@@ -1218,6 +1219,14 @@ export const handleRequest =
               },
             ];
           }
+
+          if (game.stable_id) {
+            const bundled = db
+              .prepare(BUNDLED_GAMES_BY_PARENT_QUERY)
+              .all(game.stable_id);
+            game['bundled_games'] = bundled;
+          }
+
           res.end(JSON.stringify(game));
         }
       }

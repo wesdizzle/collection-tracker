@@ -69,11 +69,37 @@ export interface Game {
   physical_status?:
     | 'verified_physical'
     | 'likely_physical'
+    | 'digital_extracted_rom'
     | 'digital_only'
+    | 'unreleased_prototype'
     | 'unverified';
+  release_medium?:
+    | 'physical_retail'
+    | 'physical_limited'
+    | 'digital_extracted_rom'
+    | 'digital_native'
+    | 'unreleased_prototype';
+  origin_metadata?: string | null;
+  bundle_parent_id?: number | null;
+  bundle_disc_number?: number | null;
+  bundle_count?: number;
   verification_tier?: number;
   barcode?: string | null;
   releases?: GameRelease[];
+  bundled_games?: BundledGame[];
+}
+
+export interface BundledGame {
+  stable_id: number;
+  id: string;
+  title: string;
+  platform_id: number;
+  platform_name?: string;
+  bundle_disc_number?: number;
+  release_medium?: string;
+  origin_metadata?: string | null;
+  rom_name?: string | null;
+  backup_status?: number;
 }
 
 export interface Toy {
@@ -155,6 +181,7 @@ export interface FilterState {
   play_status?: 'all' | PlayStatus;
   backup_status?: 'all' | 0 | 1;
   physical_verified?: 'all' | 0 | 1;
+  media_type?: 'physical_only' | 'all' | 'digital_extracted';
   platform_id?: number;
   regions?: string[];
   is_linked?: boolean;

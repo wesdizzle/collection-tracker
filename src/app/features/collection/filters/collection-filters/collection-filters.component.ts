@@ -97,6 +97,24 @@ import {
           </div>
 
           <div class="filter-group">
+            <label class="m3-label">Media Type</label>
+            <div class="input-wrapper">
+              <select
+                [ngModel]="filters().media_type || 'physical_only'"
+                (ngModelChange)="onPartialChange('media_type', $event)"
+                class="m3-input"
+                id="filter-media-type"
+              >
+                <option value="physical_only">Physical Media Only</option>
+                <option value="all">All Items (Physical + Digital)</option>
+                <option value="digital_extracted">
+                  Extracted Backups & Digital
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <div class="filter-group">
             <label class="m3-label">Backup</label>
             <div class="input-wrapper">
               <select

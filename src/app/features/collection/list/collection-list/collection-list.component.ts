@@ -229,11 +229,42 @@ interface GameGroup {
                               >🆔</span
                             >
                           }
-                          @if (game.rom_name) {
+                          @if (
+                            game.rom_name &&
+                            (game.physical_status === 'verified_physical' ||
+                              !game.physical_status)
+                          ) {
                             <span
                               class="physical-release-badge"
                               title="Physical Release Verified (No-Intro/Redump)"
                               >📦</span
+                            >
+                          } @else if (
+                            game.physical_status === 'digital_extracted_rom' ||
+                            game.release_medium === 'digital_extracted_rom'
+                          ) {
+                            <span
+                              class="digital-extracted-badge"
+                              title="Archival Extracted ROM (Official VC/NSO/Compilation)"
+                              >💾</span
+                            >
+                          }
+                          @if (
+                            (game.bundle_count && game.bundle_count > 0) ||
+                            (game.bundled_games &&
+                              game.bundled_games.length > 0)
+                          ) {
+                            <span
+                              class="bundle-badge"
+                              [title]="
+                                '+' +
+                                (game.bundle_count ||
+                                  game.bundled_games?.length) +
+                                ' Included Game/Disc in Box'
+                              "
+                              >💿 +{{
+                                game.bundle_count || game.bundled_games?.length
+                              }}</span
                             >
                           }
                         </div>
@@ -651,6 +682,21 @@ interface GameGroup {
       .physical-release-badge {
         font-size: 0.8rem;
       }
+      .digital-extracted-badge {
+        font-size: 0.8rem;
+      }
+      .bundle-badge {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--m3-on-secondary-container);
+        background: var(--m3-secondary-container);
+        padding: 0.15rem 0.45rem;
+        border-radius: 4px;
+        letter-spacing: 0.02em;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+      }
 
       .series-header {
         display: flex;
@@ -861,6 +907,35 @@ export class CollectionListComponent
 
     return groupedGames
       .filter((g) => {
+        // Option A: Hide bundled child discs/games from top-level collection list
+        if (g.bundle_parent_id) {
+          return false;
+        }
+
+        // Media Type Filter (Defaults to Physical Only)
+        const mediaType = f.media_type || 'physical_only';
+        if (mediaType === 'physical_only') {
+          if (
+            g.physical_status === 'digital_extracted_rom' ||
+            g.physical_status === 'digital_only' ||
+            g.release_medium === 'digital_extracted_rom' ||
+            g.release_medium === 'digital_native' ||
+            g.release_medium === 'unreleased_prototype'
+          ) {
+            return false;
+          }
+        } else if (mediaType === 'digital_extracted') {
+          const isDigitalOrExtracted =
+            g.physical_status === 'digital_extracted_rom' ||
+            g.physical_status === 'digital_only' ||
+            g.release_medium === 'digital_extracted_rom' ||
+            g.release_medium === 'digital_native' ||
+            g.release_medium === 'unreleased_prototype';
+          if (!isDigitalOrExtracted) {
+            return false;
+          }
+        }
+
         // Basic Ownership Filter
         const status = g.ownership_status ?? 0;
         if (f.ownership !== 'all' && f.ownership !== status) return false;

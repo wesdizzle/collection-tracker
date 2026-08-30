@@ -75,7 +75,11 @@ describe('Worker API Logic', () => {
         metadata_json TEXT,
         physical_status TEXT DEFAULT 'unverified',
         verification_tier INTEGER DEFAULT 0,
-        barcode TEXT
+        barcode TEXT,
+        release_medium TEXT DEFAULT 'physical_retail',
+        origin_metadata TEXT,
+        bundle_parent_id INTEGER,
+        bundle_disc_number INTEGER
       );
       CREATE TABLE game_releases (
         id TEXT PRIMARY KEY,

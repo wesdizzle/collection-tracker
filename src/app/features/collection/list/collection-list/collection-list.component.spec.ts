@@ -259,6 +259,86 @@ describe('CollectionListComponent', () => {
     expect(component.filteredGames().length).toBe(2);
   });
 
+  it('should filter by media_type (default physical_only) and hide bundle children', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'mother-famicom',
+        title: 'Mother',
+        platform: 'Famicom',
+        platform_id: 53,
+        physical_status: 'verified_physical',
+        release_medium: 'physical_retail',
+        ownership_status: 1,
+      },
+      {
+        id: 'earthbound-beginnings-nes',
+        title: 'EarthBound Beginnings',
+        platform: 'NES',
+        platform_id: 13,
+        physical_status: 'digital_extracted_rom',
+        release_medium: 'digital_extracted_rom',
+        ownership_status: 1,
+      },
+      {
+        id: 'bayo2-wiiu',
+        stable_id: 100,
+        title: 'Bayonetta 2',
+        platform: 'Wii U',
+        platform_id: 24,
+        physical_status: 'verified_physical',
+        release_medium: 'physical_retail',
+        ownership_status: 1,
+      },
+      {
+        id: 'bayo1-included',
+        stable_id: 101,
+        title: 'Bayonetta',
+        platform: 'Wii U',
+        platform_id: 24,
+        bundle_parent_id: 100,
+        bundle_disc_number: 2,
+        physical_status: 'verified_physical',
+        release_medium: 'physical_retail',
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Default: Physical Only (should include Mother [Famicom], Bayonetta 2 [Wii U], and exclude EarthBound Beginnings [NES] and Bayonetta [child disc])
+    component.filters.set({ ownership: 'all', media_type: 'physical_only' });
+    const physicalOnlyGames = component.filteredGames();
+    expect(physicalOnlyGames.map((g) => g.id)).toEqual([
+      'bayo2-wiiu',
+      'mother-famicom',
+    ]);
+
+    // Extracted Backups & Digital Only
+    component.filters.set({
+      ownership: 'all',
+      media_type: 'digital_extracted',
+    });
+    const digitalGames = component.filteredGames();
+    expect(digitalGames.map((g) => g.id)).toEqual([
+      'earthbound-beginnings-nes',
+    ]);
+
+    // All Items (Physical + Digital, excluding child discs)
+    component.filters.set({ ownership: 'all', media_type: 'all' });
+    const allGames = component.filteredGames();
+    expect(allGames.map((g) => g.id)).toEqual([
+      'bayo2-wiiu',
+      'earthbound-beginnings-nes',
+      'mother-famicom',
+    ]);
+  });
+
   it('should support exact normalized matching for series', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
 

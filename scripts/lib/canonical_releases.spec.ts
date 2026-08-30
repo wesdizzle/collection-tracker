@@ -10,6 +10,7 @@ import {
   extractSerialCode,
   isDigitalFluffTitle,
   hasEraDiscrepancy,
+  findCanonicalBundle,
   CanonicalRelease,
 } from './canonical_releases.js';
 
@@ -173,6 +174,88 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(deduplicated[0].raw_title).toBe('Final Fantasy VII');
       expect(deduplicated[0].normalized_title).toBe('finalfantasyvii');
       expect(deduplicated[0].region).toBe('USA');
+    });
+  });
+
+  describe('Canonical Extracted ROMs & Multi-Game Bundles', () => {
+    it('should classify EarthBound Beginnings on NES as digital_extracted_rom with provenance metadata', () => {
+      const result = detectPhysicalReleaseStatus({
+        platformId: 13, // NES
+        gameTitle: 'EarthBound Beginnings',
+        canonicalReleases: [], // No physical NES cartridge in US
+      });
+
+      expect(result.physical_status).toBe('digital_extracted_rom');
+      expect(result.is_physical).toBe(false);
+      expect(result.verification_tier).toBe(3);
+      expect(result.origin_metadata?.origin_channel).toContain(
+        'Wii U Virtual Console',
+      );
+      expect(result.origin_metadata?.target_hardware).toBe(
+        'Nintendo Entertainment System',
+      );
+    });
+
+    it('should classify Star Fox 2 and Trials of Mana on SNES as digital_extracted_rom', () => {
+      const starFoxResult = detectPhysicalReleaseStatus({
+        platformId: 19, // SNES
+        gameTitle: 'Star Fox 2',
+        canonicalReleases: [],
+      });
+      expect(starFoxResult.physical_status).toBe('digital_extracted_rom');
+      expect(starFoxResult.origin_metadata?.origin_channel).toContain(
+        'Super NES Classic Edition',
+      );
+
+      const trialsResult = detectPhysicalReleaseStatus({
+        platformId: 19, // SNES
+        gameTitle: 'Trials of Mana',
+        canonicalReleases: [],
+      });
+      expect(trialsResult.physical_status).toBe('digital_extracted_rom');
+      expect(trialsResult.origin_metadata?.origin_channel).toContain(
+        'Collection of Mana',
+      );
+    });
+
+    it('should retain verified_physical for Mother on Famicom when physical DAT matches', () => {
+      const mockFamicomDat: CanonicalRelease[] = [
+        {
+          platform_id: 53, // Famicom
+          raw_title: 'Mother',
+          normalized_title: 'mother',
+          region: 'Japan',
+          variants: null,
+          rom_name: 'Mother (Japan).nes',
+          rom_crc: '2A111717',
+          source: 'dat',
+          is_verified_physical: 1,
+        },
+      ];
+
+      const result = detectPhysicalReleaseStatus({
+        platformId: 53, // Famicom
+        gameTitle: 'Mother',
+        canonicalReleases: mockFamicomDat,
+      });
+
+      expect(result.physical_status).toBe('verified_physical');
+      expect(result.is_physical).toBe(true);
+      expect(result.verification_tier).toBe(1);
+    });
+
+    it('should correctly find canonical bundle definitions for Bayonetta 2 and Rodea the Sky Soldier', () => {
+      const bayoBundle = findCanonicalBundle('Bayonetta 2', 24);
+      expect(bayoBundle).not.toBeNull();
+      expect(bayoBundle?.includedGames).toHaveLength(2);
+      expect(bayoBundle?.includedGames[1].title).toBe('Bayonetta');
+      expect(bayoBundle?.includedGames[1].platformId).toBe(24);
+
+      const rodeaBundle = findCanonicalBundle('Rodea the Sky Soldier', 24);
+      expect(rodeaBundle).not.toBeNull();
+      expect(rodeaBundle?.includedGames).toHaveLength(2);
+      expect(rodeaBundle?.includedGames[1].title).toBe('Rodea the Sky Soldier');
+      expect(rodeaBundle?.includedGames[1].platformId).toBe(22); // Wii
     });
   });
 });

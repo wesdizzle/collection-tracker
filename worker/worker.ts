@@ -21,6 +21,7 @@ import {
   GAMES_LIST_QUERY,
   GAME_DETAIL_QUERY,
   GAME_RELEASES_BY_GAME_ID_QUERY,
+  BUNDLED_GAMES_BY_PARENT_QUERY,
   PLATFORMS_LIST_QUERY,
   TOYS_LIST_QUERY,
   TOY_DETAIL_QUERY,
@@ -56,6 +57,7 @@ interface DbGame {
   ownership_status?: number;
   release_date?: string | null;
   releases?: unknown[];
+  bundled_games?: unknown[];
 }
 
 let cachedTwitchToken: { token: string; expiresAt: number } | null = null;
@@ -427,6 +429,15 @@ export default {
               release_date: game.release_date || null,
             },
           ];
+        }
+
+        if (game.stable_id) {
+          const { results: bundled } = await env.DB.prepare(
+            BUNDLED_GAMES_BY_PARENT_QUERY,
+          )
+            .bind(game.stable_id)
+            .all();
+          game.bundled_games = bundled || [];
         }
 
         return Response.json(game);
