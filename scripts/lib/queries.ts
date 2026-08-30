@@ -34,7 +34,7 @@ export const GAMES_LIST_QUERY = `
            g.origin_metadata,
            g.bundle_parent_id,
            g.bundle_disc_number,
-           (SELECT COUNT(*) FROM games bg WHERE bg.bundle_parent_id = g.stable_id) as bundle_count,
+           COALESCE(bc.bundle_count, 0) as bundle_count,
            COALESCE(r.ownership_status, 0) as ownership_status,
            COALESCE(r.region, g.region) as region,
            r.variants,
@@ -50,6 +50,12 @@ export const GAMES_LIST_QUERY = `
     LEFT JOIN game_releases r ON g.stable_id = r.game_id
     LEFT JOIN platforms p ON g.platform_id = p.id
     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+    LEFT JOIN (
+        SELECT bundle_parent_id, COUNT(*) as bundle_count 
+        FROM games 
+        WHERE bundle_parent_id IS NOT NULL 
+        GROUP BY bundle_parent_id
+    ) bc ON g.stable_id = bc.bundle_parent_id
     WHERE 1=1
 `;
 
@@ -81,7 +87,7 @@ export const GAME_DETAIL_QUERY = `
            g.origin_metadata,
            g.bundle_parent_id,
            g.bundle_disc_number,
-           (SELECT COUNT(*) FROM games bg WHERE bg.bundle_parent_id = g.stable_id) as bundle_count,
+           COALESCE(bc.bundle_count, 0) as bundle_count,
            COALESCE(r.ownership_status, 0) as ownership_status,
            COALESCE(r.region, g.region) as region,
            r.variants,
@@ -97,6 +103,12 @@ export const GAME_DETAIL_QUERY = `
     LEFT JOIN game_releases r ON g.stable_id = r.game_id
     LEFT JOIN platforms p ON g.platform_id = p.id 
     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+    LEFT JOIN (
+        SELECT bundle_parent_id, COUNT(*) as bundle_count 
+        FROM games 
+        WHERE bundle_parent_id IS NOT NULL 
+        GROUP BY bundle_parent_id
+    ) bc ON g.stable_id = bc.bundle_parent_id
     WHERE r.id = ? OR (r.id IS NULL AND g.id = ?)
 `;
 
