@@ -19,7 +19,8 @@ CREATE INDEX IF NOT EXISTS idx_games_bundle_parent ON games (bundle_parent_id);
 -- Bayonetta (Wii U, Disc 2) included with Bayonetta 2 (Wii U)
 INSERT OR IGNORE INTO games (
     id, title, series, canonical_series, platform_id,
-    image_url, play_status, backup_status,
+    image_url, igdb_id, collections, franchises, igdb_url,
+    play_status, backup_status,
     bundle_parent_id, bundle_disc_number, release_medium, physical_status, verification_tier
 )
 SELECT 
@@ -28,7 +29,11 @@ SELECT
     'Bayonetta',
     'Bayonetta',
     24,
-    'https://images.igdb.com/igdb/image/upload/t_cover_big/co1x77.jpg',
+    'https://images.igdb.com/igdb/image/upload/t_cover_big/co8ngp.jpg',
+    279337,
+    'Bayonetta',
+    'Bayonetta',
+    'https://www.igdb.com/games/bayonetta--1',
     0,
     1,
     g.stable_id,
@@ -61,7 +66,8 @@ LIMIT 1;
 -- Rodea the Sky Soldier (Wii, Bonus Disc) included with Rodea the Sky Soldier (Wii U)
 INSERT OR IGNORE INTO games (
     id, title, series, canonical_series, platform_id,
-    image_url, play_status, backup_status,
+    image_url, igdb_id, igdb_url,
+    play_status, backup_status,
     bundle_parent_id, bundle_disc_number, release_medium, physical_status, verification_tier
 )
 SELECT 
@@ -70,7 +76,9 @@ SELECT
     'Rodea the Sky Soldier',
     'Rodea the Sky Soldier',
     22,
-    'https://images.igdb.com/igdb/image/upload/t_cover_big/co2044.jpg',
+    'https://images.igdb.com/igdb/image/upload/t_cover_big/co2gfn.jpg',
+    138792,
+    'https://www.igdb.com/games/rodea-the-sky-soldier--1',
     0,
     1,
     g.stable_id,
@@ -107,15 +115,20 @@ UPDATE games SET bundle_disc_number = 1 WHERE platform_id = 24 AND (id = 'rodea-
 -- 5. Seed Canonical Extracted Archival ROMs
 INSERT OR IGNORE INTO games (
     id, title, series, canonical_series, platform_id,
-    image_url, play_status, backup_status,
+    image_url, igdb_id, collections, franchises, igdb_url,
+    play_status, backup_status,
     release_medium, physical_status, verification_tier, origin_metadata
 ) VALUES (
     'earthbound-beginnings-nes',
     'EarthBound Beginnings',
     'EarthBound',
-    'Mother',
+    'EarthBound',
     13,
-    'https://images.igdb.com/igdb/image/upload/t_cover_big/co2043.jpg',
+    'https://images.igdb.com/igdb/image/upload/t_cover_big/co8mzl.jpg',
+    11191,
+    'EarthBound',
+    'Earthbound',
+    'https://www.igdb.com/games/earthbound-beginnings',
     0,
     1,
     'digital_extracted_rom',

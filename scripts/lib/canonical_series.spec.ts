@@ -556,5 +556,30 @@ describe('Canonical Series Logic Integrity Suite', () => {
       }),
       'EarthBound',
     );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'EarthBound Beginnings',
+      }),
+      'EarthBound',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Mother',
+      }),
+      'EarthBound',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Mother 1+2',
+      }),
+      'EarthBound',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Mother 3',
+        franchises: 'Earthbound',
+      }),
+      'EarthBound',
+    );
   });
 });
