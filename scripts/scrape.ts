@@ -47,6 +47,7 @@ import {
   cleanSclTitle,
   superNormalize,
   reindexSkylanders,
+  reindexAmiibo,
 } from './lib/toys.js';
 import { recomputeCanonicalSeries } from './compute_canonical_series.js';
 import axios from 'axios';
@@ -2172,8 +2173,9 @@ async function runScraper(): Promise<void> {
     }
   }
 
-  // Reindex Skylanders sort orders after the scraping phase
+  // Reindex Skylanders and Amiibo sort orders after the scraping phase
   reindexSkylanders(db);
+  reindexAmiibo(db);
 
   // const ignoredItems = (db.prepare('SELECT id FROM ignored_items').all() as { id: string }[]).map(i => i.id);
   const toyDiscoveryResults: ToyDiscovery[] = [];

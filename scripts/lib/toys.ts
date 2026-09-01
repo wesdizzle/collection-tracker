@@ -29,6 +29,7 @@ export interface Toy {
   scl_url?: string;
   series?: string;
   series_id?: number | null;
+  sort_index?: number | null;
 }
 
 /**
@@ -1730,6 +1731,331 @@ export function reindexSkylanders(db: Database.Database): void {
   console.log(
     `Successfully reindexed ${skylanders.length} Skylanders sort orders.`,
   );
+}
+
+/**
+ * Re-indexes all amiibo toys in the database sequentially based on canonical
+ * sorting in official media (e.g. Smash Bros box packaging numbers, official wave sequences,
+ * card numbers, and sport sets).
+ *
+ * @param db The SQLite database connection instance.
+ * @returns None.
+ * @throws Error if database operations fail.
+ */
+export function reindexAmiibo(db: Database.Database): void {
+  console.log('\n--- Reindexing Amiibo Sort Order ---');
+
+  const amiibos = db
+    .prepare("SELECT * FROM toys WHERE line = 'amiibo'")
+    .all() as Toy[];
+  if (amiibos.length === 0) {
+    console.log('No Amiibo found to reindex.');
+    return;
+  }
+
+  // Mario Sports Superstars: 5 sports x 18 characters
+  const marioSportsOrder: Record<string, number> = {
+    Soccer: 0,
+    Baseball: 18,
+    Tennis: 36,
+    Golf: 54,
+    'Horse Racing': 72,
+  };
+  const marioSportsChars = [
+    'Mario',
+    'Luigi',
+    'Peach',
+    'Daisy',
+    'Wario',
+    'Waluigi',
+    'Yoshi',
+    'Donkey Kong',
+    'Diddy Kong',
+    'Bowser',
+    'Bowser Jr.',
+    'Boo',
+    'Rosalina',
+    'Metal Mario',
+    'Pink Gold Peach',
+    'Baby Mario',
+    'Baby Luigi',
+    'Birdo',
+  ];
+
+  // Super Nintendo World Power-Up Bands
+  const powerUpBandsOrder = [
+    'Mario - Power Up Band',
+    'Luigi - Power Up Band',
+    'Peach - Power Up Band',
+    'Daisy - Power Up Band',
+    'Toad - Power Up Band',
+    'Yoshi - Power Up Band',
+    'Golden - Power Up Band',
+    'Donkey Kong - Power Up Band',
+    'Diddy Kong - Power Up Band',
+  ];
+
+  // Yu-Gi-Oh! Rush Duel Cards
+  const yugiohOrder = [
+    'Yuga Ohdo',
+    'Tatsuhisa “Luke” Kamijō',
+    'Gakuto Sōgetsu',
+    'Romin Kirishima',
+    'Roa Kirishima',
+    'Nail Saionji',
+    'Asana Mutsuba',
+  ];
+
+  // Power Pros Cards
+  const powerProsOrder = [
+    'Pawapuro',
+    'Yabe',
+    'Ikari',
+    'Hayakawa',
+    'Daijobu',
+    'Ganda',
+  ];
+
+  // Metroid Series
+  const metroidOrder = [
+    'Samus Aran',
+    'Metroid',
+    'Samus - Metroid Dread',
+    'E.M.M.I.',
+    'Samus',
+    'Samus & Vi-O-La',
+    'Sylux',
+  ];
+
+  // Monster Hunter Series
+  const monsterHunterOrder = [
+    'One-Eyed Rathalos and Rider - Female',
+    'One-Eyed Rathalos and Rider - Male',
+    'Nabiru',
+    'Rathian and Cheval',
+    'Barioth and Ayuria',
+    'Qurupeco and Dan',
+    'Magnamalo',
+    'Palamute',
+    'Palico',
+    'Ena',
+    'Razewing Ratha',
+    'Tsukino',
+    'Malzeno',
+    'Palamute (Sunbreak)',
+    'Palico (Sunbreak)',
+    'Ratha',
+    'Ratha V',
+    'Rudy',
+  ];
+
+  // Super Mario Bros. (Wonder / Galaxy 2026)
+  const marioBrosOrder = [
+    'Captain Toad & Talking Flower',
+    'Elephant Mario',
+    'Poplin & Prince Florian',
+    'Mario and Luma',
+    'Rosalina and Lumas',
+  ];
+
+  // My Mario Wooden Blocks
+  const woodenBlocksOrder = [
+    'Mario - My Mario Wooden Blocks',
+    'Luigi - My Mario Wooden Blocks',
+    'Peach - My Mario Wooden Blocks',
+    'Yoshi - My Mario Wooden Blocks',
+  ];
+
+  // Animal Crossing Promos
+  const acPromoOrder = [
+    'Isabelle - Character Parfait',
+    'K. K. Slider - Pikopuri',
+    'Rosie - Amiibo Festival',
+    'Goldie - Amiibo Festival',
+    'Stitches - Amiibo Festival',
+  ];
+
+  // Group amiibos by series_id (or fallback series)
+  const seriesMap = new Map<string, Toy[]>();
+  for (const a of amiibos) {
+    const sId = (a.series_id || a.series || 'amiibo-other').toString();
+    if (!seriesMap.has(sId)) {
+      seriesMap.set(sId, []);
+    }
+    seriesMap.get(sId)!.push(a);
+  }
+
+  const updates: { stable_id: number; sort_index: number }[] = [];
+
+  for (const [seriesId, items] of seriesMap.entries()) {
+    if (seriesId === 'amiibo-mario-sports-superstars') {
+      items.forEach((item) => {
+        const parts = item.name.split(' - ');
+        const char = parts[0]?.trim();
+        const sport = parts[1]?.trim();
+        const sportOffset = marioSportsOrder[sport] ?? 0;
+        const charIndex = marioSportsChars.indexOf(char);
+        const sortNum = sportOffset + (charIndex >= 0 ? charIndex + 1 : 1);
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (seriesId === 'amiibo-super-nintendo-world') {
+      items.forEach((item) => {
+        const idx = powerUpBandsOrder.indexOf(item.name.trim());
+        const sortNum = idx >= 0 ? idx + 1 : 1;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (seriesId === 'amiibo-yu-gi-oh') {
+      items.forEach((item) => {
+        const idx = yugiohOrder.indexOf(item.name.trim());
+        const sortNum = idx >= 0 ? idx + 1 : 1;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (seriesId === 'amiibo-power-pros') {
+      items.forEach((item) => {
+        const idx = powerProsOrder.indexOf(item.name.trim());
+        const sortNum = idx >= 0 ? idx + 1 : 1;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (seriesId === 'amiibo-animal-crossing') {
+      // Animal Crossing: Figures 1-16, Cards 1-448, RV cards, Sanrio cards, Promos
+      items.forEach((item) => {
+        if (item.type === 'Figure') {
+          const existing = item.sort_index;
+          if (existing && existing >= 1 && existing <= 16) {
+            updates.push({ stable_id: item.stable_id!, sort_index: existing });
+          } else {
+            updates.push({ stable_id: item.stable_id!, sort_index: 1 });
+          }
+        } else {
+          // Cards
+          if (acPromoOrder.includes(item.name.trim())) {
+            const promoIdx = acPromoOrder.indexOf(item.name.trim()) + 1;
+            updates.push({
+              stable_id: item.stable_id!,
+              sort_index: 700 + promoIdx,
+            });
+          } else if (item.sort_index && item.sort_index > 0) {
+            updates.push({
+              stable_id: item.stable_id!,
+              sort_index: item.sort_index,
+            });
+          } else {
+            updates.push({ stable_id: item.stable_id!, sort_index: 1 });
+          }
+        }
+      });
+    } else if (seriesId === 'amiibo-metroid') {
+      items.forEach((item) => {
+        const idx = metroidOrder.indexOf(item.name.trim());
+        const sortNum = idx >= 0 ? idx + 1 : 1;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (seriesId === 'amiibo-monster-hunter') {
+      items.forEach((item) => {
+        const isSunbreakPalamute = item.id.includes('350a0100');
+        const isSunbreakPalico = item.id.includes('35090100');
+        let idx: number;
+        if (isSunbreakPalamute) {
+          idx = monsterHunterOrder.indexOf('Palamute (Sunbreak)');
+        } else if (isSunbreakPalico) {
+          idx = monsterHunterOrder.indexOf('Palico (Sunbreak)');
+        } else {
+          idx = monsterHunterOrder.indexOf(item.name.trim());
+        }
+        const sortNum = idx >= 0 ? idx + 1 : 1;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (seriesId === 'amiibo-super-mario-bros') {
+      items.forEach((item) => {
+        const idx = marioBrosOrder.indexOf(item.name.trim());
+        const sortNum = idx >= 0 ? idx + 1 : 1;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (seriesId === 'amiibo-my-mario-wooden-blocks') {
+      items.forEach((item) => {
+        const idx = woodenBlocksOrder.indexOf(item.name.trim());
+        const sortNum = idx >= 0 ? idx + 1 : 1;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (seriesId === 'amiibo-skylanders') {
+      items.forEach((item) => {
+        const sortNum = item.name.toLowerCase().includes('bowser') ? 1 : 2;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    } else if (
+      seriesId === 'amiibo-super-smash-bros' ||
+      seriesId === 'amiibo-the-legend-of-zelda' ||
+      seriesId === 'amiibo-splatoon' ||
+      seriesId === 'amiibo-super-mario' ||
+      seriesId === 'amiibo-super-mario-bros-30th-anniversary' ||
+      seriesId === 'amiibo-yoshi-s-wolly-world' ||
+      seriesId === 'amiibo-shovel-knight' ||
+      seriesId === 'amiibo-fire-emblem' ||
+      seriesId === 'amiibo-kirby' ||
+      seriesId === 'amiibo-kirby-air-riders' ||
+      seriesId === 'amiibo-xenoblade-chronicles'
+    ) {
+      let maxSort = 0;
+      for (const i of items) {
+        if (i.sort_index && i.sort_index > maxSort) {
+          maxSort = i.sort_index;
+        }
+      }
+
+      const sorted = [...items].sort((a, b) => {
+        const sA = a.sort_index ?? 9999;
+        const sB = b.sort_index ?? 9999;
+        if (sA !== sB && sA !== 9999 && sB !== 9999 && sA > 0 && sB > 0) {
+          return sA - sB;
+        }
+        if (sA > 0 && (sB === 9999 || !sB)) return -1;
+        if (sB > 0 && (sA === 9999 || !sA)) return 1;
+
+        const dateA = a.release_date || '9999-99-99';
+        const dateB = b.release_date || '9999-99-99';
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      let nextSort = maxSort;
+      sorted.forEach((item) => {
+        if (item.sort_index && item.sort_index > 0) {
+          updates.push({
+            stable_id: item.stable_id!,
+            sort_index: item.sort_index,
+          });
+        } else {
+          nextSort++;
+          updates.push({ stable_id: item.stable_id!, sort_index: nextSort });
+        }
+      });
+    } else {
+      const sorted = [...items].sort((a, b) => {
+        const dateA = a.release_date || '9999-99-99';
+        const dateB = b.release_date || '9999-99-99';
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      sorted.forEach((item, idx) => {
+        const sortNum = idx + 1;
+        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
+      });
+    }
+  }
+
+  const updateStmt = db.prepare(
+    'UPDATE toys SET sort_index = ? WHERE stable_id = ?',
+  );
+  const trans = db.transaction(() => {
+    for (const u of updates) {
+      updateStmt.run(u.sort_index, u.stable_id);
+    }
+  });
+  trans();
+
+  console.log(`Successfully reindexed ${updates.length} Amiibo sort orders.`);
 }
 
 /**

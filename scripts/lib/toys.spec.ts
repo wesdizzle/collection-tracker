@@ -20,6 +20,7 @@ import {
   getStarlinkSlugs,
   scrapeStarlinkWikiImage,
   reindexSkylanders,
+  reindexAmiibo,
   findSkylandersMatch,
   cleanSclTitle,
   superNormalize,
@@ -1182,6 +1183,211 @@ describe('Toys Metadata Ingestion Helpers', () => {
 
       // 4. Kaos Trap (stable_id: 5) should sort before Magic Item (stable_id: 6)
       expect(getIndex(5)).toBeLessThan(getIndex(6)!);
+    });
+  });
+
+  describe('reindexAmiibo', () => {
+    it('should assign canonical sport and character numbering to Mario Sports Superstars cards', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+      `);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, sort_index)
+        VALUES (?, ?, ?, 'amiibo', 'amiibo-mario-sports-superstars', 'Card', ?)
+      `);
+
+      // Soccer (Sport 1, offset 0): Mario (Char 1 -> index 1), Birdo (Char 18 -> index 18)
+      insertToy.run(1, 'mario-soccer', 'Mario - Soccer', null);
+      insertToy.run(2, 'birdo-soccer', 'Birdo - Soccer', null);
+      // Baseball (Sport 2, offset 18): Mario (Char 1 -> index 19)
+      insertToy.run(3, 'mario-baseball', 'Mario - Baseball', null);
+      // Horse Racing (Sport 5, offset 72): Birdo (Char 18 -> index 90)
+      insertToy.run(4, 'birdo-horse', 'Birdo - Horse Racing', null);
+
+      reindexAmiibo(db);
+
+      const getSort = (id: number) =>
+        (
+          db
+            .prepare('SELECT sort_index FROM toys WHERE stable_id = ?')
+            .get(id) as { sort_index: number }
+        ).sort_index;
+
+      expect(getSort(1)).toBe(1);
+      expect(getSort(2)).toBe(18);
+      expect(getSort(3)).toBe(19);
+      expect(getSort(4)).toBe(90);
+    });
+
+    it('should assign canonical release order to Super Nintendo World Power-Up Bands', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+      `);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, sort_index)
+        VALUES (?, ?, ?, 'amiibo', 'amiibo-super-nintendo-world', 'Band', ?)
+      `);
+
+      insertToy.run(1, 'dk-band', 'Donkey Kong - Power Up Band', null);
+      insertToy.run(2, 'mario-band', 'Mario - Power Up Band', null);
+      insertToy.run(3, 'golden-band', 'Golden - Power Up Band', null);
+
+      reindexAmiibo(db);
+
+      const getSort = (id: number) =>
+        (
+          db
+            .prepare('SELECT sort_index FROM toys WHERE stable_id = ?')
+            .get(id) as { sort_index: number }
+        ).sort_index;
+
+      expect(getSort(2)).toBe(1); // Mario (1st)
+      expect(getSort(3)).toBe(7); // Golden (7th)
+      expect(getSort(1)).toBe(8); // Donkey Kong (8th)
+    });
+
+    it('should assign canonical promo indexes and preserve card/figure indices in Animal Crossing', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+      `);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, sort_index)
+        VALUES (?, ?, ?, 'amiibo', 'amiibo-animal-crossing', ?, ?)
+      `);
+
+      // Figure (1)
+      insertToy.run(
+        1,
+        'isabelle-winter',
+        'Isabelle - Winter Outfit',
+        'Figure',
+        1,
+      );
+      // Card from Series 1 (100)
+      insertToy.run(2, 'walker', 'Walker', 'Card', 100);
+      // Promo card (Isabelle CP)
+      insertToy.run(
+        3,
+        'isabelle-cp',
+        'Isabelle - Character Parfait',
+        'Card',
+        null,
+      );
+
+      reindexAmiibo(db);
+
+      const getSort = (id: number) =>
+        (
+          db
+            .prepare('SELECT sort_index FROM toys WHERE stable_id = ?')
+            .get(id) as { sort_index: number }
+        ).sort_index;
+
+      expect(getSort(1)).toBe(1);
+      expect(getSort(2)).toBe(100);
+      expect(getSort(3)).toBe(701);
+    });
+
+    it('should index Metroid, Monster Hunter, Yu-Gi-Oh, and singletons with valid positive sort index numbers', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+      `);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, release_date, sort_index)
+        VALUES (?, ?, ?, 'amiibo', ?, 'Figure', ?, ?)
+      `);
+
+      insertToy.run(
+        1,
+        'samus-aran',
+        'Samus Aran',
+        'amiibo-metroid',
+        '2017-09-15',
+        null,
+      );
+      insertToy.run(
+        2,
+        'metroid',
+        'Metroid',
+        'amiibo-metroid',
+        '2017-09-15',
+        null,
+      );
+      insertToy.run(3, 'qbby', 'Qbby', 'amiibo-boxboy', '2017-02-02', null);
+      insertToy.run(
+        4,
+        'yuga',
+        'Yuga Ohdo',
+        'amiibo-yu-gi-oh',
+        '2021-08-12',
+        null,
+      );
+
+      reindexAmiibo(db);
+
+      const getSort = (id: number) =>
+        (
+          db
+            .prepare('SELECT sort_index FROM toys WHERE stable_id = ?')
+            .get(id) as { sort_index: number }
+        ).sort_index;
+
+      expect(getSort(1)).toBe(1); // Samus Aran
+      expect(getSort(2)).toBe(2); // Metroid
+      expect(getSort(3)).toBe(1); // Qbby singleton
+      expect(getSort(4)).toBe(1); // Yuga Ohdo
     });
   });
 });

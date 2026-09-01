@@ -147,17 +147,6 @@ interface GameGroup {
                         {{ game.region }}
                       </div>
 
-                      <!-- Sort Index Badge -->
-                      <button
-                        class="sort-badge state-layer"
-                        title="Edit Sort Index"
-                        (click)="onEditSortIndex($event, game, 'game')"
-                      >
-                        #{{
-                          (game.sort_index ?? 0).toString().padStart(4, '0')
-                        }}
-                      </button>
-
                       <!-- Status Badge -->
                       <button
                         class="status-badge state-layer interactive"
