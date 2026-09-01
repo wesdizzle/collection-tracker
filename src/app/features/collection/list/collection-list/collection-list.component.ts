@@ -357,17 +357,6 @@ interface GameGroup {
                             {{ toy.region }}
                           </div>
 
-                          <!-- Sort Index Badge -->
-                          <button
-                            class="sort-badge state-layer"
-                            title="Edit Sort Index"
-                            (click)="onEditSortIndex($event, toy, 'toy')"
-                          >
-                            #{{
-                              (toy.sort_index ?? 0).toString().padStart(4, '0')
-                            }}
-                          </button>
-
                           <!-- Status Badge -->
                           <button
                             class="status-badge state-layer interactive"
@@ -434,13 +423,6 @@ interface GameGroup {
                         <div class="card-content">
                           <div class="content-header">
                             <div class="flex gap-2xs items-center">
-                              @if (toy.verified) {
-                                <span
-                                  class="igdb-icon"
-                                  title="Verified Metadata"
-                                  >✨</span
-                                >
-                              }
                               <span class="release-year">{{ toy.type }}</span>
                             </div>
                             @if (toy.release_date) {

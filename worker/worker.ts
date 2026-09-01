@@ -1116,6 +1116,17 @@ export default {
           for (const a of data.amiibo || []) {
             const amiiboId = `${a.head}${a.tail}`;
             const cleanName = (a.name || '').toLowerCase().trim();
+            const lowerSeries = (a.amiiboSeries || '').toLowerCase();
+            const lowerGame = (a.gameSeries || '').toLowerCase();
+            if (
+              lowerSeries.includes('skylanders') ||
+              lowerGame.includes('skylanders') ||
+              cleanName.includes('hammer slam bowser') ||
+              cleanName.includes('turbo charge donkey kong')
+            ) {
+              continue;
+            }
+
             if (existingIds.has(amiiboId) || existingNames.has(cleanName)) {
               continue;
             }

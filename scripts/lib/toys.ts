@@ -61,21 +61,38 @@ export async function getAmiiboSeries(seriesName?: string): Promise<Toy[]> {
     }
 
     const data = response.data as { amiibo: Amiibo[] };
-    return data.amiibo.map((a: Amiibo) => {
-      const effectiveSeries =
-        a.amiiboSeries === 'Others' && a.gameSeries
-          ? a.gameSeries
-          : a.amiiboSeries;
-      return {
-        id: `${a.head}${a.tail}`,
-        name: a.name,
-        line: 'amiibo',
-        series_name: effectiveSeries,
-        type: a.type,
-        image_url: a.image,
-        release_date: a.release?.na || null,
-      };
-    });
+    return data.amiibo
+      .filter((a: Amiibo) => {
+        const lowerName = (a.name || '').toLowerCase();
+        const lowerSeries = (a.amiiboSeries || '').toLowerCase();
+        const lowerGame = (a.gameSeries || '').toLowerCase();
+        // Skip Skylanders crossover figures (DK, Bowser, and their dark variants)
+        // since they are tracked exclusively under the Skylanders line.
+        if (
+          lowerSeries.includes('skylanders') ||
+          lowerGame.includes('skylanders') ||
+          lowerName.includes('hammer slam bowser') ||
+          lowerName.includes('turbo charge donkey kong')
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((a: Amiibo) => {
+        const effectiveSeries =
+          a.amiiboSeries === 'Others' && a.gameSeries
+            ? a.gameSeries
+            : a.amiiboSeries;
+        return {
+          id: `${a.head}${a.tail}`,
+          name: a.name,
+          line: 'amiibo',
+          series_name: effectiveSeries,
+          type: a.type,
+          image_url: a.image,
+          release_date: a.release?.na || null,
+        };
+      });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const code = (error as { code?: string }).code;
@@ -1975,11 +1992,6 @@ export function reindexAmiibo(db: Database.Database): void {
       items.forEach((item) => {
         const idx = woodenBlocksOrder.indexOf(item.name.trim());
         const sortNum = idx >= 0 ? idx + 1 : 1;
-        updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
-      });
-    } else if (seriesId === 'amiibo-skylanders') {
-      items.forEach((item) => {
-        const sortNum = item.name.toLowerCase().includes('bowser') ? 1 : 2;
         updates.push({ stable_id: item.stable_id!, sort_index: sortNum });
       });
     } else if (

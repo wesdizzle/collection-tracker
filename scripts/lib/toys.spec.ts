@@ -167,6 +167,47 @@ describe('Toys Metadata Ingestion Helpers', () => {
       expect(toys[0].release_date).toBe('2014-11-21');
     });
 
+    it('should explicitly skip Skylanders crossover figures (DK, Bowser, and Dark variants)', async () => {
+      const mockResponse = {
+        amiibo: [
+          {
+            head: '00030000',
+            tail: '000c0002',
+            name: 'Link',
+            amiiboSeries: 'Super Smash Bros.',
+            type: 'Figure',
+            image: 'https://example.com/link.png',
+            release: { na: '2014-11-21' },
+          },
+          {
+            head: '00040000',
+            tail: '000d0002',
+            name: 'Hammer Slam Bowser',
+            amiiboSeries: 'Skylanders',
+            type: 'Figure',
+            image: 'https://example.com/bowser.png',
+            release: { na: '2015-09-20' },
+          },
+          {
+            head: '00050000',
+            tail: '000e0002',
+            name: 'Dark Turbo Charge Donkey Kong',
+            amiiboSeries: 'Skylanders',
+            type: 'Figure',
+            image: 'https://example.com/dk.png',
+            release: { na: '2015-09-20' },
+          },
+        ],
+      };
+
+      mockedAxios.get.mockResolvedValue({ data: mockResponse });
+
+      const toys = await getAmiiboSeries();
+
+      expect(toys).toHaveLength(1);
+      expect(toys[0].name).toBe('Link');
+    });
+
     it('should handle AmiiboAPI server down gracefully', async () => {
       mockedAxios.get.mockRejectedValue(new Error('Internal Server Error'));
 

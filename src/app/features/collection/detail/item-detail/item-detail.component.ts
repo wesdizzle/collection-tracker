@@ -142,23 +142,16 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                         : 'Unowned'
                 }}</span>
               </div>
-              @if (t.verified) {
-                @if (t.scl_url) {
-                  <a
-                    [href]="t.scl_url"
-                    target="_blank"
-                    class="stat-pill active physical interactive"
-                    style="text-decoration: none;"
-                  >
-                    <span class="icon">✨</span>
-                    <span>Verified</span>
-                  </a>
-                } @else {
-                  <div class="stat-pill active physical">
-                    <span class="icon">✨</span>
-                    <span>Verified</span>
-                  </div>
-                }
+              @if (getToySource(t); as source) {
+                <a
+                  [href]="source.url"
+                  target="_blank"
+                  class="stat-pill active physical interactive"
+                  style="text-decoration: none;"
+                >
+                  <span class="icon">🔗</span>
+                  <span>{{ source.label }}</span>
+                </a>
               }
             </div>
           }
@@ -427,29 +420,16 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                       }}</span>
                     </div>
                   }
-                  @if (t.amiibo_id || t.scl_url) {
+                  @if (getToySource(t); as source) {
                     <div class="meta-box full-width">
-                      <span class="label">Verified Source</span>
+                      <span class="label">Source</span>
                       <span class="value">
-                        @if (t.amiibo_id) {
-                          <a
-                            [href]="
-                              'https://amiiboapi.org/api/amiibo/?id=' +
-                              t.amiibo_id
-                            "
-                            target="_blank"
-                            class="meta-link"
-                            >AmiiboAPI</a
-                          >
-                        }
-                        @if (t.scl_url) {
-                          <a
-                            [href]="t.scl_url"
-                            target="_blank"
-                            class="meta-link"
-                            >SCL Character Page</a
-                          >
-                        }
+                        <a
+                          [href]="source.url"
+                          target="_blank"
+                          class="meta-link"
+                          >{{ source.label }}</a
+                        >
                       </span>
                     </div>
                   }
@@ -1108,5 +1088,61 @@ export class ItemDetailComponent {
       .replace(/^-+|-+$/g, ''); // trim leading/trailing hyphens
 
     return `https://www.igdb.com/games/${slug}`;
+  }
+
+  /**
+   * Computes the primary external source reference URL and human-friendly label for a toy.
+   *
+   * @param toy The toy object.
+   * @returns An object with the URL and label, or null if no source is available.
+   */
+  getToySource(toy: Toy): { url: string; label: string } | null {
+    if (toy.line === 'Skylanders' && toy.scl_url) {
+      return { url: toy.scl_url, label: 'SCL Character Page' };
+    }
+    if (toy.line === 'amiibo' && toy.amiibo_id) {
+      return {
+        url: `https://amiiboapi.org/api/amiibo/?id=${toy.amiibo_id}`,
+        label: 'AmiiboAPI',
+      };
+    }
+    if (toy.line === 'Starlink') {
+      return {
+        url: this.getStarlinkWikiUrl(toy.name),
+        label: 'Starlink Wiki',
+      };
+    }
+    if (toy.scl_url) {
+      return { url: toy.scl_url, label: 'SCL Character Page' };
+    }
+    return null;
+  }
+
+  /**
+   * Generates a canonical Fandom Wiki URL for a Starlink toy.
+   *
+   * @param toyName The name of the Starlink toy.
+   * @returns The fully-qualified Fandom Wiki page URL.
+   */
+  getStarlinkWikiUrl(toyName: string): string {
+    const name = toyName.trim().replace(/\//g, ' ');
+    const words = name.split(/\s+/).map((w) => {
+      const lw = w.toLowerCase();
+      if (lw === 'da' || lw === 'de') return lw;
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    });
+    let formatted = words.join('_');
+    if (
+      formatted.toLowerCase().includes('karl_zeon') ||
+      formatted.toLowerCase().includes('kharl_zeon')
+    ) {
+      formatted = 'Kharl_Zeon';
+    } else if (formatted.toLowerCase().includes('chase_da_silva')) {
+      formatted = 'Calisto_Chase_Da_Silva';
+    } else if (name.match(/\bMk\.?\s*2\b/i)) {
+      const cleanBase = formatted.replace(/_Mk\.?\s*2\b/i, '');
+      formatted = cleanBase + '_Mk._2';
+    }
+    return `https://starlink.fandom.com/wiki/${encodeURIComponent(formatted)}`;
   }
 }

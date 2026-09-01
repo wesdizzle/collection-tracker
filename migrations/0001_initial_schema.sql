@@ -197,7 +197,6 @@ INSERT OR IGNORE INTO toy_series (id, line, name, sort_index) VALUES
   ('amiibo-power-pros', 'amiibo', 'Power Pros', NULL),
   ('amiibo-pragmata', 'amiibo', 'Pragmata', NULL),
   ('amiibo-super-mario-bros', 'amiibo', 'Super Mario Bros.', NULL),
-  ('amiibo-skylanders', 'amiibo', 'Skylanders', NULL),
   ('amiibo-my-mario-wooden-blocks', 'amiibo', 'My Mario Wooden Blocks', NULL),
   ('amiibo-kirby-air-riders', 'amiibo', 'Kirby Air Riders', NULL),
   ('amiibo-pokemon', 'amiibo', 'Pokemon', NULL),

@@ -296,4 +296,61 @@ describe('ItemDetailComponent', () => {
     expect(bundlesSection.textContent).toContain('Disc 2');
     expect(bundlesSection.textContent).toContain('Backed Up');
   });
+
+  it('should render external source link for Amiibo, Skylanders, and Starlink toys', async () => {
+    // 1. Amiibo with amiibo_id
+    const amiiboToy: Toy = {
+      ...mockToy,
+      amiibo_id: '00030000000c0002',
+    };
+    vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(amiiboToy));
+    paramMapSubject.next(convertToParamMap({ id: 'amiibo-1', type: 'toy' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const amiiboLink = compiled.querySelector('.stat-pill.physical');
+    expect(amiiboLink).toBeTruthy();
+    expect(amiiboLink.textContent).toContain('AmiiboAPI');
+    expect(amiiboLink.getAttribute('href')).toContain('00030000000c0002');
+
+    // 2. Skylanders with scl_url
+    const skylandersToy: Toy = {
+      ...mockToy,
+      line: 'Skylanders',
+      scl_url: 'https://skylanderscharacterlist.com/spyro/',
+    };
+    vi.spyOn(collectionService, 'getToyById').mockReturnValue(
+      of(skylandersToy),
+    );
+    paramMapSubject.next(convertToParamMap({ id: 'spyro', type: 'toy' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const sclLink = compiled.querySelector('.stat-pill.physical');
+    expect(sclLink).toBeTruthy();
+    expect(sclLink.textContent).toContain('SCL Character Page');
+    expect(sclLink.getAttribute('href')).toBe(
+      'https://skylanderscharacterlist.com/spyro/',
+    );
+
+    // 3. Starlink toy
+    const starlinkToy: Toy = {
+      ...mockToy,
+      name: 'Fox McCloud',
+      line: 'Starlink',
+    };
+    vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(starlinkToy));
+    paramMapSubject.next(convertToParamMap({ id: 'fox', type: 'toy' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const starlinkLink = compiled.querySelector('.stat-pill.physical');
+    expect(starlinkLink).toBeTruthy();
+    expect(starlinkLink.textContent).toContain('Starlink Wiki');
+    expect(starlinkLink.getAttribute('href')).toContain('Fox_McCloud');
+  });
 });
