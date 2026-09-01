@@ -35,13 +35,25 @@ if (process.env['CI'] || process.env['CF_PAGES'] || !fs.existsSync(dbPath)) {
   process.exit(0);
 }
 
-// Safety Guard: Prevent accidental local database overrides without explicit confirmation
-if (process.env['ALLOW_LOCAL_DEPLOY'] !== 'true') {
+// Safety Guard: Full database dumps execute >200,000 row writes, which exhausts Cloudflare D1's
+// daily free tier quota (100,000 writes/day). For routine updates, developers must use targeted,
+// surgical SQL migrations instead of a full database drop-and-reseed.
+const isDisasterRecovery =
+  process.argv.includes('--force-disaster-recovery-full-reseed') &&
+  process.env['ALLOW_DESTRUCTIVE_FULL_RESEED'] === 'true';
+
+if (!isDisasterRecovery) {
   console.error(
-    '\x1b[31m[D1Push] Error: Direct push to remote Cloudflare D1 requires ALLOW_LOCAL_DEPLOY=true.\x1b[0m\n' +
-      'To push your local changes, run:\n' +
-      '  ALLOW_LOCAL_DEPLOY=true npm run db:push\n' +
-      'or set ALLOW_LOCAL_DEPLOY=true in your .env file.\n',
+    '\x1b[31m[D1Push] ⛔ ERROR: Full database pushes to remote Cloudflare D1 are disabled.\x1b[0m\n\n' +
+      'Reason:\n' +
+      '  Dumping and re-inserting all 100,000+ rows consumes >200,000 row writes, immediately\n' +
+      '  exhausting Cloudflare D1 daily free tier quotas (100,000 writes/day).\n\n' +
+      'Recommended Action:\n' +
+      '  For data and schema changes, create and run a targeted surgical SQL migration file\n' +
+      '  (e.g., UPDATE / INSERT / DELETE statements scoped only to modified rows):\n' +
+      '    wrangler d1 execute collection-db --remote --file=path/to/migration.sql\n\n' +
+      'If you genuinely need a full disaster recovery reseed (destructive):\n' +
+      '  $env:ALLOW_DESTRUCTIVE_FULL_RESEED="true"; npx tsx scripts/d1_push.ts --force-disaster-recovery-full-reseed\n',
   );
   process.exit(1);
 }
