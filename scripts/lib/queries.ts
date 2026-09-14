@@ -100,7 +100,12 @@ export const GAME_DETAIL_QUERY = `
            COALESCE(pp.image_url, p.image_url) as platform_logo,
            p.parent_platform_id
     FROM games g 
-    LEFT JOIN game_releases r ON g.stable_id = r.game_id
+    LEFT JOIN game_releases r ON r.id = (
+        SELECT id FROM game_releases WHERE id = ?
+        UNION ALL
+        SELECT id FROM game_releases WHERE game_id = g.stable_id
+        LIMIT 1
+    )
     LEFT JOIN platforms p ON g.platform_id = p.id 
     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
     LEFT JOIN (
@@ -109,7 +114,12 @@ export const GAME_DETAIL_QUERY = `
         WHERE bundle_parent_id IS NOT NULL 
         GROUP BY bundle_parent_id
     ) bc ON g.stable_id = bc.bundle_parent_id
-    WHERE r.id = ? OR (r.id IS NULL AND g.id = ?)
+    WHERE g.stable_id = (
+        SELECT game_id FROM game_releases WHERE id = ?
+        UNION ALL
+        SELECT stable_id FROM games WHERE id = ?
+        LIMIT 1
+    )
 `;
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `

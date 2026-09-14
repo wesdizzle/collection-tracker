@@ -335,6 +335,47 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // Direct /robots.txt handler for search engines and crawlers
+    if (path === '/robots.txt') {
+      const robotsTxt = `# Robots.txt for Gagglog Collection Tracker
+User-agent: *
+Disallow: /api/
+Disallow: /discovery/
+Allow: /
+
+# Block aggressive AI scrapers and crawlers from excessive crawling
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+`;
+      return new Response(robotsTxt, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
+    }
+
     // Handle CORS preflight requests
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -352,6 +393,27 @@ export default {
       /**
        * PUBLIC READ-ONLY API ENDPOINTS
        */
+      const isAdmin = isAuthorizedAdmin(request, env);
+      const publicCacheHeaders = isAdmin
+        ? {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          }
+        : {
+            'Content-Type': 'application/json',
+            'Cache-Control':
+              'public, max-age=60, s-maxage=3600, stale-while-revalidate=86400',
+          };
+      const platformsCacheHeaders = isAdmin
+        ? {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          }
+        : {
+            'Content-Type': 'application/json',
+            'Cache-Control':
+              'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+          };
 
       // Endpoint: GET /api/games
       if (path === '/api/games') {
@@ -369,35 +431,18 @@ export default {
         const { results } = await env.DB.prepare(query)
           .bind(...params)
           .all();
-        return Response.json(results);
+        return new Response(JSON.stringify(results || []), {
+          headers: publicCacheHeaders,
+        });
       }
 
       // Endpoint: GET /api/games/:id
       else if (path.startsWith('/api/games/')) {
         const id = path.split('/').pop();
         const query = GAME_DETAIL_QUERY;
-        let game = (await env.DB.prepare(query)
-          .bind(id, id)
+        const game = (await env.DB.prepare(query)
+          .bind(id, id, id)
           .first()) as DbGame | null;
-        if (!game) {
-          const gameBySlug = (await env.DB.prepare(
-            `
-            SELECT g.id as game_id, g.stable_id, COALESCE(r.id, g.id) as id
-            FROM games g
-            LEFT JOIN game_releases r ON g.stable_id = r.game_id
-            WHERE g.id = ?
-            LIMIT 1
-          `,
-          )
-            .bind(id)
-            .first()) as { id: string } | null;
-
-          if (gameBySlug) {
-            game = (await env.DB.prepare(query)
-              .bind(gameBySlug.id, gameBySlug.id)
-              .first()) as DbGame | null;
-          }
-        }
 
         if (!game)
           return Response.json({ error: 'Not found' }, { status: 404 });
@@ -440,14 +485,18 @@ export default {
           game.bundled_games = bundled || [];
         }
 
-        return Response.json(game);
+        return new Response(JSON.stringify(game), {
+          headers: publicCacheHeaders,
+        });
       }
 
       // Endpoint: GET /api/toys
       else if (path === '/api/toys') {
         const query = TOYS_LIST_QUERY;
         const { results } = await env.DB.prepare(query).all();
-        return Response.json(results);
+        return new Response(JSON.stringify(results || []), {
+          headers: publicCacheHeaders,
+        });
       }
 
       // Endpoint: GET /api/toys/:id
@@ -456,14 +505,18 @@ export default {
         const query = TOY_DETAIL_QUERY;
         const toy = await env.DB.prepare(query).bind(id).first();
         if (!toy) return Response.json({ error: 'Not found' }, { status: 404 });
-        return Response.json(toy);
+        return new Response(JSON.stringify(toy), {
+          headers: publicCacheHeaders,
+        });
       }
 
       // Endpoint: GET /api/platforms
       else if (path === '/api/platforms') {
         const query = PLATFORMS_LIST_QUERY;
         const { results } = await env.DB.prepare(query).all();
-        return Response.json(results);
+        return new Response(JSON.stringify(results || []), {
+          headers: platformsCacheHeaders,
+        });
       }
 
       // Endpoint: GET /api/discovery/search
@@ -872,6 +925,13 @@ export default {
 
       // Endpoint: GET /api/discovery/scan-series
       else if (path === '/api/discovery/scan-series') {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
         const filterDigital =
           url.searchParams.get('filterDigital') === 'true' ||
           url.searchParams.get('hideDigital') === 'true';
@@ -1075,6 +1135,13 @@ export default {
 
       // Endpoint: GET /api/discovery/scan-amiibo
       else if (path === '/api/discovery/scan-amiibo') {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
         try {
           const response = await fetch('https://amiiboapi.org/api/amiibo/', {
             headers: { 'User-Agent': 'CollectionTracker/1.0' },

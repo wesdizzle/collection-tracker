@@ -244,6 +244,36 @@ describe('Worker API Logic', () => {
     expect(text).toBe('Asset Content');
   });
 
+  it('GET /robots.txt returns plain text directives and cache header without delegating to assets', async () => {
+    const req = new Request('http://localhost/robots.txt');
+    const res = await worker.fetch(req, mockEnv);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/plain');
+    expect(res.headers.get('Cache-Control')).toContain('public, max-age=86400');
+    const text = await res.text();
+    expect(text).toContain('User-agent: *');
+    expect(text).toContain('Disallow: /api/');
+    expect(text).toContain('Disallow: /discovery/');
+    expect(text).toContain('User-agent: GPTBot');
+  });
+
+  it('GET /api/games returns public Edge Cache-Control headers', async () => {
+    const req = new Request('https://collection-tracker.example.com/api/games');
+    const res = await worker.fetch(req, mockEnv);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toContain('s-maxage=3600');
+  });
+
+  it('Enforces admin auth on production domain for /api/discovery/scan-series', async () => {
+    const unauthReq = new Request(
+      'https://collection-tracker.example.com/api/discovery/scan-series',
+    );
+    const unauthRes = await worker.fetch(unauthReq, mockEnv);
+    expect(unauthRes.status).toBe(403);
+  });
+
   it('Enforces admin auth on production domain for mutation routes', async () => {
     // Unauthenticated request on production domain
     const unauthReq = new Request(

@@ -1166,7 +1166,7 @@ export const handleRequest =
       } else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
         const id = pathname.split('/').pop();
         const query = GAME_DETAIL_QUERY;
-        let game = db.prepare(query).get(id, id) as
+        const game = db.prepare(query).get(id, id, id) as
           | (Record<string, unknown> & {
               releases?: unknown[];
               rom_name?: string | null;
@@ -1180,26 +1180,6 @@ export const handleRequest =
               release_date?: string | null;
             })
           | undefined;
-        if (!game) {
-          // Try to load by game ID directly (e.g. if we navigated using the game slug)
-          const gameBySlug = db
-            .prepare(
-              `
-            SELECT g.id as game_id, g.stable_id, COALESCE(r.id, g.id) as id
-            FROM games g
-            LEFT JOIN game_releases r ON g.stable_id = r.game_id
-            WHERE g.id = ?
-            LIMIT 1
-          `,
-            )
-            .get(id) as { id: string } | undefined;
-
-          if (gameBySlug) {
-            game = db
-              .prepare(query)
-              .get(gameBySlug.id, gameBySlug.id) as typeof game;
-          }
-        }
 
         if (!game) {
           res.statusCode = 404;
