@@ -63,6 +63,14 @@ export async function deployBackupStatusToD1() {
     console.log(
       '\n✅ Successfully executed SQL migration on remote Cloudflare D1!',
     );
+
+    // Clean up temporary migration file after successful application
+    if (fs.existsSync(sqlPath)) {
+      fs.unlinkSync(sqlPath);
+      console.log(
+        '🧹 Cleaned up temporary migration file: update_backup_status.sql',
+      );
+    }
   } catch (err) {
     console.error(
       '\n❌ [D1Deploy] Failed to execute SQL migration on Cloudflare D1:',
