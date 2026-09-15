@@ -273,25 +273,71 @@ export class CollectionService {
 
   /**
    * Fetches a single game by its stable identifier.
+   * Falls back to in-memory collection state if network or edge API is unavailable.
    */
   getGameById(id: string): Observable<Game> {
-    return this.http
-      .get<Game>(`/api/games/${id}`)
-      .pipe(map((game) => this.enrichGameTitle(game)));
+    return this.http.get<Game>(`/api/games/${id}`).pipe(
+      map((game) => this.enrichGameTitle(game)),
+      catchError((err) => {
+        const cached = this._games().find(
+          (g) => g.id === id || String(g.stable_id) === id || g.game_id === id,
+        );
+        if (cached) {
+          const fallbackGame: Game = {
+            ...cached,
+            releases: cached.releases || [
+              {
+                id: cached.id,
+                game_id: cached.stable_id,
+                region: cached.region || null,
+                variants: cached.variants || null,
+                rom_name: cached.rom_name || null,
+                rom_crc: cached.rom_crc || null,
+                backup_status: Number(cached.backup_status) || 0,
+                ownership_status: Number(cached.ownership_status) || 0,
+                release_date: cached.release_date || null,
+              },
+            ],
+          };
+          return of(this.enrichGameTitle(fallbackGame));
+        }
+        return throwError(() => err);
+      }),
+    );
   }
 
   /**
    * Fetches a single toy by its unique identifier.
+   * Falls back to in-memory toys state if network or edge API is unavailable.
    */
   getToyById(id: string): Observable<Toy> {
-    return this.http.get<Toy>(`/api/toys/${id}`);
+    return this.http.get<Toy>(`/api/toys/${id}`).pipe(
+      catchError((err) => {
+        const cached = this._toys().find(
+          (t) => t.id === id || String(t.stable_id) === id,
+        );
+        if (cached) {
+          return of(cached);
+        }
+        return throwError(() => err);
+      }),
+    );
   }
 
   /**
    * Fetches platform details by its unique identifier.
+   * Falls back to in-memory platform state if network or edge API is unavailable.
    */
   getPlatformById(id: number): Observable<Platform> {
-    return this.http.get<Platform>(`/api/platforms/${id}`);
+    return this.http.get<Platform>(`/api/platforms/${id}`).pipe(
+      catchError((err) => {
+        const cached = this._platforms().find((p) => p.id === id);
+        if (cached) {
+          return of(cached);
+        }
+        return throwError(() => err);
+      }),
+    );
   }
 
   /**

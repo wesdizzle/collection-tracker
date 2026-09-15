@@ -7,6 +7,7 @@ import {
   HttpTestingController,
 } from '@angular/common/http/testing';
 import { CollectionService } from './collection.service';
+import { Game } from '../models/collection.models';
 
 /**
  * UNIT TEST: CollectionService
@@ -181,6 +182,78 @@ describe('CollectionService', () => {
 
       const req = httpMock.expectOne('/api/games/1');
       req.flush(mockGame);
+    });
+
+    it('should fall back to in-memory game if API request fails', () => {
+      const mockGame: Game = {
+        stable_id: 1,
+        id: 'game-1',
+        title: "Marvel's Spider-Man",
+        rom_name: 'Marvel Spider-Man (USA) (Disc 1).iso',
+        series: 'Spider-Man',
+        canonical_series: 'Spider-Man',
+        platform_id: 29,
+        platform: 'PlayStation',
+        display_name: 'PlayStation',
+        brand: 'Sony',
+        platform_launch_date: '1995-09-09',
+        platform_logo: 'ps.png',
+        release_date: '2018-09-07',
+        ownership_status: 1,
+        backup_status: 1,
+        play_status: 0,
+        sort_index: 1,
+        image_url: 'spiderman.jpg',
+        igdb_id: 1234,
+        igdb_url: 'https://igdb.com/spiderman',
+        summary: 'Action adventure game',
+        genres: 'Action',
+        collections: 'Marvel',
+        franchises: 'Spider-Man',
+      };
+
+      const internalService = service as unknown as {
+        _games: { set: (games: Game[]) => void };
+      };
+      internalService._games.set([mockGame]);
+
+      let receivedGame: Game | undefined;
+      service.getGameById('game-1').subscribe((game) => {
+        receivedGame = game;
+      });
+
+      const req = httpMock.expectOne('/api/games/game-1');
+      req.flush('Internal Server Error', {
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      const result = receivedGame as unknown as Game;
+      expect(result).toBeDefined();
+      expect(result.id).toBe('game-1');
+      expect(result.title).toBe("Marvel's Spider-Man");
+      expect(result.releases).toBeDefined();
+      expect(result.releases?.length).toBe(1);
+    });
+
+    it('should throw error if API fails and game is not in memory', () => {
+      const internalService = service as unknown as {
+        _games: { set: (games: Game[]) => void };
+      };
+      internalService._games.set([]);
+
+      let hasError = false;
+      service.getGameById('missing-game').subscribe({
+        next: () => {},
+        error: () => {
+          hasError = true;
+        },
+      });
+
+      const req = httpMock.expectOne('/api/games/missing-game');
+      req.flush('Not Found', { status: 404, statusText: 'Not Found' });
+
+      expect(hasError).toBe(true);
     });
   });
 });

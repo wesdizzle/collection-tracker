@@ -10,7 +10,7 @@ import {
   Router,
   ParamMap,
 } from '@angular/router';
-import { of, BehaviorSubject } from 'rxjs';
+import { of, BehaviorSubject, throwError } from 'rxjs';
 import { ItemDetailComponent } from './item-detail.component';
 import { CollectionService } from '../../../../core/services/collection.service';
 import {
@@ -352,5 +352,23 @@ describe('ItemDetailComponent', () => {
     expect(starlinkLink).toBeTruthy();
     expect(starlinkLink.textContent).toContain('Starlink Wiki');
     expect(starlinkLink.getAttribute('href')).toContain('Fox_McCloud');
+  });
+
+  it('should display error state when item fails to load', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      throwError(() => new Error('Failed to fetch metadata')),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '999', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const errorState = compiled.querySelector('.error-state');
+    expect(errorState).toBeTruthy();
+    expect(compiled.querySelector('.error-message')?.textContent).toContain(
+      'Unable to retrieve item metadata. Please try again later.',
+    );
+    expect(compiled.querySelector('.retry-btn')).toBeTruthy();
   });
 });

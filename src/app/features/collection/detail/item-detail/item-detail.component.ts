@@ -16,7 +16,7 @@
  *   match filter, streamlining franchise exploration.
  */
 
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule, Router } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
@@ -27,8 +27,8 @@ import {
   PlayStatus,
   GameRelease,
 } from '../../../../core/models/collection.models';
-import { combineLatest } from 'rxjs';
-import { switchMap } from 'rxjs/operators';
+import { combineLatest, of, Observable } from 'rxjs';
+import { switchMap, catchError } from 'rxjs/operators';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 
 @Component({
@@ -459,6 +459,39 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
           }
         }
       </div>
+    } @else if (errorMessage(); as error) {
+      <div class="container pb-xl animate-expressive">
+        <nav class="details-nav mb-lg flex justify-between items-center">
+          <a
+            [routerLink]="['/collection', type() ? type() + 's' : 'games']"
+            class="back-link flex items-center gap-sm"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            Back to Collection
+          </a>
+        </nav>
+        <div class="loading-state error-state">
+          <div class="error-icon">⚠️</div>
+          <p class="error-message">{{ error }}</p>
+          <a
+            [routerLink]="['/collection', type() ? type() + 's' : 'games']"
+            class="retry-btn"
+          >
+            Return to Collection
+          </a>
+        </div>
+      </div>
     } @else {
       <div class="loading-state">
         <div class="spinner"></div>
@@ -735,6 +768,34 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         color: var(--m3-on-surface-variant);
       }
 
+      .error-state {
+        text-align: center;
+      }
+      .error-icon {
+        font-size: 2.5rem;
+      }
+      .error-message {
+        font-size: 1.125rem;
+        font-weight: 500;
+        color: var(--m3-error, #cf6679);
+        margin-bottom: var(--spacing-8);
+      }
+      .retry-btn {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.5rem 1.25rem;
+        border-radius: var(--radius-md);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        text-decoration: none;
+        font-weight: 600;
+        border: 1px solid var(--m3-outline-variant);
+        transition: background 0.2s;
+      }
+      .retry-btn:hover {
+        background: var(--m3-surface-container-highest);
+      }
+
       .variant-badge {
         font-size: 0.75rem;
         font-weight: 700;
@@ -818,6 +879,9 @@ export class ItemDetailComponent {
     },
   );
 
+  /** Holds any error message encountered during metadata retrieval */
+  public errorMessage = signal<string | null>(null);
+
   /**
    * Reactive signal containing the full metadata for the current item.
    * Dynamically fetches data from the CollectionService based on the route parameters.
@@ -828,20 +892,42 @@ export class ItemDetailComponent {
       toObservable(this.collectionService.refreshTrigger),
     ]).pipe(
       switchMap(([params, _]) => {
+        this.errorMessage.set(null);
         const type = params.get('type') || '';
         const id = params.get('id');
-        if (!id) throw new Error('No id');
+        if (!id) {
+          this.errorMessage.set('Item identifier was not provided.');
+          return of(null);
+        }
 
+        let fetch$: Observable<Game | Toy | Platform>;
         switch (type) {
           case 'game':
-            return this.collectionService.getGameById(id);
+            fetch$ = this.collectionService.getGameById(id);
+            break;
           case 'toy':
-            return this.collectionService.getToyById(id);
+            fetch$ = this.collectionService.getToyById(id);
+            break;
           case 'platform':
-            return this.collectionService.getPlatformById(Number(id));
+            fetch$ = this.collectionService.getPlatformById(Number(id));
+            break;
           default:
-            throw new Error('Unknown type');
+            this.errorMessage.set(`Unknown item type: ${type}`);
+            return of(null);
         }
+
+        return fetch$.pipe(
+          catchError((err) => {
+            console.error(
+              '[ItemDetailComponent] Failed to load item metadata:',
+              err,
+            );
+            this.errorMessage.set(
+              'Unable to retrieve item metadata. Please try again later.',
+            );
+            return of(null);
+          }),
+        );
       }),
     ),
   );
