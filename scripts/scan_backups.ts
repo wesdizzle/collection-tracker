@@ -966,15 +966,12 @@ function main(): void {
       .map(() => '?')
       .join(',');
     db.prepare(
-      `
-      UPDATE games 
-      SET backup_status = (
-        SELECT COALESCE(MAX(r.backup_status), 0)
-        FROM game_releases r
-        WHERE r.game_id = games.stable_id
-      )
-      WHERE platform_id IN (${platPlaceholders})
-    `,
+      `UPDATE games SET backup_status = 0 WHERE platform_id IN (${platPlaceholders})`,
+    ).run(...allScannedPlatformIds);
+    db.prepare(
+      `UPDATE games SET backup_status = 1 WHERE stable_id IN (
+        SELECT DISTINCT game_id FROM game_releases WHERE backup_status = 1 AND game_id IS NOT NULL
+      ) AND platform_id IN (${platPlaceholders})`,
     ).run(...allScannedPlatformIds);
     console.log(
       'Synchronized games.backup_status with game_releases for scanned platforms.',
@@ -1026,7 +1023,8 @@ function main(): void {
   if (allScannedPlatformIds.size > 0) {
     const platList = Array.from(allScannedPlatformIds).join(', ');
     sqlContent += `-- 3. Synchronize games table backup_status\n`;
-    sqlContent += `UPDATE games SET backup_status = (SELECT COALESCE(MAX(backup_status), 0) FROM game_releases WHERE game_id = games.stable_id) WHERE platform_id IN (${platList});\n\n`;
+    sqlContent += `UPDATE games SET backup_status = 0 WHERE platform_id IN (${platList});\n`;
+    sqlContent += `UPDATE games SET backup_status = 1 WHERE stable_id IN (SELECT DISTINCT game_id FROM game_releases WHERE backup_status = 1 AND game_id IS NOT NULL) AND platform_id IN (${platList});\n\n`;
   }
 
   sqlContent += 'PRAGMA foreign_keys = ON;\n';

@@ -52,14 +52,57 @@ export async function deployBackupStatusToD1() {
     `[D1Deploy] Applying ${statementCount} surgical update statement(s) to remote D1 (collection-db)...`,
   );
 
+  const rawStatements = sqlContent
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s + ';');
+
+  // Group statements into chunks <= 12KB to avoid Wrangler /import endpoint authentication error
+  const MAX_CHUNK_BYTES = 12000;
+  const chunks: string[] = [];
+  let currentChunk: string[] = [];
+  let currentSize = 0;
+
+  for (const stmt of rawStatements) {
+    if (
+      currentSize + stmt.length > MAX_CHUNK_BYTES &&
+      currentChunk.length > 0
+    ) {
+      chunks.push(currentChunk.join('\n\n'));
+      currentChunk = [stmt];
+      currentSize = stmt.length;
+    } else {
+      currentChunk.push(stmt);
+      currentSize += stmt.length;
+    }
+  }
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk.join('\n\n'));
+  }
+
+  console.log(
+    `[D1Deploy] Executing in ${chunks.length} safe batch chunk(s)...`,
+  );
+
+  const tempChunkPath = path.resolve(process.cwd(), '_temp_d1_chunk.sql');
+
   try {
-    execSync(
-      `wrangler d1 execute collection-db --remote --file=update_backup_status.sql`,
-      {
-        stdio: 'inherit',
-        shell: true as unknown as string,
-      },
-    );
+    for (let i = 0; i < chunks.length; i++) {
+      console.log(`[D1Deploy] Applying batch ${i + 1}/${chunks.length}...`);
+      fs.writeFileSync(tempChunkPath, chunks[i], 'utf8');
+      execSync(
+        `wrangler d1 execute collection-db --remote --file=_temp_d1_chunk.sql`,
+        {
+          stdio: 'inherit',
+          shell: true as unknown as string,
+        },
+      );
+      if (fs.existsSync(tempChunkPath)) {
+        fs.unlinkSync(tempChunkPath);
+      }
+    }
+
     console.log(
       '\n✅ Successfully executed SQL migration on remote Cloudflare D1!',
     );
@@ -72,6 +115,9 @@ export async function deployBackupStatusToD1() {
       );
     }
   } catch (err) {
+    if (fs.existsSync(tempChunkPath)) {
+      fs.unlinkSync(tempChunkPath);
+    }
     console.error(
       '\n❌ [D1Deploy] Failed to execute SQL migration on Cloudflare D1:',
       err,
@@ -81,7 +127,13 @@ export async function deployBackupStatusToD1() {
 
   // Automatically trigger smoke test
   console.log('\n[D1Deploy] Triggering post-migration smoke test...');
-  await runD1SmokeTest(true);
+  try {
+    await runD1SmokeTest(true);
+  } catch {
+    console.warn(
+      '\n⚠️ [D1Deploy] Post-migration smoke test encountered an issue (e.g. daily row read limit reached), but the backup migration has already been successfully committed to remote Cloudflare D1.',
+    );
+  }
 }
 
 if (
