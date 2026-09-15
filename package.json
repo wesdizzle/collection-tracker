@@ -10,6 +10,7 @@
     "db:backup": "tsx scripts/safety_backup.ts",
     "db:pull": "tsx scripts/d1_pull.ts",
     "d1:update-canonical": "tsx scripts/d1_update_canonical.ts",
+    "d1:update-backups": "tsx scripts/d1_update_backups.ts",
     "d1:smoke-test": "tsx scripts/d1_smoke_test.ts",
     "dats:download": "tsx scripts/download_canonical_dats.ts",
     "dats:update": "tsx scripts/download_canonical_dats.ts && tsx scripts/sync_canonical_dats.ts",
