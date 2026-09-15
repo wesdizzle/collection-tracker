@@ -8,12 +8,14 @@ import {
   findDbPlatform,
   findBestReleaseMatch,
   findTolerantReleaseMatch,
+  normalizeRomBaseForMatching,
   getGameFileParts,
   isIgnoredFile,
   GAME_EXTENSIONS,
   PlatformRow,
   ReleaseRow,
 } from './scan_backups.js';
+import { stripDiscIndicator } from './lib/queries.js';
 
 describe('Backup Scanner & Cross-Platform Reconciler', () => {
   const mockPlatforms: PlatformRow[] = [
@@ -287,6 +289,30 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
         stable_id: 501,
         region: 'USA',
       },
+      {
+        id: 'rel-mmbn',
+        game_id: 601,
+        title: 'Mega Man Battle Network',
+        rom_name: 'Mega Man - Battle Network (USA).gba',
+        stable_id: 601,
+        region: 'USA',
+      },
+      {
+        id: 'rel-ww',
+        game_id: 701,
+        title: 'The Legend of Zelda: The Wind Waker',
+        rom_name: 'Legend of Zelda, The - The Wind Waker (USA, Canada).iso',
+        stable_id: 701,
+        region: 'USA, Canada',
+      },
+      {
+        id: 'rel-jgr',
+        game_id: 801,
+        title: 'Jet Grind Radio',
+        rom_name: 'Jet Grind Radio (USA).cue',
+        stable_id: 801,
+        region: 'USA',
+      },
     ];
 
     it('should match canonical extracted ROMs exactly on target hardware', () => {
@@ -305,6 +331,52 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       );
       expect(matched).not.toBeNull();
       expect(matched?.id).toBe('rel-smw');
+    });
+
+    it('should recognize .wua in GAME_EXTENSIONS', () => {
+      expect(GAME_EXTENSIONS.has('.wua')).toBe(true);
+    });
+
+    it('should not truncate titles containing dots when stripping disc indicators', () => {
+      expect(stripDiscIndicator('Super Mario Bros. 3 (USA).nes')).toBe(
+        'super mario bros. 3 (usa)',
+      );
+      expect(stripDiscIndicator('Super Mario Bros. 3 (USA)')).toBe(
+        'super mario bros. 3 (usa)',
+      );
+    });
+
+    it('should normalize Megaman spacing in normalizeRomBaseForMatching', () => {
+      expect(
+        normalizeRomBaseForMatching('Megaman - Battle Network (USA)'),
+      ).toBe('mega man - battle network (usa)');
+    });
+
+    it('should match Megaman backup without spaces to Mega Man release in findBestReleaseMatch', () => {
+      const match = findBestReleaseMatch(
+        'Megaman - Battle Network (USA).gba',
+        mockReleases,
+      );
+      expect(match).not.toBeNull();
+      expect(match?.id).toBe('rel-mmbn');
+    });
+
+    it('should match (USA) backup to (USA, Canada) release in findBestReleaseMatch', () => {
+      const match = findBestReleaseMatch(
+        'Legend of Zelda, The - The Wind Waker (USA).rvz',
+        mockReleases,
+      );
+      expect(match).not.toBeNull();
+      expect(match?.id).toBe('rel-ww');
+    });
+
+    it('should match Dreamcast (Track 1).bin backup to .cue release in findBestReleaseMatch', () => {
+      const match = findBestReleaseMatch(
+        'Jet Grind Radio (USA) (Track 1).bin',
+        mockReleases,
+      );
+      expect(match).not.toBeNull();
+      expect(match?.id).toBe('rel-jgr');
     });
 
     it('should match multi-disc secondary discs and merged chd packages to base release', () => {

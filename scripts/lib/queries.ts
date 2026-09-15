@@ -239,8 +239,14 @@ export function stripDiscIndicator(
   }
 
   // Extract base name without file extension (if any)
+  let base = filename;
   const lastDot = filename.lastIndexOf('.');
-  let base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+  if (lastDot !== -1) {
+    const extCandidate = filename.slice(lastDot);
+    if (/^\.[a-zA-Z0-9]{1,5}$/.test(extCandidate)) {
+      base = filename.slice(0, lastDot);
+    }
+  }
 
   // Regex to match and strip typical disc indicators (e.g. "Disc 1", "(Disc A)", etc.)
   base = base.replace(

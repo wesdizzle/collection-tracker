@@ -112,6 +112,7 @@ export const GAME_EXTENSIONS = new Set([
   '.fds',
   '.xci',
   '.nsp',
+  '.wua',
   '.xiso.iso',
 ]);
 
@@ -535,9 +536,44 @@ function getBaseName(filename: string): string {
 }
 
 /**
+ * Normalizes a ROM base name for tolerant comparison by:
+ * - Lowercasing and trimming
+ * - Stripping Track 1 indicator (e.g. "(Track 1)", "(Track 01)")
+ * - Stripping disc indicators (e.g. "Disc 1", "(Disc 2)")
+ * - Normalizing "Megaman" <-> "Mega Man"
+ * - Normalizing regional tag variants: "(USA, Canada)", "(Canada, USA)", "(US)" -> "(USA)"
+ *
+ * @param base The base filename prior to the extension.
+ * @returns Normalized base string for comparison.
+ */
+export function normalizeRomBaseForMatching(base: string): string {
+  let s = base.toLowerCase().trim();
+
+  // Strip Track 1 indicator (e.g. "(Track 1)", "(Track 01)")
+  s = s.replace(/[-_\s]*\(track\s+0*1\)/gi, '');
+
+  // Strip Disc indicator (using existing disc stripping logic)
+  s = stripDiscIndicator(s);
+
+  // Normalize "Megaman" <-> "Mega Man"
+  s = s.replace(/\bmegaman\b/gi, 'mega man');
+
+  // Normalize regional tag variants: (USA, Canada), (Canada, USA), (US) -> (USA)
+  s = s.replace(/\(\s*usa\s*,\s*canada\s*\)/gi, '(usa)');
+  s = s.replace(/\(\s*canada\s*,\s*usa\s*\)/gi, '(usa)');
+  s = s.replace(/\(\s*us\s*\)/gi, '(usa)');
+
+  // Normalize multiple spaces
+  s = s.replace(/\s+/g, ' ').trim();
+
+  return s;
+}
+
+/**
  * Resolves the best physical release match for a given backup file.
  * Case-Insensitive Mode: Base name matches case-insensitively with compatible extensions.
  * Multi-Disc Sets: Automatically normalizes disc indicators (e.g. Disc 2, Disc 3, or merged chd).
+ * Normalized Matching: Automatically normalizes Megaman spacing, (USA)/(USA, Canada) tags, and Track 1.
  *
  * @param filename The backup filename.
  * @param releases Array of physical database releases on the platform.
@@ -589,6 +625,24 @@ export function findBestReleaseMatch(
       if (fileDiscStripped.length > 0 && fileDiscStripped === romDiscStripped) {
         return r;
       }
+    }
+  }
+
+  // 3. Normalized base name match:
+  // Resolves "Megaman" <-> "Mega Man", "(USA)" <-> "(USA, Canada)", and "(Track 1)"
+  const fileNormBase = normalizeRomBaseForMatching(fileBaseRaw);
+  for (const r of releases) {
+    const romParts = getGameFileParts(r.rom_name);
+    const romExt = romParts.ext.toLowerCase();
+    const extMatches =
+      fileExt === romExt ||
+      (GAME_EXTENSIONS.has(fileExt) && GAME_EXTENSIONS.has(romExt));
+
+    if (!extMatches) continue;
+
+    const romNormBase = normalizeRomBaseForMatching(getBaseName(r.rom_name));
+    if (fileNormBase.length > 0 && fileNormBase === romNormBase) {
+      return r;
     }
   }
 
