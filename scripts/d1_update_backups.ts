@@ -13,7 +13,15 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { runD1SmokeTest } from './d1_smoke_test.js';
 
-const sqlPath = path.resolve(process.cwd(), 'update_backup_status.sql');
+const fileArg =
+  process.argv.find((a) => a.startsWith('--file='))?.split('=')[1] ||
+  (process.argv.indexOf('--file') !== -1
+    ? process.argv[process.argv.indexOf('--file') + 1]
+    : undefined);
+
+const sqlPath = fileArg
+  ? path.resolve(process.cwd(), fileArg)
+  : path.resolve(process.cwd(), 'scripts', 'temp', 'update_backup_status.sql');
 
 export async function deployBackupStatusToD1() {
   console.log('=== Cloudflare D1 Backup Status Migration Pipeline ===\n');
@@ -46,10 +54,9 @@ export async function deployBackupStatusToD1() {
   }
 
   const sqlContent = fs.readFileSync(sqlPath, 'utf8');
-  const statementCount = (sqlContent.match(/UPDATE game_releases SET/g) || [])
-    .length;
+  const statementCount = (sqlContent.match(/(?:UPDATE|INSERT)/g) || []).length;
   console.log(
-    `[D1Deploy] Applying ${statementCount} surgical update statement(s) to remote D1 (collection-db)...`,
+    `[D1Deploy] Applying ${statementCount} surgical statement(s) from ${path.basename(sqlPath)} to remote D1 (collection-db)...`,
   );
 
   const rawStatements = sqlContent
@@ -85,14 +92,18 @@ export async function deployBackupStatusToD1() {
     `[D1Deploy] Executing in ${chunks.length} safe batch chunk(s)...`,
   );
 
-  const tempChunkPath = path.resolve(process.cwd(), '_temp_d1_chunk.sql');
+  const tempDir = path.resolve(process.cwd(), 'scripts', 'temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  const tempChunkPath = path.resolve(tempDir, '_temp_d1_chunk.sql');
 
   try {
     for (let i = 0; i < chunks.length; i++) {
       console.log(`[D1Deploy] Applying batch ${i + 1}/${chunks.length}...`);
       fs.writeFileSync(tempChunkPath, chunks[i], 'utf8');
       execSync(
-        `wrangler d1 execute collection-db --remote --file=_temp_d1_chunk.sql`,
+        `wrangler d1 execute collection-db --remote --file=scripts/temp/_temp_d1_chunk.sql`,
         {
           stdio: 'inherit',
           shell: true as unknown as string,
@@ -111,7 +122,7 @@ export async function deployBackupStatusToD1() {
     if (fs.existsSync(sqlPath)) {
       fs.unlinkSync(sqlPath);
       console.log(
-        '🧹 Cleaned up temporary migration file: update_backup_status.sql',
+        `🧹 Cleaned up temporary migration file: ${path.basename(sqlPath)}`,
       );
     }
   } catch (err) {

@@ -8,6 +8,7 @@ import {
   findDbPlatform,
   findBestReleaseMatch,
   findTolerantReleaseMatch,
+  extractDiscNumber,
   normalizeRomBaseForMatching,
   getGameFileParts,
   isIgnoredFile,
@@ -313,6 +314,38 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
         stable_id: 801,
         region: 'USA',
       },
+      {
+        id: 'rel-cc-d1',
+        game_id: 901,
+        title: 'Chrono Cross',
+        rom_name: 'Chrono Cross (USA, Canada) (Disc 1).cue',
+        stable_id: 901,
+        region: 'USA, Canada',
+      },
+      {
+        id: 'rel-cc-d2',
+        game_id: 901,
+        title: 'Chrono Cross',
+        rom_name: 'Chrono Cross (USA, Canada) (Disc 2).cue',
+        stable_id: 901,
+        region: 'USA, Canada',
+      },
+      {
+        id: 'rel-sa',
+        game_id: 1001,
+        title: 'Sonic Adventure',
+        rom_name: 'Sonic Adventure (USA) (En,Ja,Fr,De,Es).cue',
+        stable_id: 1001,
+        region: 'USA',
+      },
+      {
+        id: 'rel-wily-wars',
+        game_id: 1101,
+        title: 'Mega Man: The Wily Wars',
+        rom_name: 'Mega Man - The Wily Wars (World) (Retro-Bit).md',
+        stable_id: 1101,
+        region: 'World',
+      },
     ];
 
     it('should match canonical extracted ROMs exactly on target hardware', () => {
@@ -411,6 +444,48 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       );
       expect(rodeaWiiMatch).not.toBeNull();
       expect(rodeaWiiMatch?.id).toBe('rel-rodea-wii');
+    });
+
+    it('should match multi-disc backups strictly to matching disc releases when both are present', () => {
+      const disc1Match = findBestReleaseMatch(
+        'Chrono Cross (USA) (Disc 1).chd',
+        mockReleases,
+      );
+      expect(disc1Match).not.toBeNull();
+      expect(disc1Match?.id).toBe('rel-cc-d1');
+
+      const disc2Match = findBestReleaseMatch(
+        'Chrono Cross (USA) (Disc 2).chd',
+        mockReleases,
+      );
+      expect(disc2Match).not.toBeNull();
+      expect(disc2Match?.id).toBe('rel-cc-d2');
+    });
+
+    it('should match backups without Redump language codes to releases containing Redump language tags', () => {
+      const sonicMatch = findBestReleaseMatch(
+        'Sonic Adventure (USA).cue',
+        mockReleases,
+      );
+      expect(sonicMatch).not.toBeNull();
+      expect(sonicMatch?.id).toBe('rel-sa');
+    });
+
+    it('should match USA backup to World Retro-Bit reprint release', () => {
+      const mmMatch = findBestReleaseMatch(
+        'Mega Man - The Wily Wars (USA).md',
+        mockReleases,
+      );
+      expect(mmMatch).not.toBeNull();
+      expect(mmMatch?.id).toBe('rel-wily-wars');
+    });
+
+    it('should extract disc numbers accurately', () => {
+      expect(extractDiscNumber('Chrono Cross (USA) (Disc 2).chd')).toBe('2');
+      expect(extractDiscNumber('Final Fantasy IX (USA) (Disc 4).chd')).toBe(
+        '4',
+      );
+      expect(extractDiscNumber('Super Mario 64 (USA).z64')).toBeNull();
     });
 
     it('should find tolerant release matches when regional naming discrepancies exist', () => {

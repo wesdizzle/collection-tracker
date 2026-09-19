@@ -61,5 +61,6 @@ backup_collection.json
 .wrangler/
 /scratch/
 /scripts/temp/
+/temp/
 /backups/
 /dats/

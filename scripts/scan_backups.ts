@@ -26,7 +26,7 @@ import {
   titlesMatch,
 } from './lib/title_matching.js';
 import { extractRegions, isPlatformMatch } from './lib/dat_format.js';
-import { hasDiscIndicator, stripDiscIndicator } from './lib/queries.js';
+import { stripDiscIndicator } from './lib/queries.js';
 
 export interface PlatformRow {
   id: number;
@@ -44,6 +44,8 @@ export interface ReleaseRow {
   rom_name: string;
   stable_id: number;
   region: string | null;
+  ownership_status?: number;
+  variants?: string | null;
 }
 
 /**
@@ -552,6 +554,12 @@ export function normalizeRomBaseForMatching(base: string): string {
   // Strip Track 1 indicator (e.g. "(Track 1)", "(Track 01)")
   s = s.replace(/[-_\s]*\(track\s+0*1\)/gi, '');
 
+  // Strip Redump language tags (e.g. "(En,Ja,Fr,De,Es)", "(En,Fr)", "(En,Es)", etc.)
+  s = s.replace(
+    /\(\s*(?:en|ja|fr|de|es|it|nl|pt|sv|no|da|fi|ko|zh|ru|pl)(?:\s*,\s*(?:en|ja|fr|de|es|it|nl|pt|sv|no|da|fi|ko|zh|ru|pl))*\s*\)/gi,
+    '',
+  );
+
   // Strip Disc indicator (using existing disc stripping logic)
   s = stripDiscIndicator(s);
 
@@ -570,10 +578,27 @@ export function normalizeRomBaseForMatching(base: string): string {
 }
 
 /**
+ * Extracts a normalized disc index or indicator (e.g. "1", "2", "a", "b") from a filename.
+ *
+ * @param filename The ROM or release filename.
+ * @returns The lowercase disc identifier if present, or null.
+ */
+export function extractDiscNumber(
+  filename: string | null | undefined,
+): string | null {
+  if (!filename) return null;
+  const match = filename.match(
+    /[-_\s]*\(?Disc\s+([a-zA-Z0-9]+)(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/i,
+  );
+  return match ? match[1].toLowerCase() : null;
+}
+
+/**
  * Resolves the best physical release match for a given backup file.
  * Case-Insensitive Mode: Base name matches case-insensitively with compatible extensions.
- * Multi-Disc Sets: Automatically normalizes disc indicators (e.g. Disc 2, Disc 3, or merged chd).
- * Normalized Matching: Automatically normalizes Megaman spacing, (USA)/(USA, Canada) tags, and Track 1.
+ * Multi-Disc Sets: Automatically preserves disc indices (e.g. Disc 2 strictly matches Disc 2).
+ * Normalized Matching: Automatically normalizes Megaman spacing, (USA)/(USA, Canada) tags, Track 1, and Redump languages.
+ * Regional Fallback: Matches clean base names when regions are compatible (e.g. Retro-Bit World reprint matching USA backup).
  *
  * @param filename The backup filename.
  * @param releases Array of physical database releases on the platform.
@@ -586,6 +611,8 @@ export function findBestReleaseMatch(
   const fileParts = getGameFileParts(filename);
   const fileBase = getBaseName(filename).toLowerCase();
   const fileExt = fileParts.ext.toLowerCase();
+  const fileDisc = extractDiscNumber(filename);
+  const fileRegion = extractRegions(filename);
 
   // 1. Direct case-insensitive base name match with compatible extension
   for (const r of releases) {
@@ -603,34 +630,13 @@ export function findBestReleaseMatch(
     }
   }
 
-  // 2. Multi-disc set normalization
-  // If base match failed, check if either filename or rom_name contains a disc indicator.
-  // e.g., "Final Fantasy VII (USA) (Disc 2).chd" matches "Final Fantasy VII (USA) (Disc 1).cue"
-  // or merged "Final Fantasy VII (USA).chd" matches "Final Fantasy VII (USA) (Disc 1).cue"
+  // 2. Normalized base name match with multi-disc preservation
+  // Resolves "Megaman" <-> "Mega Man", "(USA)" <-> "(USA, Canada)", "(Track 1)", Redump language tags,
+  // and disc indicators while strictly prioritizing disc-to-disc matching when a disc indicator is present.
   const fileBaseRaw = getBaseName(filename);
-  for (const r of releases) {
-    const romParts = getGameFileParts(r.rom_name);
-    const romExt = romParts.ext.toLowerCase();
-    const extMatches =
-      fileExt === romExt ||
-      (GAME_EXTENSIONS.has(fileExt) && GAME_EXTENSIONS.has(romExt));
-
-    if (!extMatches) continue;
-
-    const romBaseRaw = getBaseName(r.rom_name);
-    if (hasDiscIndicator(fileBaseRaw) || hasDiscIndicator(romBaseRaw)) {
-      const fileDiscStripped = stripDiscIndicator(fileBaseRaw);
-      const romDiscStripped = stripDiscIndicator(romBaseRaw);
-
-      if (fileDiscStripped.length > 0 && fileDiscStripped === romDiscStripped) {
-        return r;
-      }
-    }
-  }
-
-  // 3. Normalized base name match:
-  // Resolves "Megaman" <-> "Mega Man", "(USA)" <-> "(USA, Canada)", and "(Track 1)"
   const fileNormBase = normalizeRomBaseForMatching(fileBaseRaw);
+  const matchingCandidates: ReleaseRow[] = [];
+
   for (const r of releases) {
     const romParts = getGameFileParts(r.rom_name);
     const romExt = romParts.ext.toLowerCase();
@@ -642,8 +648,61 @@ export function findBestReleaseMatch(
 
     const romNormBase = normalizeRomBaseForMatching(getBaseName(r.rom_name));
     if (fileNormBase.length > 0 && fileNormBase === romNormBase) {
-      return r;
+      matchingCandidates.push(r);
     }
+  }
+
+  if (matchingCandidates.length > 0) {
+    if (fileDisc) {
+      // If backup has Disc N, strictly match candidate with Disc N
+      const discMatch = matchingCandidates.find(
+        (r) => extractDiscNumber(r.rom_name) === fileDisc,
+      );
+      if (discMatch) return discMatch;
+    } else {
+      // If backup does NOT specify a disc (e.g. merged multi-disc CHD), prefer Disc 1
+      const disc1Match = matchingCandidates.find(
+        (r) => extractDiscNumber(r.rom_name) === '1',
+      );
+      if (disc1Match) return disc1Match;
+    }
+    return matchingCandidates[0];
+  }
+
+  // 3. Cleaned base name match with region compatibility (e.g. Retro-Bit World reprint matching USA backup)
+  const fileBaseClean = fileParts.base.toLowerCase();
+  const cleanCandidates: ReleaseRow[] = [];
+  for (const r of releases) {
+    const romParts = getGameFileParts(r.rom_name);
+    const romBaseClean = romParts.base.toLowerCase();
+    const romExt = romParts.ext.toLowerCase();
+    const extMatches =
+      fileExt === romExt ||
+      (GAME_EXTENSIONS.has(fileExt) && GAME_EXTENSIONS.has(romExt));
+
+    if (
+      fileBaseClean === romBaseClean &&
+      extMatches &&
+      (!fileRegion || !r.region || regionsMatch(fileRegion, r.region))
+    ) {
+      cleanCandidates.push(r);
+    }
+  }
+
+  if (cleanCandidates.length > 0) {
+    // 1. Prefer physically owned release if available
+    const ownedCandidate = cleanCandidates.find(
+      (r) => r.ownership_status === 1,
+    );
+    if (ownedCandidate) return ownedCandidate;
+
+    // 2. Prefer standard cartridge/disc releases over plug-and-play / mini console ROMs
+    const physicalCartCandidate = cleanCandidates.find(
+      (r) => !r.variants?.match(/mini|virtual console/i),
+    );
+    if (physicalCartCandidate) return physicalCartCandidate;
+
+    return cleanCandidates[0];
   }
 
   return null;
@@ -856,7 +915,7 @@ function main(): void {
     const dbReleases = db
       .prepare(
         `
-      SELECT r.id, r.game_id, g.title, r.rom_name, g.stable_id, r.region
+      SELECT r.id, r.game_id, g.title, r.rom_name, g.stable_id, r.region, r.ownership_status, r.variants
       FROM game_releases r
       JOIN games g ON r.game_id = g.stable_id
       WHERE g.platform_id IN (${placeholders}) AND r.rom_name IS NOT NULL
@@ -993,7 +1052,11 @@ function main(): void {
   console.log('========================================');
 
   // Write surgical Cloudflare D1 migration SQL
-  const sqlOutPath = path.join(process.cwd(), 'update_backup_status.sql');
+  const tempDir = path.join(process.cwd(), 'scripts', 'temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  const sqlOutPath = path.join(tempDir, 'update_backup_status.sql');
   console.log(`Writing surgical Cloudflare D1 migration to: ${sqlOutPath}`);
   let sqlContent =
     '-- Surgical Backup Status Update Migration for Cloudflare D1\n';

@@ -51,6 +51,11 @@ describe('Title Matching Strategies', () => {
     expect(titlesMatch('Sonic Spinball', 'Sega Sonic Spinball')).toBe(true);
   });
 
+  it('should match hyphenated dimensions like Wolfenstein 3D to Wolfenstein 3-D', () => {
+    expect(titlesMatch('Wolfenstein 3D', 'Wolfenstein 3-D')).toBe(true);
+    expect(titlesMatch('Wolfenstein 3-D', 'Wolfenstein 3D')).toBe(true);
+  });
+
   it('should split on slash alternatives but NOT fraction slashes like 358/2', () => {
     // Should split on slash for actual alternatives
     expect(

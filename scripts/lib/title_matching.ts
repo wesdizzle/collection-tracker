@@ -240,7 +240,8 @@ function matchAlternative(
   if (!isZeldaMQ && !isCompilation && !matchedViaAlias) {
     const getNumberTokens = (str: string): Set<string> => {
       const tokens = new Set<string>();
-      const lower = str.toLowerCase();
+      // Normalize hyphenated dimensions like "3-D" or "2-D" to "3d" / "2d" so they are not parsed as standalone numbers
+      const lower = str.toLowerCase().replace(/\b(\d+)-d\b/g, '$1d');
       const wordNumbers = [
         'one',
         'two',

@@ -19,6 +19,7 @@
     "sync-db": "tsx scripts/sync_local_d1.ts",
     "fix-dates": "tsx scripts/fix_outlier_release_dates.ts",
     "scan-backups": "tsx scripts/scan_backups.ts",
+    "reconcile-ownership": "tsx scripts/reconcile_ownership_and_backups.ts",
     "local-api": "tsx scripts/local_server.ts",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
