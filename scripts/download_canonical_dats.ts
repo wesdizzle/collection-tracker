@@ -324,6 +324,114 @@ export async function downloadRedumpDat(
 }
 
 /**
+ * Applies durable patches to canonical DAT content for verified hardware edge cases.
+ * Specifically handles multi-chip physical cartridges like Sonic & Knuckles on Sega Genesis,
+ * ensuring the 2 MB standalone game (CRC 0658F691) is preserved alongside the 256 KB lock-on pass-through.
+ */
+export function applyCanonicalDatPatches(
+  content: string,
+  fileName: string,
+): string {
+  if (fileName === 'Sega - Mega Drive - Genesis.dat') {
+    // If CLRMamePro format lacks the 2 MB retail cartridge CRC 0658F691:
+    if (content.includes('4DCFD55C') && !content.includes('0658F691')) {
+      const skPatternClr =
+        /game\s*\(\s*name\s*"Sonic & Knuckles \(World\)"\s*rom\s*\(\s*name\s*"[^"]+"\s*size\s*262144\s*crc\s*4DCFD55C[^)]*\)\s*\)/i;
+      if (skPatternClr.test(content)) {
+        const replacementClr = `game (
+\tname "Sonic & Knuckles (World)"
+\tserial "MK-1563-00"
+\trom ( name "Sonic & Knuckles (World).md" size 2097152 crc 0658F691 md5 4EA493EA4E9F6C9EBFCCBDB15110367E sha1 88D6499D874DCB5721FF58D76FE1B9AF811192E3 serial "MK-1563-00" )
+)
+game (
+\tname "Sonic & Knuckles (World) (Lock-on)"
+\tserial "MK-1563-00"
+\trom ( name "Sonic & Knuckles (World) (Lock-on).bin" size 262144 crc 4DCFD55C md5 B4E76E416B887F4E7413BA76FA735F16 sha1 70429F1D80503A0632F603BF762FE0BBAA881D22 serial "MK-1563-00" )
+)`;
+        content = content.replace(skPatternClr, replacementClr);
+      }
+    }
+
+    // If XML format lacks the 2 MB retail cartridge CRC 0658F691:
+    if (
+      content.includes('<datafile>') &&
+      content.includes('4DCFD55C') &&
+      !content.includes('0658F691')
+    ) {
+      const skPatternXml =
+        /<game name="Sonic &amp; Knuckles \(World\)">[\s\S]*?<rom [^>]*crc="4DCFD55C"[^>]*\/>[\s\S]*?<\/game>/i;
+      if (skPatternXml.test(content)) {
+        const replacementXml = `<game name="Sonic &amp; Knuckles (World)">
+\t<description>Sonic &amp; Knuckles (World)</description>
+\t<rom name="Sonic &amp; Knuckles (World).md" size="2097152" crc="0658F691" md5="4EA493EA4E9F6C9EBFCCBDB15110367E" sha1="88D6499D874DCB5721FF58D76FE1B9AF811192E3" serial="MK-1563-00"/>
+</game>
+<game name="Sonic &amp; Knuckles (World) (Lock-on)">
+\t<description>Sonic &amp; Knuckles (World) (Lock-on)</description>
+\t<rom name="Sonic &amp; Knuckles (World) (Lock-on).bin" size="262144" crc="4DCFD55C" md5="B4E76E416B887F4E7413BA76FA735F16" sha1="70429F1D80503A0632F603BF762FE0BBAA881D22" serial="MK-1563-00"/>
+</game>`;
+        content = content.replace(skPatternXml, replacementXml);
+      }
+    }
+  }
+
+  return content;
+}
+
+/**
+ * Automatically detects and imports official Datomatic XML zip archives if downloaded by the user
+ * and placed into `dats/` or `scripts/temp/`.
+ */
+export function importLocalDatomaticArchives(
+  searchDirs: string[] = [tempDir, datsDir],
+  destinationDir: string = noIntroDir,
+): number {
+  let importedCount = 0;
+  for (const dir of searchDirs) {
+    if (!fs.existsSync(dir)) continue;
+    const zips = fs
+      .readdirSync(dir)
+      .filter(
+        (f) =>
+          f.toLowerCase().endsWith('.zip') &&
+          (f.toLowerCase().includes('nointro') ||
+            f.toLowerCase().includes('daily') ||
+            f.toLowerCase().includes('datomatic')),
+      );
+
+    for (const zip of zips) {
+      const zipPath = path.join(dir, zip);
+      const extractDir = path.join(
+        tempDir,
+        `extract_manual_${path.basename(zip, '.zip')}`,
+      );
+      try {
+        if (!fs.existsSync(extractDir)) {
+          fs.mkdirSync(extractDir, { recursive: true });
+        }
+        execSync(`tar -xf "${zipPath}" -C "${extractDir}"`);
+        const extracted = fs.readdirSync(extractDir);
+        for (const file of extracted) {
+          if (file.endsWith('.dat') || file.endsWith('.xml')) {
+            const raw = fs.readFileSync(path.join(extractDir, file), 'utf8');
+            const patched = applyCanonicalDatPatches(raw, file);
+            const dest = path.join(destinationDir, file);
+            fs.writeFileSync(dest, patched, 'utf8');
+            importedCount++;
+          }
+        }
+        fs.rmSync(extractDir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn(
+          `[DAT-Downloader] Could not extract manual archive ${zip}:`,
+          err,
+        );
+      }
+    }
+  }
+  return importedCount;
+}
+
+/**
  * Downloads a No-Intro DAT file from canonical mirror.
  */
 export async function downloadNoIntroDat(
@@ -382,7 +490,8 @@ export async function downloadNoIntroDat(
       }
     }
 
-    fs.writeFileSync(finalDestination, text, 'utf8');
+    const patchedText = applyCanonicalDatPatches(text, target.remoteFileName);
+    fs.writeFileSync(finalDestination, patchedText, 'utf8');
     const size = fs.statSync(finalDestination).size;
 
     return { success: true, fileName: target.remoteFileName, sizeBytes: size };
@@ -412,6 +521,13 @@ export async function runDatDownloads() {
   }
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  const localImported = importLocalDatomaticArchives();
+  if (localImported > 0) {
+    console.log(
+      `📥 Imported ${localImported} DAT files from local Datomatic archives.`,
+    );
   }
 
   let successCount = 0;

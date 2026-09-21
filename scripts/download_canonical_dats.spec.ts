@@ -9,6 +9,7 @@ import {
   REDUMP_TARGETS,
   NO_INTRO_TARGETS,
   downloadNoIntroDat,
+  applyCanonicalDatPatches,
 } from './download_canonical_dats.js';
 
 describe('Canonical DAT Downloader', () => {
@@ -111,5 +112,57 @@ describe('Canonical DAT Downloader', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('HTTP 503 Service Unavailable');
+  });
+
+  describe('applyCanonicalDatPatches', () => {
+    it('should enrich CLRMamePro Sega Genesis DAT with the 2 MB standalone Sonic & Knuckles entry', () => {
+      const input = `clrmamepro (
+\tname "Sega - Mega Drive - Genesis"
+)
+game (
+\tname "Sonic & Knuckles (World)"
+\trom ( name "Sonic & Knuckles (World) (Lock-on).bin" size 262144 crc 4DCFD55C md5 B4E76E416B887F4E7413BA76FA735F16 sha1 70429F1D80503A0632F603BF762FE0BBAA881D22 )
+)`;
+
+      const output = applyCanonicalDatPatches(
+        input,
+        'Sega - Mega Drive - Genesis.dat',
+      );
+
+      expect(output).toContain('0658F691');
+      expect(output).toContain('Sonic & Knuckles (World).md');
+      expect(output).toContain('size 2097152');
+      expect(output).toContain('Sonic & Knuckles (World) (Lock-on)');
+      expect(output).toContain('4DCFD55C');
+    });
+
+    it('should enrich XML Sega Genesis DAT with the 2 MB standalone Sonic & Knuckles entry', () => {
+      const input = `<datafile>
+\t<game name="Sonic &amp; Knuckles (World)">
+\t\t<rom name="Sonic &amp; Knuckles (World) (Lock-on).bin" size="262144" crc="4DCFD55C"/>
+\t</game>
+</datafile>`;
+
+      const output = applyCanonicalDatPatches(
+        input,
+        'Sega - Mega Drive - Genesis.dat',
+      );
+
+      expect(output).toContain('0658F691');
+      expect(output).toContain('Sonic &amp; Knuckles (World)');
+      expect(output).toContain('Sonic &amp; Knuckles (World) (Lock-on)');
+    });
+
+    it('should leave unrelated platforms or already patched DATs intact', () => {
+      const input = `game (
+\tname "Metroid Fusion (USA)"
+\trom ( name "Metroid Fusion (USA).gba" size 8388608 crc D50041DA )
+)`;
+      const output = applyCanonicalDatPatches(
+        input,
+        'Nintendo - Game Boy Advance.dat',
+      );
+      expect(output).toBe(input);
+    });
   });
 });
