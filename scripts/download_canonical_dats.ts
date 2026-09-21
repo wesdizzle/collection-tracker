@@ -325,14 +325,31 @@ export async function downloadRedumpDat(
 
 /**
  * Applies durable patches to canonical DAT content for verified hardware edge cases.
- * Specifically handles multi-chip physical cartridges like Sonic & Knuckles on Sega Genesis,
- * ensuring the 2 MB standalone game (CRC 0658F691) is preserved alongside the 256 KB lock-on pass-through.
+ *
+ * NOTE: These patches serve as temporary bridges for known upstream DAT omissions or uncatalogued
+ * physical hardware revisions. They may not be necessary in the future once upstream mirrors
+ * (e.g. official Datomatic daily archives or libretro-database) natively include complete, unstripped
+ * entries programmatically without manual intervention.
+ *
+ * Patches currently applied:
+ * 1. Sonic & Knuckles (World): Restores the 2 MB standalone retail cartridge (CRC 0658F691)
+ *    alongside the 256 KB lock-on pass-through (CRC 4DCFD55C).
+ *    (May not be necessary if upstream DATs preserve both ROMs in multi-chip cartridges).
+ * 2. Mega Man - The Wily Wars (World) (Retro-Bit): Adds the verified physical cartridge
+ *    manufacturing run (CRC 92FD68E9, SHA1 17C07481AE7C8D69C38557A51F70E257BCE799EF) alongside
+ *    the initial community dump (CRC 0831020B), accommodating factory header checksum variations (DA69 vs 4CD9).
+ *    (May not be necessary if No-Intro catalogs this physical cartridge batch/revision in the future).
  */
 export function applyCanonicalDatPatches(
   content: string,
   fileName: string,
 ): string {
   if (fileName === 'Sega - Mega Drive - Genesis.dat') {
+    // -------------------------------------------------------------------------
+    // Patch 1: Sonic & Knuckles (World) Standalone Cartridge (2 MB)
+    // Upstream libretro-database trimmed this multi-chip cart to only the 256 KB
+    // lock-on ROM. May be deprecated once upstream mirrors retain both chips.
+    // -------------------------------------------------------------------------
     // If CLRMamePro format lacks the 2 MB retail cartridge CRC 0658F691:
     if (content.includes('4DCFD55C') && !content.includes('0658F691')) {
       const skPatternClr =
@@ -370,6 +387,51 @@ game (
 \t<rom name="Sonic &amp; Knuckles (World) (Lock-on).bin" size="262144" crc="4DCFD55C" md5="B4E76E416B887F4E7413BA76FA735F16" sha1="70429F1D80503A0632F603BF762FE0BBAA881D22" serial="MK-1563-00"/>
 </game>`;
         content = content.replace(skPatternXml, replacementXml);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Patch 2: Mega Man - The Wily Wars (World) (Retro-Bit) Physical Revision
+    // Factory PCB runs carry header checksum DA69 and tile table data yielding
+    // CRC 92FD68E9. May be deprecated once No-Intro catalogs this physical revision.
+    // -------------------------------------------------------------------------
+    // If CLRMamePro format lacks the physical cartridge revision CRC 92FD68E9:
+    if (content.includes('0831020B') && !content.includes('92FD68E9')) {
+      const wwPatternClr =
+        /game\s*\(\s*name\s*"Mega Man - The Wily Wars \(World\) \(Retro-Bit\)"[\s\S]*?rom\s*\(\s*name\s*"[^"]+"\s*size\s*2097152\s*crc\s*0831020B[^)]*\)\s*\)/i;
+      if (wwPatternClr.test(content)) {
+        const replacementClr = `game (
+\tname "Mega Man - The Wily Wars (World) (Retro-Bit)"
+\tserial "T-12053-00"
+\trom ( name "Mega Man - The Wily Wars (World) (Retro-Bit).md" size 2097152 crc 0831020B md5 FB4FC95CE806265417BB44EEC2ACA488 sha1 617BC1EE5F31F4215CF47C5337FA7CA0BCEB6A45 serial "T-12053-00" )
+)
+game (
+\tname "Mega Man - The Wily Wars (World) (Retro-Bit) (Alt)"
+\tserial "T-12053-00"
+\trom ( name "Mega Man - The Wily Wars (World) (Retro-Bit).md" size 2097152 crc 92FD68E9 md5 523074BADEA911E4BAE839066027E5B7 sha1 17C07481AE7C8D69C38557A51F70E257BCE799EF serial "T-12053-00" )
+)`;
+        content = content.replace(wwPatternClr, replacementClr);
+      }
+    }
+
+    // If XML format lacks the physical cartridge revision CRC 92FD68E9:
+    if (
+      content.includes('<datafile>') &&
+      content.includes('0831020B') &&
+      !content.includes('92FD68E9')
+    ) {
+      const wwPatternXml =
+        /<game name="Mega Man - The Wily Wars \(World\) \(Retro-Bit\)">[\s\S]*?<rom [^>]*crc="0831020B"[^>]*\/>[\s\S]*?<\/game>/i;
+      if (wwPatternXml.test(content)) {
+        const replacementXml = `<game name="Mega Man - The Wily Wars (World) (Retro-Bit)">
+\t<description>Mega Man - The Wily Wars (World) (Retro-Bit)</description>
+\t<rom name="Mega Man - The Wily Wars (World) (Retro-Bit).md" size="2097152" crc="0831020B" md5="FB4FC95CE806265417BB44EEC2ACA488" sha1="617BC1EE5F31F4215CF47C5337FA7CA0BCEB6A45" serial="T-12053-00"/>
+</game>
+<game name="Mega Man - The Wily Wars (World) (Retro-Bit) (Alt)">
+\t<description>Mega Man - The Wily Wars (World) (Retro-Bit) (Alt)</description>
+\t<rom name="Mega Man - The Wily Wars (World) (Retro-Bit).md" size="2097152" crc="92FD68E9" md5="523074BADEA911E4BAE839066027E5B7" sha1="17C07481AE7C8D69C38557A51F70E257BCE799EF" serial="T-12053-00"/>
+</game>`;
+        content = content.replace(wwPatternXml, replacementXml);
       }
     }
   }

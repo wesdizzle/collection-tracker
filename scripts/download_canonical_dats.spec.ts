@@ -153,6 +153,48 @@ game (
       expect(output).toContain('Sonic &amp; Knuckles (World) (Lock-on)');
     });
 
+    it('should enrich CLRMamePro Sega Genesis DAT with the physical Mega Man Wily Wars Retro-Bit dump', () => {
+      const input = `clrmamepro (
+\tname "Sega - Mega Drive - Genesis"
+)
+game (
+\tname "Mega Man - The Wily Wars (World) (Retro-Bit)"
+\tserial "T-12053-00"
+\trom ( name "Mega Man - The Wily Wars (World) (Retro-Bit).md" size 2097152 crc 0831020B md5 FB4FC95CE806265417BB44EEC2ACA488 sha1 617BC1EE5F31F4215CF47C5337FA7CA0BCEB6A45 serial "T-12053-00" )
+)`;
+
+      const output = applyCanonicalDatPatches(
+        input,
+        'Sega - Mega Drive - Genesis.dat',
+      );
+
+      expect(output).toContain('0831020B');
+      expect(output).toContain('92FD68E9');
+      expect(output).toContain(
+        'Mega Man - The Wily Wars (World) (Retro-Bit) (Alt)',
+      );
+      expect(output).toContain('17C07481AE7C8D69C38557A51F70E257BCE799EF');
+    });
+
+    it('should enrich XML Sega Genesis DAT with the physical Mega Man Wily Wars Retro-Bit dump', () => {
+      const input = `<datafile>
+\t<game name="Mega Man - The Wily Wars (World) (Retro-Bit)">
+\t\t<rom name="Mega Man - The Wily Wars (World) (Retro-Bit).md" size="2097152" crc="0831020B"/>
+\t</game>
+</datafile>`;
+
+      const output = applyCanonicalDatPatches(
+        input,
+        'Sega - Mega Drive - Genesis.dat',
+      );
+
+      expect(output).toContain('0831020B');
+      expect(output).toContain('92FD68E9');
+      expect(output).toContain(
+        'Mega Man - The Wily Wars (World) (Retro-Bit) (Alt)',
+      );
+    });
+
     it('should leave unrelated platforms or already patched DATs intact', () => {
       const input = `game (
 \tname "Metroid Fusion (USA)"
