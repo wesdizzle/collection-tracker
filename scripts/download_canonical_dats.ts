@@ -34,6 +34,7 @@ export interface RedumpPlatformTarget {
 export interface NoIntroPlatformTarget {
   name: string;
   remoteFileName: string;
+  canonicalFileName?: string;
   pattern: RegExp;
 }
 
@@ -86,139 +87,176 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
   {
     name: 'Atari 2600',
     remoteFileName: 'Atari - 2600.dat',
-    pattern: /Atari - 2600/i,
+    canonicalFileName: 'Atari - Atari 2600.dat',
+    pattern: /^Atari\s*-\s*(Atari\s*)?2600/i,
   },
   {
     name: 'Atari 5200',
     remoteFileName: 'Atari - 5200.dat',
-    pattern: /Atari - 5200/i,
+    canonicalFileName: 'Atari - Atari 5200.dat',
+    pattern: /^Atari\s*-\s*(Atari\s*)?5200/i,
   },
   {
     name: 'Atari 7800',
     remoteFileName: 'Atari - 7800.dat',
-    pattern: /Atari - 7800/i,
+    canonicalFileName: 'Atari - Atari 7800 (BIN).dat',
+    pattern: /^Atari\s*-\s*(Atari\s*)?7800/i,
   },
   {
     name: 'Atari Lynx',
     remoteFileName: 'Atari - Lynx.dat',
-    pattern: /Atari - Lynx/i,
+    canonicalFileName: 'Atari - Atari Lynx (LYX).dat',
+    pattern: /^Atari\s*-\s*(Atari\s*)?Lynx/i,
   },
   {
     name: 'Atari Jaguar',
     remoteFileName: 'Atari - Jaguar.dat',
-    pattern: /Atari - Jaguar/i,
+    canonicalFileName: 'Atari - Atari Jaguar (ROM).dat',
+    pattern: /^Atari\s*-\s*(Atari\s*)?Jaguar/i,
   },
   {
     name: 'ColecoVision',
     remoteFileName: 'Coleco - ColecoVision.dat',
-    pattern: /Coleco - ColecoVision/i,
+    canonicalFileName: 'Coleco - ColecoVision.dat',
+    pattern: /^Coleco\s*-\s*ColecoVision/i,
   },
   {
     name: 'Intellivision',
     remoteFileName: 'Mattel - Intellivision.dat',
-    pattern: /Mattel - Intellivision/i,
+    canonicalFileName: 'Mattel - Intellivision.dat',
+    pattern: /^Mattel\s*-\s*Intellivision/i,
   },
   {
     name: 'Neo Geo Pocket',
     remoteFileName: 'SNK - Neo Geo Pocket.dat',
-    pattern: /Neo Geo Pocket/i,
+    canonicalFileName: 'SNK - Neo Geo Pocket.dat',
+    pattern: /^SNK\s*-\s*Neo Geo Pocket(?!\s*Color)/i,
   },
   {
     name: 'Neo Geo Pocket Color',
     remoteFileName: 'SNK - Neo Geo Pocket Color.dat',
-    pattern: /Neo Geo Pocket Color/i,
+    canonicalFileName: 'SNK - Neo Geo Pocket Color.dat',
+    pattern: /^SNK\s*-\s*Neo Geo Pocket Color/i,
   },
   {
     name: 'Nintendo Entertainment System',
     remoteFileName: 'Nintendo - Nintendo Entertainment System.dat',
-    pattern: /Nintendo Entertainment System/i,
+    canonicalFileName: 'Nintendo - Nintendo Entertainment System.dat',
+    pattern: /^Nintendo\s*-\s*Nintendo Entertainment System/i,
   },
   {
     name: 'Super Nintendo Entertainment System',
     remoteFileName: 'Nintendo - Super Nintendo Entertainment System.dat',
-    pattern: /Super Nintendo Entertainment System/i,
+    canonicalFileName: 'Nintendo - Super Nintendo Entertainment System.dat',
+    pattern: /^Nintendo\s*-\s*Super Nintendo Entertainment System/i,
   },
   {
     name: 'Nintendo 64',
     remoteFileName: 'Nintendo - Nintendo 64.dat',
-    pattern: /Nintendo 64/i,
+    canonicalFileName: 'Nintendo - Nintendo 64.dat',
+    pattern: /^Nintendo\s*-\s*Nintendo 64/i,
   },
   {
     name: 'Game Boy',
     remoteFileName: 'Nintendo - Game Boy.dat',
-    pattern: /Nintendo - Game Boy\./i,
+    canonicalFileName: 'Nintendo - Game Boy.dat',
+    pattern: /^Nintendo\s*-\s*Game Boy(?!\s*(Advance|Color))/i,
   },
   {
     name: 'Game Boy Color',
     remoteFileName: 'Nintendo - Game Boy Color.dat',
-    pattern: /Nintendo - Game Boy Color/i,
+    canonicalFileName: 'Nintendo - Game Boy Color.dat',
+    pattern: /^Nintendo\s*-\s*Game Boy Color/i,
   },
   {
     name: 'Game Boy Advance',
     remoteFileName: 'Nintendo - Game Boy Advance.dat',
-    pattern: /Nintendo - Game Boy Advance/i,
+    canonicalFileName: 'Nintendo - Game Boy Advance.dat',
+    pattern: /^Nintendo\s*-\s*Game Boy Advance/i,
   },
   {
     name: 'Nintendo DS',
     remoteFileName: 'Nintendo - Nintendo DS.dat',
-    pattern: /Nintendo - Nintendo DS\./i,
+    canonicalFileName: 'Nintendo - Nintendo DS.dat',
+    pattern: /^Nintendo\s*-\s*Nintendo DS(?!\w)/i,
   },
   {
     name: 'Nintendo 3DS',
     remoteFileName: 'Nintendo - Nintendo 3DS.dat',
-    pattern: /Nintendo - Nintendo 3DS\./i,
+    canonicalFileName: 'Nintendo - Nintendo 3DS.dat',
+    pattern: /^Nintendo\s*-\s*Nintendo 3DS/i,
   },
   {
     name: 'New Nintendo 3DS',
     remoteFileName: 'Nintendo - New Nintendo 3DS.dat',
-    pattern: /Nintendo - New Nintendo 3DS\./i,
+    canonicalFileName: 'Nintendo - New Nintendo 3DS.dat',
+    pattern: /^Nintendo\s*-\s*New Nintendo 3DS/i,
   },
   {
     name: 'Virtual Boy',
     remoteFileName: 'Nintendo - Virtual Boy.dat',
-    pattern: /Nintendo - Virtual Boy/i,
+    canonicalFileName: 'Nintendo - Virtual Boy.dat',
+    pattern: /^Nintendo\s*-\s*Virtual Boy/i,
   },
   {
     name: 'Pokemon Mini',
     remoteFileName: 'Nintendo - Pokemon Mini.dat',
-    pattern: /Pokemon Mini/i,
+    canonicalFileName: 'Nintendo - Pokemon Mini.dat',
+    pattern: /^Nintendo\s*-\s*Pokemon Mini/i,
   },
   {
     name: 'Sega Master System',
     remoteFileName: 'Sega - Master System - Mark III.dat',
-    pattern: /Master System/i,
+    canonicalFileName: 'Sega - Master System - Mark III.dat',
+    pattern: /^Sega\s*-\s*Master System/i,
   },
   {
     name: 'Sega Genesis / Mega Drive',
     remoteFileName: 'Sega - Mega Drive - Genesis.dat',
-    pattern: /Mega Drive - Genesis/i,
+    canonicalFileName: 'Sega - Mega Drive - Genesis.dat',
+    pattern: /^Sega\s*-\s*Mega Drive\s*-\s*Genesis/i,
   },
   {
     name: 'Sega Game Gear',
     remoteFileName: 'Sega - Game Gear.dat',
-    pattern: /Game Gear/i,
+    canonicalFileName: 'Sega - Game Gear.dat',
+    pattern: /^Sega\s*-\s*Game Gear/i,
   },
-  { name: 'Sega Pico', remoteFileName: 'Sega - PICO.dat', pattern: /PICO/i },
-  { name: 'Sega 32X', remoteFileName: 'Sega - 32X.dat', pattern: /32X/i },
+  {
+    name: 'Sega Pico',
+    remoteFileName: 'Sega - PICO.dat',
+    canonicalFileName: 'Sega - PICO.dat',
+    pattern: /^Sega\s*-\s*PICO/i,
+  },
+  {
+    name: 'Sega 32X',
+    remoteFileName: 'Sega - 32X.dat',
+    canonicalFileName: 'Sega - 32X.dat',
+    pattern: /^Sega\s*-\s*32X/i,
+  },
   {
     name: 'TurboGrafx-16 / PC Engine',
     remoteFileName: 'NEC - PC Engine - TurboGrafx 16.dat',
-    pattern: /TurboGrafx-16|TurboGrafx 16/i,
+    canonicalFileName: 'NEC - PC Engine - TurboGrafx 16.dat',
+    pattern: /^NEC\s*-\s*PC Engine/i,
   },
   {
     name: 'Tiger Game.com',
     remoteFileName: 'Tiger - Game.com.dat',
-    pattern: /Game\.com/i,
+    canonicalFileName: 'Tiger - Game.com.dat',
+    pattern: /^Tiger\s*-\s*Game\.com/i,
   },
   {
     name: 'WonderSwan',
     remoteFileName: 'Bandai - WonderSwan.dat',
-    pattern: /WonderSwan\./i,
+    canonicalFileName: 'Bandai - WonderSwan.dat',
+    pattern: /^Bandai\s*-\s*WonderSwan(?!\s*Color)/i,
   },
   {
     name: 'WonderSwan Color',
     remoteFileName: 'Bandai - WonderSwan Color.dat',
-    pattern: /WonderSwan Color/i,
+    canonicalFileName: 'Bandai - WonderSwan Color.dat',
+    pattern: /^Bandai\s*-\s*WonderSwan Color/i,
   },
 ];
 
@@ -344,7 +382,77 @@ export function applyCanonicalDatPatches(
   content: string,
   fileName: string,
 ): string {
-  if (fileName === 'Sega - Mega Drive - Genesis.dat') {
+  // ---------------------------------------------------------------------------
+  // Atari Header Normalization
+  // Ensure CLRMamePro and XML internal header names match official canonical names
+  // so downstream tools like IGIR generate clean, unified platform folders.
+  // ---------------------------------------------------------------------------
+  content = content
+    .replace(/name\s*"Atari - 2600"/g, 'name "Atari - Atari 2600"')
+    .replace(
+      /description\s*"Atari - 2600"/g,
+      'description "Atari - Atari 2600"',
+    )
+    .replace(/<name>Atari - 2600<\/name>/g, '<name>Atari - Atari 2600</name>')
+    .replace(
+      /<description>Atari - 2600<\/description>/g,
+      '<description>Atari - Atari 2600</description>',
+    )
+    .replace(/name\s*"Atari - 5200"/g, 'name "Atari - Atari 5200"')
+    .replace(
+      /description\s*"Atari - 5200"/g,
+      'description "Atari - Atari 5200"',
+    )
+    .replace(/<name>Atari - 5200<\/name>/g, '<name>Atari - Atari 5200</name>')
+    .replace(
+      /<description>Atari - 5200<\/description>/g,
+      '<description>Atari - Atari 5200</description>',
+    )
+    .replace(/name\s*"Atari - 7800"/g, 'name "Atari - Atari 7800 (BIN)"')
+    .replace(
+      /description\s*"Atari - 7800"/g,
+      'description "Atari - Atari 7800 (BIN)"',
+    )
+    .replace(
+      /<name>Atari - 7800<\/name>/g,
+      '<name>Atari - Atari 7800 (BIN)</name>',
+    )
+    .replace(
+      /<description>Atari - 7800<\/description>/g,
+      '<description>Atari - Atari 7800 (BIN)</description>',
+    )
+    .replace(/name\s*"Atari - Jaguar"/g, 'name "Atari - Atari Jaguar (ROM)"')
+    .replace(
+      /description\s*"Atari - Jaguar"/g,
+      'description "Atari - Atari Jaguar (ROM)"',
+    )
+    .replace(
+      /<name>Atari - Jaguar<\/name>/g,
+      '<name>Atari - Atari Jaguar (ROM)</name>',
+    )
+    .replace(
+      /<description>Atari - Jaguar<\/description>/g,
+      '<description>Atari - Atari Jaguar (ROM)</description>',
+    )
+    .replace(/name\s*"Atari - Lynx"/g, 'name "Atari - Atari Lynx (LYX)"')
+    .replace(
+      /description\s*"Atari - Lynx"/g,
+      'description "Atari - Atari Lynx (LYX)"',
+    )
+    .replace(
+      /<name>Atari - Lynx<\/name>/g,
+      '<name>Atari - Atari Lynx (LYX)</name>',
+    )
+    .replace(
+      /<description>Atari - Lynx<\/description>/g,
+      '<description>Atari - Atari Lynx (LYX)</description>',
+    );
+
+  if (
+    fileName === 'Sega - Mega Drive - Genesis.dat' ||
+    fileName.includes('Genesis') ||
+    fileName.includes('Mega Drive')
+  ) {
     // -------------------------------------------------------------------------
     // Patch 1: Sonic & Knuckles (World) Standalone Cartridge (2 MB)
     // Upstream libretro-database trimmed this multi-chip cart to only the 256 KB
@@ -442,6 +550,7 @@ game (
 /**
  * Automatically detects and imports official Datomatic XML zip archives if downloaded by the user
  * and placed into `dats/` or `scripts/temp/`.
+ * Strictly limits extraction to tracked platforms in NO_INTRO_TARGETS and writes canonical filenames.
  */
 export function importLocalDatomaticArchives(
   searchDirs: string[] = [tempDir, datsDir],
@@ -473,13 +582,36 @@ export function importLocalDatomaticArchives(
         execSync(`tar -xf "${zipPath}" -C "${extractDir}"`);
         const extracted = fs.readdirSync(extractDir);
         for (const file of extracted) {
-          if (file.endsWith('.dat') || file.endsWith('.xml')) {
-            const raw = fs.readFileSync(path.join(extractDir, file), 'utf8');
-            const patched = applyCanonicalDatPatches(raw, file);
-            const dest = path.join(destinationDir, file);
-            fs.writeFileSync(dest, patched, 'utf8');
-            importedCount++;
+          if (!file.endsWith('.dat') && !file.endsWith('.xml')) continue;
+
+          // Strictly filter to tracked platforms in NO_INTRO_TARGETS
+          const target = NO_INTRO_TARGETS.find((t) => t.pattern.test(file));
+          if (!target) {
+            continue;
           }
+
+          const raw = fs.readFileSync(path.join(extractDir, file), 'utf8');
+          const canonicalName =
+            target.canonicalFileName || target.remoteFileName;
+          const patched = applyCanonicalDatPatches(raw, canonicalName);
+
+          // Clean up any older/competing versions in destinationDir
+          if (fs.existsSync(destinationDir)) {
+            const existingFiles = fs.readdirSync(destinationDir);
+            for (const existing of existingFiles) {
+              if (existing !== canonicalName && target.pattern.test(existing)) {
+                try {
+                  fs.unlinkSync(path.join(destinationDir, existing));
+                } catch {
+                  // Ignore removal errors
+                }
+              }
+            }
+          }
+
+          const dest = path.join(destinationDir, canonicalName);
+          fs.writeFileSync(dest, patched, 'utf8');
+          importedCount++;
         }
         fs.rmSync(extractDir, { recursive: true, force: true });
       } catch (err) {
@@ -495,20 +627,68 @@ export function importLocalDatomaticArchives(
 
 /**
  * Downloads a No-Intro DAT file from canonical mirror.
+ * Preserves high-fidelity official Datomatic XML files if already present locally.
  */
 export async function downloadNoIntroDat(
   target: NoIntroPlatformTarget,
   destinationDir: string = noIntroDir,
+  options: { forceOverwriteXml?: boolean } = {},
 ): Promise<{
   success: boolean;
   fileName?: string;
   sizeBytes?: number;
   error?: string;
 }> {
+  const canonicalName = target.canonicalFileName || target.remoteFileName;
+  const finalDestination = path.join(destinationDir, canonicalName);
+
+  // If an official Datomatic XML datafile already exists locally for this target,
+  // preserve it instead of replacing it with a lower-fidelity clrmamepro mirror from libretro
+  // unless forceOverwriteXml is true.
+  if (!options.forceOverwriteXml && fs.existsSync(destinationDir)) {
+    const existingFiles = fs.readdirSync(destinationDir);
+    const existingFile = existingFiles.find((f) => target.pattern.test(f));
+    if (existingFile) {
+      const existingPath = path.join(destinationDir, existingFile);
+      try {
+        const head = fs
+          .readFileSync(existingPath, { encoding: 'utf8', flag: 'r' })
+          .substring(0, 500);
+        if (
+          head.includes('<datafile>') &&
+          (head.includes('datomatic.no-intro.org') ||
+            head.includes('schema_nointro_datfile'))
+        ) {
+          // Canonical Datomatic XML is already present
+          if (existingFile !== canonicalName) {
+            fs.renameSync(existingPath, finalDestination);
+          }
+          // Remove any other duplicate files matching target.pattern
+          for (const other of existingFiles) {
+            if (
+              other !== existingFile &&
+              other !== canonicalName &&
+              target.pattern.test(other)
+            ) {
+              try {
+                fs.unlinkSync(path.join(destinationDir, other));
+              } catch {
+                // Ignore removal error
+              }
+            }
+          }
+          const size = fs.statSync(finalDestination).size;
+          return { success: true, fileName: canonicalName, sizeBytes: size };
+        }
+      } catch {
+        // Fall through to download if reading failed
+      }
+    }
+  }
+
   const baseUrl =
     'https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/';
   const url = `${baseUrl}${encodeURIComponent(target.remoteFileName)}`;
-  const finalDestination = path.join(destinationDir, target.remoteFileName);
 
   try {
     const response = await fetch(url, {
@@ -542,7 +722,7 @@ export async function downloadNoIntroDat(
     if (fs.existsSync(destinationDir)) {
       const existingFiles = fs.readdirSync(destinationDir);
       for (const file of existingFiles) {
-        if (file !== target.remoteFileName && target.pattern.test(file)) {
+        if (file !== canonicalName && target.pattern.test(file)) {
           try {
             fs.unlinkSync(path.join(destinationDir, file));
           } catch {
@@ -552,15 +732,234 @@ export async function downloadNoIntroDat(
       }
     }
 
-    const patchedText = applyCanonicalDatPatches(text, target.remoteFileName);
+    const patchedText = applyCanonicalDatPatches(text, canonicalName);
     fs.writeFileSync(finalDestination, patchedText, 'utf8');
     const size = fs.statSync(finalDestination).size;
 
-    return { success: true, fileName: target.remoteFileName, sizeBytes: size };
+    return { success: true, fileName: canonicalName, sizeBytes: size };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };
   }
+}
+
+/**
+ * Deduplicates and prunes any untracked or duplicate DAT files in a given directory,
+ * ensuring strict 1 Platform = 1 Canonical DAT compliance.
+ */
+export function pruneAndDeduplicateDats(targetDatsDir: string = datsDir): {
+  removedCount: number;
+  renamedCount: number;
+} {
+  let removedCount = 0;
+  let renamedCount = 0;
+
+  const targetNoIntroDir = path.join(targetDatsDir, 'No-Intro');
+  if (fs.existsSync(targetNoIntroDir)) {
+    // Remove unwanted subdirectories if any (e.g. Non-Redump, Source Code, Unofficial)
+    const subItems = fs.readdirSync(targetNoIntroDir);
+    for (const item of subItems) {
+      const fullPath = path.join(targetNoIntroDir, item);
+      if (fs.statSync(fullPath).isDirectory()) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+        removedCount++;
+      }
+    }
+
+    const files = fs
+      .readdirSync(targetNoIntroDir)
+      .filter((f) => f.endsWith('.dat') || f.endsWith('.xml'));
+
+    // Check for untracked files
+    for (const file of files) {
+      const match = NO_INTRO_TARGETS.find((t) => t.pattern.test(file));
+      if (!match) {
+        try {
+          fs.unlinkSync(path.join(targetNoIntroDir, file));
+          removedCount++;
+        } catch {
+          // Ignore unlink error
+        }
+      }
+    }
+
+    // Deduplicate tracked files
+    for (const target of NO_INTRO_TARGETS) {
+      const canonicalName = target.canonicalFileName || target.remoteFileName;
+      const matchingFiles = fs
+        .readdirSync(targetNoIntroDir)
+        .filter((f) => target.pattern.test(f));
+
+      if (matchingFiles.length === 0) continue;
+
+      if (matchingFiles.length === 1 && matchingFiles[0] === canonicalName) {
+        continue;
+      }
+
+      // Pick best file to keep: prefer official XML, then larger size, then canonicalName
+      let bestFile = matchingFiles[0];
+      let bestScore = -1;
+
+      for (const file of matchingFiles) {
+        let score = 0;
+        const filePath = path.join(targetNoIntroDir, file);
+        try {
+          const content = fs.readFileSync(filePath, 'utf8').substring(0, 500);
+          if (content.includes('<datafile>')) score += 100;
+          if (
+            content.includes('datomatic.no-intro.org') ||
+            content.includes('schema_nointro_datfile')
+          ) {
+            score += 50;
+          }
+        } catch {
+          // Ignore read error
+        }
+        if (file === canonicalName) score += 10;
+        score += Math.min(fs.statSync(filePath).size / 1024, 20);
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestFile = file;
+        }
+      }
+
+      for (const file of matchingFiles) {
+        if (file !== bestFile) {
+          try {
+            fs.unlinkSync(path.join(targetNoIntroDir, file));
+            removedCount++;
+          } catch {
+            // Ignore unlink error
+          }
+        }
+      }
+
+      if (bestFile !== canonicalName) {
+        const srcPath = path.join(targetNoIntroDir, bestFile);
+        const destPath = path.join(targetNoIntroDir, canonicalName);
+        try {
+          fs.renameSync(srcPath, destPath);
+          renamedCount++;
+        } catch {
+          // Ignore rename error
+        }
+      }
+    }
+  }
+
+  // Remove unwanted directories in root targetDatsDir
+  if (fs.existsSync(targetDatsDir)) {
+    const rootItems = fs.readdirSync(targetDatsDir);
+    const unwantedDirs = ['Non-Redump', 'Source Code', 'Unofficial'];
+    for (const item of rootItems) {
+      const fullPath = path.join(targetDatsDir, item);
+      if (fs.statSync(fullPath).isDirectory() && unwantedDirs.includes(item)) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+        removedCount++;
+      }
+    }
+  }
+
+  return { removedCount, renamedCount };
+}
+
+/**
+ * Synchronizes the clean canonical DAT files to an external directory (e.g. C:\Users\wesdi\Downloads\dats).
+ */
+export function syncCleanDatsToDirectory(
+  sourceDir: string,
+  destDir: string,
+): { copied: number; deleted: number } {
+  if (!fs.existsSync(destDir)) return { copied: 0, deleted: 0 };
+  let copied = 0;
+  let deleted = 0;
+
+  // Sync root Redump DAT files
+  const sourceRootFiles = fs
+    .readdirSync(sourceDir)
+    .filter(
+      (f) => f.endsWith('.dat') || f.endsWith('.xml') || f === 'index.txt',
+    );
+  const destRootFiles = fs
+    .readdirSync(destDir)
+    .filter(
+      (f) => f.endsWith('.dat') || f.endsWith('.xml') || f === 'index.txt',
+    );
+
+  for (const file of sourceRootFiles) {
+    const src = path.join(sourceDir, file);
+    const dst = path.join(destDir, file);
+    if (
+      !fs.existsSync(dst) ||
+      fs.statSync(src).size !== fs.statSync(dst).size
+    ) {
+      fs.copyFileSync(src, dst);
+      copied++;
+    }
+  }
+  for (const file of destRootFiles) {
+    if (!sourceRootFiles.includes(file)) {
+      try {
+        fs.unlinkSync(path.join(destDir, file));
+        deleted++;
+      } catch {
+        // Ignore unlink error
+      }
+    }
+  }
+
+  // Sync No-Intro
+  const sourceNoIntro = path.join(sourceDir, 'No-Intro');
+  const destNoIntro = path.join(destDir, 'No-Intro');
+  if (fs.existsSync(sourceNoIntro)) {
+    if (!fs.existsSync(destNoIntro)) {
+      fs.mkdirSync(destNoIntro, { recursive: true });
+    }
+    const srcNoIntroFiles = fs
+      .readdirSync(sourceNoIntro)
+      .filter((f) => f.endsWith('.dat') || f.endsWith('.xml'));
+    const dstNoIntroFiles = fs
+      .readdirSync(destNoIntro)
+      .filter((f) => f.endsWith('.dat') || f.endsWith('.xml'));
+
+    for (const file of srcNoIntroFiles) {
+      const src = path.join(sourceNoIntro, file);
+      const dst = path.join(destNoIntro, file);
+      if (
+        !fs.existsSync(dst) ||
+        fs.statSync(src).size !== fs.statSync(dst).size
+      ) {
+        fs.copyFileSync(src, dst);
+        copied++;
+      }
+    }
+    for (const file of dstNoIntroFiles) {
+      if (!srcNoIntroFiles.includes(file)) {
+        try {
+          fs.unlinkSync(path.join(destNoIntro, file));
+          deleted++;
+        } catch {
+          // Ignore unlink error
+        }
+      }
+    }
+  }
+
+  // Prune any unwanted directories in destDir
+  for (const unwanted of ['Non-Redump', 'Source Code', 'Unofficial']) {
+    const unwantedPath = path.join(destDir, unwanted);
+    if (fs.existsSync(unwantedPath)) {
+      try {
+        fs.rmSync(unwantedPath, { recursive: true, force: true });
+        deleted++;
+      } catch {
+        // Ignore rmdir error
+      }
+    }
+  }
+
+  return { copied, deleted };
 }
 
 /**
@@ -584,6 +983,9 @@ export async function runDatDownloads() {
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
   }
+
+  // Pre-download prune: ensure clean baseline without duplicate DAT variants
+  pruneAndDeduplicateDats(datsDir);
 
   const localImported = importLocalDatomaticArchives();
   if (localImported > 0) {
@@ -637,6 +1039,29 @@ export async function runDatDownloads() {
         source: 'No-Intro',
         error: result.error || 'Unknown',
       });
+    }
+  }
+
+  // Post-download prune: ensure strict 1 Platform = 1 Canonical DAT compliance
+  const pruneResult = pruneAndDeduplicateDats(datsDir);
+  if (pruneResult.removedCount > 0 || pruneResult.renamedCount > 0) {
+    console.log(
+      `🧹 Pruned ${pruneResult.removedCount} obsolete/duplicate DATs, normalized ${pruneResult.renamedCount} filenames.`,
+    );
+  }
+
+  // Synchronize to external downloads directory if present
+  const externalDatsDir =
+    process.env['EXTERNAL_DATS_DIR'] ||
+    (process.env['USERPROFILE']
+      ? path.join(process.env['USERPROFILE'], 'Downloads', 'dats')
+      : path.join('C:', 'Users', 'wesdi', 'Downloads', 'dats'));
+  if (fs.existsSync(externalDatsDir)) {
+    const syncRes = syncCleanDatsToDirectory(datsDir, externalDatsDir);
+    if (syncRes.copied > 0 || syncRes.deleted > 0) {
+      console.log(
+        `🔄 Synchronized to external DAT directory (${externalDatsDir}): ${syncRes.copied} updated, ${syncRes.deleted} cleaned.`,
+      );
     }
   }
 
