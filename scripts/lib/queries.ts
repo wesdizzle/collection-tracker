@@ -41,6 +41,14 @@ export const GAMES_LIST_QUERY = `
            r.rom_name,
            r.rom_crc,
            COALESCE(r.backup_status, 0) as backup_status,
+           COALESCE(r.has_case, 0) as has_case,
+           COALESCE(r.has_manual, 0) as has_manual,
+           g.gameye_id,
+           g.gameye_platform_id,
+           g.price_loose,
+           g.price_cib,
+           g.price_new,
+           g.price_updated_at,
            COALESCE(pp.display_name, p.display_name) as display_name, 
            COALESCE(pp.brand, p.brand) as brand, 
            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
@@ -94,6 +102,14 @@ export const GAME_DETAIL_QUERY = `
            r.rom_name,
            r.rom_crc,
            COALESCE(r.backup_status, 0) as backup_status,
+           COALESCE(r.has_case, 0) as has_case,
+           COALESCE(r.has_manual, 0) as has_manual,
+           g.gameye_id,
+           g.gameye_platform_id,
+           g.price_loose,
+           g.price_cib,
+           g.price_new,
+           g.price_updated_at,
            COALESCE(pp.display_name, p.display_name) as display_name, 
            COALESCE(pp.brand, p.brand) as brand, 
            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
@@ -123,7 +139,7 @@ export const GAME_DETAIL_QUERY = `
 `;
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `
-    SELECT id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date
+    SELECT id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date, COALESCE(has_case, 0) as has_case, COALESCE(has_manual, 0) as has_manual
     FROM game_releases
     WHERE game_id = ? AND region IS ? AND variants IS ?
 `;

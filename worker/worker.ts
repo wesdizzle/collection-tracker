@@ -1364,6 +1364,8 @@ Disallow: /
           'ownership_status',
           'play_status',
           'backup_status',
+          'has_case',
+          'has_manual',
         ];
         if (!allowedFields.includes(field)) {
           return Response.json(
@@ -1404,7 +1406,7 @@ Disallow: /
               .bind(status, stableId)
               .run();
           } else {
-            // ownership_status or backup_status on game_releases
+            // ownership_status, has_case, has_manual, or backup_status on game_releases
             const release = (await env.DB.prepare(
               'SELECT game_id, region, variants, rom_name FROM game_releases WHERE id = ?',
             )
@@ -1417,7 +1419,11 @@ Disallow: /
             } | null;
 
             if (release) {
-              if (field === 'ownership_status') {
+              if (
+                field === 'ownership_status' ||
+                field === 'has_case' ||
+                field === 'has_manual'
+              ) {
                 const { results: allReleases } = await env.DB.prepare(
                   'SELECT id, region, variants, rom_name FROM game_releases WHERE game_id = ?',
                 )
@@ -1441,7 +1447,7 @@ Disallow: /
 
                 const statements = matchingReleases.map((r) =>
                   env.DB.prepare(
-                    'UPDATE game_releases SET ownership_status = ? WHERE id = ?',
+                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
                   ).bind(status, r.id),
                 );
                 if (statements.length > 0) {
@@ -1479,10 +1485,14 @@ Disallow: /
 
               const typedReleases = (releases || []) as { id: string }[];
               if (typedReleases.length > 0) {
-                if (field === 'ownership_status') {
+                if (
+                  field === 'ownership_status' ||
+                  field === 'has_case' ||
+                  field === 'has_manual'
+                ) {
                   const statements = typedReleases.map((r) =>
                     env.DB.prepare(
-                      'UPDATE game_releases SET ownership_status = ? WHERE id = ?',
+                      `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
                     ).bind(status, r.id),
                   );
                   await env.DB.batch(statements);
@@ -1496,8 +1506,8 @@ Disallow: /
               } else {
                 const releaseId = `${id}-default`;
                 await env.DB.prepare(
-                  `INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status)
-                   VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0)`,
+                  `INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, has_case, has_manual)
+                   VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, 0, 0)`,
                 )
                   .bind(releaseId, game.stable_id, game.region)
                   .run();

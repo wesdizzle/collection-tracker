@@ -289,6 +289,8 @@ export const handleRequest =
             'ownership_status',
             'play_status',
             'backup_status',
+            'has_case',
+            'has_manual',
           ];
           if (!allowedFields.includes(field)) {
             throw new Error(`Invalid field: ${field}`);
@@ -318,7 +320,7 @@ export const handleRequest =
                 'UPDATE games SET play_status = ? WHERE stable_id = ?',
               ).run(status, stableId);
             } else {
-              // ownership_status or backup_status: update game_releases table
+              // ownership_status, has_case, has_manual, or backup_status: update game_releases table
               const release = db
                 .prepare(
                   'SELECT game_id, region, variants, rom_name FROM game_releases WHERE id = ?',
@@ -333,10 +335,13 @@ export const handleRequest =
                 | undefined;
 
               if (release) {
-                if (field === 'ownership_status') {
+                if (
+                  field === 'ownership_status' ||
+                  field === 'has_case' ||
+                  field === 'has_manual'
+                ) {
                   // We update all releases in the same group (matching region, variants, and base rom name group)
-                  // because ownership status is logically a release-wide setting rather than disc-level.
-                  // This prevents multi-disc games from remaining partially owned/unowned when only a single disc ID is toggled.
+                  // because ownership and completeness are logically release-wide settings rather than disc-level.
                   const allReleases = db
                     .prepare(
                       'SELECT id, region, variants, rom_name FROM game_releases WHERE game_id = ?',
@@ -357,7 +362,7 @@ export const handleRequest =
                   );
 
                   const updateStmt = db.prepare(
-                    `UPDATE game_releases SET ownership_status = ? WHERE id = ?`,
+                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
                   );
                   db.transaction(() => {
                     for (const r of matchingReleases) {
@@ -388,10 +393,14 @@ export const handleRequest =
                   )
                   .all(game.stable_id) as { id: string }[];
                 if (releases.length > 0) {
-                  if (field === 'ownership_status') {
+                  if (
+                    field === 'ownership_status' ||
+                    field === 'has_case' ||
+                    field === 'has_manual'
+                  ) {
                     // Update all releases of this game
                     const updateStmt = db.prepare(
-                      `UPDATE game_releases SET ownership_status = ? WHERE id = ?`,
+                      `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
                     );
                     db.transaction(() => {
                       for (const r of releases) {
@@ -408,8 +417,8 @@ export const handleRequest =
                   const releaseId = `${id}-default`;
                   db.prepare(
                     `
-                    INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status)
-                    VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0)
+                    INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, has_case, has_manual)
+                    VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, 0, 0)
                   `,
                   ).run(releaseId, game.stable_id, game.region);
                   db.prepare(

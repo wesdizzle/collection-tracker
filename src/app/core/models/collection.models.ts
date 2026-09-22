@@ -34,6 +34,8 @@ export interface GameRelease {
   canonical_release_id?: number | null;
   barcode?: string | null;
   is_physical?: boolean | number;
+  has_case?: boolean | number;
+  has_manual?: boolean | number;
 }
 
 export interface Game {
@@ -53,6 +55,14 @@ export interface Game {
   ownership_status: OwnershipStatus;
   play_status: PlayStatus;
   backup_status: boolean | number;
+  has_case?: boolean | number;
+  has_manual?: boolean | number;
+  gameye_id?: number | null;
+  gameye_platform_id?: number | null;
+  price_loose?: number | null;
+  price_cib?: number | null;
+  price_new?: number | null;
+  price_updated_at?: string | null;
   image_url?: string | null;
   summary?: string | null;
   genres?: string | null;
@@ -123,6 +133,11 @@ export interface Toy {
   sort_index?: number;
   series_index?: number;
   details?: string | null;
+  gameye_id?: number | null;
+  price_loose?: number | null;
+  price_cib?: number | null;
+  price_new?: number | null;
+  price_updated_at?: string | null;
 }
 
 export interface ToySeriesGroup {

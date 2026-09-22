@@ -79,7 +79,13 @@ describe('Worker API Logic', () => {
         release_medium TEXT DEFAULT 'physical_retail',
         origin_metadata TEXT,
         bundle_parent_id INTEGER,
-        bundle_disc_number INTEGER
+        bundle_disc_number INTEGER,
+        gameye_id INTEGER,
+        gameye_platform_id INTEGER,
+        price_loose INTEGER,
+        price_cib INTEGER,
+        price_new INTEGER,
+        price_updated_at TEXT
       );
       CREATE TABLE game_releases (
         id TEXT PRIMARY KEY,
@@ -93,7 +99,9 @@ describe('Worker API Logic', () => {
         release_date DATE,
         canonical_release_id INTEGER,
         barcode TEXT,
-        is_physical INTEGER DEFAULT 1
+        is_physical INTEGER DEFAULT 1,
+        has_case INTEGER NOT NULL DEFAULT 0,
+        has_manual INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE canonical_releases (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,7 +125,7 @@ describe('Worker API Logic', () => {
         name TEXT NOT NULL, 
         line TEXT NOT NULL,
         series_id TEXT, 
-        series_name TEXT,
+        series_name TEXT, 
         series_line TEXT,
         series TEXT,
         type TEXT,
@@ -130,7 +138,12 @@ describe('Worker API Logic', () => {
         amiibo_id TEXT,
         scl_url TEXT,
         region TEXT,
-        details TEXT
+        details TEXT,
+        gameye_id INTEGER,
+        price_loose INTEGER,
+        price_cib INTEGER,
+        price_new INTEGER,
+        price_updated_at TEXT
       );
       CREATE TABLE toy_series (
         id TEXT PRIMARY KEY, 
