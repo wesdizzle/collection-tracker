@@ -35,6 +35,7 @@
     "type-check": "tsc --noEmit",
     "deploy": "npm run build && wrangler deploy",
     "scrape": "tsx scripts/scrape.ts",
+    "sync:gameye": "tsx scripts/scrape.ts --sync-gameye",
     "ci-check": "npm run lint && npm run type-check && npm test && npm run build",
     "prepare": "husky"
   },

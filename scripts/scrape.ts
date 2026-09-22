@@ -57,6 +57,7 @@ import {
   titlesMatch,
   normalizeTitleForMatching,
 } from './lib/title_matching.js';
+import { searchGameyeGame, searchGameyeToy } from './lib/gameye.js';
 
 const db = new Database('collection.sqlite');
 const checkReleaseExistsStmt = db.prepare(
@@ -1242,12 +1243,192 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
   );
 }
 
+/**
+ * Synchronizes GAMEYE IDs and PriceCharting valuations for owned games and toys.
+ */
+export async function syncGameyeData(
+  dbInstance: Database.Database,
+  runRefresh: boolean = false,
+  limit?: number,
+): Promise<void> {
+  console.log('--- Starting GAMEYE & PriceCharting Sync Phase ---');
+
+  const delay = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  // 1. Sync Games
+  let gameQuery = `
+    SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, p.display_name as platform_name
+    FROM games g
+    JOIN platforms p ON g.platform_id = p.id
+    WHERE EXISTS (SELECT 1 FROM game_releases r WHERE r.game_id = g.stable_id AND r.ownership_status > 0)
+       OR g.play_status > 0 OR g.backup_status > 0
+  `;
+  if (!runRefresh) {
+    gameQuery += ` AND (g.gameye_id IS NULL OR g.price_loose IS NULL)`;
+  }
+  if (limit && limit > 0) {
+    gameQuery += ` LIMIT ${limit}`;
+  }
+
+  const gamesToSync = dbInstance.prepare(gameQuery).all() as {
+    stable_id: number;
+    id: string;
+    title: string;
+    platform_id: number;
+    region: string | null;
+    gameye_id: number | null;
+    platform_name: string;
+  }[];
+
+  console.log(`Found ${gamesToSync.length} owned games needing GAMEYE sync...`);
+
+  const updateGameStmt = dbInstance.prepare(`
+    UPDATE games
+    SET gameye_id = ?,
+        gameye_platform_id = ?,
+        price_loose = ?,
+        price_cib = ?,
+        price_new = ?,
+        price_updated_at = ?
+    WHERE stable_id = ?
+  `);
+
+  let gamesMatched = 0;
+  let gamesUnmatched = 0;
+
+  for (let i = 0; i < gamesToSync.length; i++) {
+    const game = gamesToSync[i];
+    process.stdout.write(
+      `[${i + 1}/${gamesToSync.length}] Syncing Game: ${game.title} (${game.platform_name})... `,
+    );
+
+    const match = await searchGameyeGame(
+      game.title,
+      game.platform_id,
+      game.region,
+    );
+    await delay(120);
+
+    if (match) {
+      updateGameStmt.run(
+        match.gameye_id,
+        match.gameye_platform_id,
+        match.price_loose,
+        match.price_cib,
+        match.price_new,
+        new Date().toISOString(),
+        game.stable_id,
+      );
+      const looseStr =
+        match.price_loose !== null
+          ? `$${(match.price_loose / 100).toFixed(2)}`
+          : 'N/A';
+      const cibStr =
+        match.price_cib !== null
+          ? `$${(match.price_cib / 100).toFixed(2)}`
+          : 'N/A';
+      console.log(
+        `Matched! ID: ${match.gameye_id} [Loose: ${looseStr}, CIB: ${cibStr}] (${match.confidence})`,
+      );
+      gamesMatched++;
+    } else {
+      console.log(`No match found on GAMEYE.`);
+      gamesUnmatched++;
+    }
+  }
+
+  // 2. Sync Toys
+  let toyQuery = `
+    SELECT stable_id, id, name, line, series_id, gameye_id
+    FROM toys
+    WHERE ownership_status > 0
+  `;
+  if (!runRefresh) {
+    toyQuery += ` AND (gameye_id IS NULL OR price_loose IS NULL)`;
+  }
+  if (limit && limit > 0) {
+    toyQuery += ` LIMIT ${limit}`;
+  }
+
+  const toysToSync = dbInstance.prepare(toyQuery).all() as {
+    stable_id: number;
+    id: string;
+    name: string;
+    line: string;
+    series_id: string | null;
+    gameye_id: number | null;
+  }[];
+
+  console.log(`\nFound ${toysToSync.length} owned toys needing GAMEYE sync...`);
+
+  const updateToyStmt = dbInstance.prepare(`
+    UPDATE toys
+    SET gameye_id = ?,
+        price_loose = ?,
+        price_cib = ?,
+        price_new = ?,
+        price_updated_at = ?
+    WHERE stable_id = ?
+  `);
+
+  let toysMatched = 0;
+  let toysUnmatched = 0;
+
+  for (let i = 0; i < toysToSync.length; i++) {
+    const toy = toysToSync[i];
+    process.stdout.write(
+      `[${i + 1}/${toysToSync.length}] Syncing Toy: ${toy.name} (${toy.line})... `,
+    );
+
+    const match = await searchGameyeToy(toy.name, toy.line);
+    await delay(120);
+
+    if (match) {
+      updateToyStmt.run(
+        match.gameye_id,
+        match.price_loose,
+        match.price_cib,
+        match.price_new,
+        new Date().toISOString(),
+        toy.stable_id,
+      );
+      const looseStr =
+        match.price_loose !== null
+          ? `$${(match.price_loose / 100).toFixed(2)}`
+          : 'N/A';
+      console.log(
+        `Matched! ID: ${match.gameye_id} [Loose: ${looseStr}] (${match.confidence})`,
+      );
+      toysMatched++;
+    } else {
+      console.log(`No match found on GAMEYE.`);
+      toysUnmatched++;
+    }
+  }
+
+  console.log('\n--- GAMEYE & PriceCharting Sync Complete ---');
+  console.log(`Games: ${gamesMatched} matched, ${gamesUnmatched} unmatched.`);
+  console.log(`Toys: ${toysMatched} matched, ${toysUnmatched} unmatched.`);
+}
+
 async function runScraper(): Promise<void> {
   const args = process.argv.slice(2);
   const runDiscovery = args.includes('--discovery');
   const runRefresh = args.includes('--refresh');
   const runRecomputeSeries = args.includes('--recompute-series');
   const runSyncDats = args.includes('--sync-dats');
+  const runSyncGameye = args.includes('--sync-gameye');
+
+  if (runSyncGameye) {
+    const limitArgIndex = args.indexOf('--limit');
+    const limit =
+      limitArgIndex !== -1 && args[limitArgIndex + 1]
+        ? parseInt(args[limitArgIndex + 1], 10)
+        : undefined;
+    await syncGameyeData(db, runRefresh, limit);
+    return;
+  }
 
   if (runSyncDats) {
     console.log('--- Starting DAT Sync Phase ---');

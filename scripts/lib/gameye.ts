@@ -230,11 +230,8 @@ export async function searchGameyeToy(
     return null;
   }
 
-  const platformId = GAMEYE_TOY_PLATFORMS[line];
-  const platformParam = platformId ? `&platforms=${platformId}` : '';
-
   try {
-    const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=15&title=${encodeURIComponent(queryName)}&cat=3${platformParam}`;
+    const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=15&title=${encodeURIComponent(queryName)}&cat=3`;
     const response = await client.get(url, { timeout: 10000 });
     const records: GameyeRecord[] = response.data?.records || [];
 
@@ -242,7 +239,7 @@ export async function searchGameyeToy(
       return null;
     }
 
-    return pickBestRecord(queryName, records, platformId || 0);
+    return pickBestRecord(queryName, records, 0);
   } catch {
     return null;
   }
