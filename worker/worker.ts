@@ -1231,6 +1231,32 @@ Disallow: /
         }
       }
 
+      // Endpoint: GET /api/export/gameye
+      else if (request.method === 'GET' && path === '/api/export/gameye') {
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const filename = `${yyyy}_${mm}_${dd}_gagglog_export.ged`;
+
+        if (env.BACKUP_BUCKET) {
+          const obj = await env.BACKUP_BUCKET.get('gameye/latest_export.ged');
+          if (obj) {
+            return new Response(obj.body, {
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                'Content-Disposition': `attachment; filename="${filename}"`,
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
+              },
+            });
+          }
+        }
+        return Response.json(
+          { error: 'GAMEYE export backup not found.' },
+          { status: 404 },
+        );
+      }
+
       // Endpoint: GET /api/admin/login or GET /admin/login or /cdn-cgi/access/authorized
       else if (
         path === '/api/admin/login' ||

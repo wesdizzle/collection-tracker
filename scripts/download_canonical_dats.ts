@@ -14,6 +14,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'node:os';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -865,7 +866,7 @@ export function pruneAndDeduplicateDats(targetDatsDir: string = datsDir): {
 }
 
 /**
- * Synchronizes the clean canonical DAT files to an external directory (e.g. C:\Users\wesdi\Downloads\dats).
+ * Synchronizes the clean canonical DAT files to an external directory (e.g. ~/Downloads/dats).
  */
 export function syncCleanDatsToDirectory(
   sourceDir: string,
@@ -1055,7 +1056,7 @@ export async function runDatDownloads() {
     process.env['EXTERNAL_DATS_DIR'] ||
     (process.env['USERPROFILE']
       ? path.join(process.env['USERPROFILE'], 'Downloads', 'dats')
-      : path.join('C:', 'Users', 'wesdi', 'Downloads', 'dats'));
+      : path.join(os.homedir(), 'Downloads', 'dats'));
   if (fs.existsSync(externalDatsDir)) {
     const syncRes = syncCleanDatsToDirectory(datsDir, externalDatsDir);
     if (syncRes.copied > 0 || syncRes.deleted > 0) {

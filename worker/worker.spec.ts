@@ -204,7 +204,7 @@ describe('Worker API Logic', () => {
       get: async (key: string) => {
         const item = storage.get(key);
         if (!item) return null;
-        return { text: async () => item };
+        return { body: item, text: async () => item };
       },
     };
 
@@ -381,6 +381,25 @@ describe('Worker API Logic', () => {
     expect(parsed.metadata.totalRows).toBe(result.rowCount);
     expect(parsed.tables.games.length).toBe(1);
     expect(parsed.tables.platforms.length).toBe(1);
+  });
+
+  it('GET /api/export/gameye returns 404 when export object is not in R2', async () => {
+    const req = new Request('http://localhost/api/export/gameye');
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /api/export/gameye streams export archive with attachment headers when present in R2', async () => {
+    mockBucket.storage.set('gameye/latest_export.ged', 'mock-zip-binary-data');
+    const req = new Request('http://localhost/api/export/gameye');
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(res.headers.get('Content-Disposition')).toContain(
+      '_gagglog_export.ged',
+    );
+    const text = await res.text();
+    expect(text).toBe('mock-zip-binary-data');
   });
 
   it('POST /api/discovery/add inserts game and releases transactionally', async () => {
