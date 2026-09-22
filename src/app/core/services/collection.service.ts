@@ -549,6 +549,40 @@ export class CollectionService {
   }
 
   /**
+   * Updates the 'has_case' flag of a game release.
+   */
+  updateHasCase(id: string, status: number): Observable<unknown> {
+    return this.http
+      .post('/api/collection/toggle', {
+        id,
+        type: 'game',
+        status,
+        field: 'has_case',
+      })
+      .pipe(
+        tap(() => this._isAdmin.set(true)),
+        catchError(this.handleMutationError),
+      );
+  }
+
+  /**
+   * Updates the 'has_manual' flag of a game release.
+   */
+  updateHasManual(id: string, status: number): Observable<unknown> {
+    return this.http
+      .post('/api/collection/toggle', {
+        id,
+        type: 'game',
+        status,
+        field: 'has_manual',
+      })
+      .pipe(
+        tap(() => this._isAdmin.set(true)),
+        catchError(this.handleMutationError),
+      );
+  }
+
+  /**
    * Updates the sort_index for a collection item.
    */
   updateSortIndex(

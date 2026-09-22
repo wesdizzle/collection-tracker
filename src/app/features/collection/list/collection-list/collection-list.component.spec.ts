@@ -7,9 +7,10 @@ import {
   HttpTestingController,
 } from '@angular/common/http/testing';
 import { ActivatedRoute } from '@angular/router';
+import { of } from 'rxjs';
 import { CollectionListComponent } from './collection-list.component';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { ListState } from '../../../../core/models/collection.models';
+import { ListState, Game } from '../../../../core/models/collection.models';
 
 /**
  * UNIT TEST: CollectionListComponent
@@ -1023,5 +1024,98 @@ describe('CollectionListComponent', () => {
     expect(games[0].id).toBe('g-main');
     expect(games[1].id).toBe('g-rev');
     expect(games[2].id).toBe('g-demo');
+  });
+
+  it('should sort games by value descending taking condition into account', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'g-cheap',
+        title: 'Cheap Game',
+        platform: 'NES',
+        ownership_status: 1,
+        has_case: 0,
+        has_manual: 0,
+        price_loose: 500,
+        price_cib: 2000,
+        platform_launch_date: '1985-01-01',
+        brand: 'Nintendo',
+      },
+      {
+        stable_id: 2,
+        id: 'g-expensive-cib',
+        title: 'Expensive CIB Game',
+        platform: 'NES',
+        ownership_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        price_loose: 1500,
+        price_cib: 8000,
+        platform_launch_date: '1985-01-01',
+        brand: 'Nintendo',
+      },
+      {
+        stable_id: 3,
+        id: 'g-mid-loose',
+        title: 'Mid Loose Game',
+        platform: 'NES',
+        ownership_status: 1,
+        has_case: 1,
+        has_manual: 0,
+        price_loose: 3500,
+        price_cib: 10000,
+        platform_launch_date: '1985-01-01',
+        brand: 'Nintendo',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    component.filters.update((f) => ({ ...f, sortBy: 'value_desc' }));
+    fixture.detectChanges();
+
+    const games = component.filteredGames();
+    expect(games.length).toBe(3);
+    expect(games[0].id).toBe('g-expensive-cib');
+    expect(games[1].id).toBe('g-mid-loose');
+    expect(games[2].id).toBe('g-cheap');
+  });
+
+  it('should toggle has_case and has_manual via collectionService', async () => {
+    const service = TestBed.inject(CollectionService);
+    const updateCaseSpy = vi
+      .spyOn(service, 'updateHasCase')
+      .mockReturnValue(of({ success: true }));
+    const updateManualSpy = vi
+      .spyOn(service, 'updateHasManual')
+      .mockReturnValue(of({ success: true }));
+
+    const mockGame = {
+      stable_id: 1,
+      id: 'g-test',
+      title: 'Test Game',
+      has_case: 0,
+      has_manual: 0,
+      ownership_status: 1,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleCase(mockEvent, mockGame);
+    expect(mockEvent.preventDefault).toHaveBeenCalled();
+    expect(updateCaseSpy).toHaveBeenCalledWith('g-test', 1);
+
+    component.onToggleManual(mockEvent, mockGame);
+    expect(mockEvent.stopPropagation).toHaveBeenCalled();
+    expect(updateManualSpy).toHaveBeenCalledWith('g-test', 1);
   });
 });

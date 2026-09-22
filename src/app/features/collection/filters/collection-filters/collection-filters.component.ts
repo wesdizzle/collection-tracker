@@ -296,6 +296,22 @@ import {
           </div>
         </div>
 
+        <div class="filter-group">
+          <label class="m3-label">Sort By</label>
+          <div class="input-wrapper">
+            <select
+              [ngModel]="filters().sortBy || 'default'"
+              (ngModelChange)="onPartialChange('sortBy', $event)"
+              class="m3-input"
+              id="filter-sort-by"
+            >
+              <option value="default">Default</option>
+              <option value="value_desc">Value: High to Low</option>
+              <option value="value_asc">Value: Low to High</option>
+            </select>
+          </div>
+        </div>
+
         <div
           class="filter-info ml-auto mobile-hidden flex flex-col items-end gap-2xs"
         >

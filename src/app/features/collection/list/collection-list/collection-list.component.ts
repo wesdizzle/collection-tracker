@@ -283,6 +283,44 @@ interface GameGroup {
                           }
                         </div>
                       }
+
+                      @if (getGamePriceBadge(game); as badge) {
+                        <div class="mt-2xs">
+                          <span
+                            class="valuation-badge"
+                            [title]="
+                              'Estimated Market Value (PriceCharting): $' +
+                              (badge.cents / 100).toFixed(2)
+                            "
+                          >
+                            {{ '$' + (badge.cents / 100).toFixed(2) }}
+                            {{ badge.label }}
+                          </span>
+                        </div>
+                      }
+
+                      @if (game.ownership_status === 1) {
+                        <div class="completeness-chips mt-2xs">
+                          <button
+                            type="button"
+                            class="completeness-chip state-layer"
+                            [class.active]="game.has_case"
+                            (click)="onToggleCase($event, game)"
+                            title="Toggle Case / Box Ownership"
+                          >
+                            📦 Case
+                          </button>
+                          <button
+                            type="button"
+                            class="completeness-chip state-layer"
+                            [class.active]="game.has_manual"
+                            (click)="onToggleManual($event, game)"
+                            title="Toggle Manual Ownership"
+                          >
+                            📖 Manual
+                          </button>
+                        </div>
+                      }
                     </div>
                   </a>
                 }
@@ -440,6 +478,22 @@ interface GameGroup {
                           @if (toy.series_name) {
                             <div class="card-subtitle" title="Series">
                               {{ toy.series_name }}
+                            </div>
+                          }
+                          @if (toy.price_loose) {
+                            <div class="mt-2xs">
+                              <span
+                                class="valuation-badge"
+                                [title]="
+                                  'Estimated Loose Market Value: $' +
+                                  (toy.price_loose / 100).toFixed(2)
+                                "
+                              >
+                                {{
+                                  '$' + (toy.price_loose / 100).toFixed(2)
+                                }}
+                                Loose
+                              </span>
                             </div>
                           }
                         </div>
@@ -780,6 +834,51 @@ interface GameGroup {
         text-transform: uppercase;
         letter-spacing: 0.03em;
       }
+
+      .valuation-badge {
+        display: inline-flex;
+        align-items: center;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #10b981;
+        background: rgba(16, 185, 129, 0.12);
+        border: 1px solid rgba(16, 185, 129, 0.25);
+        padding: 0.15rem 0.45rem;
+        border-radius: 999px;
+        letter-spacing: 0.02em;
+        font-family: var(--font-heading);
+      }
+
+      .completeness-chips {
+        display: flex;
+        gap: 0.25rem;
+      }
+
+      .completeness-chip {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.15rem 0.45rem;
+        border-radius: 4px;
+        border: 1px solid var(--m3-outline-variant);
+        background: var(--m3-surface-container);
+        color: var(--m3-on-surface-variant);
+        opacity: 0.65;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .completeness-chip.active {
+        background: var(--m3-primary-container);
+        color: var(--m3-primary);
+        border-color: var(--m3-primary);
+        opacity: 1;
+        font-weight: 700;
+      }
+
+      .completeness-chip:hover {
+        opacity: 1;
+        transform: scale(1.05);
+      }
     `,
   ],
 })
@@ -810,6 +909,7 @@ export class CollectionListComponent
     type: '',
     seriesOrName: '',
     seriesExact: false,
+    sortBy: 'default',
   });
   public displayLimit = signal<number>(100);
   public lastUpdated = this.collectionService.lastUpdated;
@@ -990,6 +1090,21 @@ export class CollectionListComponent
          *    production (Cloudflare D1) despite potential collation differences.
          */
 
+        // Value-Based Sorting (High to Low or Low to High)
+        if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
+          const priceA = this.getEffectiveGamePrice(a);
+          const priceB = this.getEffectiveGamePrice(b);
+          if (priceA !== null || priceB !== null) {
+            if (priceA === null) return 1;
+            if (priceB === null) return -1;
+            if (priceA !== priceB) {
+              return f.sortBy === 'value_desc'
+                ? priceB - priceA
+                : priceA - priceB;
+            }
+          }
+        }
+
         // 1. Platform Launch Date (ASC)
         const dateA = a.platform_launch_date || '9999-99-99';
         const dateB = b.platform_launch_date || '9999-99-99';
@@ -1141,6 +1256,22 @@ export class CollectionListComponent
   public groupedGames = computed(() => {
     const allFiltered = this.filteredGames();
     const displayed = this.displayGames();
+    const f = this.filters();
+
+    // When sorted by value, present a unified list ranked across platforms
+    if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
+      const headerTitle = f.platform_id
+        ? `${displayed[0]?.display_name || displayed[0]?.platform || 'Platform'} (Ranked by Value)`
+        : 'All Platforms (Ranked by Value)';
+      return [
+        {
+          platformName: headerTitle,
+          platformLogo: f.platform_id ? displayed[0]?.platform_logo : null,
+          games: displayed,
+          totalCount: allFiltered.length,
+        },
+      ];
+    }
 
     // 1. Calculate total counts per platform from ALL filtered games
     const counts = new Map<string, number>();
@@ -1243,6 +1374,21 @@ export class CollectionListComponent
          * across all toy product lines and series.
          */
 
+        // Value-Based Sorting (High to Low or Low to High)
+        if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
+          const priceA = a.price_loose ?? null;
+          const priceB = b.price_loose ?? null;
+          if (priceA !== null || priceB !== null) {
+            if (priceA === null) return 1;
+            if (priceB === null) return -1;
+            if (priceA !== priceB) {
+              return f.sortBy === 'value_desc'
+                ? priceB - priceA
+                : priceA - priceB;
+            }
+          }
+        }
+
         // 1. Line (ASC)
         const lineA = this.normalizeForSort(a.line);
         const lineB = this.normalizeForSort(b.line);
@@ -1311,6 +1457,27 @@ export class CollectionListComponent
   public groupedToys = computed(() => {
     const displayed = this.displayToys();
     const allFiltered = this.filteredToys();
+    const f = this.filters();
+
+    // When sorted by value, present a unified list ranked across lines/series
+    if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
+      const lineTitle = f.line
+        ? `${f.line} (Ranked by Value)`
+        : 'All Toys (Ranked by Value)';
+      return [
+        {
+          lineName: lineTitle,
+          totalCount: allFiltered.length,
+          seriesGroups: [
+            {
+              seriesName: 'Market Value Ranking',
+              toys: displayed,
+              totalCount: allFiltered.length,
+            },
+          ],
+        },
+      ];
+    }
 
     // 1. Get total counts per line and per series from ALL filtered toys
     const lineCounts = new Map<string, number>();
@@ -1652,5 +1819,50 @@ export class CollectionListComponent
           });
       },
     );
+  }
+
+  public getGamePriceBadge(
+    game: Game,
+  ): { cents: number; label: string } | null {
+    const isCib = Boolean(game.has_case) && Boolean(game.has_manual);
+    if (isCib && game.price_cib) {
+      return { cents: game.price_cib, label: 'CIB' };
+    }
+    if (game.price_loose) {
+      return { cents: game.price_loose, label: 'Loose' };
+    }
+    return null;
+  }
+
+  private getEffectiveGamePrice(game: Game): number | null {
+    const isCib = Boolean(game.has_case) && Boolean(game.has_manual);
+    if (isCib) {
+      return game.price_cib ?? game.price_loose ?? null;
+    }
+    return game.price_loose ?? null;
+  }
+
+  onToggleCase(event: MouseEvent, game: Game) {
+    event.preventDefault();
+    event.stopPropagation();
+    const current = Boolean(game.has_case);
+    const newStatus = current ? 0 : 1;
+    game.has_case = newStatus;
+    this.collectionService.updateHasCase(game.id, newStatus).subscribe({
+      next: () => this.collectionService.refreshAll(),
+      error: (err) => console.error('Failed to toggle case:', err),
+    });
+  }
+
+  onToggleManual(event: MouseEvent, game: Game) {
+    event.preventDefault();
+    event.stopPropagation();
+    const current = Boolean(game.has_manual);
+    const newStatus = current ? 0 : 1;
+    game.has_manual = newStatus;
+    this.collectionService.updateHasManual(game.id, newStatus).subscribe({
+      next: () => this.collectionService.refreshAll(),
+      error: (err) => console.error('Failed to toggle manual:', err),
+    });
   }
 }

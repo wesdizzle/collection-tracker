@@ -204,6 +204,7 @@ export interface FilterState {
   type?: string;
   seriesOrName?: string;
   seriesExact?: boolean;
+  sortBy?: 'default' | 'value_desc' | 'value_asc';
 }
 
 export interface PlatformGroup {
