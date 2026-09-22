@@ -209,9 +209,9 @@ describe('GAMEYE .GED Exporter', () => {
       expect(rows[2].category_id).toBe(3);
       expect(rows[2].title).toBe('Spyro');
 
-      // Toy 2: amiibo (category 3, mask 1, platform 116)
+      // Toy 2: amiibo (category 3, mask 1, platform 118)
       expect(rows[3].item_id).toBe(66666);
-      expect(rows[3].platform_id).toBe(116);
+      expect(rows[3].platform_id).toBe(118);
       expect(rows[3].country_id).toBeNull();
       expect(rows[3].ownership_mask).toBe(1);
       expect(rows[3].category_id).toBe(3);

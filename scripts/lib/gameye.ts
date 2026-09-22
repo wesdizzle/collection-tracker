@@ -14,22 +14,22 @@ export const GAMEYE_API_BASE = 'https://www.gameye.app/api';
  */
 export const GAGGLOG_TO_GAMEYE_PLATFORM: Record<number, number> = {
   1: 21, // 3DO Interactive Multiplayer
-  2: 22, // Atari 2600
-  3: 23, // Atari 5200
-  4: 24, // Atari 7800
+  2: 21, // Atari 2600
+  3: 25, // Atari 5200
+  4: 26, // Atari 7800
   5: 26, // Atari Lynx
   6: 25, // Atari Jaguar
-  7: 28, // ColecoVision
-  8: 27, // Intellivision
+  7: 30, // ColecoVision
+  8: 31, // Intellivision
   9: 30, // Neo Geo AES
   10: 31, // Neo Geo CD
   11: 33, // Neo Geo Pocket Color
   13: 7, // Nintendo Entertainment System
   14: 4, // Game Boy
   15: 6, // Super Nintendo Entertainment System
-  16: 35, // Virtual Boy
+  16: 45, // Virtual Boy
   17: 3, // Nintendo 64
-  18: 42, // Game Boy Color
+  18: 39, // Game Boy Color
   19: 5, // Game Boy Advance
   20: 2, // Nintendo GameCube
   21: 8, // Nintendo DS
@@ -38,8 +38,8 @@ export const GAGGLOG_TO_GAMEYE_PLATFORM: Record<number, number> = {
   24: 36, // Wii U
   25: 41, // New Nintendo 3DS
   26: 97, // Nintendo Switch
-  27: 97, // Nintendo Switch 2
-  28: 38, // Philips CD-i
+  27: 178, // Nintendo Switch 2
+  28: 44, // Philips CD-i
   29: 10, // PlayStation
   30: 11, // PlayStation 2
   31: 13, // PlayStation Portable
@@ -54,8 +54,8 @@ export const GAGGLOG_TO_GAMEYE_PLATFORM: Record<number, number> = {
   41: 32, // Sega 32X
   42: 17, // Sega Saturn
   43: 16, // Dreamcast
-  45: 29, // TurboGrafx-16
-  46: 43, // TurboGrafx CD
+  45: 33, // TurboGrafx-16
+  46: 81, // TurboGrafx CD
   47: 14, // Xbox
   48: 15, // Xbox 360
   49: 47, // Xbox One
@@ -83,7 +83,7 @@ export const GAGGLOG_TO_GAMEYE_COUNTRY: Record<string, number> = {
 
 export const GAMEYE_TOY_PLATFORMS: Record<string, number> = {
   Skylanders: 119,
-  amiibo: 116,
+  amiibo: 118,
   Starlink: 119, // In GAMEYE toys-to-life category
 };
 
