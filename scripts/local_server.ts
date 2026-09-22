@@ -39,6 +39,7 @@ import {
   GAMES_ORDER_BY,
   getRomGroupingKey,
 } from './lib/queries.js';
+import { exportGed } from './lib/ged_exporter.js';
 
 // Source of truth local database
 const db = new Database('collection.sqlite');
@@ -1249,6 +1250,19 @@ export const handleRequest =
         } else {
           res.end(JSON.stringify(toy));
         }
+      }
+
+      // GET /api/export/gameye
+      else if (req.method === 'GET' && pathname === '/api/export/gameye') {
+        const { buffer, filename } = exportGed(db);
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${filename}"`,
+        );
+        res.setHeader('Content-Length', buffer.length.toString());
+        res.statusCode = 200;
+        res.end(buffer);
       }
 
       // Default fallback

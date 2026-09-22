@@ -684,5 +684,30 @@ describe('Local Server API Logic', () => {
       expect(output[0].title).toBe('Bloodborne');
       expect(output[0].releases).toBeDefined();
     });
+
+    it('should stream GAMEYE export .ged archive via /api/export/gameye', async () => {
+      mockDb
+        .prepare(
+          'UPDATE games SET gameye_id = 9999, gameye_platform_id = 11 WHERE stable_id = 1',
+        )
+        .run();
+      const { req, res } = createMocks('/api/export/gameye');
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'application/octet-stream',
+      );
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        expect.stringContaining('_gagglog_export.ged'),
+      );
+      expect(res.end).toHaveBeenCalled();
+      const endArg = res.end.mock.calls[0][0];
+      expect(Buffer.isBuffer(endArg)).toBe(true);
+      expect(endArg.readUInt32LE(0)).toBe(0x04034b50);
+    });
   });
 });
