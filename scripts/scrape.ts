@@ -1349,7 +1349,7 @@ export async function syncGameyeData(
 
   if (syncTarget === 'all' || syncTarget === 'toys') {
     let toyQuery = `
-      SELECT stable_id, id, name, line, series_id, gameye_id
+      SELECT stable_id, id, name, line, series_id, gameye_id, type
       FROM toys
       WHERE ownership_status > 0
     `;
@@ -1367,6 +1367,7 @@ export async function syncGameyeData(
       line: string;
       series_id: string | null;
       gameye_id: number | null;
+      type: string | null;
     }[];
 
     console.log(
@@ -1391,6 +1392,7 @@ export async function syncGameyeData(
 
       const match = await searchGameyeToy(toy.name, toy.line, {
         seriesId: toy.series_id,
+        toyType: toy.type,
       });
       await delay(120);
 

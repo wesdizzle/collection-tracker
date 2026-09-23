@@ -88,6 +88,177 @@ export const GAMEYE_TOY_PLATFORMS: Record<string, number> = {
   Starlink: 125,
 };
 
+export const TOY_SEARCH_ALIASES: Record<string, string> = {
+  // 8-bit Mario & Zelda
+  '8-Bit Mario Classic Color': 'Mario 30th Anniversary Classic Color',
+  '8-Bit Mario Modern Color': 'Mario 30th Anniversary Modern Color',
+  '8-Bit Link': 'Link 8 Bit',
+
+  // Zelda amiibo
+  'Toon Link - The Wind Waker': 'Toon Link Wind Waker',
+  'Toon Zelda - The Wind Waker': 'Zelda Wind Waker',
+  'Midna & Wolf Link': 'Wolf Link',
+
+  // Monster Hunter amiibo (Japanese localizations)
+  'One-Eyed Rathalos and Rider - Female': 'One-Eyed Liolaeus and Rider Girl',
+  'One-Eyed Rathalos and Rider - Male': 'One-Eyed Liolaeus and Rider Boy',
+  Nabiru: 'Navirou',
+  'Rathian and Cheval': 'Lioleia & Cheval',
+  'Barioth and Ayuria': 'Berioros Hyoga & Ayuria',
+  'Qurupeco and Dan': 'Qurupeco & Dan',
+
+  // Mario & Splatoon variants
+  'Inkling Girl - Lime Green': 'Inkling Girl Green',
+  'Mario - Gold Edition': 'Mario Super Mario Series Gold',
+  'Mario - Silver Edition': 'Mario Super Mario Series Silver',
+  'Peach - Cat': 'Cat Peach',
+  'Mega Man - Gold Edition': 'Mega Man Gold',
+  'R.O.B. - NES': 'ROB',
+  'R.O.B. - Famicom': 'ROB Famicom Colors',
+  'Green Yarn Yoshi': 'Yarn Yoshi Green',
+  'Pink Yarn Yoshi': 'Yarn Yoshi Pink',
+  'Light Blue Yarn Yoshi': 'Yarn Yoshi Light Blue',
+
+  // Skylanders figures
+  'Heavy Duty Sprocket': 'Sprocket Swap Force',
+  Kaboom: 'Ka Boom Trap Team',
+  Blastermind: 'Blastermind Trap Team',
+  Jawbreaker: 'Jaw Breaker Trap Team',
+  'Power Punch Pet Vac': 'Pet Vac Trap Team Mini Power Punch',
+  'Shark Shooter Terrafin': 'Terrafin SuperChargers Shark Shooter',
+  'Lava Lance Eruptor': 'Eruptor SuperChargers Lava Lance',
+  'Turbo Charge Donkey Kong': 'Donkey Kong SuperChargers',
+  'Super Shot Stealth Elf': 'Stealth Elf SuperChargers Super Shot',
+  'Dark Super Shot Stealth Elf': 'Stealth Elf SuperChargers Super Shot Dark',
+  'Tomb Buggy': 'Tomb Buggy SuperChargers',
+  'Spring Ahead Dive Bomber': 'Diver Bomber Spring Ahead',
+
+  // Skylanders traps
+  'Legendary Water Jughead Trap': 'Water Trap Legendary Water Jughead',
+  'Legendary Undead Orb Trap': 'Undead Trap Legendary Undead Orb',
+  'Legendary Undead Skull Trap': 'Undead Trap Legendary Undead Skull',
+  'Earth Hourglass (Dust of Time)': 'Earth Hourglass',
+  'Easter Bunny Earth Trap': 'Earth Trap Easter Bunny',
+  'Life Snake (Seed Serpent)': 'Life Trap',
+};
+
+export const STARLINK_BENCHMARKS: Record<
+  string,
+  {
+    gameye_id: number;
+    gameye_platform_id: number;
+    title: string;
+    price_loose: number;
+    price_cib: number | null;
+  }
+> = {
+  arwing: {
+    gameye_id: 74730,
+    gameye_platform_id: 97,
+    title: 'Starlink: Battle For Atlas [Starter Pack]',
+    price_loose: 1599,
+    price_cib: 2199,
+  },
+  zenith: {
+    gameye_id: 53961,
+    gameye_platform_id: 46,
+    title: 'Starlink: Battle for Atlas (Starter Pack)',
+    price_loose: 499,
+    price_cib: 1602,
+  },
+  foxmccloud: {
+    gameye_id: 74730,
+    gameye_platform_id: 97,
+    title: 'Fox McCloud (Starlink Switch Starter Pack)',
+    price_loose: 1000,
+    price_cib: null,
+  },
+  masonrana: {
+    gameye_id: 74730,
+    gameye_platform_id: 97,
+    title: 'Mason Rana (Starlink Starter Pack)',
+    price_loose: 600,
+    price_cib: null,
+  },
+  chasedasilva: {
+    gameye_id: 89493,
+    gameye_platform_id: 125,
+    title: 'Chase Da Silva (Pulse Starship Pack)',
+    price_loose: 600,
+    price_cib: null,
+  },
+  hunterhakka: {
+    gameye_id: 89490,
+    gameye_platform_id: 125,
+    title: 'Hunter Hakka (Lance Starship Pack)',
+    price_loose: 600,
+    price_cib: null,
+  },
+  judge: {
+    gameye_id: 89492,
+    gameye_platform_id: 125,
+    title: 'Judge (Neptune Starship Pack)',
+    price_loose: 600,
+    price_cib: null,
+  },
+  shaid: {
+    gameye_id: 89491,
+    gameye_platform_id: 125,
+    title: 'Shaid (Nadir Starship Pack)',
+    price_loose: 600,
+    price_cib: null,
+  },
+  flamethrower: {
+    gameye_id: 74730,
+    gameye_platform_id: 97,
+    title: 'Flamethrower (Starlink Starter Pack)',
+    price_loose: 350,
+    price_cib: null,
+  },
+  frostbarrage: {
+    gameye_id: 74730,
+    gameye_platform_id: 97,
+    title: 'Frost Barrage (Starlink Starter Pack)',
+    price_loose: 350,
+    price_cib: null,
+  },
+  furycannon: {
+    gameye_id: 89494,
+    gameye_platform_id: 125,
+    title: 'Fury Cannon (Scramble Starship Pack)',
+    price_loose: 350,
+    price_cib: null,
+  },
+  imploder: {
+    gameye_id: 89490,
+    gameye_platform_id: 125,
+    title: 'Imploder (Lance Starship Pack)',
+    price_loose: 350,
+    price_cib: null,
+  },
+  levitator: {
+    gameye_id: 89492,
+    gameye_platform_id: 125,
+    title: 'Levitator (Neptune Starship Pack)',
+    price_loose: 350,
+    price_cib: null,
+  },
+  nullifier: {
+    gameye_id: 89491,
+    gameye_platform_id: 125,
+    title: 'Nullifier (Nadir Starship Pack)',
+    price_loose: 350,
+    price_cib: null,
+  },
+  volcano: {
+    gameye_id: 89493,
+    gameye_platform_id: 125,
+    title: 'Volcano (Pulse Starship Pack)',
+    price_loose: 350,
+    price_cib: null,
+  },
+};
+
 export interface GameyeRecord {
   id: number;
   category_id: number;
@@ -254,7 +425,37 @@ export async function searchGameyeToy(
         ? 118
         : 119);
 
-  const queryName = cleanTitleForSearch(name);
+  // Check Starlink component benchmarks (Option A)
+  if (line.toLowerCase() === 'starlink') {
+    const starlinkKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (STARLINK_BENCHMARKS[starlinkKey]) {
+      const b = STARLINK_BENCHMARKS[starlinkKey];
+      return {
+        gameye_id: b.gameye_id,
+        gameye_platform_id: b.gameye_platform_id,
+        gameye_country_id: 1,
+        title: b.title,
+        price_loose: b.price_loose,
+        price_cib: b.price_cib,
+        price_new: null,
+        has_vgpc: true,
+        confidence: 'high',
+      };
+    }
+  }
+
+  let searchTarget = TOY_SEARCH_ALIASES[name];
+  if (
+    !searchTarget &&
+    name === 'Zelda' &&
+    (options.seriesId?.toLowerCase().includes('zelda') ||
+      options.toyType === 'Figure')
+  ) {
+    searchTarget = 'Zelda Breath of The Wild';
+  }
+
+  const effectiveName = searchTarget || name;
+  const queryName = cleanTitleForSearch(effectiveName);
   if (!queryName) {
     return null;
   }
@@ -263,15 +464,19 @@ export async function searchGameyeToy(
     let records: GameyeRecord[] = [];
 
     if (platformId === 119) {
-      // Skylanders: Extract base name to retrieve all series/variants for this character
-      const { baseName } = extractBaseCharacterName(name);
-      const searchTarget = baseName || queryName;
-      const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=25&title=${encodeURIComponent(searchTarget)}&platforms=119&cat=3`;
+      // Skylanders: If an explicit alias exists, use it directly.
+      // Otherwise extract base name to retrieve all series/variants for this character
+      let searchTargetName = searchTarget;
+      if (!searchTargetName) {
+        const { baseName } = extractBaseCharacterName(name);
+        searchTargetName = baseName || queryName;
+      }
+      const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=25&title=${encodeURIComponent(searchTargetName)}&platforms=119&cat=3`;
       const response = await client.get(url, { timeout: 10000 });
       records = response.data?.records || [];
 
       // If no records found with base name, fallback to full query name
-      if (records.length === 0 && searchTarget !== queryName) {
+      if (records.length === 0 && searchTargetName !== queryName) {
         const fallbackUrl = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=25&title=${encodeURIComponent(queryName)}&platforms=119&cat=3`;
         const fbRes = await client.get(fallbackUrl, { timeout: 10000 });
         records = fbRes.data?.records || [];
@@ -299,7 +504,12 @@ export async function searchGameyeToy(
       return null;
     }
 
-    return pickBestToyRecord(name, records, platformId, options.seriesId);
+    return pickBestToyRecord(
+      effectiveName,
+      records,
+      platformId,
+      options.seriesId,
+    );
   } catch {
     return null;
   }
@@ -381,6 +591,11 @@ function pickBestToyRecord(
       else if (sLower.includes('splatoon') && cNorm.includes('splatoon'))
         score += 15;
       else if (sLower.includes('30th') && cNorm.includes('30th')) score += 15;
+    }
+
+    // Boost records that have real price data over unpriced placeholders / promos
+    if ((record.price?.Loose ?? 0) > 0) {
+      score += 20;
     }
 
     if (score > highestScore) {

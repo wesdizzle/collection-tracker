@@ -379,5 +379,154 @@ describe('GAMEYE Reconciliation Module', () => {
       expect(result?.title).toBe('Mario [Super Smash Bros]');
       expect(result?.price_loose).toBe(999);
     });
+
+    it('should match 8-Bit Mario and 8-Bit Link via canonical aliases', async () => {
+      const mockClient = {
+        get: vi.fn().mockImplementation((url: string) => {
+          if (url.includes('Mario')) {
+            return Promise.resolve({
+              data: {
+                records: [
+                  {
+                    id: 81609,
+                    category_id: 3,
+                    platform_id: 118,
+                    country_id: 1,
+                    title: 'Mario [30th Anniversary Classic Color]',
+                    has_vgpc: true,
+                    price: { Loose: 1053, CIB: 1053, New: 1707 },
+                  },
+                ],
+              },
+            });
+          }
+          if (url.includes('Link')) {
+            return Promise.resolve({
+              data: {
+                records: [
+                  {
+                    id: 81583,
+                    category_id: 3,
+                    platform_id: 118,
+                    country_id: 1,
+                    title: 'Link [8 Bit]',
+                    has_vgpc: true,
+                    price: { Loose: 1655, CIB: 1655, New: 2099 },
+                  },
+                ],
+              },
+            });
+          }
+          return Promise.resolve({ data: { records: [] } });
+        }),
+      };
+
+      const mario = await searchGameyeToy(
+        '8-Bit Mario Classic Color',
+        'amiibo',
+        mockClient as unknown as { get: typeof axios.get },
+      );
+      expect(mario).not.toBeNull();
+      expect(mario?.gameye_id).toBe(81609);
+      expect(mario?.price_loose).toBe(1053);
+
+      const link = await searchGameyeToy(
+        '8-Bit Link',
+        'amiibo',
+        mockClient as unknown as { get: typeof axios.get },
+      );
+      expect(link).not.toBeNull();
+      expect(link?.gameye_id).toBe(81583);
+      expect(link?.price_loose).toBe(1655);
+    });
+
+    it('should match Monster Hunter Japanese romanization aliases', async () => {
+      const mockClient = {
+        get: vi.fn().mockResolvedValue({
+          data: {
+            records: [
+              {
+                id: 81639,
+                category_id: 3,
+                platform_id: 118,
+                country_id: 1,
+                title: 'One-Eyed Liolaeus and Rider [Girl]',
+                has_vgpc: true,
+                price: { Loose: 5643, CIB: 5643, New: 7200 },
+              },
+            ],
+          },
+        }),
+      };
+
+      const result = await searchGameyeToy(
+        'One-Eyed Rathalos and Rider - Female',
+        'amiibo',
+        mockClient as unknown as { get: typeof axios.get },
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.gameye_id).toBe(81639);
+      expect(result?.price_loose).toBe(5643);
+    });
+
+    it('should prioritize priced candidates over unpriced or zero-dollar placeholders', async () => {
+      const mockClient = {
+        get: vi.fn().mockResolvedValue({
+          data: {
+            records: [
+              {
+                id: 105924,
+                category_id: 3,
+                platform_id: 118,
+                country_id: 1,
+                title: 'Mario [30th Anniversary Modern Color]',
+                has_vgpc: false,
+                price: { Loose: 0, CIB: 0, New: 0 },
+              },
+              {
+                id: 81610,
+                category_id: 3,
+                platform_id: 118,
+                country_id: 1,
+                title: 'Mario [30th Anniversary Modern Color]',
+                has_vgpc: true,
+                price: { Loose: 1135, CIB: 1135, New: 2273 },
+              },
+            ],
+          },
+        }),
+      };
+
+      const result = await searchGameyeToy(
+        '8-Bit Mario Modern Color',
+        'amiibo',
+        mockClient as unknown as { get: typeof axios.get },
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.gameye_id).toBe(81610);
+      expect(result?.price_loose).toBe(1135);
+    });
+
+    it('should resolve Starlink pack-in items from component benchmarks', async () => {
+      const arwing = await searchGameyeToy('Arwing', 'Starlink');
+      expect(arwing).not.toBeNull();
+      expect(arwing?.gameye_id).toBe(74730);
+      expect(arwing?.price_loose).toBe(1599);
+
+      const fox = await searchGameyeToy('Fox McCloud', 'Starlink');
+      expect(fox).not.toBeNull();
+      expect(fox?.price_loose).toBe(1000);
+
+      const flamethrower = await searchGameyeToy('Flamethrower', 'Starlink');
+      expect(flamethrower).not.toBeNull();
+      expect(flamethrower?.price_loose).toBe(350);
+
+      const zenith = await searchGameyeToy('Zenith', 'Starlink');
+      expect(zenith).not.toBeNull();
+      expect(zenith?.gameye_id).toBe(53961);
+      expect(zenith?.price_loose).toBe(499);
+    });
   });
 });
