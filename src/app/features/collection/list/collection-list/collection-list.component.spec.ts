@@ -1118,4 +1118,51 @@ describe('CollectionListComponent', () => {
     expect(mockEvent.stopPropagation).toHaveBeenCalled();
     expect(updateManualSpy).toHaveBeenCalledWith('g-test', 1);
   });
+
+  it('should compute totalGamesValue and render total value in platform header', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'g-1',
+        title: 'Mario Sunshine',
+        platform: 'Nintendo GameCube',
+        platform_id: 20,
+        ownership_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        price_cib: 5500, // $55.00
+        price_loose: 4000,
+        platform_launch_date: '2001-09-14',
+      },
+      {
+        stable_id: 2,
+        id: 'g-2',
+        title: 'Luigi Mansion',
+        platform: 'Nintendo GameCube',
+        platform_id: 20,
+        ownership_status: 1,
+        has_case: 0,
+        has_manual: 0,
+        price_loose: 3500, // $35.00
+        platform_launch_date: '2001-09-14',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    expect(component.totalGamesValue()).toBe(9000); // 5500 + 3500
+    expect(component.totalFilteredValue()).toBe(9000);
+
+    const platformBadge =
+      fixture.nativeElement.querySelector('.platform-badge');
+    expect(platformBadge).toBeTruthy();
+    expect(platformBadge.textContent).toContain('2 Items');
+    expect(platformBadge.textContent).toContain('$90.00');
+  });
 });

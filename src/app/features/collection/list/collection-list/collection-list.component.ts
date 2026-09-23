@@ -51,6 +51,7 @@ interface GameGroup {
   launchYear?: string;
   games: Game[];
   totalCount: number;
+  totalValue: number;
 }
 
 @Component({
@@ -72,6 +73,7 @@ interface GameGroup {
             ? filteredGames().length
             : filteredToys().length
         "
+        [totalValue]="totalFilteredValue()"
         [lastUpdated]="lastUpdated()"
         (filtersChange)="onFiltersChange($event)"
       >
@@ -113,7 +115,12 @@ interface GameGroup {
                       >
                     }
                   </h2>
-                  <div class="platform-badge">{{ group.totalCount }} Items</div>
+                  <div class="platform-badge">
+                    {{ group.totalCount }} Items
+                    @if (group.totalValue > 0) {
+                      • {{ formatCurrency(group.totalValue) }}
+                    }
+                  </div>
                 </div>
               </header>
 
@@ -353,7 +360,12 @@ interface GameGroup {
                   <h2 class="platform-title uppercase letter-spacing-wide">
                     {{ group.lineName }}
                   </h2>
-                  <div class="platform-badge">{{ group.totalCount }} Items</div>
+                  <div class="platform-badge">
+                    {{ group.totalCount }} Items
+                    @if (group.totalValue && group.totalValue > 0) {
+                      • {{ formatCurrency(group.totalValue) }}
+                    }
+                  </div>
                 </div>
               </header>
 
@@ -363,6 +375,9 @@ interface GameGroup {
                     <h3 class="series-title">{{ series.seriesName }}</h3>
                     <div class="series-badge">
                       {{ series.totalCount }} Items
+                      @if (series.totalValue && series.totalValue > 0) {
+                        • {{ formatCurrency(series.totalValue) }}
+                      }
                     </div>
                   </header>
                   <div class="grid">
@@ -489,9 +504,7 @@ interface GameGroup {
                                   (toy.price_loose / 100).toFixed(2)
                                 "
                               >
-                                {{
-                                  '$' + (toy.price_loose / 100).toFixed(2)
-                                }}
+                                {{ '$' + (toy.price_loose / 100).toFixed(2) }}
                                 Loose
                               </span>
                             </div>
@@ -1243,6 +1256,38 @@ export class CollectionListComponent
     return `single:${base.toLowerCase()}`;
   }
 
+  /** Total value of all filtered games in cents */
+  public totalGamesValue = computed(() => {
+    return this.filteredGames().reduce(
+      (sum, g) => sum + (this.getEffectiveGamePrice(g) || 0),
+      0,
+    );
+  });
+
+  /** Total value of all filtered toys in cents */
+  public totalToysValue = computed(() => {
+    return this.filteredToys().reduce(
+      (sum, t) => sum + (t.price_loose || 0),
+      0,
+    );
+  });
+
+  /** Active total valuation for the current tab */
+  public totalFilteredValue = computed(() =>
+    this.currentTab() === 'games'
+      ? this.totalGamesValue()
+      : this.totalToysValue(),
+  );
+
+  /** Formats cents into USD currency string */
+  public formatCurrency(cents: number | null | undefined): string {
+    if (!cents || cents <= 0) return '$0.00';
+    return (cents / 100).toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    });
+  }
+
   /** Virtual list window based on displayLimit for infinite scroll performance */
   public displayGames = computed(() =>
     this.filteredGames().slice(0, this.displayLimit()),
@@ -1269,15 +1314,22 @@ export class CollectionListComponent
           platformLogo: f.platform_id ? displayed[0]?.platform_logo : null,
           games: displayed,
           totalCount: allFiltered.length,
+          totalValue: allFiltered.reduce(
+            (sum, g) => sum + (this.getEffectiveGamePrice(g) || 0),
+            0,
+          ),
         },
       ];
     }
 
-    // 1. Calculate total counts per platform from ALL filtered games
+    // 1. Calculate total counts and total values per platform from ALL filtered games
     const counts = new Map<string, number>();
+    const values = new Map<string, number>();
     for (const g of allFiltered) {
       const p = g.display_name || g.platform;
       counts.set(p, (counts.get(p) || 0) + 1);
+      const val = this.getEffectiveGamePrice(g) || 0;
+      values.set(p, (values.get(p) || 0) + val);
     }
 
     // 2. Build groups from DISPLAYED games
@@ -1311,6 +1363,7 @@ export class CollectionListComponent
             : undefined,
           games: [],
           totalCount: counts.get(p) || 0,
+          totalValue: values.get(p) || 0,
         };
         groups.push(group);
         groupMap.set(p, group);
@@ -1464,34 +1517,48 @@ export class CollectionListComponent
       const lineTitle = f.line
         ? `${f.line} (Ranked by Value)`
         : 'All Toys (Ranked by Value)';
+      const totalVal = allFiltered.reduce(
+        (sum, t) => sum + (t.price_loose || 0),
+        0,
+      );
       return [
         {
           lineName: lineTitle,
           totalCount: allFiltered.length,
+          totalValue: totalVal,
           seriesGroups: [
             {
               seriesName: 'Market Value Ranking',
               toys: displayed,
               totalCount: allFiltered.length,
+              totalValue: totalVal,
             },
           ],
         },
       ];
     }
 
-    // 1. Get total counts per line and per series from ALL filtered toys
+    // 1. Get total counts and total values per line and per series from ALL filtered toys
     const lineCounts = new Map<string, number>();
+    const lineValues = new Map<string, number>();
     const seriesCounts = new Map<string, Map<string, number>>();
+    const seriesValues = new Map<string, Map<string, number>>();
 
     for (const toy of allFiltered) {
       const line = toy.line || 'Unknown';
       const series = toy.series_name || 'No Series';
+      const price = toy.price_loose || 0;
 
       lineCounts.set(line, (lineCounts.get(line) || 0) + 1);
+      lineValues.set(line, (lineValues.get(line) || 0) + price);
 
       if (!seriesCounts.has(line)) seriesCounts.set(line, new Map());
       const sMap = seriesCounts.get(line)!;
       sMap.set(series, (sMap.get(series) || 0) + 1);
+
+      if (!seriesValues.has(line)) seriesValues.set(line, new Map());
+      const vMap = seriesValues.get(line)!;
+      vMap.set(series, (vMap.get(series) || 0) + price);
     }
 
     // 2. Build nested groups from DISPLAYED toys
@@ -1508,6 +1575,7 @@ export class CollectionListComponent
           lineName,
           seriesGroups: [],
           totalCount: lineCounts.get(lineName) || 0,
+          totalValue: lineValues.get(lineName) || 0,
         };
         groups.push(lineGroup);
         lineMap.set(lineName, lineGroup);
@@ -1521,6 +1589,7 @@ export class CollectionListComponent
           seriesName,
           toys: [],
           totalCount: seriesCounts.get(lineName)?.get(seriesName) || 0,
+          totalValue: seriesValues.get(lineName)?.get(seriesName) || 0,
         };
         lineGroup.seriesGroups.push(seriesGroup);
       }

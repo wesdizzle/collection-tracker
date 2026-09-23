@@ -46,7 +46,12 @@ import {
           <span>{{ showFilters() ? 'Hide Filters' : 'Show Filters' }}</span>
         </button>
         @if (!showFilters()) {
-          <div class="m3-badge">{{ resultCount() }}</div>
+          <div class="m3-badge">
+            {{ resultCount() }}
+            @if (totalValue() > 0) {
+              • {{ formatCurrency(totalValue()) }}
+            }
+          </div>
         }
       </div>
 
@@ -315,7 +320,12 @@ import {
         <div
           class="filter-info ml-auto mobile-hidden flex flex-col items-end gap-2xs"
         >
-          <span class="count-badge">{{ resultCount() }} items</span>
+          <span class="count-badge">
+            {{ resultCount() }} items
+            @if (totalValue() > 0) {
+              • {{ formatCurrency(totalValue()) }}
+            }
+          </span>
           @if (lastUpdated()) {
             <span
               class="sync-timestamp"
@@ -637,8 +647,18 @@ export class CollectionFiltersComponent {
   public uniqueSeries = input<string[]>([]);
   public uniqueRegions = input<string[]>([]);
   public resultCount = input<number>(0);
+  public totalValue = input<number>(0);
   public filters = input.required<FilterState>();
   public lastUpdated = input<Date | null>(null);
+
+  /** --- Formatted Currency Helper --- */
+  public formatCurrency(cents: number | null | undefined): string {
+    if (!cents || cents <= 0) return '$0.00';
+    return (cents / 100).toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    });
+  }
 
   private elementRef = inject(ElementRef);
 

@@ -213,5 +213,171 @@ describe('GAMEYE Reconciliation Module', () => {
       );
       expect(result).toBeNull();
     });
+
+    it('should isolate amiibo figures to platform 118 and reject cards on platform 144', async () => {
+      const mockClient = {
+        get: vi.fn().mockResolvedValue({
+          data: {
+            records: [
+              {
+                id: 89083,
+                category_id: 3,
+                platform_id: 144, // Card
+                country_id: 1,
+                title: "#005 Kapp'n [Animal Crossing Series 1]",
+                has_vgpc: true,
+                price: { Loose: 426, CIB: 426, New: 426 },
+              },
+              {
+                id: 81572,
+                category_id: 3,
+                platform_id: 118, // Figure
+                country_id: 1,
+                title: "Kapp'n",
+                has_vgpc: true,
+                price: { Loose: 599, CIB: 599, New: 1050 },
+              },
+            ],
+          },
+        }),
+      };
+
+      const result = await searchGameyeToy(
+        "Kapp'n",
+        'amiibo',
+        mockClient as unknown as { get: typeof axios.get },
+      );
+
+      expect(mockClient.get).toHaveBeenCalledWith(
+        expect.stringContaining('platforms=118'),
+        expect.anything(),
+      );
+      expect(result).not.toBeNull();
+      expect(result?.gameye_id).toBe(81572);
+      expect(result?.gameye_platform_id).toBe(118);
+      expect(result?.price_loose).toBe(599);
+    });
+
+    it('should match Skylanders prefix variants like Legendary Bash to Bash - Legendary', async () => {
+      const mockClient = {
+        get: vi.fn().mockResolvedValue({
+          data: {
+            records: [
+              {
+                id: 84366,
+                category_id: 3,
+                platform_id: 119,
+                country_id: 1,
+                title: 'Bash',
+                has_vgpc: true,
+                price: { Loose: 1095, CIB: 1095, New: 2500 },
+              },
+              {
+                id: 84369,
+                category_id: 3,
+                platform_id: 119,
+                country_id: 1,
+                title: 'Bash - Legendary',
+                has_vgpc: true,
+                price: { Loose: 1289, CIB: 1289, New: 2800 },
+              },
+              {
+                id: 84368,
+                category_id: 3,
+                platform_id: 119,
+                country_id: 1,
+                title: 'Bash - Giants, Series 2',
+                has_vgpc: true,
+                price: { Loose: 1771, CIB: 1771, New: 3200 },
+              },
+            ],
+          },
+        }),
+      };
+
+      const result = await searchGameyeToy(
+        'Legendary Bash',
+        'Skylanders',
+        mockClient as unknown as { get: typeof axios.get },
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.gameye_id).toBe(84369);
+      expect(result?.title).toBe('Bash - Legendary');
+      expect(result?.price_loose).toBe(1289);
+    });
+
+    it('should match Starlink packs on platform 125', async () => {
+      const mockClient = {
+        get: vi.fn().mockResolvedValue({
+          data: {
+            records: [
+              {
+                id: 89493,
+                category_id: 3,
+                platform_id: 125,
+                country_id: 1,
+                title: 'Pulse Starship Pack',
+                has_vgpc: true,
+                price: { Loose: 1482, CIB: 1482, New: 1793 },
+              },
+            ],
+          },
+        }),
+      };
+
+      const result = await searchGameyeToy(
+        'Pulse',
+        'Starlink',
+        mockClient as unknown as { get: typeof axios.get },
+      );
+
+      expect(mockClient.get).toHaveBeenCalledWith(
+        expect.stringContaining('platforms=125'),
+        expect.anything(),
+      );
+      expect(result).not.toBeNull();
+      expect(result?.gameye_id).toBe(89493);
+      expect(result?.price_loose).toBe(1482);
+    });
+
+    it('should use seriesId to disambiguate amiibo candidates', async () => {
+      const mockClient = {
+        get: vi.fn().mockResolvedValue({
+          data: {
+            records: [
+              {
+                id: 81613,
+                category_id: 3,
+                platform_id: 118,
+                country_id: 1,
+                title: 'Mario [Super Mario Series]',
+                has_vgpc: true,
+                price: { Loose: 1321, CIB: 1321, New: 2200 },
+              },
+              {
+                id: 81608,
+                category_id: 3,
+                platform_id: 118,
+                country_id: 1,
+                title: 'Mario [Super Smash Bros]',
+                has_vgpc: true,
+                price: { Loose: 999, CIB: 999, New: 1999 },
+              },
+            ],
+          },
+        }),
+      };
+
+      const result = await searchGameyeToy('Mario', 'amiibo', {
+        seriesId: 'amiibo-super-smash-bros',
+        client: mockClient as unknown as { get: typeof axios.get },
+      });
+
+      expect(result).not.toBeNull();
+      expect(result?.gameye_id).toBe(81608);
+      expect(result?.title).toBe('Mario [Super Smash Bros]');
+      expect(result?.price_loose).toBe(999);
+    });
   });
 });

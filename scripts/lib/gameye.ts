@@ -6,6 +6,7 @@
  */
 
 import axios from 'axios';
+import { extractBaseCharacterName } from './toys.js';
 
 export const GAMEYE_API_BASE = 'https://www.gameye.app/api';
 
@@ -84,7 +85,7 @@ export const GAGGLOG_TO_GAMEYE_COUNTRY: Record<string, number> = {
 export const GAMEYE_TOY_PLATFORMS: Record<string, number> = {
   Skylanders: 119,
   amiibo: 118,
-  Starlink: 119, // In GAMEYE toys-to-life category
+  Starlink: 125,
 };
 
 export interface GameyeRecord {
@@ -217,32 +218,200 @@ export async function searchGameyeGame(
   }
 }
 
+export interface ToySearchOptions {
+  seriesId?: string | null;
+  toyType?: string | null;
+  client?: { get: typeof axios.get };
+}
+
 /**
  * Searches GAMEYE deep_search for a toy figure (Skylanders, amiibo, Starlink).
  */
 export async function searchGameyeToy(
   name: string,
   line: string,
-  client: { get: typeof axios.get } = axios,
+  optionsOrClient?: ToySearchOptions | { get: typeof axios.get },
+  fallbackClient?: { get: typeof axios.get },
 ): Promise<GameyeSearchResult | null> {
+  let options: ToySearchOptions = {};
+  let client: { get: typeof axios.get } = axios;
+
+  if (optionsOrClient) {
+    if ('get' in optionsOrClient && typeof optionsOrClient.get === 'function') {
+      client = optionsOrClient as { get: typeof axios.get };
+    } else {
+      options = optionsOrClient as ToySearchOptions;
+      if (options.client) client = options.client;
+      else if (fallbackClient) client = fallbackClient;
+    }
+  }
+
+  const platformId =
+    GAMEYE_TOY_PLATFORMS[line] ??
+    (line.toLowerCase() === 'starlink'
+      ? 125
+      : line.toLowerCase() === 'amiibo'
+        ? 118
+        : 119);
+
   const queryName = cleanTitleForSearch(name);
   if (!queryName) {
     return null;
   }
 
   try {
-    const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=15&title=${encodeURIComponent(queryName)}&cat=3`;
-    const response = await client.get(url, { timeout: 10000 });
-    const records: GameyeRecord[] = response.data?.records || [];
+    let records: GameyeRecord[] = [];
+
+    if (platformId === 119) {
+      // Skylanders: Extract base name to retrieve all series/variants for this character
+      const { baseName } = extractBaseCharacterName(name);
+      const searchTarget = baseName || queryName;
+      const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=25&title=${encodeURIComponent(searchTarget)}&platforms=119&cat=3`;
+      const response = await client.get(url, { timeout: 10000 });
+      records = response.data?.records || [];
+
+      // If no records found with base name, fallback to full query name
+      if (records.length === 0 && searchTarget !== queryName) {
+        const fallbackUrl = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=25&title=${encodeURIComponent(queryName)}&platforms=119&cat=3`;
+        const fbRes = await client.get(fallbackUrl, { timeout: 10000 });
+        records = fbRes.data?.records || [];
+      }
+    } else if (platformId === 125) {
+      // Starlink: Query platform 125 directly
+      const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=25&title=${encodeURIComponent(queryName)}&platforms=125&cat=3`;
+      const response = await client.get(url, { timeout: 10000 });
+      records = response.data?.records || [];
+
+      // If weapons pack or no direct match, query all items on platform 125 (18 items in total)
+      if (records.length === 0) {
+        const allUrl = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=30&platforms=125&cat=3`;
+        const allRes = await client.get(allUrl, { timeout: 10000 });
+        records = allRes.data?.records || [];
+      }
+    } else {
+      // amiibo (118) or default
+      const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=25&title=${encodeURIComponent(queryName)}&platforms=${platformId}&cat=3`;
+      const response = await client.get(url, { timeout: 10000 });
+      records = response.data?.records || [];
+    }
 
     if (records.length === 0) {
       return null;
     }
 
-    return pickBestRecord(queryName, records, 0);
+    return pickBestToyRecord(name, records, platformId, options.seriesId);
   } catch {
     return null;
   }
+}
+
+function pickBestToyRecord(
+  toyName: string,
+  records: GameyeRecord[],
+  preferredPlatformId: number,
+  seriesId?: string | null,
+): GameyeSearchResult | null {
+  let bestRecord: GameyeRecord | null = null;
+  let highestScore = -1;
+  let bestConfidence: 'exact' | 'high' | 'medium' | 'low' = 'low';
+
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const tNorm = norm(toyName);
+  const tWords = tNorm.split(' ').filter(Boolean);
+
+  for (const record of records) {
+    if (preferredPlatformId && record.platform_id !== preferredPlatformId) {
+      continue;
+    }
+
+    const cNorm = norm(record.title);
+    const cWords = cNorm.split(' ').filter(Boolean);
+
+    let score = 0;
+
+    // Exact string match
+    if (tNorm === cNorm) {
+      score = 100;
+    } else if (
+      tWords.length === cWords.length &&
+      tWords.every((w) => cWords.includes(w))
+    ) {
+      // Same words in different order (e.g. 'legendary bash' vs 'bash legendary')
+      score = 95;
+    } else {
+      const allInCand = tWords.every((w) => cWords.includes(w));
+      if (allInCand) {
+        const extraWords = cWords.filter((w) => !tWords.includes(w));
+        score = Math.max(10, 85 - extraWords.length * 5);
+      } else {
+        // Partial overlap
+        const commonWords = tWords.filter((w) => cWords.includes(w));
+        if (commonWords.length > 0) {
+          const ratio = commonWords.length / tWords.length;
+          score = Math.round(ratio * 60);
+        }
+      }
+    }
+
+    // Boost for series matching (for amiibo)
+    if (seriesId && score > 0) {
+      const sLower = seriesId.toLowerCase();
+      if (sLower.includes('smash') && cNorm.includes('smash')) score += 15;
+      else if (
+        sLower.includes('mario') &&
+        (cNorm.includes('super mario') || cNorm.includes('mario series'))
+      )
+        score += 15;
+      else if (
+        sLower.includes('zelda') &&
+        (cNorm.includes('zelda') || cNorm.includes('breath of the wild'))
+      )
+        score += 15;
+      else if (
+        sLower.includes('animal-crossing') &&
+        cNorm.includes('animal crossing')
+      )
+        score += 15;
+      else if (sLower.includes('splatoon') && cNorm.includes('splatoon'))
+        score += 15;
+      else if (sLower.includes('30th') && cNorm.includes('30th')) score += 15;
+    }
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestRecord = record;
+      bestConfidence =
+        score >= 90
+          ? 'exact'
+          : score >= 70
+            ? 'high'
+            : score >= 40
+              ? 'medium'
+              : 'low';
+    }
+  }
+
+  if (!bestRecord || highestScore < 30) {
+    return null;
+  }
+
+  return {
+    gameye_id: bestRecord.id,
+    gameye_platform_id: bestRecord.platform_id,
+    gameye_country_id: bestRecord.country_id,
+    title: bestRecord.title,
+    price_loose: bestRecord.price?.Loose ?? null,
+    price_cib: bestRecord.price?.CIB ?? null,
+    price_new: bestRecord.price?.New ?? null,
+    has_vgpc: !!bestRecord.has_vgpc,
+    confidence: bestConfidence,
+  };
 }
 
 function pickBestRecord(

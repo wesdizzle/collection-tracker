@@ -126,4 +126,25 @@ describe('CollectionFiltersComponent', () => {
     );
     expect(select).toBeNull();
   });
+
+  it('should render total value in count badge when totalValue > 0', () => {
+    fixture.componentRef.setInput('resultCount', 42);
+    fixture.componentRef.setInput('totalValue', 123450); // $1,234.50
+    fixture.detectChanges();
+
+    const countBadge = fixture.nativeElement.querySelector('.count-badge');
+    expect(countBadge).toBeTruthy();
+    expect(countBadge.textContent).toContain('42 items');
+    expect(countBadge.textContent).toContain('$1,234.50');
+  });
+
+  it('should only show item count when totalValue is 0', () => {
+    fixture.componentRef.setInput('resultCount', 10);
+    fixture.componentRef.setInput('totalValue', 0);
+    fixture.detectChanges();
+
+    const countBadge = fixture.nativeElement.querySelector('.count-badge');
+    expect(countBadge).toBeTruthy();
+    expect(countBadge.textContent.trim()).toBe('10 items');
+  });
 });

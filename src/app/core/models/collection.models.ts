@@ -144,12 +144,14 @@ export interface ToySeriesGroup {
   seriesName: string;
   toys: Toy[];
   totalCount: number;
+  totalValue?: number;
 }
 
 export interface ToyGroup {
   lineName: string;
   seriesGroups: ToySeriesGroup[];
   totalCount: number;
+  totalValue?: number;
 }
 
 export interface Platform {
