@@ -183,7 +183,7 @@ export function buildGameyeOwnershipDatabase(sourceDb: Database.Database): {
       COALESCE(r.has_manual, 0) as has_manual
     FROM games g
     JOIN game_releases r ON r.game_id = g.stable_id
-    WHERE (r.ownership_status > 0 OR g.play_status > 0 OR g.backup_status > 0)
+    WHERE r.ownership_status > 0
       AND g.gameye_id IS NOT NULL
   `,
     )

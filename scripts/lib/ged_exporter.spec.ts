@@ -119,6 +119,23 @@ describe('GAMEYE .GED Exporter', () => {
       `,
       ).run();
 
+      // 4. Multi-release Game with digital backup (Pokemon Box on GC = platform 20 -> GAMEYE 2)
+      // Only the owned release should be exported; unowned digital ROM releases must NOT be exported.
+      db.prepare(
+        `
+        INSERT INTO games (stable_id, id, title, platform_id, region, gameye_id, gameye_platform_id, backup_status)
+        VALUES (4, 'pokemon-box', 'Pokémon Box: Ruby & Sapphire', 20, 'USA', 27462, 2, 1)
+      `,
+      ).run();
+      db.prepare(
+        `
+        INSERT INTO game_releases (id, game_id, region, ownership_status, has_case, has_manual)
+        VALUES
+          ('rel-4-eu', 4, 'Europe', 0, 0, 0),
+          ('rel-4-us', 4, 'USA', 1, 1, 1)
+      `,
+      ).run();
+
       // Seed toys
       // 1. Owned Skylander
       db.prepare(
@@ -152,7 +169,7 @@ describe('GAMEYE .GED Exporter', () => {
       const { targetDb, gamesCount, toysCount } =
         buildGameyeOwnershipDatabase(sourceDb);
 
-      expect(gamesCount).toBe(2);
+      expect(gamesCount).toBe(3);
       expect(toysCount).toBe(2);
 
       // Verify metadata tables
@@ -182,7 +199,7 @@ describe('GAMEYE .GED Exporter', () => {
         uuid: string;
       }[];
 
-      expect(rows).toHaveLength(4);
+      expect(rows).toHaveLength(5);
 
       // Game 1: CIB (mask 7)
       expect(rows[0].item_id).toBe(4525);
@@ -201,21 +218,29 @@ describe('GAMEYE .GED Exporter', () => {
       expect(rows[1].category_id).toBe(0);
       expect(rows[1].title).toBe('Super Mario 64');
 
-      // Toy 1: Skylander (category 3, mask 1, platform 119)
-      expect(rows[2].item_id).toBe(55555);
-      expect(rows[2].platform_id).toBe(119);
-      expect(rows[2].country_id).toBeNull();
-      expect(rows[2].ownership_mask).toBe(1);
-      expect(rows[2].category_id).toBe(3);
-      expect(rows[2].title).toBe('Spyro');
+      // Game 3: Multi-release with backup (GameCube Pokemon Box - only owned US release exported as CIB mask 7)
+      expect(rows[2].item_id).toBe(27462);
+      expect(rows[2].platform_id).toBe(2);
+      expect(rows[2].country_id).toBe(1);
+      expect(rows[2].ownership_mask).toBe(7);
+      expect(rows[2].category_id).toBe(0);
+      expect(rows[2].title).toBe('Pokémon Box: Ruby & Sapphire');
 
-      // Toy 2: amiibo (category 3, mask 1, platform 118)
-      expect(rows[3].item_id).toBe(66666);
-      expect(rows[3].platform_id).toBe(118);
+      // Toy 1: Skylander (category 3, mask 1, platform 119)
+      expect(rows[3].item_id).toBe(55555);
+      expect(rows[3].platform_id).toBe(119);
       expect(rows[3].country_id).toBeNull();
       expect(rows[3].ownership_mask).toBe(1);
       expect(rows[3].category_id).toBe(3);
-      expect(rows[3].title).toBe('Mario');
+      expect(rows[3].title).toBe('Spyro');
+
+      // Toy 2: amiibo (category 3, mask 1, platform 118)
+      expect(rows[4].item_id).toBe(66666);
+      expect(rows[4].platform_id).toBe(118);
+      expect(rows[4].country_id).toBeNull();
+      expect(rows[4].ownership_mask).toBe(1);
+      expect(rows[4].category_id).toBe(3);
+      expect(rows[4].title).toBe('Mario');
 
       targetDb.close();
     });

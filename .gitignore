@@ -57,6 +57,7 @@ collection.sqlite
 collection_SAFETY_COPY.sqlite
 backup_full_dump.sql
 backup_collection.json
+*.ged
 
 .wrangler/
 /scratch/
