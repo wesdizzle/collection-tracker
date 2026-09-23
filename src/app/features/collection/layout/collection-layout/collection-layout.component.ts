@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
+import { GameyeExportService } from '../../../../core/services/gameye-export.service';
 
 @Component({
   selector: 'app-collection-layout',
@@ -51,18 +52,32 @@ import { CollectionService } from '../../../../core/services/collection.service'
             }
           </button>
 
-          <a
-            href="/api/export/gameye"
-            download
+          <button
+            type="button"
             class="m3-button-icon state-layer"
-            title="Export to GAMEYE (.ged backup)"
+            [disabled]="isExporting()"
+            (click)="exportGameye()"
+            [title]="
+              isExporting()
+                ? 'Exporting GAMEYE backup...'
+                : 'Export to GAMEYE (.ged backup)'
+            "
           >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path
-                d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"
-              />
-            </svg>
-          </a>
+            @if (isExporting()) {
+              <div class="export-spinner" aria-label="Exporting..."></div>
+            } @else {
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="currentColor"
+              >
+                <path
+                  d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"
+                />
+              </svg>
+            }
+          </button>
 
           <a
             href="https://github.com/wesdizzle/collection-tracker"
@@ -254,6 +269,21 @@ import { CollectionService } from '../../../../core/services/collection.service'
         font-size: 1.25rem;
       }
 
+      .export-spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--m3-outline-variant);
+        border-top-color: var(--m3-primary);
+        border-radius: 50%;
+        animation: export-spin 0.8s linear infinite;
+      }
+
+      @keyframes export-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       .github-icon {
         width: 24px;
         height: 24px;
@@ -340,8 +370,10 @@ export class CollectionLayoutComponent {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private collectionService = inject(CollectionService);
+  private gameyeExportService = inject(GameyeExportService);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
   public isAdmin = this.collectionService.isAdmin;
+  public isExporting = this.gameyeExportService.exporting;
 
   constructor() {
     if (
@@ -374,6 +406,10 @@ export class CollectionLayoutComponent {
         window.location.assign('/admin/login');
       }
     }
+  }
+
+  exportGameye() {
+    this.gameyeExportService.exportToGameye();
   }
 
   toggleTheme() {

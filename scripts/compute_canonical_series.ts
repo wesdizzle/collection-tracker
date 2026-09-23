@@ -81,7 +81,10 @@ export async function recomputeCanonicalSeries() {
   db.close();
 }
 
-if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
+if (
+  process.argv[1] &&
+  import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`
+) {
   recomputeCanonicalSeries().catch((err) => {
     console.error('Fatal error updating canonical series:', err);
     process.exit(1);

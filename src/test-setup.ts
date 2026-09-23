@@ -29,3 +29,14 @@ if (typeof globalThis.IntersectionObserver === 'undefined') {
     }
   } as unknown as typeof IntersectionObserver;
 }
+
+// Polyfill CompressionStream from node:stream/web for JSDOM environment
+if (typeof globalThis.CompressionStream === 'undefined') {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CompressionStream } = require('node:stream/web');
+    globalThis.CompressionStream = CompressionStream;
+  } catch {
+    // Ignore if not available
+  }
+}

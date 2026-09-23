@@ -709,5 +709,28 @@ describe('Local Server API Logic', () => {
       expect(Buffer.isBuffer(endArg)).toBe(true);
       expect(endArg.readUInt32LE(0)).toBe(0x04034b50);
     });
+
+    it('should return JSON payload of owned games and toys via /api/export/gameye-data', async () => {
+      mockDb
+        .prepare(
+          'UPDATE games SET gameye_id = 9999, gameye_platform_id = 11 WHERE stable_id = 1',
+        )
+        .run();
+      const { req, res } = createMocks('/api/export/gameye-data');
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'application/json',
+      );
+      expect(res.end).toHaveBeenCalled();
+      const payload = JSON.parse(res.end.mock.calls[0][0]);
+      expect(payload.games).toBeDefined();
+      expect(payload.toys).toBeDefined();
+      expect(payload.games.length).toBeGreaterThan(0);
+      expect(payload.games[0].gameye_id).toBe(9999);
+    });
   });
 });

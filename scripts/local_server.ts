@@ -1252,6 +1252,41 @@ export const handleRequest =
         }
       }
 
+      // GET /api/export/gameye-data
+      else if (req.method === 'GET' && pathname === '/api/export/gameye-data') {
+        const gamesStmt = `
+          SELECT
+            g.title,
+            g.gameye_id,
+            g.gameye_platform_id,
+            g.platform_id,
+            COALESCE(r.region, g.region) as region,
+            COALESCE(r.has_case, 0) as has_case,
+            COALESCE(r.has_manual, 0) as has_manual
+          FROM games g
+          JOIN game_releases r ON r.game_id = g.stable_id
+          WHERE r.ownership_status > 0
+            AND g.gameye_id IS NOT NULL
+        `;
+        const toysStmt = `
+          SELECT
+            t.name as title,
+            t.gameye_id,
+            t.line
+          FROM toys t
+          WHERE t.ownership_status > 0
+            AND t.gameye_id IS NOT NULL
+        `;
+
+        const games = db.prepare(gamesStmt).all();
+        const toys = db.prepare(toysStmt).all();
+
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.statusCode = 200;
+        res.end(JSON.stringify({ games, toys }));
+      }
+
       // GET /api/export/gameye
       else if (req.method === 'GET' && pathname === '/api/export/gameye') {
         const { buffer, filename } = exportGed(db);
