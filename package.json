@@ -21,7 +21,7 @@
     "scan-backups": "tsx scripts/scan_backups.ts",
     "reconcile-ownership": "tsx scripts/reconcile_ownership_and_backups.ts",
     "local-api": "tsx scripts/local_server.ts",
-    "copy-wasm": "node -e \"const fs = require('fs'); fs.copyFileSync('node_modules/sql.js/dist/sql-wasm.wasm', 'public/sql-wasm.wasm');\"",
+    "copy-wasm": "node scripts/copy_wasm.js",
     "build": "npm run copy-wasm && ng build",
     "watch": "ng build --watch --configuration development",
     "test": "npm run test:ng && npm run test:node",

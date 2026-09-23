@@ -61,6 +61,31 @@ describe('GameyeExportService', () => {
       // Local header signature 0x04034b50
       expect(view.getUint32(0, true)).toBe(0x04034b50);
     });
+
+    it('should fall back to uncompressed store mode if deflate fails', async () => {
+      const originalCS = globalThis.CompressionStream;
+      (
+        globalThis as unknown as { CompressionStream: unknown }
+      ).CompressionStream = class {
+        constructor() {
+          throw new Error('deflate-raw unsupported');
+        }
+      };
+
+      try {
+        const content = new TextEncoder().encode(
+          'uncompressed fallback payload',
+        );
+        const zip = await createZipArchive('fallback.db', content);
+        expect(zip.byteLength).toBeGreaterThan(0);
+        const view = new DataView(zip.buffer);
+        expect(view.getUint32(0, true)).toBe(0x04034b50);
+        // Compression method at offset 8 should be 0 (Store)
+        expect(view.getUint16(8, true)).toBe(0);
+      } finally {
+        globalThis.CompressionStream = originalCS;
+      }
+    });
   });
 
   describe('formatFilename', () => {

@@ -145,7 +145,23 @@ export async function createZipArchive(
 ): Promise<Uint8Array> {
   const enc = new TextEncoder();
   const nameBytes = enc.encode(filename);
-  const compressed = await deflateRawWeb(content);
+  let compressed = content;
+  let compressionMethod = 0; // Store (no compression)
+
+  try {
+    if (typeof CompressionStream !== 'undefined') {
+      compressed = await deflateRawWeb(content);
+      compressionMethod = 8; // Deflate
+    }
+  } catch (err) {
+    console.warn(
+      'CompressionStream deflate-raw unavailable or failed, storing uncompressed:',
+      err,
+    );
+    compressed = content;
+    compressionMethod = 0;
+  }
+
   const crc = computeCrc32(content);
 
   const localLen = 30 + nameBytes.length + compressed.length;
@@ -159,7 +175,7 @@ export async function createZipArchive(
   v.setUint32(0, 0x04034b50, true);
   v.setUint16(4, 20, true);
   v.setUint16(6, 0, true);
-  v.setUint16(8, 8, true); // Compression: Deflate
+  v.setUint16(8, compressionMethod, true); // Compression: 0 (Store) or 8 (Deflate)
   v.setUint16(10, 0, true);
   v.setUint16(12, 0, true);
   v.setUint32(14, crc, true);
@@ -176,7 +192,7 @@ export async function createZipArchive(
   v.setUint16(cdStart + 4, 20, true);
   v.setUint16(cdStart + 6, 20, true);
   v.setUint16(cdStart + 8, 0, true);
-  v.setUint16(cdStart + 10, 8, true);
+  v.setUint16(cdStart + 10, compressionMethod, true); // Compression: 0 (Store) or 8 (Deflate)
   v.setUint16(cdStart + 12, 0, true);
   v.setUint16(cdStart + 14, 0, true);
   v.setUint32(cdStart + 16, crc, true);
