@@ -60,12 +60,14 @@ import {
         [class.mobile-collapsed]="!showFilters()"
       >
         <div class="filter-group">
-          <label class="m3-label">Ownership Status</label>
-          <div class="input-wrapper">
+          <div class="filter-group-header">
+            <label class="m3-label">Ownership Status</label>
+          </div>
+          <div class="input-wrapper select-wrapper">
             <select
               [ngModel]="filters().ownership"
               (ngModelChange)="onPartialChange('ownership', $event)"
-              class="m3-input"
+              class="m3-input m3-select"
             >
               <option value="all">All</option>
               <option [ngValue]="1">Owned</option>
@@ -73,13 +75,28 @@ import {
               <option [ngValue]="3">Ordered</option>
               <option [ngValue]="0">Unowned</option>
             </select>
+            <span class="dropdown-icon-wrapper" aria-hidden="true">
+              <svg
+                class="dropdown-chevron"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="currentColor"
+              >
+                <path
+                  d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                />
+              </svg>
+            </span>
           </div>
         </div>
 
         @if (currentTab() === 'games') {
           <div class="filter-group">
-            <label class="m3-label">Play Status</label>
-            <div class="input-wrapper">
+            <div class="filter-group-header">
+              <label class="m3-label">Play Status</label>
+            </div>
+            <div class="input-wrapper select-wrapper">
               <select
                 [ngModel]="filters().play_status || 'all'"
                 (ngModelChange)="
@@ -88,7 +105,7 @@ import {
                     $event === 'all' ? 'all' : $event
                   )
                 "
-                class="m3-input"
+                class="m3-input m3-select"
               >
                 <option value="all">All</option>
                 <option [ngValue]="1">Played</option>
@@ -98,16 +115,31 @@ import {
                 <option [ngValue]="5">Dropped</option>
                 <option [ngValue]="0">Unplayed</option>
               </select>
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
 
           <div class="filter-group">
-            <label class="m3-label">Media Type</label>
-            <div class="input-wrapper">
+            <div class="filter-group-header">
+              <label class="m3-label">Media Type</label>
+            </div>
+            <div class="input-wrapper select-wrapper">
               <select
                 [ngModel]="filters().media_type || 'physical_only'"
                 (ngModelChange)="onPartialChange('media_type', $event)"
-                class="m3-input"
+                class="m3-input m3-select"
                 id="filter-media-type"
               >
                 <option value="physical_only">Physical Media Only</option>
@@ -116,12 +148,27 @@ import {
                   Extracted Backups & Digital
                 </option>
               </select>
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
 
           <div class="filter-group">
-            <label class="m3-label">Backup</label>
-            <div class="input-wrapper">
+            <div class="filter-group-header">
+              <label class="m3-label">Backup</label>
+            </div>
+            <div class="input-wrapper select-wrapper">
               <select
                 [ngModel]="filters().backup_status ?? 'all'"
                 (ngModelChange)="
@@ -130,18 +177,33 @@ import {
                     $event === 'all' ? 'all' : $event
                   )
                 "
-                class="m3-input"
+                class="m3-input m3-select"
               >
                 <option value="all">All</option>
                 <option [ngValue]="1">Backed Up</option>
                 <option [ngValue]="0">No Backup</option>
               </select>
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
 
           <div class="filter-group">
-            <label class="m3-label">Physical Verified</label>
-            <div class="input-wrapper">
+            <div class="filter-group-header">
+              <label class="m3-label">Physical Verified</label>
+            </div>
+            <div class="input-wrapper select-wrapper">
               <select
                 [ngModel]="filters().physical_verified ?? 'all'"
                 (ngModelChange)="
@@ -150,23 +212,38 @@ import {
                     $event === 'all' ? 'all' : $event
                   )
                 "
-                class="m3-input"
+                class="m3-input m3-select"
                 id="filter-physical-verified"
               >
                 <option value="all">All</option>
                 <option [ngValue]="1">Verified</option>
                 <option [ngValue]="0">Unverified</option>
               </select>
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
 
           <div class="filter-group">
-            <label class="m3-label">Platform</label>
-            <div class="input-wrapper">
+            <div class="filter-group-header">
+              <label class="m3-label">Platform</label>
+            </div>
+            <div class="input-wrapper select-wrapper">
               <select
                 [ngModel]="filters().platform_id"
                 (ngModelChange)="onPartialChange('platform_id', $event)"
-                class="m3-input"
+                class="m3-input m3-select"
               >
                 <option [ngValue]="undefined">All Platforms</option>
                 @for (group of platformGroups(); track group.brand) {
@@ -185,52 +262,97 @@ import {
                   </optgroup>
                 }
               </select>
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
         }
 
         @if (currentTab() === 'toys') {
           <div class="filter-group">
-            <label class="m3-label">Line</label>
-            <div class="input-wrapper">
+            <div class="filter-group-header">
+              <label class="m3-label">Line</label>
+            </div>
+            <div class="input-wrapper select-wrapper">
               <select
                 [ngModel]="filters().line"
                 (ngModelChange)="onPartialChange('line', $event)"
-                class="m3-input"
+                class="m3-input m3-select"
               >
                 <option value="">All Lines</option>
                 @for (l of uniqueLines(); track l) {
                   <option [value]="l">{{ l }}</option>
                 }
               </select>
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
         }
 
         @if (currentTab() === 'toys') {
           <div class="filter-group">
-            <label
-              class="m3-label"
-              title="Form factor (e.g. Figure, Card, Yarn)"
-              >Type</label
-            >
-            <div class="input-wrapper">
+            <div class="filter-group-header">
+              <label
+                class="m3-label"
+                title="Form factor (e.g. Figure, Card, Yarn)"
+                >Type</label
+              >
+            </div>
+            <div class="input-wrapper select-wrapper">
               <select
                 [ngModel]="filters().type"
                 (ngModelChange)="onPartialChange('type', $event)"
-                class="m3-input"
+                class="m3-input m3-select"
               >
                 <option value="">All Types</option>
                 @for (t of uniqueTypes(); track t) {
                   <option [value]="t">{{ t }}</option>
                 }
               </select>
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
             </div>
           </div>
         }
 
         <div class="filter-group">
-          <div class="flex justify-between items-center pr-xs">
+          <div
+            class="filter-group-header flex justify-between items-center pr-xs"
+          >
             <label class="m3-label">Name/Series</label>
             <label class="m3-checkbox-label" title="Exact Normalized Match">
               <input
@@ -242,7 +364,7 @@ import {
               <span>Exact</span>
             </label>
           </div>
-          <div class="input-wrapper">
+          <div class="input-wrapper combobox-wrapper">
             <input
               list="series-list"
               [ngModel]="filters().seriesOrName"
@@ -256,21 +378,48 @@ import {
                 <option [value]="s"></option>
               }
             </datalist>
+            <span class="dropdown-icon-wrapper" aria-hidden="true">
+              <svg
+                class="dropdown-chevron"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="currentColor"
+              >
+                <path
+                  d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                />
+              </svg>
+            </span>
           </div>
         </div>
 
         <div class="filter-group region-dropdown-container">
-          <label class="m3-label">Region</label>
+          <div class="filter-group-header">
+            <label class="m3-label">Region</label>
+          </div>
           <div class="input-wrapper dropdown-wrapper">
             <button
               type="button"
               class="m3-input dropdown-trigger"
+              [class.open]="isRegionDropdownOpen()"
               (click)="isRegionDropdownOpen.set(!isRegionDropdownOpen())"
             >
               <span class="trigger-text">{{ getRegionLabel() }}</span>
-              <span class="arrow-icon" [class.open]="isRegionDropdownOpen()"
-                >▼</span
-              >
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  [class.open]="isRegionDropdownOpen()"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
             </button>
             @if (isRegionDropdownOpen()) {
               <div class="dropdown-list animate-expressive">
@@ -302,18 +451,33 @@ import {
         </div>
 
         <div class="filter-group">
-          <label class="m3-label">Sort By</label>
-          <div class="input-wrapper">
+          <div class="filter-group-header">
+            <label class="m3-label">Sort By</label>
+          </div>
+          <div class="input-wrapper select-wrapper">
             <select
               [ngModel]="filters().sortBy || 'default'"
               (ngModelChange)="onPartialChange('sortBy', $event)"
-              class="m3-input"
+              class="m3-input m3-select"
               id="filter-sort-by"
             >
               <option value="default">Default</option>
               <option value="value_desc">Value: High to Low</option>
               <option value="value_asc">Value: Low to High</option>
             </select>
+            <span class="dropdown-icon-wrapper" aria-hidden="true">
+              <svg
+                class="dropdown-chevron"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="currentColor"
+              >
+                <path
+                  d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                />
+              </svg>
+            </span>
           </div>
         </div>
 
@@ -425,6 +589,12 @@ import {
         min-width: 160px;
       }
 
+      .filter-group-header {
+        display: flex;
+        align-items: center;
+        min-height: 20px;
+      }
+
       .m3-label {
         font-size: 0.75rem;
         font-weight: 700;
@@ -432,31 +602,139 @@ import {
         margin-left: var(--spacing-4);
         text-transform: uppercase;
         letter-spacing: 0.08em;
+        line-height: 1;
       }
 
-      .m3-input {
-        background: var(--m3-surface-container-high);
-        border: 1px solid var(--m3-outline);
-        color: var(--m3-on-surface);
-        padding: 0.75rem 1rem;
-        border-radius: var(--radius-sm);
-        font-family: var(--font-body);
-        outline: none;
-        transition: all 0.2s;
-        font-size: 0.9375rem;
+      .input-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
         width: 100%;
       }
 
-      .m3-input:focus {
+      .m3-input {
+        box-sizing: border-box;
+        height: 46px;
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline);
+        color: var(--m3-on-surface);
+        padding: 0 2.75rem 0 1rem;
+        border-radius: var(--radius-sm);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
+        line-height: normal;
+        outline: none;
+        transition:
+          border-color 0.2s ease,
+          background-color 0.2s ease,
+          box-shadow 0.2s ease;
+        width: 100%;
+      }
+
+      .m3-input:hover:not(:disabled) {
+        background: var(--m3-surface-container-highest);
+        border-color: var(--m3-outline);
+      }
+
+      .m3-input:focus,
+      .dropdown-trigger.open {
         border-color: var(--m3-primary);
         background: var(--m3-surface-container-highest);
         box-shadow: 0 0 0 1px var(--m3-primary);
+      }
+
+      /* Single select specifics */
+      select.m3-input {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        cursor: pointer;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      select.m3-input::-ms-expand {
+        display: none;
       }
 
       .m3-input option,
       .m3-input optgroup {
         background: var(--m3-surface-container-highest);
         color: var(--m3-on-surface);
+      }
+
+      /* Unified dropdown icon / chevron */
+      .dropdown-icon-wrapper {
+        position: absolute;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        color: var(--m3-on-surface-variant);
+        transition: color 0.2s ease;
+        z-index: 1;
+      }
+
+      .dropdown-chevron {
+        width: 18px;
+        height: 18px;
+        transition:
+          transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+          color 0.2s ease;
+        flex-shrink: 0;
+      }
+
+      .dropdown-chevron.open {
+        transform: rotate(180deg);
+      }
+
+      .input-wrapper:hover .dropdown-icon-wrapper,
+      .input-wrapper:focus-within .dropdown-icon-wrapper,
+      .dropdown-trigger.open .dropdown-icon-wrapper {
+        color: var(--m3-primary);
+      }
+
+      /* Combobox / list-input specifics */
+      .combobox-wrapper {
+        position: relative;
+      }
+
+      .list-input {
+        cursor: text;
+      }
+
+      /* Overlay native datalist indicator invisibly over the custom chevron so clicking chevron opens datalist */
+      .list-input::-webkit-calendar-picker-indicator {
+        position: absolute;
+        right: 0.5rem;
+        top: 0;
+        bottom: 0;
+        width: 2.25rem;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+        z-index: 2;
+      }
+
+      /* Multi-select dropdown trigger button */
+      .dropdown-trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        text-align: left;
+        padding-left: 1rem;
+        padding-right: 2.75rem;
+        position: relative;
+      }
+
+      .trigger-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .m3-checkbox-label {
@@ -545,22 +823,6 @@ import {
       }
       .dropdown-wrapper {
         position: relative;
-      }
-      .dropdown-trigger {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        cursor: pointer;
-        text-align: left;
-      }
-      .arrow-icon {
-        font-size: 0.65rem;
-        transition: transform 0.2s ease;
-        color: var(--m3-on-surface-variant);
-        margin-left: 0.5rem;
-      }
-      .arrow-icon.open {
-        transform: rotate(180deg);
       }
       .dropdown-list {
         position: absolute;
