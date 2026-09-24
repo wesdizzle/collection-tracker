@@ -37,6 +37,7 @@
     "deploy": "npm run build && wrangler deploy",
     "scrape": "tsx scripts/scrape.ts",
     "sync:gameye": "tsx scripts/scrape.ts --sync-gameye",
+    "sync:bestbuy": "tsx scripts/sync_bestbuy.ts",
     "export:gameye": "tsx scripts/export_gameye.ts",
     "ci-check": "npm run lint && npm run type-check && npm test && npm run build",
     "postinstall": "npm run copy-wasm",

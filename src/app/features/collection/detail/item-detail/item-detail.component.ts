@@ -440,6 +440,171 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         </div>
 
         @if (game(); as g) {
+          <section class="market-section animate-slide-up mb-xl">
+            <div class="market-header flex justify-between items-center mb-md">
+              <h2 class="text-xl font-bold flex items-center gap-xs m-0">
+                <span>💰</span> Market Valuation & Retail Deals
+              </h2>
+              @if (g.retail_updated_at || g.price_updated_at) {
+                <span class="text-xs text-secondary">
+                  Updated: {{ g.retail_updated_at || g.price_updated_at }}
+                </span>
+              }
+            </div>
+
+            @if (g.retail_on_sale && g.retail_price) {
+              <div
+                class="deal-banner p-md rounded-lg mb-md flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+              >
+                <div class="deal-info">
+                  <div class="flex items-center gap-sm flex-wrap">
+                    <span class="deal-badge-pill font-bold">
+                      🔥
+                      {{
+                        g.retail_discount_pct
+                          ? g.retail_discount_pct + '% OFF'
+                          : 'ON SALE'
+                      }}
+                    </span>
+                    <span class="text-xl font-extrabold text-on-surface">
+                      {{ '$' + (g.retail_price / 100).toFixed(2) }}
+                    </span>
+                    @if (
+                      g.retail_regular_price &&
+                      g.retail_regular_price > g.retail_price
+                    ) {
+                      <span class="text-sm line-through text-secondary">
+                        Reg:
+                        {{ '$' + (g.retail_regular_price / 100).toFixed(2) }}
+                      </span>
+                    }
+                    <span class="text-sm font-semibold text-secondary">
+                      at {{ g.retail_store || 'Best Buy' }}
+                    </span>
+                  </div>
+                  @if (getDealArbitrageSavings(g); as savings) {
+                    <div class="deal-arb-note text-sm font-semibold mt-xs">
+                      ⚡ Arbitrage Opportunity: Brand new retail copy is
+                      {{ '$' + (savings / 100).toFixed(2) }} cheaper than
+                      PriceCharting CIB used value!
+                    </div>
+                  }
+                </div>
+                @if (g.retail_url) {
+                  <a
+                    [href]="g.retail_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-retail-buy"
+                  >
+                    View on {{ g.retail_store || 'Best Buy' }} ↗
+                  </a>
+                }
+              </div>
+            }
+
+            @if (
+              g.retail_price || g.price_cib || g.price_loose || g.price_new
+            ) {
+              <div class="pricing-grid">
+                <div
+                  class="price-tier-card"
+                  [class.has-price]="!!g.retail_price"
+                >
+                  <span class="tier-label">Retail (New)</span>
+                  <span class="tier-price">
+                    {{
+                      g.retail_price
+                        ? '$' + (g.retail_price / 100).toFixed(2)
+                        : g.price_new
+                          ? '$' + (g.price_new / 100).toFixed(2)
+                          : '—'
+                    }}
+                  </span>
+                  <span class="tier-sub">
+                    {{
+                      g.retail_store
+                        ? g.retail_store
+                        : g.price_new
+                          ? 'PriceCharting New'
+                          : 'Not tracked'
+                    }}
+                  </span>
+                </div>
+
+                <div class="price-tier-card" [class.has-price]="!!g.price_cib">
+                  <span class="tier-label">Complete in Box (CIB)</span>
+                  <span class="tier-price">
+                    {{
+                      g.price_cib ? '$' + (g.price_cib / 100).toFixed(2) : '—'
+                    }}
+                  </span>
+                  <span class="tier-sub">PriceCharting Used</span>
+                </div>
+
+                <div
+                  class="price-tier-card"
+                  [class.has-price]="!!g.price_loose"
+                >
+                  <span class="tier-label">Loose Cartridge/Disc</span>
+                  <span class="tier-price">
+                    {{
+                      g.price_loose
+                        ? '$' + (g.price_loose / 100).toFixed(2)
+                        : '—'
+                    }}
+                  </span>
+                  <span class="tier-sub">PriceCharting Loose</span>
+                </div>
+              </div>
+            }
+
+            <div
+              class="retail-links-bar mt-md flex flex-wrap items-center gap-sm"
+            >
+              <span
+                class="text-xs font-bold text-secondary uppercase tracking-wider"
+                >Research & Buy:</span
+              >
+              <a
+                [href]="getSmartEbayUrl(g, 'cib')"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill ebay"
+                title="Search eBay for Complete in Box (CIB) copies in Video Games"
+              >
+                🔍 eBay (CIB / Complete)
+              </a>
+              <a
+                [href]="getSmartEbayUrl(g, 'loose')"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill ebay"
+                title="Search eBay for Authentic Loose copies"
+              >
+                🔍 eBay (Loose)
+              </a>
+              <a
+                [href]="getDekuDealsUrl(g)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill deku"
+                title="Check Deku Deals for price history & alerts"
+              >
+                🏷️ Deku Deals
+              </a>
+              <a
+                [href]="getBestBuyUrl(g)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill bestbuy"
+                title="Check Best Buy"
+              >
+                🛒 Best Buy
+              </a>
+            </div>
+          </section>
+
           @if (g.summary) {
             <section class="narrative-section animate-slide-up">
               <div class="summary-text-airy">
@@ -863,6 +1028,121 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         align-items: center;
         gap: var(--spacing-12);
       }
+      .market-section {
+        margin-top: var(--spacing-32);
+        border-top: 1px solid var(--m3-outline-variant);
+        padding-top: var(--spacing-32);
+      }
+      .deal-banner {
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.12) 0%,
+          rgba(249, 115, 22, 0.08) 100%
+        );
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        border-radius: var(--radius-md);
+        padding: var(--spacing-16);
+      }
+      .deal-badge-pill {
+        background: #dc2626;
+        color: #ffffff;
+        padding: 0.2rem 0.6rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.8125rem;
+        letter-spacing: 0.02em;
+      }
+      .deal-arb-note {
+        color: #f59e0b;
+      }
+      .btn-retail-buy {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.5rem 1.125rem;
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
+        font-weight: 700;
+        font-size: 0.875rem;
+        border-radius: var(--radius-md);
+        text-decoration: none;
+        white-space: nowrap;
+        transition:
+          opacity 0.2s,
+          transform 0.2s;
+      }
+      .btn-retail-buy:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+      }
+      .pricing-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: var(--spacing-16);
+      }
+      .price-tier-card {
+        padding: var(--spacing-16);
+        border-radius: var(--radius-md);
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline-variant);
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-4);
+      }
+      .price-tier-card.has-price {
+        border-color: var(--m3-outline);
+      }
+      .tier-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--m3-on-surface-variant);
+        letter-spacing: 0.05em;
+      }
+      .tier-price {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: var(--m3-on-surface);
+      }
+      .tier-sub {
+        font-size: 0.75rem;
+        color: var(--m3-secondary);
+      }
+      .retail-links-bar {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-8);
+        flex-wrap: wrap;
+      }
+      .jump-link-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.4rem 0.85rem;
+        border-radius: var(--radius-xl);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        text-decoration: none;
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline-variant);
+        color: var(--m3-on-surface);
+        transition: all 0.2s;
+      }
+      .jump-link-pill:hover {
+        background: var(--m3-surface-container-highest);
+        border-color: var(--m3-primary);
+        transform: translateY(-1px);
+      }
+      .jump-link-pill.ebay:hover {
+        border-color: #0064d2;
+        color: #38bdf8;
+      }
+      .jump-link-pill.deku:hover {
+        border-color: #10b981;
+        color: #34d399;
+      }
+      .jump-link-pill.bestbuy:hover {
+        border-color: #facc15;
+        color: #fde047;
+      }
     `,
   ],
 })
@@ -1230,5 +1510,52 @@ export class ItemDetailComponent {
       formatted = cleanBase + '_Mk._2';
     }
     return `https://starlink.fandom.com/wiki/${encodeURIComponent(formatted)}`;
+  }
+
+  /**
+   * Computes arbitrage savings when brand new retail clearance is cheaper than CIB used market value.
+   */
+  getDealArbitrageSavings(game: Game): number | null {
+    if (!game.retail_price || !game.price_cib) return null;
+    if (game.price_cib > game.retail_price) {
+      return game.price_cib - game.retail_price;
+    }
+    return null;
+  }
+
+  /**
+   * Constructs a pre-filtered clean eBay search URL.
+   * Focuses on physical video games category (_sacat=139973) and collector conditions.
+   */
+  getSmartEbayUrl(
+    game: Game,
+    condition: 'cib' | 'loose' | 'all' = 'cib',
+  ): string {
+    const platformName = game.display_name || game.platform || '';
+    let query = `${game.title} ${platformName}`;
+    if (condition === 'cib') {
+      query += ' cib complete';
+    } else if (condition === 'loose') {
+      query += ' authentic';
+    }
+    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&_sacat=139973`;
+  }
+
+  /**
+   * Constructs a direct search link to Deku Deals.
+   */
+  getDekuDealsUrl(game: Game): string {
+    return `https://www.dekudeals.com/search?q=${encodeURIComponent(game.title)}`;
+  }
+
+  /**
+   * Returns the direct Best Buy product link if known, otherwise generates a targeted search query.
+   */
+  getBestBuyUrl(game: Game): string {
+    if (game.retail_url) {
+      return game.retail_url;
+    }
+    const platformName = game.display_name || game.platform || '';
+    return `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(game.title + ' ' + platformName)}`;
   }
 }

@@ -945,6 +945,23 @@ import {
           </div>
         </div>
 
+        <!-- Deals Only Toggle (Games Tab Only) -->
+        @if (currentTab() === 'games') {
+          <div class="filter-group flex items-end">
+            <button
+              type="button"
+              class="m3-input deals-toggle-btn state-layer"
+              [class.active]="filters().deals_only"
+              (click)="toggleDealsOnly()"
+              id="filter-deals-only"
+              title="Show only games currently on sale or clearance"
+            >
+              <span class="deals-icon">🔥</span>
+              <span>Deals Only</span>
+            </button>
+          </div>
+        }
+
         <div
           class="filter-info ml-auto mobile-hidden flex flex-col items-end gap-2xs"
         >
@@ -1376,6 +1393,33 @@ import {
         cursor: pointer;
       }
 
+      .deals-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-4);
+        padding: 0 1.1rem;
+        height: 48px;
+        border-radius: var(--radius-full);
+        border: 1px solid var(--m3-outline-variant);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        font-family: inherit;
+        font-size: var(--font-size-body-medium);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+        white-space: nowrap;
+      }
+      .deals-toggle-btn:hover {
+        background: var(--m3-surface-container-highest);
+      }
+      .deals-toggle-btn.active {
+        background: #ef4444;
+        color: #ffffff;
+        border-color: #dc2626;
+        box-shadow: 0 2px 10px rgba(239, 68, 68, 0.4);
+      }
+
       .filter-info {
         padding: 0.5rem 1.25rem;
         background: var(--m3-surface-container-highest);
@@ -1463,10 +1507,11 @@ export class CollectionFiltersComponent {
 
   /** --- Options Catalogues --- */
   readonly ownershipOptions: {
-    value: 'all' | 1 | 2 | 3 | 0;
+    value: 'all' | 'seeking_or_unowned' | 1 | 2 | 3 | 0;
     label: string;
   }[] = [
     { value: 'all', label: 'All' },
+    { value: 'seeking_or_unowned', label: 'Seeking or Unowned' },
     { value: 1, label: 'Owned' },
     { value: 2, label: 'Seeking' },
     { value: 3, label: 'Ordered' },
@@ -1507,6 +1552,8 @@ export class CollectionFiltersComponent {
 
   readonly sortByOptions = [
     { value: 'default', label: 'Default' },
+    { value: 'retail_asc', label: 'Lowest Retail Price' },
+    { value: 'discount_desc', label: 'Deepest Sale Discount' },
     { value: 'value_desc', label: 'Value: High to Low' },
     { value: 'value_asc', label: 'Value: Low to High' },
   ];
@@ -1564,6 +1611,11 @@ export class CollectionFiltersComponent {
   selectPlatform(platformId: number | undefined) {
     this.onPartialChange('platform_id', platformId);
     this.closeDropdown();
+  }
+
+  toggleDealsOnly() {
+    const current = Boolean(this.filters().deals_only);
+    this.onPartialChange('deals_only', !current);
   }
 
   public filteredSeriesList = computed(() => {

@@ -147,4 +147,22 @@ describe('CollectionFiltersComponent', () => {
     expect(countBadge).toBeTruthy();
     expect(countBadge.textContent.trim()).toBe('10 items');
   });
+
+  it('should toggle deals_only and emit filter change when toggleDealsOnly is called', () => {
+    let emittedFilters: FilterState | undefined;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.toggleDealsOnly();
+    expect(emittedFilters).toBeTruthy();
+    expect(emittedFilters!.deals_only).toBe(true);
+
+    fixture.componentRef.setInput('filters', {
+      ownership: 'all',
+      deals_only: true,
+    });
+    component.toggleDealsOnly();
+    expect(emittedFilters!.deals_only).toBe(false);
+  });
 });

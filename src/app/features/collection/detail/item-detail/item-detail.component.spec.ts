@@ -371,4 +371,60 @@ describe('ItemDetailComponent', () => {
     );
     expect(compiled.querySelector('.retry-btn')).toBeTruthy();
   });
+
+  it('should display retail pricing, deal banner, arbitrage savings, and outbound research links', async () => {
+    const dealGame: Game = {
+      ...mockGame,
+      title: 'Hollow Knight',
+      platform: 'Nintendo Switch',
+      display_name: 'Nintendo Switch',
+      price_loose: 2500,
+      price_cib: 3500,
+      price_new: 4000,
+      retail_price: 1499,
+      retail_regular_price: 3499,
+      retail_discount_pct: 57,
+      retail_on_sale: 1,
+      retail_store: 'Best Buy',
+      retail_url:
+        'https://www.bestbuy.com/site/hollow-knight-nintendo-switch/6352097.p?skuId=6352097',
+    };
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(of(dealGame));
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const marketSection = compiled.querySelector('.market-section');
+    expect(marketSection).toBeTruthy();
+
+    // Check deal banner and arbitrage note
+    const dealBanner = compiled.querySelector('.deal-banner');
+    expect(dealBanner).toBeTruthy();
+    expect(dealBanner?.textContent).toContain('57% OFF');
+    expect(dealBanner?.textContent).toContain('$14.99');
+    expect(dealBanner?.textContent).toContain('Reg: $34.99');
+    expect(dealBanner?.textContent).toContain('Arbitrage Opportunity');
+    expect(dealBanner?.textContent).toContain(
+      '$20.01 cheaper than PriceCharting CIB',
+    );
+
+    // Check direct Best Buy buy button
+    const buyBtn = compiled.querySelector('.btn-retail-buy');
+    expect(buyBtn).toBeTruthy();
+    expect(buyBtn?.getAttribute('href')).toBe(dealGame.retail_url);
+
+    // Check outbound research links
+    const ebayLink = compiled.querySelector('a.jump-link-pill.ebay');
+    expect(ebayLink).toBeTruthy();
+    expect(ebayLink?.getAttribute('href')).toContain('ebay.com');
+    expect(ebayLink?.getAttribute('href')).toContain('_sacat=139973');
+
+    const dekuLink = compiled.querySelector('a.jump-link-pill.deku');
+    expect(dekuLink).toBeTruthy();
+    expect(dekuLink?.getAttribute('href')).toBe(
+      'https://www.dekudeals.com/search?q=Hollow%20Knight',
+    );
+  });
 });

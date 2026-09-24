@@ -1165,4 +1165,166 @@ describe('CollectionListComponent', () => {
     expect(platformBadge.textContent).toContain('2 Items');
     expect(platformBadge.textContent).toContain('$90.00');
   });
+
+  it('should filter games by seeking_or_unowned and deals_only', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'g-owned',
+        title: 'Owned Game',
+        platform: 'PS4',
+        platform_id: 48,
+        ownership_status: 1, // Owned
+        retail_on_sale: 1,
+        retail_price: 1999,
+        platform_launch_date: '2013-11-15',
+      },
+      {
+        stable_id: 2,
+        id: 'g-seeking',
+        title: 'Seeking Game',
+        platform: 'PS4',
+        platform_id: 48,
+        ownership_status: 2, // Seeking
+        retail_on_sale: 1,
+        retail_price: 999,
+        platform_launch_date: '2013-11-15',
+      },
+      {
+        stable_id: 3,
+        id: 'g-unowned',
+        title: 'Unowned Game',
+        platform: 'PS4',
+        platform_id: 48,
+        ownership_status: 0, // Unowned
+        retail_on_sale: 0,
+        retail_price: 5999,
+        platform_launch_date: '2013-11-15',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Test seeking_or_unowned
+    component.filters.set({
+      ownership: 'seeking_or_unowned',
+    });
+    fixture.detectChanges();
+
+    const seekingOrUnowned = component.filteredGames();
+    expect(seekingOrUnowned.map((g) => g.id)).toEqual([
+      'g-seeking',
+      'g-unowned',
+    ]);
+
+    // Test deals_only on top of seeking_or_unowned
+    component.filters.set({
+      ownership: 'seeking_or_unowned',
+      deals_only: true,
+    });
+    fixture.detectChanges();
+
+    const dealsOnly = component.filteredGames();
+    expect(dealsOnly.map((g) => g.id)).toEqual(['g-seeking']);
+  });
+
+  it('should sort games by retail_asc and discount_desc', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'g-expensive',
+        title: 'Expensive Deal',
+        platform: 'Xbox One',
+        platform_id: 49,
+        ownership_status: 0,
+        retail_price: 2999,
+        retail_discount_pct: 20,
+        retail_on_sale: 1,
+        platform_launch_date: '2013-11-22',
+      },
+      {
+        stable_id: 2,
+        id: 'g-cheap',
+        title: 'Cheap Clearance',
+        platform: 'Xbox One',
+        platform_id: 49,
+        ownership_status: 0,
+        retail_price: 799,
+        retail_discount_pct: 70,
+        retail_on_sale: 1,
+        platform_launch_date: '2013-11-22',
+      },
+      {
+        stable_id: 3,
+        id: 'g-deep-discount',
+        title: 'Deep Discount',
+        platform: 'Xbox One',
+        platform_id: 49,
+        ownership_status: 0,
+        retail_price: 999,
+        retail_discount_pct: 85,
+        retail_on_sale: 1,
+        platform_launch_date: '2013-11-22',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Test sort by lowest retail price
+    component.filters.set({
+      ownership: 'all',
+      sortBy: 'retail_asc',
+    });
+    fixture.detectChanges();
+
+    const byRetailPrice = component.filteredGames();
+    expect(byRetailPrice.map((g) => g.id)).toEqual([
+      'g-cheap',
+      'g-deep-discount',
+      'g-expensive',
+    ]);
+
+    // Test sort by deepest discount
+    component.filters.set({
+      ownership: 'all',
+      sortBy: 'discount_desc',
+    });
+    fixture.detectChanges();
+
+    const byDiscount = component.filteredGames();
+    expect(byDiscount.map((g) => g.id)).toEqual([
+      'g-deep-discount',
+      'g-cheap',
+      'g-expensive',
+    ]);
+  });
+
+  it('should correctly calculate arbitrage savings between retail and PriceCharting CIB', () => {
+    const arbitrageGame = {
+      retail_price: 1500,
+      price_cib: 3500,
+    } as Partial<Game> as Game;
+    expect(component.getDealArbitrageSavings(arbitrageGame)).toBe(2000);
+
+    const noSavingsGame = {
+      retail_price: 4000,
+      price_cib: 3000,
+    } as Partial<Game> as Game;
+    expect(component.getDealArbitrageSavings(noSavingsGame)).toBeNull();
+
+    const missingDataGame = {
+      retail_price: 1500,
+    } as Partial<Game> as Game;
+    expect(component.getDealArbitrageSavings(missingDataGame)).toBeNull();
+  });
 });

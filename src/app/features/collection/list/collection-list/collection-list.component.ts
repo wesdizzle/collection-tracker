@@ -42,6 +42,7 @@ import {
   PlatformGroup,
   ToyGroup,
   ListState,
+  OwnershipStatus,
 } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 
@@ -291,12 +292,58 @@ interface GameGroup {
                         </div>
                       }
 
-                      @if (getGamePriceBadge(game); as badge) {
+                      @if (game.retail_on_sale && game.retail_price) {
+                        <div class="mt-2xs flex items-center gap-2xs flex-wrap">
+                          <span
+                            class="deal-sale-badge"
+                            [title]="
+                              'On Sale at ' +
+                              (game.retail_store || 'Best Buy') +
+                              (game.retail_regular_price
+                                ? ' (Reg: $' +
+                                  (game.retail_regular_price / 100).toFixed(2) +
+                                  ')'
+                                : '')
+                            "
+                          >
+                            🔥
+                            {{
+                              game.retail_discount_pct
+                                ? game.retail_discount_pct + '% OFF · '
+                                : ''
+                            }}{{ '$' + (game.retail_price / 100).toFixed(2) }}
+                          </span>
+                          @if (
+                            game.retail_regular_price &&
+                            game.retail_regular_price > game.retail_price
+                          ) {
+                            <span class="deal-strikethrough-price">
+                              {{
+                                '$' +
+                                  (game.retail_regular_price / 100).toFixed(2)
+                              }}
+                            </span>
+                          }
+                          @if (getDealArbitrageSavings(game); as savings) {
+                            <span
+                              class="deal-arb-badge"
+                              [title]="
+                                '$' +
+                                (savings / 100).toFixed(2) +
+                                ' cheaper than PriceCharting CIB used value'
+                              "
+                            >
+                              ⚡ Save {{ '$' + (savings / 100).toFixed(2) }} vs
+                              Used
+                            </span>
+                          }
+                        </div>
+                      } @else if (getGamePriceBadge(game); as badge) {
                         <div class="mt-2xs">
                           <span
                             class="valuation-badge"
                             [title]="
-                              'Estimated Market Value (PriceCharting): $' +
+                              'Estimated Market Value: $' +
                               (badge.cents / 100).toFixed(2)
                             "
                           >
@@ -862,6 +909,43 @@ interface GameGroup {
         font-family: var(--font-heading);
       }
 
+      .deal-sale-badge {
+        display: inline-flex;
+        align-items: center;
+        font-size: 0.7rem;
+        font-weight: 800;
+        color: #ffffff;
+        background: #ef4444;
+        border: 1px solid #dc2626;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        letter-spacing: 0.02em;
+        font-family: var(--font-heading);
+        box-shadow: 0 2px 6px rgba(239, 68, 68, 0.35);
+      }
+
+      .deal-strikethrough-price {
+        font-size: 0.7rem;
+        color: var(--m3-on-surface-variant);
+        text-decoration: line-through;
+        opacity: 0.7;
+        font-weight: 600;
+      }
+
+      .deal-arb-badge {
+        display: inline-flex;
+        align-items: center;
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: #3b82f6;
+        background: rgba(59, 130, 246, 0.12);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        padding: 0.12rem 0.45rem;
+        border-radius: 999px;
+        letter-spacing: 0.02em;
+        font-family: var(--font-heading);
+      }
+
       .completeness-chips {
         display: flex;
         gap: 0.25rem;
@@ -1022,7 +1106,20 @@ export class CollectionListComponent
 
         // Basic Ownership Filter
         const status = g.ownership_status ?? 0;
-        if (f.ownership !== 'all' && f.ownership !== status) return false;
+        if (f.ownership === 'seeking_or_unowned') {
+          const isSeekingOrUnowned =
+            status === OwnershipStatus.Seeking ||
+            status === OwnershipStatus.Unowned;
+          if (!isSeekingOrUnowned) return false;
+        } else if (f.ownership !== 'all' && f.ownership !== status) {
+          return false;
+        }
+
+        // Deals Only Filter
+        if (f.deals_only) {
+          const isOnSale = Boolean(g.retail_on_sale);
+          if (!isOnSale) return false;
+        }
 
         // Play Status Filter
         if (f.play_status !== undefined && f.play_status !== 'all') {
@@ -1102,6 +1199,27 @@ export class CollectionListComponent
          * 3. Consistency: Guarantees identical behavior across local dev (SQLite) and
          *    production (Cloudflare D1) despite potential collation differences.
          */
+
+        // Retail Price Sorting (Low to High)
+        if (f.sortBy === 'retail_asc') {
+          const priceA = a.retail_price ?? a.price_new ?? null;
+          const priceB = b.retail_price ?? b.price_new ?? null;
+          if (priceA !== null || priceB !== null) {
+            if (priceA === null) return 1;
+            if (priceB === null) return -1;
+            if (priceA !== priceB) return priceA - priceB;
+          }
+        }
+
+        // Deepest Sale Discount Sorting (High to Low)
+        if (f.sortBy === 'discount_desc') {
+          const discA = a.retail_discount_pct ?? 0;
+          const discB = b.retail_discount_pct ?? 0;
+          if (discA !== discB) return discB - discA;
+          const priceA = a.retail_price ?? 999999;
+          const priceB = b.retail_price ?? 999999;
+          if (priceA !== priceB) return priceA - priceB;
+        }
 
         // Value-Based Sorting (High to Low or Low to High)
         if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
@@ -1890,6 +2008,14 @@ export class CollectionListComponent
     );
   }
 
+  public getDealArbitrageSavings(game: Game): number | null {
+    if (!game.retail_price || !game.price_cib) return null;
+    if (game.price_cib > game.retail_price) {
+      return game.price_cib - game.retail_price;
+    }
+    return null;
+  }
+
   public getGamePriceBadge(
     game: Game,
   ): { cents: number; label: string } | null {
@@ -1899,6 +2025,12 @@ export class CollectionListComponent
     }
     if (game.price_loose) {
       return { cents: game.price_loose, label: 'Loose' };
+    }
+    if (game.retail_price) {
+      return { cents: game.retail_price, label: game.retail_store || 'Retail' };
+    }
+    if (game.price_new) {
+      return { cents: game.price_new, label: 'New' };
     }
     return null;
   }

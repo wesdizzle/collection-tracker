@@ -142,7 +142,14 @@ describe('Local Server API Logic', () => {
                 price_loose INTEGER,
                 price_cib INTEGER,
                 price_new INTEGER,
-                price_updated_at TEXT
+                price_updated_at TEXT,
+                retail_price INTEGER,
+                retail_regular_price INTEGER,
+                retail_discount_pct INTEGER,
+                retail_on_sale INTEGER DEFAULT 0,
+                retail_store TEXT,
+                retail_url TEXT,
+                retail_updated_at TEXT
             );
             CREATE TABLE game_releases (
                 id TEXT PRIMARY KEY,

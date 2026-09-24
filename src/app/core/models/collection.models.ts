@@ -63,6 +63,13 @@ export interface Game {
   price_cib?: number | null;
   price_new?: number | null;
   price_updated_at?: string | null;
+  retail_price?: number | null;
+  retail_regular_price?: number | null;
+  retail_discount_pct?: number | null;
+  retail_on_sale?: boolean | number;
+  retail_store?: string | null;
+  retail_url?: string | null;
+  retail_updated_at?: string | null;
   image_url?: string | null;
   summary?: string | null;
   genres?: string | null;
@@ -194,7 +201,7 @@ export interface DiscoveryPayload {
 }
 
 export interface FilterState {
-  ownership: 'all' | OwnershipStatus;
+  ownership: 'all' | 'seeking_or_unowned' | OwnershipStatus;
   play_status?: 'all' | PlayStatus;
   backup_status?: 'all' | 0 | 1;
   physical_verified?: 'all' | 0 | 1;
@@ -206,7 +213,13 @@ export interface FilterState {
   type?: string;
   seriesOrName?: string;
   seriesExact?: boolean;
-  sortBy?: 'default' | 'value_desc' | 'value_asc';
+  deals_only?: boolean;
+  sortBy?:
+    | 'default'
+    | 'value_desc'
+    | 'value_asc'
+    | 'retail_asc'
+    | 'discount_desc';
 }
 
 export interface PlatformGroup {

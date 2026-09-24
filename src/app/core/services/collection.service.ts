@@ -357,6 +357,21 @@ export class CollectionService {
   }
 
   /**
+   * Triggers a Best Buy deals and clearance scan.
+   */
+  syncBestBuyDeals(): Observable<{
+    success: boolean;
+    matchedCount?: number;
+    totalDeals?: number;
+  }> {
+    return this.http.post<{
+      success: boolean;
+      matchedCount?: number;
+      totalDeals?: number;
+    }>('/api/retail/sync-bestbuy', {});
+  }
+
+  /**
    * Ingests a new toy (e.g. amiibo) into the collection.
    *
    * @param toy Object containing toy fields to insert or update.

@@ -34,6 +34,11 @@ import {
   CanonicalRelease,
 } from '../scripts/lib/canonical_releases';
 import { computeGameCanonicalSeries } from '../scripts/lib/canonical_series';
+import {
+  fetchBestBuyDeals,
+  matchBestBuyProduct,
+  CandidateGame,
+} from '../scripts/lib/bestbuy';
 
 export interface Env {
   DB: D1Database;
@@ -44,6 +49,7 @@ export interface Env {
   TEAM_DOMAIN?: string;
   TWITCH_CLIENT_ID?: string;
   TWITCH_CLIENT_SECRET?: string;
+  BESTBUY_API_KEY?: string;
 }
 
 interface DbGame {
@@ -1958,6 +1964,33 @@ Disallow: /
         return Response.json({ success: true, id: candidateId });
       }
 
+      // Endpoint: POST /api/retail/sync-bestbuy
+      else if (
+        request.method === 'POST' &&
+        path === '/api/retail/sync-bestbuy'
+      ) {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
+        const apiKey = env.BESTBUY_API_KEY;
+        if (!apiKey) {
+          return Response.json(
+            {
+              error:
+                'BESTBUY_API_KEY secret is not configured in Cloudflare Worker.',
+            },
+            { status: 400 },
+          );
+        }
+
+        const result = await syncWorkerBestBuyDeals(env);
+        return Response.json({ success: true, ...result });
+      }
+
       /**
        * FALLBACK: Serve from Static Assets
        */
@@ -1971,7 +2004,8 @@ Disallow: /
   },
 
   /**
-   * Scheduled cron event handler invoked by Cloudflare to generate daily R2 backups.
+   * Scheduled cron event handler invoked by Cloudflare to generate daily R2 backups
+   * and periodically scan for active Best Buy retail deals.
    */
   async scheduled(
     _event: ScheduledEvent,
@@ -1980,5 +2014,96 @@ Disallow: /
   ): Promise<void> {
     console.log('[WorkerCron] Executing scheduled daily snapshot backup...');
     await performScheduledBackup(env);
+
+    if (env.BESTBUY_API_KEY) {
+      console.log('[WorkerCron] Executing scheduled Best Buy deal scan...');
+      try {
+        await syncWorkerBestBuyDeals(env);
+      } catch (err) {
+        console.error('[WorkerCron] Best Buy deal sync failed:', err);
+      }
+    }
   },
 };
+
+/**
+ * Synchronizes Best Buy active video game sales directly into Cloudflare D1.
+ */
+export async function syncWorkerBestBuyDeals(
+  env: Env,
+): Promise<{ matchedCount: number; totalDeals: number }> {
+  const apiKey = env.BESTBUY_API_KEY;
+  if (!apiKey) {
+    return { matchedCount: 0, totalDeals: 0 };
+  }
+
+  const products = await fetchBestBuyDeals(apiKey, fetch);
+  if (products.length === 0) {
+    return { matchedCount: 0, totalDeals: 0 };
+  }
+
+  const candidateRows = await env.DB.prepare(
+    `SELECT g.stable_id, g.title, g.platform_id, COALESCE(r.barcode, g.barcode) as barcode
+     FROM games g
+     LEFT JOIN game_releases r ON r.game_id = g.stable_id
+     WHERE g.platform_id IN (26, 27, 34, 35, 49, 50)`,
+  ).all<{
+    stable_id: number;
+    title: string;
+    platform_id: number;
+    barcode: string | null;
+  }>();
+
+  const candidates: CandidateGame[] = candidateRows.results || [];
+
+  // Reset previous Best Buy sales to not on sale
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare(
+      `UPDATE games SET retail_on_sale = 0 WHERE retail_store = 'Best Buy'`,
+    ),
+  ];
+
+  let matchedCount = 0;
+  const nowIso = new Date().toISOString();
+
+  for (const product of products) {
+    const stableId = matchBestBuyProduct(product, candidates);
+    if (stableId !== null) {
+      matchedCount++;
+      const salePriceCents = Math.round(product.salePrice * 100);
+      const regularPriceCents = Math.round(product.regularPrice * 100);
+      const discountPct = Math.round(Number(product.percentSavings) || 0);
+
+      statements.push(
+        env.DB.prepare(
+          `UPDATE games
+           SET retail_price = ?,
+               retail_regular_price = ?,
+               retail_discount_pct = ?,
+               retail_on_sale = 1,
+               retail_store = 'Best Buy',
+               retail_url = ?,
+               retail_updated_at = ?
+           WHERE stable_id = ?`,
+        ).bind(
+          salePriceCents,
+          regularPriceCents,
+          discountPct,
+          product.url,
+          nowIso,
+          stableId,
+        ),
+      );
+    }
+  }
+
+  if (statements.length > 0) {
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
+      const chunk = statements.slice(i, i + CHUNK_SIZE);
+      await env.DB.batch(chunk);
+    }
+  }
+
+  return { matchedCount, totalDeals: products.length };
+}
