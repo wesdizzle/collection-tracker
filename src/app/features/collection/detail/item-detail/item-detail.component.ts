@@ -602,6 +602,24 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
               >
                 🛒 Best Buy
               </a>
+              <a
+                [href]="getVgpUrl(g)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill"
+                title="Search VideoGamesPlus (VGP)"
+              >
+                🍁 VGP
+              </a>
+              <a
+                [href]="getPnpUrl(g)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill"
+                title="Search PNP Games"
+              >
+                🍁 PNP Games
+              </a>
             </div>
           </section>
 
@@ -1552,10 +1570,32 @@ export class ItemDetailComponent {
    * Returns the direct Best Buy product link if known, otherwise generates a targeted search query.
    */
   getBestBuyUrl(game: Game): string {
-    if (game.retail_url) {
+    if (game.retail_url && game.retail_store === 'Best Buy') {
       return game.retail_url;
     }
     const platformName = game.display_name || game.platform || '';
     return `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(game.title + ' ' + platformName)}`;
+  }
+
+  /**
+   * Returns the direct VGP product link if matched, otherwise generates a targeted search query.
+   */
+  getVgpUrl(game: Game): string {
+    if (game.retail_url && game.retail_store === 'VGP') {
+      return game.retail_url;
+    }
+    const platformName = game.display_name || game.platform || '';
+    return `https://videogamesplus.ca/search?q=${encodeURIComponent(game.title + ' ' + platformName)}`;
+  }
+
+  /**
+   * Returns the direct PNP Games product link if matched, otherwise generates a targeted search query.
+   */
+  getPnpUrl(game: Game): string {
+    if (game.retail_url && game.retail_store === 'PNP Games') {
+      return game.retail_url;
+    }
+    const platformName = game.display_name || game.platform || '';
+    return `https://pnpgamesonline.com/?s=${encodeURIComponent(game.title + ' ' + platformName)}&post_type=product`;
   }
 }

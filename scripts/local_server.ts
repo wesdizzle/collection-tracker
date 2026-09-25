@@ -41,9 +41,10 @@ import {
 } from './lib/queries.js';
 import { exportGed } from './lib/ged_exporter.js';
 import {
-  fetchBestBuyDeals,
+  fetchAllRetailDeals,
   matchBestBuyProduct,
   CandidateGame,
+  RetailDealItem,
 } from './lib/bestbuy.js';
 
 // Source of truth local database
@@ -1310,30 +1311,32 @@ export const handleRequest =
         req.method === 'POST' &&
         pathname === '/api/retail/sync-bestbuy'
       ) {
-        const apiKey = process.env['BESTBUY_API_KEY'];
-        if (!apiKey) {
-          res.statusCode = 400;
-          res.end(
-            JSON.stringify({
-              error: 'BESTBUY_API_KEY is not configured in .env or .dev.vars',
-            }),
-          );
-          return;
-        }
-
         try {
-          const products = await fetchBestBuyDeals(apiKey);
+          const apiKey = process.env['BESTBUY_API_KEY'];
+          const { deals, sources } = await fetchAllRetailDeals({
+            bestBuyApiKey: apiKey,
+          });
           const candidates = db
             .prepare(
               `SELECT g.stable_id, g.title, g.platform_id, COALESCE(r.barcode, g.barcode) as barcode
                FROM games g
-               LEFT JOIN game_releases r ON r.game_id = g.stable_id
-               WHERE g.platform_id IN (26, 27, 34, 35, 49, 50)`,
+               LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
             )
             .all() as CandidateGame[];
 
+          const bestDealByGame = new Map<number, RetailDealItem>();
+          for (const deal of deals) {
+            const stableId = matchBestBuyProduct(deal, candidates);
+            if (stableId !== null) {
+              const existing = bestDealByGame.get(stableId);
+              if (!existing || deal.salePrice < existing.salePrice) {
+                bestDealByGame.set(stableId, deal);
+              }
+            }
+          }
+
           db.prepare(
-            `UPDATE games SET retail_on_sale = 0 WHERE retail_store = 'Best Buy'`,
+            `UPDATE games SET retail_on_sale = 0 WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games')`,
           ).run();
 
           const updateStmt = db.prepare(`
@@ -1342,29 +1345,25 @@ export const handleRequest =
                 retail_regular_price = ?,
                 retail_discount_pct = ?,
                 retail_on_sale = 1,
-                retail_store = 'Best Buy',
+                retail_store = ?,
                 retail_url = ?,
                 retail_updated_at = ?
             WHERE stable_id = ?
           `);
 
-          let matchedCount = 0;
           const nowIso = new Date().toISOString();
 
           const batch = db.transaction(() => {
-            for (const product of products) {
-              const stableId = matchBestBuyProduct(product, candidates);
-              if (stableId !== null) {
-                matchedCount++;
-                updateStmt.run(
-                  Math.round(product.salePrice * 100),
-                  Math.round(product.regularPrice * 100),
-                  Math.round(Number(product.percentSavings) || 0),
-                  product.url,
-                  nowIso,
-                  stableId,
-                );
-              }
+            for (const [stableId, deal] of bestDealByGame.entries()) {
+              updateStmt.run(
+                Math.round(deal.salePrice * 100),
+                Math.round(deal.regularPrice * 100),
+                Math.round(Number(deal.percentSavings) || 0),
+                deal.store,
+                deal.url,
+                nowIso,
+                stableId,
+              );
             }
           });
           batch();
@@ -1372,8 +1371,9 @@ export const handleRequest =
           res.end(
             JSON.stringify({
               success: true,
-              matchedCount,
-              totalDeals: products.length,
+              matchedCount: bestDealByGame.size,
+              totalDeals: deals.length,
+              sources,
             }),
           );
         } catch (syncErr: unknown) {

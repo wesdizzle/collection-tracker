@@ -35,9 +35,10 @@ import {
 } from '../scripts/lib/canonical_releases';
 import { computeGameCanonicalSeries } from '../scripts/lib/canonical_series';
 import {
-  fetchBestBuyDeals,
+  fetchAllRetailDeals,
   matchBestBuyProduct,
   CandidateGame,
+  RetailDealItem,
 } from '../scripts/lib/bestbuy';
 
 export interface Env {
@@ -1976,17 +1977,6 @@ Disallow: /
           );
         }
 
-        const apiKey = env.BESTBUY_API_KEY;
-        if (!apiKey) {
-          return Response.json(
-            {
-              error:
-                'BESTBUY_API_KEY secret is not configured in Cloudflare Worker.',
-            },
-            { status: 400 },
-          );
-        }
-
         const result = await syncWorkerBestBuyDeals(env);
         return Response.json({ success: true, ...result });
       }
@@ -2005,7 +1995,7 @@ Disallow: /
 
   /**
    * Scheduled cron event handler invoked by Cloudflare to generate daily R2 backups
-   * and periodically scan for active Best Buy retail deals.
+   * and periodically scan for active retail deals (VGP, PNP Games, Best Buy).
    */
   async scheduled(
     _event: ScheduledEvent,
@@ -2015,38 +2005,42 @@ Disallow: /
     console.log('[WorkerCron] Executing scheduled daily snapshot backup...');
     await performScheduledBackup(env);
 
-    if (env.BESTBUY_API_KEY) {
-      console.log('[WorkerCron] Executing scheduled Best Buy deal scan...');
-      try {
-        await syncWorkerBestBuyDeals(env);
-      } catch (err) {
-        console.error('[WorkerCron] Best Buy deal sync failed:', err);
-      }
+    console.log(
+      '[WorkerCron] Executing scheduled retail deal scan (VGP, PNP Games, Best Buy)...',
+    );
+    try {
+      await syncWorkerBestBuyDeals(env);
+    } catch (err) {
+      console.error('[WorkerCron] Retail deal sync failed:', err);
     }
   },
 };
 
 /**
- * Synchronizes Best Buy active video game sales directly into Cloudflare D1.
+ * Synchronizes active physical video game sales from VGP, PNP Games, and Best Buy
+ * directly into Cloudflare D1 within Free Tier subrequest limits (~15-19 subrequests).
  */
-export async function syncWorkerBestBuyDeals(
-  env: Env,
-): Promise<{ matchedCount: number; totalDeals: number }> {
-  const apiKey = env.BESTBUY_API_KEY;
-  if (!apiKey) {
-    return { matchedCount: 0, totalDeals: 0 };
-  }
+export async function syncWorkerBestBuyDeals(env: Env): Promise<{
+  matchedCount: number;
+  totalDeals: number;
+  sources?: { vgp: number; pnp: number; bestbuy: number };
+}> {
+  const { deals, sources } = await fetchAllRetailDeals({
+    bestBuyApiKey: env.BESTBUY_API_KEY,
+    fetchFn: fetch,
+    maxVgpPages: 6,
+    maxPnpPages: 8,
+    maxBestBuyPages: 4,
+  });
 
-  const products = await fetchBestBuyDeals(apiKey, fetch);
-  if (products.length === 0) {
-    return { matchedCount: 0, totalDeals: 0 };
+  if (deals.length === 0) {
+    return { matchedCount: 0, totalDeals: 0, sources };
   }
 
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.title, g.platform_id, COALESCE(r.barcode, g.barcode) as barcode
      FROM games g
-     LEFT JOIN game_releases r ON r.game_id = g.stable_id
-     WHERE g.platform_id IN (26, 27, 34, 35, 49, 50)`,
+     LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
   ).all<{
     stable_id: number;
     title: string;
@@ -2056,45 +2050,52 @@ export async function syncWorkerBestBuyDeals(
 
   const candidates: CandidateGame[] = candidateRows.results || [];
 
-  // Reset previous Best Buy sales to not on sale
+  const bestDealByGame = new Map<number, RetailDealItem>();
+  for (const deal of deals) {
+    const stableId = matchBestBuyProduct(deal, candidates);
+    if (stableId !== null) {
+      const existing = bestDealByGame.get(stableId);
+      if (!existing || deal.salePrice < existing.salePrice) {
+        bestDealByGame.set(stableId, deal);
+      }
+    }
+  }
+
+  // Reset previous retail sales flags before applying fresh state
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
-      `UPDATE games SET retail_on_sale = 0 WHERE retail_store = 'Best Buy'`,
+      `UPDATE games SET retail_on_sale = 0 WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games')`,
     ),
   ];
 
-  let matchedCount = 0;
   const nowIso = new Date().toISOString();
 
-  for (const product of products) {
-    const stableId = matchBestBuyProduct(product, candidates);
-    if (stableId !== null) {
-      matchedCount++;
-      const salePriceCents = Math.round(product.salePrice * 100);
-      const regularPriceCents = Math.round(product.regularPrice * 100);
-      const discountPct = Math.round(Number(product.percentSavings) || 0);
+  for (const [stableId, deal] of bestDealByGame.entries()) {
+    const salePriceCents = Math.round(deal.salePrice * 100);
+    const regularPriceCents = Math.round(deal.regularPrice * 100);
+    const discountPct = Math.round(Number(deal.percentSavings) || 0);
 
-      statements.push(
-        env.DB.prepare(
-          `UPDATE games
-           SET retail_price = ?,
-               retail_regular_price = ?,
-               retail_discount_pct = ?,
-               retail_on_sale = 1,
-               retail_store = 'Best Buy',
-               retail_url = ?,
-               retail_updated_at = ?
-           WHERE stable_id = ?`,
-        ).bind(
-          salePriceCents,
-          regularPriceCents,
-          discountPct,
-          product.url,
-          nowIso,
-          stableId,
-        ),
-      );
-    }
+    statements.push(
+      env.DB.prepare(
+        `UPDATE games
+         SET retail_price = ?,
+             retail_regular_price = ?,
+             retail_discount_pct = ?,
+             retail_on_sale = 1,
+             retail_store = ?,
+             retail_url = ?,
+             retail_updated_at = ?
+         WHERE stable_id = ?`,
+      ).bind(
+        salePriceCents,
+        regularPriceCents,
+        discountPct,
+        deal.store,
+        deal.url,
+        nowIso,
+        stableId,
+      ),
+    );
   }
 
   if (statements.length > 0) {
@@ -2105,5 +2106,9 @@ export async function syncWorkerBestBuyDeals(
     }
   }
 
-  return { matchedCount, totalDeals: products.length };
+  return {
+    matchedCount: bestDealByGame.size,
+    totalDeals: deals.length,
+    sources,
+  };
 }
