@@ -51,18 +51,66 @@ async function deployCanonicalSeriesToD1() {
     `[D1Deploy] Applying ${statementCount} surgical update statement(s) to remote D1 (collection-db)...`,
   );
 
+  const rawStatements = sqlContent
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('UPDATE games SET'));
+
+  // Group statements into chunks <= 8KB to avoid Wrangler /import endpoint authentication error
+  const MAX_CHUNK_BYTES = 8000;
+  const chunks: string[] = [];
+  let currentChunk: string[] = [];
+  let currentSize = 0;
+
+  for (const stmt of rawStatements) {
+    if (
+      currentSize + stmt.length + 1 > MAX_CHUNK_BYTES &&
+      currentChunk.length > 0
+    ) {
+      chunks.push(currentChunk.join('\n'));
+      currentChunk = [stmt];
+      currentSize = stmt.length;
+    } else {
+      currentChunk.push(stmt);
+      currentSize += stmt.length + 1;
+    }
+  }
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk.join('\n'));
+  }
+
+  console.log(
+    `[D1Deploy] Executing in ${chunks.length} safe batch chunk(s)...`,
+  );
+
+  const tempDir = path.resolve(process.cwd(), 'scripts', 'temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  const tempChunkPath = path.resolve(tempDir, '_temp_d1_canonical_chunk.sql');
+
   try {
-    execSync(
-      `wrangler d1 execute collection-db --remote --file=update_canonical_series.sql`,
-      {
-        stdio: 'inherit',
-        shell: true as unknown as string,
-      },
-    );
+    for (let i = 0; i < chunks.length; i++) {
+      console.log(`[D1Deploy] Applying batch ${i + 1}/${chunks.length}...`);
+      fs.writeFileSync(tempChunkPath, chunks[i], 'utf8');
+      execSync(
+        `wrangler d1 execute collection-db --remote --file=scripts/temp/_temp_d1_canonical_chunk.sql`,
+        {
+          stdio: 'inherit',
+          shell: true as unknown as string,
+        },
+      );
+      if (fs.existsSync(tempChunkPath)) {
+        fs.unlinkSync(tempChunkPath);
+      }
+    }
     console.log(
       '\n✅ Successfully executed SQL migration on remote Cloudflare D1!',
     );
   } catch (err) {
+    if (fs.existsSync(tempChunkPath)) {
+      fs.unlinkSync(tempChunkPath);
+    }
     console.error(
       '\n❌ [D1Deploy] Failed to execute SQL migration on Cloudflare D1:',
       err,
