@@ -23,13 +23,19 @@ export const EXPLICIT_SPINOFF_REDIRECTS: Record<string, string | null> = {
   'The Final Fantasy Legend': 'SaGa',
   'Final Fantasy Legend II': 'SaGa',
   'Final Fantasy Legend III': 'SaGa',
+  'Romancing SaGa': 'SaGa',
   'Final Fantasy Adventure': 'Mana',
   'Harvest Moon (old)': 'Story of Seasons',
-  'Harvest Moon': 'Story of Seasons',
+  'Harvest Moon GBC': 'Story of Seasons',
+  'Harvest Moon (new)': 'Harvest Moon',
   "Snake's Revenge": 'Metal Gear',
   'Tetris Plus': 'Tetris',
   'Detective Pikachu': 'Pokémon',
   'Detective Pikachu Returns': 'Pokémon',
+  PokéPark: 'Pokémon',
+  'Pokémon Snap': 'Pokémon',
+  'New Pokémon Snap': 'Pokémon',
+  'Pokémon Colosseum Bonus Disc': 'Pokémon',
   'Bubsy 3D: Furbitten Planet': 'Bubsy',
   'Bubsy 3D': 'Bubsy',
   'Rare Replay': 'Rare Replay',
@@ -39,6 +45,39 @@ export const EXPLICIT_SPINOFF_REDIRECTS: Record<string, string | null> = {
     'Heavy Rain & Beyond: Two Souls Collection',
   'Heavy Rain & Beyond: Two Souls - Collection':
     'Heavy Rain & Beyond: Two Souls Collection',
+  'Beyond: Two Souls': 'Beyond: Two Souls',
+  'Ghost of Tsushima': 'Ghost of Tsushima',
+  "Ghost of Tsushima: Director's Cut": 'Ghost of Tsushima',
+  'Hyper Light': 'Hyper Light Drifter',
+  Nights: 'Nights into Dreams',
+  'Nights Into Dreams...': 'Nights into Dreams',
+  'Nights: Journey of Dreams': 'Nights into Dreams',
+  'Red Dead': 'Red Dead Redemption',
+  'Red Dead Revolver': 'Red Dead Redemption',
+  'The Lara Croft Collection': 'Tomb Raider',
+  'Lara Croft': 'Tomb Raider',
+  'Super Bomberman': 'Bomberman',
+  'Super Bomberman R': 'Bomberman',
+  'Castlevania: Lords of Shadow': 'Castlevania',
+  'Castlevania: Dracula X': 'Castlevania',
+  'Minecraft Dungeons': 'Minecraft',
+  'Minecraft: Story Mode': 'Minecraft',
+  'Ms. Pac-Man': 'Pac-Man',
+  'Far Cry Instincts': 'Far Cry',
+  'Spyro: Season': 'Spyro the Dragon',
+  "Kirby's Dream Land": 'Kirby',
+  "Kirby's Star Stacker": 'Kirby',
+  'Kirby: Canvas Curse': 'Kirby',
+  'Wolfenstein: The New Order': 'Wolfenstein',
+  'F-Zero: GP Legend': 'F-Zero',
+  'Bloodstained: Curse of the Moon': 'Bloodstained',
+  'Bloodstained: Ritual of the Night': 'Bloodstained',
+  Rabbids: 'Raving Rabbids',
+  'Rabbids Invasion': 'Raving Rabbids',
+  'Starlink: Battle for Atlas': 'Starlink',
+  'Dead Cells: Return to Castlevania Edition': 'Dead Cells',
+  'Child of Light: Ultimate Edition + Valiant Hearts: The Great War':
+    'Child of Light + Valiant Hearts',
   'Anniversary Collection Arcade Classics': 'Konami Arcade Classics',
   'Arcade Classics': 'Konami Arcade Classics',
   'The Typing of the Dead': 'The House of the Dead',
@@ -54,10 +93,20 @@ export const EXPLICIT_SPINOFF_REDIRECTS: Record<string, string | null> = {
   'Captain Toad: Treasure Tracker': 'Captain Toad',
   'Captain Toad': 'Captain Toad',
   'Gold Master Series': 'Gold Master Series',
+  'Super Scope': 'Super Scope 6',
+  'Itadaki Street': 'Fortune Street',
+  'Classic NES Series: Excitebike': 'Excitebike',
+  'Triple Pack: Trials HD, Limbo, Splosion Man': 'Xbox Live Arcade',
+  'RollerCoaster Tycoon Joyride': 'RollerCoaster Tycoon',
+  'PopCap Hits!': null,
   Skittles: null,
   'Nintendo Selects': null,
   'Classic Series': null,
   'NES Series': null,
+  'Classic NES Series': null,
+  'Famicom Mini': null,
+  'NES Classics': null,
+  'Mike Tyson': null,
   'Light Gun Series': null,
   'Robot Series': null,
   Amiibo: null,
@@ -85,6 +134,13 @@ export const CANONICAL_NAME_MAP: Record<string, string> = {
   pokmon: 'Pokémon',
   pokemon: 'Pokémon',
   banjokazooie: 'Banjo-Kazooie',
+  vivapinata: 'Viva Piñata',
+  xenoblade: 'Xenoblade Chronicles',
+  xenobladechronicles: 'Xenoblade Chronicles',
+  nights: 'Nights into Dreams',
+  nightsintodreams: 'Nights into Dreams',
+  hyperlight: 'Hyper Light Drifter',
+  hyperlightdrifter: 'Hyper Light Drifter',
 };
 
 /**
@@ -102,6 +158,10 @@ export const PROTECTED_NUMBERED_TITLES: string[] = [
   'Q.U.B.E.',
   'Q.U.B.E. 2',
   'BFG 9000',
+  'Space Channel 5',
+  'The Wonderful 101',
+  'Super Scope 6',
+  'Castlevania: Dracula X',
 ];
 
 /**
@@ -112,7 +172,7 @@ export function normalize(s: string): string {
 }
 
 /**
- * Strips known creator prefixes from game titles or tags.
+ * Strips known creator and classic reissue prefixes from game titles or tags.
  */
 export function stripCreatorPrefix(s: string): string {
   return s
@@ -121,12 +181,15 @@ export function stripCreatorPrefix(s: string): string {
     .replace(/^American McGee's\s+/i, '')
     .replace(/^Will Wright's\s+/i, '')
     .replace(/^Clive Barker's\s+/i, '')
-    .replace(/^Peter Molyneux's\s+/i, '');
+    .replace(/^Peter Molyneux's\s+/i, '')
+    .replace(/^Mike Tyson's\s+/i, '')
+    .replace(/^Disney's\s+/i, '')
+    .replace(/^Classic NES Series:\s+/i, '');
 }
 
 /**
- * Strips trailing sequel digits or Roman numerals up to XVI (16) while preserving
- * protected titles whose numbers are integral to the franchise name.
+ * Strips trailing volume/part/episode markers and sequel digits or Roman numerals up to XVI (16)
+ * while preserving protected titles whose numbers are integral to the franchise name.
  */
 export function stripTrailingNumbers(s: string): string {
   const sClean = s.trim();
@@ -140,10 +203,16 @@ export function stripTrailingNumbers(s: string): string {
     }
   }
 
+  // Strip trailing Vol. / Volume / Part / Episode suffixes first
+  let result = sClean.replace(
+    /\s*(?:-|:)?\s*\b(?:Vol\.?|Volume|Part|Episode)\s+(?:XVI|XV|XIV|XIII|XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I|\d+)$/i,
+    '',
+  );
+
   // Strip Roman numerals up to XVI (16)
   const romanPattern =
     /\s+(XVI|XV|XIV|XIII|XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I)$/i;
-  let result = sClean.replace(romanPattern, '');
+  result = result.replace(romanPattern, '');
 
   // Strip Arabic numbers only if not preceded by protected prefixes
   if (!/\b(No\.|Area|Cyberpunk)\s+\d+$/i.test(result)) {
@@ -160,26 +229,76 @@ export function stripTrailingNumbers(s: string): string {
  * @returns The resolved canonical series name
  */
 export function computeGameCanonicalSeries(game: GameMetadata): string {
-  const titleLower = (game.title || '').toLowerCase();
+  const cleanTitle = stripCreatorPrefix(game.title || '');
+  const titleLower = cleanTitle.toLowerCase();
+  const rawCollections = (game.collections || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const cleanTag = (t: string) =>
     stripCreatorPrefix(t.replace(/\([^)]*\)/g, '').trim());
 
-  const seriesRaw = (game.collections || '')
-    .split(',')
-    .map((s: string) => cleanTag(s))
+  const seriesRaw = rawCollections
+    .filter((s) => EXPLICIT_SPINOFF_REDIRECTS[s] !== null)
+    .map((s: string) =>
+      EXPLICIT_SPINOFF_REDIRECTS[s] !== undefined ? s : cleanTag(s),
+    )
     .filter((s) => s && EXPLICIT_SPINOFF_REDIRECTS[s] !== null);
   const franchisesRaw = (game.franchises || '')
     .split(',')
     .map((s: string) => cleanTag(s))
     .filter((s) => s && EXPLICIT_SPINOFF_REDIRECTS[s] !== null);
 
-  // STEP 1: EXPLICIT REDIRECTS
-  for (const item of [game.title, ...seriesRaw, ...franchisesRaw]) {
-    if (EXPLICIT_SPINOFF_REDIRECTS[item] !== undefined) {
-      const redir = EXPLICIT_SPINOFF_REDIRECTS[item];
-      if (redir !== null) return redir;
-    }
+  // STEP 1A: RUNE FACTORY & HARVEST MOON / STORY OF SEASONS DISAMBIGUATION
+  if (titleLower.startsWith('rune factory')) {
+    return 'Rune Factory';
+  }
+  const hasHarvestMoonNew = rawCollections.some(
+    (c) => c.toLowerCase() === 'harvest moon (new)',
+  );
+  const hasHarvestMoonOld = rawCollections.some((c) =>
+    ['harvest moon (old)', 'harvest moon gbc'].includes(c.toLowerCase()),
+  );
+  const hasStoryOfSeasonsFranchise = franchisesRaw.some(
+    (f) => normalize(f) === 'storyofseasons',
+  );
+  if (hasHarvestMoonNew && !hasStoryOfSeasonsFranchise) {
+    return 'Harvest Moon';
+  }
+  if (hasHarvestMoonOld || hasStoryOfSeasonsFranchise) {
+    return 'Story of Seasons';
+  }
+  if (
+    titleLower.startsWith('harvest moon') &&
+    titleLower !== 'harvest moon (old)'
+  ) {
+    return 'Harvest Moon';
+  }
+
+  // STEP 1B: EXPLICIT TITLE REDIRECTS
+  if (EXPLICIT_SPINOFF_REDIRECTS[game.title] !== undefined) {
+    const redir = EXPLICIT_SPINOFF_REDIRECTS[game.title];
+    if (redir !== null) return redir;
+  }
+  if (EXPLICIT_SPINOFF_REDIRECTS[cleanTitle] !== undefined) {
+    const redir = EXPLICIT_SPINOFF_REDIRECTS[cleanTitle];
+    if (redir !== null) return redir;
+  }
+  if (titleLower.includes('xenoblade')) {
+    return 'Xenoblade Chronicles';
+  }
+  if (titleLower.startsWith('ghost of tsushima')) {
+    return 'Ghost of Tsushima';
+  }
+  if (titleLower.startsWith('disney infinity')) {
+    return 'Disney';
+  }
+  if (titleLower.startsWith('scribblenauts')) {
+    return 'Scribblenauts';
+  }
+  if (titleLower.startsWith('skylanders')) {
+    return 'Skylanders';
   }
 
   // STEP 2: MULTI-FRANCHISE COMPILATIONS & ARCADE PACKS
@@ -318,6 +437,7 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
     seriesRaw.some((s) => normalize(s).includes('superman'))
   )
     return 'Superman';
+  if (titleLower.includes('justice league')) return 'Justice League';
   if (
     titleLower.includes('injustice') ||
     seriesRaw.some((s) => normalize(s).includes('injustice'))
@@ -331,7 +451,6 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
   if (titleLower.includes('teen titans')) return 'Teen Titans';
   if (titleLower.includes('watchmen')) return 'Watchmen';
   if (titleLower.includes('catwoman')) return 'Catwoman';
-  if (titleLower.includes('justice league')) return 'Justice League';
   if (
     titleLower.includes('dc universe') ||
     franchisesRaw.some((f) =>
@@ -376,7 +495,11 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
   if (titleLower.includes('guardians of the galaxy'))
     return 'Guardians of the Galaxy';
   if (titleLower.includes('punisher')) return 'The Punisher';
-  if (titleLower.includes('fantastic four')) return 'Fantastic Four';
+  if (
+    titleLower.includes('fantastic four') ||
+    titleLower.includes('fantastic 4')
+  )
+    return 'Fantastic Four';
   if (titleLower.includes('daredevil')) return 'Daredevil';
   if (
     titleLower.includes('blade') &&
@@ -471,9 +594,16 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
     titleLower.includes('luigi') ||
     titleLower.includes('yoshi') ||
     titleLower.includes('wario') ||
-    franchisesRaw.some((f) =>
-      ['mario', 'luigi', 'yoshi', 'wario'].includes(normalize(f)),
-    );
+    titleLower.includes('princess peach') ||
+    seriesRaw.some((s) => {
+      const ns = normalize(s);
+      return (
+        ns.includes('mario') ||
+        ns.includes('luigi') ||
+        ns.includes('yoshi') ||
+        ns.includes('wario')
+      );
+    });
 
   if (isMarioUniverse) {
     if (titleLower.includes('dr. mario') || titleLower.includes('dr mario'))
@@ -483,6 +613,12 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
       titleLower.includes('mario vs donkey kong')
     )
       return 'Mario vs. Donkey Kong';
+    if (
+      titleLower.includes('mario & luigi') ||
+      (!titleLower.includes('paper mario') &&
+        seriesRaw.some((s) => normalize(s) === 'marioandluigi'))
+    )
+      return 'Mario & Luigi';
     if (
       titleLower.includes('mario kart') ||
       seriesRaw.some((s) => normalize(s) === 'mariokart')
@@ -513,11 +649,6 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
       seriesRaw.some((s) => normalize(s) === 'mariotennis')
     )
       return 'Mario Tennis';
-    if (
-      titleLower.includes('mario & luigi') ||
-      seriesRaw.some((s) => normalize(s) === 'marioandluigi')
-    )
-      return 'Mario & Luigi';
     if (
       titleLower.includes('mario strikers') ||
       titleLower.includes('super mario strikers')
@@ -632,6 +763,7 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
     titleLower.includes('sonic unleashed') ||
     titleLower.includes('sonic mania') ||
     titleLower.includes('sonic frontiers') ||
+    titleLower.includes('team sonic racing') ||
     titleLower.includes('shadow the hedgehog') ||
     titleLower.includes('tails and the music maker') ||
     titleLower.startsWith('sonic ')
@@ -676,37 +808,111 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
   }
 
   // STEP 18: DYNAMIC CANDIDATE SCORING (Length-Weighted, Token-Boosted, Authority-Normalized)
-  const candidates = Array.from(new Set([...seriesRaw, ...franchisesRaw])).map(
-    (c) => stripTrailingNumbers(c),
+  const resolvedSeriesRaw = seriesRaw.map(
+    (s) => (EXPLICIT_SPINOFF_REDIRECTS[s] as string) || s,
+  );
+  const resolvedFranchisesRaw = franchisesRaw
+    .map((f) => (EXPLICIT_SPINOFF_REDIRECTS[f] as string) || f)
+    .filter((f) => {
+      // Prevent cameo-only Mario/Star Fox/Castlevania franchise tags from applying when no collection is present and title doesn't match
+      const nf = normalize(f);
+      if (
+        ['mario', 'starfox', 'evildead'].includes(nf) &&
+        !titleLower.includes(f.toLowerCase())
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+  const candidates = Array.from(
+    new Set([...resolvedSeriesRaw, ...resolvedFranchisesRaw]),
+  ).map((c) => stripTrailingNumbers(c));
+
+  const isCompilationOrVolumeTitle =
+    /\b(collection|classics|anthology|compilation|mega pack|triple pack|double pack|combo pack|bundle|best of|vol\.?|volume)\b/i.test(
+      cleanTitle,
+    );
+  const normTitle = normalize(cleanTitle);
+  const STOP_WORDS = new Set([
+    'the',
+    'and',
+    'for',
+    'vol',
+    'volume',
+    'collection',
+    'classics',
+    'classic',
+    'anthology',
+    'compilation',
+    'pack',
+    'mega',
+    'triple',
+    'double',
+    'combo',
+    'bundle',
+    'best',
+    'edition',
+    'series',
+  ]);
+  const titleSignificantWords = new Set(
+    cleanTitle
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 3 && !STOP_WORDS.has(w)),
   );
 
   if (candidates.length > 0) {
     const scores = candidates.map((cand) => {
       let score = 0;
       const normCand = normalize(cand);
-      const normTitle = normalize(game.title);
 
-      const isCollection = seriesRaw.some(
+      const isCollection = resolvedSeriesRaw.some(
         (x) => normalize(stripTrailingNumbers(x)) === normCand,
       );
-      const isFranchise = franchisesRaw.some(
+      const isFranchise = resolvedFranchisesRaw.some(
         (x) => normalize(stripTrailingNumbers(x)) === normCand,
       );
+
+      const isPrefixOrExact =
+        Boolean(normCand) &&
+        (normTitle === normCand || normTitle.startsWith(normCand));
+      const isSubstring = Boolean(normCand && normTitle.includes(normCand));
+      const candWords = cand
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+      const sharesSignificantWord = candWords.some((w) =>
+        titleSignificantWords.has(w),
+      );
+
+      if (
+        isCompilationOrVolumeTitle &&
+        !isPrefixOrExact &&
+        !isSubstring &&
+        !sharesSignificantWord
+      ) {
+        return { item: cand, score: 0 };
+      }
 
       if (isFranchise) score += 5;
       if (isCollection) score += 3;
 
       // Exact match or prefix match bonus
-      if (normTitle === normCand || normTitle.startsWith(normCand)) {
+      if (isPrefixOrExact) {
         score += 20;
-      } else if (normCand && normTitle.includes(normCand)) {
+      } else if (isSubstring) {
         score += 6 + Math.min(normCand.length, 10);
       }
 
       // First token match boost (e.g. "Crash" in "Crash Nitro Kart" matching first word of "Crash Bandicoot")
       const candFirstWord = (cand.split(/\s+/)[0] || '').toLowerCase();
-      const titleFirstWord = (game.title.split(/\s+/)[0] || '').toLowerCase();
-      if (candFirstWord.length >= 3 && candFirstWord === titleFirstWord) {
+      const titleFirstWord = (cleanTitle.split(/\s+/)[0] || '').toLowerCase();
+      if (
+        !isCompilationOrVolumeTitle &&
+        candFirstWord.length >= 3 &&
+        candFirstWord === titleFirstWord
+      ) {
         score += 12;
       }
 
@@ -720,6 +926,9 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
 
     if (scores.length > 0 && scores[0].score > 0) {
       const winner = scores[0].item;
+      if (EXPLICIT_SPINOFF_REDIRECTS[winner]) {
+        return EXPLICIT_SPINOFF_REDIRECTS[winner] as string;
+      }
       const normWinner = normalize(winner);
       if (CANONICAL_NAME_MAP[normWinner]) {
         return CANONICAL_NAME_MAP[normWinner];
@@ -730,8 +939,11 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
 
   // FALLBACK
   const prefix = stripTrailingNumbers(
-    stripCreatorPrefix(game.title.split(':')[0].trim()),
+    stripCreatorPrefix(cleanTitle.split(':')[0].trim()),
   );
+  if (EXPLICIT_SPINOFF_REDIRECTS[prefix]) {
+    return EXPLICIT_SPINOFF_REDIRECTS[prefix] as string;
+  }
   const normPrefix = normalize(prefix);
   if (CANONICAL_NAME_MAP[normPrefix]) {
     return CANONICAL_NAME_MAP[normPrefix];

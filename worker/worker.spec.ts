@@ -784,4 +784,106 @@ describe('Worker API Logic', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('syncWorkerIgdbSeriesAndCanonical refreshes IGDB series/franchises and reconciles canonical_series diffs', async () => {
+    const { syncWorkerIgdbSeriesAndCanonical } = await import('./worker');
+    const envWithIgdb: Env = {
+      ...mockEnv,
+      TWITCH_CLIENT_ID: 'test-client-id',
+      TWITCH_CLIENT_SECRET: 'test-client-secret',
+    };
+
+    // Seed two games:
+    // Game 10: Has igdb_id=500, outdated collections/franchises, and stale canonical_series
+    // Game 11: No igdb_id, already has PopCap Arcade Vol. 1 with stale canonical_series 'PopCap Hits!'
+    db.prepare(
+      `INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, igdb_id, collections, franchises)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      10,
+      'xeno-x',
+      'Xenoblade Chronicles X',
+      'Xenoblade',
+      'Xenoblade Chronicles X',
+      1,
+      500,
+      'Xenoblade Chronicles X',
+      'Xenoblade',
+    );
+
+    db.prepare(
+      `INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, igdb_id, collections, franchises)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      11,
+      'popcap-1',
+      'PopCap Arcade Vol 1',
+      'PopCap Hits!',
+      'PopCap Hits!',
+      1,
+      null,
+      'PopCap Hits!',
+      null,
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockImplementation((url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                access_token: 'mock-igdb-token',
+                expires_in: 3600,
+                token_type: 'bearer',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        if (urlStr.includes('api.igdb.com/v4/games')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([
+                {
+                  id: 500,
+                  collections: [{ name: 'Xenoblade Chronicles' }],
+                  franchises: [{ name: 'Xenoblade' }],
+                },
+              ]),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        return originalFetch(url, init);
+      });
+
+    try {
+      const res = await syncWorkerIgdbSeriesAndCanonical(envWithIgdb);
+      expect(res.refreshedIgdbCount).toBe(1);
+      expect(res.updatedGamesCount).toBeGreaterThanOrEqual(2);
+
+      const game10 = db
+        .prepare(
+          'SELECT collections, franchises, canonical_series FROM games WHERE stable_id = 10',
+        )
+        .get() as {
+        collections: string;
+        franchises: string;
+        canonical_series: string;
+      };
+      expect(game10.collections).toBe('Xenoblade Chronicles');
+      expect(game10.franchises).toBe('Xenoblade');
+      expect(game10.canonical_series).toBe('Xenoblade Chronicles');
+
+      const game11 = db
+        .prepare('SELECT canonical_series FROM games WHERE stable_id = 11')
+        .get() as { canonical_series: string };
+      expect(game11.canonical_series).toBe('PopCap Arcade');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

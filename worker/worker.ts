@@ -1895,11 +1895,8 @@ Disallow: /
         return Response.json({ success: true, id: candidateId });
       }
 
-      // Endpoint: POST /api/retail/sync-bestbuy
-      else if (
-        request.method === 'POST' &&
-        path === '/api/retail/sync-bestbuy'
-      ) {
+      // Endpoint: POST /api/retail/sync-deals
+      else if (request.method === 'POST' && path === '/api/retail/sync-deals') {
         if (!isAuthorizedAdmin(request, env)) {
           return Response.json(
             { error: 'Unauthorized: Admin authentication required.' },
@@ -1907,7 +1904,7 @@ Disallow: /
           );
         }
 
-        const result = await syncWorkerBestBuyDeals(env);
+        const result = await syncWorkerRetailDeals(env);
         return Response.json({ success: true, ...result });
       }
 
@@ -1924,8 +1921,9 @@ Disallow: /
   },
 
   /**
-   * Scheduled cron event handler invoked by Cloudflare to generate daily R2 backups
-   * and periodically scan for active retail deals (VGP, PNP Games, Best Buy).
+   * Scheduled cron event handler invoked by Cloudflare to generate daily R2 backups,
+   * scan for active retail deals (VGP, PNP Games, Best Buy), and refresh a rolling
+   * batch of IGDB series/franchise tags while reconciling canonical_series.
    */
   async scheduled(
     _event: ScheduledEvent,
@@ -1939,9 +1937,21 @@ Disallow: /
       '[WorkerCron] Executing scheduled retail deal scan (VGP, PNP Games, Best Buy)...',
     );
     try {
-      await syncWorkerBestBuyDeals(env);
+      await syncWorkerRetailDeals(env);
     } catch (err) {
       console.error('[WorkerCron] Retail deal sync failed:', err);
+    }
+
+    console.log(
+      '[WorkerCron] Executing scheduled IGDB series/franchise refresh and canonical_series reconciliation...',
+    );
+    try {
+      await syncWorkerIgdbSeriesAndCanonical(env);
+    } catch (err) {
+      console.error(
+        '[WorkerCron] IGDB series refresh and canonical_series sync failed:',
+        err,
+      );
     }
   },
 };
@@ -1950,7 +1960,7 @@ Disallow: /
  * Synchronizes active physical video game sales from VGP, PNP Games, and Best Buy
  * directly into Cloudflare D1 within Free Tier subrequest limits (~15-19 subrequests).
  */
-export async function syncWorkerBestBuyDeals(env: Env): Promise<{
+export async function syncWorkerRetailDeals(env: Env): Promise<{
   matchedCount: number;
   totalDeals: number;
   sources?: { vgp: number; pnp: number; bestbuy: number };
@@ -2040,5 +2050,133 @@ export async function syncWorkerBestBuyDeals(env: Env): Promise<{
     matchedCount: bestDealByGame.size,
     totalDeals: deals.length,
     sources,
+  };
+}
+
+/**
+ * Refreshes a rolling window of up to 500 IGDB games per day (1 IGDB batch query)
+ * and reconciles `canonical_series` across all games in D1 using diff-only updates.
+ */
+export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
+  refreshedIgdbCount: number;
+  updatedGamesCount: number;
+}> {
+  const { results } = await env.DB.prepare(
+    `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series
+     FROM games
+     ORDER BY stable_id ASC`,
+  ).all<{
+    stable_id: number;
+    title: string;
+    igdb_id: number | null;
+    collections: string | null;
+    franchises: string | null;
+    canonical_series: string | null;
+  }>();
+
+  const games = results || [];
+  if (games.length === 0) {
+    return { refreshedIgdbCount: 0, updatedGamesCount: 0 };
+  }
+
+  const uniqueIgdbIds = Array.from(
+    new Set(
+      games
+        .map((g) => Number(g.igdb_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ).sort((a, b) => a - b);
+
+  const BATCH_SIZE = 500;
+  const igdbFreshMap = new Map<
+    number,
+    { collections: string | null; franchises: string | null }
+  >();
+
+  if (
+    uniqueIgdbIds.length > 0 &&
+    env.TWITCH_CLIENT_ID &&
+    env.TWITCH_CLIENT_SECRET
+  ) {
+    const totalBatches = Math.ceil(uniqueIgdbIds.length / BATCH_SIZE);
+    const dayIndex = Math.floor(Date.now() / 86_400_000);
+    const batchIndex = dayIndex % totalBatches;
+    const batchIds = uniqueIgdbIds.slice(
+      batchIndex * BATCH_SIZE,
+      (batchIndex + 1) * BATCH_SIZE,
+    );
+
+    if (batchIds.length > 0) {
+      const igdbQuery = `fields id, collections.name, franchises.name; where id = (${batchIds.join(',')}); limit ${BATCH_SIZE};`;
+      const rawIgdb = (await queryIGDBEdge('games', igdbQuery, env)) as Array<{
+        id: number;
+        collections?: Array<{ name: string }>;
+        franchises?: Array<{ name: string }>;
+      }>;
+
+      for (const item of rawIgdb || []) {
+        const collections =
+          item.collections && item.collections.length > 0
+            ? item.collections.map((c) => c.name).join(', ')
+            : null;
+        const franchises =
+          item.franchises && item.franchises.length > 0
+            ? item.franchises.map((f) => f.name).join(', ')
+            : null;
+        igdbFreshMap.set(item.id, { collections, franchises });
+      }
+    }
+  }
+
+  const statements: D1PreparedStatement[] = [];
+
+  for (const game of games) {
+    const numericIgdbId = Number(game.igdb_id);
+    const fresh =
+      Number.isFinite(numericIgdbId) && numericIgdbId > 0
+        ? igdbFreshMap.get(numericIgdbId)
+        : undefined;
+
+    const nextCollections = fresh?.collections ?? game.collections ?? null;
+    const nextFranchises = fresh?.franchises ?? game.franchises ?? null;
+    const nextCanonicalSeries = computeGameCanonicalSeries({
+      title: game.title,
+      collections: nextCollections || undefined,
+      franchises: nextFranchises || undefined,
+    });
+
+    if (
+      nextCollections !== (game.collections ?? null) ||
+      nextFranchises !== (game.franchises ?? null) ||
+      nextCanonicalSeries !== (game.canonical_series ?? null)
+    ) {
+      statements.push(
+        env.DB.prepare(
+          `UPDATE games
+           SET collections = ?,
+               franchises = ?,
+               canonical_series = ?
+           WHERE stable_id = ?`,
+        ).bind(
+          nextCollections,
+          nextFranchises,
+          nextCanonicalSeries,
+          game.stable_id,
+        ),
+      );
+    }
+  }
+
+  if (statements.length > 0) {
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
+      const chunk = statements.slice(i, i + CHUNK_SIZE);
+      await env.DB.batch(chunk);
+    }
+  }
+
+  return {
+    refreshedIgdbCount: igdbFreshMap.size,
+    updatedGamesCount: statements.length,
   };
 }

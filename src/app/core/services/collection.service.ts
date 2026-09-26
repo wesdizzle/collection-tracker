@@ -357,9 +357,9 @@ export class CollectionService {
   }
 
   /**
-   * Triggers a Best Buy deals and clearance scan.
+   * Triggers a retail deals and clearance scan across Best Buy, VGP, and PNP Games.
    */
-  syncBestBuyDeals(): Observable<{
+  syncRetailDeals(): Observable<{
     success: boolean;
     matchedCount?: number;
     totalDeals?: number;
@@ -368,7 +368,7 @@ export class CollectionService {
       success: boolean;
       matchedCount?: number;
       totalDeals?: number;
-    }>('/api/retail/sync-bestbuy', {});
+    }>('/api/retail/sync-deals', {});
   }
 
   /**

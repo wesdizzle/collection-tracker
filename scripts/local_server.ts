@@ -1257,11 +1257,8 @@ export const handleRequest =
         }
       }
 
-      // POST /api/retail/sync-bestbuy
-      else if (
-        req.method === 'POST' &&
-        pathname === '/api/retail/sync-bestbuy'
-      ) {
+      // POST /api/retail/sync-deals
+      else if (req.method === 'POST' && pathname === '/api/retail/sync-deals') {
         try {
           const apiKey = process.env['BESTBUY_API_KEY'];
           const { deals, sources } = await fetchAllRetailDeals({

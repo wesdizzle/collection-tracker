@@ -582,4 +582,270 @@ describe('Canonical Series Logic Integrity Suite', () => {
       'EarthBound',
     );
   });
+
+  it('should unify multi-volume compilations and ignore single included-game IGDB tags', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'PopCap Arcade Vol. 1',
+        collections: 'PopCap Hits!, Bejeweled, Zuma, Feeding Frenzy',
+      }),
+      'PopCap Arcade',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'PopCap Arcade Vol. 2',
+        collections: 'PopCap Arcade, Peggle, Feeding Frenzy',
+      }),
+      'PopCap Arcade',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Atari Recharged Collection 3',
+        collections: "Yars' Revenge",
+      }),
+      'Atari Recharged Collection',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Atari Recharged Collection 4',
+        collections: 'Missile Command',
+      }),
+      'Atari Recharged Collection',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Atari Flashback Classics',
+        collections: "Yars' Revenge, Centipede, Gun Fight, Swordquest, Combat",
+        franchises: 'Centipede',
+      }),
+      'Atari Flashback Classics',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Best of PlayStation Network Vol. 1',
+        collections: 'Fat Princess',
+      }),
+      'Best of PlayStation Network',
+    );
+  });
+
+  it('should disambiguate Rune Factory, classic Marvelous Story of Seasons, and post-split Natsume Harvest Moon', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Rune Factory 2: A Fantasy Harvest Moon',
+        collections: 'Rune Factory',
+        franchises: 'Harvest Moon, Story of Seasons, Rune Factory',
+      }),
+      'Rune Factory',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Harvest Moon 64',
+        collections: 'Harvest Moon (old)',
+        franchises: 'Harvest Moon, Story of Seasons',
+      }),
+      'Story of Seasons',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Harvest Moon: One World',
+        collections: 'Harvest Moon (new)',
+        franchises: 'Harvest Moon',
+      }),
+      'Harvest Moon',
+    );
+  });
+
+  it('should guard primary series against guest franchise overrides and resolve Classic NES Series ports', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Skylanders: SuperChargers Racing',
+        collections: 'Skylanders',
+        franchises: 'Spyro the Dragon, Mario, Donkey Kong, Skylanders',
+      }),
+      'Skylanders',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Scribblenauts Mega Pack',
+        collections: 'Scribblenauts',
+        franchises: 'DC Comics, Justice League',
+      }),
+      'Scribblenauts',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Infinity 3.0',
+        collections: 'Disney Infinity',
+        franchises: 'Star Wars, Marvel, Disney',
+      }),
+      'Disney',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Mario & Luigi: Paper Jam',
+        collections: 'Paper Mario, Mario & Luigi',
+        franchises: 'Mario',
+      }),
+      'Mario & Luigi',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Starlink: Battle for Atlas',
+        franchises: 'Star Fox',
+      }),
+      'Starlink',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Dead Cells: Return to Castlevania Edition',
+        franchises: 'Evil Dead, Castlevania',
+      }),
+      'Dead Cells',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Classic NES Series: The Legend of Zelda',
+        collections: 'The Legend of Zelda, Classic NES Series',
+        franchises: 'The Legend of Zelda',
+      }),
+      'The Legend of Zelda',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Classic NES Series: Ice Climber',
+        collections: 'Classic NES Series',
+      }),
+      'Ice Climber',
+    );
+  });
+
+  it('should unify sub-collections into parent franchises and preserve protected numbered titles and edge cases', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Xenoblade Chronicles X: Definitive Edition',
+        collections: 'Xenoblade Chronicles',
+        franchises: 'Xenoblade',
+      }),
+      'Xenoblade Chronicles',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Wolfenstein: The New Order',
+        collections: 'Wolfenstein: The New Order, Wolfenstein',
+        franchises: 'Wolfenstein',
+      }),
+      'Wolfenstein',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Kirby: Canvas Curse',
+        collections: 'Kirby, Kirby: Canvas Curse',
+        franchises: 'Kirby',
+      }),
+      'Kirby',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Castlevania: Dracula X',
+        collections: 'Castlevania, Castlevania: Dracula X',
+        franchises: 'Castlevania',
+      }),
+      'Castlevania',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Castlevania: Lords of Shadow',
+        collections: 'Castlevania: Lords of Shadow, Castlevania',
+        franchises: 'Castlevania',
+      }),
+      'Castlevania',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Minecraft Dungeons: Ultimate Edition',
+        collections: 'Minecraft, Minecraft Dungeons',
+      }),
+      'Minecraft',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Ms. Pac-Man',
+        collections: 'Ms. Pac-Man',
+        franchises: 'Pac-Man',
+      }),
+      'Pac-Man',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Space Channel 5: Part 2',
+        collections: 'Space Channel 5',
+      }),
+      'Space Channel 5',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'The Wonderful 101: Remastered',
+      }),
+      'The Wonderful 101',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Super Scope 6',
+        collections: 'Super Scope',
+      }),
+      'Super Scope 6',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Ghost of Tsushima',
+        collections: 'Ghost',
+      }),
+      'Ghost of Tsushima',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Beyond: Two Souls',
+      }),
+      'Beyond: Two Souls',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Hyper Light Drifter',
+        collections: 'Hyper Light',
+      }),
+      'Hyper Light Drifter',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Nights: Journey of Dreams',
+        collections: 'Nights',
+        franchises: 'Nights into Dreams',
+      }),
+      'Nights into Dreams',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Viva Piñata',
+        collections: 'Viva Pinata',
+      }),
+      'Viva Piñata',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: "Mike Tyson's Punch-Out!!",
+        collections: 'Punch-Out!!',
+        franchises: 'Punch-Out!!, Mike Tyson',
+      }),
+      'Punch-Out!!',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: "Disney's DuckTales",
+        collections: 'DuckTales',
+        franchises: 'DuckTales, Disney, Donald Duck',
+      }),
+      'DuckTales',
+    );
+  });
 });
