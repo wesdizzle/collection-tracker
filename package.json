@@ -21,8 +21,7 @@
     "scan-backups": "tsx scripts/scan_backups.ts",
     "reconcile-ownership": "tsx scripts/reconcile_ownership_and_backups.ts",
     "local-api": "tsx scripts/local_server.ts",
-    "copy-wasm": "node scripts/copy_wasm.js",
-    "build": "npm run copy-wasm && ng build",
+    "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "npm run test:ng && npm run test:node",
     "test:ng": "vitest run src --reporter tap",
@@ -38,9 +37,7 @@
     "scrape": "tsx scripts/scrape.ts",
     "sync:gameye": "tsx scripts/scrape.ts --sync-gameye",
     "sync:bestbuy": "tsx scripts/sync_bestbuy.ts",
-    "export:gameye": "tsx scripts/export_gameye.ts",
     "ci-check": "npm run lint && npm run type-check && npm test && npm run build",
-    "postinstall": "npm run copy-wasm",
     "prepare": "husky"
   },
   "private": true,
@@ -60,7 +57,6 @@
     "dotenv": "^17.4.2",
     "fast-xml-parser": "^5.8.0",
     "rxjs": "~7.8.0",
-    "sql.js": "^1.14.2",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
@@ -80,7 +76,6 @@
     "@types/express": "^5.0.6",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^25.6.0",
-    "@types/sql.js": "^1.4.11",
     "@typescript-eslint/eslint-plugin": "^8.58.2",
     "@typescript-eslint/parser": "^8.58.2",
     "@vitest/ui": "^4.1.4",
