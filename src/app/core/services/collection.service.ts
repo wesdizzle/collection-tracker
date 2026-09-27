@@ -348,12 +348,7 @@ export class CollectionService {
   scanAmiibo(): Observable<AmiiboDiscoveryItem[]> {
     return this.http
       .get<AmiiboDiscoveryItem[]>('/api/discovery/scan-amiibo')
-      .pipe(
-        catchError((err) => {
-          console.error('[CollectionService] Error scanning amiibo:', err);
-          return of([]);
-        }),
-      );
+      .pipe(catchError(this.handleMutationError));
   }
 
   /**
@@ -400,12 +395,9 @@ export class CollectionService {
     if (filterDigital) {
       url += '&filterDigital=true';
     }
-    return this.http.get<IGDBSearchResult[]>(url).pipe(
-      catchError((err) => {
-        console.error('[CollectionService] Error searching games:', err);
-        return of([]);
-      }),
-    );
+    return this.http
+      .get<IGDBSearchResult[]>(url)
+      .pipe(catchError(this.handleMutationError));
   }
 
   /**
@@ -442,10 +434,9 @@ export class CollectionService {
     };
     releases: Partial<DiscoveryRelease>[];
   }): Observable<{ success: boolean; gameId: string }> {
-    return this.http.post<{ success: boolean; gameId: string }>(
-      '/api/discovery/add',
-      payload,
-    );
+    return this.http
+      .post<{ success: boolean; gameId: string }>('/api/discovery/add', payload)
+      .pipe(catchError(this.handleMutationError));
   }
 
   /**
@@ -458,12 +449,9 @@ export class CollectionService {
     const url = filterDigital
       ? '/api/discovery/scan-series?filterDigital=true'
       : '/api/discovery/scan-series';
-    return this.http.get<ScanSuggestion[]>(url).pipe(
-      catchError((err) => {
-        console.error('[CollectionService] Error scanning series:', err);
-        return of([]);
-      }),
-    );
+    return this.http
+      .get<ScanSuggestion[]>(url)
+      .pipe(catchError(this.handleMutationError));
   }
 
   public promptAdminLogin() {

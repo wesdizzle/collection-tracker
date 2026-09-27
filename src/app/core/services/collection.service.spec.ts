@@ -256,4 +256,46 @@ describe('CollectionService', () => {
       expect(hasError).toBe(true);
     });
   });
+
+  describe('Discovery Auth & Error Propagation', () => {
+    it('should prompt admin login and propagate error when scanSeries returns 403', () => {
+      let caughtError: unknown = null;
+      service.scanSeries().subscribe({
+        next: () => {},
+        error: (err) => {
+          caughtError = err;
+        },
+      });
+
+      const req = httpMock.expectOne('/api/discovery/scan-series');
+      req.flush(
+        { error: 'Unauthorized: Admin authentication required.' },
+        { status: 403, statusText: 'Forbidden' },
+      );
+
+      expect(caughtError).toBeTruthy();
+      expect(service.dialogState().visible).toBe(true);
+      expect(service.dialogState().title).toBe('Admin Authentication');
+    });
+
+    it('should prompt admin login and propagate error when scanAmiibo returns 403', () => {
+      let caughtError: unknown = null;
+      service.scanAmiibo().subscribe({
+        next: () => {},
+        error: (err) => {
+          caughtError = err;
+        },
+      });
+
+      const req = httpMock.expectOne('/api/discovery/scan-amiibo');
+      req.flush(
+        { error: 'Unauthorized: Admin authentication required.' },
+        { status: 403, statusText: 'Forbidden' },
+      );
+
+      expect(caughtError).toBeTruthy();
+      expect(service.dialogState().visible).toBe(true);
+      expect(service.dialogState().title).toBe('Admin Authentication');
+    });
+  });
 });

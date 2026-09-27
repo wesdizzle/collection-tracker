@@ -269,7 +269,9 @@ import { RouterModule } from '@angular/router';
       @if (activeTab() === 'scan') {
         <div class="tab-content animate-slide-up">
           <!-- CTA Action panel -->
-          @if (!scanLoading() && scanResults().length === 0) {
+          @if (
+            !scanLoading() && scanResults().length === 0 && !scanPerformed()
+          ) {
             <div class="scan-cta-card">
               <div class="text-4xl mb-md">🧭</div>
               <h2>Scan Tracked Franchises</h2>
@@ -303,6 +305,29 @@ import { RouterModule } from '@angular/router';
             <div class="error-banner mb-md">
               <span class="icon">⚠️</span>
               <p>{{ scanError() }}</p>
+            </div>
+          }
+
+          <!-- Scan Empty Result State -->
+          @if (
+            !scanLoading() &&
+            scanResults().length === 0 &&
+            !scanError() &&
+            scanPerformed()
+          ) {
+            <div class="empty-state animate-slide-up">
+              <div class="empty-icon text-4xl">🎉</div>
+              <h3>All Tracked Franchises Reconciled!</h3>
+              <p class="text-secondary mb-md">
+                No missing canonical entries were found for your tracked
+                franchises.
+              </p>
+              <button
+                class="m3-btn m3-btn-secondary btn-sm"
+                (click)="triggerSeriesScan()"
+              >
+                🔄 Scan Again
+              </button>
             </div>
           }
 
@@ -1597,6 +1622,7 @@ export class DiscoveryListComponent implements OnInit {
   public scanResults = signal<ScanSuggestion[]>([]);
   public scanLoading = signal<boolean>(false);
   public scanError = signal<string | null>(null);
+  public scanPerformed = signal<boolean>(false);
   public selectedScanGameIds = signal<Set<string>>(new Set());
 
   /** Amiibo discovery logic signals. */
@@ -1790,14 +1816,39 @@ export class DiscoveryListComponent implements OnInit {
         }
       }
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : 'Error occurred during IGDB search.';
-      this.searchError.set(msg);
+      this.searchError.set(
+        this.extractErrorMessage(err, 'Error occurred during IGDB search.'),
+      );
     } finally {
       this.searchLoading.set(false);
     }
+  }
+
+  /**
+   * Extracts a human-readable error message from HTTP error responses or Error objects.
+   */
+  private extractErrorMessage(err: unknown, fallback: string): string {
+    if (err && typeof err === 'object') {
+      const errObj = err as {
+        error?: { error?: unknown } | unknown;
+        message?: unknown;
+      };
+      if (
+        errObj.error &&
+        typeof errObj.error === 'object' &&
+        'error' in errObj.error &&
+        typeof (errObj.error as { error?: unknown }).error === 'string'
+      ) {
+        return (errObj.error as { error: string }).error;
+      }
+      if (typeof errObj.message === 'string' && errObj.message) {
+        return errObj.message;
+      }
+    }
+    if (err instanceof Error && err.message) {
+      return err.message;
+    }
+    return fallback;
   }
 
   /**
@@ -2042,14 +2093,16 @@ export class DiscoveryListComponent implements OnInit {
     this.scanError.set(null);
     this.scanResults.set([]);
     this.selectedScanGameIds.set(new Set());
+    this.scanPerformed.set(false);
 
     try {
       const results = await firstValueFrom(this.collectionService.scanSeries());
       this.scanResults.set(results || []);
+      this.scanPerformed.set(true);
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : 'Franchise series scan failed.';
-      this.scanError.set(msg);
+      this.scanError.set(
+        this.extractErrorMessage(err, 'Franchise series scan failed.'),
+      );
     } finally {
       this.scanLoading.set(false);
     }
@@ -2237,8 +2290,9 @@ export class DiscoveryListComponent implements OnInit {
       this.amiiboResults.set(results || []);
       this.amiiboPerformed.set(true);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Amiibo scan failed.';
-      this.amiiboError.set(msg);
+      this.amiiboError.set(
+        this.extractErrorMessage(err, 'Amiibo scan failed.'),
+      );
     } finally {
       this.amiiboLoading.set(false);
     }

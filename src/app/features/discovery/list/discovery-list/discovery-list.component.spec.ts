@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DiscoveryListComponent } from './discovery-list.component';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { signal, WritableSignal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import {
@@ -315,5 +315,31 @@ describe('DiscoveryListComponent', () => {
       }),
     );
     expect(component.amiiboResults().length).toBe(1);
+  });
+
+  it('should surface HTTP error messages and keep scanPerformed/amiiboPerformed false when scans fail', async () => {
+    mockCollectionService.scanSeries.mockReturnValueOnce(
+      throwError(() => ({
+        status: 403,
+        error: { error: 'Unauthorized: Admin authentication required.' },
+      })),
+    );
+    await component.triggerSeriesScan();
+    expect(component.scanError()).toBe(
+      'Unauthorized: Admin authentication required.',
+    );
+    expect(component.scanPerformed()).toBe(false);
+
+    mockCollectionService.scanAmiibo.mockReturnValueOnce(
+      throwError(() => ({
+        status: 403,
+        error: { error: 'Unauthorized: Admin authentication required.' },
+      })),
+    );
+    await component.triggerAmiiboScan();
+    expect(component.amiiboError()).toBe(
+      'Unauthorized: Admin authentication required.',
+    );
+    expect(component.amiiboPerformed()).toBe(false);
   });
 });
