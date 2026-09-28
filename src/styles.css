@@ -11,6 +11,7 @@
   --spacing-48: 48px;
   --spacing-64: 64px;
 
+  --radius-tag: 6px;
   --radius-xs: 12px;
   --radius-sm: 16px;
   --radius-md: 24px;
@@ -25,6 +26,9 @@
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
   --font-heading: 'Outfit', system-ui, -apple-system, sans-serif;
   --font-display: 'Roboto Flex', 'Outfit', sans-serif;
+  --font-mono:
+    'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, monospace;
 }
 
 /* --- THEME: DARK (Default) --- */
@@ -118,9 +122,15 @@ body {
     color 0.3s;
 }
 
+button,
+input,
+select,
+textarea {
+  font-family: var(--font-body);
+}
+
 h1,
-h2,
-h3 {
+h2 {
   font-family: var(--font-display);
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -129,12 +139,14 @@ h3 {
     'wght' 800;
 }
 
+h3,
 h4,
 h5,
 h6 {
   font-family: var(--font-heading);
   font-weight: 600;
   letter-spacing: -0.01em;
+  font-variation-settings: normal;
 }
 
 a {

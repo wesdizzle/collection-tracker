@@ -235,10 +235,14 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   </div>
                 </div>
                 @if (game(); as g) {
-                  <div class="meta-box">
-                    <span class="label">Release Date</span>
-                    <span class="value">{{ g.release_date || 'Unknown' }}</span>
-                  </div>
+                  @if (!formattedDate()) {
+                    <div class="meta-box">
+                      <span class="label">Release Date</span>
+                      <span class="value">{{
+                        g.release_date || 'Unknown'
+                      }}</span>
+                    </div>
+                  }
                 } @else if (toy(); as t) {
                   @if (!formattedDate()) {
                     <div class="meta-box">
@@ -250,20 +254,6 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   }
                 }
                 @if (game(); as g) {
-                  @if (g.variants) {
-                    <div class="meta-box">
-                      <span class="label">Release Variants</span>
-                      <span class="value flex flex-wrap gap-2xs mt-2xs">
-                        @for (variant of g.variants.split(','); track variant) {
-                          @if (variant.trim()) {
-                            <span class="variant-badge">{{
-                              variant.trim()
-                            }}</span>
-                          }
-                        }
-                      </span>
-                    </div>
-                  }
                   @if (parsedOriginMetadata(); as origin) {
                     <div class="meta-box full-width provenance-section mt-md">
                       <span class="label">Archival Origin Provenance</span>
@@ -278,9 +268,9 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                             origin.origin_channel || origin.origin_platform
                           }}</span>
                           @if (origin.origin_year) {
-                            <span class="text-secondary text-sm"
-                              >({{ origin.origin_year }})</span
-                            >
+                            <span class="text-secondary text-sm">{{
+                              origin.origin_year
+                            }}</span>
                           }
                         </div>
                         @if (origin.target_hardware) {
@@ -695,10 +685,11 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
       }
 
       .back-link {
+        font-family: var(--font-body);
         font-weight: 600;
         color: var(--m3-on-surface-variant);
-        padding: var(--spacing-8) var(--spacing-12);
-        border-radius: var(--radius-md);
+        padding: var(--spacing-8) var(--spacing-16);
+        border-radius: var(--radius-full);
       }
 
       .back-link:hover {
@@ -716,9 +707,10 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         align-items: center;
         gap: var(--spacing-8);
         padding: 0.5rem 1rem;
-        border-radius: var(--radius-xl);
+        border-radius: var(--radius-full);
         background: var(--m3-surface-container-high);
         border: 1px solid var(--m3-outline-variant);
+        font-family: var(--font-body);
         font-size: 0.875rem;
         font-weight: 600;
         color: var(--m3-on-surface-variant);
@@ -745,10 +737,15 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         text-decoration: none;
       }
 
-      .stat-pill.active.physical-release {
-        background: var(--m3-tertiary-container);
-        color: var(--m3-on-tertiary-container);
-        border-color: transparent;
+      .stat-pill.active.physical-release,
+      .stat-pill.active.extracted-rom,
+      .disc-actions .stat-pill:not(.interactive) {
+        border-radius: var(--radius-tag, 6px);
+        padding: 0.35rem 0.75rem;
+        font-size: 0.8125rem;
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface-variant);
+        border: 1px solid var(--m3-outline-variant);
       }
 
       .stat-pill.interactive {
@@ -821,8 +818,9 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         top: var(--spacing-12);
         right: var(--spacing-12);
         padding: 0.25rem 0.5rem;
-        background: rgba(0, 0, 0, 0.7);
-        border-radius: var(--radius-xs);
+        background: rgba(0, 0, 0, 0.75);
+        border-radius: var(--radius-tag, 6px);
+        font-family: var(--font-body);
         font-size: 0.75rem;
         font-weight: 700;
         color: #fff;
@@ -859,6 +857,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
       }
 
       .item-release-banner {
+        font-family: var(--font-body);
         font-size: 1.125rem;
         font-weight: 500;
         color: var(--m3-primary);
@@ -874,11 +873,12 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
       }
 
       .genre-chip {
-        padding: 0.5rem 1rem;
+        padding: 0.35rem 0.75rem;
         background: var(--m3-surface-container);
         border: 1px solid var(--m3-outline-variant);
-        border-radius: var(--radius-md);
-        font-size: 0.875rem;
+        border-radius: var(--radius-tag, 6px);
+        font-family: var(--font-body);
+        font-size: 0.8125rem;
         font-weight: 500;
         color: var(--m3-on-surface-variant);
       }
@@ -893,6 +893,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 
       .meta-box .label {
         display: block;
+        font-family: var(--font-body);
         font-size: 0.75rem;
         text-transform: uppercase;
         letter-spacing: 0.08em;
@@ -902,6 +903,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
       }
 
       .meta-box .value {
+        font-family: var(--font-body);
         font-size: 1.125rem;
         font-weight: 600;
         color: var(--m3-on-surface);
@@ -967,10 +969,11 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         display: inline-flex;
         align-items: center;
         padding: 0.5rem 1.25rem;
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-full);
         background: var(--m3-surface-container-high);
         color: var(--m3-on-surface);
         text-decoration: none;
+        font-family: var(--font-body);
         font-weight: 600;
         border: 1px solid var(--m3-outline-variant);
         transition: background 0.2s;
@@ -980,28 +983,29 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
       }
 
       .variant-badge {
+        font-family: var(--font-body);
         font-size: 0.75rem;
-        font-weight: 700;
+        font-weight: 600;
         color: var(--m3-on-secondary-container);
         background: var(--m3-secondary-container);
         padding: 0.15rem 0.5rem;
-        border-radius: 6px;
+        border-radius: var(--radius-tag, 6px);
         text-transform: uppercase;
         letter-spacing: 0.03em;
         display: inline-block;
       }
       .variant-badge.big {
-        font-size: 0.875rem;
-        padding: 0.25rem 0.75rem;
-        border-radius: 8px;
+        font-size: 0.8125rem;
+        padding: 0.2rem 0.65rem;
+        border-radius: var(--radius-tag, 6px);
       }
       .rom-text {
-        font-family: monospace;
+        font-family: var(--font-mono);
         font-size: 0.95rem;
         word-break: break-all;
         background: var(--m3-surface-container-high);
         padding: 0.5rem;
-        border-radius: 4px;
+        border-radius: var(--radius-tag, 6px);
         border: 1px solid var(--m3-outline-variant);
       }
       .rom-text.warning-text {
@@ -1011,8 +1015,8 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         opacity: 0.85;
       }
       .crc-text {
-        font-family: monospace;
-        font-size: 1rem;
+        font-family: var(--font-mono);
+        font-size: 0.95rem;
         color: var(--m3-primary);
       }
       .discs-list {
@@ -1027,7 +1031,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         justify-content: space-between;
         gap: var(--spacing-16);
         padding: var(--spacing-12) var(--spacing-16);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-sm);
         background: var(--m3-surface-container-high);
         border: 1px solid var(--m3-outline-variant);
       }
@@ -1062,10 +1066,11 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         padding: var(--spacing-16);
       }
       .deal-badge-pill {
+        font-family: var(--font-body);
         background: #dc2626;
         color: #ffffff;
         padding: 0.2rem 0.6rem;
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-tag, 6px);
         font-size: 0.8125rem;
         letter-spacing: 0.02em;
       }
@@ -1075,12 +1080,13 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
       .btn-retail-buy {
         display: inline-flex;
         align-items: center;
-        padding: 0.5rem 1.125rem;
+        padding: 0.5rem 1.25rem;
         background: var(--m3-primary);
         color: var(--m3-on-primary);
+        font-family: var(--font-body);
         font-weight: 700;
         font-size: 0.875rem;
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-full);
         text-decoration: none;
         white-space: nowrap;
         transition:
@@ -1109,6 +1115,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         border-color: var(--m3-outline);
       }
       .tier-label {
+        font-family: var(--font-body);
         font-size: 0.75rem;
         font-weight: 700;
         text-transform: uppercase;
@@ -1116,11 +1123,13 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         letter-spacing: 0.05em;
       }
       .tier-price {
+        font-family: var(--font-body);
         font-size: 1.5rem;
-        font-weight: 800;
+        font-weight: 700;
         color: var(--m3-on-surface);
       }
       .tier-sub {
+        font-family: var(--font-body);
         font-size: 0.75rem;
         color: var(--m3-secondary);
       }
@@ -1135,7 +1144,8 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         align-items: center;
         gap: 0.35rem;
         padding: 0.4rem 0.85rem;
-        border-radius: var(--radius-xl);
+        border-radius: var(--radius-full);
+        font-family: var(--font-body);
         font-size: 0.8125rem;
         font-weight: 600;
         text-decoration: none;

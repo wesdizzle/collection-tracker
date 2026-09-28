@@ -122,16 +122,16 @@ import { FormsModule } from '@angular/forms';
       }
 
       .dialog-title {
-        font-size: 1.75rem;
+        font-size: 1.5rem;
         color: var(--m3-on-surface);
         margin: 0;
-        font-family: var(--font-display);
+        font-family: var(--font-heading);
         font-weight: 700;
       }
 
       .dialog-body {
         color: var(--m3-on-surface-variant);
-        font-size: 1.1rem;
+        font-size: 1.05rem;
         margin-bottom: var(--spacing-32);
         line-height: 1.6;
       }
@@ -149,7 +149,7 @@ import { FormsModule } from '@angular/forms';
         color: var(--m3-on-surface);
         font-size: 1.5rem;
         font-weight: 700;
-        font-family: var(--font-heading);
+        font-family: var(--font-body);
         text-align: center;
         outline: none;
         transition: all 0.2s ease;
@@ -168,13 +168,13 @@ import { FormsModule } from '@angular/forms';
       .m3-button {
         padding: 0.8rem 1.8rem;
         border-radius: var(--radius-full);
-        font-weight: 700;
+        font-weight: 600;
         cursor: pointer;
         border: none;
         transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
-        font-family: var(--font-heading);
-        font-size: 0.95rem;
-        letter-spacing: 0.02em;
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
+        letter-spacing: 0.01em;
       }
 
       .m3-button-text {

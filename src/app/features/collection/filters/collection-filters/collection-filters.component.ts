@@ -57,7 +57,7 @@ import {
       </div>
 
       <div
-        class="filter-bar m3-surface-container flex p-md gap-md items-center mb-lg flex-wrap"
+        class="filter-bar m3-surface-container flex p-md gap-md items-end mb-lg flex-wrap"
         [class.mobile-collapsed]="!showFilters()"
       >
         <!-- Ownership Status -->
@@ -945,9 +945,9 @@ import {
           </div>
         </div>
 
-        <!-- Deals Only Toggle (Games Tab Only) -->
-        @if (currentTab() === 'games') {
-          <div class="filter-group flex items-end">
+        <div class="filter-bar-footer ml-auto flex items-center gap-md">
+          <!-- Deals Only Toggle (Games Tab Only) -->
+          @if (currentTab() === 'games') {
             <button
               type="button"
               class="m3-input deals-toggle-btn state-layer"
@@ -959,28 +959,28 @@ import {
               <span class="deals-icon">🔥</span>
               <span>Deals Only</span>
             </button>
-          </div>
-        }
-
-        <div
-          class="filter-info ml-auto mobile-hidden flex flex-col items-end gap-2xs"
-        >
-          <span class="count-badge">
-            {{ resultCount() }} items
-            @if (totalValue() > 0) {
-              • {{ formatCurrency(totalValue()) }}
-            }
-          </span>
-          @if (lastUpdated()) {
-            <span
-              class="sync-timestamp"
-              [title]="
-                'Last synced with server: ' + (lastUpdated() | date: 'medium')
-              "
-            >
-              Updated {{ lastUpdated() | date: 'shortTime' }}
-            </span>
           }
+
+          <div
+            class="filter-info mobile-hidden flex flex-col items-end gap-2xs"
+          >
+            <span class="count-badge">
+              {{ resultCount() }} items
+              @if (totalValue() > 0) {
+                • {{ formatCurrency(totalValue()) }}
+              }
+            </span>
+            @if (lastUpdated()) {
+              <span
+                class="sync-timestamp"
+                [title]="
+                  'Last synced with server: ' + (lastUpdated() | date: 'medium')
+                "
+              >
+                Updated {{ lastUpdated() | date: 'shortTime' }}
+              </span>
+            }
+          </div>
         </div>
       </div>
     </div>
@@ -1031,9 +1031,9 @@ import {
         align-items: center;
         gap: var(--spacing-12);
         padding: 0.75rem 1.5rem;
-        border-radius: var(--radius-xl);
+        border-radius: var(--radius-full);
         font-family: var(--font-body);
-        font-weight: 500;
+        font-weight: 600;
         border: none;
         cursor: pointer;
         transition: all 0.2s;
@@ -1048,14 +1048,14 @@ import {
         background: var(--m3-primary);
         color: var(--m3-on-primary);
         padding: 0.25rem 0.75rem;
-        border-radius: 999px;
+        border-radius: var(--radius-full);
         font-size: 0.875rem;
         font-weight: 600;
       }
 
       .m3-surface-container {
         background: var(--m3-surface-container);
-        border-radius: var(--radius-xl);
+        border-radius: var(--radius-md);
         border: 1px solid var(--m3-outline-variant);
       }
 
@@ -1352,7 +1352,7 @@ import {
         background: var(--m3-primary-container);
         color: var(--m3-on-primary-container);
         border: none;
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-full);
         font-family: var(--font-body);
         font-size: 0.8rem;
         font-weight: 700;
@@ -1396,15 +1396,17 @@ import {
       .deals-toggle-btn {
         display: inline-flex;
         align-items: center;
-        gap: var(--spacing-4);
+        justify-content: center;
+        width: auto;
+        gap: var(--spacing-8);
         padding: 0 1.1rem;
-        height: 48px;
-        border-radius: var(--radius-full);
-        border: 1px solid var(--m3-outline-variant);
+        height: 46px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--m3-outline);
         background: var(--m3-surface-container-high);
         color: var(--m3-on-surface);
-        font-family: inherit;
-        font-size: var(--font-size-body-medium);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
@@ -1421,9 +1423,11 @@ import {
       }
 
       .filter-info {
-        padding: 0.5rem 1.25rem;
+        padding: 0.5rem 1rem;
+        min-height: 46px;
+        justify-content: center;
         background: var(--m3-surface-container-highest);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-sm);
         border: 1px solid var(--m3-outline-variant);
       }
 

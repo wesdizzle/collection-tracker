@@ -965,9 +965,17 @@ import { RouterModule } from '@angular/router';
       .text-gradient {
         font-size: 2.5rem;
         margin: 0;
-        background: linear-gradient(135deg, #fff, var(--m3-primary-light));
+        background: linear-gradient(
+          135deg,
+          var(--m3-primary),
+          var(--m3-secondary)
+        );
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .text-secondary {
+        color: var(--m3-on-surface-variant);
       }
       .max-w-md {
         max-width: 28rem;
@@ -1003,17 +1011,19 @@ import { RouterModule } from '@angular/router';
       .tabs-container {
         display: flex;
         gap: var(--spacing-8);
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: var(--spacing-8);
+        border-bottom: 1px solid var(--m3-outline-variant);
+        padding-bottom: var(--spacing-12);
+        flex-wrap: wrap;
       }
       .tab-button {
         background: transparent;
-        border: none;
-        color: var(--text-secondary);
-        font-size: 1rem;
+        border: 1px solid transparent;
+        color: var(--m3-on-surface-variant);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
         font-weight: 600;
-        padding: var(--spacing-8) var(--spacing-16);
-        border-radius: var(--radius-md);
+        padding: var(--spacing-8) var(--spacing-20);
+        border-radius: var(--radius-full);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -1021,12 +1031,13 @@ import { RouterModule } from '@angular/router';
         transition: all 0.2s ease;
       }
       .tab-button:hover {
-        background: var(--surface-hover);
-        color: var(--text-primary);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
       }
       .tab-button.active {
         background: var(--m3-primary-container);
-        color: var(--m3-primary);
+        color: var(--m3-on-primary-container);
+        border-color: var(--m3-primary);
       }
       .search-controls {
         display: flex;
@@ -1049,41 +1060,50 @@ import { RouterModule } from '@angular/router';
       }
       .m3-input {
         width: 100%;
-        padding: var(--spacing-12) var(--spacing-16) var(--spacing-12) 36px;
-        border-radius: var(--radius-md);
-        border: 1px solid var(--border-color);
-        background: var(--surface-card);
-        color: var(--text-primary);
-        font-size: 0.95rem;
+        height: 46px;
+        padding: 0 var(--spacing-16) 0 36px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--m3-outline);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
         box-sizing: border-box;
       }
       .m3-input:focus {
         outline: none;
         border-color: var(--m3-primary);
+        background: var(--m3-surface-container-highest);
       }
       .amiibo-search-input {
         min-width: 200px;
         max-width: 280px;
-        padding: var(--spacing-8) var(--spacing-12);
+        padding: 0 var(--spacing-12);
       }
       .select-wrapper {
         min-width: 220px;
       }
       .m3-select {
         width: 100%;
-        padding: var(--spacing-12) var(--spacing-16);
-        border-radius: var(--radius-md);
-        border: 1px solid var(--border-color);
-        background: var(--surface-card);
-        color: var(--text-primary);
-        font-size: 0.95rem;
+        height: 46px;
+        padding: 0 var(--spacing-16);
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--m3-outline);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
         cursor: pointer;
         box-sizing: border-box;
+      }
+      .m3-select:focus {
+        outline: none;
+        border-color: var(--m3-primary);
       }
       .amiibo-select {
         width: auto;
         min-width: 150px;
-        padding: var(--spacing-8) var(--spacing-12);
+        padding: 0 var(--spacing-12);
       }
       .amiibo-filters-bar {
         display: flex;
@@ -1091,18 +1111,18 @@ import { RouterModule } from '@angular/router';
         align-items: center;
         gap: var(--spacing-12);
         flex-wrap: wrap;
-        background: var(--surface-card);
+        background: var(--m3-surface-container);
         padding: var(--spacing-12) var(--spacing-16);
-        border-radius: var(--radius-lg);
-        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--m3-outline-variant);
       }
       .m3-btn {
-        padding: 12px 24px;
-        min-height: 44px;
-        border-radius: var(--radius-md);
-        font-family: inherit;
-        font-size: 0.95rem;
-        font-weight: 700;
+        padding: 0 24px;
+        min-height: 46px;
+        border-radius: var(--radius-full);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
+        font-weight: 600;
         cursor: pointer;
         border: none;
         display: inline-flex;
@@ -1129,50 +1149,48 @@ import { RouterModule } from '@angular/router';
         box-shadow: 0 4px 14px rgba(255, 185, 81, 0.25);
       }
       .m3-btn-secondary {
-        background: var(--m3-surface-container-high, rgba(255, 255, 255, 0.08));
-        color: var(--m3-on-surface, #e9e1d9);
-        border: 1px solid var(--border-color);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        border: 1px solid var(--m3-outline-variant);
       }
       .m3-btn-secondary:hover:not(:disabled) {
-        background: var(
-          --m3-surface-container-highest,
-          rgba(255, 255, 255, 0.16)
-        );
-        color: #ffffff;
+        background: var(--m3-surface-container-highest);
+        border-color: var(--m3-primary);
       }
       .tab-badge {
+        font-family: var(--font-body);
         background: var(--m3-primary);
         color: var(--m3-on-primary, #452b00);
         font-weight: 700;
         font-size: 0.75rem;
-        padding: 2px 6px;
+        padding: 2px 8px;
         border-radius: var(--radius-full);
       }
       .btn-sm {
-        padding: 8px 16px;
+        padding: 0 16px;
         min-height: 36px;
         font-size: 0.85rem;
       }
       .empty-state {
         text-align: center;
         padding: var(--spacing-48) var(--spacing-16);
-        background: var(--surface-card);
-        border-radius: var(--radius-xl);
-        border: 1px dashed var(--border-color);
+        background: var(--m3-surface-container);
+        border-radius: var(--radius-lg);
+        border: 1px dashed var(--m3-outline-variant);
       }
       .scan-cta-card {
         text-align: center;
         padding: var(--spacing-48) var(--spacing-24);
-        background: var(--surface-card);
-        border-radius: var(--radius-xl);
-        border: 1px solid var(--border-color);
+        background: var(--m3-surface-container);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--m3-outline-variant);
       }
       .scan-loading-card {
         text-align: center;
         padding: var(--spacing-48) var(--spacing-24);
-        background: var(--surface-card);
-        border-radius: var(--radius-xl);
-        border: 1px solid var(--border-color);
+        background: var(--m3-surface-container);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--m3-outline-variant);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -1184,16 +1202,16 @@ import { RouterModule } from '@angular/router';
         gap: var(--spacing-16);
       }
       .game-result-card {
-        background: var(--surface-card);
+        background: var(--m3-surface-container);
         border-radius: var(--radius-lg);
-        border: 1px solid var(--border-color);
+        border: 1px solid var(--m3-outline-variant);
         overflow: hidden;
         display: flex;
         flex-direction: column;
       }
       .result-cover {
         aspect-ratio: 3/4;
-        background: #110e19;
+        background: var(--m3-surface-container-highest);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1212,8 +1230,8 @@ import { RouterModule } from '@angular/router';
       }
       .result-title {
         font-size: 0.95rem;
-        margin: 0 0 var(--spacing-6) 0;
-        font-weight: 700;
+        margin: 0 0 var(--spacing-8) 0;
+        font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
         display: -webkit-box;
@@ -1221,11 +1239,13 @@ import { RouterModule } from '@angular/router';
         -webkit-box-orient: vertical;
       }
       .platform-badge {
-        font-size: 0.75rem;
-        background: var(--surface-hover);
-        color: var(--text-secondary);
+        font-family: var(--font-body);
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: var(--m3-secondary-container);
+        color: var(--m3-on-secondary-container);
         padding: 2px 8px;
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-tag, 6px);
         display: inline-block;
       }
       .toy-badge {
@@ -1233,11 +1253,14 @@ import { RouterModule } from '@angular/router';
         color: #fb923c;
       }
       .metadata-badge {
-        font-size: 0.75rem;
-        background: rgba(255, 255, 255, 0.05);
-        color: var(--text-secondary);
+        font-family: var(--font-body);
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface-variant);
+        border: 1px solid var(--m3-outline-variant);
         padding: 2px 8px;
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-tag, 6px);
         display: inline-block;
       }
       .series-grid {
@@ -1246,9 +1269,9 @@ import { RouterModule } from '@angular/router';
         gap: var(--spacing-12);
       }
       .series-game-card {
-        background: var(--surface-card);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-lg);
+        background: var(--m3-surface-container);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-md);
         padding: var(--spacing-12);
         display: flex;
         align-items: center;
@@ -1263,9 +1286,9 @@ import { RouterModule } from '@angular/router';
       .series-game-cover {
         width: 64px;
         height: 80px;
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-xs);
         overflow: hidden;
-        background: #110e19;
+        background: var(--m3-surface-container-highest);
         flex-shrink: 0;
       }
       .series-game-cover img {
@@ -1276,9 +1299,9 @@ import { RouterModule } from '@angular/router';
       .amiibo-card-cover {
         width: 64px;
         height: 80px;
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-xs);
         overflow: hidden;
-        background: #110e19;
+        background: var(--m3-surface-container-highest);
         flex-shrink: 0;
         display: flex;
         align-items: center;
@@ -1311,10 +1334,10 @@ import { RouterModule } from '@angular/router';
         box-sizing: border-box;
       }
       .modal-content {
-        background: var(--m3-surface-container, #241d15);
-        color: var(--m3-on-surface, #e9e1d9);
-        border: 1px solid var(--m3-outline-variant, rgba(255, 255, 255, 0.15));
-        border-radius: var(--radius-xl);
+        background: var(--m3-surface-container);
+        color: var(--m3-on-surface);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-md);
         width: 100%;
         max-width: 600px;
         max-height: 90vh;
@@ -1340,7 +1363,7 @@ import { RouterModule } from '@angular/router';
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border-bottom: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--m3-outline-variant);
         padding-bottom: var(--spacing-12);
         margin-bottom: var(--spacing-16);
       }
@@ -1348,26 +1371,26 @@ import { RouterModule } from '@angular/router';
         font-size: 1.25rem;
         font-weight: 700;
         margin: 0;
-        color: #ffffff;
+        color: var(--m3-on-surface);
       }
       .close-btn {
         background: transparent;
         border: none;
-        color: var(--text-secondary);
+        color: var(--m3-on-surface-variant);
         font-size: 1.75rem;
         cursor: pointer;
         line-height: 1;
         padding: 0 4px;
       }
       .close-btn:hover {
-        color: #ffffff;
+        color: var(--m3-on-surface);
       }
       .modal-game-cover {
         width: 80px;
         height: 100px;
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-xs);
         overflow: hidden;
-        background: #110e19;
+        background: var(--m3-surface-container-highest);
         flex-shrink: 0;
       }
       .modal-game-cover img {
@@ -1384,19 +1407,22 @@ import { RouterModule } from '@angular/router';
       .form-field {
         display: flex;
         flex-direction: column;
-        gap: var(--spacing-4);
+        gap: var(--spacing-8);
       }
       .form-field label {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--text-secondary);
+        font-family: var(--font-body);
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--m3-primary);
       }
       .modal-footer {
         display: flex;
         justify-content: flex-end;
         gap: var(--spacing-12);
         margin-top: var(--spacing-24);
-        border-top: 1px solid var(--border-color);
+        border-top: 1px solid var(--m3-outline-variant);
         padding-top: var(--spacing-16);
       }
       .bulk-action-bar {
@@ -1404,7 +1430,7 @@ import { RouterModule } from '@angular/router';
         bottom: 24px;
         left: 50%;
         transform: translateX(-50%) translateY(100px);
-        background: #25193e;
+        background: var(--m3-surface-container-highest);
         border: 1px solid var(--m3-primary);
         padding: var(--spacing-12) var(--spacing-24);
         border-radius: var(--radius-full);
@@ -1425,10 +1451,10 @@ import { RouterModule } from '@angular/router';
         z-index: 1100;
       }
       .m3-toast-card {
-        background: var(--surface-card);
+        background: var(--m3-surface-container-highest);
         border: 1px solid var(--m3-primary);
         padding: var(--spacing-12) var(--spacing-16);
-        border-radius: var(--radius-lg);
+        border-radius: var(--radius-md);
         display: flex;
         align-items: center;
         gap: var(--spacing-12);
@@ -1437,7 +1463,7 @@ import { RouterModule } from '@angular/router';
       .m3-toast-close {
         background: transparent;
         border: none;
-        color: var(--text-secondary);
+        color: var(--m3-on-surface-variant);
         cursor: pointer;
         font-size: 1.2rem;
       }
@@ -1475,7 +1501,7 @@ import { RouterModule } from '@angular/router';
       .spinner {
         width: 32px;
         height: 32px;
-        border: 3px solid var(--border-color);
+        border: 3px solid var(--m3-outline-variant);
         border-top-color: var(--m3-primary);
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
@@ -1486,7 +1512,7 @@ import { RouterModule } from '@angular/router';
         }
       }
       .no-image {
-        color: var(--text-secondary);
+        color: var(--m3-on-surface-variant);
         font-size: 0.75rem;
         text-align: center;
       }
@@ -1504,8 +1530,10 @@ import { RouterModule } from '@angular/router';
         display: inline-flex;
         align-items: center;
         gap: var(--spacing-8);
-        font-size: 0.85rem;
-        color: var(--text-secondary);
+        font-family: var(--font-body);
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--m3-on-surface-variant);
         cursor: pointer;
         user-select: none;
       }
@@ -1516,10 +1544,11 @@ import { RouterModule } from '@angular/router';
         accent-color: var(--m3-primary);
       }
       .physical-badge {
+        font-family: var(--font-body);
         font-size: 0.7rem;
-        font-weight: 700;
+        font-weight: 600;
         padding: 2px 8px;
-        border-radius: var(--radius-full);
+        border-radius: var(--radius-tag, 6px);
         display: inline-flex;
         align-items: center;
         gap: 4px;
@@ -1546,21 +1575,21 @@ import { RouterModule } from '@angular/router';
         max-height: 180px;
         overflow-y: auto;
         padding: var(--spacing-8);
-        background: rgba(0, 0, 0, 0.25);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-md);
+        background: var(--m3-surface-container-low);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-sm);
       }
       .release-item {
         display: flex;
         align-items: flex-start;
         gap: var(--spacing-8);
-        padding: var(--spacing-6);
-        border-radius: var(--radius-sm);
+        padding: var(--spacing-8);
+        border-radius: var(--radius-tag, 6px);
         cursor: pointer;
         transition: background 0.15s ease;
       }
       .release-item:hover {
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--m3-surface-container-high);
       }
       .release-checkbox {
         width: 16px;
@@ -1574,15 +1603,18 @@ import { RouterModule } from '@angular/router';
         min-width: 0;
       }
       .release-title {
+        font-family: var(--font-body);
         font-size: 0.8rem;
         font-weight: 600;
-        color: var(--text-primary);
+        color: var(--m3-on-surface);
         word-break: break-word;
       }
       .tag-pill {
+        font-family: var(--font-body);
         font-size: 0.65rem;
+        font-weight: 600;
         padding: 1px 6px;
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-tag, 6px);
         display: inline-block;
       }
       .region-pill {
@@ -1598,8 +1630,9 @@ import { RouterModule } from '@angular/router';
         color: #fde047;
       }
       .crc-pill {
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface-variant);
       }
     `,
   ],

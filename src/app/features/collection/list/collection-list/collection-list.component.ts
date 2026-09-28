@@ -109,11 +109,9 @@ interface GameGroup {
                     }
                   </div>
                   <h2 class="platform-title">
-                    {{ group.platformName }}
+                    <span>{{ group.platformName }}</span>
                     @if (group.launchYear) {
-                      <span class="platform-year"
-                        >({{ group.launchYear }})</span
-                      >
+                      <span class="platform-year">{{ group.launchYear }}</span>
                     }
                   </h2>
                   <div class="platform-badge">
@@ -531,17 +529,7 @@ interface GameGroup {
                               }}</span>
                             }
                           </div>
-                          <div
-                            class="text-2xs text-secondary font-medium uppercase letter-spacing-wide"
-                          >
-                            {{ toy.line }}
-                          </div>
-                          <h3 class="card-title mt-2xs">{{ toy.name }}</h3>
-                          @if (toy.series_name) {
-                            <div class="card-subtitle" title="Series">
-                              {{ toy.series_name }}
-                            </div>
-                          }
+                          <h3 class="card-title">{{ toy.name }}</h3>
                           @if (toy.price_loose) {
                             <div class="mt-2xs">
                               <span
@@ -605,9 +593,9 @@ interface GameGroup {
         display: flex;
         align-items: center;
         gap: 1rem;
-        padding: 0.5rem 1.25rem;
+        padding: 0.625rem 1.25rem;
         background: var(--m3-surface-container-high);
-        border-radius: var(--radius-xl);
+        border-radius: var(--radius-md);
         border: 1px solid var(--m3-outline-variant);
       }
 
@@ -620,6 +608,7 @@ interface GameGroup {
         background: var(--m3-surface-container-highest);
         border-radius: 8px;
         padding: 0.25rem;
+        flex-shrink: 0;
       }
 
       .platform-logo {
@@ -635,27 +624,34 @@ interface GameGroup {
       }
       .platform-title {
         font-size: 1.25rem;
-        font-weight: 600;
+        font-weight: 700;
         color: var(--m3-on-surface);
         flex: 1;
         display: flex;
-        align-items: center;
-        gap: var(--spacing-8);
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: var(--spacing-12);
+        row-gap: 0.25rem;
       }
       .platform-year {
-        font-size: 0.9rem;
-        font-weight: 400;
+        font-family: var(--font-body);
+        font-variation-settings: normal;
+        font-size: 0.875rem;
+        font-weight: 500;
+        letter-spacing: normal;
         color: var(--m3-on-surface-variant);
-        opacity: 0.8;
+        opacity: 0.85;
       }
 
       .platform-badge {
+        font-family: var(--font-body);
         font-size: 0.75rem;
         font-weight: 600;
         color: var(--m3-on-secondary-container);
         background: var(--m3-secondary-container);
         padding: 0.25rem 0.75rem;
-        border-radius: 999px;
+        border-radius: var(--radius-full);
+        white-space: nowrap;
       }
 
       .grid {
@@ -695,10 +691,11 @@ interface GameGroup {
         position: absolute;
         top: 0.75rem;
         right: 0.75rem;
-        padding: 0.2rem 0.4rem;
+        padding: 0.2rem 0.45rem;
         background: rgba(0, 0, 0, 0.8);
-        border-radius: 4px;
-        font-size: 0.6rem;
+        border-radius: var(--radius-tag, 6px);
+        font-family: var(--font-body);
+        font-size: 0.65rem;
         font-weight: 700;
         color: #fff;
         z-index: 2;
@@ -722,14 +719,15 @@ interface GameGroup {
         padding: 1rem;
         display: flex;
         flex-direction: column;
-        gap: 0.25rem;
+        gap: 0.3rem;
+        flex: 1;
       }
 
       .content-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.25rem;
+        margin-bottom: 0.15rem;
       }
 
       .card-title {
@@ -752,12 +750,14 @@ interface GameGroup {
       }
 
       .release-year {
+        font-family: var(--font-body);
         font-size: 0.7rem;
-        font-weight: 700;
-        color: var(--m3-on-primary-container);
-        background: var(--m3-primary-container);
-        padding: 0.15rem 0.5rem;
-        border-radius: 6px;
+        font-weight: 600;
+        color: var(--m3-on-surface-variant);
+        background: var(--m3-surface-container-highest);
+        border: 1px solid var(--m3-outline-variant);
+        padding: 0.12rem 0.45rem;
+        border-radius: var(--radius-tag, 6px);
         letter-spacing: 0.02em;
       }
 
@@ -771,12 +771,13 @@ interface GameGroup {
         font-size: 0.8rem;
       }
       .bundle-badge {
+        font-family: var(--font-body);
         font-size: 0.7rem;
-        font-weight: 700;
+        font-weight: 600;
         color: var(--m3-on-secondary-container);
         background: var(--m3-secondary-container);
-        padding: 0.15rem 0.45rem;
-        border-radius: 4px;
+        padding: 0.12rem 0.45rem;
+        border-radius: var(--radius-tag, 6px);
         letter-spacing: 0.02em;
         display: inline-flex;
         align-items: center;
@@ -801,12 +802,13 @@ interface GameGroup {
       }
 
       .series-badge {
-        font-size: 0.65rem;
-        font-weight: 700;
+        font-family: var(--font-body);
+        font-size: 0.75rem;
+        font-weight: 600;
         color: var(--m3-on-tertiary-container);
         background: var(--m3-tertiary-container);
-        padding: 0.15rem 0.5rem;
-        border-radius: 4px;
+        padding: 0.2rem 0.65rem;
+        border-radius: var(--radius-full);
       }
 
       .status-badge {
@@ -864,11 +866,11 @@ interface GameGroup {
         left: 3.25rem;
         padding: 0.25rem 0.5rem;
         font-size: 0.75rem;
-        font-weight: 800;
-        font-family: var(--font-heading);
+        font-weight: 700;
+        font-family: var(--font-body);
         background: var(--m3-surface-container-highest);
         color: var(--m3-primary);
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-full);
         border: 1px solid var(--m3-outline-variant);
         backdrop-filter: blur(8px);
         z-index: 3;
@@ -885,12 +887,13 @@ interface GameGroup {
       }
 
       .variant-badge {
+        font-family: var(--font-body);
         font-size: 0.65rem;
-        font-weight: 700;
+        font-weight: 600;
         color: var(--m3-on-secondary-container);
         background: var(--m3-secondary-container);
-        padding: 0.1rem 0.4rem;
-        border-radius: 4px;
+        padding: 0.12rem 0.45rem;
+        border-radius: var(--radius-tag, 6px);
         text-transform: uppercase;
         letter-spacing: 0.03em;
       }
@@ -898,33 +901,34 @@ interface GameGroup {
       .valuation-badge {
         display: inline-flex;
         align-items: center;
+        font-family: var(--font-body);
         font-size: 0.7rem;
         font-weight: 700;
         color: #10b981;
         background: rgba(16, 185, 129, 0.12);
         border: 1px solid rgba(16, 185, 129, 0.25);
         padding: 0.15rem 0.45rem;
-        border-radius: 999px;
-        letter-spacing: 0.02em;
-        font-family: var(--font-heading);
+        border-radius: var(--radius-tag, 6px);
+        letter-spacing: 0.01em;
       }
 
       .deal-sale-badge {
         display: inline-flex;
         align-items: center;
+        font-family: var(--font-body);
         font-size: 0.7rem;
-        font-weight: 800;
+        font-weight: 700;
         color: #ffffff;
         background: #ef4444;
         border: 1px solid #dc2626;
         padding: 0.15rem 0.5rem;
-        border-radius: 999px;
-        letter-spacing: 0.02em;
-        font-family: var(--font-heading);
+        border-radius: var(--radius-tag, 6px);
+        letter-spacing: 0.01em;
         box-shadow: 0 2px 6px rgba(239, 68, 68, 0.35);
       }
 
       .deal-strikethrough-price {
+        font-family: var(--font-body);
         font-size: 0.7rem;
         color: var(--m3-on-surface-variant);
         text-decoration: line-through;
@@ -935,38 +939,41 @@ interface GameGroup {
       .deal-arb-badge {
         display: inline-flex;
         align-items: center;
+        font-family: var(--font-body);
         font-size: 0.65rem;
         font-weight: 700;
         color: #3b82f6;
         background: rgba(59, 130, 246, 0.12);
         border: 1px solid rgba(59, 130, 246, 0.3);
         padding: 0.12rem 0.45rem;
-        border-radius: 999px;
-        letter-spacing: 0.02em;
-        font-family: var(--font-heading);
+        border-radius: var(--radius-tag, 6px);
+        letter-spacing: 0.01em;
       }
 
       .completeness-chips {
         display: flex;
-        gap: 0.25rem;
+        gap: 0.35rem;
+        margin-top: auto;
+        padding-top: 0.35rem;
       }
 
       .completeness-chip {
+        font-family: var(--font-body);
         font-size: 0.65rem;
         font-weight: 600;
-        padding: 0.15rem 0.45rem;
-        border-radius: 4px;
+        padding: 0.2rem 0.6rem;
+        border-radius: var(--radius-full);
         border: 1px solid var(--m3-outline-variant);
-        background: var(--m3-surface-container);
+        background: var(--m3-surface-container-high);
         color: var(--m3-on-surface-variant);
-        opacity: 0.65;
+        opacity: 0.75;
         cursor: pointer;
         transition: all 0.2s ease;
       }
 
       .completeness-chip.active {
         background: var(--m3-primary-container);
-        color: var(--m3-primary);
+        color: var(--m3-on-primary-container);
         border-color: var(--m3-primary);
         opacity: 1;
         font-weight: 700;
