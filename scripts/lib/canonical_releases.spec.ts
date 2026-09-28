@@ -13,6 +13,16 @@ import {
   findCanonicalBundle,
   CanonicalRelease,
 } from './canonical_releases.js';
+import {
+  extractRegions,
+  extractVariants,
+  extractDiscLabel,
+} from './dat_format.js';
+import {
+  getRomGroupingKey,
+  enrichGameDetailWithCompanionDiscs,
+  CompanionDiscCandidateRow,
+} from './queries.js';
 
 describe('Canonical Releases & Physical Verification Engine', () => {
   describe('cleanTitleWithoutParentheticals & extractSerialCode', () => {
@@ -256,6 +266,257 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(rodeaBundle?.includedGames).toHaveLength(2);
       expect(rodeaBundle?.includedGames[1].title).toBe('Rodea the Sky Soldier');
       expect(rodeaBundle?.includedGames[1].platformId).toBe(22); // Wii
+    });
+  });
+
+  describe('Special Label Exclusives, Superseded Releases, and Multi-Disc Normalization', () => {
+    it('should tag budget-label-exclusive releases with their specific label and line', () => {
+      // Pikmin 2 (USA, Wii) was exclusively released as a Nintendo Selects title in NA, while EU/AU/JP released under New Play Control!
+      expect(extractVariants('Pikmin 2 (USA) (En,Fr,Es).rvz', 22)).toBe(
+        'Nintendo Selects',
+      );
+      expect(
+        extractVariants('Pikmin 2 (Europe) (En,Fr,De,Es,It).rvz', 22),
+      ).toBe('New Play Control!');
+
+      // Mario Power Tennis (USA, Wii): launched under the New Play Control! line
+      expect(
+        extractVariants('Mario Power Tennis (USA) (En,Fr,Es).rvz', 22),
+      ).toBe('New Play Control!');
+
+      // Jet Moto 2 (USA, PS1): Rev 0 was standard black label, Rev 1 (Championship Edition) was Greatest Hits exclusive
+      expect(extractVariants('Jet Moto 2 (USA).bin', 29)).toBeNull();
+      expect(extractVariants('Jet Moto 2 (USA) (Rev 1).bin', 29)).toBe(
+        'Rev 1, Greatest Hits',
+      );
+
+      // Silent Hill 2 (USA, PS2): Greatest Hits (v2.01) exclusive expanded Director's Cut
+      expect(
+        extractVariants(
+          'Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01).iso',
+          30,
+        ),
+      ).toBe('v2.01, Greatest Hits');
+
+      // Classic NES Series (GBA)
+      expect(
+        extractVariants(
+          'Classic NES Series - Super Mario Bros. (USA, Europe).gba',
+          21,
+        ),
+      ).toBe('Classic NES Series');
+    });
+
+    it('should tag original 1-disc releases reused as Disc 1 in later 2-disc GOTY releases as Superseded', () => {
+      // The Elder Scrolls IV: Oblivion (Xbox 360, platform 48)
+      expect(
+        extractVariants('Elder Scrolls IV, The - Oblivion (USA).iso', 48),
+      ).toBe('Superseded');
+
+      // GOTY Disc 2 should NOT be tagged Superseded
+      expect(
+        extractVariants(
+          'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+          48,
+        ),
+      ).toBeNull();
+
+      // Skyrim (USA, Xbox 360) -> Superseded by Skyrim Legendary Edition
+      expect(
+        extractVariants('Elder Scrolls V, The - Skyrim (USA).iso', 48),
+      ).toBe('Superseded');
+    });
+
+    it('should strip localized disc markers, disc-role parentheticals, per-disc subtitles, and leaked languages/regions from variants', () => {
+      // Italian Oblivion GOTY Disco 2
+      expect(
+        extractVariants(
+          "Elder Scrolls IV, The - Oblivion - Edizione Gioco dell'Anno (Italy) (Disco 2).iso",
+          48,
+        ),
+      ).toBeNull();
+
+      // Red Dead Redemption GOTY per-disc subtitles
+      const rdr1 =
+        'Red Dead Redemption - Game of the Year Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 1) (Red Dead Redemption Single Player).iso';
+      const rdr2 =
+        'Red Dead Redemption - Game of the Year Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 2) (Undead Nightmare and Multiplayer).iso';
+      expect(extractVariants(rdr1, 48)).toBeNull();
+      expect(extractVariants(rdr2, 48)).toBeNull();
+      expect(getRomGroupingKey(rdr1)).toBe(getRomGroupingKey(rdr2));
+      expect(extractDiscLabel(rdr1)).toBe(
+        'Disc 1 — Red Dead Redemption Single Player',
+      );
+      expect(extractDiscLabel(rdr2)).toBe(
+        'Disc 2 — Undead Nightmare and Multiplayer',
+      );
+
+      // Leaked language codes and multi-word regions
+      expect(
+        extractVariants(
+          'Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Pl,Ru,Cs,Hu,Hr,El,Sv,No,Da,Fi).iso',
+          32,
+        ),
+      ).toBeNull();
+      expect(
+        extractRegions(
+          'FIFA 08 (United Kingdom, Ireland) (En,Fr,De,Es,It).iso',
+        ),
+      ).toBe('UK, Ireland');
+      expect(
+        extractVariants(
+          'FIFA 08 (United Kingdom, Ireland) (En,Fr,De,Es,It).iso',
+          48,
+        ),
+      ).toBeNull();
+
+      // Build dates and timestamps on Beta/Proto/Demo ROMs should not become variant tags
+      expect(extractVariants('Glover (USA) (1998-07-16) (Beta).z64', 17)).toBe(
+        'Beta',
+      );
+      expect(
+        extractVariants(
+          'Turok 3 - Shadow of Oblivion (Europe) (Beta) (2000-07-16T211412).z64',
+          17,
+        ),
+      ).toBe('Beta');
+    });
+
+    it('should enrich game details for Case 1 (GOTY prepends companion Disc 1) and Case 2 (Original links forward to GOTY) without changing ownership', () => {
+      const platformReleases: CompanionDiscCandidateRow[] = [
+        {
+          id: 'the-elder-scrolls-iv-oblivion-48-usa',
+          game_id: 3796,
+          game_title: 'The Elder Scrolls IV: Oblivion',
+          platform_id: 48,
+          region: 'USA',
+          variants: 'Superseded',
+          rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+          rom_crc: '34DFCC77',
+          backup_status: 1,
+          ownership_status: 1,
+          release_date: '2006-03-20',
+        },
+        {
+          id: 'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+          game_id: 3798,
+          game_title:
+            'The Elder Scrolls IV: Oblivion - Game of the Year Edition',
+          platform_id: 48,
+          region: 'USA',
+          variants: null,
+          rom_name:
+            'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+          rom_crc: '779C2B27',
+          backup_status: 0,
+          ownership_status: 0,
+          release_date: '2007-09-11',
+        },
+      ];
+
+      // Case 1: Viewing unowned GOTY release when original release is backed up
+      const gotyDetail: {
+        id: string;
+        stable_id: number;
+        title: string;
+        platform_id: number;
+        region: string;
+        variants: string | null;
+        rom_name: string;
+        ownership_status: number;
+        releases: Array<Record<string, unknown>>;
+      } = {
+        id: 'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+        stable_id: 3798,
+        title: 'The Elder Scrolls IV: Oblivion - Game of the Year Edition',
+        platform_id: 48,
+        region: 'USA',
+        variants: null,
+        rom_name:
+          'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+        ownership_status: 0,
+        releases: [
+          {
+            id: 'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+            game_id: 3798,
+            region: 'USA',
+            variants: null,
+            rom_name:
+              'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+            rom_crc: '779C2B27',
+            backup_status: 0,
+            ownership_status: 0,
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionDiscs(gotyDetail, platformReleases);
+
+      // GOTY ownership is untouched (0), but companion Disc 1 is prepended as Backed Up (1) with link back to Original
+      expect(gotyDetail.ownership_status).toBe(0);
+      expect(gotyDetail.releases).toHaveLength(2);
+      expect(gotyDetail.releases[0]['is_companion_base_disc']).toBe(true);
+      expect(gotyDetail.releases[0]['backup_status']).toBe(1);
+      expect(gotyDetail.releases[0]['companion_game_id']).toBe(
+        'the-elder-scrolls-iv-oblivion-48-usa',
+      );
+      expect(gotyDetail.releases[1]['disc_label']).toBe('Disc 2');
+
+      // Case 2: Viewing unowned Original release whose Disc 1 is backed up via GOTY
+      const originalDetail: {
+        id: string;
+        stable_id: number;
+        title: string;
+        platform_id: number;
+        region: string;
+        variants: string;
+        rom_name: string;
+        ownership_status: number;
+        backup_status: number;
+        releases: Array<Record<string, unknown>>;
+        shared_backup_releases?: Array<{
+          id: string;
+          title: string;
+          region: string | null;
+          variants: string | null;
+          rom_name: string;
+          ownership_status: number;
+          backup_status: number;
+        }>;
+      } = {
+        id: 'the-elder-scrolls-iv-oblivion-48-usa',
+        stable_id: 3796,
+        title: 'The Elder Scrolls IV: Oblivion',
+        platform_id: 48,
+        region: 'USA',
+        variants: 'Superseded',
+        rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+        ownership_status: 0,
+        backup_status: 1,
+        releases: [
+          {
+            id: 'the-elder-scrolls-iv-oblivion-48-usa',
+            game_id: 3796,
+            region: 'USA',
+            variants: 'Superseded',
+            rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+            rom_crc: '34DFCC77',
+            backup_status: 1,
+            ownership_status: 0,
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionDiscs(originalDetail, platformReleases);
+
+      // Original remains unowned (0), backed up (1), and includes forward link to GOTY release
+      expect(originalDetail.ownership_status).toBe(0);
+      expect(originalDetail.backup_status).toBe(1);
+      expect(originalDetail.shared_backup_releases).toBeDefined();
+      expect(originalDetail.shared_backup_releases).toHaveLength(1);
+      expect(originalDetail.shared_backup_releases![0].id).toBe(
+        'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+      );
     });
   });
 });

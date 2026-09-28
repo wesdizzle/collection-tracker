@@ -144,6 +144,10 @@ export class CollectionService {
       if (saved) {
         try {
           const state = JSON.parse(saved);
+          if (state?.filters?.seriesOrName && !state.filters.name) {
+            state.filters.name = state.filters.seriesOrName;
+            delete state.filters.seriesOrName;
+          }
           if (tab === 'games') this._gamesState.set(state);
           else this._toysState.set(state);
         } catch (e) {

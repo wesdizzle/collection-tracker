@@ -103,18 +103,19 @@ describe('CollectionListComponent', () => {
     });
   });
 
-  it('should filter games by title or series with case and accent insensitivity', async () => {
+  it('should filter games independently by name, series, and tag with case/accent insensitivity and exact mode', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
 
     // Trigger ngOnInit to start data load
     const initPromise = component.ngOnInit();
 
-    // Provide mock data with accents
+    // Provide mock data with accents and tags
     httpMock.expectOne('/api/games').flush([
       {
         id: '1',
         title: 'Pokémon Yellow',
         canonical_series: 'Pokémon',
+        variants: 'Rev 1, Superseded',
         ownership_status: 1,
         platform: 'Switch',
       },
@@ -122,6 +123,7 @@ describe('CollectionListComponent', () => {
         id: '2',
         title: 'Super Mario Odyssey',
         canonical_series: 'Mario',
+        variants: 'Nintendo Selects',
         ownership_status: 1,
         platform: 'Switch',
       },
@@ -132,30 +134,60 @@ describe('CollectionListComponent', () => {
     await initPromise;
 
     // Test case insensitive series match
-    component.filters.set({ ownership: 'all', seriesOrName: 'pokemon' });
+    component.filters.set({ ownership: 'all', series: 'pokemon' });
     expect(component.filteredGames().length).toBe(1);
     expect(component.filteredGames()[0].canonical_series).toBe('Pokémon');
 
     // Test substring series match
-    component.filters.set({ ownership: 'all', seriesOrName: 'poke' });
+    component.filters.set({ ownership: 'all', series: 'poke' });
     expect(component.filteredGames().length).toBe(1);
 
-    // Test title match (substring)
-    component.filters.set({ ownership: 'all', seriesOrName: 'yellow' });
+    // Test title match (substring) via name filter
+    component.filters.set({ ownership: 'all', name: 'yellow' });
     expect(component.filteredGames().length).toBe(1);
     expect(component.filteredGames()[0].title).toBe('Pokémon Yellow');
 
+    // Test exact name match
+    component.filters.set({
+      ownership: 'all',
+      name: 'yellow',
+      nameExact: true,
+    });
+    expect(component.filteredGames().length).toBe(0);
+    component.filters.set({
+      ownership: 'all',
+      name: 'pokemon yellow',
+      nameExact: true,
+    });
+    expect(component.filteredGames().length).toBe(1);
+
     // Test title match (case/accent insensitive)
-    component.filters.set({ ownership: 'all', seriesOrName: 'ODYSSEY' });
+    component.filters.set({ ownership: 'all', name: 'ODYSSEY' });
     expect(component.filteredGames().length).toBe(1);
     expect(component.filteredGames()[0].title).toBe('Super Mario Odyssey');
 
-    // Test accent insensitive match
-    component.filters.set({ ownership: 'all', seriesOrName: 'POKEMON' });
+    // Test tag match (substring & exact)
+    component.filters.set({ ownership: 'all', tag: 'selects' });
     expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].id).toBe('2');
+
+    component.filters.set({
+      ownership: 'all',
+      tag: 'selects',
+      tagExact: true,
+    });
+    expect(component.filteredGames().length).toBe(0);
+
+    component.filters.set({
+      ownership: 'all',
+      tag: 'nintendo selects',
+      tagExact: true,
+    });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].id).toBe('2');
 
     // Test non-match
-    component.filters.set({ ownership: 'all', seriesOrName: 'Zelda' });
+    component.filters.set({ ownership: 'all', name: 'Zelda' });
     expect(component.filteredGames().length).toBe(0);
   });
 
@@ -373,10 +405,10 @@ describe('CollectionListComponent', () => {
 
     await initPromise;
 
-    // Without exact match, searching "n" should find everything with "n"
+    // Without exact match, searching series "n" should find everything with "n" in series
     component.filters.set({
       ownership: 'all',
-      seriesOrName: 'n',
+      series: 'n',
       seriesExact: false,
     });
     // "N" has "n", "Batman" has "n"
@@ -385,7 +417,7 @@ describe('CollectionListComponent', () => {
     // With exact match, searching "n" should only find games in series "N"
     component.filters.set({
       ownership: 'all',
-      seriesOrName: 'n',
+      series: 'n',
       seriesExact: true,
     });
     expect(component.filteredGames().length).toBe(2);
@@ -396,13 +428,13 @@ describe('CollectionListComponent', () => {
     // Should still be case and accent insensitive
     component.filters.set({
       ownership: 'all',
-      seriesOrName: 'N',
+      series: 'N',
       seriesExact: true,
     });
     expect(component.filteredGames().length).toBe(2);
   });
 
-  it('should filter toys by line, type, and series', async () => {
+  it('should filter toys by line, type, series, and name', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
     const initPromise = component.ngOnInit();
 
@@ -442,7 +474,8 @@ describe('CollectionListComponent', () => {
       ownership: 0,
       line: '',
       type: '',
-      seriesOrName: '',
+      name: '',
+      series: '',
     });
     expect(component.filteredToys().length).toBe(1);
     expect(component.filteredToys()[0].name).toBe('Isabelle');
@@ -452,7 +485,8 @@ describe('CollectionListComponent', () => {
       ownership: 'all',
       line: 'amiibo',
       type: '',
-      seriesOrName: '',
+      name: '',
+      series: '',
     });
     expect(component.filteredToys().length).toBe(3);
 
@@ -461,7 +495,8 @@ describe('CollectionListComponent', () => {
       ownership: 'all',
       line: '',
       type: 'Figure',
-      seriesOrName: '',
+      name: '',
+      series: '',
     });
     expect(component.filteredToys().length).toBe(2);
 
@@ -470,7 +505,7 @@ describe('CollectionListComponent', () => {
       ownership: 'all',
       line: '',
       type: '',
-      seriesOrName: 'super mario',
+      series: 'super mario',
     });
     expect(component.filteredToys().length).toBe(1);
     expect(component.filteredToys()[0].series_name).toBe('Super Mario');
@@ -480,7 +515,7 @@ describe('CollectionListComponent', () => {
       ownership: 'all',
       line: '',
       type: '',
-      seriesOrName: 'isabelle',
+      name: 'isabelle',
     });
     expect(component.filteredToys().length).toBe(1);
     expect(component.filteredToys()[0].name).toBe('Isabelle');
@@ -899,12 +934,33 @@ describe('CollectionListComponent', () => {
         fn(
           'Metal Gear Solid (Japan, Asia) (Disc 1) (Ichi) (Premium Package).cue',
         ),
-      ).toBe('multi:metal gear solid (japan, asia) (premium package)');
+      ).toBe('multi:metal gear solid (japan, asia)');
       expect(
         fn(
           'Metal Gear Solid (Japan, Asia) (Disc 2) (Ni) (Premium Package).cue',
         ),
-      ).toBe('multi:metal gear solid (japan, asia) (premium package)');
+      ).toBe('multi:metal gear solid (japan, asia)');
+      expect(
+        fn(
+          'Red Dead Redemption - Game of the Year Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 1) (Red Dead Redemption Single Player).iso',
+        ),
+      ).toBe(
+        'multi:red dead redemption - game of the year edition (usa, europe) (en,fr,de,es,it)',
+      );
+      expect(
+        fn(
+          'Red Dead Redemption - Game of the Year Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 2) (Undead Nightmare and Multiplayer).iso',
+        ),
+      ).toBe(
+        'multi:red dead redemption - game of the year edition (usa, europe) (en,fr,de,es,it)',
+      );
+      expect(
+        fn(
+          "Elder Scrolls IV, The - Oblivion - Edizione Gioco dell'Anno (Italy) (Disco 2).iso",
+        ),
+      ).toBe(
+        "multi:elder scrolls iv, the - oblivion - edizione gioco dell'anno (italy)",
+      );
       expect(fn(null)).toBe('');
     });
 
@@ -1307,6 +1363,126 @@ describe('CollectionListComponent', () => {
       'g-cheap',
       'g-expensive',
     ]);
+  });
+
+  it('should bypass platform grouping and sort across platforms for all price sort modes', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'nes-expensive',
+        title: 'Zelda',
+        canonical_series: 'Zelda',
+        platform: 'NES',
+        platform_id: 18,
+        ownership_status: 1,
+        price_loose: 4000,
+        retail_price: 2999,
+        retail_discount_pct: 20,
+        platform_launch_date: '1985-10-18',
+        brand: 'Nintendo',
+      },
+      {
+        stable_id: 2,
+        id: 'switch-cheap',
+        title: 'Arms',
+        canonical_series: 'Arms',
+        platform: 'Nintendo Switch',
+        platform_id: 130,
+        ownership_status: 1,
+        price_loose: 4000,
+        retail_price: 999,
+        retail_discount_pct: 75,
+        platform_launch_date: '2017-03-03',
+        brand: 'Nintendo',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // 1. retail_asc: should return a single unified group across platforms
+    component.filters.set({ ownership: 'all', sortBy: 'retail_asc' });
+    fixture.detectChanges();
+    expect(component.groupedGames().length).toBe(1);
+    expect(component.groupedGames()[0].platformName).toContain(
+      'All Platforms (Ranked by Lowest Retail Price)',
+    );
+    expect(component.groupedGames()[0].games.map((g) => g.id)).toEqual([
+      'switch-cheap',
+      'nes-expensive',
+    ]);
+
+    // 2. discount_desc: should return a single unified group across platforms
+    component.filters.set({ ownership: 'all', sortBy: 'discount_desc' });
+    fixture.detectChanges();
+    expect(component.groupedGames().length).toBe(1);
+    expect(component.groupedGames()[0].platformName).toContain(
+      'All Platforms (Ranked by Biggest Sale %)',
+    );
+    expect(component.groupedGames()[0].games.map((g) => g.id)).toEqual([
+      'switch-cheap',
+      'nes-expensive',
+    ]);
+
+    // 3. value_desc with tied price: should tie-break by canonical_series ('Arms' before 'Zelda') rather than platform_launch_date
+    component.filters.set({ ownership: 'all', sortBy: 'value_desc' });
+    fixture.detectChanges();
+    expect(component.groupedGames().length).toBe(1);
+    expect(component.groupedGames()[0].games.map((g) => g.id)).toEqual([
+      'switch-cheap',
+      'nes-expensive',
+    ]);
+  });
+
+  it('should require companion Disc 1 to be backed up before marking a 2-disc GOTY release as backed up, without changing ownership', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 3796,
+        id: 'oblivion-base-usa',
+        game_id: 3796,
+        title: 'The Elder Scrolls IV: Oblivion',
+        platform: 'Xbox 360',
+        platform_id: 48,
+        region: 'USA',
+        variants: 'Superseded',
+        rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+        ownership_status: 1,
+        backup_status: 1,
+      },
+      {
+        stable_id: 3798,
+        id: 'oblivion-goty-usa',
+        game_id: 3798,
+        title: 'The Elder Scrolls IV: Oblivion Game of the Year Edition',
+        platform: 'Xbox 360',
+        platform_id: 48,
+        region: 'USA',
+        variants: null,
+        rom_name:
+          'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+        ownership_status: 0,
+        backup_status: 0,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    component.filters.set({ ownership: 'all' });
+    const games = component.filteredGames();
+    const goty = games.find((g) => g.id === 'oblivion-goty-usa');
+    expect(goty).toBeTruthy();
+    // Case 1: Original Disc 1 is backed up, GOTY Disc 2 is NOT backed up -> GOTY card is unowned and not backed up
+    expect(goty?.ownership_status).toBe(0);
+    expect(goty?.backup_status).toBe(0);
   });
 
   it('should correctly calculate arbitrage savings between retail and PriceCharting CIB', () => {

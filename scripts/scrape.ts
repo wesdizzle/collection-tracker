@@ -57,6 +57,7 @@ import {
   titlesMatch,
   normalizeTitleForMatching,
 } from './lib/title_matching.js';
+import { extractRegions, extractVariants } from './lib/dat_format.js';
 import { searchGameyeGame, searchGameyeToy } from './lib/gameye.js';
 
 const db = new Database('collection.sqlite');
@@ -269,195 +270,6 @@ function findDbPlatform(
   }
 
   return null;
-}
-
-/**
- * Extracts and maps region names from a game or release title (typically within parentheses).
- * Maps common variants (including "hong kong" and "hongkong") to standardized region names.
- *
- * @param name The game or release title containing regional indicators.
- * @returns A comma-separated list of standardized regions (e.g. "USA, Europe"), or null if no regions are found.
- */
-function extractRegions(name: string): string | null {
-  const regionsMap: Record<string, string> = {
-    usa: 'USA',
-    europe: 'Europe',
-    japan: 'Japan',
-    world: 'World',
-    asia: 'Asia',
-    france: 'France',
-    germany: 'Germany',
-    australia: 'Australia',
-    uk: 'UK',
-    canada: 'Canada',
-    korea: 'Korea',
-    brazil: 'Brazil',
-    spain: 'Spain',
-    italy: 'Italy',
-    netherlands: 'Netherlands',
-    sweden: 'Sweden',
-    russia: 'Russia',
-    china: 'China',
-    taiwan: 'Taiwan',
-    portugal: 'Portugal',
-    denmark: 'Denmark',
-    norway: 'Norway',
-    finland: 'Finland',
-    'hong kong': 'Hong Kong',
-    hongkong: 'Hong Kong',
-  };
-
-  const found: string[] = [];
-  const parentheticalMatches = name.match(/\(([^)]+)\)/g);
-  if (parentheticalMatches) {
-    for (const match of parentheticalMatches) {
-      const content = match.slice(1, -1);
-      const parts = content.split(/[\s,]+/);
-      for (const part of parts) {
-        const cleanPart = part.trim().toLowerCase();
-        if (regionsMap[cleanPart]) {
-          const mapped = regionsMap[cleanPart];
-          if (!found.includes(mapped)) {
-            found.push(mapped);
-          }
-        }
-      }
-    }
-  }
-  return found.length > 0 ? found.join(', ') : null;
-}
-
-function isRegionOrLanguageOrDisc(content: string): boolean {
-  const normalized = content.toLowerCase().trim();
-
-  // 1. Check if it is a disc or side indicator
-  const discRegex =
-    /^(?:disc|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?$/i;
-  if (discRegex.test(normalized)) {
-    return true;
-  }
-
-  // Check if it is a Japanese disc count indicator (Ichi, Ni, etc.)
-  const jpDiscRegex = /^(?:ichi|ni|san|yon|shi|go)$/i;
-  if (jpDiscRegex.test(normalized)) {
-    return true;
-  }
-
-  // 2. Check if it consists entirely of regions or languages
-  const regions = new Set([
-    'usa',
-    'europe',
-    'japan',
-    'world',
-    'asia',
-    'france',
-    'germany',
-    'australia',
-    'uk',
-    'canada',
-    'korea',
-    'brazil',
-    'spain',
-    'italy',
-    'netherlands',
-    'sweden',
-    'russia',
-    'china',
-    'taiwan',
-    'portugal',
-    'denmark',
-    'norway',
-    'finland',
-    'hong kong',
-    'hongkong',
-    'latam',
-    'nz',
-    'new zealand',
-  ]);
-
-  const languages = new Set([
-    'en',
-    'fr',
-    'de',
-    'es',
-    'it',
-    'nl',
-    'pt',
-    'sv',
-    'no',
-    'da',
-    'fi',
-    'pl',
-    'ru',
-    'ja',
-    'zh',
-    'ko',
-    'el',
-    'tr',
-    'uk',
-    'ar',
-    'he',
-    'th',
-    'vi',
-    'm1',
-    'm2',
-    'm3',
-    'm4',
-    'm5',
-    'm6',
-    'm7',
-    'm8',
-    'm9',
-    'multi1',
-    'multi2',
-    'multi3',
-    'multi4',
-    'multi5',
-    'multi6',
-    'multi7',
-    'multi8',
-    'multi9',
-    'english',
-    'french',
-    'german',
-    'spanish',
-    'italian',
-    'dutch',
-    'portuguese',
-    'swedish',
-    'norwegian',
-    'danish',
-    'finnish',
-    'polish',
-    'russian',
-    'japanese',
-    'chinese',
-    'korean',
-  ]);
-
-  const parts = normalized.split(/[\s,/\-\\+]+/);
-  return parts.every((part) => {
-    const p = part.trim();
-    if (!p) return true;
-    return regions.has(p) || languages.has(p);
-  });
-}
-
-function extractVariants(name: string): string | null {
-  const found: string[] = [];
-  const parentheticalMatches = name.match(/\(([^)]+)\)/g);
-  if (parentheticalMatches) {
-    for (const match of parentheticalMatches) {
-      const content = match.slice(1, -1).trim();
-
-      if (!isRegionOrLanguageOrDisc(content)) {
-        if (!found.includes(content)) {
-          found.push(content);
-        }
-      }
-    }
-  }
-  return found.length > 0 ? found.join(', ') : null;
 }
 
 /**
@@ -721,7 +533,7 @@ async function syncDats(): Promise<void> {
         }
 
         const regions = extractRegions(release.name);
-        const variants = extractVariants(release.name);
+        const variants = extractVariants(release.name, dbPlatform.id);
 
         // Clean release name (strip region/variant parentheticals for matching)
         let baseTitle = release.name
@@ -1039,11 +851,22 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
     }[];
 
     if (realReleases.length > 0) {
-      // Prioritize stable releases over beta/proto/demo variants
+      // Prioritize standard black-label releases over revisions, budget re-releases, and beta/proto/demo variants
       const getPriority = (variants: string | null): number => {
         if (!variants) return 0;
         const lower = variants.toLowerCase();
-        if (/\b(beta|proto|prototype|demo|kiosk|sample|promo)\b/i.test(lower)) {
+        if (
+          /\b(beta|proto|prototype|demo|kiosk|sample|promo|taikenban|alpha|debug)\b/i.test(
+            lower,
+          )
+        ) {
+          return 3;
+        }
+        if (
+          /\b(greatest hits|platinum hits|nintendo selects|player'?s choice|xbox classics|platinum|essentials|the best)\b/i.test(
+            lower,
+          )
+        ) {
           return 2;
         }
         return 1;

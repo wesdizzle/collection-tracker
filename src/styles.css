@@ -286,6 +286,12 @@ a {
   flex-wrap: wrap;
 }
 
+.gap-2xs {
+  gap: var(--spacing-4);
+}
+.gap-xs {
+  gap: var(--spacing-8);
+}
 .gap-sm {
   gap: var(--spacing-8);
 }
@@ -296,6 +302,12 @@ a {
   gap: var(--spacing-32);
 }
 
+.mb-2xs {
+  margin-bottom: var(--spacing-4);
+}
+.mb-xs {
+  margin-bottom: var(--spacing-8);
+}
 .mb-sm {
   margin-bottom: var(--spacing-8);
 }
@@ -309,6 +321,12 @@ a {
   margin-bottom: var(--spacing-48);
 }
 
+.mt-2xs {
+  margin-top: var(--spacing-4);
+}
+.mt-xs {
+  margin-top: var(--spacing-8);
+}
 .mt-sm {
   margin-top: var(--spacing-8);
 }

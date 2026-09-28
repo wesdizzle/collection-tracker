@@ -28,6 +28,10 @@ import {
   GAMES_ORDER_BY,
   getRomGroupingKey,
   PLATFORM_MAP,
+  PLATFORM_RELEASES_FOR_COMPANION_QUERY,
+  CompanionDiscCandidateRow,
+  SharedBackupReleaseLink,
+  enrichGameDetailWithCompanionDiscs,
 } from '../scripts/lib/queries';
 import {
   detectPhysicalReleaseStatus,
@@ -56,6 +60,8 @@ export interface Env {
 interface DbGame {
   stable_id: number;
   id: string;
+  title?: string;
+  platform_id?: number;
   region?: string | null;
   variants?: string | null;
   rom_name?: string | null;
@@ -63,8 +69,9 @@ interface DbGame {
   backup_status?: number;
   ownership_status?: number;
   release_date?: string | null;
-  releases?: unknown[];
+  releases?: Array<Record<string, unknown>>;
   bundled_games?: unknown[];
+  shared_backup_releases?: SharedBackupReleaseLink[];
 }
 
 let cachedTwitchToken: { token: string; expiresAt: number } | null = null;
@@ -481,6 +488,18 @@ Disallow: /
               release_date: game.release_date || null,
             },
           ];
+        }
+
+        if (game.platform_id) {
+          const { results: platformReleases } = await env.DB.prepare(
+            PLATFORM_RELEASES_FOR_COMPANION_QUERY,
+          )
+            .bind(game.platform_id)
+            .all();
+          enrichGameDetailWithCompanionDiscs(
+            game,
+            (platformReleases || []) as unknown as CompanionDiscCandidateRow[],
+          );
         }
 
         if (game.stable_id) {

@@ -185,7 +185,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 {{ game()?.title || toy()?.name || platform()?.name }}
               </h1>
               @if (game()?.variants; as variants) {
-                <div class="flex flex-wrap gap-2xs mb-md">
+                <div class="flex flex-wrap gap-sm mb-md">
                   @for (variant of variants.split(','); track variant) {
                     @if (variant.trim()) {
                       <span class="variant-badge big">{{
@@ -342,6 +342,42 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                             class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
                           >
                             <div class="disc-info flex-1">
+                              @if (
+                                release.disc_label ||
+                                release.is_companion_base_disc
+                              ) {
+                                <div
+                                  class="flex flex-wrap items-center gap-xs mb-2xs"
+                                >
+                                  @if (release.disc_label) {
+                                    <span class="variant-badge">{{
+                                      release.disc_label
+                                    }}</span>
+                                  }
+                                  @if (
+                                    release.is_companion_base_disc &&
+                                    release.companion_game_id
+                                  ) {
+                                    <span class="companion-disc-note text-xs">
+                                      🔗 Identical disc master to original
+                                      release:
+                                      <a
+                                        [routerLink]="[
+                                          '/collection',
+                                          'game',
+                                          release.companion_game_id,
+                                        ]"
+                                        class="meta-link font-semibold"
+                                      >
+                                        {{
+                                          release.companion_game_title ||
+                                            'View Original Release'
+                                        }}
+                                      </a>
+                                    </span>
+                                  }
+                                </div>
+                              }
                               @if (release.rom_name) {
                                 <div class="rom-text font-mono mb-2xs">
                                   {{ release.rom_name }}
@@ -381,6 +417,47 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                           </div>
                         }
                       </div>
+
+                      @if (
+                        g.shared_backup_releases &&
+                        g.shared_backup_releases.length > 0
+                      ) {
+                        <div class="shared-backup-banner mt-md p-sm rounded-md">
+                          <div class="text-xs font-semibold mb-2xs">
+                            🔗 Shared Disc 1 Backup (Superseded Release) — This
+                            exact disc master is also included as Disc 1 in:
+                          </div>
+                          <div class="flex flex-wrap gap-xs mt-2xs">
+                            @for (
+                              shared of g.shared_backup_releases;
+                              track shared.id
+                            ) {
+                              <a
+                                [routerLink]="[
+                                  '/collection',
+                                  'game',
+                                  shared.id,
+                                ]"
+                                class="jump-link-pill"
+                              >
+                                <span>💿 {{ shared.title }}</span>
+                                @if (shared.region) {
+                                  <span class="text-2xs text-secondary"
+                                    >({{ shared.region }})</span
+                                  >
+                                }
+                                @if (shared.ownership_status === 1) {
+                                  <span
+                                    class="text-2xs"
+                                    title="Owned in collection"
+                                    >✅ Owned</span
+                                  >
+                                }
+                              </a>
+                            }
+                          </div>
+                        </div>
+                      }
                     </div>
                   } @else if (g.id && g.id.endsWith('-default')) {
                     <div class="meta-box full-width">
@@ -1049,6 +1126,16 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         display: flex;
         align-items: center;
         gap: var(--spacing-12);
+      }
+      .companion-disc-note {
+        font-family: var(--font-body);
+        color: var(--m3-on-surface-variant);
+      }
+      .shared-backup-banner {
+        background: var(--m3-surface-container-highest);
+        border: 1px dashed var(--m3-outline);
+        border-radius: var(--radius-sm);
+        padding: var(--spacing-12) var(--spacing-16);
       }
       .market-section {
         margin-top: var(--spacing-32);

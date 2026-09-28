@@ -36,6 +36,20 @@ export interface GameRelease {
   is_physical?: boolean | number;
   has_case?: boolean | number;
   has_manual?: boolean | number;
+  disc_label?: string | null;
+  is_companion_base_disc?: boolean;
+  companion_game_id?: string;
+  companion_game_title?: string;
+}
+
+export interface SharedBackupReleaseLink {
+  id: string;
+  title: string;
+  region?: string | null;
+  variants?: string | null;
+  rom_name?: string | null;
+  ownership_status: number;
+  backup_status: number;
 }
 
 export interface Game {
@@ -104,6 +118,7 @@ export interface Game {
   barcode?: string | null;
   releases?: GameRelease[];
   bundled_games?: BundledGame[];
+  shared_backup_releases?: SharedBackupReleaseLink[];
 }
 
 export interface BundledGame {
@@ -211,8 +226,13 @@ export interface FilterState {
   is_linked?: boolean;
   line?: string;
   type?: string;
-  seriesOrName?: string;
+  name?: string;
+  nameExact?: boolean;
+  series?: string;
   seriesExact?: boolean;
+  tag?: string;
+  tagExact?: boolean;
+  seriesOrName?: string;
   deals_only?: boolean;
   sortBy?:
     | 'default'

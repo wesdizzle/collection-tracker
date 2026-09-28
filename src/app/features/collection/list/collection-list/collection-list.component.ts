@@ -67,7 +67,9 @@ interface GameGroup {
         [filters]="filters()"
         [uniqueLines]="uniqueLines()"
         [uniqueTypes]="uniqueTypes()"
+        [uniqueNames]="uniqueNames()"
         [uniqueSeries]="uniqueSeries()"
+        [uniqueTags]="uniqueTags()"
         [uniqueRegions]="uniqueRegions()"
         [resultCount]="
           currentTab() === 'games'
@@ -270,7 +272,20 @@ interface GameGroup {
                         }
                       </div>
                       <h3 class="card-title">{{ game.title }}</h3>
-                      @if (game.canonical_series) {
+                      @if (
+                        filters().sortBy &&
+                        filters().sortBy !== 'default' &&
+                        !filters().platform_id
+                      ) {
+                        <div class="card-subtitle" title="Platform & Series">
+                          {{ game.display_name || game.platform
+                          }}{{
+                            game.canonical_series
+                              ? ' • ' + game.canonical_series
+                              : ''
+                          }}
+                        </div>
+                      } @else if (game.canonical_series) {
                         <div class="card-subtitle" title="Series">
                           {{ game.canonical_series }}
                         </div>
@@ -1011,8 +1026,12 @@ export class CollectionListComponent
     regions: [],
     line: '',
     type: '',
-    seriesOrName: '',
+    name: '',
+    nameExact: false,
+    series: '',
     seriesExact: false,
+    tag: '',
+    tagExact: false,
     sortBy: 'default',
   });
   public displayLimit = signal<number>(100);
@@ -1038,8 +1057,154 @@ export class CollectionListComponent
   });
 
   /**
+   * Pairs where a 2-disc GOTY/expanded release reuses the original 1-disc release
+   * verbatim as Disc 1. Used so the GOTY release card requires BOTH Disc 1 (base game)
+   * and Disc 2 (add-on/DLC) to be backed up before reporting backup_status = 1,
+   * without altering ownership_status.
+   */
+  private readonly COMPANION_DISC1_PAIRS: ReadonlyArray<{
+    platformId: number;
+    supersetStableId?: number;
+    originalStableId?: number;
+    supersetNormalizedTitle: string;
+    originalNormalizedTitle: string;
+    supersetRomMarker?: string;
+    originalExcludeMarker?: string;
+    excludedRegions?: string[];
+  }> = [
+    {
+      platformId: 48,
+      supersetStableId: 3798,
+      originalStableId: 3796,
+      supersetNormalizedTitle: 'theelderscrollsivobliviongameoftheyearedition',
+      originalNormalizedTitle: 'theelderscrollsivoblivion',
+      originalExcludeMarker: 'collector',
+      excludedRegions: ['japan', 'asia'],
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3800,
+      originalStableId: 3799,
+      supersetNormalizedTitle: 'theelderscrollsvskyrimlegendaryedition',
+      originalNormalizedTitle: 'theelderscrollsvskyrim',
+      originalExcludeMarker: 'kinect sensor',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3808,
+      originalStableId: 3808,
+      supersetNormalizedTitle: 'fallout3gameoftheyearedition',
+      originalNormalizedTitle: 'fallout3',
+      supersetRomMarker: 'game of the year edition',
+      originalExcludeMarker: 'add-on',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3785,
+      originalStableId: 3784,
+      supersetNormalizedTitle: 'dishonoredgameoftheyearedition',
+      originalNormalizedTitle: 'dishonored',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3791,
+      originalStableId: 3790,
+      supersetNormalizedTitle: 'dragonageoriginsultimateedition',
+      originalNormalizedTitle: 'dragonageorigins',
+      originalExcludeMarker: 'tsuika contents',
+      excludedRegions: ['japan'],
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3732,
+      originalStableId: 3731,
+      supersetNormalizedTitle: 'borderlandsgameoftheyearedition',
+      originalNormalizedTitle: 'borderlands',
+      originalExcludeMarker: 'add-on',
+      excludedRegions: ['japan'],
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3734,
+      originalStableId: 3733,
+      supersetNormalizedTitle: 'borderlands2gameoftheyearedition',
+      originalNormalizedTitle: 'borderlands2',
+      originalExcludeMarker: 'add-on',
+    },
+    {
+      platformId: 32,
+      supersetStableId: 2373,
+      originalStableId: 2372,
+      supersetNormalizedTitle: 'borderlands2gameoftheyearedition',
+      originalNormalizedTitle: 'borderlands2',
+      originalExcludeMarker: 'add-on',
+    },
+    {
+      platformId: 32,
+      supersetStableId: 2523,
+      originalStableId: 2520,
+      supersetNormalizedTitle: 'metalgearsolidthelegacycollection19872012',
+      originalNormalizedTitle: 'metalgearsolid4gunsofthepatriots',
+      excludedRegions: ['japan', 'asia', 'korea'],
+    },
+    {
+      platformId: 48,
+      originalStableId: 3809,
+      supersetNormalizedTitle: 'falloutnewvegasultimateedition',
+      originalNormalizedTitle: 'falloutnewvegas',
+    },
+    {
+      platformId: 48,
+      originalStableId: 3951,
+      supersetNormalizedTitle: 'saintsrowthethirdthefullpackage',
+      originalNormalizedTitle: 'saintsrowthethird',
+    },
+    {
+      platformId: 48,
+      originalStableId: 3866,
+      supersetNormalizedTitle: 'mafiaii',
+      originalNormalizedTitle: 'mafiaii',
+      supersetRomMarker: 'add-on content disc',
+      originalExcludeMarker: 'add-on content disc',
+    },
+    {
+      platformId: 34,
+      supersetNormalizedTitle: 'outlasttrinity',
+      originalNormalizedTitle: 'outlastoutlastwhistleblower',
+    },
+    {
+      platformId: 48,
+      originalStableId: 3742,
+      supersetNormalizedTitle: 'callofdutymodernwarfare2',
+      originalNormalizedTitle: 'callofdutymodernwarfare2',
+      supersetRomMarker: 'stimulus package',
+      originalExcludeMarker: 'stimulus package',
+    },
+  ];
+
+  private normalizeForLabelMatch(name: string): string {
+    let clean = name
+      .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/\s*\[[^\]]*\]/g, '')
+      .trim();
+    if (/,\s*the$/i.test(clean)) {
+      clean = 'the ' + clean.replace(/,\s*the$/i, '');
+    } else if (clean.toLowerCase().includes(', the - ')) {
+      clean = 'the ' + clean.replace(/,\s*the\s*-\s*/i, ' - ');
+    }
+    return clean
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/&amp;/g, 'and')
+      .replace(/&/g, 'and')
+      .replace(/[^a-z0-9]/g, '');
+  }
+
+  /**
    * Reactive pipeline that applies active filters to the full games collection.
-   * Handles ownership, platform, region, and series matching.
+   * Handles ownership, platform, region, name, series, and tag matching.
    */
   public filteredGames = computed(() => {
     const allGames = this.collectionService.games();
@@ -1048,7 +1213,11 @@ export class CollectionListComponent
     // Group multiple discs of the same release version (game_id, region, variants, and base rom name)
     const groupedMap = new Map<
       string,
-      Game & { discIds: string[]; discBackups: number[] }
+      Game & {
+        discIds: string[];
+        discBackups: number[];
+        discRomNames: string[];
+      }
     >();
     for (const g of allGames) {
       const romKey = this.getRomGroupingKey(g.rom_name);
@@ -1058,11 +1227,13 @@ export class CollectionListComponent
           ...g,
           discIds: [g.id],
           discBackups: [g.backup_status ? 1 : 0],
+          discRomNames: [g.rom_name || ''],
         });
       } else {
         const existing = groupedMap.get(baseKey)!;
         existing.discIds.push(g.id);
         existing.discBackups.push(g.backup_status ? 1 : 0);
+        existing.discRomNames.push(g.rom_name || '');
         existing.ownership_status = Math.max(
           existing.ownership_status,
           g.ownership_status,
@@ -1072,8 +1243,84 @@ export class CollectionListComponent
     }
 
     const groupedGames = Array.from(groupedMap.values()).map((g) => {
+      const discBackups = [...g.discBackups];
+
+      // If this is a 2-disc GOTY/expanded release that only catalogs Disc 2 under its own game_id
+      // (reusing the original release as Disc 1), include the regional companion Disc 1's backup_status
+      // so the GOTY release is only marked backed up when BOTH Disc 1 and Disc 2 are backed up.
+      const hasDisc1InGroup = g.discRomNames.some((rn) =>
+        /\((?:disc|disco|disque|disk)\s+1\b/i.test(rn),
+      );
+      if (!hasDisc1InGroup) {
+        const romLower = (g.rom_name || '').toLowerCase();
+        const normRom = this.normalizeForLabelMatch(
+          g.rom_name || g.title || '',
+        );
+        const normTitle = this.normalizeForLabelMatch(g.title || '');
+        const regTokens = (g.region || '')
+          .toLowerCase()
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        for (const pair of this.COMPANION_DISC1_PAIRS) {
+          const isSupersetMatch =
+            pair.platformId === g.platform_id &&
+            ((pair.supersetStableId !== undefined &&
+              pair.supersetStableId === g.stable_id &&
+              (!pair.supersetRomMarker ||
+                romLower.includes(pair.supersetRomMarker))) ||
+              normRom === pair.supersetNormalizedTitle ||
+              normTitle === pair.supersetNormalizedTitle) &&
+            !pair.excludedRegions?.some((ex) => regTokens.includes(ex));
+          if (isSupersetMatch) {
+            const companionCandidates = allGames.filter((cand) => {
+              if (cand.platform_id !== pair.platformId || cand.id === g.id) {
+                return false;
+              }
+              const candRomLower = (cand.rom_name || '').toLowerCase();
+              if (
+                pair.supersetRomMarker &&
+                candRomLower.includes(pair.supersetRomMarker)
+              ) {
+                return false;
+              }
+              if (
+                pair.originalExcludeMarker &&
+                candRomLower.includes(pair.originalExcludeMarker)
+              ) {
+                return false;
+              }
+              const candNorm = this.normalizeForLabelMatch(
+                cand.rom_name || cand.title || '',
+              );
+              if (
+                cand.stable_id !== pair.originalStableId &&
+                candNorm !== pair.originalNormalizedTitle
+              ) {
+                return false;
+              }
+              const candRegs = (cand.region || '')
+                .toLowerCase()
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+              return regTokens.some((r) => candRegs.includes(r));
+            });
+            if (companionCandidates.length > 0) {
+              const companionBackedUp = companionCandidates.some((c) =>
+                Boolean(c.backup_status),
+              )
+                ? 1
+                : 0;
+              discBackups.unshift(companionBackedUp);
+            }
+            break;
+          }
+        }
+      }
+
       // Release is considered backed up if all its discs are backed up
-      const allBackedUp = g.discBackups.every((b) => b === 1) ? 1 : 0;
+      const allBackedUp = discBackups.every((b) => b === 1) ? 1 : 0;
       return {
         ...g,
         backup_status: allBackedUp,
@@ -1174,21 +1421,43 @@ export class CollectionListComponent
           if (f.is_linked !== hasIgdb) return false;
         }
 
-        // Name/Series Filter (Case & Accent Insensitive)
-        // Matches query against canonical series or game title (when not exact)
-        if (f.seriesOrName) {
-          const normalizedFilter = this.normalizeString(f.seriesOrName);
+        // Name Filter (Case & Accent Insensitive)
+        const activeNameFilter = f.name || f.seriesOrName;
+        if (activeNameFilter) {
+          const normalizedFilter = this.normalizeString(activeNameFilter);
+          const normalizedTitle = this.normalizeString(g.title || '');
+          if (f.nameExact) {
+            if (normalizedTitle !== normalizedFilter) return false;
+          } else {
+            if (!normalizedTitle.includes(normalizedFilter)) return false;
+          }
+        }
+
+        // Series Filter (Case & Accent Insensitive)
+        if (f.series) {
+          const normalizedFilter = this.normalizeString(f.series);
           const normalizedSeries = this.normalizeString(
             g.canonical_series || '',
           );
-          const normalizedTitle = this.normalizeString(g.title || '');
           if (f.seriesExact) {
             if (normalizedSeries !== normalizedFilter) return false;
           } else {
-            if (
-              !normalizedSeries.includes(normalizedFilter) &&
-              !normalizedTitle.includes(normalizedFilter)
-            )
+            if (!normalizedSeries.includes(normalizedFilter)) return false;
+          }
+        }
+
+        // Tag / Variant Filter (Case & Accent Insensitive)
+        if (f.tag) {
+          const normalizedFilter = this.normalizeString(f.tag);
+          const itemTags = (g.variants || '')
+            .split(',')
+            .map((v) => this.normalizeString(v.trim()))
+            .filter(Boolean);
+          if (itemTags.length === 0) return false;
+          if (f.tagExact) {
+            if (!itemTags.some((t) => t === normalizedFilter)) return false;
+          } else {
+            if (!itemTags.some((t) => t.includes(normalizedFilter)))
               return false;
           }
         }
@@ -1243,15 +1512,23 @@ export class CollectionListComponent
           }
         }
 
-        // 1. Platform Launch Date (ASC)
-        const dateA = a.platform_launch_date || '9999-99-99';
-        const dateB = b.platform_launch_date || '9999-99-99';
-        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        const isPriceSort =
+          f.sortBy === 'value_desc' ||
+          f.sortBy === 'value_asc' ||
+          f.sortBy === 'retail_asc' ||
+          f.sortBy === 'discount_desc';
 
-        // 2. Platform Brand (ASC)
-        const brandA = this.normalizeForSort(a.brand || '');
-        const brandB = this.normalizeForSort(b.brand || '');
-        if (brandA !== brandB) return brandA.localeCompare(brandB);
+        if (!isPriceSort) {
+          // 1. Platform Launch Date (ASC)
+          const dateA = a.platform_launch_date || '9999-99-99';
+          const dateB = b.platform_launch_date || '9999-99-99';
+          if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+          // 2. Platform Brand (ASC)
+          const brandA = this.normalizeForSort(a.brand || '');
+          const brandB = this.normalizeForSort(b.brand || '');
+          if (brandA !== brandB) return brandA.localeCompare(brandB);
+        }
 
         // 3. Game Canonical Series (ASC, fallback to title)
         const seriesA = this.normalizeForSort(a.canonical_series || a.title);
@@ -1330,21 +1607,24 @@ export class CollectionListComponent
   }
 
   /**
-   * Strips disc-specific markers (e.g., (Disc 1), (Disc A), (Disc 1 of 2),
-   * - Disc A, Disc 1) and file extensions from a ROM filename.
-   * This allows grouping of multi-disc games that share the exact same release
-   * metadata and base ROM name.
-   *
-   * @param filename The ROM filename.
-   * @returns The stripped ROM name, or an empty string if not provided.
+   * Checks whether a ROM filename contains a multi-disc or disc-role indicator
+   * (including localized Disco/Disque/Disk and Play/Data/Install disc roles).
    */
   private hasDiscIndicator(filename: string | null | undefined): boolean {
     if (!filename) {
       return false;
     }
-    const discRegex =
-      /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/i;
-    return discRegex.test(filename);
+    const numberedDiscRegex =
+      /[-_\s]*\((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\]\s*[0-9]+)?(?:\s*[-:]\s*[^)]+)?\)/i;
+    if (numberedDiscRegex.test(filename)) return true;
+
+    const bareDiscRegex =
+      /[-_\s]+(?:disc|disco|disque|disk)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+)?\b/i;
+    if (bareDiscRegex.test(filename)) return true;
+
+    const roleDiscRegex =
+      /\((?:play\s+disc|data\s+disc|data\s+installation\s+disc|installation\s+disc|install\s+disc|game\s+disc|key\s+disc|install|play|single\s+player|single-player|single\s+player\s+disc|multiplayer|multiplayer\s+disc|campaign|campaign\s+disc|campanha|cinematics\s+disc|movie\s+disc|bonus\s+disc| soundtrack\s+disc|add-on\s+disc|add-on\s+content\s+disc|additional\s+content\s+packs\s+install\s+disc|expansion\s+disk)\)/i;
+    return roleDiscRegex.test(filename);
   }
 
   private stripDiscIndicator(filename: string | null | undefined): string {
@@ -1355,13 +1635,59 @@ export class CollectionListComponent
     const lastDot = filename.lastIndexOf('.');
     let base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
 
+    const hasNumberedDisc =
+      /[-_\s]*\((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\]\s*[0-9]+)?(?:\s*[-:]\s*[^)]+)?\)/i.test(
+        base,
+      );
+
     base = base.replace(
-      /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/gi,
+      /[-_\s]*\((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\]\s*[0-9]+)?(?:\s*[-:]\s*[^)]+)?\)/gi,
+      '',
+    );
+    base = base.replace(
+      /[-_\s]+(?:disc|disco|disque|disk)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+)?\b/gi,
+      '',
+    );
+
+    // Strip role-based disc parentheticals
+    base = base.replace(
+      /[-_\s]*\((?:play\s+disc|data\s+disc|data\s+installation\s+disc|installation\s+disc|install\s+disc|game\s+disc|key\s+disc|install|play|single\s+player|single-player|single\s+player\s+disc|multiplayer|multiplayer\s+disc|campaign|campaign\s+disc|campanha|cinematics\s+disc|movie\s+disc|bonus\s+disc|soundtrack\s+disc|add-on\s+disc|add-on\s+content\s+disc|additional\s+content\s+packs\s+install\s+disc|expansion\s+disk)\)/gi,
       '',
     );
 
     // Strip Japanese parenthetical counting indicators (e.g. "Ichi", "Ni" etc.) when used alongside or as disc indicators
     base = base.replace(/[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/gi, '');
+
+    // If the ROM had a numbered (Disc N) marker, also strip per-disc content subtitles
+    // (e.g. "(Snake Eater)", "(Persistence)", "(Dante Disc)", "(Lucia Disc)", "(Red Dead Redemption Single Player)")
+    // while keeping region/language/revision parentheticals intact so discs of the same release group together.
+    if (hasNumberedDisc) {
+      base = base.replace(/\(([^)]+)\)/g, (full, inner: string) => {
+        const t = inner.trim().toLowerCase();
+        if (
+          /^(?:usa|japan|europe|world|asia|korea|china|taiwan|australia|brazil|canada|france|germany|italy|spain|netherlands|sweden|norway|denmark|finland|russia|poland|portugal|greece|turkey|india|south africa|latin america|united kingdom|scandinavia|united arab emirates|austria|switzerland|ireland|hong kong|mexico|new zealand|unknown)(?:\s*,\s*[a-z\s]+)*$/i.test(
+            t,
+          )
+        ) {
+          return full;
+        }
+        if (
+          /^[a-z]{2,3}(?:-[a-z]{2,4})?(?:,[a-z]{2,3}(?:-[a-z]{2,4})?)*$/i.test(
+            t,
+          )
+        ) {
+          return full;
+        }
+        if (
+          /^(?:rev\s*[a-z0-9.]+|v[0-9]+(?:\.[0-9a-z]+)*|alt(?:\s+[0-9]+)?|edc|no\s+edc|limited\s+edition|collector's\s+edition|special\s+edition|game\s+of\s+the\s+year\s+edition|complete\s+edition|gold\s+edition|platinum\s+hits|greatest\s+hits|black\s+label|nintendo\s+selects|player's\s+choice)$/i.test(
+            t,
+          )
+        ) {
+          return full;
+        }
+        return '';
+      });
+    }
 
     base = base.replace(/\s+/g, ' ').trim();
     base = base.replace(/[-_]$/, '').trim();
@@ -1420,19 +1746,30 @@ export class CollectionListComponent
 
   /**
    * Computes the final UI grouping for games, organized by Platform.
-   * Each group includes a totalCount that reflects the FULL filtered result set,
-   * even if only a subset are currently displayed in the DOM.
+   * When any price sort mode is active, bypasses platform grouping and presents
+   * a single unified list ranked across platforms.
    */
   public groupedGames = computed(() => {
     const allFiltered = this.filteredGames();
     const displayed = this.displayGames();
     const f = this.filters();
 
-    // When sorted by value, present a unified list ranked across platforms
-    if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
+    const isPriceSort =
+      f.sortBy === 'value_desc' ||
+      f.sortBy === 'value_asc' ||
+      f.sortBy === 'retail_asc' ||
+      f.sortBy === 'discount_desc';
+
+    if (isPriceSort) {
+      const sortLabel =
+        f.sortBy === 'retail_asc'
+          ? 'Ranked by Lowest Retail Price'
+          : f.sortBy === 'discount_desc'
+            ? 'Ranked by Biggest Sale %'
+            : 'Ranked by Value';
       const headerTitle = f.platform_id
-        ? `${displayed[0]?.display_name || displayed[0]?.platform || 'Platform'} (Ranked by Value)`
-        : 'All Platforms (Ranked by Value)';
+        ? `${displayed[0]?.display_name || displayed[0]?.platform || 'Platform'} (${sortLabel})`
+        : `All Platforms (${sortLabel})`;
       return [
         {
           platformName: headerTitle,
@@ -1526,20 +1863,26 @@ export class CollectionListComponent
           if (!match) return false;
         }
 
-        // Name/Series Filter (Case & Accent Insensitive)
-        // Matches query against toy series name or toy name (when not exact)
-        if (f.seriesOrName) {
-          const normalizedFilter = this.normalizeString(f.seriesOrName);
-          const normalizedSeries = this.normalizeString(toy.series_name || '');
+        // Name Filter (Case & Accent Insensitive)
+        const activeNameFilter = f.name || f.seriesOrName;
+        if (activeNameFilter) {
+          const normalizedFilter = this.normalizeString(activeNameFilter);
           const normalizedName = this.normalizeString(toy.name || '');
+          if (f.nameExact) {
+            if (normalizedName !== normalizedFilter) return false;
+          } else {
+            if (!normalizedName.includes(normalizedFilter)) return false;
+          }
+        }
+
+        // Series Filter (Case & Accent Insensitive)
+        if (f.series) {
+          const normalizedFilter = this.normalizeString(f.series);
+          const normalizedSeries = this.normalizeString(toy.series_name || '');
           if (f.seriesExact) {
             if (normalizedSeries !== normalizedFilter) return false;
           } else {
-            if (
-              !normalizedSeries.includes(normalizedFilter) &&
-              !normalizedName.includes(normalizedFilter)
-            )
-              return false;
+            if (!normalizedSeries.includes(normalizedFilter)) return false;
           }
         }
 
@@ -1553,7 +1896,9 @@ export class CollectionListComponent
          */
 
         // Value-Based Sorting (High to Low or Low to High)
-        if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
+        const isPriceSort =
+          f.sortBy === 'value_desc' || f.sortBy === 'value_asc';
+        if (isPriceSort) {
           const priceA = a.price_loose ?? null;
           const priceB = b.price_loose ?? null;
           if (priceA !== null || priceB !== null) {
@@ -1567,20 +1912,22 @@ export class CollectionListComponent
           }
         }
 
-        // 1. Line (ASC)
-        const lineA = this.normalizeForSort(a.line);
-        const lineB = this.normalizeForSort(b.line);
-        if (lineA !== lineB) return lineA.localeCompare(lineB);
+        if (!isPriceSort) {
+          // 1. Line (ASC)
+          const lineA = this.normalizeForSort(a.line);
+          const lineB = this.normalizeForSort(b.line);
+          if (lineA !== lineB) return lineA.localeCompare(lineB);
 
-        // 2. Series Sort Index or Name (ASC)
-        const seriesIndexA = a.series_index ?? 9999;
-        const seriesIndexB = b.series_index ?? 9999;
-        if (seriesIndexA !== seriesIndexB) {
-          return seriesIndexA - seriesIndexB;
+          // 2. Series Sort Index or Name (ASC)
+          const seriesIndexA = a.series_index ?? 9999;
+          const seriesIndexB = b.series_index ?? 9999;
+          if (seriesIndexA !== seriesIndexB) {
+            return seriesIndexA - seriesIndexB;
+          }
+          const seriesA = this.normalizeForSort(a.series_name || '');
+          const seriesB = this.normalizeForSort(b.series_name || '');
+          if (seriesA !== seriesB) return seriesA.localeCompare(seriesB);
         }
-        const seriesA = this.normalizeForSort(a.series_name || '');
-        const seriesB = this.normalizeForSort(b.series_name || '');
-        if (seriesA !== seriesB) return seriesA.localeCompare(seriesB);
 
         // 3. Toy-level sorting
         if (a.line === 'amiibo') {
@@ -1740,6 +2087,28 @@ export class CollectionListComponent
       ),
   );
 
+  public uniqueNames = computed<string[]>(() => {
+    if (this.currentTab() === 'games') {
+      const list = this.collectionService.games().map((g) => g.title);
+      return Array.from(new Set(list))
+        .filter(Boolean)
+        .sort((a, b) =>
+          this.normalizeForSort(a || '').localeCompare(
+            this.normalizeForSort(b || ''),
+          ),
+        );
+    } else {
+      const list = this.collectionService.toys().map((t) => t.name);
+      return Array.from(new Set(list))
+        .filter(Boolean)
+        .sort((a, b) =>
+          this.normalizeForSort(a || '').localeCompare(
+            this.normalizeForSort(b || ''),
+          ),
+        );
+    }
+  });
+
   public uniqueSeries = computed(() => {
     if (this.currentTab() === 'games') {
       const list = this.collectionService
@@ -1778,6 +2147,21 @@ export class CollectionListComponent
           );
         });
     }
+  });
+
+  public uniqueTags = computed<string[]>(() => {
+    const tagsSet = new Set<string>();
+    for (const g of this.collectionService.games()) {
+      if (g.variants) {
+        g.variants.split(',').forEach((v) => {
+          const trimmed = v.trim();
+          if (trimmed) tagsSet.add(trimmed);
+        });
+      }
+    }
+    return Array.from(tagsSet).sort((a, b) =>
+      this.normalizeForSort(a).localeCompare(this.normalizeForSort(b)),
+    );
   });
 
   public uniqueRegions = computed<string[]>(() => {

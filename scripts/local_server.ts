@@ -38,6 +38,9 @@ import {
   TOY_DETAIL_QUERY,
   GAMES_ORDER_BY,
   getRomGroupingKey,
+  PLATFORM_RELEASES_FOR_COMPANION_QUERY,
+  CompanionDiscCandidateRow,
+  enrichGameDetailWithCompanionDiscs,
 } from './lib/queries.js';
 import {
   fetchAllRetailDeals,
@@ -1183,10 +1186,12 @@ export const handleRequest =
         const query = GAME_DETAIL_QUERY;
         const game = db.prepare(query).get(id, id, id) as
           | (Record<string, unknown> & {
-              releases?: unknown[];
+              releases?: Array<Record<string, unknown>>;
               rom_name?: string | null;
               rom_crc?: string | null;
               stable_id?: number;
+              title?: string;
+              platform_id?: number;
               region?: string | null;
               variants?: string | null;
               id?: string;
@@ -1203,9 +1208,9 @@ export const handleRequest =
           if (game.rom_name) {
             const releases = db
               .prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
-              .all(game.stable_id, game.region, game.variants) as {
-              rom_name: string | null;
-            }[];
+              .all(game.stable_id, game.region, game.variants) as Array<
+              Record<string, unknown> & { rom_name: string | null }
+            >;
             const targetKey = getRomGroupingKey(game.rom_name);
             game.releases = releases.filter(
               (r) => getRomGroupingKey(r.rom_name) === targetKey,
@@ -1224,6 +1229,13 @@ export const handleRequest =
                 release_date: game.release_date || null,
               },
             ];
+          }
+
+          if (game.platform_id) {
+            const platformReleases = db
+              .prepare(PLATFORM_RELEASES_FOR_COMPANION_QUERY)
+              .all(game.platform_id) as CompanionDiscCandidateRow[];
+            enrichGameDetailWithCompanionDiscs(game, platformReleases);
           }
 
           if (game.stable_id) {

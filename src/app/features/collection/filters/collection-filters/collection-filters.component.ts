@@ -696,12 +696,133 @@ import {
           </div>
         }
 
-        <!-- Name/Series Combobox Text Input Dropdown -->
+        <!-- Name Combobox Text Input Dropdown -->
         <div class="filter-group">
           <div
             class="filter-group-header flex justify-between items-center pr-xs"
           >
-            <label class="m3-label">Name/Series</label>
+            <label class="m3-label" for="filter-name">Name</label>
+            <label class="m3-checkbox-label" title="Exact Normalized Match">
+              <input
+                type="checkbox"
+                [ngModel]="filters().nameExact"
+                (ngModelChange)="onPartialChange('nameExact', $event)"
+                class="m3-checkbox"
+              />
+              <span>Exact</span>
+            </label>
+          </div>
+          <div
+            class="input-wrapper combobox-wrapper"
+            [class.active-wrapper]="activeDropdown() === 'name'"
+          >
+            <input
+              type="text"
+              [ngModel]="filters().name || filters().seriesOrName"
+              (ngModelChange)="onNameInputChange($event)"
+              (focus)="activeDropdown.set('name')"
+              class="m3-input list-input"
+              [class.open]="activeDropdown() === 'name'"
+              placeholder="All"
+              id="filter-name"
+              autocomplete="off"
+            />
+            <button
+              type="button"
+              class="combobox-chevron-btn"
+              (click)="toggleDropdown('name', $event)"
+              tabindex="-1"
+              aria-label="Toggle name suggestions"
+            >
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  [class.open]="activeDropdown() === 'name'"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
+            </button>
+
+            @if (activeDropdown() === 'name') {
+              <div class="dropdown-list animate-expressive" role="listbox">
+                <button
+                  type="button"
+                  class="dropdown-item state-layer"
+                  [class.selected]="!filters().name && !filters().seriesOrName"
+                  (click)="selectName('')"
+                  role="option"
+                  [attr.aria-selected]="
+                    !filters().name && !filters().seriesOrName
+                  "
+                >
+                  <span class="item-label">All Names</span>
+                  @if (!filters().name && !filters().seriesOrName) {
+                    <svg
+                      class="selected-check"
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      fill="currentColor"
+                    >
+                      <path
+                        d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                      />
+                    </svg>
+                  }
+                </button>
+                @for (n of filteredNamesList(); track n) {
+                  <button
+                    type="button"
+                    class="dropdown-item state-layer"
+                    [class.selected]="filters().name === n"
+                    (click)="selectName(n)"
+                    role="option"
+                    [attr.aria-selected]="filters().name === n"
+                  >
+                    <span class="item-label">{{ n }}</span>
+                    @if (filters().name === n) {
+                      <svg
+                        class="selected-check"
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                        />
+                      </svg>
+                    }
+                  </button>
+                }
+                @if (
+                  filteredNamesList().length === 0 &&
+                  (filters().name || filters().seriesOrName)
+                ) {
+                  <div class="dropdown-empty">
+                    No names matching "{{
+                      filters().name || filters().seriesOrName
+                    }}"
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Series Combobox Text Input Dropdown -->
+        <div class="filter-group">
+          <div
+            class="filter-group-header flex justify-between items-center pr-xs"
+          >
+            <label class="m3-label" for="filter-series">Series</label>
             <label class="m3-checkbox-label" title="Exact Normalized Match">
               <input
                 type="checkbox"
@@ -718,13 +839,13 @@ import {
           >
             <input
               type="text"
-              [ngModel]="filters().seriesOrName"
+              [ngModel]="filters().series"
               (ngModelChange)="onSeriesInputChange($event)"
               (focus)="activeDropdown.set('series')"
               class="m3-input list-input"
               [class.open]="activeDropdown() === 'series'"
               placeholder="All"
-              id="filter-series-or-name"
+              id="filter-series"
               autocomplete="off"
             />
             <button
@@ -755,13 +876,13 @@ import {
                 <button
                   type="button"
                   class="dropdown-item state-layer"
-                  [class.selected]="!filters().seriesOrName"
+                  [class.selected]="!filters().series"
                   (click)="selectSeries('')"
                   role="option"
-                  [attr.aria-selected]="!filters().seriesOrName"
+                  [attr.aria-selected]="!filters().series"
                 >
                   <span class="item-label">All Series</span>
-                  @if (!filters().seriesOrName) {
+                  @if (!filters().series) {
                     <svg
                       class="selected-check"
                       viewBox="0 0 24 24"
@@ -779,13 +900,13 @@ import {
                   <button
                     type="button"
                     class="dropdown-item state-layer"
-                    [class.selected]="filters().seriesOrName === s"
+                    [class.selected]="filters().series === s"
                     (click)="selectSeries(s)"
                     role="option"
-                    [attr.aria-selected]="filters().seriesOrName === s"
+                    [attr.aria-selected]="filters().series === s"
                   >
                     <span class="item-label">{{ s }}</span>
-                    @if (filters().seriesOrName === s) {
+                    @if (filters().series === s) {
                       <svg
                         class="selected-check"
                         viewBox="0 0 24 24"
@@ -800,17 +921,131 @@ import {
                     }
                   </button>
                 }
-                @if (
-                  filteredSeriesList().length === 0 && filters().seriesOrName
-                ) {
+                @if (filteredSeriesList().length === 0 && filters().series) {
                   <div class="dropdown-empty">
-                    No series matching "{{ filters().seriesOrName }}"
+                    No series matching "{{ filters().series }}"
                   </div>
                 }
               </div>
             }
           </div>
         </div>
+
+        <!-- Tag Combobox Text Input Dropdown (Games Tab) -->
+        @if (currentTab() === 'games') {
+          <div class="filter-group">
+            <div
+              class="filter-group-header flex justify-between items-center pr-xs"
+            >
+              <label class="m3-label" for="filter-tag">Tag</label>
+              <label class="m3-checkbox-label" title="Exact Normalized Match">
+                <input
+                  type="checkbox"
+                  [ngModel]="filters().tagExact"
+                  (ngModelChange)="onPartialChange('tagExact', $event)"
+                  class="m3-checkbox"
+                />
+                <span>Exact</span>
+              </label>
+            </div>
+            <div
+              class="input-wrapper combobox-wrapper"
+              [class.active-wrapper]="activeDropdown() === 'tag'"
+            >
+              <input
+                type="text"
+                [ngModel]="filters().tag"
+                (ngModelChange)="onTagInputChange($event)"
+                (focus)="activeDropdown.set('tag')"
+                class="m3-input list-input"
+                [class.open]="activeDropdown() === 'tag'"
+                placeholder="All"
+                id="filter-tag"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="combobox-chevron-btn"
+                (click)="toggleDropdown('tag', $event)"
+                tabindex="-1"
+                aria-label="Toggle tag suggestions"
+              >
+                <span class="dropdown-icon-wrapper" aria-hidden="true">
+                  <svg
+                    class="dropdown-chevron"
+                    [class.open]="activeDropdown() === 'tag'"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="currentColor"
+                  >
+                    <path
+                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                    />
+                  </svg>
+                </span>
+              </button>
+
+              @if (activeDropdown() === 'tag') {
+                <div class="dropdown-list animate-expressive" role="listbox">
+                  <button
+                    type="button"
+                    class="dropdown-item state-layer"
+                    [class.selected]="!filters().tag"
+                    (click)="selectTag('')"
+                    role="option"
+                    [attr.aria-selected]="!filters().tag"
+                  >
+                    <span class="item-label">All Tags</span>
+                    @if (!filters().tag) {
+                      <svg
+                        class="selected-check"
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                        />
+                      </svg>
+                    }
+                  </button>
+                  @for (t of filteredTagsList(); track t) {
+                    <button
+                      type="button"
+                      class="dropdown-item state-layer"
+                      [class.selected]="filters().tag === t"
+                      (click)="selectTag(t)"
+                      role="option"
+                      [attr.aria-selected]="filters().tag === t"
+                    >
+                      <span class="item-label">{{ t }}</span>
+                      @if (filters().tag === t) {
+                        <svg
+                          class="selected-check"
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                          fill="currentColor"
+                        >
+                          <path
+                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                          />
+                        </svg>
+                      }
+                    </button>
+                  }
+                  @if (filteredTagsList().length === 0 && filters().tag) {
+                    <div class="dropdown-empty">
+                      No tags matching "{{ filters().tag }}"
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        }
 
         <!-- Region Multi-Select Dropdown -->
         <div class="filter-group region-dropdown-container">
@@ -1502,7 +1737,9 @@ export class CollectionFiltersComponent {
   public platformGroups = input<PlatformGroup[]>([]);
   public uniqueLines = input<string[]>([]);
   public uniqueTypes = input<string[]>([]);
+  public uniqueNames = input<string[]>([]);
   public uniqueSeries = input<string[]>([]);
+  public uniqueTags = input<string[]>([]);
   public uniqueRegions = input<string[]>([]);
   public resultCount = input<number>(0);
   public totalValue = input<number>(0);
@@ -1622,8 +1859,19 @@ export class CollectionFiltersComponent {
     this.onPartialChange('deals_only', !current);
   }
 
+  public filteredNamesList = computed(() => {
+    const query = (this.filters().name || this.filters().seriesOrName || '')
+      .trim()
+      .toLowerCase();
+    const names = this.uniqueNames() || [];
+    if (!query) {
+      return names.slice(0, 100);
+    }
+    return names.filter((n) => n.toLowerCase().includes(query)).slice(0, 100);
+  });
+
   public filteredSeriesList = computed(() => {
-    const query = (this.filters().seriesOrName || '').trim().toLowerCase();
+    const query = (this.filters().series || '').trim().toLowerCase();
     const series = this.uniqueSeries() || [];
     if (!query) {
       return series.slice(0, 100);
@@ -1631,13 +1879,50 @@ export class CollectionFiltersComponent {
     return series.filter((s) => s.toLowerCase().includes(query)).slice(0, 100);
   });
 
+  public filteredTagsList = computed(() => {
+    const query = (this.filters().tag || '').trim().toLowerCase();
+    const tags = this.uniqueTags() || [];
+    if (!query) {
+      return tags.slice(0, 100);
+    }
+    return tags.filter((t) => t.toLowerCase().includes(query)).slice(0, 100);
+  });
+
+  onNameInputChange(value: string) {
+    this.filtersChange.emit({
+      ...this.filters(),
+      name: value,
+      seriesOrName: undefined,
+    });
+    this.activeDropdown.set('name');
+  }
+
+  selectName(name: string) {
+    this.filtersChange.emit({
+      ...this.filters(),
+      name,
+      seriesOrName: undefined,
+    });
+    this.closeDropdown();
+  }
+
   onSeriesInputChange(value: string) {
-    this.onPartialChange('seriesOrName', value);
+    this.onPartialChange('series', value);
     this.activeDropdown.set('series');
   }
 
   selectSeries(series: string) {
-    this.onPartialChange('seriesOrName', series);
+    this.onPartialChange('series', series);
+    this.closeDropdown();
+  }
+
+  onTagInputChange(value: string) {
+    this.onPartialChange('tag', value);
+    this.activeDropdown.set('tag');
+  }
+
+  selectTag(tag: string) {
+    this.onPartialChange('tag', tag);
     this.closeDropdown();
   }
 

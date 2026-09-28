@@ -6,6 +6,17 @@
  * logic drift between production and development environments.
  */
 
+import {
+  DISC_ROLE_INDICATORS,
+  extractDiscLabel,
+  isRegionOrLanguageOrDisc,
+  isTrueEditionOrRevisionVariant,
+} from './dat_format.js';
+import {
+  SUPERSEDED_RELEASE_PAIRS,
+  normalizeForLabelMatch,
+} from './special_labels.js';
+
 export const GAMES_LIST_QUERY = `
     SELECT COALESCE(r.id, g.id) as id,
            g.id as game_id,
@@ -247,19 +258,33 @@ export const GAMES_ORDER_BY = `
 `;
 
 /**
- * Checks if the filename contains a disc indicator (e.g. "Disc 1", "(Disc A)").
+ * Checks if the filename contains a disc indicator (e.g. "Disc 1", "(Disco 2)", "(Disque 1)", "(Play Disc)").
  */
 export function hasDiscIndicator(filename: string | null | undefined): boolean {
   if (!filename) {
     return false;
   }
   const discRegex =
-    /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/i;
-  return discRegex.test(filename);
+    /[-_\s]*\(?((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?)\)?/i;
+  if (discRegex.test(filename)) return true;
+
+  if (/[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/i.test(filename)) return true;
+
+  const parentheticals = filename.match(/\(([^)]+)\)/g);
+  if (parentheticals) {
+    for (const m of parentheticals) {
+      const inner = m.slice(1, -1).trim().toLowerCase();
+      if (DISC_ROLE_INDICATORS.has(inner)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
- * Strips disc-specific markers and file extensions from a ROM filename.
+ * Strips disc-specific markers, per-disc subtitles, and file extensions from a ROM filename.
  */
 export function stripDiscIndicator(
   filename: string | null | undefined,
@@ -278,14 +303,66 @@ export function stripDiscIndicator(
     }
   }
 
-  // Regex to match and strip typical disc indicators (e.g. "Disc 1", "(Disc A)", etc.)
+  const baseLower = base.toLowerCase();
+  const hasNumberedDisc =
+    /[-_\s]*\(?((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?)\)?/i.test(
+      base,
+    ) || /[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/i.test(base);
+
+  // Normalize cross-region companion Disc 2s that share a retail box with a single-region Disc 1
+  if (baseLower.startsWith('halo 3 - odst')) {
+    base = base
+      .replace(/\(usa,\s*brazil\)/gi, '(USA)')
+      .replace(/\(europe,\s*asia\)/gi, '(Europe, Australia)');
+  } else if (
+    baseLower.startsWith('resident evil 6') &&
+    baseLower.includes('(voice over pack)')
+  ) {
+    base = base.replace(/\(usa,\s*europe\)/gi, '(World)');
+  }
+
+  // Regex to match and strip typical disc indicators (e.g. "Disc 1", "Disco 2", "Disque 1", "(Disc A)")
   base = base.replace(
-    /[-_\s]*\(?Disc\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/gi,
+    /[-_\s]*\(?((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?)\)?/gi,
     '',
   );
 
-  // Strip Japanese parenthetical counting indicators (e.g. "Ichi", "Ni" etc.) when used alongside or as disc indicators
+  // Strip Japanese parenthetical counting indicators (e.g. "Ichi", "Ni" etc.)
   base = base.replace(/[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/gi, '');
+
+  // Strip disc-role indicators and per-disc subtitles while preserving regions and true editions/revisions
+  base = base.replace(/\s*\(([^)]+)\)/g, (match, innerRaw: string) => {
+    const inner = innerRaw.trim();
+    const innerLower = inner.toLowerCase();
+    if (DISC_ROLE_INDICATORS.has(innerLower)) {
+      return '';
+    }
+    if (
+      hasNumberedDisc &&
+      !isRegionOrLanguageOrDisc(inner) &&
+      !isTrueEditionOrRevisionVariant(inner)
+    ) {
+      return '';
+    }
+    if (
+      hasNumberedDisc &&
+      baseLower.startsWith('metal gear solid 3 - subsistence') &&
+      /^(?:limited edition|shokai seisanban)$/i.test(innerLower)
+    ) {
+      return '';
+    }
+    // Also strip pure language lists (e.g. "(En,Ja)") so companion discs with/without language tags match
+    if (
+      hasNumberedDisc &&
+      isRegionOrLanguageOrDisc(inner) &&
+      !/\b(usa|europe|japan|world|asia|france|germany|australia|uk|united kingdom|canada|korea|brazil|spain|italy|netherlands|sweden|russia|china|taiwan|portugal|denmark|norway|finland|hong kong|hongkong|latam|latin america|nz|new zealand|scandinavia|poland|austria|switzerland|ireland|turkey|united arab emirates|uae|greece|south africa|india)\b/i.test(
+        innerLower,
+      )
+    ) {
+      return '';
+    }
+    return match;
+  });
 
   // Normalize extra spaces and trim any trailing separator characters
   base = base.replace(/\s+/g, ' ').trim();
@@ -309,6 +386,273 @@ export function getRomGroupingKey(filename: string | null | undefined): string {
   const lastDot = filename.lastIndexOf('.');
   const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
   return `single:${base.toLowerCase()}`;
+}
+
+export const PLATFORM_RELEASES_FOR_COMPANION_QUERY = `
+    SELECT r.id, r.game_id, r.region, r.variants, r.rom_name, r.rom_crc,
+           r.backup_status, r.ownership_status, r.release_date,
+           COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+           g.title as game_title, g.platform_id
+    FROM game_releases r
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE g.platform_id = ? AND r.rom_name IS NOT NULL
+    ORDER BY r.rom_name ASC
+`;
+
+export interface CompanionDiscCandidateRow {
+  id: string;
+  game_id: number;
+  region: string | null;
+  variants: string | null;
+  rom_name: string | null;
+  rom_crc: string | null;
+  backup_status: number;
+  ownership_status: number;
+  release_date: string | null;
+  has_case?: number;
+  has_manual?: number;
+  game_title: string;
+  platform_id: number;
+  disc_label?: string | null;
+  is_companion_base_disc?: boolean;
+  companion_game_id?: string;
+  companion_game_title?: string;
+}
+
+export interface SharedBackupReleaseLink {
+  id: string;
+  title: string;
+  region: string | null;
+  variants: string | null;
+  rom_name: string | null;
+  ownership_status: number;
+  backup_status: number;
+}
+
+function regionsOverlap(
+  regionA: string | null | undefined,
+  regionB: string | null | undefined,
+): boolean {
+  const tokensA = (regionA || '')
+    .toLowerCase()
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const tokensB = (regionB || '')
+    .toLowerCase()
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (tokensA.length === 0 || tokensB.length === 0) return false;
+  if (tokensA.includes('world') || tokensB.includes('world')) return true;
+  return tokensA.some((t) => tokensB.includes(t));
+}
+
+/**
+ * Enriches a game detail response with:
+ * 1. Per-disc labels (`disc_label`) on `game.releases`.
+ * 2. Case 1 (When viewing a GOTY/expanded release whose Disc 1 is the original release):
+ *    Prepends the matching regional companion Disc 1 from the original release (with its
+ *    `backup_status` and a link back to the original release) without altering `ownership_status`.
+ * 3. Case 2 (When viewing a Superseded original release whose Disc 1 is reused in a GOTY/expanded release):
+ *    Attaches `shared_backup_releases` linking forward to the GOTY/expanded release(s) that share that disc backup.
+ */
+export function enrichGameDetailWithCompanionDiscs(
+  game: {
+    id?: string;
+    stable_id?: number;
+    title?: string;
+    platform_id?: number;
+    region?: string | null;
+    variants?: string | null;
+    rom_name?: string | null;
+    releases?: Array<Record<string, unknown>>;
+    shared_backup_releases?: SharedBackupReleaseLink[];
+  },
+  platformReleases: CompanionDiscCandidateRow[],
+): void {
+  if (!game || !game.releases) return;
+
+  // 1. Attach human-readable disc_label to each release row
+  for (const rel of game.releases) {
+    const rName = (rel['rom_name'] as string | null) || null;
+    rel['disc_label'] = extractDiscLabel(rName);
+  }
+
+  const romLower = (game.rom_name || '').toLowerCase();
+  const normRomTitle = normalizeForLabelMatch(
+    game.rom_name || game.title || '',
+  );
+  const normGameTitle = normalizeForLabelMatch(game.title || '');
+  const regTokens = (game.region || '')
+    .toLowerCase()
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // 2. Check if this release is the Superset (GOTY/Expanded) side of a SupersededReleasePair (Case 1)
+  for (const pair of SUPERSEDED_RELEASE_PAIRS) {
+    if (pair.platformId !== game.platform_id) continue;
+
+    const isSupersetMatch =
+      (pair.supersetStableId !== undefined &&
+        pair.supersetStableId === game.stable_id &&
+        (!pair.supersetRomMarker ||
+          romLower.includes(pair.supersetRomMarker))) ||
+      normRomTitle === pair.supersetNormalizedTitle ||
+      normGameTitle === pair.supersetNormalizedTitle;
+
+    if (!isSupersetMatch) continue;
+    if (
+      pair.excludedRegions?.some((ex) => regTokens.includes(ex)) ||
+      !regTokens.some((r) => pair.applicableRegions.includes(r))
+    ) {
+      continue;
+    }
+
+    // Only prepend companion Disc 1 if this release group doesn't already contain a Disc 1
+    const alreadyHasDisc1 = game.releases.some((r) =>
+      /\((?:disc|disco|disque|disk)\s+1\b/i.test(String(r['rom_name'] || '')),
+    );
+    if (alreadyHasDisc1) continue;
+
+    // Find candidate original Disc 1 releases on the same platform
+    const candidates = platformReleases.filter((cand) => {
+      const candRomLower = (cand.rom_name || '').toLowerCase();
+      if (
+        /\b(beta|proto|prototype|demo|kiosk|sample|promo|taikenban|title update|bonus)\b/i.test(
+          candRomLower,
+        ) ||
+        candRomLower.startsWith('tu_')
+      ) {
+        return false;
+      }
+      if (
+        pair.supersetRomMarker &&
+        candRomLower.includes(pair.supersetRomMarker)
+      ) {
+        return false;
+      }
+      if (
+        pair.originalExcludeMarker &&
+        candRomLower.includes(pair.originalExcludeMarker)
+      ) {
+        return false;
+      }
+      const candNorm = normalizeForLabelMatch(cand.rom_name || cand.game_title);
+      if (candNorm !== pair.originalNormalizedTitle) return false;
+      return regionsOverlap(game.region, cand.region);
+    });
+
+    if (candidates.length > 0) {
+      // Score candidates: prefer exact region match -> backed up -> owned -> standard/matching revision
+      const scoreCandidate = (c: CompanionDiscCandidateRow): number => {
+        let score = 0;
+        if (
+          (c.region || '').toLowerCase() === (game.region || '').toLowerCase()
+        ) {
+          score += 100;
+        } else if (
+          (c.region || '')
+            .toLowerCase()
+            .split(',')
+            .map((s) => s.trim())[0] === regTokens[0]
+        ) {
+          score += 50;
+        }
+        if (c.backup_status === 1) score += 25;
+        if (c.ownership_status === 1) score += 10;
+        const cVar = (c.variants || '').toLowerCase();
+        if (!cVar || cVar === 'superseded') score += 5;
+        return score;
+      };
+
+      candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+      const bestBase = candidates[0];
+
+      game.releases.unshift({
+        id: bestBase.id,
+        game_id: bestBase.game_id,
+        region: bestBase.region,
+        variants: bestBase.variants,
+        rom_name: bestBase.rom_name,
+        rom_crc: bestBase.rom_crc,
+        backup_status: bestBase.backup_status,
+        ownership_status: bestBase.ownership_status,
+        release_date: bestBase.release_date,
+        disc_label: 'Disc 1 (Base Game)',
+        is_companion_base_disc: true,
+        companion_game_id: bestBase.id,
+        companion_game_title: pair.originalDisplayTitle,
+      });
+    }
+  }
+
+  // 3. Check if this release is the Superseded (Original) side of a SupersededReleasePair (Case 2)
+  const sharedLinks: SharedBackupReleaseLink[] = [];
+  for (const pair of SUPERSEDED_RELEASE_PAIRS) {
+    if (pair.platformId !== game.platform_id) continue;
+
+    const isOriginalMatch =
+      ((pair.originalStableId !== undefined &&
+        pair.originalStableId === game.stable_id) ||
+        normRomTitle === pair.originalNormalizedTitle ||
+        normGameTitle === pair.originalNormalizedTitle) &&
+      (!pair.supersetRomMarker || !romLower.includes(pair.supersetRomMarker)) &&
+      (!pair.originalExcludeMarker ||
+        !romLower.includes(pair.originalExcludeMarker));
+
+    if (!isOriginalMatch) continue;
+    if (
+      pair.excludedRegions?.some((ex) => regTokens.includes(ex)) ||
+      !regTokens.some((r) => pair.applicableRegions.includes(r))
+    ) {
+      continue;
+    }
+
+    // Find all matching superseding (GOTY/expanded) releases on the platform that share this Disc 1
+    const supersetMatches = platformReleases.filter((cand) => {
+      if (cand.id === game.id) return false;
+      const candRomLower = (cand.rom_name || '').toLowerCase();
+      const candNorm = normalizeForLabelMatch(cand.rom_name || cand.game_title);
+      const isSupersetCand =
+        (pair.supersetStableId !== undefined &&
+          cand.game_id === pair.supersetStableId &&
+          (!pair.supersetRomMarker ||
+            candRomLower.includes(pair.supersetRomMarker))) ||
+        candNorm === pair.supersetNormalizedTitle ||
+        (pair.supersetRomMarker &&
+          candNorm === pair.originalNormalizedTitle &&
+          candRomLower.includes(pair.supersetRomMarker));
+      if (!isSupersetCand) return false;
+      if (
+        pair.excludedRegions?.some((ex) =>
+          (cand.region || '').toLowerCase().includes(ex),
+        )
+      ) {
+        return false;
+      }
+      return regionsOverlap(game.region, cand.region);
+    });
+
+    for (const sup of supersetMatches) {
+      if (!sharedLinks.some((s) => s.id === sup.id)) {
+        sharedLinks.push({
+          id: sup.id,
+          title: pair.supersetDisplayTitle || sup.game_title,
+          region: sup.region,
+          variants: sup.variants,
+          rom_name: sup.rom_name,
+          ownership_status: sup.ownership_status,
+          backup_status: sup.backup_status,
+        });
+      }
+    }
+  }
+
+  if (sharedLinks.length > 0) {
+    game.shared_backup_releases = sharedLinks;
+  }
 }
 
 // Map of database platform display names to IGDB platform IDs

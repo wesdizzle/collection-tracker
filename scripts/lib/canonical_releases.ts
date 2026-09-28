@@ -710,7 +710,7 @@ export function deduplicateDatReleases(
     if (!normalized) continue;
 
     const region = extractRegions(rel.name);
-    const variants = extractVariants(rel.name);
+    const variants = extractVariants(rel.name, platformId);
     const serial =
       primaryRom.serial ||
       extractSerialCode(rel.name) ||
