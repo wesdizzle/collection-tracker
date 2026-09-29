@@ -33,7 +33,11 @@ import {
   calculateConfidence,
   resolveRegionalCoverUrl,
 } from './lib/igdb.js';
-import { isPlatformDatComplete } from './lib/canonical_releases.js';
+import {
+  isPlatformDatComplete,
+  cleanTitleWithoutParentheticals,
+  CanonicalRelease,
+} from './lib/canonical_releases.js';
 import {
   scrapePriceCharting,
   scrapePlayStationStore,
@@ -59,9 +63,14 @@ import * as path from 'path';
 import {
   titlesMatch,
   normalizeTitleForMatching,
+  gameMatchesReleaseWithAlternatives,
 } from './lib/title_matching.js';
 import { extractRegions, extractVariants } from './lib/dat_format.js';
-import { searchGameyeGame, searchGameyeToy } from './lib/gameye.js';
+import {
+  searchGameyeGame,
+  searchGameyeToy,
+  findVerifiedRegionalPhysicalReleases,
+} from './lib/gameye.js';
 
 const db = new Database('collection.sqlite');
 const checkReleaseExistsStmt = db.prepare(
@@ -188,6 +197,11 @@ function findDbPlatform(
   const datClean = clean(datPlatformName);
   const lowerDat = datPlatformName.toLowerCase();
 
+  // Never allow Commodore 64 DATs to match Nintendo 64
+  if (lowerDat.includes('commodore')) {
+    return null;
+  }
+
   // 1. Check explicit fallbacks first to catch specific cases.
   // Sort fallbacks by length descending to check longer substrings first (e.g. SNES before NES).
   const fallbacks: Record<string, string> = {
@@ -198,6 +212,10 @@ function findDbPlatform(
     'sega cd': 'sega cd',
     'pc engine': 'turbografx-16',
     turbografx: 'turbografx-16',
+    'family computer disk system': 'famicom disk system',
+    'famicom disk system': 'famicom disk system',
+    'nintendo 64dd': 'nintendo 64dd',
+    '64dd': 'nintendo 64dd',
     'super nintendo entertainment system':
       'super nintendo entertainment system',
     'nintendo entertainment system': 'nintendo entertainment system',
@@ -239,10 +257,14 @@ function findDbPlatform(
   for (const key of sortedFallbackKeys) {
     const dbVal = fallbacks[key];
     if (lowerDat.includes(key)) {
-      const matched = dbPlatforms.find((p) =>
-        (p.display_name || p.name).toLowerCase().includes(dbVal),
+      const matched = dbPlatforms.find(
+        (p) => (p.display_name || p.name).toLowerCase() === dbVal,
       );
       if (matched) return matched;
+      const partialMatched = dbPlatforms.find((p) =>
+        (p.display_name || p.name).toLowerCase().includes(dbVal),
+      );
+      if (partialMatched) return partialMatched;
     }
   }
 
@@ -277,7 +299,7 @@ function findDbPlatform(
 
 /**
  * Evaluates whether a release or ROM should be ignored based on file format,
- * digital platform markers, or platform-specific constraints (e.g. Vita .psv).
+ * digital platform markers, or platform-specific constraints (e.g. Vita .psv/.vpk).
  *
  * @param releaseName The clean release title.
  * @param romName The ROM filename.
@@ -305,8 +327,8 @@ function isIgnoredFormatRelease(
   ];
   if (badExtensions.includes(ext)) return true;
 
-  // For PS Vita (ID: 33), strictly only allow physical .psv card backups
-  if (platformId === 33 && ext !== '.psv') {
+  // For PS Vita (ID: 33), allow physical .psv card backups and No-Intro .vpk dumps
+  if (platformId === 33 && ext !== '.psv' && ext !== '.vpk') {
     return true;
   }
 
@@ -662,7 +684,9 @@ async function syncDats(): Promise<void> {
       SELECT r.id, r.game_id, r.ownership_status, r.backup_status
       FROM game_releases r
       JOIN games g ON r.game_id = g.stable_id
-      WHERE g.platform_id IN (${placeholders}) AND r.id NOT LIKE '%-default'
+      WHERE g.platform_id IN (${placeholders})
+        AND r.id NOT LIKE '%-default'
+        AND r.canonical_release_id IS NULL
     `,
       )
       .all(...processedIdsArr) as {
@@ -928,6 +952,277 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
 }
 
 /**
+ * Reconciles regional physical releases for a game:
+ * - On complete-DAT platforms: matches `canonical_releases` using primary title AND IGDB `alternative_names`
+ *   (e.g., Biohazard, Hoshi no Kirby, Dragon Quest, Doubutsu no Mori) and attaches missing `game_releases`.
+ * - On incomplete-DAT platforms: queries GAMEYE for verified physical retail releases (`release_type === 0 && has_vgpc === true`)
+ *   across USA, Japan, and Europe, upserting `canonical_releases` and `game_releases`.
+ */
+const canonicalIndexCache = new WeakMap<
+  CanonicalRelease[],
+  Map<string, CanonicalRelease[]>
+>();
+
+function getTitleLookupKeys(title: string): string[] {
+  const keys = new Set<string>();
+  const addKey = (str: string) => {
+    const norm = normalizeTitleForMatching(str).replace(/ou/g, 'o');
+    if (norm) keys.add(norm);
+    const normNoAlias = normalizeTitleForMatching(str, true).replace(
+      /ou/g,
+      'o',
+    );
+    if (normNoAlias) keys.add(normNoAlias);
+  };
+  addKey(title);
+  const alts = title
+    .split(/(?<!\d)[~/](?!\d)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const alt of alts) {
+    addKey(alt);
+    const segs = alt
+      .split(/(?:\s+-\s+|:)/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const seg of segs) {
+      addKey(seg);
+    }
+    const dashSegs = alt
+      .split(/\s+-\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (dashSegs.length > 2) {
+      addKey(dashSegs[0] + ' ' + dashSegs[dashSegs.length - 1]);
+    }
+  }
+  return Array.from(keys);
+}
+
+function getOrBuildCanonicalIndex(
+  list: CanonicalRelease[],
+): Map<string, CanonicalRelease[]> {
+  let idx = canonicalIndexCache.get(list);
+  if (idx) return idx;
+  idx = new Map<string, CanonicalRelease[]>();
+  for (const cr of list) {
+    const clean = cleanTitleWithoutParentheticals(cr.raw_title);
+    for (const k of getTitleLookupKeys(clean)) {
+      let bucket = idx.get(k);
+      if (!bucket) {
+        bucket = [];
+        idx.set(k, bucket);
+      }
+      bucket.push(cr);
+    }
+  }
+  canonicalIndexCache.set(list, idx);
+  return idx;
+}
+
+export async function reconcileRegionalReleasesForGame(
+  dbInstance: Database.Database,
+  game: {
+    stable_id: number;
+    id: string;
+    title: string;
+    platform_id: number;
+    release_date?: string | null;
+  },
+  igdbGame: {
+    alternative_names?: Array<{ name: string; comment?: string }>;
+  },
+  canonicalCache?: Map<number, CanonicalRelease[]>,
+): Promise<number> {
+  let added = 0;
+
+  if (isPlatformDatComplete(game.platform_id)) {
+    const targetPlatformIds = getScannedPlatformIds(game.platform_id);
+    let candidateCanonical: CanonicalRelease[] = [];
+
+    if (canonicalCache) {
+      const queryKeys = new Set<string>(getTitleLookupKeys(game.title));
+      if (igdbGame.alternative_names) {
+        for (const alt of igdbGame.alternative_names) {
+          if (alt?.name) {
+            for (const k of getTitleLookupKeys(alt.name)) {
+              queryKeys.add(k);
+            }
+          }
+        }
+      }
+      const seen = new Set<CanonicalRelease>();
+      for (const pid of targetPlatformIds) {
+        const list = canonicalCache.get(pid);
+        if (!list) continue;
+        const idx = getOrBuildCanonicalIndex(list);
+        for (const k of queryKeys) {
+          const hits = idx.get(k);
+          if (hits) {
+            for (const cr of hits) {
+              if (!seen.has(cr)) {
+                seen.add(cr);
+                candidateCanonical.push(cr);
+              }
+            }
+          }
+        }
+      }
+    } else {
+      const placeholders = targetPlatformIds.map(() => '?').join(',');
+      candidateCanonical = dbInstance
+        .prepare(
+          `SELECT * FROM canonical_releases WHERE platform_id IN (${placeholders})`,
+        )
+        .all(...targetPlatformIds) as CanonicalRelease[];
+    }
+
+    const matched = candidateCanonical.filter((cr) =>
+      gameMatchesReleaseWithAlternatives(
+        game.title,
+        cleanTitleWithoutParentheticals(cr.raw_title),
+        cr.raw_title,
+        game.platform_id,
+        igdbGame.alternative_names,
+        cr.region,
+      ),
+    );
+
+    if (matched.length === 0) return 0;
+
+    const existingReleases = dbInstance
+      .prepare(
+        `SELECT id, rom_name, rom_crc, region FROM game_releases WHERE game_id = ?`,
+      )
+      .all(game.stable_id) as Array<{
+      id: string;
+      rom_name: string | null;
+      rom_crc: string | null;
+      region: string | null;
+    }>;
+
+    const insertRelStmt = dbInstance.prepare(`
+      INSERT INTO game_releases (
+        id, game_id, region, variants, rom_name, rom_crc,
+        ownership_status, backup_status, release_date, canonical_release_id, is_physical, also_released_as
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 1, ?)
+    `);
+
+    for (const cr of matched) {
+      const alreadyExists = existingReleases.some(
+        (er) =>
+          (cr.rom_name && er.rom_name === cr.rom_name) ||
+          (cr.rom_crc && er.rom_crc === cr.rom_crc) ||
+          (!cr.rom_name &&
+            !er.rom_name &&
+            regionsMatch(er.region, cr.region || null)),
+      );
+      if (alreadyExists) continue;
+
+      const cleanCrTitle = cleanTitleWithoutParentheticals(cr.raw_title);
+      const matchedPrimary = titlesMatch(
+        game.title,
+        cleanCrTitle,
+        cr.raw_title,
+        game.platform_id,
+      );
+      const alsoReleasedAs = matchedPrimary ? null : cleanCrTitle;
+
+      const baseSlug = `${game.id}-${cr.rom_crc || slugify(cr.rom_name || cr.region || 'release')}`;
+      const uniqueId = generateUniqueId(baseSlug);
+
+      insertRelStmt.run(
+        uniqueId,
+        game.stable_id,
+        cr.region || null,
+        cr.variants || null,
+        cr.rom_name || null,
+        cr.rom_crc || null,
+        game.release_date || null,
+        cr.id || null,
+        alsoReleasedAs,
+      );
+      existingReleases.push({
+        id: uniqueId,
+        rom_name: cr.rom_name || null,
+        rom_crc: cr.rom_crc || null,
+        region: cr.region || null,
+      });
+      added++;
+    }
+  } else {
+    const verifiedRegional = await findVerifiedRegionalPhysicalReleases(
+      game.title,
+      game.platform_id,
+      igdbGame.alternative_names,
+    );
+    if (verifiedRegional.length === 0) return 0;
+
+    const existingReleases = dbInstance
+      .prepare(`SELECT id, region FROM game_releases WHERE game_id = ?`)
+      .all(game.stable_id) as Array<{ id: string; region: string | null }>;
+
+    const findCanonicalStmt = dbInstance.prepare(`
+      SELECT id FROM canonical_releases
+      WHERE platform_id = ? AND normalized_title = ? AND region = ?
+      LIMIT 1
+    `);
+
+    const insertCanonicalStmt = dbInstance.prepare(`
+      INSERT INTO canonical_releases (
+        platform_id, raw_title, normalized_title, region, variants,
+        rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical
+      ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 'gameye_vgpc', 1)
+    `);
+
+    const insertRelStmt = dbInstance.prepare(`
+      INSERT INTO game_releases (
+        id, game_id, region, variants, rom_name, rom_crc,
+        ownership_status, backup_status, release_date, canonical_release_id, is_physical
+      ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, ?, ?, 1)
+    `);
+
+    for (const vr of verifiedRegional) {
+      const normTitle = normalizeTitleForMatching(vr.clean_title);
+      let canonicalRow = findCanonicalStmt.get(
+        game.platform_id,
+        normTitle,
+        vr.region,
+      ) as { id: number } | undefined;
+
+      if (!canonicalRow) {
+        const res = insertCanonicalStmt.run(
+          game.platform_id,
+          vr.clean_title,
+          normTitle,
+          vr.region,
+        );
+        canonicalRow = { id: Number(res.lastInsertRowid) };
+      }
+
+      const hasRegion = existingReleases.some((er) =>
+        regionsMatch(er.region, vr.region),
+      );
+      if (!hasRegion) {
+        const baseSlug = `${game.id}-${vr.region.toLowerCase()}`;
+        const uniqueId = generateUniqueId(baseSlug);
+        insertRelStmt.run(
+          uniqueId,
+          game.stable_id,
+          vr.region,
+          game.release_date || null,
+          canonicalRow.id,
+        );
+        existingReleases.push({ id: uniqueId, region: vr.region });
+        added++;
+      }
+    }
+  }
+
+  return added;
+}
+
+/**
  * Resolves regional release dates and regional cover art from IGDB metadata and updates the associated game releases.
  *
  * @param dbInstance The better-sqlite3 database instance.
@@ -937,7 +1232,7 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
  * @param gameLocalizations Optional array of IGDB game localizations with regional cover art.
  * @param defaultCoverUrl Optional default cover URL on the parent game record.
  */
-function updateReleaseDatesForGameReleases(
+export function updateReleaseDatesForGameReleases(
   dbInstance: Database.Database,
   gameStableId: number,
   igdbReleaseDates: { region: number; date: number }[] | undefined,
@@ -1536,6 +1831,7 @@ async function runScraper(): Promise<void> {
             console.log('No changes.');
           }
 
+          await reconcileRegionalReleasesForGame(db, game, fresh);
           updateReleaseDatesForGameReleases(
             db,
             game.stable_id,
@@ -1600,6 +1896,7 @@ async function runScraper(): Promise<void> {
           game.id,
         );
 
+        await reconcileRegionalReleasesForGame(db, game, bestMatch);
         updateReleaseDatesForGameReleases(
           db,
           game.stable_id,
@@ -2584,4 +2881,11 @@ async function performWebValidation(
   return false;
 }
 
-runScraper().catch(console.error);
+import { fileURLToPath } from 'url';
+const isMainModule =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) ===
+    path.resolve(fileURLToPath(import.meta.url));
+if (isMainModule) {
+  runScraper().catch(console.error);
+}

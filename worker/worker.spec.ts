@@ -888,4 +888,169 @@ describe('Worker API Logic', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('GET /api/discovery/scan-series separates Switch 1 (130) from Switch 2 (508) and surfaces FDS (54) & 64DD (55) titles via alternative_names', async () => {
+    db.prepare(
+      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+    ).run(26, 'Nintendo Switch', 'Nintendo Switch', 'Nintendo', '2017-03-03');
+    db.prepare(
+      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+    ).run(
+      27,
+      'Nintendo Switch 2',
+      'Nintendo Switch 2',
+      'Nintendo',
+      '2025-06-05',
+    );
+    db.prepare(
+      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+    ).run(
+      54,
+      'Famicom Disk System',
+      'Famicom Disk System',
+      'Nintendo',
+      '1986-02-21',
+    );
+    db.prepare(
+      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+    ).run(55, 'Nintendo 64DD', 'Nintendo 64DD', 'Nintendo', '1999-12-01');
+
+    // Owned Switch 1 game: Everybody 1-2-Switch! (igdb_id: 252035 on platform 26)
+    db.prepare(
+      `INSERT INTO games (stable_id, id, title, canonical_series, platform_id, igdb_id, collections, franchises)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      20,
+      'everybody-1-2-switch-ns',
+      'Everybody 1-2-Switch!',
+      '1-2-Switch',
+      26,
+      252035,
+      '1-2-Switch, Super Mario, Animal Crossing',
+      'Mario',
+    );
+
+    // Seed canonical_releases for FDS (54) and 64DD (55)
+    db.prepare(
+      `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, is_verified_physical)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      54,
+      'Super Mario Bros. 2',
+      'supermariobros2',
+      'Japan',
+      null,
+      'Super Mario Bros. 2 (Japan).fds',
+      'F04CD4CD',
+      1,
+    );
+    db.prepare(
+      `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, is_verified_physical)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      55,
+      'Doubutsu no Mori',
+      'dobutsunomori',
+      'Japan',
+      null,
+      'Doubutsu no Mori (Japan).ndd',
+      '34FA2991',
+      1,
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockImplementation((url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                access_token: 'mock-token',
+                expires_in: 3600,
+                token_type: 'bearer',
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify([
+                {
+                  name: 'b0',
+                  result: [
+                    {
+                      id: 252035,
+                      name: 'Everybody 1-2-Switch!',
+                      platforms: [{ id: 130, name: 'Nintendo Switch' }],
+                    },
+                    {
+                      id: 1068,
+                      name: 'Super Mario Bros.: The Lost Levels',
+                      platforms: [
+                        { id: 51, name: 'Family Computer Disk System' },
+                      ],
+                      alternative_names: [
+                        {
+                          name: 'Super Mario Bros. 2',
+                          comment: 'Japanese title',
+                        },
+                      ],
+                    },
+                    {
+                      id: 277075,
+                      name: 'Animal Crossing',
+                      platforms: [{ id: 416, name: '64DD' }],
+                      alternative_names: [
+                        { name: 'Dōbutsu no Mori', comment: 'Japanese title' },
+                      ],
+                    },
+                  ],
+                },
+              ]),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+        }
+        return originalFetch(url, init);
+      });
+
+    try {
+      const req = new Request('http://localhost/api/discovery/scan-series');
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+      const suggestions = (await res.json()) as Array<{
+        id: number;
+        title: string;
+        platform: string;
+        platform_id: number;
+        physical_status: string;
+      }>;
+
+      // Everybody 1-2-Switch! on Switch (130 -> 26) is owned and must NOT appear (nor be misclassified as Switch 2)
+      expect(suggestions.some((s) => s.title === 'Everybody 1-2-Switch!')).toBe(
+        false,
+      );
+
+      // Super Mario Bros.: The Lost Levels on FDS (54) and Animal Crossing on 64DD (55) MUST appear as verified_physical
+      const lostLevels = suggestions.find(
+        (s) => s.title === 'Super Mario Bros.: The Lost Levels',
+      );
+      expect(lostLevels).toBeDefined();
+      expect(lostLevels?.platform_id).toBe(54);
+      expect(lostLevels?.physical_status).toBe('verified_physical');
+
+      const animalCrossing = suggestions.find(
+        (s) => s.title === 'Animal Crossing',
+      );
+      expect(animalCrossing).toBeDefined();
+      expect(animalCrossing?.platform_id).toBe(55);
+      expect(animalCrossing?.physical_status).toBe('verified_physical');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

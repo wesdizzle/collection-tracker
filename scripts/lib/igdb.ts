@@ -25,6 +25,12 @@ export interface IGDBLocalization {
   cover?: IGDBImage;
 }
 
+export interface IGDBAlternativeName {
+  id?: number;
+  name: string;
+  comment?: string;
+}
+
 export interface IGDBGame {
   id: number;
   name: string;
@@ -33,6 +39,7 @@ export interface IGDBGame {
   summary?: string;
   cover?: IGDBImage;
   game_localizations?: IGDBLocalization[];
+  alternative_names?: IGDBAlternativeName[];
   first_release_date?: number;
   platforms?: IGDBPlatform[];
   collections?: { id: number; name: string }[];
@@ -61,6 +68,7 @@ export interface NormalizedGame {
   summary?: string;
   image_url: string | null;
   game_localizations?: IGDBLocalization[];
+  alternative_names?: IGDBAlternativeName[];
   platform: string;
   platforms: IGDBPlatform[];
   platform_ids: number[];
@@ -69,6 +77,7 @@ export interface NormalizedGame {
   collections: string | null;
   franchises: string | null;
   category?: number;
+  game_type?: number;
   region: string;
   confidence: number;
   genres: string | null;
@@ -86,14 +95,17 @@ export const PLATFORM_MAP: Record<string, number> = {
   'Atari 7800 ProSystem': 60,
   'Atari Lynx': 61,
   'Atari Jaguar': 62,
-  ColecoVision: 67,
-  Intellivision: 68,
+  ColecoVision: 68,
+  Intellivision: 67,
   'Neo Geo Pocket Color': 120,
   'Nintendo Entertainment System': 18,
   'Game Boy': 33,
   'Super Nintendo Entertainment System': 19,
+  'Super Famicom': 58,
   'Virtual Boy': 87,
   'Nintendo 64': 4,
+  'Nintendo 64DD': 416,
+  '64DD': 416,
   'Game Boy Color': 22,
   'Game Boy Advance': 24,
   'Nintendo GameCube': 21,
@@ -128,15 +140,18 @@ export const PLATFORM_MAP: Record<string, number> = {
   'Neo Geo AES': 80,
   'Neo Geo Advanced Entertainment System': 80,
   'Neo Geo CD': 136,
-  'Neo Geo X': 80,
+  'Neo Geo X': 377,
   'Philips CD-i': 117,
   'Sega Pico': 339,
   'TurboGrafx-CD': 150,
   'TurboGrafx CD': 150,
   'PlayStation VR': 165,
   'PlayStation VR2': 390,
-  Famicom: 18,
-  'Nintendo Switch 2': 130,
+  Famicom: 99,
+  'Family Computer': 99,
+  'Famicom Disk System': 51,
+  'Family Computer Disk System': 51,
+  'Nintendo Switch 2': 508,
 };
 
 /**
@@ -146,12 +161,17 @@ export const PLATFORM_MAP: Record<string, number> = {
  */
 export const PLATFORM_LIFESPANS: Record<number, [number, number]> = {
   18: [1983, 1996], // NES
+  99: [1983, 1994], // Famicom
+  51: [1986, 1993], // Famicom Disk System
   19: [1990, 2001], // SNES
+  58: [1990, 2000], // Super Famicom
   4: [1996, 2003], // N64
+  416: [1999, 2001], // Nintendo 64DD
   21: [2001, 2008], // GameCube
   5: [2006, 2017], // Wii
   41: [2012, 2019], // Wii U
   130: [2017, 2035], // Nintendo Switch
+  508: [2025, 2038], // Nintendo Switch 2
   33: [1989, 2003], // Game Boy
   22: [1998, 2004], // Game Boy Color
   24: [2001, 2009], // Game Boy Advance
@@ -183,8 +203,8 @@ export const PLATFORM_LIFESPANS: Record<number, [number, number]> = {
   60: [1986, 1992], // Atari 7800
   61: [1989, 1996], // Atari Lynx
   62: [1993, 1997], // Atari Jaguar
-  67: [1982, 1985], // ColecoVision
-  68: [1979, 1990], // Intellivision
+  68: [1982, 1985], // ColecoVision
+  67: [1979, 1990], // Intellivision
   50: [1993, 1997], // 3DO
   120: [1999, 2002], // Neo Geo Pocket Color
   80: [1990, 2004], // Neo Geo AES
@@ -321,9 +341,14 @@ export async function findGame(
     ? `platforms = (${platformId})`
     : `platforms = (${trackedIgdbIds.join(',')})`;
 
-  // VR Heuristic: If searching for PS4/PS5, also look for PSVR/PSVR2
+  // VR & Regional Platform Heuristics:
+  // PS4/PS5 -> include PSVR/PSVR2; NES -> include Famicom (99); SNES -> include Super Famicom (58)
   if (platformId === 48) platformFilter = 'platforms = (48, 165)';
   if (platformId === 167) platformFilter = 'platforms = (167, 390)';
+  if (platformId === 18 || platformId === 99)
+    platformFilter = 'platforms = (18, 99)';
+  if (platformId === 19 || platformId === 58)
+    platformFilter = 'platforms = (19, 58)';
 
   // Clean title for search
   const cleanTitle = title
@@ -397,15 +422,17 @@ export async function findGame(
     return getGameById(6797, 29).then((g) => (g ? [g] : null));
   }
 
+  const gameFields = `name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, alternative_names.name, alternative_names.comment, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent, release_dates.platform, release_dates.region, release_dates.date`;
+
   const searchQuery = `
-        fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+        fields ${gameFields};
         search "${cleanTitle.replace(/"/g, '')}";
         ${platformFilter ? `where ${platformFilter};` : ''}
         limit 50;
     `;
 
   const nameQuery = `
-        fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+        fields ${gameFields};
         where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & ${platformFilter}` : ''};
         limit 50;
     `;
@@ -430,14 +457,14 @@ export async function findGame(
           `  Falling back to simplified search: "${simplifiedTitle}"`,
         );
         const fallbackSearchQuery = `
-                    fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+                    fields ${gameFields};
                     search "${simplifiedTitle.replace(/"/g, '')}";
-                    ${platformFilter ? `where platforms = (${platformId});` : ''}
+                    ${platformFilter ? `where ${platformFilter};` : ''}
                     limit 50;
                 `;
         const fallbackNameQuery = `
-                    fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
-                    where name ~ "${simplifiedTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
+                    fields ${gameFields};
+                    where name ~ "${simplifiedTitle.replace(/"/g, '')}"${platformFilter ? ` & ${platformFilter}` : ''};
                     limit 50;
                 `;
         const [fallbackSearch, fallbackName] = await Promise.all([
@@ -468,9 +495,9 @@ export async function findGame(
           `  Falling back to ultra-simplified search: "${ultraSimplified}"`,
         );
         const ultraSearchQuery = `
-                    fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+                    fields ${gameFields};
                     search "${ultraSimplified}";
-                    ${platformFilter ? `where platforms = (${platformId});` : ''}
+                    ${platformFilter ? `where ${platformFilter};` : ''}
                     limit 50;
                 `;
         const ultraResults = (await queryIGDB(
@@ -491,10 +518,10 @@ export async function findGame(
       return true;
     });
 
-    // Filter for official categories only
-    const officialCategories = [0, 8, 9, 10, 11, 13, 14, undefined, null];
+    // Filter for official categories only (include 3 = Bundle)
+    const officialCategories = [0, 3, 8, 9, 10, 11, 13, 14, undefined, null];
     const initialFiltered = uniqueResults.filter((g) =>
-      officialCategories.includes(g.category),
+      officialCategories.includes(g.game_type ?? g.category),
     );
 
     if (initialFiltered.length === 0) return [];
@@ -502,7 +529,8 @@ export async function findGame(
     const filteredResults = initialFiltered.filter((g) => {
       const lowerName = g.name.toLowerCase();
       const lowerSummary = (g.summary || '').toLowerCase();
-      if (g.category === 12) return false;
+      const cat = g.game_type ?? g.category;
+      if (cat === 12) return false;
 
       const hackKeywords = [
         ' hack:',
@@ -530,7 +558,7 @@ export async function findGame(
       const isHack = hackKeywords.some(
         (kw) => lowerName.includes(kw) || lowerSummary.includes(kw),
       );
-      if (isHack && g.category !== 5) return false;
+      if (isHack && cat !== 5) return false;
 
       return true;
     });
@@ -543,8 +571,8 @@ export async function findGame(
         // Primary: Confidence
         if (b.confidence !== a.confidence) return b.confidence - a.confidence;
         // Secondary: Category priority (Main Game > Remake > Remaster > Port > Bundle)
-        const catA = a.category ?? 0;
-        const catB = b.category ?? 0;
+        const catA = a.game_type ?? a.category ?? 0;
+        const catB = b.game_type ?? b.category ?? 0;
         if (catA !== catB) {
           const priority: Record<number, number> = {
             0: 10,
@@ -552,6 +580,7 @@ export async function findGame(
             9: 8,
             10: 7,
             11: 6,
+            3: 5,
             13: 5,
             14: 4,
           };
@@ -574,7 +603,7 @@ export async function getGameById(
   igdbId: number,
   platformId?: number,
 ): Promise<NormalizedGame | null> {
-  const fields = `name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
+  const fields = `name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, alternative_names.name, alternative_names.comment, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
   const query = `
         fields ${fields};
         where id = ${igdbId};
@@ -825,12 +854,17 @@ export function normalizeIGDBGame(
     (p) => !unwantedVR.includes(p.id),
   );
 
-  // Preference: If source is PS4/PS5, prefer PSVR/PSVR2 if exact platform not found
+  // Preference: If source is PS4/PS5, prefer PSVR/PSVR2 if exact platform not found;
+  // If source is NES/SNES, also accept Famicom (99) / Super Famicom (58)
   let matchedPlatform = cleanPlatforms.find((p) => p.id === Number(platformId));
   if (!matchedPlatform && platformId === 48)
     matchedPlatform = cleanPlatforms.find((p) => p.id === 165);
   if (!matchedPlatform && platformId === 167)
     matchedPlatform = cleanPlatforms.find((p) => p.id === 390);
+  if (!matchedPlatform && platformId === 18)
+    matchedPlatform = cleanPlatforms.find((p) => p.id === 99);
+  if (!matchedPlatform && platformId === 19)
+    matchedPlatform = cleanPlatforms.find((p) => p.id === 58);
 
   const platformName = matchedPlatform
     ? matchedPlatform.name
@@ -848,6 +882,7 @@ export function normalizeIGDBGame(
         : null;
 
   const finalIsOutlier = overrideDate ? false : isOutlier;
+  const resolvedCategory = game.game_type ?? game.category;
 
   return {
     id: `igdb-${game.id}`,
@@ -857,6 +892,7 @@ export function normalizeIGDBGame(
     summary: game.summary,
     image_url: resolveRegionalCoverUrl(game, regionCode),
     game_localizations: game.game_localizations || [],
+    alternative_names: game.alternative_names || [],
     platform: platformName,
     platforms: cleanPlatforms,
     platform_ids: cleanPlatforms.map((p) => p.id),
@@ -868,9 +904,10 @@ export function normalizeIGDBGame(
     franchises: game.franchises
       ? game.franchises.map((f) => f.name).join(', ')
       : null,
-    category: game.category,
+    category: resolvedCategory,
+    game_type: resolvedCategory,
     region: regionCode,
-    confidence: calculateConfidence(targetTitle, game.name, game.category),
+    confidence: calculateConfidence(targetTitle, game.name, resolvedCategory),
     genres: game.genres ? game.genres.map((g) => g.name).join(', ') : null,
     flagged_outlier: finalIsOutlier,
   };
@@ -970,7 +1007,7 @@ export async function getCollectionGames(
   collectionId: number,
 ): Promise<IGDBGame[]> {
   const query = `
-        fields name, platforms.name, first_release_date, cover.url;
+        fields name, platforms.name, first_release_date, cover.url, category, game_type, alternative_names.name, alternative_names.comment;
         where collections = (${collectionId});
         limit 500;
     `;
@@ -1128,7 +1165,7 @@ export async function getGamesByIds(
   platformIdMap?: Record<number, number>,
 ): Promise<NormalizedGame[]> {
   if (ids.length === 0) return [];
-  const fields = `id, name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
+  const fields = `id, name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, alternative_names.name, alternative_names.comment, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
 
   const chunks: number[][] = [];
   for (let i = 0; i < ids.length; i += 100) {

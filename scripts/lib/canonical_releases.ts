@@ -8,7 +8,10 @@
  * and local SQLite environments.
  */
 
-import { normalizeTitleForMatching, titlesMatch } from './title_matching.js';
+import {
+  normalizeTitleForMatching,
+  gameMatchesReleaseWithAlternatives,
+} from './title_matching.js';
 import {
   extractRegions,
   extractVariants,
@@ -32,6 +35,7 @@ export interface CanonicalRelease {
     | 'igdb_physical'
     | 'publisher_whitelist'
     | 'barcode'
+    | 'gameye_vgpc'
     | 'custom';
   is_verified_physical: number;
 }
@@ -441,9 +445,10 @@ export function isDigitalFluffTitle(
 ): boolean {
   const lower = title.toLowerCase();
 
-  // IGDB Category Check:
-  // 1 = DLC / Addon, 2 = Expansion, 3 = Bundle, 5 = Mod, 6 = Episode, 7 = Season
-  if (igdbCategory && [1, 2, 3, 5, 6, 7].includes(igdbCategory)) {
+  // IGDB Category / Game Type Check:
+  // 1 = DLC / Addon, 2 = Expansion, 5 = Mod, 6 = Episode, 7 = Season, 13 = Pack / Addon
+  // Note: 3 = Bundle is intentionally NOT filtered because physical compilations/multi-packs are categorized as Bundles.
+  if (igdbCategory && [1, 2, 5, 6, 7, 13].includes(igdbCategory)) {
     return true;
   }
 
@@ -515,6 +520,8 @@ export const COMPLETE_DAT_PLATFORM_IDS = new Set<number>([
   47, // Xbox
   48, // Xbox 360
   53, // Famicom
+  54, // Famicom Disk System
+  55, // Nintendo 64DD
 ]);
 
 /**
@@ -547,6 +554,7 @@ export function isPlatformDatComplete(platformId: number): boolean {
 export function detectPhysicalReleaseStatus(options: {
   platformId: number;
   gameTitle: string;
+  alternativeNames?: Array<{ name: string; comment?: string }>;
   firstReleaseDate?: string | number | null;
   platformLaunchDate?: string | null;
   publisher?: string | null;
@@ -560,6 +568,7 @@ export function detectPhysicalReleaseStatus(options: {
   const {
     platformId,
     gameTitle,
+    alternativeNames,
     firstReleaseDate,
     platformLaunchDate,
     publisher,
@@ -590,11 +599,13 @@ export function detectPhysicalReleaseStatus(options: {
   // Tier 1: Canonical Match (No-Intro / Redump in D1/SQLite)
   const matchedReleases = canonicalReleases.filter((r) => {
     if (r.platform_id !== platformId) return false;
-    return titlesMatch(
+    return gameMatchesReleaseWithAlternatives(
       gameTitle,
       cleanTitleWithoutParentheticals(r.raw_title),
       r.raw_title,
       platformId,
+      alternativeNames,
+      r.region,
     );
   });
 

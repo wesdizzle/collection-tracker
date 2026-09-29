@@ -138,7 +138,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       );
     });
 
-    it('should flag titles with digital keywords or DLC categories', () => {
+    it('should flag titles with digital keywords or DLC categories while preserving physical bundles (category 3)', () => {
       expect(isDigitalFluffTitle('Super Mario World (Virtual Console)')).toBe(
         true,
       );
@@ -148,7 +148,64 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(isDigitalFluffTitle('Cyberpunk 2077: Phantom Liberty', 1)).toBe(
         true,
       ); // DLC
-      expect(isDigitalFluffTitle('Chrono Trigger')).toBe(false);
+      expect(isDigitalFluffTitle('The Witcher 3: Blood and Wine', 2)).toBe(
+        true,
+      ); // Expansion
+      expect(isDigitalFluffTitle('Community Mod Pack', 5)).toBe(true); // Mod
+      expect(isDigitalFluffTitle('Life is Strange: Episode 2', 6)).toBe(true); // Episode
+      expect(isDigitalFluffTitle('Hitman: Season 1', 7)).toBe(true); // Season
+      expect(isDigitalFluffTitle('Costume Pack', 13)).toBe(true); // Pack/Addon
+      expect(isDigitalFluffTitle('Super Mario 3D All-Stars', 3)).toBe(false); // Bundle (allowed!)
+      expect(isDigitalFluffTitle('Chrono Trigger', 0)).toBe(false);
+    });
+
+    it('should match Japanese regional releases via alternativeNames on FDS (54) and 64DD (55)', () => {
+      const fdsAnd64ddCanonical: CanonicalRelease[] = [
+        {
+          platform_id: 54,
+          raw_title: 'Super Mario Bros. 2',
+          normalized_title: 'supermariobros2',
+          region: 'Japan',
+          variants: null,
+          rom_name: 'Super Mario Bros. 2 (Japan).fds',
+          rom_crc: 'F04CD4CD',
+          source: 'dat',
+          is_verified_physical: 1,
+        },
+        {
+          platform_id: 55,
+          raw_title: 'Doubutsu no Mori',
+          normalized_title: 'dobutsunomori',
+          region: 'Japan',
+          variants: null,
+          rom_name: 'Doubutsu no Mori (Japan).ndd',
+          rom_crc: '34FA2991',
+          source: 'dat',
+          is_verified_physical: 1,
+        },
+      ];
+
+      const lostLevelsRes = detectPhysicalReleaseStatus({
+        platformId: 54,
+        gameTitle: 'Super Mario Bros.: The Lost Levels',
+        alternativeNames: [
+          { name: 'Super Mario Bros. 2', comment: 'Japanese title' },
+        ],
+        canonicalReleases: fdsAnd64ddCanonical,
+      });
+      expect(lostLevelsRes.physical_status).toBe('verified_physical');
+      expect(lostLevelsRes.physical_regions).toEqual(['Japan']);
+
+      const animalCrossingRes = detectPhysicalReleaseStatus({
+        platformId: 55,
+        gameTitle: 'Animal Crossing',
+        alternativeNames: [
+          { name: 'Dōbutsu no Mori', comment: 'Japanese title' },
+        ],
+        canonicalReleases: fdsAnd64ddCanonical,
+      });
+      expect(animalCrossingRes.physical_status).toBe('verified_physical');
+      expect(animalCrossingRes.physical_regions).toEqual(['Japan']);
     });
 
     it('should correctly identify era discrepancies', () => {

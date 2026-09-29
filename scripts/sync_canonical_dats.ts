@@ -140,8 +140,10 @@ const processDats = () => {
 
 try {
   if (!isDryRun) {
+    db.pragma('foreign_keys = OFF');
     const syncTx = db.transaction(processDats);
     syncTx();
+    db.pragma('foreign_keys = ON');
   } else {
     processDats();
   }

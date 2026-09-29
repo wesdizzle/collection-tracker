@@ -823,14 +823,16 @@ export const PLATFORM_MAP: Record<string, number> = {
   'Atari 7800 ProSystem': 60,
   'Atari Lynx': 61,
   'Atari Jaguar': 62,
-  ColecoVision: 67,
-  Intellivision: 68,
+  ColecoVision: 68,
+  Intellivision: 67,
   'Neo Geo Pocket Color': 120,
   'Nintendo Entertainment System': 18,
   'Game Boy': 33,
   'Super Nintendo Entertainment System': 19,
+  'Super Famicom': 58,
   'Virtual Boy': 87,
   'Nintendo 64': 4,
+  'Nintendo 64DD': 416,
   'Game Boy Color': 22,
   'Game Boy Advance': 24,
   'Nintendo GameCube': 21,
@@ -840,6 +842,7 @@ export const PLATFORM_MAP: Record<string, number> = {
   'Wii U': 41,
   'New Nintendo 3DS': 137,
   'Nintendo Switch': 130,
+  'Nintendo Switch 2': 508,
   PlayStation: 7,
   'PlayStation 2': 8,
   'PlayStation Portable': 38,
@@ -865,13 +868,86 @@ export const PLATFORM_MAP: Record<string, number> = {
   'Neo Geo AES': 80,
   'Neo Geo Advanced Entertainment System': 80,
   'Neo Geo CD': 136,
-  'Neo Geo X': 80,
+  'Neo Geo X': 377,
   'Philips CD-i': 117,
   'Sega Pico': 339,
   'TurboGrafx-CD': 150,
   'TurboGrafx CD': 150,
   'PlayStation VR': 165,
   'PlayStation VR2': 390,
-  Famicom: 18,
-  'Nintendo Switch 2': 130,
+  Famicom: 99,
+  'Family Computer': 99,
+  'Famicom Disk System': 51,
+  'Family Computer Disk System': 51,
 };
+
+const IGDB_LOCALIZATION_REGION_IDS: Record<string, number[]> = {
+  NA: [1, 8],
+  USA: [1, 8],
+  US: [1, 8],
+  'North America': [1, 8],
+  Canada: [1, 8],
+  JP: [3, 7, 8],
+  Japan: [3, 7, 8],
+  Asia: [7, 3, 8],
+  EU: [4, 8],
+  Europe: [4, 8],
+  UK: [4, 8],
+  Germany: [4, 8],
+  France: [4, 8],
+  Spain: [4, 8],
+  Italy: [4, 8],
+  AU: [5, 4, 8],
+  Australia: [5, 4, 8],
+  Korea: [2, 7, 8],
+  World: [1, 4, 3, 8],
+};
+
+function formatCoverUrl(rawUrl?: string | null): string | null {
+  if (!rawUrl) return null;
+  const replaced = rawUrl.replace('t_thumb', 't_cover_big');
+  return replaced.startsWith('http') ? replaced : `https:${replaced}`;
+}
+
+export function resolveRegionalCoverUrl(
+  game: {
+    cover?: { url?: string | null };
+    game_localizations?: Array<{
+      name?: string;
+      region?: number;
+      cover?: { url?: string | null };
+    }>;
+  },
+  regionStr?: string | null,
+): string | null {
+  const defaultCover = formatCoverUrl(game.cover?.url);
+  if (
+    !regionStr ||
+    !game.game_localizations ||
+    game.game_localizations.length === 0
+  ) {
+    return defaultCover;
+  }
+
+  const parts = regionStr
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  for (const part of parts) {
+    const candidateRegionIds =
+      IGDB_LOCALIZATION_REGION_IDS[part] ||
+      IGDB_LOCALIZATION_REGION_IDS[part.toUpperCase()];
+    if (!candidateRegionIds) continue;
+
+    for (const regId of candidateRegionIds) {
+      const loc = game.game_localizations.find(
+        (l) => l.region === regId && l.cover?.url,
+      );
+      if (loc?.cover?.url) {
+        return formatCoverUrl(loc.cover.url);
+      }
+    }
+  }
+
+  return defaultCover;
+}

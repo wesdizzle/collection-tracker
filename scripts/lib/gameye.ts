@@ -264,6 +264,7 @@ export interface GameyeRecord {
   category_id: number;
   platform_id: number;
   country_id: number;
+  release_type?: number;
   title: string;
   release_date?: number | null;
   has_vgpc?: boolean;
@@ -275,6 +276,15 @@ export interface GameyeRecord {
     BoxPrice?: number | null;
     BoxedPrice?: number | null;
   } | null;
+}
+
+export interface VerifiedRegionalPhysicalRelease {
+  region: 'USA' | 'Japan' | 'Europe';
+  country_id: number;
+  gameye_id: number;
+  title: string;
+  clean_title: string;
+  has_vgpc: boolean;
 }
 
 export interface GameyeSearchResult {
@@ -340,6 +350,150 @@ export function scoreTitleMatch(
   if (ratio >= 0.75) return 'high';
   if (ratio >= 0.5) return 'medium';
   return 'low';
+}
+
+/**
+ * Queries GAMEYE's catalog for verified physical regional releases (release_type === 0 && has_vgpc === true)
+ * across USA (country_id = 1), Japan (country_id = 3), and Europe (country_id = 15).
+ * Used as Tier 2 physical verification for platforms with incomplete community DAT coverage.
+ */
+export async function findVerifiedRegionalPhysicalReleases(
+  title: string,
+  gagglogPlatformId: number,
+  alternativeNames?: Array<{ name: string; comment?: string }>,
+  client: { get: typeof axios.get } = axios,
+): Promise<VerifiedRegionalPhysicalRelease[]> {
+  const gameyePlatformId = GAGGLOG_TO_GAMEYE_PLATFORM[gagglogPlatformId];
+  if (!gameyePlatformId) {
+    return [];
+  }
+
+  const COUNTRY_TO_REGION: Record<number, 'USA' | 'Japan' | 'Europe'> = {
+    1: 'USA',
+    3: 'Japan',
+    15: 'Europe',
+  };
+
+  const searchCandidates: Array<{
+    query: string;
+    allowedCountries?: number[];
+  }> = [];
+  const baseQuery = cleanTitleForSearch(title);
+  if (baseQuery) {
+    searchCandidates.push({ query: baseQuery });
+  }
+
+  if (alternativeNames && alternativeNames.length > 0) {
+    for (const alt of alternativeNames) {
+      if (!alt?.name) continue;
+      const cleanAlt = cleanTitleForSearch(alt.name);
+      const alphaNum = cleanAlt.replace(/[^a-zA-Z0-9]/g, '');
+      if (alphaNum.length < 4) continue;
+      if (cleanAlt.toLowerCase() === baseQuery.toLowerCase()) continue;
+
+      const commentLower = (alt.comment || '').toLowerCase();
+      if (
+        commentLower.includes('acronym') ||
+        commentLower.includes('abbreviation') ||
+        commentLower.includes('working title')
+      ) {
+        continue;
+      }
+
+      if (commentLower.includes('japanese') || commentLower.includes('japan')) {
+        searchCandidates.push({ query: cleanAlt, allowedCountries: [3] });
+      } else if (
+        commentLower.includes('europe') ||
+        commentLower.includes('pal') ||
+        commentLower.includes('uk')
+      ) {
+        searchCandidates.push({ query: cleanAlt, allowedCountries: [15] });
+      }
+    }
+  }
+
+  const byRegion = new Map<
+    'USA' | 'Japan' | 'Europe',
+    VerifiedRegionalPhysicalRelease
+  >();
+
+  const isSpecialVariantTitle = (raw: string, base: string): boolean => {
+    const rawLower = raw.toLowerCase();
+    const baseLower = base.toLowerCase();
+    const specialMarkers = [
+      'collector',
+      'limited edition',
+      'special edition',
+      'deluxe edition',
+      'steelbook',
+      'starter pack',
+      'booster course',
+      'double pack',
+      'twin pack',
+      'dual pack',
+      'trilogy',
+      'bundle',
+    ];
+    return specialMarkers.some(
+      (m) => rawLower.includes(m) && !baseLower.includes(m),
+    );
+  };
+
+  for (const cand of searchCandidates) {
+    // Stop early if we already found all 3 regions
+    if (byRegion.size === 3) break;
+    if (
+      cand.allowedCountries &&
+      cand.allowedCountries.every((c) => byRegion.has(COUNTRY_TO_REGION[c]))
+    ) {
+      continue;
+    }
+
+    try {
+      const url = `${GAMEYE_API_BASE}/deep_search?offset=0&limit=30&title=${encodeURIComponent(cand.query)}&platforms=${gameyePlatformId}&cat=0`;
+      const response = await client.get(url, { timeout: 10000 });
+      const records: GameyeRecord[] = response.data?.records || [];
+
+      for (const rec of records) {
+        if (rec.platform_id !== gameyePlatformId) continue;
+        if (rec.release_type !== 0 || !rec.has_vgpc) continue;
+
+        const region = COUNTRY_TO_REGION[rec.country_id];
+        if (!region) continue;
+        if (
+          cand.allowedCountries &&
+          !cand.allowedCountries.includes(rec.country_id)
+        ) {
+          continue;
+        }
+
+        const recClean = cleanTitleForSearch(rec.title);
+        const matchScore = scoreTitleMatch(cand.query, recClean);
+        if (matchScore !== 'exact') continue;
+
+        if (isSpecialVariantTitle(rec.title, title)) {
+          continue;
+        }
+
+        const existing = byRegion.get(region);
+        // Prefer standard unadorned title over parenthetical variant
+        if (!existing || rec.title.length < existing.title.length) {
+          byRegion.set(region, {
+            region,
+            country_id: rec.country_id,
+            gameye_id: rec.id,
+            title: rec.title,
+            clean_title: recClean,
+            has_vgpc: true,
+          });
+        }
+      }
+    } catch {
+      // Ignore network errors on individual candidate lookups
+    }
+  }
+
+  return Array.from(byRegion.values());
 }
 
 /**

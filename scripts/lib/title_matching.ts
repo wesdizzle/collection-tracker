@@ -358,8 +358,13 @@ function matchAlternative(
     }
   }
 
-  // Strategy 1: Exact match on normalized strings
-  if (gNorm === rNorm) {
+  // Strategy 1: Exact match on normalized strings (including Japanese ou/ō romanization equivalence)
+  if (
+    gNorm === rNorm ||
+    (gNorm.length >= 6 &&
+      rNorm.length >= 6 &&
+      gNorm.replace(/ou/g, 'o') === rNorm.replace(/ou/g, 'o'))
+  ) {
     return true;
   }
 
@@ -457,6 +462,96 @@ function matchAlternative(
           return true;
         }
       }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Evaluates whether a game matches a release title using either its primary title
+ * or its IGDB regional `alternative_names` (e.g. "Biohazard" for "Resident Evil",
+ * "Hoshi no Kirby" for "Kirby", "Dragon Quest" for "Dragon Warrior",
+ * "Doubutsu no Mori" for "Animal Crossing").
+ *
+ * Enforces regional compatibility so Japanese-specific alternate titles only match
+ * Japanese/Asian/World releases and never collide with Western releases of different games.
+ */
+export function gameMatchesReleaseWithAlternatives(
+  gameTitle: string,
+  releaseTitle: string,
+  rawReleaseName?: string,
+  platformId?: number,
+  alternativeNames?: Array<{ name: string; comment?: string }>,
+  releaseRegion?: string | null,
+): boolean {
+  if (titlesMatch(gameTitle, releaseTitle, rawReleaseName, platformId)) {
+    return true;
+  }
+
+  if (!alternativeNames || alternativeNames.length === 0) {
+    return false;
+  }
+
+  const effectiveRegion =
+    `${releaseRegion || ''} ${rawReleaseName || ''}`.toLowerCase();
+  const isJapanRelease = /\b(japan|jp|jpn|asia|world)\b/i.test(effectiveRegion);
+  const isEuropeRelease =
+    /\b(europe|eu|eur|uk|australia|germany|france|spain|italy|netherlands|sweden|scandinavia|world)\b/i.test(
+      effectiveRegion,
+    );
+
+  const gLower = gameTitle.toLowerCase().trim();
+
+  for (const alt of alternativeNames) {
+    if (!alt?.name) continue;
+    const altName = alt.name.trim();
+
+    // Require at least 4 Latin alphanumeric characters to avoid matching CJK-only strings or short acronyms (e.g. "RE2", "DQ3")
+    const alphaNum = altName.replace(/[^a-zA-Z0-9]/g, '');
+    if (alphaNum.length < 4) continue;
+
+    const commentLower = (alt.comment || '').toLowerCase();
+    if (
+      commentLower.includes('acronym') ||
+      commentLower.includes('abbreviation') ||
+      commentLower.includes('working title')
+    ) {
+      continue;
+    }
+
+    // Special guard: "Super Mario Bros.: The Lost Levels" has Japanese title "Super Mario Bros. 2",
+    // which must NEVER match the Western NES cartridge "Super Mario Bros. 2 (USA)".
+    if (
+      gLower.includes('lost levels') &&
+      normalizeTitleForMatching(altName) === 'supermariobros2'
+    ) {
+      if (platformId !== 54 || !isJapanRelease) {
+        continue;
+      }
+    }
+
+    const isJapaneseComment =
+      commentLower.includes('japanese') || commentLower.includes('japan');
+    const isEuropeanComment =
+      commentLower.includes('europe') ||
+      commentLower.includes('pal') ||
+      commentLower.includes('uk') ||
+      commentLower.includes('australian') ||
+      commentLower.includes('german') ||
+      commentLower.includes('french') ||
+      commentLower.includes('spanish') ||
+      commentLower.includes('italian');
+
+    if (isJapaneseComment && !isJapanRelease) {
+      continue;
+    }
+    if (isEuropeanComment && !isEuropeRelease) {
+      continue;
+    }
+
+    if (titlesMatch(altName, releaseTitle, rawReleaseName, platformId)) {
+      return true;
     }
   }
 

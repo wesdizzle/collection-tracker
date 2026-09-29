@@ -535,7 +535,7 @@ export function isIgnoredFormatRelease(
   ];
   if (badExtensions.includes(ext)) return true;
 
-  if (platformId === 33 && ext !== '.psv') {
+  if (platformId === 33 && ext !== '.psv' && ext !== '.vpk') {
     return true;
   }
 
@@ -556,6 +556,10 @@ export function isPlatformMatch(
   datPlatformName: string,
   targetPlatform: PlatformRecord,
 ): boolean {
+  if (/\bcommodore\b/i.test(datPlatformName) && targetPlatform.id === 17) {
+    return false;
+  }
+
   const normalize = (s: string) =>
     s
       .replace(/&amp;/gi, ' and ')
@@ -564,7 +568,7 @@ export function isPlatformMatch(
       .replace(/parent-clone/gi, '')
       .toLowerCase()
       .replace(
-        /\b(nintendo|sony|sega|microsoft|philips|atari|tiger|snk|nec|panasonic|mattel|coleco|bandai|casio|commodore|fujitsu|interton|pce|tg16|interactive multimedia system|interactive multiplayer|interactive multimedia|video computer system|mark iii|bigendian|byteswapped|headered|headerless|decrypted|encrypted|bin|lyx|a78|j64|jag|abs|cof|rom|psvgamesd|blackfinpsv|nonpdrm|parentclone|parent clone)\b/gi,
+        /\b(nintendo|sony|sega|microsoft|philips|atari|tiger|snk|nec|panasonic|mattel|coleco|bandai|casio|fujitsu|interton|pce|tg16|interactive multimedia system|interactive multiplayer|interactive multimedia|video computer system|mark iii|bigendian|byteswapped|headered|headerless|decrypted|encrypted|bin|lyx|a78|j64|jag|abs|cof|rom|psvgamesd|blackfinpsv|nonpdrm|parentclone|parent clone)\b/gi,
         '',
       )
       .replace(/[^a-z0-9]/g, '');
@@ -628,7 +632,7 @@ export function isPlatformMatch(
     xboxseriesx: 50,
     xboxseries: 50,
 
-    // Cartridge systems (No-Intro)
+    // Cartridge & Diskette systems (No-Intro)
     atari2600: 2,
     '2600': 2,
     atari5200: 3,
@@ -680,6 +684,12 @@ export function isPlatformMatch(
     pcengine: 45,
     pcengineturbografx16: 45,
     famicom: 53,
+    familycomputer: 53,
+    famicomdisksystem: 54,
+    familycomputerdisksystem: 54,
+    fds: 54,
+    nintendo64dd: 55,
+    '64dd': 55,
   };
 
   const matchedId = explicitPlatformMap[datClean];

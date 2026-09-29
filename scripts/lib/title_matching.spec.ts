@@ -4,7 +4,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { normalizeTitleForMatching, titlesMatch } from './title_matching.js';
+import {
+  normalizeTitleForMatching,
+  titlesMatch,
+  gameMatchesReleaseWithAlternatives,
+} from './title_matching.js';
 
 describe('Title Normalization', () => {
   it('should normalize basic titles correctly', () => {
@@ -543,5 +547,79 @@ describe('Title Matching Strategies', () => {
         'Xenosaga Episode II - Jenseits von Gut und Boese',
       ),
     ).toBe(true);
+  });
+
+  it('should match regional alternative_names with strict regional safety guards', () => {
+    // Resident Evil -> Biohazard (Japan)
+    expect(
+      gameMatchesReleaseWithAlternatives(
+        'Resident Evil',
+        'Biohazard',
+        'Biohazard (Japan)',
+        20,
+        [{ name: 'Biohazard', comment: 'Japanese title - romanization' }],
+        'Japan',
+      ),
+    ).toBe(true);
+
+    // Japanese title comment should NOT match a USA release
+    expect(
+      gameMatchesReleaseWithAlternatives(
+        'Resident Evil',
+        'Biohazard',
+        'Biohazard (USA)',
+        20,
+        [{ name: 'Biohazard', comment: 'Japanese title - romanization' }],
+        'USA',
+      ),
+    ).toBe(false);
+
+    // Dragon Warrior -> Dragon Quest (Japan)
+    expect(
+      gameMatchesReleaseWithAlternatives(
+        'Dragon Warrior',
+        'Dragon Quest',
+        'Dragon Quest (Japan)',
+        13,
+        [{ name: 'Dragon Quest', comment: 'Japanese title - romanization' }],
+        'Japan',
+      ),
+    ).toBe(true);
+
+    // Animal Crossing -> Dōbutsu no Mori / Doubutsu no Mori on N64DD (ou/ō equivalence)
+    expect(
+      gameMatchesReleaseWithAlternatives(
+        'Animal Crossing',
+        'Doubutsu no Mori',
+        'Doubutsu no Mori (Japan)',
+        55,
+        [{ name: 'Dōbutsu no Mori', comment: 'Japanese title' }],
+        'Japan',
+      ),
+    ).toBe(true);
+
+    // Super Mario Bros.: The Lost Levels -> Super Mario Bros. 2 on Famicom Disk System (54) ONLY
+    expect(
+      gameMatchesReleaseWithAlternatives(
+        'Super Mario Bros.: The Lost Levels',
+        'Super Mario Bros. 2',
+        'Super Mario Bros. 2 (Japan)',
+        54,
+        [{ name: 'Super Mario Bros. 2', comment: 'Japanese title' }],
+        'Japan',
+      ),
+    ).toBe(true);
+
+    // Must NEVER match Western NES Super Mario Bros. 2 (USA) on NES (13)
+    expect(
+      gameMatchesReleaseWithAlternatives(
+        'Super Mario Bros.: The Lost Levels',
+        'Super Mario Bros. 2',
+        'Super Mario Bros. 2 (USA)',
+        13,
+        [{ name: 'Super Mario Bros. 2', comment: 'Japanese title' }],
+        'USA',
+      ),
+    ).toBe(false);
   });
 });

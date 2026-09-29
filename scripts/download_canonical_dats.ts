@@ -146,6 +146,12 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
     pattern: /^Nintendo\s*-\s*Nintendo Entertainment System/i,
   },
   {
+    name: 'Famicom Disk System',
+    remoteFileName: 'Nintendo - Family Computer Disk System.dat',
+    canonicalFileName: 'Nintendo - Family Computer Disk System.dat',
+    pattern: /^Nintendo\s*-\s*Family Computer Disk System/i,
+  },
+  {
     name: 'Super Nintendo Entertainment System',
     remoteFileName: 'Nintendo - Super Nintendo Entertainment System.dat',
     canonicalFileName: 'Nintendo - Super Nintendo Entertainment System.dat',
@@ -155,7 +161,13 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
     name: 'Nintendo 64',
     remoteFileName: 'Nintendo - Nintendo 64.dat',
     canonicalFileName: 'Nintendo - Nintendo 64.dat',
-    pattern: /^Nintendo\s*-\s*Nintendo 64/i,
+    pattern: /^Nintendo\s*-\s*Nintendo 64(?!\s*DD)/i,
+  },
+  {
+    name: 'Nintendo 64DD',
+    remoteFileName: 'Nintendo - Nintendo 64DD.dat',
+    canonicalFileName: 'Nintendo - Nintendo 64DD.dat',
+    pattern: /^Nintendo\s*-\s*Nintendo 64DD/i,
   },
   {
     name: 'Game Boy',
@@ -204,6 +216,12 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
     remoteFileName: 'Nintendo - Pokemon Mini.dat',
     canonicalFileName: 'Nintendo - Pokemon Mini.dat',
     pattern: /^Nintendo\s*-\s*Pokemon Mini/i,
+  },
+  {
+    name: 'PlayStation Vita',
+    remoteFileName: 'Sony - PlayStation Vita.dat',
+    canonicalFileName: 'Sony - PlayStation Vita.dat',
+    pattern: /^Sony\s*-\s*PlayStation Vita(?!\s*\()/i,
   },
   {
     name: 'Sega Master System',
