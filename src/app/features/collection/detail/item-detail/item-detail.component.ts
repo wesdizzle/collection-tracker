@@ -195,6 +195,18 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   }
                 </div>
               }
+              @if (game()?.also_released_as; as alsoReleased) {
+                <div
+                  class="also-released-row flex flex-wrap items-center gap-xs mb-md"
+                >
+                  <span class="also-released-label">Also released as:</span>
+                  @for (label of alsoReleased.split(','); track label) {
+                    @if (label.trim()) {
+                      <span class="also-released-pill">{{ label.trim() }}</span>
+                    }
+                  }
+                </div>
+              }
               @if (type() === 'toy' && toy()?.series_name) {
                 <p class="item-series">{{ toy()?.series_name }}</p>
               }
@@ -344,7 +356,9 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                             <div class="disc-info flex-1">
                               @if (
                                 release.disc_label ||
-                                release.is_companion_base_disc
+                                release.companion_game_id ||
+                                (g.releases.length > 1 &&
+                                  release.also_released_as)
                               ) {
                                 <div
                                   class="flex flex-wrap items-center gap-xs mb-2xs"
@@ -375,6 +389,32 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                                         }}
                                       </a>
                                     </span>
+                                  } @else if (release.companion_game_id) {
+                                    <span class="companion-disc-note text-xs">
+                                      🔗 Standalone game:
+                                      <a
+                                        [routerLink]="[
+                                          '/collection',
+                                          'game',
+                                          release.companion_game_id,
+                                        ]"
+                                        class="meta-link font-semibold"
+                                      >
+                                        {{
+                                          release.companion_game_title ||
+                                            'View Standalone Game'
+                                        }}
+                                      </a>
+                                    </span>
+                                  }
+                                  @if (
+                                    g.releases.length > 1 &&
+                                    release.also_released_as
+                                  ) {
+                                    <span class="also-released-pill">{{
+                                      'Also released as: ' +
+                                        release.also_released_as
+                                    }}</span>
                                   }
                                 </div>
                               }
@@ -424,8 +464,8 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                       ) {
                         <div class="shared-backup-banner mt-md p-sm rounded-md">
                           <div class="text-xs font-semibold mb-2xs">
-                            🔗 Shared Disc 1 Backup (Superseded Release) — This
-                            exact disc master is also included as Disc 1 in:
+                            🔗 Included in Compilation / Expanded Release — Also
+                            part of:
                           </div>
                           <div class="flex flex-wrap gap-xs mt-2xs">
                             @for (
@@ -1075,6 +1115,25 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
         font-size: 0.8125rem;
         padding: 0.2rem 0.65rem;
         border-radius: var(--radius-tag, 6px);
+      }
+      .also-released-label {
+        font-family: var(--font-body);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--m3-on-surface-variant);
+        letter-spacing: 0.02em;
+      }
+      .also-released-pill {
+        font-family: var(--font-body);
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--m3-on-surface-variant);
+        background: var(--m3-surface-container-highest);
+        border: 1px dashed var(--m3-outline-variant);
+        padding: 0.12rem 0.48rem;
+        border-radius: var(--radius-tag, 6px);
+        letter-spacing: 0.02em;
+        display: inline-block;
       }
       .rom-text {
         font-family: var(--font-mono);

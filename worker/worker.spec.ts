@@ -99,6 +99,7 @@ describe('Worker API Logic', () => {
         game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
         region TEXT,
         variants TEXT,
+        also_released_as TEXT,
         rom_name TEXT,
         rom_crc TEXT,
         backup_status INTEGER NOT NULL DEFAULT 0,

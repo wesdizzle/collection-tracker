@@ -13,6 +13,8 @@ import {
   isTrueEditionOrRevisionVariant,
 } from './dat_format.js';
 import {
+  BOX_SET_DEFINITIONS,
+  BOX_SET_ROM_GROUPING_MAP,
   SUPERSEDED_RELEASE_PAIRS,
   normalizeForLabelMatch,
 } from './special_labels.js';
@@ -49,6 +51,7 @@ export const GAMES_LIST_QUERY = `
            COALESCE(r.ownership_status, 0) as ownership_status,
            COALESCE(r.region, g.region) as region,
            r.variants,
+           r.also_released_as,
            r.rom_name,
            r.rom_crc,
            COALESCE(r.backup_status, 0) as backup_status,
@@ -117,6 +120,7 @@ export const GAME_DETAIL_QUERY = `
            COALESCE(r.ownership_status, 0) as ownership_status,
            COALESCE(r.region, g.region) as region,
            r.variants,
+           r.also_released_as,
            r.rom_name,
            r.rom_crc,
            COALESCE(r.backup_status, 0) as backup_status,
@@ -164,7 +168,7 @@ export const GAME_DETAIL_QUERY = `
 `;
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `
-    SELECT id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date, COALESCE(has_case, 0) as has_case, COALESCE(has_manual, 0) as has_manual
+    SELECT id, game_id, region, variants, also_released_as, rom_name, rom_crc, backup_status, ownership_status, release_date, COALESCE(has_case, 0) as has_case, COALESCE(has_manual, 0) as has_manual
     FROM game_releases
     WHERE game_id = ? AND region IS ? AND variants IS ?
 `;
@@ -379,17 +383,21 @@ export function getRomGroupingKey(filename: string | null | undefined): string {
   if (!filename) {
     return '';
   }
+  const lastDot = filename.lastIndexOf('.');
+  const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+  const baseLower = base.toLowerCase();
+  if (BOX_SET_ROM_GROUPING_MAP[baseLower]) {
+    return BOX_SET_ROM_GROUPING_MAP[baseLower];
+  }
   if (hasDiscIndicator(filename)) {
     return `multi:${stripDiscIndicator(filename)}`;
   }
   // For single-disc releases, group only by exact filename (without extension)
-  const lastDot = filename.lastIndexOf('.');
-  const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
-  return `single:${base.toLowerCase()}`;
+  return `single:${baseLower}`;
 }
 
 export const PLATFORM_RELEASES_FOR_COMPANION_QUERY = `
-    SELECT r.id, r.game_id, r.region, r.variants, r.rom_name, r.rom_crc,
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
            r.backup_status, r.ownership_status, r.release_date,
            COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
            g.title as game_title, g.platform_id
@@ -404,6 +412,7 @@ export interface CompanionDiscCandidateRow {
   game_id: number;
   region: string | null;
   variants: string | null;
+  also_released_as?: string | null;
   rom_name: string | null;
   rom_crc: string | null;
   backup_status: number;
@@ -451,11 +460,11 @@ function regionsOverlap(
 /**
  * Enriches a game detail response with:
  * 1. Per-disc labels (`disc_label`) on `game.releases`.
- * 2. Case 1 (When viewing a GOTY/expanded release whose Disc 1 is the original release):
- *    Prepends the matching regional companion Disc 1 from the original release (with its
- *    `backup_status` and a link back to the original release) without altering `ownership_status`.
- * 3. Case 2 (When viewing a Superseded original release whose Disc 1 is reused in a GOTY/expanded release):
- *    Attaches `shared_backup_releases` linking forward to the GOTY/expanded release(s) that share that disc backup.
+ * 2. Case 1 (When viewing a GOTY/expanded release or Box Set):
+ *    Attaches matching regional companion discs from standalone releases (with their
+ *    `backup_status` and a link back to the standalone release) without altering `ownership_status`.
+ * 3. Case 2 (When viewing a Superseded original release or a standalone game included in a Box Set):
+ *    Attaches `shared_backup_releases` linking forward to the GOTY/expanded release(s) or Box Set(s).
  */
 export function enrichGameDetailWithCompanionDiscs(
   game: {
@@ -489,6 +498,25 @@ export function enrichGameDetailWithCompanionDiscs(
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+
+  const scoreCandidate = (c: CompanionDiscCandidateRow): number => {
+    let score = 0;
+    if ((c.region || '').toLowerCase() === (game.region || '').toLowerCase()) {
+      score += 100;
+    } else if (
+      (c.region || '')
+        .toLowerCase()
+        .split(',')
+        .map((s) => s.trim())[0] === regTokens[0]
+    ) {
+      score += 50;
+    }
+    if (c.backup_status === 1) score += 25;
+    if (c.ownership_status === 1) score += 10;
+    const cVar = (c.variants || '').toLowerCase();
+    if (!cVar || cVar === 'superseded') score += 5;
+    return score;
+  };
 
   // 2. Check if this release is the Superset (GOTY/Expanded) side of a SupersededReleasePair (Case 1)
   for (const pair of SUPERSEDED_RELEASE_PAIRS) {
@@ -545,28 +573,6 @@ export function enrichGameDetailWithCompanionDiscs(
     });
 
     if (candidates.length > 0) {
-      // Score candidates: prefer exact region match -> backed up -> owned -> standard/matching revision
-      const scoreCandidate = (c: CompanionDiscCandidateRow): number => {
-        let score = 0;
-        if (
-          (c.region || '').toLowerCase() === (game.region || '').toLowerCase()
-        ) {
-          score += 100;
-        } else if (
-          (c.region || '')
-            .toLowerCase()
-            .split(',')
-            .map((s) => s.trim())[0] === regTokens[0]
-        ) {
-          score += 50;
-        }
-        if (c.backup_status === 1) score += 25;
-        if (c.ownership_status === 1) score += 10;
-        const cVar = (c.variants || '').toLowerCase();
-        if (!cVar || cVar === 'superseded') score += 5;
-        return score;
-      };
-
       candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
       const bestBase = candidates[0];
 
@@ -575,6 +581,7 @@ export function enrichGameDetailWithCompanionDiscs(
         game_id: bestBase.game_id,
         region: bestBase.region,
         variants: bestBase.variants,
+        also_released_as: bestBase.also_released_as,
         rom_name: bestBase.rom_name,
         rom_crc: bestBase.rom_crc,
         backup_status: bestBase.backup_status,
@@ -588,7 +595,107 @@ export function enrichGameDetailWithCompanionDiscs(
     }
   }
 
-  // 3. Check if this release is the Superseded (Original) side of a SupersededReleasePair (Case 2)
+  // 3. Check if this release is a Multi-Game Box Set in BOX_SET_DEFINITIONS
+  for (const boxSet of BOX_SET_DEFINITIONS) {
+    if (boxSet.platformId !== game.platform_id) continue;
+    if (normGameTitle !== boxSet.boxSetNormTitle) continue;
+
+    for (const spec of boxSet.discs) {
+      // Find standalone game's best matching release in this region
+      const candidates = platformReleases.filter((cand) => {
+        if (cand.game_id === game.stable_id) return false;
+        const candRomLower = (cand.rom_name || '').toLowerCase();
+        if (
+          /\b(beta|proto|prototype|demo|kiosk|sample|promo|taikenban|title update|bonus)\b/i.test(
+            candRomLower,
+          ) ||
+          candRomLower.startsWith('tu_') ||
+          candRomLower.includes('\\')
+        ) {
+          return false;
+        }
+        if (
+          spec.companionRomFilter &&
+          !candRomLower.includes(spec.companionRomFilter.toLowerCase())
+        ) {
+          return false;
+        }
+        const candGameNorm = normalizeForLabelMatch(cand.game_title);
+        const candRomNorm = normalizeForLabelMatch(
+          cand.rom_name || cand.game_title,
+        );
+        if (
+          candGameNorm !== spec.standaloneNormTitle &&
+          candRomNorm !== spec.standaloneNormTitle
+        ) {
+          return false;
+        }
+        return regionsOverlap(game.region, cand.region);
+      });
+
+      if (candidates.length === 0) continue;
+      candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+      const bestStandalone = candidates[0];
+
+      if (spec.isVirtualCompanion) {
+        // Avoid adding a virtual companion disc if a re-homed disc for that same standalone game is already in game.releases
+        const alreadyPresent = game.releases.some((r) => {
+          const rRomLower = String(r['rom_name'] || '').toLowerCase();
+          if (
+            spec.companionRomFilter &&
+            !rRomLower.includes(spec.companionRomFilter.toLowerCase())
+          ) {
+            return false;
+          }
+          return (
+            normalizeForLabelMatch(String(r['rom_name'] || '')) ===
+            spec.standaloneNormTitle
+          );
+        });
+        if (!alreadyPresent) {
+          game.releases.push({
+            id: bestStandalone.id,
+            game_id: bestStandalone.game_id,
+            region: bestStandalone.region,
+            variants: bestStandalone.variants,
+            also_released_as: bestStandalone.also_released_as,
+            rom_name: bestStandalone.rom_name,
+            rom_crc: bestStandalone.rom_crc,
+            backup_status: bestStandalone.backup_status,
+            ownership_status: bestStandalone.ownership_status,
+            release_date: bestStandalone.release_date,
+            disc_label: spec.discLabel,
+            is_companion_base_disc: true,
+            companion_game_id: bestStandalone.id,
+            companion_game_title: spec.standaloneDisplayTitle,
+          });
+        }
+      } else {
+        // For re-homed discs already inside game.releases, attach a link to the standalone game release
+        for (const rel of game.releases) {
+          const relNorm = normalizeForLabelMatch(String(rel['rom_name'] || ''));
+          if (relNorm === spec.standaloneNormTitle) {
+            rel['companion_game_id'] = bestStandalone.id;
+            rel['companion_game_title'] = spec.standaloneDisplayTitle;
+          }
+        }
+      }
+    }
+
+    // Sort box set discs sequentially by Disc number (Disc 1, Disc 2, Disc 3, ...)
+    const extractDiscOrder = (label: unknown): number => {
+      const m = String(label || '').match(
+        /^(?:disc|disco|disque|disk)\s+(\d+)/i,
+      );
+      return m ? parseInt(m[1], 10) : 99;
+    };
+    game.releases.sort(
+      (a, b) =>
+        extractDiscOrder(a['disc_label']) - extractDiscOrder(b['disc_label']),
+    );
+  }
+
+  // 4. Check if this release is the Superseded (Original) side of a SupersededReleasePair (Case 2)
   const sharedLinks: SharedBackupReleaseLink[] = [];
   for (const pair of SUPERSEDED_RELEASE_PAIRS) {
     if (pair.platformId !== game.platform_id) continue;
@@ -646,6 +753,56 @@ export function enrichGameDetailWithCompanionDiscs(
           ownership_status: sup.ownership_status,
           backup_status: sup.backup_status,
         });
+      }
+    }
+  }
+
+  // 5. Check if this standalone game is included in any Multi-Game Box Set in BOX_SET_DEFINITIONS
+  for (const boxSet of BOX_SET_DEFINITIONS) {
+    if (boxSet.platformId !== game.platform_id) continue;
+    if (normGameTitle === boxSet.boxSetNormTitle) continue;
+
+    const matchingSpec = boxSet.discs.find(
+      (d) =>
+        d.standaloneNormTitle === normGameTitle ||
+        d.standaloneNormTitle === normRomTitle,
+    );
+    if (!matchingSpec) continue;
+
+    const boxSetMatches = platformReleases.filter((cand) => {
+      if (cand.id === game.id) return false;
+      if (normalizeForLabelMatch(cand.game_title) !== boxSet.boxSetNormTitle) {
+        return false;
+      }
+      return regionsOverlap(game.region, cand.region);
+    });
+
+    if (boxSetMatches.length > 0) {
+      // Group by (game_id, region) and prefer the disc row whose rom_name matches this standalone game
+      const byRegion = new Map<string, CompanionDiscCandidateRow>();
+      for (const cand of boxSetMatches) {
+        const regKey = `${cand.game_id}::${(cand.region || '').toLowerCase()}`;
+        const existing = byRegion.get(regKey);
+        const candMatchesStandalone =
+          normalizeForLabelMatch(cand.rom_name || '') ===
+          matchingSpec.standaloneNormTitle;
+        if (!existing || candMatchesStandalone) {
+          byRegion.set(regKey, cand);
+        }
+      }
+
+      for (const boxCand of byRegion.values()) {
+        if (!sharedLinks.some((s) => s.id === boxCand.id)) {
+          sharedLinks.push({
+            id: boxCand.id,
+            title: boxSet.boxSetDisplayTitle,
+            region: boxCand.region,
+            variants: boxCand.variants,
+            rom_name: boxCand.rom_name,
+            ownership_status: boxCand.ownership_status,
+            backup_status: boxCand.backup_status,
+          });
+        }
       }
     }
   }

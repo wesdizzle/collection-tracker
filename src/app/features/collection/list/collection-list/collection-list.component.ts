@@ -1141,11 +1141,10 @@ export class CollectionListComponent
     },
     {
       platformId: 32,
-      supersetStableId: 2523,
-      originalStableId: 2520,
-      supersetNormalizedTitle: 'metalgearsolidthelegacycollection19872012',
-      originalNormalizedTitle: 'metalgearsolid4gunsofthepatriots',
-      excludedRegions: ['japan', 'asia', 'korea'],
+      supersetStableId: 2463,
+      originalStableId: 2462,
+      supersetNormalizedTitle: 'killzonetrilogy',
+      originalNormalizedTitle: 'killzone3',
     },
     {
       platformId: 48,
@@ -1695,16 +1694,70 @@ export class CollectionListComponent
     return base.toLowerCase();
   }
 
+  private readonly BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
+    'god of war collection (usa) (v02.00)': 'multi:god of war saga (usa)',
+    'god of war iii (usa) (v02.00)': 'multi:god of war saga (usa)',
+    'infamous (usa) (en,fr,es) (v02.00)': 'multi:infamous collection (usa)',
+    'infamous 2 (usa) (en,fr,es,pt) (v02.00)':
+      'multi:infamous collection (usa)',
+    'metal gear solid - the legacy collection 1987-2012 (usa) (en,fr,es) (disc 2)':
+      'multi:metal gear solid - the legacy collection 1987-2012 (usa)',
+    'metal gear solid 4 - guns of the patriots (usa) (en,fr,de,es,it) (v02.00)':
+      'multi:metal gear solid - the legacy collection 1987-2012 (usa)',
+    'metal gear solid - the legacy collection 1987-2012 (europe) (en,fr,de,es,it) (disc 2)':
+      'multi:metal gear solid - the legacy collection 1987-2012 (europe)',
+    'metal gear solid 4 - guns of the patriots (europe) (en,fr,de,es,it) (v02.00)':
+      'multi:metal gear solid - the legacy collection 1987-2012 (europe)',
+    'metal gear solid - the legacy collection 1987-2012 (japan) (disc 1)':
+      'multi:metal gear solid - the legacy collection 1987-2012 (japan)',
+    'metal gear solid 4 - guns of the patriots (japan) (v02.01)':
+      'multi:metal gear solid - the legacy collection 1987-2012 (japan)',
+    'mass effect (italy) (rev 1)': 'multi:mass effect trilogy (italy)',
+    'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 1) (rev 1)':
+      'multi:mass effect trilogy (italy)',
+    'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 2) (rev 1)':
+      'multi:mass effect trilogy (italy)',
+    "assassin's creed ii - game of the year edition (europe) (en,fr,de,es,it,nl,sv,no,da)":
+      "multi:assassin's creed - heritage collection (europe)",
+    "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 1) (rev 1)":
+      "multi:assassin's creed - heritage collection (europe)",
+    "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 2) (rev 1)":
+      "multi:assassin's creed - heritage collection (europe)",
+    "assassin's creed ii - game of the year edition (europe) (it,pl,ru)":
+      "multi:assassin's creed - heritage collection (europe) (pl,ru)",
+    "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 1) (rev 1)":
+      "multi:assassin's creed - heritage collection (europe) (pl,ru)",
+    "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 2) (rev 1)":
+      "multi:assassin's creed - heritage collection (europe) (pl,ru)",
+    'grand theft auto - vice city (usa) (v4.00)':
+      'multi:grand theft auto - the trilogy (usa)',
+    'grand theft auto - san andreas (usa) (v3.00) (rev 1)':
+      'multi:grand theft auto - the trilogy (usa)',
+    'grand theft auto - vice city (usa) (rev 1)':
+      'multi:grand theft auto - the trilogy (usa)',
+    'grand theft auto - san andreas (usa) (en,es) (rev 1)':
+      'multi:grand theft auto - the trilogy (usa)',
+    'grand theft auto - vice city (europe) (en,fr,es,it) (rev 1)':
+      'multi:grand theft auto - the trilogy (europe)',
+    'grand theft auto - san andreas (europe) (en,fr,de,es,it) (rev 1)':
+      'multi:grand theft auto - the trilogy (europe)',
+  };
+
   private getRomGroupingKey(filename: string | null | undefined): string {
     if (!filename) {
       return '';
     }
+    const lastDot = filename.lastIndexOf('.');
+    const base = (
+      lastDot !== -1 ? filename.slice(0, lastDot) : filename
+    ).toLowerCase();
+    if (this.BOX_SET_ROM_GROUPING_MAP[base]) {
+      return this.BOX_SET_ROM_GROUPING_MAP[base];
+    }
     if (this.hasDiscIndicator(filename)) {
       return `multi:${this.stripDiscIndicator(filename)}`;
     }
-    const lastDot = filename.lastIndexOf('.');
-    const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
-    return `single:${base.toLowerCase()}`;
+    return `single:${base}`;
   }
 
   /** Total value of all filtered games in cents */

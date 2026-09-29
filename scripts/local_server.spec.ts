@@ -156,6 +156,7 @@ describe('Local Server API Logic', () => {
                 game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
                 region TEXT,
                 variants TEXT,
+                also_released_as TEXT,
                 rom_name TEXT,
                 rom_crc TEXT,
                 backup_status INTEGER NOT NULL DEFAULT 0,
@@ -690,6 +691,118 @@ describe('Local Server API Logic', () => {
       expect(output.length).toBeGreaterThan(0);
       expect(output[0].title).toBe('Bloodborne');
       expect(output[0].releases).toBeDefined();
+    });
+
+    it('should consolidate God of War Saga discs and link back to standalone games', async () => {
+      mockDb
+        .prepare(
+          'INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(32, 'PlayStation 3', 'PlayStation 3', 'Sony', '2006-11-11');
+      mockDb
+        .prepare(
+          'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+        )
+        .run(
+          2444,
+          'god-of-war-collection-playstation-3',
+          'God of War Collection',
+          32,
+        );
+      mockDb
+        .prepare(
+          'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+        )
+        .run(2445, 'god-of-war-iii-playstation-3', 'God of War III', 32);
+      mockDb
+        .prepare(
+          'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+        )
+        .run(10006, 'god-of-war-saga-playstation-3', 'God of War Saga', 32);
+
+      // Standalone Black Label releases
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, also_released_as, rom_name, backup_status, ownership_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'gow-col-v1',
+          2444,
+          'USA, Asia',
+          null,
+          'Greatest Hits',
+          'God of War Collection (USA, Asia) (v01.00).iso',
+          1,
+          0,
+        );
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, also_released_as, rom_name, backup_status, ownership_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'gow-3-v1',
+          2445,
+          'USA, Canada',
+          null,
+          null,
+          'God of War III (USA, Canada) (v01.03).iso',
+          0,
+          0,
+        );
+
+      // Re-homed Box Set discs
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, also_released_as, rom_name, backup_status, ownership_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'gow-col-v2',
+          10006,
+          'USA',
+          null,
+          null,
+          'God of War Collection (USA) (v02.00).iso',
+          1,
+          1,
+        );
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, also_released_as, rom_name, backup_status, ownership_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'gow-3-v2',
+          10006,
+          'USA',
+          null,
+          'Greatest Hits',
+          'God of War III (USA) (v02.00).iso',
+          1,
+          1,
+        );
+
+      const handler = handleRequest(mockDb);
+      const { req, res } = createMocks('/api/games/gow-col-v2');
+      await handler(req, res);
+      const saga = JSON.parse(res.end.mock.calls[0][0]);
+
+      expect(saga.title).toBe('God of War Saga');
+      expect(saga.releases).toHaveLength(2);
+      expect(saga.releases[0].disc_label).toBe(
+        'Disc 1 — God of War Collection (v02.00)',
+      );
+      expect(saga.releases[0].companion_game_id).toBe('gow-col-v1');
+      expect(saga.releases[1].disc_label).toBe(
+        'Disc 2 — God of War III (v02.00)',
+      );
+      expect(saga.releases[1].companion_game_id).toBe('gow-3-v1');
+      expect(saga.releases[1].also_released_as).toBe('Greatest Hits');
+
+      // Also verify standalone God of War III links forward to God of War Saga
+      const { req: req3, res: res3 } = createMocks('/api/games/gow-3-v1');
+      await handler(req3, res3);
+      const gow3 = JSON.parse(res3.end.mock.calls[0][0]);
+      expect(gow3.shared_backup_releases).toBeDefined();
+      expect(gow3.shared_backup_releases[0].title).toBe('God of War Saga');
     });
   });
 });

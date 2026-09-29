@@ -588,17 +588,6 @@ export const SUPERSEDED_RELEASE_PAIRS: SupersededReleasePair[] = [
     applicableRegions: ['usa', 'europe', 'japan'],
   },
   {
-    platformId: 32, // PlayStation 3
-    originalNormalizedTitle: 'metalgearsolid4gunsofthepatriots',
-    originalDisplayTitle: 'Metal Gear Solid 4: Guns of the Patriots',
-    originalStableId: 2520,
-    supersetNormalizedTitle: 'metalgearsolidthelegacycollection19872012',
-    supersetDisplayTitle: 'Metal Gear Solid: The Legacy Collection',
-    supersetStableId: 2523,
-    applicableRegions: ['usa', 'canada', 'europe'],
-    excludedRegions: ['japan', 'asia', 'korea'],
-  },
-  {
     platformId: 48, // Xbox 360
     originalNormalizedTitle: 'falloutnewvegas',
     originalDisplayTitle: 'Fallout: New Vegas',
@@ -661,6 +650,637 @@ export const SUPERSEDED_RELEASE_PAIRS: SupersededReleasePair[] = [
  * (e.g. 'Nintendo Selects', 'Platinum Hits', 'Greatest Hits', 'New Play Control!',
  * 'Player\'s Choice', 'Essentials', 'Classic NES Series') and 'Superseded' status.
  */
+
+/**
+ * Subsequent-version disc revisions (Rev 1+, v1.01+, v2.00+, v02.00+, etc.)
+ * that were exclusively pressed for a console manufacturer's or publisher's
+ * budget line (never released in Black Label Original packaging) and are not
+ * consolidated into a multi-game box set.
+ * Keyed by lowercase ROM filename without file extension.
+ */
+export const SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES: Record<string, string[]> = {
+  "assassin's creed iii (australia) (v02.00)": ['Essentials'],
+  'lego harry potter - years 1-4 (europe) (en,fr,de,es,it,da) (v03.01)': [
+    'Essentials',
+  ],
+  "assassin's creed - brotherhood (europe) (en,fr,de,es,it,nl,pt,sv,no,da) (v02.00)":
+    ['Essentials', 'Platinum'],
+  "assassin's creed iii (usa) (en,fr,es,pt) (v02.00)": ['Greatest Hits'],
+  'bioshock infinite (usa) (en,fr,de,es,it,pt) (greatest hits)': [
+    'Greatest Hits',
+  ],
+  'ratchet & clank future - tools of destruction (usa) (en,ja,fr,de,es,it,nl,pt,sv,no,da,fi,zh,ko) (v02.00)':
+    ['Greatest Hits'],
+  'bayonetta (japan, korea) (en,ja,fr,de,es,it) (v02.00)': [
+    'PlayStation 3 the Best',
+  ],
+  "assassin's creed iii (japan) (en,ja,zh,ko) (v02.00)": ['Ubi the Best'],
+  'fable ii (russia) (rev 1)': ['Xbox Classics'],
+  'fable ii (russia) (rev 2)': ['Xbox Classics'],
+  'kameo - elements of power (europe) (en,ja,fr,de,es,it,zh,ko) (rev 1)': [
+    'Xbox Classics',
+  ],
+  'fable ii (germany) (rev 2)': ['Xbox Classics'],
+  'lego star wars - the complete saga (usa, europe) (en,fr,de,es,it,da) (rev 1)':
+    ['Xbox Classics', 'Platinum Hits'],
+  'fable ii (usa, europe) (en,zh,ko,pl,cs,hu,sk) (rev 2)': [
+    'Xbox Classics',
+    'Platinum Hits',
+  ],
+  'dark souls (usa) (en,fr,es) (rev 1)': ['Platinum Hits'],
+  'lego harry potter - years 1-4 (usa) (en,fr,de,es,it,da) (rev 1)': [
+    'Platinum Hits',
+  ],
+  'perfect dark zero (usa) (en,fr,es) (rev 1)': ['Platinum Hits'],
+  'crash bandicoot - the wrath of cortex (usa) (v1.01)': ['Greatest Hits'],
+  'jak ii (usa) (en,ja,fr,de,es,it,ko) (v2.01)': ['Greatest Hits'],
+  'jak x - combat racing (usa) (en,fr,de,es,it,pt,ru) (v2.00)': [
+    'Greatest Hits',
+  ],
+  'lego star wars - the video game (usa) (v2.00)': ['Greatest Hits'],
+  'ratchet & clank - going commando (usa) (v2.00)': ['Greatest Hits'],
+  'silent hill 2 (usa) (en,ja,fr,de,es,it) (v2.01)': ['Greatest Hits'],
+  'spider-man (usa) (v2.01)': ['Greatest Hits'],
+  'spider-man 3 (usa) (v2.00)': ['Greatest Hits'],
+  'star wars - battlefront ii (usa) (v2.00)': ['Greatest Hits'],
+  'star wars - battlefront ii (usa) (v2.01)': ['Greatest Hits'],
+  'crash bandicoot - the wrath of cortex (europe) (en,fr,de,es,it,nl) (v2.01)':
+    ['Platinum'],
+  'eyetoy - play 2 (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi,el) (v3.03)': [
+    'Platinum',
+  ],
+  'spider-man (spain) (v2.01)': ['Platinum'],
+  'bomberman land wii (japan) (rev 1)': ['Hudson the Best'],
+  'animal crossing - city folk (usa, asia) (en,fr,es) (rev 1)': [
+    'Nintendo Selects',
+  ],
+  'wii sports resort (europe) (en,fr,de,es,it) (rev 1)': ['Nintendo Selects'],
+  'crash bandicoot - the wrath of cortex (europe) (en,fr,de,es,it,nl) (rev 1)':
+    ["Player's Choice"],
+  "luigi's mansion (europe) (en,fr,de,es,it) (rev 1)": ["Player's Choice"],
+  'mario party 4 (europe) (en,fr,de,es,it) (rev 2)': ["Player's Choice"],
+  'spider-man (europe) (rev 1)': ['Xbox Classics'],
+  'spider-man (usa) (rev 1)': ['Platinum Hits'],
+  'star fox adventures (usa) (rev 1)': ["Player's Choice"],
+  'spider-man (germany) (rev 1)': ['Xbox Classics'],
+  'blinx - the time sweeper (usa) (en,ja) (rev 1)': ['Platinum Hits'],
+  'star wars - battlefront ii (usa) (en,es,it) (rev 1)': ['Platinum Hits'],
+  'star wars - knights of the old republic (usa) (rev 1)': ['Platinum Hits'],
+  'halo - combat evolved (usa) (rev 2)': ['Platinum Hits'],
+  'metal gear solid - peace walker (usa) (en,fr,es) (v2.00)': ['Greatest Hits'],
+  'metal gear solid - peace walker (japan) (v1.03)': ['PSP the Best'],
+  'final fantasy anthology - final fantasy v (usa) (rev 1)': ['Greatest Hits'],
+  'final fantasy anthology - final fantasy vi (usa) (rev 1)': ['Greatest Hits'],
+  'final fantasy ix (usa, canada) (disc 1) (rev 1)': ['Greatest Hits'],
+  'final fantasy ix (usa, canada) (disc 2) (rev 1)': ['Greatest Hits'],
+  'final fantasy ix (usa, canada) (disc 3) (rev 1)': ['Greatest Hits'],
+  'final fantasy ix (usa, canada) (disc 4) (rev 1)': ['Greatest Hits'],
+  'namco museum vol. 1 (usa) (rev 1)': ['Greatest Hits'],
+  "oddworld - abe's oddysee (usa) (rev 2)": ['Greatest Hits'],
+  'tomb raider (usa) (rev 2)': ['Greatest Hits'],
+  'tomb raider (usa) (rev 3)': ['Greatest Hits'],
+  'tomb raider (usa) (rev 4)': ['Greatest Hits'],
+  'tomb raider (usa) (rev 5)': ['Greatest Hits'],
+  'tomb raider ii - starring lara croft (usa) (rev 1)': ['Greatest Hits'],
+  'tomb raider ii - starring lara croft (usa) (rev 2)': ['Greatest Hits'],
+  'tomb raider iii - adventures of lara croft (usa) (rev 1)': ['Greatest Hits'],
+  'tomb raider (usa) (rev 6)': ['Greatest Hits'],
+  'tomb raider ii - starring lara croft (usa) (rev 3)': ['Greatest Hits'],
+  'tomb raider iii - adventures of lara croft (usa) (rev 2)': ['Greatest Hits'],
+  'tomb raider iii - adventures of lara croft (europe) (rev 1) (edc)': [
+    'Platinum',
+  ],
+  'tomb raider iii - adventures of lara croft (europe) (rev 1)': ['Platinum'],
+  "king's field ii (japan) (playstation the best)": ['PlayStation the Best'],
+  'tales of destiny (japan) (rev 1)': ['PlayStation the Best'],
+  'bomberman world (japan) (rev 1)': ['PlayStation the Best for Family'],
+  "king's field ii (japan) (playstation the best) (rev 1)": [
+    'PlayStation the Best',
+    'PSone Books',
+  ],
+  'silent hill (japan) (rev 2)': ['PSone Books', 'Konami the Best'],
+};
+
+/**
+ * Maps re-homed multi-disc box set ROM filenames (lowercase, without extension)
+ * to a shared regional multi-disc grouping key so constituent discs with different
+ * base game titles merge into a single release card per box set and region.
+ */
+export const BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
+  // 1. God of War Saga (PS3, USA)
+  'god of war collection (usa) (v02.00)': 'multi:god of war saga (usa)',
+  'god of war iii (usa) (v02.00)': 'multi:god of war saga (usa)',
+
+  // 2. Infamous Collection (PS3, USA)
+  'infamous (usa) (en,fr,es) (v02.00)': 'multi:infamous collection (usa)',
+  'infamous 2 (usa) (en,fr,es,pt) (v02.00)': 'multi:infamous collection (usa)',
+
+  // 3. Metal Gear Solid: The Legacy Collection (PS3, USA / Europe / Japan)
+  'metal gear solid 4 - guns of the patriots (usa) (en,fr,de,es,it) (v02.00)':
+    'multi:metal gear solid - the legacy collection 1987-2012 (usa)',
+  'metal gear solid 4 - guns of the patriots (europe) (en,fr,de,es,it) (v02.00)':
+    'multi:metal gear solid - the legacy collection 1987-2012 (europe)',
+  'metal gear solid 4 - guns of the patriots (japan) (v02.01)':
+    'multi:metal gear solid - the legacy collection 1987-2012 (japan)',
+
+  // 4. Mass Effect Trilogy (Xbox 360, Italy)
+  'mass effect (italy) (rev 1)': 'multi:mass effect trilogy (italy)',
+  'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 1) (rev 1)':
+    'multi:mass effect trilogy (italy)',
+  'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 2) (rev 1)':
+    'multi:mass effect trilogy (italy)',
+
+  // 5. Assassin's Creed: Heritage Collection (Xbox 360, Europe)
+  "assassin's creed ii - game of the year edition (europe) (en,fr,de,es,it,nl,sv,no,da)":
+    "multi:assassin's creed - heritage collection (europe)",
+  "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 1) (rev 1)":
+    "multi:assassin's creed - heritage collection (europe)",
+  "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 2) (rev 1)":
+    "multi:assassin's creed - heritage collection (europe)",
+  "assassin's creed ii - game of the year edition (europe) (it,pl,ru)":
+    "multi:assassin's creed - heritage collection (europe) (pl,ru)",
+  "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 1) (rev 1)":
+    "multi:assassin's creed - heritage collection (europe) (pl,ru)",
+  "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 2) (rev 1)":
+    "multi:assassin's creed - heritage collection (europe) (pl,ru)",
+
+  // 6. Grand Theft Auto: The Trilogy (PS2, USA)
+  'grand theft auto - vice city (usa) (v4.00)':
+    'multi:grand theft auto - the trilogy (usa)',
+  'grand theft auto - san andreas (usa) (v3.00) (rev 1)':
+    'multi:grand theft auto - the trilogy (usa)',
+
+  // 7. Grand Theft Auto: The Trilogy (Xbox, USA / Europe)
+  'grand theft auto - vice city (usa) (rev 1)':
+    'multi:grand theft auto - the trilogy (usa)',
+  'grand theft auto - san andreas (usa) (en,es) (rev 1)':
+    'multi:grand theft auto - the trilogy (usa)',
+  'grand theft auto - vice city (europe) (en,fr,es,it) (rev 1)':
+    'multi:grand theft auto - the trilogy (europe)',
+  'grand theft auto - san andreas (europe) (en,fr,de,es,it) (rev 1)':
+    'multi:grand theft auto - the trilogy (europe)',
+};
+
+/**
+ * Explicit human-readable per-disc labels for box-set discs (keyed by lowercase
+ * ROM filename without extension).
+ */
+export const BOX_SET_DISC_LABELS: Record<string, string> = {
+  // God of War Saga (PS3)
+  'god of war collection (usa) (v02.00)':
+    'Disc 1 — God of War Collection (v02.00)',
+  'god of war iii (usa) (v02.00)': 'Disc 2 — God of War III (v02.00)',
+
+  // Infamous Collection (PS3)
+  'infamous (usa) (en,fr,es) (v02.00)': 'Disc 1 — Infamous (v02.00)',
+  'infamous 2 (usa) (en,fr,es,pt) (v02.00)': 'Disc 2 — Infamous 2 (v02.00)',
+
+  // Killzone Trilogy (PS3)
+  'killzone trilogy (usa) (killzone + killzone 2)':
+    'Disc 1 — Killzone + Killzone 2',
+
+  // Metal Gear Solid: The Legacy Collection (PS3)
+  'metal gear solid 4 - guns of the patriots (usa) (en,fr,de,es,it) (v02.00)':
+    'Disc 1 — Metal Gear Solid 4: Guns of the Patriots (v02.00)',
+  'metal gear solid - the legacy collection 1987-2012 (usa) (en,fr,es) (disc 2)':
+    'Disc 2 — MGS2 + MGS3 + Peace Walker HD',
+  'metal gear solid 4 - guns of the patriots (europe) (en,fr,de,es,it) (v02.00)':
+    'Disc 1 — Metal Gear Solid 4: Guns of the Patriots (v02.00)',
+  'metal gear solid - the legacy collection 1987-2012 (europe) (en,fr,de,es,it) (disc 2)':
+    'Disc 2 — MGS2 + MGS3 + Peace Walker HD',
+  'metal gear solid - the legacy collection 1987-2012 (japan) (disc 1)':
+    'Disc 1 — MGS2 + MGS3 + Peace Walker HD',
+  'metal gear solid 4 - guns of the patriots (japan) (v02.01)':
+    'Disc 2 — Metal Gear Solid 4: Guns of the Patriots (v02.01)',
+
+  // Mass Effect Trilogy (PS3 & Xbox 360)
+  'mass effect (usa, asia) (en,fr,es)': 'Disc 1 — Mass Effect',
+  'mass effect (europe) (en,fr,de,es,it)': 'Disc 1 — Mass Effect',
+  'mass effect (usa, europe) (en,es,pl) (rev 1)':
+    'Disc 1 — Mass Effect (Rev 1)',
+  'mass effect (italy) (rev 1)': 'Disc 1 — Mass Effect (Rev 1)',
+  'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 1) (rev 1)':
+    'Disc 4 — Mass Effect 3 (Disc 1) (Rev 1)',
+  'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 2) (rev 1)':
+    'Disc 5 — Mass Effect 3 (Disc 2) (Rev 1)',
+
+  // Far Cry Compilation (Xbox 360)
+  'far cry 3 - blood dragon (usa) (en,fr,de,es,it,nl,pt,ru)':
+    'Disc 3 — Far Cry 3: Blood Dragon',
+
+  // Call of Duty: The War Collection (Xbox 360)
+  'call of duty 2 (usa) (rev 1)': 'Disc 1 — Call of Duty 2 (Rev 1)',
+
+  // Kinect Sports: Ultimate Collection (Xbox 360)
+  'kinect sports (world) (en,ja,fr,de,es,it,nl,pt,zh,ko,pl,ru) (rev 1)':
+    'Disc 1 — Kinect Sports (Rev 1)',
+
+  // Assassin's Creed: Heritage Collection (Xbox 360)
+  "assassin's creed ii - game of the year edition (europe) (en,fr,de,es,it,nl,sv,no,da)":
+    "Disc 2 — Assassin's Creed II (GOTY)",
+  "assassin's creed ii - game of the year edition (europe) (it,pl,ru)":
+    "Disc 2 — Assassin's Creed II (GOTY)",
+  "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 1) (rev 1)":
+    "Disc 5 — Assassin's Creed III (Disc 1) (Rev 1)",
+  "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 2) (rev 1)":
+    "Disc 6 — Assassin's Creed III (Disc 2) (Rev 1)",
+  "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 1) (rev 1)":
+    "Disc 5 — Assassin's Creed III (Disc 1) (Rev 1)",
+  "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 2) (rev 1)":
+    "Disc 6 — Assassin's Creed III (Disc 2) (Rev 1)",
+
+  // Grand Theft Auto: The Trilogy (PS2 & Xbox)
+  'grand theft auto - vice city (usa, canada) (v3.00)':
+    'Disc 2 — Grand Theft Auto: Vice City (v3.00)',
+  'grand theft auto - vice city (usa) (v4.00)':
+    'Disc 2 — Grand Theft Auto: Vice City (v4.00)',
+  'grand theft auto - san andreas (usa) (v3.00) (rev 1)':
+    'Disc 3 — Grand Theft Auto: San Andreas (v3.00, Rev 1)',
+  'grand theft auto - vice city (usa) (rev 1)':
+    'Disc 2 — Grand Theft Auto: Vice City (Rev 1)',
+  'grand theft auto - vice city (europe) (en,fr,es,it) (rev 1)':
+    'Disc 2 — Grand Theft Auto: Vice City (Rev 1)',
+  'grand theft auto - vice city (australia) (rev 1)':
+    'Disc 2 — Grand Theft Auto: Vice City (Rev 1)',
+  'grand theft auto - san andreas (usa) (en,es) (rev 1)':
+    'Disc 3 — Grand Theft Auto: San Andreas (Rev 1)',
+  'grand theft auto - san andreas (europe) (en,fr,de,es,it) (rev 1)':
+    'Disc 3 — Grand Theft Auto: San Andreas (Rev 1)',
+  'grand theft auto - san andreas (germany) (rev 1)':
+    'Disc 3 — Grand Theft Auto: San Andreas (Rev 1)',
+
+  // Resident Evil: The Essentials (PS2)
+  'resident evil - outbreak (usa) (v2.00)':
+    'Disc 2 — Resident Evil Outbreak (v2.00)',
+
+  // Crash Bandicoot Action Pack (PS2)
+  'crash twinsanity (usa) (v2.00)': 'Disc 2 — Crash Twinsanity (v2.00)',
+};
+
+export interface BoxSetCompanionSpec {
+  /** Human-readable disc label in the box set (e.g. 'Disc 2 — Killzone 3') */
+  discLabel: string;
+  /** Normalized base title of the standalone game */
+  standaloneNormTitle: string;
+  /** Display title of the standalone game */
+  standaloneDisplayTitle: string;
+  /** Whether this disc is a virtual companion disc kept on the standalone game (true) or a re-homed disc already in the box set (false) */
+  isVirtualCompanion: boolean;
+  /** Optional substring required in the candidate companion ROM filename (e.g. '(disc 1)', '(v3.00)') */
+  companionRomFilter?: string;
+}
+
+export interface BoxSetDefinition {
+  /** Platform ID (32 = PS3, 48 = Xbox 360, 30 = PS2, 47 = Xbox) */
+  platformId: number;
+  /** Box set normalized title */
+  boxSetNormTitle: string;
+  /** Box set display title */
+  boxSetDisplayTitle: string;
+  /** Discs belonging to this box set (for companion disc injection and standalone cross-linking) */
+  discs: BoxSetCompanionSpec[];
+}
+
+export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
+  {
+    platformId: 32,
+    boxSetNormTitle: 'godofwarsaga',
+    boxSetDisplayTitle: 'God of War Saga',
+    discs: [
+      {
+        discLabel: 'Disc 1 — God of War Collection (v02.00)',
+        standaloneNormTitle: 'godofwarcollection',
+        standaloneDisplayTitle: 'God of War Collection',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 2 — God of War III (v02.00)',
+        standaloneNormTitle: 'godofwariii',
+        standaloneDisplayTitle: 'God of War III',
+        isVirtualCompanion: false,
+      },
+    ],
+  },
+  {
+    platformId: 32,
+    boxSetNormTitle: 'infamouscollection',
+    boxSetDisplayTitle: 'Infamous Collection',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Infamous (v02.00)',
+        standaloneNormTitle: 'infamous',
+        standaloneDisplayTitle: 'Infamous',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 2 — Infamous 2 (v02.00)',
+        standaloneNormTitle: 'infamous2',
+        standaloneDisplayTitle: 'Infamous 2',
+        isVirtualCompanion: false,
+      },
+    ],
+  },
+  {
+    platformId: 32,
+    boxSetNormTitle: 'killzonetrilogy',
+    boxSetDisplayTitle: 'Killzone Trilogy',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Killzone + Killzone 2',
+        standaloneNormTitle: 'killzone2',
+        standaloneDisplayTitle: 'Killzone 2',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 2 — Killzone 3',
+        standaloneNormTitle: 'killzone3',
+        standaloneDisplayTitle: 'Killzone 3',
+        isVirtualCompanion: true,
+      },
+    ],
+  },
+  {
+    platformId: 32,
+    boxSetNormTitle: 'metalgearsolidthelegacycollection',
+    boxSetDisplayTitle: 'Metal Gear Solid: The Legacy Collection',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Metal Gear Solid 4: Guns of the Patriots (v02.00)',
+        standaloneNormTitle: 'metalgearsolid4gunsofthepatriots',
+        standaloneDisplayTitle: 'Metal Gear Solid 4: Guns of the Patriots',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 2 — MGS2 + MGS3 + Peace Walker HD',
+        standaloneNormTitle: 'metalgearsolidhdcollection',
+        standaloneDisplayTitle: 'Metal Gear Solid HD Collection',
+        isVirtualCompanion: false,
+      },
+    ],
+  },
+  {
+    platformId: 32,
+    boxSetNormTitle: 'masseffecttrilogy',
+    boxSetDisplayTitle: 'Mass Effect Trilogy',
+    discs: [
+      {
+        discLabel: 'Disc 2 — Mass Effect 2',
+        standaloneNormTitle: 'masseffect2',
+        standaloneDisplayTitle: 'Mass Effect 2',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 3 — Mass Effect 3',
+        standaloneNormTitle: 'masseffect3',
+        standaloneDisplayTitle: 'Mass Effect 3',
+        isVirtualCompanion: true,
+      },
+    ],
+  },
+  {
+    platformId: 48,
+    boxSetNormTitle: 'masseffecttrilogy',
+    boxSetDisplayTitle: 'Mass Effect Trilogy',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Mass Effect (Rev 1)',
+        standaloneNormTitle: 'masseffect',
+        standaloneDisplayTitle: 'Mass Effect',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 2 — Mass Effect 2 (Disc 1)',
+        standaloneNormTitle: 'masseffect2',
+        standaloneDisplayTitle: 'Mass Effect 2',
+        isVirtualCompanion: true,
+        companionRomFilter: '(disc 1)',
+      },
+      {
+        discLabel: 'Disc 3 — Mass Effect 2 (Disc 2)',
+        standaloneNormTitle: 'masseffect2',
+        standaloneDisplayTitle: 'Mass Effect 2',
+        isVirtualCompanion: true,
+        companionRomFilter: '(disc 2)',
+      },
+      {
+        discLabel: 'Disc 4 — Mass Effect 3 (Disc 1)',
+        standaloneNormTitle: 'masseffect3',
+        standaloneDisplayTitle: 'Mass Effect 3',
+        isVirtualCompanion: true,
+        companionRomFilter: '(disc 1)',
+      },
+      {
+        discLabel: 'Disc 5 — Mass Effect 3 (Disc 2)',
+        standaloneNormTitle: 'masseffect3',
+        standaloneDisplayTitle: 'Mass Effect 3',
+        isVirtualCompanion: true,
+        companionRomFilter: '(disc 2)',
+      },
+    ],
+  },
+  {
+    platformId: 48,
+    boxSetNormTitle: 'farcrycompilation',
+    boxSetDisplayTitle: 'Far Cry Compilation',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Far Cry 2',
+        standaloneNormTitle: 'farcry2',
+        standaloneDisplayTitle: 'Far Cry 2',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 2 — Far Cry 3',
+        standaloneNormTitle: 'farcry3',
+        standaloneDisplayTitle: 'Far Cry 3',
+        isVirtualCompanion: true,
+      },
+    ],
+  },
+  {
+    platformId: 48,
+    boxSetNormTitle: 'callofdutythewarcollection',
+    boxSetDisplayTitle: 'Call of Duty: The War Collection',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Call of Duty 2 (Rev 1)',
+        standaloneNormTitle: 'callofduty2',
+        standaloneDisplayTitle: 'Call of Duty 2',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 2 — Call of Duty 3',
+        standaloneNormTitle: 'callofduty3',
+        standaloneDisplayTitle: 'Call of Duty 3',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 3 — Call of Duty: World at War',
+        standaloneNormTitle: 'callofdutyworldatwar',
+        standaloneDisplayTitle: 'Call of Duty: World at War',
+        isVirtualCompanion: true,
+      },
+    ],
+  },
+  {
+    platformId: 48,
+    boxSetNormTitle: 'kinectsportsultimatecollection',
+    boxSetDisplayTitle: 'Kinect Sports: Ultimate Collection',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Kinect Sports (Rev 1)',
+        standaloneNormTitle: 'kinectsports',
+        standaloneDisplayTitle: 'Kinect Sports',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 2 — Kinect Sports: Season Two',
+        standaloneNormTitle: 'kinectsportsseasontwo',
+        standaloneDisplayTitle: 'Kinect Sports: Season Two',
+        isVirtualCompanion: true,
+      },
+    ],
+  },
+  {
+    platformId: 48,
+    boxSetNormTitle: 'assassinscreedheritagecollection',
+    boxSetDisplayTitle: "Assassin's Creed: Heritage Collection",
+    discs: [
+      {
+        discLabel: "Disc 1 — Assassin's Creed",
+        standaloneNormTitle: 'assassinscreed',
+        standaloneDisplayTitle: "Assassin's Creed",
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: "Disc 2 — Assassin's Creed II (GOTY)",
+        standaloneNormTitle: 'assassinscreedii',
+        standaloneDisplayTitle: "Assassin's Creed II",
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: "Disc 3 — Assassin's Creed: Brotherhood",
+        standaloneNormTitle: 'assassinscreedbrotherhood',
+        standaloneDisplayTitle: "Assassin's Creed Brotherhood",
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: "Disc 4 — Assassin's Creed: Revelations",
+        standaloneNormTitle: 'assassinscreedrevelations',
+        standaloneDisplayTitle: "Assassin's Creed Revelations",
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: "Disc 5 — Assassin's Creed III (Disc 1) (Rev 1)",
+        standaloneNormTitle: 'assassinscreediii',
+        standaloneDisplayTitle: "Assassin's Creed III",
+        isVirtualCompanion: false,
+      },
+    ],
+  },
+  {
+    platformId: 30,
+    boxSetNormTitle: 'grandtheftautothetrilogy',
+    boxSetDisplayTitle: 'Grand Theft Auto: The Trilogy',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Grand Theft Auto III',
+        standaloneNormTitle: 'grandtheftautoiii',
+        standaloneDisplayTitle: 'Grand Theft Auto III',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 2 — Grand Theft Auto: Vice City',
+        standaloneNormTitle: 'grandtheftautovicecity',
+        standaloneDisplayTitle: 'Grand Theft Auto: Vice City',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 3 — Grand Theft Auto: San Andreas (v3.00)',
+        standaloneNormTitle: 'grandtheftautosanandreas',
+        standaloneDisplayTitle: 'Grand Theft Auto: San Andreas',
+        isVirtualCompanion: true,
+        companionRomFilter: '(v3.00)',
+      },
+    ],
+  },
+  {
+    platformId: 47,
+    boxSetNormTitle: 'grandtheftautothetrilogy',
+    boxSetDisplayTitle: 'Grand Theft Auto: The Trilogy',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Grand Theft Auto III',
+        standaloneNormTitle: 'grandtheftautoiii',
+        standaloneDisplayTitle: 'Grand Theft Auto III',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 2 — Grand Theft Auto: Vice City (Rev 1)',
+        standaloneNormTitle: 'grandtheftautovicecity',
+        standaloneDisplayTitle: 'Grand Theft Auto: Vice City',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 3 — Grand Theft Auto: San Andreas (Rev 1)',
+        standaloneNormTitle: 'grandtheftautosanandreas',
+        standaloneDisplayTitle: 'Grand Theft Auto: San Andreas',
+        isVirtualCompanion: false,
+      },
+    ],
+  },
+  {
+    platformId: 30,
+    boxSetNormTitle: 'residenteviltheessentials',
+    boxSetDisplayTitle: 'Resident Evil: The Essentials',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Resident Evil Code: Veronica X',
+        standaloneNormTitle: 'residentevilcodeveronicax',
+        standaloneDisplayTitle: 'Resident Evil Code: Veronica X',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 2 — Resident Evil Outbreak (v2.00)',
+        standaloneNormTitle: 'residenteviloutbreak',
+        standaloneDisplayTitle: 'Resident Evil Outbreak',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 3 — Resident Evil 4',
+        standaloneNormTitle: 'residentevil4',
+        standaloneDisplayTitle: 'Resident Evil 4',
+        isVirtualCompanion: true,
+      },
+    ],
+  },
+  {
+    platformId: 30,
+    boxSetNormTitle: 'crashbandicootactionpack',
+    boxSetDisplayTitle: 'Crash Bandicoot Action Pack',
+    discs: [
+      {
+        discLabel: 'Disc 1 — Crash Nitro Kart',
+        standaloneNormTitle: 'crashnitrokart',
+        standaloneDisplayTitle: 'Crash Nitro Kart',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 2 — Crash Twinsanity (v2.00)',
+        standaloneNormTitle: 'crashtwinsanity',
+        standaloneDisplayTitle: 'Crash Twinsanity',
+        isVirtualCompanion: false,
+      },
+      {
+        discLabel: 'Disc 3 — Crash Tag Team Racing',
+        standaloneNormTitle: 'crashtagteamracing',
+        standaloneDisplayTitle: 'Crash Tag Team Racing',
+        isVirtualCompanion: true,
+      },
+    ],
+  },
+];
+
 export function getCuratedReleaseTags(
   rawName: string,
   regionStr: string | null,
@@ -700,7 +1320,20 @@ export function getCuratedReleaseTags(
     .map((r) => r.trim())
     .filter(Boolean);
 
-  // 2. Curated Special-Label Exclusives
+  // 2a. Subsequent-version budget-exclusive pressings (exact ROM match without extension)
+  const rawWithoutExt = rawLower
+    .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
+    .trim();
+  const subseqLabels = SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES[rawWithoutExt];
+  if (subseqLabels) {
+    for (const lbl of subseqLabels) {
+      if (!tags.includes(lbl)) {
+        tags.push(lbl);
+      }
+    }
+  }
+
+  // 2b. Curated Special-Label Exclusives
   for (const rule of SPECIAL_LABEL_EXCLUSIVES) {
     if (rule.normalizedTitle !== normTitle) continue;
     if (platformId !== undefined && !rule.platformIds.includes(platformId)) {

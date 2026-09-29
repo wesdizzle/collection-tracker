@@ -7,7 +7,10 @@
  * Safe for execution across both Cloudflare Workers edge isolates and local Node runtimes.
  */
 
-import { getCuratedReleaseTags } from './special_labels.js';
+import {
+  BOX_SET_DISC_LABELS,
+  getCuratedReleaseTags,
+} from './special_labels.js';
 
 /**
  * Interface representing a platform database record.
@@ -469,6 +472,13 @@ export function extractDiscLabel(
   romName: string | null | undefined,
 ): string | null {
   if (!romName) return null;
+  const baseLower = romName
+    .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
+    .trim()
+    .toLowerCase();
+  if (BOX_SET_DISC_LABELS[baseLower]) {
+    return BOX_SET_DISC_LABELS[baseLower];
+  }
   const parentheticalMatches = romName.match(/\(([^)]+)\)/g);
   if (!parentheticalMatches) return null;
 

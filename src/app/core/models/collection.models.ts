@@ -26,6 +26,7 @@ export interface GameRelease {
   game_id: number;
   region?: string | null;
   variants?: string | null;
+  also_released_as?: string | null;
   rom_name?: string | null;
   rom_crc?: string | null;
   backup_status: number;
@@ -95,6 +96,7 @@ export interface Game {
   parent_platform_id?: number | null;
   sort_index?: number | null;
   variants?: string | null;
+  also_released_as?: string | null;
   rom_name?: string | null;
   rom_crc?: string | null;
   physical_status?:
