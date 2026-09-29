@@ -166,7 +166,8 @@ describe('Local Server API Logic', () => {
                 barcode TEXT,
                 is_physical INTEGER DEFAULT 1,
                 has_case INTEGER NOT NULL DEFAULT 0,
-                has_manual INTEGER NOT NULL DEFAULT 0
+                has_manual INTEGER NOT NULL DEFAULT 0,
+                image_url TEXT
             );
             CREATE TABLE canonical_releases (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

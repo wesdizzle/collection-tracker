@@ -88,12 +88,9 @@ export function normalizeTitleForMatching(
       'finalfantasyxfinalfantasyx2finalfantasyxx2hdremaster',
     sonicclassics: 'soniccompilation',
     n: 'nplus',
-    princepersia3d: 'princepersiaarabiannights',
     lemmings3d: '3dlemmings',
     harvestmonnewbeginning: 'harvestmon3dnewbeginning',
     harvestmontaletwotowns: 'harvestmon3dtaletwotowns',
-    spacechannel5special: 'spacechannel5ulalacosmicattack',
-    dishonoreddefinitive: 'dishonoredgameyear',
     bioshockinfinitecomplete: 'bioshockinfinitecompletebonuscontentdisc',
     watchmenendisnigh: 'watchmenendisnighparts12',
     classicscollection: 'classicscollectionvol1',
@@ -113,7 +110,6 @@ export function normalizeTitleForMatching(
     raymanhodlumsrevenge: 'raymanhodlumrevenge',
     metalgearsolidspecialmissions: 'metalgearsolidvrmissions',
     okamizekkeiban: 'okamihd',
-    talesgracesf: 'talesgraces',
     xenosagaepisodeiijenseitsvongutundboese:
       'xenosagaepisodeiijenseitsvongutundbose',
   };
@@ -153,8 +149,6 @@ export function titlesMatch(
       'final fantasy x / final fantasy x-2 / final fantasy x x-2 hd remaster',
     'super mario all-stars: limited edition': 'super mario all-stars',
     "assassin's creed chronicles: trilogy pack": "assassin's creed chronicles",
-    // Wii U's physical release in dats is named "Shovel Knight" but owned title is "Shovel Knight: Treasure Trove"
-    'shovel knight: treasure trove': 'shovel knight',
     'the amazing spider-man vs. the kingpin':
       'spider-man / spider-man vs. the kingpin / the amazing spider-man vs. the kingpin',
     "x-men: gamesmaster's legacy": "x-men - gamemaster's legacy",
@@ -373,6 +367,27 @@ function matchAlternative(
   if (
     gNorm === 'metalgearsolid' &&
     (rNorm.includes('specialmissions') || rNorm.includes('vrmissions'))
+  ) {
+    return false;
+  }
+
+  // Exclude distinct sequels, spin-offs, and separate editions from matching base games via dash/colon splitting
+  const hasExactAndSubstring = (exact: string, sub: string) =>
+    (gNorm === exact && rNorm.includes(sub)) ||
+    (rNorm === exact && gNorm.includes(sub));
+
+  if (
+    hasExactAndSubstring('shovelknight', 'treasuretrove') ||
+    hasExactAndSubstring('returncastlewolfenstein', 'tideswar') ||
+    hasExactAndSubstring('returncastlewolfenstein', 'operationresurrection') ||
+    hasExactAndSubstring('eldenring', 'nightreign') ||
+    hasExactAndSubstring('untildawn', 'rushblod') ||
+    hasExactAndSubstring('walkingdead', 'survivalinstinct') ||
+    hasExactAndSubstring('minecraft', 'storymode') ||
+    hasExactAndSubstring('pokemonranger', 'batonnage') ||
+    hasExactAndSubstring('pokemonranger', 'hikarinokiseki') ||
+    hasExactAndSubstring('pokemonranger', 'shadowsalamia') ||
+    hasExactAndSubstring('pokemonranger', 'guardiansigns')
   ) {
     return false;
   }

@@ -13,9 +13,16 @@ export interface IGDBPlatform {
 }
 
 export interface IGDBImage {
-  id: number;
+  id?: number;
   url: string;
   image_id?: string;
+}
+
+export interface IGDBLocalization {
+  id?: number;
+  name?: string;
+  region?: number;
+  cover?: IGDBImage;
 }
 
 export interface IGDBGame {
@@ -25,6 +32,7 @@ export interface IGDBGame {
   url?: string;
   summary?: string;
   cover?: IGDBImage;
+  game_localizations?: IGDBLocalization[];
   first_release_date?: number;
   platforms?: IGDBPlatform[];
   collections?: { id: number; name: string }[];
@@ -52,6 +60,7 @@ export interface NormalizedGame {
   name: string;
   summary?: string;
   image_url: string | null;
+  game_localizations?: IGDBLocalization[];
   platform: string;
   platforms: IGDBPlatform[];
   platform_ids: number[];
@@ -389,14 +398,14 @@ export async function findGame(
   }
 
   const searchQuery = `
-        fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+        fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
         search "${cleanTitle.replace(/"/g, '')}";
         ${platformFilter ? `where ${platformFilter};` : ''}
         limit 50;
     `;
 
   const nameQuery = `
-        fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+        fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
         where name ~ "${cleanTitle.replace(/"/g, '')}"${platformFilter ? ` & ${platformFilter}` : ''};
         limit 50;
     `;
@@ -421,13 +430,13 @@ export async function findGame(
           `  Falling back to simplified search: "${simplifiedTitle}"`,
         );
         const fallbackSearchQuery = `
-                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
                     search "${simplifiedTitle.replace(/"/g, '')}";
                     ${platformFilter ? `where platforms = (${platformId});` : ''}
                     limit 50;
                 `;
         const fallbackNameQuery = `
-                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
                     where name ~ "${simplifiedTitle.replace(/"/g, '')}"${platformFilter ? ` & platforms = (${platformId})` : ''};
                     limit 50;
                 `;
@@ -459,7 +468,7 @@ export async function findGame(
           `  Falling back to ultra-simplified search: "${ultraSimplified}"`,
         );
         const ultraSearchQuery = `
-                    fields name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
+                    fields name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, version_parent, release_dates.platform, release_dates.region, release_dates.date;
                     search "${ultraSimplified}";
                     ${platformFilter ? `where platforms = (${platformId});` : ''}
                     limit 50;
@@ -565,7 +574,7 @@ export async function getGameById(
   igdbId: number,
   platformId?: number,
 ): Promise<NormalizedGame | null> {
-  const fields = `name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
+  const fields = `name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
   const query = `
         fields ${fields};
         where id = ${igdbId};
@@ -846,9 +855,8 @@ export function normalizeIGDBGame(
     igdb_url: game.url || null,
     name: game.name,
     summary: game.summary,
-    image_url: game.cover
-      ? `https:${game.cover.url.replace('t_thumb', 't_cover_big')}`
-      : null,
+    image_url: resolveRegionalCoverUrl(game, regionCode),
+    game_localizations: game.game_localizations || [],
     platform: platformName,
     platforms: cleanPlatforms,
     platform_ids: cleanPlatforms.map((p) => p.id),
@@ -866,6 +874,93 @@ export function normalizeIGDBGame(
     genres: game.genres ? game.genres.map((g) => g.name).join(', ') : null,
     flagged_outlier: finalIsOutlier,
   };
+}
+
+/**
+ * Resolves the appropriate regional cover URL from IGDB `game_localizations` for a target region.
+ * IGDB `game_localizations.region` values:
+ *   2 = Korea (KO)
+ *   3 = Japan (JP)
+ *   4 = Europe (EU)
+ * Falls back to the game's primary cover URL when no localized cover exists or when the region is North America / Worldwide.
+ */
+export function resolveRegionalCoverUrl(
+  game: {
+    cover?: IGDBImage;
+    image_url?: string | null;
+    game_localizations?: IGDBLocalization[];
+  },
+  targetRegion: string | null | undefined,
+): string | null {
+  const formatCoverUrl = (rawUrl?: string | null): string | null => {
+    if (!rawUrl) return null;
+    const normalized = rawUrl.startsWith('//') ? `https:${rawUrl}` : rawUrl;
+    return normalized.replace('t_thumb', 't_cover_big');
+  };
+
+  const defaultCover =
+    formatCoverUrl(game.cover?.url) || formatCoverUrl(game.image_url);
+  if (
+    !targetRegion ||
+    !game.game_localizations ||
+    game.game_localizations.length === 0
+  ) {
+    return defaultCover;
+  }
+
+  const parts = targetRegion
+    .toLowerCase()
+    .split(/[\s,/]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  // North America / USA / World releases use the primary IGDB cover
+  if (
+    parts.some((p) =>
+      ['na', 'usa', 'us', 'canada', 'world', 'ww', 'worldwide'].includes(p),
+    )
+  ) {
+    return defaultCover;
+  }
+
+  let igdbLocalizationRegion: number | null = null;
+  if (parts.some((p) => ['jp', 'jpn', 'japan'].includes(p))) {
+    igdbLocalizationRegion = 3;
+  } else if (
+    parts.some((p) =>
+      [
+        'eu',
+        'eur',
+        'europe',
+        'uk',
+        'australia',
+        'au',
+        'nz',
+        'germany',
+        'france',
+        'spain',
+        'italy',
+        'netherlands',
+        'sweden',
+        'scandinavia',
+      ].includes(p),
+    )
+  ) {
+    igdbLocalizationRegion = 4;
+  } else if (parts.some((p) => ['ko', 'kor', 'korea'].includes(p))) {
+    igdbLocalizationRegion = 2;
+  }
+
+  if (igdbLocalizationRegion !== null) {
+    const matchedLoc = game.game_localizations.find(
+      (loc) => loc.region === igdbLocalizationRegion && loc.cover?.url,
+    );
+    if (matchedLoc?.cover?.url) {
+      return formatCoverUrl(matchedLoc.cover.url);
+    }
+  }
+
+  return defaultCover;
 }
 
 /**
@@ -1033,7 +1128,7 @@ export async function getGamesByIds(
   platformIdMap?: Record<number, number>,
 ): Promise<NormalizedGame[]> {
   if (ids.length === 0) return [];
-  const fields = `id, name, slug, url, summary, cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
+  const fields = `id, name, slug, url, summary, cover.url, game_localizations.name, game_localizations.region, game_localizations.cover.url, first_release_date, platforms.name, collections.id, collections.name, franchises.id, franchises.name, genres.name, themes.name, category, game_type, version_parent.id, version_parent.collections.name, version_parent.franchises.name, release_dates.platform, release_dates.region, release_dates.date`;
 
   const chunks: number[][] = [];
   for (let i = 0; i < ids.length; i += 100) {

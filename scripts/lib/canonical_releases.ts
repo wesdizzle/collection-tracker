@@ -468,6 +468,80 @@ export function hasEraDiscrepancy(
 }
 
 /**
+ * Platforms considered effectively complete in community DAT sets (No-Intro / Redump).
+ * Includes 1st through 7th generation consoles/handhelds plus Nintendo 3DS, New Nintendo 3DS, and Wii U.
+ */
+export const COMPLETE_DAT_PLATFORM_IDS = new Set<number>([
+  1, // 3DO Interactive Multiplayer
+  2, // Atari 2600
+  3, // Atari 5200
+  4, // Atari 7800
+  5, // Atari Lynx
+  6, // Atari Jaguar
+  7, // ColecoVision
+  8, // Intellivision
+  9, // Neo Geo AES
+  10, // Neo Geo CD
+  11, // Neo Geo Pocket Color
+  13, // Nintendo Entertainment System
+  14, // Game Boy
+  15, // Super Nintendo Entertainment System
+  16, // Virtual Boy
+  17, // Nintendo 64
+  18, // Game Boy Color
+  19, // Game Boy Advance
+  20, // Nintendo GameCube
+  21, // Nintendo DS
+  22, // Wii
+  23, // Nintendo 3DS
+  24, // Wii U
+  25, // New Nintendo 3DS
+  28, // Philips CD-i
+  29, // PlayStation
+  30, // PlayStation 2
+  31, // PlayStation Portable
+  32, // PlayStation 3
+  36, // Sega Master System
+  37, // Sega Genesis
+  38, // Sega Game Gear
+  39, // Sega CD
+  40, // Sega Pico
+  41, // Sega 32X
+  42, // Sega Saturn
+  43, // Dreamcast
+  44, // Game.com
+  45, // TurboGrafx-16
+  46, // TurboGrafx CD
+  47, // Xbox
+  48, // Xbox 360
+  53, // Famicom
+]);
+
+/**
+ * Platforms that are still active or have incomplete community DAT tracking.
+ * On these platforms, DAT files cannot be treated as the sole source of truth for regional releases.
+ */
+export const ACTIVE_OR_INCOMPLETE_DAT_PLATFORM_IDS = new Set<number>([
+  12, // Neo Geo X
+  26, // Nintendo Switch
+  27, // Nintendo Switch 2
+  33, // PlayStation Vita
+  34, // PlayStation 4
+  35, // PlayStation 5
+  49, // Xbox One
+  50, // Xbox Series X
+  51, // PlayStation VR
+  52, // PlayStation VR2
+]);
+
+/**
+ * Returns true if the given platform ID has effectively complete DAT coverage.
+ */
+export function isPlatformDatComplete(platformId: number): boolean {
+  return COMPLETE_DAT_PLATFORM_IDS.has(platformId);
+}
+
+/**
  * Detects the physical release status of a candidate game across all three verification tiers.
  */
 export function detectPhysicalReleaseStatus(options: {
@@ -652,14 +726,9 @@ export function detectPhysicalReleaseStatus(options: {
     };
   }
 
-  // Fallback: Retro platforms with 100% DAT coverage are digital only if not in DAT
-  const retroPlatformsWithFullDats = new Set([
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 28,
-    29, 30, 31, 36, 37, 38, 39, 41, 42, 43, 45, 46, 47, 53,
-  ]);
-
-  if (retroPlatformsWithFullDats.has(platformId)) {
-    reasons.push('Retro platform with full DAT coverage had no physical match');
+  // Fallback: Platforms with complete DAT coverage are digital only if not in DAT
+  if (isPlatformDatComplete(platformId)) {
+    reasons.push('Platform with complete DAT coverage had no physical match');
     return {
       physical_status: 'digital_only',
       verification_tier: 3,

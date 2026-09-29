@@ -28,150 +28,150 @@ export const GAMES_LIST_QUERY = `
            g.canonical_series,
            r.release_date,
            g.platform_id,
-           g.queued,
-           g.sort_index,
-           g.image_url,
-           g.play_status,
-           g.igdb_id,
-           g.igdb_url,
-           g.summary,
-           g.genres,
-           g.collections,
-           g.franchises,
-           g.manually_verified,
-           g.metadata_json,
-           g.physical_status,
-           g.verification_tier,
-           g.barcode,
-           g.release_medium,
-           g.origin_metadata,
-           g.bundle_parent_id,
-           g.bundle_disc_number,
-           COALESCE(bc.bundle_count, 0) as bundle_count,
-           COALESCE(r.ownership_status, 0) as ownership_status,
-           COALESCE(r.region, g.region) as region,
-           r.variants,
-           r.also_released_as,
-           r.rom_name,
-           r.rom_crc,
-           COALESCE(r.backup_status, 0) as backup_status,
-           COALESCE(r.has_case, 0) as has_case,
-           COALESCE(r.has_manual, 0) as has_manual,
-           g.gameye_id,
-           g.gameye_platform_id,
-           g.price_loose,
-           g.price_cib,
-           g.price_new,
-           g.price_updated_at,
-           g.retail_price,
-           g.retail_regular_price,
-           g.retail_discount_pct,
-           COALESCE(g.retail_on_sale, 0) as retail_on_sale,
-           g.retail_store,
-           g.retail_url,
-           g.retail_updated_at,
-           COALESCE(pp.display_name, p.display_name) as display_name, 
-           COALESCE(pp.brand, p.brand) as brand, 
-           COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
-           COALESCE(pp.image_url, p.image_url) as platform_logo,
-           p.parent_platform_id
-    FROM games g 
-    LEFT JOIN game_releases r ON g.stable_id = r.game_id
-    LEFT JOIN platforms p ON g.platform_id = p.id
-    LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-    LEFT JOIN (
-        SELECT bundle_parent_id, COUNT(*) as bundle_count 
-        FROM games 
-        WHERE bundle_parent_id IS NOT NULL 
-        GROUP BY bundle_parent_id
-    ) bc ON g.stable_id = bc.bundle_parent_id
-    WHERE 1=1
-`;
+            g.queued,
+            g.sort_index,
+            COALESCE(r.image_url, g.image_url) as image_url,
+            g.play_status,
+            g.igdb_id,
+            g.igdb_url,
+            g.summary,
+            g.genres,
+            g.collections,
+            g.franchises,
+            g.manually_verified,
+            g.metadata_json,
+            g.physical_status,
+            g.verification_tier,
+            g.barcode,
+            g.release_medium,
+            g.origin_metadata,
+            g.bundle_parent_id,
+            g.bundle_disc_number,
+            COALESCE(bc.bundle_count, 0) as bundle_count,
+            COALESCE(r.ownership_status, 0) as ownership_status,
+            COALESCE(r.region, g.region) as region,
+            r.variants,
+            r.also_released_as,
+            r.rom_name,
+            r.rom_crc,
+            COALESCE(r.backup_status, 0) as backup_status,
+            COALESCE(r.has_case, 0) as has_case,
+            COALESCE(r.has_manual, 0) as has_manual,
+            g.gameye_id,
+            g.gameye_platform_id,
+            g.price_loose,
+            g.price_cib,
+            g.price_new,
+            g.price_updated_at,
+            g.retail_price,
+            g.retail_regular_price,
+            g.retail_discount_pct,
+            COALESCE(g.retail_on_sale, 0) as retail_on_sale,
+            g.retail_store,
+            g.retail_url,
+            g.retail_updated_at,
+            COALESCE(pp.display_name, p.display_name) as display_name, 
+            COALESCE(pp.brand, p.brand) as brand, 
+            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
+            COALESCE(pp.image_url, p.image_url) as platform_logo,
+            p.parent_platform_id
+     FROM games g 
+     LEFT JOIN game_releases r ON g.stable_id = r.game_id
+     LEFT JOIN platforms p ON g.platform_id = p.id
+     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+     LEFT JOIN (
+         SELECT bundle_parent_id, COUNT(*) as bundle_count 
+         FROM games 
+         WHERE bundle_parent_id IS NOT NULL 
+         GROUP BY bundle_parent_id
+     ) bc ON g.stable_id = bc.bundle_parent_id
+     WHERE 1=1
+ `;
 
 export const GAME_DETAIL_QUERY = `
-    SELECT COALESCE(r.id, g.id) as id,
-           g.id as game_id,
-           g.stable_id,
-           g.title,
-           g.series,
-           g.canonical_series,
-           r.release_date,
-           g.platform_id,
-           g.queued,
-           g.sort_index,
-           g.image_url,
-           g.play_status,
-           g.igdb_id,
-           g.igdb_url,
-           g.summary,
-           g.genres,
-           g.collections,
-           g.franchises,
-           g.manually_verified,
-           g.metadata_json,
-           g.physical_status,
-           g.verification_tier,
-           g.barcode,
-           g.release_medium,
-           g.origin_metadata,
-           g.bundle_parent_id,
-           g.bundle_disc_number,
-           COALESCE(bc.bundle_count, 0) as bundle_count,
-           COALESCE(r.ownership_status, 0) as ownership_status,
-           COALESCE(r.region, g.region) as region,
-           r.variants,
-           r.also_released_as,
-           r.rom_name,
-           r.rom_crc,
-           COALESCE(r.backup_status, 0) as backup_status,
-           COALESCE(r.has_case, 0) as has_case,
-           COALESCE(r.has_manual, 0) as has_manual,
-           g.gameye_id,
-           g.gameye_platform_id,
-           g.price_loose,
-           g.price_cib,
-           g.price_new,
-           g.price_updated_at,
-           g.retail_price,
-           g.retail_regular_price,
-           g.retail_discount_pct,
-           COALESCE(g.retail_on_sale, 0) as retail_on_sale,
-           g.retail_store,
-           g.retail_url,
-           g.retail_updated_at,
-           COALESCE(pp.display_name, p.display_name) as display_name, 
-           COALESCE(pp.brand, p.brand) as brand, 
-           COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
-           COALESCE(pp.image_url, p.image_url) as platform_logo,
-           p.parent_platform_id
-    FROM games g 
-    LEFT JOIN game_releases r ON r.id = (
-        SELECT id FROM game_releases WHERE id = ?
-        UNION ALL
-        SELECT id FROM game_releases WHERE game_id = g.stable_id
-        LIMIT 1
-    )
-    LEFT JOIN platforms p ON g.platform_id = p.id 
-    LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-    LEFT JOIN (
-        SELECT bundle_parent_id, COUNT(*) as bundle_count 
-        FROM games 
-        WHERE bundle_parent_id IS NOT NULL 
-        GROUP BY bundle_parent_id
-    ) bc ON g.stable_id = bc.bundle_parent_id
-    WHERE g.stable_id = (
-        SELECT game_id FROM game_releases WHERE id = ?
-        UNION ALL
-        SELECT stable_id FROM games WHERE id = ?
-        LIMIT 1
-    )
-`;
+     SELECT COALESCE(r.id, g.id) as id,
+            g.id as game_id,
+            g.stable_id,
+            g.title,
+            g.series,
+            g.canonical_series,
+            r.release_date,
+            g.platform_id,
+            g.queued,
+            g.sort_index,
+            COALESCE(r.image_url, g.image_url) as image_url,
+            g.play_status,
+            g.igdb_id,
+            g.igdb_url,
+            g.summary,
+            g.genres,
+            g.collections,
+            g.franchises,
+            g.manually_verified,
+            g.metadata_json,
+            g.physical_status,
+            g.verification_tier,
+            g.barcode,
+            g.release_medium,
+            g.origin_metadata,
+            g.bundle_parent_id,
+            g.bundle_disc_number,
+            COALESCE(bc.bundle_count, 0) as bundle_count,
+            COALESCE(r.ownership_status, 0) as ownership_status,
+            COALESCE(r.region, g.region) as region,
+            r.variants,
+            r.also_released_as,
+            r.rom_name,
+            r.rom_crc,
+            COALESCE(r.backup_status, 0) as backup_status,
+            COALESCE(r.has_case, 0) as has_case,
+            COALESCE(r.has_manual, 0) as has_manual,
+            g.gameye_id,
+            g.gameye_platform_id,
+            g.price_loose,
+            g.price_cib,
+            g.price_new,
+            g.price_updated_at,
+            g.retail_price,
+            g.retail_regular_price,
+            g.retail_discount_pct,
+            COALESCE(g.retail_on_sale, 0) as retail_on_sale,
+            g.retail_store,
+            g.retail_url,
+            g.retail_updated_at,
+            COALESCE(pp.display_name, p.display_name) as display_name, 
+            COALESCE(pp.brand, p.brand) as brand, 
+            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
+            COALESCE(pp.image_url, p.image_url) as platform_logo,
+            p.parent_platform_id
+     FROM games g 
+     LEFT JOIN game_releases r ON r.id = (
+         SELECT id FROM game_releases WHERE id = ?
+         UNION ALL
+         SELECT id FROM game_releases WHERE game_id = g.stable_id
+         LIMIT 1
+     )
+     LEFT JOIN platforms p ON g.platform_id = p.id 
+     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+     LEFT JOIN (
+         SELECT bundle_parent_id, COUNT(*) as bundle_count 
+         FROM games 
+         WHERE bundle_parent_id IS NOT NULL 
+         GROUP BY bundle_parent_id
+     ) bc ON g.stable_id = bc.bundle_parent_id
+     WHERE g.stable_id = (
+         SELECT game_id FROM game_releases WHERE id = ?
+         UNION ALL
+         SELECT stable_id FROM games WHERE id = ?
+         LIMIT 1
+     )
+ `;
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `
-    SELECT id, game_id, region, variants, also_released_as, rom_name, rom_crc, backup_status, ownership_status, release_date, COALESCE(has_case, 0) as has_case, COALESCE(has_manual, 0) as has_manual
-    FROM game_releases
-    WHERE game_id = ? AND region IS ? AND variants IS ?
-`;
+     SELECT id, game_id, region, variants, also_released_as, rom_name, rom_crc, backup_status, ownership_status, release_date, image_url, COALESCE(has_case, 0) as has_case, COALESCE(has_manual, 0) as has_manual
+     FROM game_releases
+     WHERE game_id = ? AND region IS ? AND variants IS ?
+ `;
 
 export const BUNDLED_GAMES_BY_PARENT_QUERY = `
     SELECT g.stable_id,

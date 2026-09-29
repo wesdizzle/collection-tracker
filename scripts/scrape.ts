@@ -29,8 +29,11 @@ import {
   getGamesByIds,
   NormalizedGame,
   IGDBGame,
+  IGDBLocalization,
   calculateConfidence,
+  resolveRegionalCoverUrl,
 } from './lib/igdb.js';
+import { isPlatformDatComplete } from './lib/canonical_releases.js';
 import {
   scrapePriceCharting,
   scrapePlayStationStore,
@@ -877,14 +880,26 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
 
       // Only clean up/migrate if a real release with a matching region is found (or if vr.region is null)
       const game = dbInstance
-        .prepare('SELECT region FROM games WHERE stable_id = ?')
-        .get(vr.game_id) as { region: string | null } | undefined;
-      const gameRegion = game?.region || null;
+        .prepare('SELECT region, platform_id FROM games WHERE stable_id = ?')
+        .get(vr.game_id) as
+        | { region: string | null; platform_id: number }
+        | undefined;
+      const gameRegion = game?.region || vr.region || null;
+      const isCompletePlatform = game
+        ? isPlatformDatComplete(game.platform_id)
+        : true;
 
+      const matchingRegionRelease = gameRegion
+        ? realReleases.find((r) => regionsMatch(r.region, gameRegion))
+        : null;
       const bestRelease =
-        (gameRegion
-          ? realReleases.find((r) => regionsMatch(r.region, gameRegion))
-          : null) || realReleases[0];
+        matchingRegionRelease ||
+        (!gameRegion ||
+        (isCompletePlatform &&
+          vr.ownership_status === 0 &&
+          vr.backup_status === 0)
+          ? realReleases[0]
+          : null);
 
       if (bestRelease) {
         // If the virtual release had a set ownership status or backup status, migrate it
@@ -913,26 +928,22 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
 }
 
 /**
- * Checks all games in the collection and guarantees that every game has at least
- * one entry in `game_releases`. If a game has no physical releases (due to not
- * being present in the DAT files), a virtual default release is created.
- * Also creates a virtual release if a game has releases but none of them match the game's region.
- *
- * @param dbInstance The better-sqlite3 database instance.
- */
-/**
- * Resolves regional release dates from IGDB metadata and updates the associated game releases.
+ * Resolves regional release dates and regional cover art from IGDB metadata and updates the associated game releases.
  *
  * @param dbInstance The better-sqlite3 database instance.
  * @param gameStableId The stable ID of the game.
  * @param igdbReleaseDates Optional array of regional release dates from IGDB.
  * @param fallbackDate Optional baseline/earliest release date.
+ * @param gameLocalizations Optional array of IGDB game localizations with regional cover art.
+ * @param defaultCoverUrl Optional default cover URL on the parent game record.
  */
 function updateReleaseDatesForGameReleases(
   dbInstance: Database.Database,
   gameStableId: number,
   igdbReleaseDates: { region: number; date: number }[] | undefined,
   fallbackDate: string | null | undefined,
+  gameLocalizations?: IGDBLocalization[],
+  defaultCoverUrl?: string | null,
 ): void {
   // Region mapping: we map our text regions in database to IGDB region numbers
   const regionMap: Record<string, number> = {
@@ -955,6 +966,11 @@ function updateReleaseDatesForGameReleases(
     WW: 8,
     Worldwide: 8,
   };
+
+  const releaseCols = dbInstance
+    .prepare('PRAGMA table_info(game_releases)')
+    .all() as { name: string }[];
+  const hasImageUrlCol = releaseCols.some((c) => c.name === 'image_url');
 
   const releases = dbInstance
     .prepare('SELECT id, region FROM game_releases WHERE game_id = ?')
@@ -986,9 +1002,27 @@ function updateReleaseDatesForGameReleases(
       chosenDate = fallbackDate || null;
     }
 
-    dbInstance
-      .prepare('UPDATE game_releases SET release_date = ? WHERE id = ?')
-      .run(chosenDate, release.id);
+    if (hasImageUrlCol && gameLocalizations && gameLocalizations.length > 0) {
+      const regionalCover = resolveRegionalCoverUrl(
+        {
+          game_localizations: gameLocalizations,
+        },
+        release.region,
+      );
+      const releaseImageUrl =
+        regionalCover && regionalCover !== defaultCoverUrl
+          ? regionalCover
+          : null;
+      dbInstance
+        .prepare(
+          'UPDATE game_releases SET release_date = ?, image_url = COALESCE(?, image_url) WHERE id = ?',
+        )
+        .run(chosenDate, releaseImageUrl, release.id);
+    } else {
+      dbInstance
+        .prepare('UPDATE game_releases SET release_date = ? WHERE id = ?')
+        .run(chosenDate, release.id);
+    }
   }
 }
 
@@ -996,7 +1030,8 @@ function updateReleaseDatesForGameReleases(
  * Checks all games in the collection and guarantees that every game has at least
  * one entry in `game_releases`. If a game has no physical releases (due to not
  * being present in the DAT files), a virtual default release is created.
- * Also creates a virtual release if a game has releases but none of them match the game's region.
+ * Also creates a virtual release on incomplete DAT platforms if a game has releases
+ * but none of them match the game's region.
  *
  * @param dbInstance The better-sqlite3 database instance.
  */
@@ -1014,14 +1049,15 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
   const allGames = dbInstance
     .prepare(
       hasReleaseDate
-        ? 'SELECT stable_id, id, title, region, release_date FROM games'
-        : 'SELECT stable_id, id, title, region FROM games',
+        ? 'SELECT stable_id, id, title, region, platform_id, release_date FROM games'
+        : 'SELECT stable_id, id, title, region, platform_id FROM games',
     )
     .all() as {
     stable_id: number;
     id: string;
     title: string;
     region: string | null;
+    platform_id: number;
     release_date?: string | null;
   }[];
 
@@ -1041,7 +1077,12 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
         )
         .all(game.stable_id) as { region: string | null }[];
 
-      const needsVirtual = releases.length === 0;
+      const hasMatchingRegion =
+        !game.region ||
+        releases.some((r) => regionsMatch(r.region, game.region));
+      const needsVirtual =
+        releases.length === 0 ||
+        (!isPlatformDatComplete(game.platform_id) && !hasMatchingRegion);
 
       if (needsVirtual) {
         const virtualId = `${game.stable_id}-default`;
@@ -1500,6 +1541,8 @@ async function runScraper(): Promise<void> {
             game.stable_id,
             fresh.release_dates,
             finalReleaseDate,
+            fresh.game_localizations,
+            finalImageUrl,
           );
         } else {
           console.log('API Error.');
@@ -1562,6 +1605,8 @@ async function runScraper(): Promise<void> {
           game.stable_id,
           bestMatch.release_dates,
           bestMatch.release_date,
+          bestMatch.game_localizations,
+          bestMatch.image_url,
         );
 
         console.log(`  Auto-matched and updated! [ID: ${bestMatch.id}]`);

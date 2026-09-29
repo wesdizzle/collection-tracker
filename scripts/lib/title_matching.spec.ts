@@ -83,10 +83,10 @@ describe('Title Matching Strategies', () => {
     expect(
       titlesMatch('Jet Set Radio Future', 'JSRF - Jet Set Radio Future'),
     ).toBe(true);
-    // Return to Castle Wolfenstein
+    // Return to Castle Wolfenstein: Tides of War matches dash/colon subtitle
     expect(
       titlesMatch(
-        'Return to Castle Wolfenstein',
+        'Return to Castle Wolfenstein: Tides of War',
         'Return to Castle Wolfenstein - Tides of War',
       ),
     ).toBe(true);
@@ -319,19 +319,26 @@ describe('Title Matching Strategies', () => {
       ),
     ).toBe(false);
 
-    // Shovel Knight: Treasure Trove alias matching
+    // Shovel Knight vs Shovel Knight: Treasure Trove separation
     expect(
       titlesMatch(
         'Shovel Knight: Treasure Trove',
         'Shovel Knight',
         'Shovel Knight (USA)',
       ),
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      titlesMatch(
+        'Shovel Knight',
+        'Shovel Knight - Treasure Trove',
+        'Shovel Knight - Treasure Trove (USA)',
+      ),
+    ).toBe(false);
     expect(
       titlesMatch(
         'Shovel Knight: Treasure Trove',
-        'Shovel Knight',
-        'Shovel Knight (Europe) (En,Fr,De,Es,It)',
+        'Shovel Knight - Treasure Trove',
+        'Shovel Knight - Treasure Trove (USA)',
       ),
     ).toBe(true);
   });
@@ -422,10 +429,16 @@ describe('Title Matching Strategies', () => {
     );
     expect(
       titlesMatch(
-        'Space Channel 5 Special Edition',
+        "Space Channel 5: Ulala's Cosmic Attack",
         "Space Channel 5 - Ulala's Cosmic Attack",
       ),
     ).toBe(true);
+    expect(
+      titlesMatch(
+        'Space Channel 5 Special Edition',
+        "Space Channel 5 - Ulala's Cosmic Attack",
+      ),
+    ).toBe(false);
     expect(
       titlesMatch(
         'Star Wars: Episode I - Jedi Power Battles',
@@ -456,6 +469,23 @@ describe('Title Matching Strategies', () => {
         'Minecraft - Story Mode - A Telltale Games Series - The Complete Adventure',
       ),
     ).toBe(true);
+    expect(
+      titlesMatch(
+        'Minecraft',
+        'Minecraft - Story Mode - A Telltale Games Series - Season Pass Disc',
+      ),
+    ).toBe(false);
+    expect(titlesMatch('Elden Ring', 'Elden Ring - Nightreign')).toBe(false);
+    expect(titlesMatch('Until Dawn', 'Until Dawn - Rush of Blood')).toBe(false);
+    expect(
+      titlesMatch('The Walking Dead', 'The Walking Dead - Survival Instinct'),
+    ).toBe(false);
+    expect(titlesMatch('Pokémon Ranger', 'Pokemon Ranger - Batonnage')).toBe(
+      false,
+    );
+    expect(
+      titlesMatch('Pokémon Ranger', 'Pokemon Ranger - Hikari no Kiseki'),
+    ).toBe(false);
     expect(
       titlesMatch(
         'BioShock Infinite: The Complete Edition',
@@ -505,7 +535,8 @@ describe('Title Matching Strategies', () => {
       titlesMatch('Metal Gear Solid', 'Metal Gear Solid - Special Missions'),
     ).toBe(false);
     expect(titlesMatch('Ōkami HD', 'Ookami - Zekkeiban')).toBe(true);
-    expect(titlesMatch('Tales of Graces', 'Tales of Graces f')).toBe(true);
+    expect(titlesMatch('Tales of Graces f', 'Tales of Graces f')).toBe(true);
+    expect(titlesMatch('Tales of Graces', 'Tales of Graces f')).toBe(false);
     expect(
       titlesMatch(
         'Xenosaga Episode II: Jenseits von Gut und Böse',

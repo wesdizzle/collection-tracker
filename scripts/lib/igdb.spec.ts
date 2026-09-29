@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeStr, superNormalize, normalizeIGDBGame } from './igdb.js';
+import {
+  normalizeStr,
+  superNormalize,
+  normalizeIGDBGame,
+  resolveRegionalCoverUrl,
+} from './igdb.js';
 
 describe('IGDB Normalization Utilities', () => {
   describe('normalizeStr', () => {
@@ -101,6 +106,61 @@ describe('IGDB Normalization Utilities', () => {
       );
       expect(normalized.release_date).toBe('2019-09-20');
       expect(normalized.flagged_outlier).toBe(false);
+    });
+  });
+
+  describe('resolveRegionalCoverUrl', () => {
+    const mockGameWithLocalizations = {
+      cover: { url: '//images.igdb.com/igdb/image/upload/t_thumb/co1234.jpg' },
+      game_localizations: [
+        {
+          id: 1,
+          name: 'Sonic the Hedgehog',
+          region: 3, // Japan
+          cover: {
+            url: '//images.igdb.com/igdb/image/upload/t_thumb/cocc5s.jpg',
+          },
+        },
+        {
+          id: 2,
+          name: 'Sonic the Hedgehog',
+          region: 4, // Europe
+          cover: {
+            url: '//images.igdb.com/igdb/image/upload/t_thumb/co9999.jpg',
+          },
+        },
+      ],
+    };
+
+    it('should resolve Japan cover when targetRegion is Japan or JP', () => {
+      expect(resolveRegionalCoverUrl(mockGameWithLocalizations, 'Japan')).toBe(
+        'https://images.igdb.com/igdb/image/upload/t_cover_big/cocc5s.jpg',
+      );
+      expect(resolveRegionalCoverUrl(mockGameWithLocalizations, 'JP')).toBe(
+        'https://images.igdb.com/igdb/image/upload/t_cover_big/cocc5s.jpg',
+      );
+    });
+
+    it('should resolve Europe cover when targetRegion is Europe or EU', () => {
+      expect(resolveRegionalCoverUrl(mockGameWithLocalizations, 'Europe')).toBe(
+        'https://images.igdb.com/igdb/image/upload/t_cover_big/co9999.jpg',
+      );
+      expect(
+        resolveRegionalCoverUrl(mockGameWithLocalizations, 'Europe, Australia'),
+      ).toBe(
+        'https://images.igdb.com/igdb/image/upload/t_cover_big/co9999.jpg',
+      );
+    });
+
+    it('should fall back to default cover for NA / USA or multi-region USA, Europe', () => {
+      expect(resolveRegionalCoverUrl(mockGameWithLocalizations, 'NA')).toBe(
+        'https://images.igdb.com/igdb/image/upload/t_cover_big/co1234.jpg',
+      );
+      expect(
+        resolveRegionalCoverUrl(mockGameWithLocalizations, 'USA, Europe'),
+      ).toBe(
+        'https://images.igdb.com/igdb/image/upload/t_cover_big/co1234.jpg',
+      );
     });
   });
 });

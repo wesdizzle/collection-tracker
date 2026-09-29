@@ -32,6 +32,7 @@ export interface GameRelease {
   backup_status: number;
   ownership_status: number;
   release_date?: string | null;
+  image_url?: string | null;
   canonical_release_id?: number | null;
   barcode?: string | null;
   is_physical?: boolean | number;
