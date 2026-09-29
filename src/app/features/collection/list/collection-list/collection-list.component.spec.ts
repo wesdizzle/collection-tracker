@@ -1503,4 +1503,53 @@ describe('CollectionListComponent', () => {
     } as Partial<Game> as Game;
     expect(component.getDealArbitrageSavings(missingDataGame)).toBeNull();
   });
+
+  it('should extract canonical optional budget labels and render ± badges on cards', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'wind-waker-gc',
+        title: 'The Legend of Zelda: The Wind Waker',
+        platform: 'Nintendo GameCube',
+        platform_id: 20,
+        region: 'USA, Canada',
+        variants: null,
+        also_released_as:
+          "Player's Choice, Limited Edition, Player's Choice (Best Seller)",
+        ownership_status: 1,
+      },
+      {
+        id: 'oblivion-goty-rev1',
+        title: 'The Elder Scrolls IV: Oblivion - Game of the Year Edition',
+        platform: 'Xbox 360',
+        platform_id: 48,
+        region: 'USA',
+        variants: 'Rev 1, Platinum Hits',
+        also_released_as: null,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const ww = component.filteredGames().find((g) => g.id === 'wind-waker-gc')!;
+    expect(component.getOptionalBudgetLabels(ww)).toEqual(["Player's Choice"]);
+
+    // Tag filter should match optional budget labels in also_released_as
+    component.filters.set({ ownership: 'all', tag: "player's choice" });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'wind-waker-gc',
+    ]);
+
+    const optionalBadges = fixture.nativeElement.querySelectorAll(
+      '.badge-budget-optional',
+    );
+    expect(optionalBadges.length).toBe(1);
+    expect(optionalBadges[0].textContent.trim()).toBe("± Player's Choice");
+  });
 });

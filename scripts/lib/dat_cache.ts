@@ -93,6 +93,7 @@ export function findDatFileForPlatform(
     /\(psn\)/i,
     /\(digital\)/i,
     /\(updates\)/i,
+    /\(title updates\)/i,
     /\(dlc\)/i,
     /\(development kit/i,
     /\(dev\b/i,

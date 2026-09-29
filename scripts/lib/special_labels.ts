@@ -76,11 +76,10 @@ export function normalizeForLabelMatch(name: string): string {
     .replace(/\s*\([^)]*\)/g, '')
     .replace(/\s*\[[^\]]*\]/g, '')
     .trim();
-  if (/,\s*the$/i.test(clean)) {
-    clean = 'the ' + clean.replace(/,\s*the$/i, '');
-  } else if (clean.toLowerCase().includes(', the - ')) {
-    clean = 'the ' + clean.replace(/,\s*the\s*-\s*/i, ' - ');
-  }
+  clean = clean.replace(
+    /(^|\s-\s)([^,-]+),\s*(the|a|an)(?=\s*(?:-|:|$))/gi,
+    '$1$3 $2',
+  );
   return clean
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -759,6 +758,14 @@ export const SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES: Record<string, string[]> = {
     'PSone Books',
   ],
   'silent hill (japan) (rev 2)': ['PSone Books', 'Konami the Best'],
+  'elder scrolls iv, the - oblivion - game of the year edition (japan) (v02.00)':
+    ['PlayStation 3 the Best'],
+  'elder scrolls v, the - skyrim (japan) (v02.00)': ['PlayStation 3 the Best'],
+  'elder scrolls iv, the - oblivion - game of the year edition (usa) (disc 2) (rev 1)':
+    ['Platinum Hits'],
+  'elder scrolls iv, the - oblivion (usa) (rev 3)': ['Platinum Hits'],
+  'sims 2, the - pets (europe, australia) (en,fr,de,es,it,nl,sv,no,da,fi,pl) (v2.00)':
+    ['Platinum'],
 };
 
 /**

@@ -290,17 +290,40 @@ interface GameGroup {
                           {{ game.canonical_series }}
                         </div>
                       }
-                      @if (game.variants) {
+                      @if (
+                        game.variants ||
+                        getOptionalBudgetLabels(game).length > 0
+                      ) {
                         <div class="flex flex-wrap gap-2xs mt-2xs">
-                          @for (
-                            variant of game.variants.split(',');
-                            track variant
-                          ) {
-                            @if (variant.trim()) {
-                              <span class="variant-badge">{{
-                                variant.trim()
-                              }}</span>
+                          @if (game.variants) {
+                            @for (
+                              variant of game.variants.split(',');
+                              track variant
+                            ) {
+                              @if (variant.trim()) {
+                                <span
+                                  class="variant-badge"
+                                  [class.badge-budget-exclusive]="
+                                    isBudgetLabel(variant.trim())
+                                  "
+                                  >{{ variant.trim() }}</span
+                                >
+                              }
                             }
+                          }
+                          @for (
+                            label of getOptionalBudgetLabels(game);
+                            track label
+                          ) {
+                            <span
+                              class="variant-badge badge-budget-optional"
+                              [title]="
+                                'Identical disc/cartridge image was also sold in ' +
+                                label +
+                                ' packaging'
+                              "
+                              >± {{ label }}</span
+                            >
                           }
                         </div>
                       }
@@ -913,6 +936,18 @@ interface GameGroup {
         letter-spacing: 0.03em;
       }
 
+      .badge-budget-exclusive {
+        color: #fbbf24;
+        background: rgba(245, 158, 11, 0.18);
+        border: 1px solid rgba(245, 158, 11, 0.45);
+      }
+
+      .badge-budget-optional {
+        color: #fbbf24;
+        background: rgba(245, 158, 11, 0.08);
+        border: 1px dashed rgba(245, 158, 11, 0.45);
+      }
+
       .valuation-badge {
         display: inline-flex;
         align-items: center;
@@ -1187,11 +1222,10 @@ export class CollectionListComponent
       .replace(/\s*\([^)]*\)/g, '')
       .replace(/\s*\[[^\]]*\]/g, '')
       .trim();
-    if (/,\s*the$/i.test(clean)) {
-      clean = 'the ' + clean.replace(/,\s*the$/i, '');
-    } else if (clean.toLowerCase().includes(', the - ')) {
-      clean = 'the ' + clean.replace(/,\s*the\s*-\s*/i, ' - ');
-    }
+    clean = clean.replace(
+      /(^|\s-\s)([^,-]+),\s*(the|a|an)(?=\s*(?:-|:|$))/gi,
+      '$1$3 $2',
+    );
     return clean
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -1199,6 +1233,105 @@ export class CollectionListComponent
       .replace(/&amp;/g, 'and')
       .replace(/&/g, 'and')
       .replace(/[^a-z0-9]/g, '');
+  }
+
+  private normalizeBudgetToken(token: string): string | null {
+    const t = token.trim();
+    if (!t) return null;
+    if (
+      /^Greatest Hits$/i.test(t) ||
+      /^Double Pack Greatest Hits$/i.test(t) ||
+      /:\s*Greatest Hits$/i.test(t) ||
+      /\(Greatest Hits\)$/i.test(t)
+    ) {
+      return 'Greatest Hits';
+    }
+    if (
+      /^Platinum Hits$/i.test(t) ||
+      /^Best of Platinum Hits$/i.test(t) ||
+      /^Platinum Family Hits$/i.test(t) ||
+      /\(Platinum Hits\)$/i.test(t) ||
+      /:\s*Platinum Hits$/i.test(t)
+    ) {
+      return 'Platinum Hits';
+    }
+    if (
+      /^Platinum$/i.test(t) ||
+      /^Platinum - Twin Pack$/i.test(t) ||
+      /^Platinum:\s*(?:The Best of|EA Most Wanted)/i.test(t)
+    ) {
+      return 'Platinum';
+    }
+    if (
+      /^Platinum Collection$/i.test(t) ||
+      /\(Platinum Collection\)$/i.test(t)
+    ) {
+      return 'Platinum Collection';
+    }
+    if (/^Player's Choice/i.test(t)) {
+      return "Player's Choice";
+    }
+    if (/^Nintendo Selects$/i.test(t)) {
+      return 'Nintendo Selects';
+    }
+    if (
+      /^Xbox Classics$/i.test(t) ||
+      /^Classics$/i.test(t) ||
+      /^Classic$/i.test(t) ||
+      /\(Classics\)$/i.test(t)
+    ) {
+      return 'Xbox Classics';
+    }
+    if (/^Essentials$/i.test(t) || /Classics HD:\s*Essentials/i.test(t)) {
+      return 'Essentials';
+    }
+    if (/^New Play Control!$/i.test(t)) {
+      return 'New Play Control!';
+    }
+    if (
+      /^Classic NES Series$/i.test(t) ||
+      /^NES Classics$/i.test(t) ||
+      /^Famicom Mini$/i.test(t)
+    ) {
+      return t;
+    }
+    if (/^Favorites$/i.test(t)) return 'Favorites';
+    if (/^Sega All Stars$/i.test(t)) return 'Sega All Stars';
+    if (/^PS\s*one Books$/i.test(t)) return 'PSone Books';
+    if (
+      /\bthe Best(?:\s+for\s+Family)?$/i.test(t) ||
+      /^EA Best Hits$/i.test(t) ||
+      /^Satakore$/i.test(t) ||
+      /^DreKore$/i.test(t)
+    ) {
+      return t;
+    }
+    return null;
+  }
+
+  public isBudgetLabel(label: string): boolean {
+    return this.normalizeBudgetToken(label) !== null;
+  }
+
+  public getOptionalBudgetLabels(game: Game): string[] {
+    if (!game.also_released_as) return [];
+    const existingVariants = new Set(
+      (game.variants || '')
+        .split(',')
+        .map((v) => v.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const result: string[] = [];
+    for (const rawToken of game.also_released_as.split(',')) {
+      const canonical = this.normalizeBudgetToken(rawToken);
+      if (!canonical) continue;
+      const lower = canonical.toLowerCase();
+      if (existingVariants.has(lower)) continue;
+      if (!result.some((r) => r.toLowerCase() === lower)) {
+        result.push(canonical);
+      }
+    }
+    return result;
   }
 
   /**
@@ -1238,6 +1371,17 @@ export class CollectionListComponent
           g.ownership_status,
         );
         existing.play_status = Math.max(existing.play_status, g.play_status);
+        if (g.also_released_as) {
+          const merged = new Set(
+            [
+              ...(existing.also_released_as || '').split(','),
+              ...g.also_released_as.split(','),
+            ]
+              .map((s) => s.trim())
+              .filter(Boolean),
+          );
+          existing.also_released_as = Array.from(merged).join(', ');
+        }
       }
     }
 
@@ -1452,6 +1596,22 @@ export class CollectionListComponent
             .split(',')
             .map((v) => this.normalizeString(v.trim()))
             .filter(Boolean);
+          if (g.also_released_as) {
+            for (const raw of g.also_released_as.split(',')) {
+              const normRaw = this.normalizeString(raw.trim());
+              if (normRaw) {
+                itemTags.push(normRaw);
+                itemTags.push(`± ${normRaw}`);
+              }
+            }
+            for (const optLbl of this.getOptionalBudgetLabels(g)) {
+              const normOpt = this.normalizeString(optLbl);
+              if (normOpt) {
+                itemTags.push(normOpt);
+                itemTags.push(`± ${normOpt}`);
+              }
+            }
+          }
           if (itemTags.length === 0) return false;
           if (f.tagExact) {
             if (!itemTags.some((t) => t === normalizedFilter)) return false;
