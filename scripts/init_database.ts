@@ -39,8 +39,12 @@ try {
   for (const file of migrationFiles) {
     console.log(`[InitDb] Applying migration: ${file}...`);
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    // Split on statements or execute directly; if an ALTER TABLE fails because column exists, handle gracefully
-    const statements = sql
+    // Strip comment lines before splitting to prevent breaking on comments containing semicolons
+    const cleanSql = sql
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('--'))
+      .join('\n');
+    const statements = cleanSql
       .split(';')
       .map((s) => s.trim())
       .filter((s) => s.length > 0);

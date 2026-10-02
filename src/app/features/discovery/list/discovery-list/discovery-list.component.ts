@@ -2415,6 +2415,12 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
           break;
         }
 
+        // Pacing throttle to ensure compliance with IGDB rate limits (<= 4 req/sec)
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        if (this.scanCancelRequested) {
+          break;
+        }
+
         offset += batchSize;
       }
 
