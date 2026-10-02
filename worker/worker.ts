@@ -1112,26 +1112,53 @@ Disallow: /
 
         try {
           const specificSeries = url.searchParams.get('series');
+          const offsetParam = url.searchParams.get('offset');
+          const limitParam = url.searchParams.get('limit');
+          const isPaged = offsetParam !== null;
+          const offset = offsetParam
+            ? Math.max(0, parseInt(offsetParam, 10))
+            : 0;
+          const limit = limitParam
+            ? Math.min(40, Math.max(1, parseInt(limitParam, 10)))
+            : 30;
+
           let canonicalSeriesList: string[] = [];
+          let totalSeriesCount = 0;
 
           if (specificSeries && specificSeries.trim()) {
             canonicalSeriesList = [specificSeries.trim()];
+            totalSeriesCount = 1;
           } else {
-            // Target the user's primary collected franchises to stay safely within CPU/subrequest quotas
-            const { results: topSeriesRows } = await env.DB.prepare(
+            const { results: allSeriesRows } = await env.DB.prepare(
               `SELECT canonical_series, COUNT(*) as c FROM games
                WHERE canonical_series IS NOT NULL AND canonical_series != ''
                GROUP BY canonical_series
-               ORDER BY c DESC
-               LIMIT 40`,
+               ORDER BY c DESC, canonical_series ASC`,
             ).all();
 
-            canonicalSeriesList = (topSeriesRows || [])
+            const allSeries = (allSeriesRows || [])
               .map((r) => (r as { canonical_series: string }).canonical_series)
               .filter(Boolean);
+
+            totalSeriesCount = allSeries.length;
+
+            if (isPaged) {
+              canonicalSeriesList = allSeries.slice(offset, offset + limit);
+            } else {
+              canonicalSeriesList = allSeries.slice(0, 30);
+            }
           }
 
           if (canonicalSeriesList.length === 0) {
+            if (isPaged) {
+              return Response.json({
+                suggestions: [],
+                offset,
+                limit,
+                totalSeries: totalSeriesCount,
+                hasMore: false,
+              });
+            }
             return Response.json([]);
           }
 
@@ -1433,6 +1460,16 @@ Disallow: /
               is_physical: verification.is_physical,
               physical_regions: verification.physical_regions,
               verification_reasons: verification.reasons,
+            });
+          }
+
+          if (isPaged) {
+            return Response.json({
+              suggestions,
+              offset,
+              limit,
+              totalSeries: totalSeriesCount,
+              hasMore: offset + limit < totalSeriesCount,
             });
           }
 

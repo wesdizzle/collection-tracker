@@ -297,5 +297,33 @@ describe('CollectionService', () => {
       expect(service.dialogState().visible).toBe(true);
       expect(service.dialogState().title).toBe('Admin Authentication');
     });
+
+    it('should query scanSeries with options and query parameters', () => {
+      service
+        .scanSeries({ series: 'Super Mario', filterDigital: true })
+        .subscribe();
+      const req = httpMock.expectOne(
+        '/api/discovery/scan-series?filterDigital=true&series=Super+Mario',
+      );
+      expect(req.request.method).toBe('GET');
+      req.flush([]);
+    });
+
+    it('should query scanSeriesPaged with offset and limit parameters', () => {
+      service
+        .scanSeriesPaged({ offset: 30, limit: 30, filterDigital: true })
+        .subscribe();
+      const req = httpMock.expectOne(
+        '/api/discovery/scan-series?filterDigital=true&offset=30&limit=30',
+      );
+      expect(req.request.method).toBe('GET');
+      req.flush({
+        suggestions: [],
+        offset: 30,
+        limit: 30,
+        totalSeries: 100,
+        hasMore: true,
+      });
+    });
   });
 });

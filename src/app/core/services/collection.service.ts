@@ -36,6 +36,7 @@ import {
   DiscoveryRelease,
   ScanSuggestion,
   AmiiboDiscoveryItem,
+  PagedScanSeriesResult,
 } from '../models/collection.models';
 
 @Injectable({
@@ -445,16 +446,67 @@ export class CollectionService {
 
   /**
    * Performs a series scan to discover missing games for tracked series and platforms.
-   *
-   * @param filterDigital Whether to hide digital-only / Virtual Console fluff.
-   * @returns Observable of missing game suggestions along with physical DAT release checklist info.
+   * Supports optional specific franchise targeting or boolean digital filter.
    */
-  scanSeries(filterDigital = false): Observable<ScanSuggestion[]> {
-    const url = filterDigital
-      ? '/api/discovery/scan-series?filterDigital=true'
+  scanSeries(
+    optionsOrFilterDigital?:
+      | boolean
+      | {
+          filterDigital?: boolean;
+          series?: string;
+          offset?: number;
+          limit?: number;
+        },
+  ): Observable<ScanSuggestion[]> {
+    let filterDigital = false;
+    let series: string | undefined;
+    let offset: number | undefined;
+    let limit: number | undefined;
+
+    if (typeof optionsOrFilterDigital === 'boolean') {
+      filterDigital = optionsOrFilterDigital;
+    } else if (optionsOrFilterDigital) {
+      filterDigital = !!optionsOrFilterDigital.filterDigital;
+      series = optionsOrFilterDigital.series;
+      offset = optionsOrFilterDigital.offset;
+      limit = optionsOrFilterDigital.limit;
+    }
+
+    const params = new URLSearchParams();
+    if (filterDigital) params.set('filterDigital', 'true');
+    if (series) params.set('series', series);
+    if (offset !== undefined) params.set('offset', offset.toString());
+    if (limit !== undefined) params.set('limit', limit.toString());
+
+    const qs = params.toString();
+    const url = qs
+      ? `/api/discovery/scan-series?${qs}`
       : '/api/discovery/scan-series';
     return this.http
       .get<ScanSuggestion[]>(url)
+      .pipe(catchError(this.handleMutationError));
+  }
+
+  /**
+   * Performs a paginated/batched series scan to progressively discover missing games.
+   */
+  scanSeriesPaged(
+    options: {
+      filterDigital?: boolean;
+      series?: string;
+      offset?: number;
+      limit?: number;
+    } = {},
+  ): Observable<PagedScanSeriesResult> {
+    const params = new URLSearchParams();
+    if (options.filterDigital) params.set('filterDigital', 'true');
+    if (options.series) params.set('series', options.series);
+    params.set('offset', (options.offset ?? 0).toString());
+    params.set('limit', (options.limit ?? 30).toString());
+
+    const url = `/api/discovery/scan-series?${params.toString()}`;
+    return this.http
+      .get<PagedScanSeriesResult>(url)
       .pipe(catchError(this.handleMutationError));
   }
 

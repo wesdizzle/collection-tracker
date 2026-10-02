@@ -1049,6 +1049,34 @@ describe('Worker API Logic', () => {
       expect(animalCrossing).toBeDefined();
       expect(animalCrossing?.platform_id).toBe(55);
       expect(animalCrossing?.physical_status).toBe('verified_physical');
+
+      // Paged request returns { suggestions, offset, limit, totalSeries, hasMore }
+      const pagedReq = new Request(
+        'http://localhost/api/discovery/scan-series?offset=0&limit=10',
+      );
+      const pagedRes = await worker.fetch(pagedReq, mockEnv);
+      expect(pagedRes.status).toBe(200);
+      const pagedData = (await pagedRes.json()) as {
+        suggestions: unknown[];
+        offset: number;
+        limit: number;
+        totalSeries: number;
+        hasMore: boolean;
+      };
+      expect(pagedData.suggestions).toBeDefined();
+      expect(pagedData.offset).toBe(0);
+      expect(pagedData.limit).toBe(10);
+      expect(pagedData.totalSeries).toBeGreaterThan(0);
+      expect(pagedData.hasMore).toBe(false);
+
+      // Targeted franchise scan via ?series=
+      const seriesReq = new Request(
+        'http://localhost/api/discovery/scan-series?series=1-2-Switch',
+      );
+      const seriesRes = await worker.fetch(seriesReq, mockEnv);
+      expect(seriesRes.status).toBe(200);
+      const seriesData = (await seriesRes.json()) as unknown[];
+      expect(Array.isArray(seriesData)).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }

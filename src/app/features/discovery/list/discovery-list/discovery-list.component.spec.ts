@@ -27,6 +27,7 @@ describe('DiscoveryListComponent', () => {
     getGameMatches: Mock;
     addGame: Mock;
     scanSeries: Mock;
+    scanSeriesPaged?: Mock;
     scanAmiibo: Mock;
     addToy: Mock;
     refreshAll: Mock;
@@ -285,6 +286,71 @@ describe('DiscoveryListComponent', () => {
       }),
     );
     expect(component.scanResults().length).toBe(0);
+  });
+
+  it('should execute progressive scan with progress tracking and allow stopScan', async () => {
+    component.activeTab.set('scan');
+    mockCollectionService.scanSeriesPaged = vi.fn().mockReturnValue(
+      of({
+        suggestions: [
+          {
+            id: 333,
+            title: 'Castlevania: Symphony of the Night',
+            platform: 'PlayStation',
+            platform_id: 11,
+            image_url: null,
+            releases: [],
+          },
+        ],
+        offset: 0,
+        limit: 30,
+        totalSeries: 60,
+        hasMore: false,
+      }),
+    );
+
+    await component.startProgressiveScan();
+
+    expect(mockCollectionService.scanSeriesPaged).toHaveBeenCalled();
+    expect(component.scanResults().length).toBe(1);
+    expect(component.scanProgress()).toEqual({
+      scanned: 30,
+      total: 60,
+      percent: 50,
+    });
+
+    component.stopScan();
+    expect(component.scanCancelled()).toBe(true);
+    expect(component.scanLoading()).toBe(false);
+  });
+
+  it('should execute single franchise scan when a franchise is selected', async () => {
+    component.activeTab.set('scan');
+    component.selectedSeries.set('Castlevania');
+    mockCollectionService.scanSeries.mockReturnValueOnce(
+      of([
+        {
+          id: 333,
+          title: 'Castlevania: Aria of Sorrow',
+          platform: 'Game Boy Advance',
+          platform_id: 24,
+          image_url: null,
+          releases: [],
+        },
+      ]),
+    );
+
+    await component.triggerSeriesScan();
+
+    expect(mockCollectionService.scanSeries).toHaveBeenCalledWith(
+      expect.objectContaining({
+        series: 'Castlevania',
+      }),
+    );
+    expect(component.scanResults().length).toBe(1);
+    expect(component.scanResults()[0].title).toBe(
+      'Castlevania: Aria of Sorrow',
+    );
   });
 
   it('should trigger amiibo scan, filter results, and ingest single amiibo', async () => {

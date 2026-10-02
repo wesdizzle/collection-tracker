@@ -334,3 +334,11 @@ export interface AmiiboDiscoveryItem {
   release_date?: string | null;
   region?: string | null;
 }
+
+export interface PagedScanSeriesResult {
+  suggestions: ScanSuggestion[];
+  offset: number;
+  limit: number;
+  totalSeries: number;
+  hasMore: boolean;
+}

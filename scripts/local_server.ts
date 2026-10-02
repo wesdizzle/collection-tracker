@@ -1065,38 +1065,61 @@ export const handleRequest =
             url.searchParams.get('filterDigital') === 'true' ||
             url.searchParams.get('hideDigital') === 'true';
 
-          const seriesGameRows = db
-            .prepare(
-              `SELECT canonical_series, collections, franchises FROM games
-               WHERE (canonical_series IS NOT NULL AND canonical_series != '')
-                  OR (collections IS NOT NULL AND collections != '')
-                  OR (franchises IS NOT NULL AND franchises != '')`,
-            )
-            .all() as Array<{
-            canonical_series: string | null;
-            collections: string | null;
-            franchises: string | null;
-          }>;
+          const specificSeries = url.searchParams.get('series');
+          const offsetParam = url.searchParams.get('offset');
+          const limitParam = url.searchParams.get('limit');
+          const isPaged = offsetParam !== null;
+          const offset = offsetParam
+            ? Math.max(0, parseInt(offsetParam, 10))
+            : 0;
+          const limit = limitParam
+            ? Math.min(40, Math.max(1, parseInt(limitParam, 10)))
+            : 30;
 
-          const uniqueSeriesSet = new Set<string>();
-          for (const row of seriesGameRows) {
-            if (row.canonical_series?.trim()) {
-              uniqueSeriesSet.add(row.canonical_series.trim());
-            }
-            if (row.collections) {
-              for (const part of row.collections.split(',')) {
-                if (part.trim()) uniqueSeriesSet.add(part.trim());
-              }
-            }
-            if (row.franchises) {
-              for (const part of row.franchises.split(',')) {
-                if (part.trim()) uniqueSeriesSet.add(part.trim());
-              }
+          let seriesNames: string[] = [];
+          let totalSeriesCount = 0;
+
+          if (specificSeries && specificSeries.trim()) {
+            seriesNames = [specificSeries.trim()];
+            totalSeriesCount = 1;
+          } else {
+            const allSeriesRows = db
+              .prepare(
+                `SELECT canonical_series, COUNT(*) as c FROM games
+                 WHERE canonical_series IS NOT NULL AND canonical_series != ''
+                 GROUP BY canonical_series
+                 ORDER BY c DESC, canonical_series ASC`,
+              )
+              .all() as Array<{ canonical_series: string }>;
+
+            const allSeries = (allSeriesRows || [])
+              .map((r) => r.canonical_series)
+              .filter(Boolean);
+
+            totalSeriesCount = allSeries.length;
+
+            if (isPaged) {
+              seriesNames = allSeries.slice(offset, offset + limit);
+            } else {
+              seriesNames = allSeries.slice(0, 30);
             }
           }
-          const seriesNames = Array.from(uniqueSeriesSet);
+
           if (seriesNames.length === 0) {
-            res.end(JSON.stringify([]));
+            res.setHeader('Content-Type', 'application/json');
+            if (isPaged) {
+              res.end(
+                JSON.stringify({
+                  suggestions: [],
+                  offset,
+                  limit,
+                  totalSeries: totalSeriesCount,
+                  hasMore: false,
+                }),
+              );
+            } else {
+              res.end(JSON.stringify([]));
+            }
             return;
           }
 
@@ -1467,7 +1490,20 @@ export const handleRequest =
             }
           }
 
-          res.end(JSON.stringify(scanResults));
+          res.setHeader('Content-Type', 'application/json');
+          if (isPaged) {
+            res.end(
+              JSON.stringify({
+                suggestions: scanResults,
+                offset,
+                limit,
+                totalSeries: totalSeriesCount,
+                hasMore: offset + limit < totalSeriesCount,
+              }),
+            );
+          } else {
+            res.end(JSON.stringify(scanResults));
+          }
         } catch (err: unknown) {
           console.error('Scan series failed:', err);
           const error = err instanceof Error ? err : new Error('Unknown error');

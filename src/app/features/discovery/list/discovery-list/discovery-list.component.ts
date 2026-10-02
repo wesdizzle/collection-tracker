@@ -15,7 +15,14 @@
  * - Robust fallback logic to handle unit tests context where some service signals are mocked.
  */
 
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import {
+  Component,
+  OnInit,
+  OnDestroy,
+  inject,
+  signal,
+  computed,
+} from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { CollectionService } from '../../../../core/services/collection.service';
 import {
@@ -275,34 +282,130 @@ import { RouterModule } from '@angular/router';
       <!-- TAB 2: SERIES DISCOVERY -->
       @if (activeTab() === 'scan') {
         <div class="tab-content animate-slide-up">
-          <!-- CTA Action panel -->
+          <!-- Series Discovery Controls Toolbar -->
+          <div class="series-discovery-controls p-md mb-lg">
+            <div class="flex flex-wrap items-center justify-between gap-md">
+              <div class="flex items-center gap-md flex-1 min-w-[280px]">
+                <label
+                  for="seriesSelect"
+                  class="font-bold text-sm text-secondary whitespace-nowrap"
+                >
+                  Franchise:
+                </label>
+                <select
+                  id="seriesSelect"
+                  class="m3-select flex-1"
+                  [value]="selectedSeries()"
+                  (change)="onSeriesSelectChange($event)"
+                  [disabled]="scanLoading()"
+                >
+                  <option value="">
+                    All Franchises ({{ trackedSeriesList().length }} tracked)
+                  </option>
+                  @for (item of trackedSeriesList(); track item.name) {
+                    <option [value]="item.name">
+                      {{ item.name }} ({{ item.count }} collected)
+                    </option>
+                  }
+                </select>
+              </div>
+
+              <div class="flex items-center gap-sm">
+                @if (scanLoading()) {
+                  <button class="m3-btn m3-btn-secondary" (click)="stopScan()">
+                    ⏹ Stop Scan
+                  </button>
+                } @else {
+                  <button
+                    class="m3-btn m3-btn-primary"
+                    (click)="triggerSeriesScan()"
+                  >
+                    @if (selectedSeries()) {
+                      🔍 Scan {{ selectedSeries() }}
+                    } @else {
+                      🧭 Scan All Franchises (Progressive)
+                    }
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- Progress Bar during progressive scan -->
+            @if (scanProgress() && (scanLoading() || scanCancelled())) {
+              <div class="scan-progress-box mt-md pt-md">
+                <div
+                  class="flex justify-between items-center text-xs text-secondary mb-xs"
+                >
+                  <span>
+                    @if (scanLoading()) {
+                      Scanning franchises:
+                      <strong
+                        >{{ scanProgress()!.scanned }} of
+                        {{ scanProgress()!.total }}</strong
+                      >
+                      ({{ scanProgress()!.percent }}%)
+                    } @else if (scanCancelled()) {
+                      Scan paused at
+                      <strong
+                        >{{ scanProgress()!.scanned }} of
+                        {{ scanProgress()!.total }}</strong
+                      >
+                      franchises
+                    }
+                  </span>
+                  <span
+                    >{{ filteredScanResults().length }} missing game{{
+                      filteredScanResults().length === 1 ? '' : 's'
+                    }}
+                    found</span
+                  >
+                </div>
+                <div class="progress-bar-track">
+                  <div
+                    class="progress-bar-fill"
+                    [style.width.%]="scanProgress()!.percent"
+                  ></div>
+                </div>
+              </div>
+            }
+          </div>
+
+          <!-- CTA Action panel (only when no scan has been run yet) -->
           @if (
-            !scanLoading() && scanResults().length === 0 && !scanPerformed()
+            !scanLoading() &&
+            scanResults().length === 0 &&
+            !scanPerformed() &&
+            !scanError()
           ) {
             <div class="scan-cta-card">
               <div class="text-4xl mb-md">🧭</div>
-              <h2>Scan Tracked Franchises</h2>
+              <h2>Franchise Discovery</h2>
               <p class="text-secondary mb-lg max-w-md mx-auto">
-                Scan tracked collections against IGDB to surface missing
-                canonical entries on supported platforms.
+                Scan all {{ trackedSeriesList().length }} tracked franchises
+                progressively with real-time streaming, or select a specific
+                franchise above to inspect missing entries instantly.
               </p>
               <button
                 class="m3-btn m3-btn-primary"
                 (click)="triggerSeriesScan()"
               >
-                🔄 Start Franchise Scan
+                @if (selectedSeries()) {
+                  🔍 Scan {{ selectedSeries() }}
+                } @else {
+                  🔄 Start Progressive Franchise Scan
+                }
               </button>
             </div>
           }
 
-          <!-- Scan Loading state -->
-          @if (scanLoading()) {
+          <!-- Scan Loading state (when 0 results returned yet) -->
+          @if (scanLoading() && scanResults().length === 0) {
             <div class="scan-loading-card">
               <div class="progress-pulse"></div>
               <h3>Franchise Scan in Progress</h3>
               <p class="text-secondary text-sm max-w-sm">
                 Fetching series metadata, compiling missing matches, and
-                cross-referencing catalogs. This takes a moment...
+                cross-referencing catalogs. Results will stream in below...
               </p>
             </div>
           }
@@ -315,7 +418,7 @@ import { RouterModule } from '@angular/router';
             </div>
           }
 
-          <!-- Scan Empty Result State -->
+          <!-- Scan Empty Result State (after scan finished with 0 results) -->
           @if (
             !scanLoading() &&
             scanResults().length === 0 &&
@@ -340,7 +443,6 @@ import { RouterModule } from '@angular/router';
 
           <!-- Scan Empty State for Digital Only Filter -->
           @if (
-            !scanLoading() &&
             scanResults().length > 0 &&
             filteredScanResults().length === 0 &&
             !scanError()
@@ -364,7 +466,7 @@ import { RouterModule } from '@angular/router';
           }
 
           <!-- Scan Results Grid -->
-          @if (!scanLoading() && filteredScanResults().length > 0) {
+          @if (filteredScanResults().length > 0) {
             <div
               class="scan-results-header mb-md flex justify-between items-center"
             >
@@ -1185,6 +1287,24 @@ import { RouterModule } from '@angular/router';
         border-radius: var(--radius-lg);
         border: 1px dashed var(--m3-outline-variant);
       }
+      .series-discovery-controls {
+        background: var(--m3-surface-container);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-lg);
+      }
+      .progress-bar-track {
+        height: 8px;
+        border-radius: 4px;
+        background: var(--m3-surface-container-highest);
+        overflow: hidden;
+        width: 100%;
+      }
+      .progress-bar-fill {
+        height: 100%;
+        background: var(--color-primary, #6366f1);
+        border-radius: 4px;
+        transition: width 0.3s ease;
+      }
       .scan-cta-card {
         text-align: center;
         padding: var(--spacing-48) var(--spacing-24);
@@ -1644,7 +1764,7 @@ import { RouterModule } from '@angular/router';
     `,
   ],
 })
-export class DiscoveryListComponent implements OnInit {
+export class DiscoveryListComponent implements OnInit, OnDestroy {
   public collectionService = inject(CollectionService);
 
   /** Active navigation tab. Defaults to Game Search ('search'). */
@@ -1664,6 +1784,40 @@ export class DiscoveryListComponent implements OnInit {
   public scanError = signal<string | null>(null);
   public scanPerformed = signal<boolean>(false);
   public selectedScanGameIds = signal<Set<string>>(new Set());
+
+  /** Selected series for targeted franchise scan. Empty string means All Franchises. */
+  public selectedSeries = signal<string>('');
+
+  /** Progress tracking for progressive series scan. */
+  public scanProgress = signal<{
+    scanned: number;
+    total: number;
+    percent: number;
+  } | null>(null);
+
+  /** Whether the user stopped / cancelled the progressive scan early. */
+  public scanCancelled = signal<boolean>(false);
+
+  /** Cancellation flag for the progressive scan loop. */
+  private scanCancelRequested = false;
+
+  /** Tracked franchise series list derived from collected games. */
+  public trackedSeriesList = computed<{ name: string; count: number }[]>(() => {
+    const games =
+      this.collectionService && this.collectionService.games
+        ? this.collectionService.games()
+        : [];
+    const map = new Map<string, number>();
+    for (const g of games) {
+      if (g.canonical_series && g.canonical_series.trim()) {
+        const s = g.canonical_series.trim();
+        map.set(s, (map.get(s) || 0) + 1);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  });
 
   /** Amiibo discovery logic signals. */
   public amiiboResults = signal<AmiiboDiscoveryItem[]>([]);
@@ -1770,6 +1924,13 @@ export class DiscoveryListComponent implements OnInit {
    */
   ngOnInit() {
     this.loadPlatformsGracefully();
+  }
+
+  ngOnDestroy(): void {
+    this.scanCancelRequested = true;
+    if (this.toastTimeout) {
+      clearTimeout(this.toastTimeout);
+    }
   }
 
   /**
@@ -2120,10 +2281,26 @@ export class DiscoveryListComponent implements OnInit {
     }
   }
 
+  onSeriesSelectChange(event: Event) {
+    const val = (event.target as HTMLSelectElement).value || '';
+    this.selectedSeries.set(val);
+  }
+
   /**
-   * Series Discovery functions.
+   * Triggers either a targeted single-franchise scan or a progressive full-library scan.
    */
   async triggerSeriesScan() {
+    if (this.selectedSeries()) {
+      await this.triggerSingleSeriesScan(this.selectedSeries());
+    } else {
+      await this.startProgressiveScan();
+    }
+  }
+
+  /**
+   * Scans a specific single franchise instantly against IGDB.
+   */
+  async triggerSingleSeriesScan(seriesName: string) {
     if (!this.collectionService.scanSeries) {
       console.warn('[DiscoveryList] scanSeries API is not available.');
       return;
@@ -2133,11 +2310,117 @@ export class DiscoveryListComponent implements OnInit {
     this.scanError.set(null);
     this.scanResults.set([]);
     this.selectedScanGameIds.set(new Set());
+    this.scanProgress.set(null);
+    this.scanCancelled.set(false);
     this.scanPerformed.set(false);
 
     try {
-      const results = await firstValueFrom(this.collectionService.scanSeries());
+      const results = await firstValueFrom(
+        this.collectionService.scanSeries({
+          series: seriesName,
+          filterDigital: this.filterDigital(),
+        }),
+      );
       this.scanResults.set(results || []);
+      this.scanPerformed.set(true);
+    } catch (err: unknown) {
+      this.scanError.set(
+        this.extractErrorMessage(
+          err,
+          `Franchise scan for "${seriesName}" failed.`,
+        ),
+      );
+    } finally {
+      this.scanLoading.set(false);
+    }
+  }
+
+  /**
+   * Scans all tracked franchises in the collection progressively in batches.
+   * Renders streaming results live and updates progress percentage.
+   */
+  async startProgressiveScan() {
+    // If scanSeriesPaged is not available (e.g. mock test context), fallback to scanSeries()
+    if (
+      !this.collectionService.scanSeriesPaged &&
+      this.collectionService.scanSeries
+    ) {
+      this.scanLoading.set(true);
+      this.scanError.set(null);
+      this.scanResults.set([]);
+      this.selectedScanGameIds.set(new Set());
+      this.scanPerformed.set(false);
+      try {
+        const results = await firstValueFrom(
+          this.collectionService.scanSeries({
+            filterDigital: this.filterDigital(),
+          }),
+        );
+        this.scanResults.set(results || []);
+        this.scanPerformed.set(true);
+      } catch (err: unknown) {
+        this.scanError.set(
+          this.extractErrorMessage(err, 'Franchise series scan failed.'),
+        );
+      } finally {
+        this.scanLoading.set(false);
+      }
+      return;
+    }
+
+    if (!this.collectionService.scanSeriesPaged) return;
+
+    this.scanLoading.set(true);
+    this.scanError.set(null);
+    this.scanResults.set([]);
+    this.selectedScanGameIds.set(new Set());
+    this.scanCancelled.set(false);
+    this.scanPerformed.set(false);
+    this.scanCancelRequested = false;
+
+    const batchSize = 30;
+    let offset = 0;
+
+    try {
+      while (!this.scanCancelRequested) {
+        const paged = await firstValueFrom(
+          this.collectionService.scanSeriesPaged({
+            offset,
+            limit: batchSize,
+            filterDigital: this.filterDigital(),
+          }),
+        );
+
+        const totalSeries = paged.totalSeries;
+        const newSuggestions = paged.suggestions || [];
+
+        if (newSuggestions.length > 0) {
+          this.scanResults.update((current) => {
+            const seen = new Set(
+              current.map((g) => `${g.id}-${g.platform_id}`),
+            );
+            const toAdd = newSuggestions.filter(
+              (g) => !seen.has(`${g.id}-${g.platform_id}`),
+            );
+            return [...current, ...toAdd];
+          });
+        }
+
+        const scanned = Math.min(offset + batchSize, totalSeries);
+        const percent =
+          totalSeries > 0 ? Math.round((scanned / totalSeries) * 100) : 100;
+        this.scanProgress.set({ scanned, total: totalSeries, percent });
+
+        if (!paged.hasMore || this.scanCancelRequested) {
+          break;
+        }
+
+        offset += batchSize;
+      }
+
+      if (this.scanCancelRequested) {
+        this.scanCancelled.set(true);
+      }
       this.scanPerformed.set(true);
     } catch (err: unknown) {
       this.scanError.set(
@@ -2146,6 +2429,15 @@ export class DiscoveryListComponent implements OnInit {
     } finally {
       this.scanLoading.set(false);
     }
+  }
+
+  /**
+   * Pauses or stops an active progressive scan, keeping all results found so far.
+   */
+  stopScan() {
+    this.scanCancelRequested = true;
+    this.scanLoading.set(false);
+    this.scanCancelled.set(true);
   }
 
   toggleScanSelection(game: ScanSuggestion) {
