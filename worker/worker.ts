@@ -1399,8 +1399,8 @@ Disallow: /
               region:
                 verification.physical_regions.length === 1 &&
                 verification.physical_regions[0] === 'Japan'
-                  ? 'JP'
-                  : 'NA',
+                  ? 'Japan'
+                  : 'USA',
               releases: matchedReleasesFormatted,
               physical_status: verification.physical_status,
               verification_tier: verification.verification_tier,

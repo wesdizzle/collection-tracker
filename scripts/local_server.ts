@@ -957,7 +957,7 @@ export const handleRequest =
               game.igdb_url || null,
               game.summary || null,
               game.genres || null,
-              game.region || 'NA',
+              game.region || 'USA',
               game.collections || null,
               game.franchises || null,
               game.physical_status || 'unverified',
@@ -1006,7 +1006,7 @@ export const handleRequest =
               ).run(
                 virtualId,
                 stableId,
-                game.region || 'NA',
+                game.region || 'USA',
                 game.physical_status === 'digital_only' ? 0 : 1,
               );
             }
@@ -1440,8 +1440,8 @@ export const handleRequest =
                       region:
                         verification.physical_regions.length === 1 &&
                         verification.physical_regions[0] === 'Japan'
-                          ? 'JP'
-                          : 'NA',
+                          ? 'Japan'
+                          : 'USA',
                       release_date: releaseDateStr,
                       releases: matchedReleasesFormatted,
                       physical_status: verification.physical_status,

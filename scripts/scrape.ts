@@ -65,7 +65,11 @@ import {
   normalizeTitleForMatching,
   gameMatchesReleaseWithAlternatives,
 } from './lib/title_matching.js';
-import { extractRegions, extractVariants } from './lib/dat_format.js';
+import {
+  extractRegions,
+  extractVariants,
+  isIgnoredFormatRelease,
+} from './lib/dat_format.js';
 import {
   searchGameyeGame,
   searchGameyeToy,
@@ -295,77 +299,6 @@ function findDbPlatform(
   }
 
   return null;
-}
-
-/**
- * Evaluates whether a release or ROM should be ignored based on file format,
- * digital platform markers, or platform-specific constraints (e.g. Vita .psv/.vpk).
- *
- * @param releaseName The clean release title.
- * @param romName The ROM filename.
- * @param platformId The platform ID.
- * @returns True if the release should be ignored, false otherwise.
- */
-function isIgnoredFormatRelease(
-  releaseName: string,
-  romName: string,
-  platformId?: number,
-): boolean {
-  const romLower = romName.toLowerCase();
-  const relLower = releaseName.toLowerCase();
-  const ext = path.extname(romLower);
-
-  // 1. Unwanted file extensions (global or platform-specific)
-  const badExtensions = [
-    '.tmd',
-    '.tik',
-    '.cert',
-    '.app',
-    '.cetk',
-    '.pkg',
-    '.unh',
-  ];
-  if (badExtensions.includes(ext)) return true;
-
-  // For PS Vita (ID: 33), allow physical .psv card backups and No-Intro .vpk dumps
-  if (platformId === 33 && ext !== '.psv' && ext !== '.vpk') {
-    return true;
-  }
-
-  // 2. Numeric-only rom names or starting with tmd. (common in Wii/Wii U updates)
-  if (romLower.startsWith('tmd.')) return true;
-  const nameWithoutExt = path.parse(romLower).name;
-  if (/^\d+(\.\d+)*$/.test(romLower) || /^\d+(\.\d+)*$/.test(nameWithoutExt)) {
-    return true;
-  }
-
-  // 3. Substring indicators for digital platforms, DLC, updates, virtual console, or emulator-wrapped mini-compilations
-  const ignoredIndicators = [
-    '(psn)',
-    '(xbla)',
-    '(eshop)',
-    '(wiiware)',
-    '(minis)',
-    '(dlc)',
-    '(update)',
-    '(virtual console)',
-    '(sega genesis mini)',
-    '(mega drive mini)',
-    '(nintendo classic mini)',
-    '(classic mini)',
-    '(anniversary collection)',
-    '(evercade)',
-  ];
-  if (
-    ignoredIndicators.some(
-      (indicator) =>
-        relLower.includes(indicator) || romLower.includes(indicator),
-    )
-  ) {
-    return true;
-  }
-
-  return false;
 }
 
 /**

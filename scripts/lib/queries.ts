@@ -194,10 +194,15 @@ export const BUNDLED_GAMES_BY_PARENT_QUERY = `
 
 export const PLATFORMS_LIST_QUERY = `
     SELECT p.* FROM platforms p 
-    WHERE EXISTS (
-        SELECT 1 FROM games g 
-        WHERE g.platform_id = p.id 
-        OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
+    WHERE (
+        EXISTS (
+            SELECT 1 FROM games g 
+            WHERE g.platform_id = p.id 
+            OR g.platform_id IN (SELECT id FROM platforms WHERE parent_platform_id = p.id)
+        )
+        OR EXISTS (
+            SELECT 1 FROM canonical_releases cr WHERE cr.platform_id = p.id
+        )
     )
     AND p.parent_platform_id IS NULL
     ORDER BY p.launch_date ASC, p.id ASC

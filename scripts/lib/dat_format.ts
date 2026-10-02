@@ -521,6 +521,7 @@ export function isIgnoredFormatRelease(
   platformId?: number,
 ): boolean {
   const romLower = romName.toLowerCase();
+  const relLower = releaseName.toLowerCase();
   const lastDot = romLower.lastIndexOf('.');
   const ext = lastDot !== -1 ? romLower.substring(lastDot) : '';
 
@@ -540,6 +541,38 @@ export function isIgnoredFormatRelease(
   }
 
   if (romLower.startsWith('tmd.')) return true;
+  const nameWithoutExt =
+    lastDot !== -1 ? romLower.substring(0, lastDot) : romLower;
+  if (/^\d+(\.\d+)*$/.test(romLower) || /^\d+(\.\d+)*$/.test(nameWithoutExt)) {
+    return true;
+  }
+
+  const combined = `${relLower} ${romLower}`;
+  const parentheticals = combined.match(/\(([^)]+)\)/g);
+  if (parentheticals) {
+    for (const rawParen of parentheticals) {
+      const inner = rawParen.slice(1, -1).trim();
+      if (
+        /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|namco museum archives|capcom town|famicombox|pokemon box|ds broadcast|manual)\b/i.test(
+          inner,
+        ) ||
+        inner.includes('game & watch') ||
+        /\b(?:anniversary|legacy|advance|marvel maximum|disney afternoon|namcot|metal gear solid|kirby's dream|sonic classic|sonic mega|seiken densetsu|20 shuunen special|super mario|zelda|bomberman)\s+collection\b/i.test(
+          inner,
+        ) ||
+        /\bcollection\s+of\s+(?:mana|saga)\b/i.test(inner)
+      ) {
+        return true;
+      }
+      if (
+        platformId !== undefined &&
+        platformId !== 20 &&
+        /\b(?:gamecube(?:\s+edition)?|animal crossing)\b/i.test(inner)
+      ) {
+        return true;
+      }
+    }
+  }
 
   return false;
 }
