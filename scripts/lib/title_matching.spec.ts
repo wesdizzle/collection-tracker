@@ -621,5 +621,62 @@ describe('Title Matching Strategies', () => {
         'USA',
       ),
     ).toBe(false);
+
+    // Cross-franchise generic segment matches must be rejected
+    expect(
+      titlesMatch(
+        'BioShock: The Collection',
+        'LEGO Marvel Collection',
+        'LEGO Marvel Collection (USA)',
+        34,
+      ),
+    ).toBe(false);
+
+    // Franchise sequel vs base game segmentation must be rejected
+    expect(
+      titlesMatch(
+        "Assassin's Creed: Brotherhood",
+        "Assassin's Creed",
+        "Assassin's Creed (USA)",
+        48,
+      ),
+    ).toBe(false);
+
+    expect(
+      titlesMatch(
+        "Assassin's Creed",
+        "Assassin's Creed - Revelations",
+        "Assassin's Creed - Revelations (USA)",
+        48,
+      ),
+    ).toBe(false);
+
+    // Valid edition/descriptor segmentation must continue to match
+    expect(
+      titlesMatch(
+        'Tomb Raider II',
+        'Tomb Raider II - Starring Lara Croft',
+        'Tomb Raider II - Starring Lara Croft (USA)',
+        7,
+      ),
+    ).toBe(true);
+
+    expect(
+      titlesMatch(
+        'Super Mario All-Stars: Limited Edition',
+        'Super Mario All-Stars',
+        'Super Mario All-Stars (USA)',
+        14,
+      ),
+    ).toBe(true);
+
+    expect(
+      titlesMatch(
+        "Assassin's Creed Chronicles",
+        "Assassin's Creed Chronicles: Trilogy Pack",
+        "Assassin's Creed Chronicles (USA)",
+        49,
+      ),
+    ).toBe(true);
   });
 });

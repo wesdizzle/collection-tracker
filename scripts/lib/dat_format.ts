@@ -287,7 +287,7 @@ export function isTrueEditionOrRevisionVariant(content: string): boolean {
 
   // 1. Revisions, versions, firmware, and Sony/Nintendo serial/build codes
   if (
-    /^(?:rev\s*[a-z0-9.]+|v\d+(?:\.\d+)*[a-z]?|alt(?:\s+\d+)?|fw\d+(?:\.\d+)*|cusa-\d+|second printing)$/i.test(
+    /^(?:rev\s*(?:[a-z]|\d+(?:\.\d+)*)\b|v\d+(?:\.\d+)*[a-z]?|alt(?:\s+\d+)?|fw\d+(?:\.\d+)*|cusa-\d+|second printing)$/i.test(
       lower,
     )
   ) {

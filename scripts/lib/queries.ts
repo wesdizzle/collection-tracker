@@ -14,7 +14,9 @@ import {
 } from './dat_format.js';
 import {
   BOX_SET_DEFINITIONS,
+  BOX_SET_DISC_LABELS,
   BOX_SET_ROM_GROUPING_MAP,
+  BoxSetCompanionSpec,
   SUPERSEDED_RELEASE_PAIRS,
   normalizeForLabelMatch,
 } from './special_labels.js';
@@ -412,6 +414,171 @@ export const PLATFORM_RELEASES_FOR_COMPANION_QUERY = `
     ORDER BY r.rom_name ASC
 `;
 
+export const TARGETED_COMPANION_BY_CRC_QUERY = `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           r.backup_status, r.ownership_status, r.release_date,
+           COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+           g.title as game_title, g.platform_id
+    FROM game_releases r
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE r.rom_crc = ? AND r.id != ?
+`;
+
+export const TARGETED_COMPANION_BY_GAME_ID_QUERY = `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           r.backup_status, r.ownership_status, r.release_date,
+           COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+           g.title as game_title, g.platform_id
+    FROM game_releases r
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE g.stable_id = ? AND r.rom_name IS NOT NULL
+`;
+
+export const TARGETED_COMPANION_BY_TITLE_QUERY = `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           r.backup_status, r.ownership_status, r.release_date,
+           COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+           g.title as game_title, g.platform_id
+    FROM game_releases r
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE g.platform_id = ? AND g.title = ? AND r.rom_name IS NOT NULL
+`;
+
+/**
+ * Returns any related game titles that should be queried for companion candidate releases
+ * (e.g. standalone game titles for box sets, box set titles for standalone games, or Superseded pairs).
+ */
+export function getRelatedGameTitlesForCompanion(game: {
+  stable_id?: number;
+  title?: string;
+  platform_id?: number;
+  rom_name?: string | null;
+}): string[] {
+  if (!game || !game.platform_id) return [];
+  const relatedTitles = new Set<string>();
+  const romLower = (game.rom_name || '').toLowerCase();
+  const normRomTitle = normalizeForLabelMatch(
+    game.rom_name || game.title || '',
+  );
+  const normGameTitle = normalizeForLabelMatch(game.title || '');
+
+  for (const pair of SUPERSEDED_RELEASE_PAIRS) {
+    if (pair.platformId !== game.platform_id) continue;
+    const isSuperset =
+      (pair.supersetStableId !== undefined &&
+        pair.supersetStableId === game.stable_id &&
+        (!pair.supersetRomMarker ||
+          romLower.includes(pair.supersetRomMarker))) ||
+      normRomTitle === pair.supersetNormalizedTitle ||
+      normGameTitle === pair.supersetNormalizedTitle;
+    if (isSuperset) relatedTitles.add(pair.originalDisplayTitle);
+
+    const isOriginal =
+      (pair.originalStableId !== undefined &&
+        pair.originalStableId === game.stable_id) ||
+      normRomTitle === pair.originalNormalizedTitle ||
+      normGameTitle === pair.originalNormalizedTitle;
+    if (isOriginal) relatedTitles.add(pair.supersetDisplayTitle);
+  }
+
+  for (const boxSet of BOX_SET_DEFINITIONS) {
+    if (boxSet.platformId !== game.platform_id) continue;
+    if (normGameTitle === boxSet.boxSetNormTitle) {
+      for (const disc of boxSet.discs) {
+        relatedTitles.add(disc.standaloneDisplayTitle);
+      }
+    }
+    const matchesDisc = boxSet.discs.some(
+      (d) =>
+        d.standaloneNormTitle === normGameTitle ||
+        d.standaloneNormTitle === normRomTitle,
+    );
+    if (matchesDisc) {
+      relatedTitles.add(boxSet.boxSetDisplayTitle);
+    }
+  }
+
+  return Array.from(relatedTitles);
+}
+
+/**
+ * Returns any related game stable_ids that should be queried for companion candidate releases
+ * (e.g. partner games in Superseded pairs such as Oblivion vs Oblivion GOTY).
+ */
+export function getRelatedGameIdsForCompanion(game: {
+  stable_id?: number;
+  title?: string;
+  platform_id?: number;
+  rom_name?: string | null;
+}): number[] {
+  if (!game || !game.platform_id) return [];
+  const relatedStableIds = new Set<number>();
+  const romLower = (game.rom_name || '').toLowerCase();
+  const normRomTitle = normalizeForLabelMatch(
+    game.rom_name || game.title || '',
+  );
+  const normGameTitle = normalizeForLabelMatch(game.title || '');
+
+  for (const pair of SUPERSEDED_RELEASE_PAIRS) {
+    if (pair.platformId !== game.platform_id) continue;
+
+    const isSuperset =
+      (pair.supersetStableId !== undefined &&
+        pair.supersetStableId === game.stable_id &&
+        (!pair.supersetRomMarker ||
+          romLower.includes(pair.supersetRomMarker))) ||
+      normRomTitle === pair.supersetNormalizedTitle ||
+      normGameTitle === pair.supersetNormalizedTitle;
+
+    if (isSuperset && pair.originalStableId) {
+      relatedStableIds.add(pair.originalStableId);
+    }
+
+    const isOriginal =
+      (pair.originalStableId !== undefined &&
+        pair.originalStableId === game.stable_id) ||
+      normRomTitle === pair.originalNormalizedTitle ||
+      normGameTitle === pair.originalNormalizedTitle;
+
+    if (isOriginal && pair.supersetStableId) {
+      relatedStableIds.add(pair.supersetStableId);
+    }
+  }
+
+  return Array.from(relatedStableIds);
+}
+
+/**
+ * Checks if a game release row matches a box set disc specification.
+ */
+export function matchesBoxSetDiscSpec(
+  rel: Record<string, unknown>,
+  spec: BoxSetCompanionSpec,
+): boolean {
+  const rName = String(rel['rom_name'] || '');
+  const rNameNorm = normalizeForLabelMatch(rName);
+  const rNameLower = rName.toLowerCase();
+  const alsoReleasedAs = String(rel['also_released_as'] || '');
+  const alsoTokens = alsoReleasedAs
+    .split(',')
+    .map((s) => normalizeForLabelMatch(s))
+    .filter(Boolean);
+
+  if (
+    spec.companionRomFilter &&
+    !rNameLower.includes(spec.companionRomFilter.toLowerCase())
+  ) {
+    return false;
+  }
+
+  if (rNameNorm === spec.standaloneNormTitle) return true;
+  if (alsoTokens.includes(spec.standaloneNormTitle)) return true;
+  if (normalizeForLabelMatch(alsoReleasedAs) === spec.standaloneNormTitle)
+    return true;
+
+  return false;
+}
+
 export interface CompanionDiscCandidateRow {
   id: string;
   game_id: number;
@@ -490,7 +657,12 @@ export function enrichGameDetailWithCompanionDiscs(
   // 1. Attach human-readable disc_label to each release row
   for (const rel of game.releases) {
     const rName = (rel['rom_name'] as string | null) || null;
-    rel['disc_label'] = extractDiscLabel(rName);
+    const rNameWithoutExt = (rName || '')
+      .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
+      .trim()
+      .toLowerCase();
+    rel['disc_label'] =
+      BOX_SET_DISC_LABELS[rNameWithoutExt] || extractDiscLabel(rName);
   }
 
   const romLower = (game.rom_name || '').toLowerCase();
@@ -606,6 +778,15 @@ export function enrichGameDetailWithCompanionDiscs(
     if (normGameTitle !== boxSet.boxSetNormTitle) continue;
 
     for (const spec of boxSet.discs) {
+      // First, label any concrete discs already inside game.releases
+      for (const rel of game.releases) {
+        if (matchesBoxSetDiscSpec(rel, spec)) {
+          if (!rel['disc_label'] || rel['disc_label'] === 'Disc') {
+            rel['disc_label'] = spec.discLabel;
+          }
+        }
+      }
+
       // Find standalone game's best matching release in this region
       const candidates = platformReleases.filter((cand) => {
         if (cand.game_id === game.stable_id) return false;
@@ -676,10 +857,9 @@ export function enrichGameDetailWithCompanionDiscs(
           });
         }
       } else {
-        // For re-homed discs already inside game.releases, attach a link to the standalone game release
+        // For concrete discs already inside game.releases, attach a link to the standalone game release
         for (const rel of game.releases) {
-          const relNorm = normalizeForLabelMatch(String(rel['rom_name'] || ''));
-          if (relNorm === spec.standaloneNormTitle) {
+          if (matchesBoxSetDiscSpec(rel, spec)) {
             rel['companion_game_id'] = bestStandalone.id;
             rel['companion_game_title'] = spec.standaloneDisplayTitle;
           }
@@ -788,9 +968,10 @@ export function enrichGameDetailWithCompanionDiscs(
       for (const cand of boxSetMatches) {
         const regKey = `${cand.game_id}::${(cand.region || '').toLowerCase()}`;
         const existing = byRegion.get(regKey);
-        const candMatchesStandalone =
-          normalizeForLabelMatch(cand.rom_name || '') ===
-          matchingSpec.standaloneNormTitle;
+        const candMatchesStandalone = matchesBoxSetDiscSpec(
+          cand as unknown as Record<string, unknown>,
+          matchingSpec,
+        );
         if (!existing || candMatchesStandalone) {
           byRegion.set(regKey, cand);
         }

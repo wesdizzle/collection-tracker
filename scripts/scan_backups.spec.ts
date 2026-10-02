@@ -505,5 +505,58 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       expect(cleanNameMatch).not.toBeNull();
       expect(cleanNameMatch?.id).toBe('rel-smw');
     });
+
+    it('should identify identical CRC matches across standalone and box set releases', () => {
+      const releasesWithCrc: ReleaseRow[] = [
+        {
+          id: 'rel-infamous-2-standalone',
+          game_id: 2456,
+          title: 'Infamous 2',
+          rom_name: 'Infamous 2 (USA) (En,Fr,Es,Pt) (v02.00).iso',
+          rom_crc: '581c29e5',
+          stable_id: 2456,
+          region: 'USA',
+        },
+        {
+          id: 'rel-infamous-2-collection',
+          game_id: 10004,
+          title: 'Infamous Collection',
+          rom_name: 'Infamous 2 (USA) (En,Fr,Es,Pt) (v02.00).iso',
+          rom_crc: '581c29e5',
+          stable_id: 10004,
+          region: 'USA',
+        },
+        {
+          id: 'rel-infamous-2-v1',
+          game_id: 2456,
+          title: 'Infamous 2',
+          rom_name: 'Infamous 2 (USA) (En,Fr,Es,Pt) (v01.00).iso',
+          rom_crc: '529d56f2',
+          stable_id: 2456,
+          region: 'USA',
+        },
+      ];
+
+      const match = findBestReleaseMatch(
+        'Infamous 2 (USA) (En,Fr,Es,Pt) (v02.00).iso',
+        releasesWithCrc,
+      );
+      expect(match).not.toBeNull();
+      expect(match?.rom_crc).toBe('581c29e5');
+
+      // Shared CRC propagation test
+      const matchingCrcReleases = releasesWithCrc.filter(
+        (r) => r.rom_crc === match?.rom_crc,
+      );
+      expect(matchingCrcReleases.length).toBe(2);
+      expect(matchingCrcReleases.map((r) => r.id)).toEqual([
+        'rel-infamous-2-standalone',
+        'rel-infamous-2-collection',
+      ]);
+      // Distinct revision with different CRC is NOT matched
+      expect(
+        matchingCrcReleases.some((r) => r.id === 'rel-infamous-2-v1'),
+      ).toBe(false);
+    });
   });
 });

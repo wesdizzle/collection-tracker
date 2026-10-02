@@ -1,3 +1,5 @@
+import { isTrueEditionOrRevisionVariant } from './dat_format.js';
+
 /**
  * @file title_matching.ts
  * @description Refined title normalization and matching utility library.
@@ -358,6 +360,15 @@ function matchAlternative(
     }
   }
 
+  // 3. Enforce boundary check to prevent matching a LEGO game to a non-LEGO game (or vice versa).
+  const isLegoGame = /\blego\b/i.test(gTitle);
+  const isLegoRelease =
+    /\blego\b/i.test(rAlt) ||
+    (rawReleaseName && /\blego\b/i.test(rawReleaseName));
+  if (isLegoGame !== !!isLegoRelease) {
+    return false;
+  }
+
   // Strategy 1: Exact match on normalized strings (including Japanese ou/ō romanization equivalence)
   if (
     gNorm === rNorm ||
@@ -415,8 +426,74 @@ function matchAlternative(
     .filter(Boolean);
   const gSegmentNorms = gSegments.map((s) => normalizeTitleForMatching(s));
 
-  if (rSegmentNorms.includes(gNorm) || gSegmentNorms.includes(rNorm)) {
-    return true;
+  const GENERIC_DESCRIPTOR_NORMS = new Set([
+    'collection',
+    'trilogy',
+    'anthology',
+    'pack',
+    'bundle',
+    'remastered',
+    'edition',
+    'bonus',
+    'bonusdisc',
+    'disc',
+    'game',
+    'saga',
+    'compilation',
+  ]);
+
+  const isAcronymOf = (acronym: string, fullTitle: string): boolean => {
+    const cleanAcro = acronym.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (cleanAcro.length < 2 || cleanAcro.length > 6) return false;
+    const words = fullTitle.split(/\s+/).filter(Boolean);
+    const initials = words.map((w) => w[0].toLowerCase()).join('');
+    return initials === cleanAcro || initials.startsWith(cleanAcro);
+  };
+
+  const isDescriptorSegment = (
+    segment: string,
+    fullTitle?: string,
+  ): boolean => {
+    const norm = normalizeTitleForMatching(segment);
+    if (!norm) return true;
+    const lower = segment.toLowerCase().trim();
+    if (fullTitle && isAcronymOf(segment, fullTitle)) {
+      return true;
+    }
+    return (
+      isTrueEditionOrRevisionVariant(lower) ||
+      /^(?:starring\s+.*|kawasaki.*|\d+\s+games\s+in\s+.*|vol(?:ume)?\s*\d+|pack|trilogy\s*pack|collection|anthology|remaster(?:ed)?|hd(?:\s*remaster(?:ed)?)?|bonus\s*content.*|bonus\s*disc.*)$/i.test(
+        lower,
+      )
+    );
+  };
+
+  // Case A: The release contains the full game title as one of its segments, and all remaining segments are edition/descriptor labels.
+  if (
+    !GENERIC_DESCRIPTOR_NORMS.has(gNorm) &&
+    gNorm.length >= 4 &&
+    rSegmentNorms.includes(gNorm)
+  ) {
+    const unMatchedSegments = rSegments.filter(
+      (s) => normalizeTitleForMatching(s) !== gNorm,
+    );
+    if (unMatchedSegments.every((s) => isDescriptorSegment(s, gTitle))) {
+      return true;
+    }
+  }
+
+  // Case B: The game contains the full release title as one of its segments, and all remaining segments are edition/descriptor labels.
+  if (
+    !GENERIC_DESCRIPTOR_NORMS.has(rNorm) &&
+    rNorm.length >= 4 &&
+    gSegmentNorms.includes(rNorm)
+  ) {
+    const unMatchedSegments = gSegments.filter(
+      (s) => normalizeTitleForMatching(s) !== rNorm,
+    );
+    if (unMatchedSegments.every((s) => isDescriptorSegment(s, rAlt))) {
+      return true;
+    }
   }
 
   // Strategy 2.5: Swapped segments matching (e.g. "Super Mario World: Super Mario Advance 2" vs "Super Mario Advance 2 - Super Mario World")

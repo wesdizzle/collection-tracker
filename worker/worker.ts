@@ -28,7 +28,11 @@ import {
   GAMES_ORDER_BY,
   getRomGroupingKey,
   PLATFORM_MAP,
-  PLATFORM_RELEASES_FOR_COMPANION_QUERY,
+  TARGETED_COMPANION_BY_CRC_QUERY,
+  TARGETED_COMPANION_BY_GAME_ID_QUERY,
+  TARGETED_COMPANION_BY_TITLE_QUERY,
+  getRelatedGameIdsForCompanion,
+  getRelatedGameTitlesForCompanion,
   CompanionDiscCandidateRow,
   SharedBackupReleaseLink,
   enrichGameDetailWithCompanionDiscs,
@@ -511,15 +515,66 @@ Disallow: /
         }
 
         if (game.platform_id) {
-          const { results: platformReleases } = await env.DB.prepare(
-            PLATFORM_RELEASES_FOR_COMPANION_QUERY,
-          )
-            .bind(game.platform_id)
-            .all();
-          enrichGameDetailWithCompanionDiscs(
-            game,
-            (platformReleases || []) as unknown as CompanionDiscCandidateRow[],
-          );
+          const candidateReleases: CompanionDiscCandidateRow[] = [];
+          const seenCandidateIds = new Set<string>();
+
+          // 1. Target companion releases by rom_crc across all releases in this game
+          const releasesToCheck =
+            game.releases && game.releases.length > 0 ? game.releases : [game];
+          for (const rel of releasesToCheck) {
+            const relCrc = (rel['rom_crc'] as string | null) || null;
+            const relId = (rel['id'] as string | null) || null;
+            if (relCrc) {
+              const { results: crcRows } = await env.DB.prepare(
+                TARGETED_COMPANION_BY_CRC_QUERY,
+              )
+                .bind(relCrc, relId || '')
+                .all();
+              for (const r of (crcRows ||
+                []) as unknown as CompanionDiscCandidateRow[]) {
+                if (!seenCandidateIds.has(r.id)) {
+                  seenCandidateIds.add(r.id);
+                  candidateReleases.push(r);
+                }
+              }
+            }
+          }
+
+          // 2. Target companion releases by related game IDs (e.g. Superseded pairs)
+          const relatedIds = getRelatedGameIdsForCompanion(game);
+          for (const relStableId of relatedIds) {
+            const { results: idRows } = await env.DB.prepare(
+              TARGETED_COMPANION_BY_GAME_ID_QUERY,
+            )
+              .bind(relStableId)
+              .all();
+            for (const r of (idRows ||
+              []) as unknown as CompanionDiscCandidateRow[]) {
+              if (!seenCandidateIds.has(r.id)) {
+                seenCandidateIds.add(r.id);
+                candidateReleases.push(r);
+              }
+            }
+          }
+
+          // 3. Target companion releases by related game titles (e.g. Box sets and standalone counterparts)
+          const relatedTitles = getRelatedGameTitlesForCompanion(game);
+          for (const title of relatedTitles) {
+            const { results: titleRows } = await env.DB.prepare(
+              TARGETED_COMPANION_BY_TITLE_QUERY,
+            )
+              .bind(game.platform_id, title)
+              .all();
+            for (const r of (titleRows ||
+              []) as unknown as CompanionDiscCandidateRow[]) {
+              if (!seenCandidateIds.has(r.id)) {
+                seenCandidateIds.add(r.id);
+                candidateReleases.push(r);
+              }
+            }
+          }
+
+          enrichGameDetailWithCompanionDiscs(game, candidateReleases);
         }
 
         if (game.stable_id) {

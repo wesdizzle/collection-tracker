@@ -782,7 +782,13 @@ export const BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
   'infamous (usa) (en,fr,es) (v02.00)': 'multi:infamous collection (usa)',
   'infamous 2 (usa) (en,fr,es,pt) (v02.00)': 'multi:infamous collection (usa)',
 
-  // 3. Metal Gear Solid: The Legacy Collection (PS3, USA / Europe / Japan)
+  // 3. Killzone Trilogy (PS3, USA)
+  'killzone trilogy (usa) (killzone + killzone 2)':
+    'multi:killzone trilogy (usa)',
+  'killzone 3 (usa, brazil) (en,ja,fr,de,es,it,nl,pt,sv,no,da,fi,zh,ko,pl,ru,tr)':
+    'multi:killzone trilogy (usa)',
+
+  // 4. Metal Gear Solid: The Legacy Collection (PS3, USA / Europe / Japan)
   'metal gear solid 4 - guns of the patriots (usa) (en,fr,de,es,it) (v02.00)':
     'multi:metal gear solid - the legacy collection 1987-2012 (usa)',
   'metal gear solid 4 - guns of the patriots (europe) (en,fr,de,es,it) (v02.00)':
@@ -790,14 +796,42 @@ export const BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
   'metal gear solid 4 - guns of the patriots (japan) (v02.01)':
     'multi:metal gear solid - the legacy collection 1987-2012 (japan)',
 
-  // 4. Mass Effect Trilogy (Xbox 360, Italy)
+  // 5. Mass Effect Trilogy (PS3, USA & Europe)
+  'mass effect (usa, asia) (en,fr,es)': 'multi:mass effect trilogy (usa)',
+  'mass effect 2 (usa, asia) (en,fr,de,es,it,ru)':
+    'multi:mass effect trilogy (usa)',
+  'mass effect 3 (usa, asia) (en,ja,fr,de,es,it,pl,ru)':
+    'multi:mass effect trilogy (usa)',
+  'mass effect (europe) (en,fr,de,es,it)': 'multi:mass effect trilogy (europe)',
+  'mass effect 2 (europe, australia) (en,fr,de,es,it,ru)':
+    'multi:mass effect trilogy (europe)',
+  'mass effect 3 (europe) (en,ja,fr,de,es,it,pl,ru)':
+    'multi:mass effect trilogy (europe)',
+
+  // 6. Mass Effect Trilogy (Xbox 360, Italy & USA)
+  'mass effect (usa, europe) (en,es,pl) (rev 1)':
+    'multi:mass effect trilogy (usa)',
+  'mass effect 2 (usa, europe) (en,es) (disc 1)':
+    'multi:mass effect trilogy (usa)',
+  'mass effect 2 (usa, europe) (en,es) (disc 2)':
+    'multi:mass effect trilogy (usa)',
+  'mass effect 3 (world) (en,ja,fr,de,es,it,pl,ru) (disc 1)':
+    'multi:mass effect trilogy (usa)',
+  'mass effect 3 (world) (en,ja,fr,de,es,it,pl,ru) (disc 2)':
+    'multi:mass effect trilogy (usa)',
   'mass effect (italy) (rev 1)': 'multi:mass effect trilogy (italy)',
   'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 1) (rev 1)':
     'multi:mass effect trilogy (italy)',
   'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 2) (rev 1)':
     'multi:mass effect trilogy (italy)',
 
-  // 5. Assassin's Creed: Heritage Collection (Xbox 360, Europe)
+  // 7. Assassin's Creed: Heritage Collection (Xbox 360, Europe)
+  "assassin's creed (usa, europe) (en,fr,de,es,it) (rev 1)":
+    "multi:assassin's creed - heritage collection (europe)",
+  "assassin's creed - brotherhood (usa, europe) (en,fr,de,es,it,nl,pt,sv,no,da)":
+    "multi:assassin's creed - heritage collection (europe)",
+  "assassin's creed - revelations (usa, europe) (en,fr,de,es,it,nl,pt,sv,no,da)":
+    "multi:assassin's creed - heritage collection (europe)",
   "assassin's creed ii - game of the year edition (europe) (en,fr,de,es,it,nl,sv,no,da)":
     "multi:assassin's creed - heritage collection (europe)",
   "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 1) (rev 1)":
@@ -811,17 +845,24 @@ export const BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
   "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 2) (rev 1)":
     "multi:assassin's creed - heritage collection (europe) (pl,ru)",
 
-  // 6. Grand Theft Auto: The Trilogy (PS2, USA)
+  // 8. Grand Theft Auto: The Trilogy (PS2, USA)
+  'grand theft auto iii (usa, canada)':
+    'multi:grand theft auto - the trilogy (usa)',
+  'grand theft auto - vice city (usa, canada) (v3.00)':
+    'multi:grand theft auto - the trilogy (usa)',
   'grand theft auto - vice city (usa) (v4.00)':
     'multi:grand theft auto - the trilogy (usa)',
   'grand theft auto - san andreas (usa) (v3.00) (rev 1)':
     'multi:grand theft auto - the trilogy (usa)',
 
-  // 7. Grand Theft Auto: The Trilogy (Xbox, USA / Europe)
+  // 9. Grand Theft Auto: The Trilogy (Xbox, USA / Europe)
+  'grand theft auto iii (usa)': 'multi:grand theft auto - the trilogy (usa)',
   'grand theft auto - vice city (usa) (rev 1)':
     'multi:grand theft auto - the trilogy (usa)',
   'grand theft auto - san andreas (usa) (en,es) (rev 1)':
     'multi:grand theft auto - the trilogy (usa)',
+  'grand theft auto iii (europe) (en,fr,de,es,it)':
+    'multi:grand theft auto - the trilogy (europe)',
   'grand theft auto - vice city (europe) (en,fr,es,it) (rev 1)':
     'multi:grand theft auto - the trilogy (europe)',
   'grand theft auto - san andreas (europe) (en,fr,de,es,it) (rev 1)':
@@ -1002,7 +1043,7 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
         discLabel: 'Disc 2 — Killzone 3',
         standaloneNormTitle: 'killzone3',
         standaloneDisplayTitle: 'Killzone 3',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
       },
     ],
   },
@@ -1031,16 +1072,22 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     boxSetDisplayTitle: 'Mass Effect Trilogy',
     discs: [
       {
+        discLabel: 'Disc 1 — Mass Effect',
+        standaloneNormTitle: 'masseffect',
+        standaloneDisplayTitle: 'Mass Effect',
+        isVirtualCompanion: false,
+      },
+      {
         discLabel: 'Disc 2 — Mass Effect 2',
         standaloneNormTitle: 'masseffect2',
         standaloneDisplayTitle: 'Mass Effect 2',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
       },
       {
         discLabel: 'Disc 3 — Mass Effect 3',
         standaloneNormTitle: 'masseffect3',
         standaloneDisplayTitle: 'Mass Effect 3',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
       },
     ],
   },
@@ -1059,28 +1106,28 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
         discLabel: 'Disc 2 — Mass Effect 2 (Disc 1)',
         standaloneNormTitle: 'masseffect2',
         standaloneDisplayTitle: 'Mass Effect 2',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
         companionRomFilter: '(disc 1)',
       },
       {
         discLabel: 'Disc 3 — Mass Effect 2 (Disc 2)',
         standaloneNormTitle: 'masseffect2',
         standaloneDisplayTitle: 'Mass Effect 2',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
         companionRomFilter: '(disc 2)',
       },
       {
         discLabel: 'Disc 4 — Mass Effect 3 (Disc 1)',
         standaloneNormTitle: 'masseffect3',
         standaloneDisplayTitle: 'Mass Effect 3',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
         companionRomFilter: '(disc 1)',
       },
       {
         discLabel: 'Disc 5 — Mass Effect 3 (Disc 2)',
         standaloneNormTitle: 'masseffect3',
         standaloneDisplayTitle: 'Mass Effect 3',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
         companionRomFilter: '(disc 2)',
       },
     ],
@@ -1157,7 +1204,7 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
         discLabel: "Disc 1 — Assassin's Creed",
         standaloneNormTitle: 'assassinscreed',
         standaloneDisplayTitle: "Assassin's Creed",
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
       },
       {
         discLabel: "Disc 2 — Assassin's Creed II (GOTY)",
@@ -1169,13 +1216,13 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
         discLabel: "Disc 3 — Assassin's Creed: Brotherhood",
         standaloneNormTitle: 'assassinscreedbrotherhood',
         standaloneDisplayTitle: "Assassin's Creed Brotherhood",
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
       },
       {
         discLabel: "Disc 4 — Assassin's Creed: Revelations",
         standaloneNormTitle: 'assassinscreedrevelations',
         standaloneDisplayTitle: "Assassin's Creed Revelations",
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
       },
       {
         discLabel: "Disc 5 — Assassin's Creed III (Disc 1) (Rev 1)",
@@ -1194,7 +1241,7 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
         discLabel: 'Disc 1 — Grand Theft Auto III',
         standaloneNormTitle: 'grandtheftautoiii',
         standaloneDisplayTitle: 'Grand Theft Auto III',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
       },
       {
         discLabel: 'Disc 2 — Grand Theft Auto: Vice City',
@@ -1206,7 +1253,7 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
         discLabel: 'Disc 3 — Grand Theft Auto: San Andreas (v3.00)',
         standaloneNormTitle: 'grandtheftautosanandreas',
         standaloneDisplayTitle: 'Grand Theft Auto: San Andreas',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
         companionRomFilter: '(v3.00)',
       },
     ],
@@ -1220,7 +1267,7 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
         discLabel: 'Disc 1 — Grand Theft Auto III',
         standaloneNormTitle: 'grandtheftautoiii',
         standaloneDisplayTitle: 'Grand Theft Auto III',
-        isVirtualCompanion: true,
+        isVirtualCompanion: false,
       },
       {
         discLabel: 'Disc 2 — Grand Theft Auto: Vice City (Rev 1)',

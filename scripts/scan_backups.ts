@@ -46,6 +46,7 @@ export interface ReleaseRow {
   region: string | null;
   ownership_status?: number;
   variants?: string | null;
+  rom_crc?: string | null;
 }
 
 /**
@@ -915,7 +916,7 @@ function main(): void {
     const dbReleases = db
       .prepare(
         `
-      SELECT r.id, r.game_id, g.title, r.rom_name, g.stable_id, r.region, r.ownership_status, r.variants
+      SELECT r.id, r.game_id, g.title, r.rom_name, r.rom_crc, g.stable_id, r.region, r.ownership_status, r.variants
       FROM game_releases r
       JOIN games g ON r.game_id = g.stable_id
       WHERE g.platform_id IN (${placeholders}) AND r.rom_name IS NOT NULL
@@ -950,10 +951,29 @@ function main(): void {
         console.log(
           `  [Match Found] "${filename}" -> "${matched.title}" (${matched.rom_name})`,
         );
-        matchesToUpdate.push(matched.id);
-        allMatchedReleaseIds.add(matched.id);
-        platformStats[platformDisplayName].matched++;
-        totalMatchedReleases++;
+        if (!allMatchedReleaseIds.has(matched.id)) {
+          matchesToUpdate.push(matched.id);
+          allMatchedReleaseIds.add(matched.id);
+          platformStats[platformDisplayName].matched++;
+          totalMatchedReleases++;
+        }
+
+        // Propagate to all releases on this platform sharing the exact same rom_crc
+        if (matched.rom_crc) {
+          const identicalHashReleases = dbReleases.filter(
+            (r) =>
+              r.rom_crc === matched.rom_crc && !allMatchedReleaseIds.has(r.id),
+          );
+          for (const dup of identicalHashReleases) {
+            console.log(
+              `  [Identical CRC Match] "${matched.rom_crc}" -> "${dup.title}" (${dup.rom_name})`,
+            );
+            matchesToUpdate.push(dup.id);
+            allMatchedReleaseIds.add(dup.id);
+            platformStats[platformDisplayName].matched++;
+            totalMatchedReleases++;
+          }
+        }
       }
       const matchedRelease = !!matched;
 

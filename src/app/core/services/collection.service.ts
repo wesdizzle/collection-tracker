@@ -288,21 +288,50 @@ export class CollectionService {
           (g) => g.id === id || String(g.stable_id) === id || g.game_id === id,
         );
         if (cached) {
+          let releases = cached.releases;
+          if (!releases || releases.length === 0) {
+            const matchingReleases = this._games()
+              .filter(
+                (g) =>
+                  g.stable_id === cached.stable_id &&
+                  (g.region || null) === (cached.region || null),
+              )
+              .map((r) => ({
+                id: r.id,
+                game_id: r.stable_id,
+                region: r.region || null,
+                variants: r.variants || null,
+                rom_name: r.rom_name || null,
+                rom_crc: r.rom_crc || null,
+                backup_status: Number(r.backup_status) || 0,
+                ownership_status: Number(r.ownership_status) || 0,
+                release_date: r.release_date || null,
+                also_released_as: r.also_released_as || null,
+                has_case: Number(r.has_case) || 0,
+                has_manual: Number(r.has_manual) || 0,
+              }));
+
+            releases =
+              matchingReleases.length > 0
+                ? matchingReleases
+                : [
+                    {
+                      id: cached.id,
+                      game_id: cached.stable_id,
+                      region: cached.region || null,
+                      variants: cached.variants || null,
+                      rom_name: cached.rom_name || null,
+                      rom_crc: cached.rom_crc || null,
+                      backup_status: Number(cached.backup_status) || 0,
+                      ownership_status: Number(cached.ownership_status) || 0,
+                      release_date: cached.release_date || null,
+                    },
+                  ];
+          }
+
           const fallbackGame: Game = {
             ...cached,
-            releases: cached.releases || [
-              {
-                id: cached.id,
-                game_id: cached.stable_id,
-                region: cached.region || null,
-                variants: cached.variants || null,
-                rom_name: cached.rom_name || null,
-                rom_crc: cached.rom_crc || null,
-                backup_status: Number(cached.backup_status) || 0,
-                ownership_status: Number(cached.ownership_status) || 0,
-                release_date: cached.release_date || null,
-              },
-            ],
+            releases,
           };
           return of(this.enrichGameTitle(fallbackGame));
         }
