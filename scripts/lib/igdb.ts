@@ -326,6 +326,14 @@ export async function queryIGDB(
   return [];
 }
 
+import {
+  OFFICIAL_IGDB_CATEGORIES,
+  IGDB_HACK_KEYWORDS,
+  isOfficialIGDBGame,
+} from './queries.js';
+
+export { OFFICIAL_IGDB_CATEGORIES, IGDB_HACK_KEYWORDS, isOfficialIGDBGame };
+
 /**
  * Searches for a game with metadata, strictly filtering by platform ID and official releases.
  */
@@ -518,50 +526,12 @@ export async function findGame(
       return true;
     });
 
-    // Filter for official categories only (include 3 = Bundle)
-    const officialCategories = [0, 3, 8, 9, 10, 11, 13, 14, undefined, null];
-    const initialFiltered = uniqueResults.filter((g) =>
-      officialCategories.includes(g.game_type ?? g.category),
-    );
+    // Filter for official categories and exclude ROM hacks / fan games
+    const initialFiltered = uniqueResults.filter((g) => isOfficialIGDBGame(g));
 
     if (initialFiltered.length === 0) return [];
 
-    const filteredResults = initialFiltered.filter((g) => {
-      const lowerName = g.name.toLowerCase();
-      const lowerSummary = (g.summary || '').toLowerCase();
-      const cat = g.game_type ?? g.category;
-      if (cat === 12) return false;
-
-      const hackKeywords = [
-        ' hack:',
-        ' hack)',
-        ' hack!',
-        ' hack\n',
-        'level hack',
-        'fan translation',
-        'patched version',
-        'fan-made',
-        'fanmade',
-        'fan project',
-        'unofficial',
-        'rom hack',
-        'romhack',
-        ' graphics mod ',
-        ' graphics mod:',
-        ' a mod for ',
-        ' this mod ',
-        ' modded ',
-        ' mod:',
-        ' mod)',
-      ];
-
-      const isHack = hackKeywords.some(
-        (kw) => lowerName.includes(kw) || lowerSummary.includes(kw),
-      );
-      if (isHack && cat !== 5) return false;
-
-      return true;
-    });
+    const filteredResults = initialFiltered;
 
     if (filteredResults.length === 0) return [];
 

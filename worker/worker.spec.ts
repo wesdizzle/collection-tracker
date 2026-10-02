@@ -401,7 +401,7 @@ describe('Worker API Logic', () => {
           platform_id: 1,
           igdb_id: 1234,
           summary: 'Classic SNES game',
-          region: 'NA',
+          region: 'USA',
           ownership_status: 1,
           play_status: 1,
           backup_status: 1,

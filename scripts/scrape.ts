@@ -1949,12 +1949,12 @@ async function runScraper(): Promise<void> {
             a.release?.au ||
             null;
           const region = a.release?.na
-            ? 'NA'
+            ? 'USA'
             : a.release?.jp
-              ? 'JP'
+              ? 'Japan'
               : a.release?.eu
-                ? 'EU'
-                : 'AU';
+                ? 'Europe'
+                : 'Australia';
 
           const checkField = (
             field: string,

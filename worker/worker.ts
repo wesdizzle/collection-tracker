@@ -33,6 +33,7 @@ import {
   SharedBackupReleaseLink,
   enrichGameDetailWithCompanionDiscs,
   resolveRegionalCoverUrl,
+  isOfficialIGDBGame,
 } from '../scripts/lib/queries';
 import {
   detectPhysicalReleaseStatus,
@@ -583,9 +584,10 @@ Disallow: /
         }
 
         const sanitizedQuery = query.replace(/["\\]/g, '');
-        const whereClause = targetPlatformId
-          ? `where platforms = (${targetPlatformId});`
-          : `where platforms = (${trackedIgdbIds.join(',')});`;
+        const baseWhere = targetPlatformId
+          ? `platforms = (${targetPlatformId})`
+          : `platforms = (${trackedIgdbIds.join(',')})`;
+        const whereClause = `where ${baseWhere} & (game_type = null | (game_type != 5 & game_type != 12)) & (category = null | (category != 5 & category != 12));`;
         const igdbQuery = `
           search "${sanitizedQuery}";
           fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher;
@@ -594,6 +596,47 @@ Disallow: /
         `;
 
         try {
+          const rawResults = (await queryIGDBEdge(
+            'games',
+            igdbQuery,
+            env,
+          )) as Array<{
+            id: number;
+            name: string;
+            cover?: { url?: string; image_id?: string };
+            platforms?: Array<{ id: number; name: string }>;
+            first_release_date?: number;
+            summary?: string;
+            genres?: Array<{ name: string }>;
+            url?: string;
+            collections?: Array<{ name: string }>;
+            franchises?: Array<{ name: string }>;
+            category?: number;
+            game_type?: number;
+            alternative_names?: Array<{ name: string; comment?: string }>;
+            game_localizations?: Array<{
+              name?: string;
+              region?: number;
+              cover?: { url?: string };
+            }>;
+            release_dates?: Array<{
+              platform?: number;
+              region?: number;
+              date?: number;
+            }>;
+            involved_companies?: Array<{
+              company?: { name: string };
+              publisher?: boolean;
+            }>;
+          }>;
+
+          const officialResults = (rawResults || []).filter((g) =>
+            isOfficialIGDBGame(g),
+          );
+          if (officialResults.length === 0) {
+            return Response.json([]);
+          }
+
           const { results: platformRows } = await env.DB.prepare(
             `SELECT id, display_name, name, launch_date FROM platforms`,
           ).all();
@@ -629,9 +672,20 @@ Disallow: /
           const ps5Plat = igdbToPlatform.get(167);
           if (ps5Plat) igdbToPlatform.set(390, ps5Plat);
 
+          // Fast targeted lookup for candidate IGDB IDs and titles rather than full table scan
+          const candidateIgdbIds = officialResults.map((g) => g.id);
+          const candidateTitles = Array.from(
+            new Set(officialResults.map((g) => g.name).filter(Boolean)),
+          );
+
+          const igdbPlaceholders = candidateIgdbIds.map(() => '?').join(',');
+          const titlePlaceholders = candidateTitles.map(() => '?').join(',');
+
           const { results: existingGames } = await env.DB.prepare(
-            `SELECT igdb_id, platform_id, title FROM games`,
-          ).all();
+            `SELECT igdb_id, platform_id, title FROM games WHERE igdb_id IN (${igdbPlaceholders}) OR title IN (${titlePlaceholders})`,
+          )
+            .bind(...candidateIgdbIds, ...candidateTitles)
+            .all();
 
           const existingSet = new Set<string>();
           (existingGames || []).forEach((g) => {
@@ -653,68 +707,39 @@ Disallow: /
             }
           });
 
-          const rawResults = (await queryIGDBEdge(
-            'games',
-            igdbQuery,
-            env,
-          )) as Array<{
-            id: number;
-            name: string;
-            cover?: { url?: string; image_id?: string };
-            platforms?: Array<{ id: number; name: string }>;
-            first_release_date?: number;
-            summary?: string;
-            genres?: Array<{ name: string }>;
-            url?: string;
-            collections?: Array<{ name: string }>;
-            franchises?: Array<{ name: string }>;
-            category?: number;
-            game_type?: number;
-            alternative_names?: Array<{ name: string; comment?: string }>;
-            game_localizations?: Array<{
-              name?: string;
-              region?: number;
-              cover?: { url?: string };
-            }>;
-            release_dates?: Array<{
-              platform?: number;
-              region?: number;
-              date?: number;
-            }>;
-            involved_companies?: Array<{
-              company?: { name: string };
-              publisher?: boolean;
-            }>;
-          }>;
-
-          // Collect relevant local platform IDs to prefetch canonical releases from D1
+          // Collect relevant local platform IDs and normalized titles to query canonical releases via index
           const candidatePlatIds = new Set<number>();
-          (rawResults || []).forEach((g) => {
+          const candidateNorms = new Set<string>();
+          officialResults.forEach((g) => {
             (g.platforms || []).forEach((p) => {
               const localPlat = igdbToPlatform.get(p.id);
               if (localPlat) candidatePlatIds.add(localPlat.id);
             });
+            const baseNorm = normalizeTitleForMatching(g.name);
+            if (baseNorm) candidateNorms.add(baseNorm);
+            (g.alternative_names || []).forEach((a) => {
+              const altNorm = normalizeTitleForMatching(a.name || '');
+              if (altNorm && altNorm.length >= 4) candidateNorms.add(altNorm);
+            });
           });
 
           let canonicalReleasesList: CanonicalRelease[] = [];
-          if (candidatePlatIds.size > 0) {
+          if (candidatePlatIds.size > 0 && candidateNorms.size > 0) {
             const platIdArr = Array.from(candidatePlatIds);
-            const placeholders = platIdArr.map(() => '?').join(',');
-            const searchClean =
-              normalizeTitleForMatching(sanitizedQuery) ||
-              sanitizedQuery.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const searchPattern = `%${searchClean}%`;
+            const normArr = Array.from(candidateNorms);
+            const platPlaceholders = platIdArr.map(() => '?').join(',');
+            const normPlaceholders = normArr.map(() => '?').join(',');
             const { results: canonicalRows } = await env.DB.prepare(
               `SELECT platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-               FROM canonical_releases WHERE platform_id IN (${placeholders}) AND (normalized_title LIKE ? OR raw_title LIKE ?)`,
+               FROM canonical_releases WHERE platform_id IN (${platPlaceholders}) AND normalized_title IN (${normPlaceholders})`,
             )
-              .bind(...platIdArr, searchPattern, `%${sanitizedQuery}%`)
+              .bind(...platIdArr, ...normArr)
               .all();
             canonicalReleasesList = (canonicalRows ||
               []) as unknown as CanonicalRelease[];
           }
 
-          const normalized = (rawResults || [])
+          const normalized = officialResults
             .map((g) => {
               const cleanTitle = g.name.toLowerCase().replace(/[^a-z0-9]/g, '');
               const normTitle = normalizeTitleForMatching(g.name);
@@ -812,6 +837,11 @@ Disallow: /
                 verification_tier: verification.verification_tier,
                 is_physical: verification.is_physical,
                 physical_regions: verification.physical_regions,
+                region:
+                  verification.physical_regions.length === 1 &&
+                  verification.physical_regions[0] === 'Japan'
+                    ? 'Japan'
+                    : 'USA',
                 matched_releases: matchedReleasesFormatted,
                 verification_reasons: verification.reasons,
               };
@@ -1045,6 +1075,11 @@ Disallow: /
             verification_tier: verification.verification_tier,
             is_physical: verification.is_physical,
             physical_regions: verification.physical_regions,
+            region:
+              verification.physical_regions.length === 1 &&
+              verification.physical_regions[0] === 'Japan'
+                ? 'Japan'
+                : 'USA',
             verification_reasons: verification.reasons,
           };
 
@@ -1076,36 +1111,26 @@ Disallow: /
           url.searchParams.get('hideDigital') === 'true';
 
         try {
-          const { results: seriesRows } = await env.DB.prepare(
-            `SELECT canonical_series, collections, franchises FROM games
-             WHERE (canonical_series IS NOT NULL AND canonical_series != '')
-                OR (collections IS NOT NULL AND collections != '')
-                OR (franchises IS NOT NULL AND franchises != '')`,
-          ).all();
+          const specificSeries = url.searchParams.get('series');
+          let canonicalSeriesList: string[] = [];
 
-          const uniqueSeriesSet = new Set<string>();
-          for (const r of seriesRows || []) {
-            const row = r as {
-              canonical_series?: string | null;
-              collections?: string | null;
-              franchises?: string | null;
-            };
-            if (row.canonical_series?.trim()) {
-              uniqueSeriesSet.add(row.canonical_series.trim());
-            }
-            if (row.collections) {
-              for (const part of row.collections.split(',')) {
-                if (part.trim()) uniqueSeriesSet.add(part.trim());
-              }
-            }
-            if (row.franchises) {
-              for (const part of row.franchises.split(',')) {
-                if (part.trim()) uniqueSeriesSet.add(part.trim());
-              }
-            }
+          if (specificSeries && specificSeries.trim()) {
+            canonicalSeriesList = [specificSeries.trim()];
+          } else {
+            // Target the user's primary collected franchises to stay safely within CPU/subrequest quotas
+            const { results: topSeriesRows } = await env.DB.prepare(
+              `SELECT canonical_series, COUNT(*) as c FROM games
+               WHERE canonical_series IS NOT NULL AND canonical_series != ''
+               GROUP BY canonical_series
+               ORDER BY c DESC
+               LIMIT 40`,
+            ).all();
+
+            canonicalSeriesList = (topSeriesRows || [])
+              .map((r) => (r as { canonical_series: string }).canonical_series)
+              .filter(Boolean);
           }
 
-          const canonicalSeriesList = Array.from(uniqueSeriesSet);
           if (canonicalSeriesList.length === 0) {
             return Response.json([]);
           }
@@ -1247,7 +1272,7 @@ Disallow: /
                 const quoted = names
                   .map((n) => `"${n.replace(/["\\]/g, '')}"`)
                   .join(',');
-                return `query games "b${idx}" { fields ${igdbFields}; where collections.name = (${quoted}) | franchises.name = (${quoted}); limit 500; };`;
+                return `query games "b${idx}" { fields ${igdbFields}; where (collections.name = (${quoted}) | franchises.name = (${quoted})) & (game_type = null | (game_type != 5 & game_type != 12)) & (category = null | (category != 5 & category != 12)); limit 40; };`;
               })
               .join('\n');
 
@@ -1274,6 +1299,7 @@ Disallow: /
               }
 
               for (const g of gamesFromBatch) {
+                if (!isOfficialIGDBGame(g)) continue;
                 if (!g.platforms) continue;
                 for (const plat of g.platforms) {
                   const mapped = igdbToPlatformId.get(plat.id);
@@ -1499,12 +1525,12 @@ Disallow: /
               release_date:
                 a.release?.na || a.release?.jp || a.release?.eu || null,
               region: a.release?.na
-                ? 'NA'
+                ? 'USA'
                 : a.release?.jp
-                  ? 'JP'
+                  ? 'Japan'
                   : a.release?.eu
-                    ? 'EU'
-                    : 'NA',
+                    ? 'Europe'
+                    : 'USA',
             });
           }
 
@@ -1965,6 +1991,17 @@ Disallow: /
           franchises: game.franchises || undefined,
         });
 
+        const normalizeRegionStr = (r: string | null | undefined): string => {
+          if (!r) return 'USA';
+          if (r === 'NA') return 'USA';
+          if (r === 'JP') return 'Japan';
+          if (r === 'EU') return 'Europe';
+          return r;
+        };
+        const gameRegion = normalizeRegionStr(
+          game.region || (releases && releases[0]?.region),
+        );
+
         await env.DB.prepare(
           `
           INSERT INTO games (
@@ -1989,7 +2026,7 @@ Disallow: /
             game.igdb_url || null,
             game.summary || null,
             game.genres || null,
-            game.region || 'NA',
+            gameRegion,
             game.collections || null,
             game.franchises || null,
             game.physical_status || 'unverified',
@@ -2023,7 +2060,7 @@ Disallow: /
               ).bind(
                 baseRelSlug,
                 finalStableId,
-                rel.region || null,
+                rel.region ? normalizeRegionStr(rel.region) : null,
                 rel.variants || null,
                 rel.rom_name || null,
                 rel.rom_crc || null,
@@ -2051,7 +2088,7 @@ Disallow: /
             .bind(
               defaultRelId,
               finalStableId,
-              game.region || 'NA',
+              gameRegion,
               game.physical_status === 'digital_only' ? 0 : 1,
             )
             .run();
@@ -2165,7 +2202,7 @@ Disallow: /
             toy.amiibo_id || null,
             toy.metadata_json || null,
             sortIndex,
-            toy.region || 'NA',
+            toy.region || 'USA',
           )
           .run();
 

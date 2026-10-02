@@ -42,7 +42,7 @@ describe('DiscoveryListComponent', () => {
       type: 'Figure',
       image_url: 'https://raw.githubusercontent.com/mario.png',
       release_date: '2014-11-21',
-      region: 'NA',
+      region: 'USA',
     },
     {
       id: '0001000000000002',
@@ -53,7 +53,7 @@ describe('DiscoveryListComponent', () => {
       type: 'Card',
       image_url: 'https://raw.githubusercontent.com/isabelle.png',
       release_date: '2015-11-13',
-      region: 'NA',
+      region: 'USA',
     },
   ];
 

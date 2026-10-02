@@ -157,12 +157,12 @@ export const handleRequest =
               release_date:
                 a.release?.na || a.release?.jp || a.release?.eu || null,
               region: a.release?.na
-                ? 'NA'
+                ? 'USA'
                 : a.release?.jp
-                  ? 'JP'
+                  ? 'Japan'
                   : a.release?.eu
-                    ? 'EU'
-                    : 'NA',
+                    ? 'Europe'
+                    : 'USA',
             });
           }
 
@@ -268,7 +268,7 @@ export const handleRequest =
             toy.amiibo_id || null,
             toy.metadata_json || null,
             sortIndex,
-            toy.region || 'NA',
+            toy.region || 'USA',
           );
 
           res.end(JSON.stringify({ success: true, id: candidateId }));
@@ -932,6 +932,17 @@ export const handleRequest =
             franchises: game.franchises || undefined,
           });
 
+          const normalizeRegionStr = (r: string | null | undefined): string => {
+            if (!r) return 'USA';
+            if (r === 'NA') return 'USA';
+            if (r === 'JP') return 'Japan';
+            if (r === 'EU') return 'Europe';
+            return r;
+          };
+          const gameRegion = normalizeRegionStr(
+            game.region || (releases && releases[0]?.region),
+          );
+
           let stableId: number;
           db.transaction(() => {
             const insertGame = db.prepare(`
@@ -957,7 +968,7 @@ export const handleRequest =
               game.igdb_url || null,
               game.summary || null,
               game.genres || null,
-              game.region || 'USA',
+              gameRegion,
               game.collections || null,
               game.franchises || null,
               game.physical_status || 'unverified',
@@ -983,7 +994,7 @@ export const handleRequest =
                 insertRelease.run(
                   uniqueRelId,
                   stableId,
-                  rel.region || null,
+                  rel.region ? normalizeRegionStr(rel.region) : null,
                   rel.variants || null,
                   rel.rom_name || null,
                   rel.rom_crc || null,
@@ -1006,7 +1017,7 @@ export const handleRequest =
               ).run(
                 virtualId,
                 stableId,
-                game.region || 'USA',
+                gameRegion,
                 game.physical_status === 'digital_only' ? 0 : 1,
               );
             }
@@ -1294,7 +1305,7 @@ export const handleRequest =
                     genres: game.genres || null,
                     collections: game.collections || null,
                     franchises: game.franchises || null,
-                    region: game.region || 'NA',
+                    region: game.region || 'USA',
                     release_date: game.release_date || null,
                     releases: matchedReleasesFormatted,
                     physical_status: verification.physical_status,

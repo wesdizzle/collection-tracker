@@ -956,3 +956,63 @@ export function resolveRegionalCoverUrl(
 
   return defaultCover;
 }
+
+export const OFFICIAL_IGDB_CATEGORIES = [
+  0,
+  3,
+  8,
+  9,
+  10,
+  11,
+  13,
+  14,
+  undefined,
+  null,
+];
+
+export const IGDB_HACK_KEYWORDS = [
+  ' hack:',
+  ' hack)',
+  ' hack!',
+  ' hack\n',
+  'level hack',
+  'fan translation',
+  'patched version',
+  'fan-made',
+  'fanmade',
+  'fan project',
+  'unofficial',
+  'rom hack',
+  'romhack',
+  ' graphics mod ',
+  ' graphics mod:',
+  ' a mod for ',
+  ' this mod ',
+  ' modded ',
+  ' mod:',
+  ' mod)',
+];
+
+/**
+ * Checks whether an IGDB game object represents an official release rather than
+ * a ROM hack, fan modification, or fan game fork.
+ */
+export function isOfficialIGDBGame(game: {
+  name?: string | null;
+  summary?: string | null;
+  category?: number;
+  game_type?: number;
+}): boolean {
+  const cat = game.game_type ?? game.category;
+  if (cat === 5 || cat === 12) return false;
+  if (!OFFICIAL_IGDB_CATEGORIES.includes(cat)) return false;
+
+  const lowerName = (game.name || '').toLowerCase();
+  const lowerSummary = (game.summary || '').toLowerCase();
+  const isHack = IGDB_HACK_KEYWORDS.some(
+    (kw) => lowerName.includes(kw) || lowerSummary.includes(kw),
+  );
+  if (isHack) return false;
+
+  return true;
+}

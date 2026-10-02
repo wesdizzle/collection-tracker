@@ -253,7 +253,14 @@ import { RouterModule } from '@angular/router';
                     </div>
                     <button
                       class="m3-btn m3-btn-secondary mt-md w-full"
-                      (click)="openIngestionModal(game, platformSelect.value)"
+                      (click)="
+                        openIngestionModal(
+                          game,
+                          game.platform_id
+                            ? game.platform_id.toString()
+                            : platformSelect.value
+                        )
+                      "
                     >
                       Ingest Game
                     </button>
@@ -1901,7 +1908,7 @@ export class DiscoveryListComponent implements OnInit {
    * @param platformIdStr The selected platform ID.
    */
   async openIngestionModal(game: IGDBSearchResult, platformIdStr: string) {
-    let platformId = Number(platformIdStr || 0);
+    let platformId = game.platform_id || Number(platformIdStr || 0);
     if (!platformId && game.platform) {
       const match = this.platformsList.find(
         (p) =>
@@ -2065,7 +2072,7 @@ export class DiscoveryListComponent implements OnInit {
         igdb_url: game.igdb_url || null,
         summary: game.summary || null,
         genres: game.genres || null,
-        region: game.region || 'NA',
+        region: selectedReleases[0]?.region || game.region || 'USA',
         image_url: game.image_url || null,
         collections: game.collections || null,
         franchises: game.franchises || null,
@@ -2175,7 +2182,8 @@ export class DiscoveryListComponent implements OnInit {
         igdb_url: game.igdb_url || null,
         summary: game.summary || null,
         genres: game.genres || null,
-        region: game.region || 'NA',
+        region:
+          (game.releases && game.releases[0]?.region) || game.region || 'USA',
         image_url: game.image_url,
         collections: game.collections || null,
         franchises: game.franchises || null,
@@ -2246,7 +2254,8 @@ export class DiscoveryListComponent implements OnInit {
           igdb_url: game.igdb_url || null,
           summary: game.summary,
           genres: game.genres,
-          region: game.region || 'NA',
+          region:
+            (game.releases && game.releases[0]?.region) || game.region || 'USA',
           image_url: game.image_url,
           collections: game.collections,
           franchises: game.franchises,
@@ -2392,7 +2401,7 @@ export class DiscoveryListComponent implements OnInit {
         type: item.type || 'Figure',
         image_url: item.image_url,
         release_date: item.release_date || undefined,
-        region: item.region || 'NA',
+        region: item.region || 'USA',
         amiibo_id: item.amiibo_id,
         ownership_status: 1, // Owned
         verified: 1,
@@ -2447,7 +2456,7 @@ export class DiscoveryListComponent implements OnInit {
           type: item.type || 'Figure',
           image_url: item.image_url,
           release_date: item.release_date || undefined,
-          region: item.region || 'NA',
+          region: item.region || 'USA',
           amiibo_id: item.amiibo_id,
           ownership_status: 1,
           verified: 1,
