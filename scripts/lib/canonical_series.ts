@@ -16,6 +16,7 @@ export interface GameMetadata {
  * Null values represent non-franchise or marketing collections that should be ignored.
  */
 export const EXPLICIT_SPINOFF_REDIRECTS: Record<string, string | null> = {
+  // Historical cross-IP renames and localized titles
   "Gargoyle's Quest": "Ghosts 'n Goblins",
   "Gargoyle's Quest II": "Ghosts 'n Goblins",
   "Demon's Crest": "Ghosts 'n Goblins",
@@ -30,74 +31,74 @@ export const EXPLICIT_SPINOFF_REDIRECTS: Record<string, string | null> = {
   'Harvest Moon (new)': 'Harvest Moon',
   "Snake's Revenge": 'Metal Gear',
   'Tetris Plus': 'Tetris',
+  'The Typing of the Dead': 'The House of the Dead',
+  'Typing of the Dead': 'The House of the Dead',
+  'Kid Dracula': 'Castlevania',
+  'Itadaki Street': 'Fortune Street',
+
+  // Red Dead Redemption umbrella
+  'Red Dead': 'Red Dead Redemption',
+  'Red Dead Revolver': 'Red Dead Redemption',
+
+  // Tomb Raider umbrella for Lara Croft
+  'The Lara Croft Collection': 'Tomb Raider',
+  'Lara Croft': 'Tomb Raider',
+
+  // Donkey Kong spin-offs
+  'Diddy Kong Racing DS': 'Donkey Kong',
+  'Diddy Kong Racing': 'Donkey Kong',
+  'DK: Jungle Climber': 'Donkey Kong',
+  'DK: King of Swing': 'Donkey Kong',
+
+  // Pokémon standalone spin-offs without "Pokémon" in title
   'Detective Pikachu': 'Pokémon',
   'Detective Pikachu Returns': 'Pokémon',
   PokéPark: 'Pokémon',
-  'Pokémon Snap': 'Pokémon',
-  'New Pokémon Snap': 'Pokémon',
-  'Pokémon Colosseum Bonus Disc': 'Pokémon',
-  'Bubsy 3D: Furbitten Planet': 'Bubsy',
-  'Bubsy 3D': 'Bubsy',
-  'Rare Replay': 'Rare Replay',
-  'Xbox Live Arcade Compilation Disc': 'Xbox Live Arcade',
-  'The Orange Box': 'The Orange Box',
+
+  // EarthBound Japanese Mother tags
+  'EarthBound Beginnings': 'EarthBound',
+  Mother: 'EarthBound',
+  'Mother 1+2': 'EarthBound',
+
+  // Multi-game compilations / special bundles
+  'Child of Light: Ultimate Edition + Valiant Hearts: The Great War':
+    'Child of Light + Valiant Hearts',
   'Heavy Rain & Beyond: Two Souls Collection':
     'Heavy Rain & Beyond: Two Souls Collection',
   'Heavy Rain & Beyond: Two Souls - Collection':
     'Heavy Rain & Beyond: Two Souls Collection',
   'Beyond: Two Souls': 'Beyond: Two Souls',
-  'Ghost of Tsushima': 'Ghost of Tsushima',
-  "Ghost of Tsushima: Director's Cut": 'Ghost of Tsushima',
-  'Hyper Light': 'Hyper Light Drifter',
-  Nights: 'Nights into Dreams',
-  'Nights Into Dreams...': 'Nights into Dreams',
-  'Nights: Journey of Dreams': 'Nights into Dreams',
-  'Red Dead': 'Red Dead Redemption',
-  'Red Dead Revolver': 'Red Dead Redemption',
-  'The Lara Croft Collection': 'Tomb Raider',
-  'Lara Croft': 'Tomb Raider',
-  'Super Bomberman': 'Bomberman',
-  'Super Bomberman R': 'Bomberman',
-  'Castlevania: Lords of Shadow': 'Castlevania',
-  'Castlevania: Dracula X': 'Castlevania',
-  'Minecraft Dungeons': 'Minecraft',
-  'Minecraft: Story Mode': 'Minecraft',
-  'Ms. Pac-Man': 'Pac-Man',
-  'Far Cry Instincts': 'Far Cry',
-  'Spyro: Season': 'Spyro the Dragon',
-  "Kirby's Dream Land": 'Kirby',
-  "Kirby's Star Stacker": 'Kirby',
-  'Kirby: Canvas Curse': 'Kirby',
-  'Wolfenstein: The New Order': 'Wolfenstein',
-  'F-Zero: GP Legend': 'F-Zero',
-  'Bloodstained: Curse of the Moon': 'Bloodstained',
-  'Bloodstained: Ritual of the Night': 'Bloodstained',
-  Rabbids: 'Raving Rabbids',
-  'Rabbids Invasion': 'Raving Rabbids',
-  'Starlink: Battle for Atlas': 'Starlink',
-  'Dead Cells: Return to Castlevania Edition': 'Dead Cells',
-  'Child of Light: Ultimate Edition + Valiant Hearts: The Great War':
-    'Child of Light + Valiant Hearts',
   'Anniversary Collection Arcade Classics': 'Konami Arcade Classics',
   'Arcade Classics': 'Konami Arcade Classics',
-  'The Typing of the Dead': 'The House of the Dead',
-  'Typing of the Dead': 'The House of the Dead',
-  'Kid Dracula': 'Castlevania',
-  'EarthBound Beginnings': 'EarthBound',
-  Mother: 'EarthBound',
-  'Mother 1+2': 'EarthBound',
-  'Diddy Kong Racing DS': 'Donkey Kong',
-  'Diddy Kong Racing': 'Donkey Kong',
-  'DK: Jungle Climber': 'Donkey Kong',
-  'DK: King of Swing': 'Donkey Kong',
-  'Captain Toad: Treasure Tracker': 'Captain Toad',
-  'Captain Toad': 'Captain Toad',
-  'Gold Master Series': 'Gold Master Series',
-  'Super Scope': 'Super Scope 6',
-  'Itadaki Street': 'Fortune Street',
-  'Classic NES Series: Excitebike': 'Excitebike',
   'Triple Pack: Trials HD, Limbo, Splosion Man': 'Xbox Live Arcade',
+  'Dead Cells: Return to Castlevania Edition': 'Dead Cells',
+
+  // Super Scope
+  'Super Scope': 'Super Scope 6',
+
+  // Raving Rabbids franchise redirects
+  Rabbids: 'Raving Rabbids',
+  'Rabbids Invasion': 'Raving Rabbids',
+
+  // Spyro the Dragon
+  'Spyro: Season': 'Spyro the Dragon',
+
+  // Spinoff naming prefixes and missing-metadata overrides
+  'Super Bomberman': 'Bomberman',
+  'Super Bomberman R': 'Bomberman',
+  'Ms. Pac-Man': 'Pac-Man',
+  'Captain Toad': 'Captain Toad',
+  'Captain Toad: Treasure Tracker': 'Captain Toad',
+  'Pokémon Colosseum Bonus Disc': 'Pokémon',
+  'Bubsy 3D': 'Bubsy',
+  'Bubsy 3D: Furbitten Planet': 'Bubsy',
   'RollerCoaster Tycoon Joyride': 'RollerCoaster Tycoon',
+  'Far Cry Instincts': 'Far Cry',
+  'Minecraft Dungeons': 'Minecraft',
+  'Minecraft: Story Mode': 'Minecraft',
+  'Classic NES Series: Excitebike': 'Excitebike',
+
+  // Marketing, non-franchise, or hardware series that must be ignored (null)
   'PopCap Hits!': null,
   Skittles: null,
   'Nintendo Selects': null,
@@ -254,26 +255,31 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
   if (titleLower.startsWith('rune factory')) {
     return 'Rune Factory';
   }
-  const hasHarvestMoonNew = rawCollections.some(
-    (c) => c.toLowerCase() === 'harvest moon (new)',
-  );
-  const hasHarvestMoonOld = rawCollections.some((c) =>
-    ['harvest moon (old)', 'harvest moon gbc'].includes(c.toLowerCase()),
-  );
-  const hasStoryOfSeasonsFranchise = franchisesRaw.some(
-    (f) => normalize(f) === 'storyofseasons',
-  );
-  if (hasHarvestMoonNew && !hasStoryOfSeasonsFranchise) {
-    return 'Harvest Moon';
-  }
-  if (hasHarvestMoonOld || hasStoryOfSeasonsFranchise) {
-    return 'Story of Seasons';
-  }
-  if (
-    titleLower.startsWith('harvest moon') &&
-    titleLower !== 'harvest moon (old)'
-  ) {
-    return 'Harvest Moon';
+  const isHarvestMoonOrStoryOfSeasonsTitle =
+    titleLower.includes('harvest moon') ||
+    titleLower.includes('story of seasons');
+  if (isHarvestMoonOrStoryOfSeasonsTitle) {
+    const hasHarvestMoonNew = rawCollections.some(
+      (c) => c.toLowerCase() === 'harvest moon (new)',
+    );
+    const hasHarvestMoonOld = rawCollections.some((c) =>
+      ['harvest moon (old)', 'harvest moon gbc'].includes(c.toLowerCase()),
+    );
+    const hasStoryOfSeasonsFranchise = franchisesRaw.some(
+      (f) => normalize(f) === 'storyofseasons',
+    );
+    if (hasHarvestMoonNew && !hasStoryOfSeasonsFranchise) {
+      return 'Harvest Moon';
+    }
+    if (hasHarvestMoonOld || hasStoryOfSeasonsFranchise) {
+      return 'Story of Seasons';
+    }
+    if (
+      titleLower.startsWith('harvest moon') &&
+      titleLower !== 'harvest moon (old)'
+    ) {
+      return 'Harvest Moon';
+    }
   }
 
   // STEP 1B: EXPLICIT TITLE REDIRECTS
@@ -425,96 +431,133 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
     return 'LEGO';
   }
 
-  // STEP 5: SUPERHERO HERO-SPECIFIC SPLIT (Marvel & DC)
-  // DC Heroes
-  if (
-    titleLower.includes('batman') ||
-    seriesRaw.some((s) => normalize(s).includes('batman'))
-  )
-    return 'Batman';
-  if (
-    titleLower.includes('superman') ||
-    seriesRaw.some((s) => normalize(s).includes('superman'))
-  )
-    return 'Superman';
-  if (titleLower.includes('justice league')) return 'Justice League';
-  if (
-    titleLower.includes('injustice') ||
-    seriesRaw.some((s) => normalize(s).includes('injustice'))
-  )
-    return 'Injustice';
-  if (titleLower.includes('suicide squad')) return 'Suicide Squad';
-  if (titleLower.includes('green lantern')) return 'Green Lantern';
-  if (titleLower.includes('the flash') || titleLower.startsWith('flash'))
-    return 'The Flash';
-  if (titleLower.includes('wonder woman')) return 'Wonder Woman';
-  if (titleLower.includes('teen titans')) return 'Teen Titans';
-  if (titleLower.includes('watchmen')) return 'Watchmen';
-  if (titleLower.includes('catwoman')) return 'Catwoman';
-  if (
-    titleLower.includes('dc universe') ||
+  // STEP 5: GENERALIZED SUPERHERO HERO & TEAM RESOLUTION (Marvel & DC)
+  const isDC =
     franchisesRaw.some((f) =>
       ['dc', 'dccomics', 'dcuniverse'].includes(normalize(f)),
-    )
-  )
-    return 'DC';
+    ) ||
+    seriesRaw.some((s) =>
+      ['dc', 'dccomics', 'dcuniverse'].includes(normalize(s)),
+    ) ||
+    titleLower.startsWith('dc ') ||
+    titleLower.includes('dc universe');
 
-  // Marvel Heroes
-  if (
-    titleLower.includes('spider-man') ||
-    titleLower.includes('spiderman') ||
-    titleLower.includes('venom') ||
-    seriesRaw.some((s) => normalize(s).includes('spiderman'))
-  )
-    return 'Spider-Man';
-  if (
-    titleLower.includes('x-men') ||
-    titleLower.includes('wolverine') ||
-    seriesRaw.some((s) => normalize(s).includes('xmen'))
-  )
-    return 'X-Men';
-  if (
-    titleLower.includes('iron man') ||
-    seriesRaw.some((s) => normalize(s).includes('ironman'))
-  )
-    return 'Iron Man';
-  if (titleLower.includes('captain america')) return 'Captain America';
-  if (
-    titleLower.includes('thor') &&
-    (titleLower.includes('god of thunder') || titleLower.includes('marvel'))
-  )
-    return 'Thor';
-  if (titleLower.includes('hulk') || titleLower.includes('incredible hulk'))
-    return 'Hulk';
-  if (
-    titleLower.includes('avengers') ||
-    seriesRaw.some((s) => normalize(s).includes('avengers'))
-  )
-    return 'The Avengers';
-  if (titleLower.includes('deadpool')) return 'Deadpool';
-  if (titleLower.includes('guardians of the galaxy'))
-    return 'Guardians of the Galaxy';
-  if (titleLower.includes('punisher')) return 'The Punisher';
-  if (
-    titleLower.includes('fantastic four') ||
-    titleLower.includes('fantastic 4')
-  )
-    return 'Fantastic Four';
-  if (titleLower.includes('daredevil')) return 'Daredevil';
+  const isMarvel =
+    franchisesRaw.some((f) => normalize(f) === 'marvel') ||
+    seriesRaw.some((s) => normalize(s) === 'marvel') ||
+    titleLower.startsWith('marvel');
+
+  const SUPERHERO_PATTERNS: Array<{ pattern: RegExp; series: string }> = [
+    // DC
+    { pattern: /\bbatman\b/i, series: 'Batman' },
+    { pattern: /\bsuperman\b/i, series: 'Superman' },
+    { pattern: /\bjustice league\b/i, series: 'Justice League' },
+    { pattern: /\binjustice\b/i, series: 'Injustice' },
+    { pattern: /\bsuicide squad\b/i, series: 'Suicide Squad' },
+    { pattern: /\bgreen lantern\b/i, series: 'Green Lantern' },
+    { pattern: /\bthe flash\b/i, series: 'The Flash' },
+    { pattern: /\bwonder woman\b/i, series: 'Wonder Woman' },
+    { pattern: /\bteen titans\b/i, series: 'Teen Titans' },
+    { pattern: /\bwatchmen\b/i, series: 'Watchmen' },
+    { pattern: /\bcatwoman\b/i, series: 'Catwoman' },
+
+    // Marvel
+    { pattern: /\b(?:spider-man|spiderman)\b/i, series: 'Spider-Man' },
+    { pattern: /\bvenom\b/i, series: 'Spider-Man' },
+    { pattern: /\bx-men\b/i, series: 'X-Men' },
+    { pattern: /\bwolverine\b/i, series: 'Wolverine' },
+    { pattern: /\biron man\b/i, series: 'Iron Man' },
+    { pattern: /\bcaptain america\b/i, series: 'Captain America' },
+    { pattern: /\b(?:the )?avengers\b/i, series: 'The Avengers' },
+    { pattern: /\bdeadpool\b/i, series: 'Deadpool' },
+    {
+      pattern: /\bguardians of the galaxy\b/i,
+      series: 'Guardians of the Galaxy',
+    },
+    { pattern: /\bpunisher\b/i, series: 'The Punisher' },
+    { pattern: /\bfantastic (?:four|4)\b/i, series: 'Fantastic Four' },
+    { pattern: /\bdaredevil\b/i, series: 'Daredevil' },
+    { pattern: /\bghost rider\b/i, series: 'Ghost Rider' },
+    { pattern: /\bhulk\b/i, series: 'Hulk' },
+  ];
+
+  // Specific contextual superhero rules
   if (
     titleLower.includes('blade') &&
-    (titleLower.includes('vampire') ||
-      titleLower.includes('marvel') ||
-      franchisesRaw.some((f) => normalize(f) === 'marvel'))
-  )
+    (titleLower.includes('marvel') ||
+      titleLower.includes('vampire') ||
+      isMarvel)
+  ) {
     return 'Blade';
-  if (titleLower.includes('ghost rider')) return 'Ghost Rider';
+  }
   if (
-    titleLower.includes('marvel') ||
-    franchisesRaw.some((f) => normalize(f) === 'marvel') ||
-    seriesRaw.some((s) => normalize(s) === 'marvel')
-  )
-    return 'Marvel';
+    titleLower.includes('thor') &&
+    (titleLower.includes('marvel') ||
+      titleLower.includes('god of thunder') ||
+      isMarvel)
+  ) {
+    return 'Thor';
+  }
+
+  // Precedence for X2 titles
+  if (titleLower.startsWith('x2:')) {
+    return 'X-Men';
+  }
+
+  // Check known superhero patterns against the title, picking the one appearing first
+  const matchedHeroes: Array<{ series: string; index: number }> = [];
+  for (const { pattern, series } of SUPERHERO_PATTERNS) {
+    const match = pattern.exec(cleanTitle);
+    if (match) {
+      matchedHeroes.push({ series, index: match.index });
+    }
+  }
+  if (matchedHeroes.length > 0) {
+    matchedHeroes.sort((a, b) => a.index - b.index);
+    return matchedHeroes[0].series;
+  }
+
+  // If game has DC or Marvel brand tags, check for hero/team tags
+  if (isDC || isMarvel) {
+    const COMIC_BRAND_NORMS = new Set([
+      'marvel',
+      'dc',
+      'dccomics',
+      'dcuniverse',
+      'marvelcinematicuniverse',
+    ]);
+    const specificFranchises = franchisesRaw.filter(
+      (f) => !COMIC_BRAND_NORMS.has(normalize(f)),
+    );
+
+    // Check if title contains any specific character/team franchise tag
+    for (const f of specificFranchises) {
+      const nf = normalize(f);
+      if (nf && normalize(cleanTitle).includes(nf)) {
+        return CANONICAL_NAME_MAP[nf] || f;
+      }
+    }
+
+    // If only one specific non-brand franchise exists (e.g. Silver Surfer or Swamp Thing)
+    if (specificFranchises.length === 1) {
+      const f = specificFranchises[0];
+      if (normalize(f) !== 'fables') {
+        return CANONICAL_NAME_MAP[normalize(f)] || f;
+      }
+    }
+
+    // True ensemble titles or explicit brand games
+    if (
+      isMarvel &&
+      (titleLower.includes('marvel') ||
+        franchisesRaw.some((f) => normalize(f) === 'marvel'))
+    ) {
+      return 'Marvel';
+    }
+    if (isDC && (titleLower.includes('dc') || titleLower.includes('justice'))) {
+      return 'DC';
+    }
+  }
 
   // STEP 6: MUSOU / WARRIORS CROSSOVER HOST UNIVERSES
   if (
@@ -825,8 +868,29 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
       return true;
     });
 
+  // Consolidate candidate sub-collections to parent franchise
+  const consolidatedSeriesRaw = resolvedSeriesRaw.map((s) => {
+    const ns = normalize(s);
+    if (!resolvedFranchisesRaw.some((f) => normalize(f) === ns)) {
+      for (const f of resolvedFranchisesRaw) {
+        const sLower = s.toLowerCase();
+        const fLower = f.toLowerCase();
+        const isSubCollection =
+          sLower.startsWith(fLower + ':') ||
+          sLower.startsWith(fLower + ' -') ||
+          sLower.startsWith(fLower + ' ') ||
+          sLower.startsWith(fLower + "'s ") ||
+          sLower.startsWith(fLower + '’s ');
+        if (isSubCollection) {
+          return f;
+        }
+      }
+    }
+    return s;
+  });
+
   const candidates = Array.from(
-    new Set([...resolvedSeriesRaw, ...resolvedFranchisesRaw]),
+    new Set([...consolidatedSeriesRaw, ...resolvedFranchisesRaw]),
   ).map((c) => stripTrailingNumbers(c));
 
   const isCompilationOrVolumeTitle =
@@ -867,17 +931,21 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
       let score = 0;
       const normCand = normalize(cand);
 
-      const isCollection = resolvedSeriesRaw.some(
+      const isCollection = consolidatedSeriesRaw.some(
         (x) => normalize(stripTrailingNumbers(x)) === normCand,
       );
       const isFranchise = resolvedFranchisesRaw.some(
         (x) => normalize(stripTrailingNumbers(x)) === normCand,
       );
 
-      const isPrefixOrExact =
+      const isExact = Boolean(normCand) && normTitle === normCand;
+      const isPrefix =
+        Boolean(normCand) && !isExact && normTitle.startsWith(normCand);
+      const isSubstring =
         Boolean(normCand) &&
-        (normTitle === normCand || normTitle.startsWith(normCand));
-      const isSubstring = Boolean(normCand && normTitle.includes(normCand));
+        !isExact &&
+        !isPrefix &&
+        normTitle.includes(normCand);
       const candWords = cand
         .toLowerCase()
         .split(/[^a-z0-9]+/)
@@ -888,7 +956,8 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
 
       if (
         isCompilationOrVolumeTitle &&
-        !isPrefixOrExact &&
+        !isExact &&
+        !isPrefix &&
         !isSubstring &&
         !sharesSignificantWord
       ) {
@@ -899,7 +968,9 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
       if (isCollection) score += 3;
 
       // Exact match or prefix match bonus
-      if (isPrefixOrExact) {
+      if (isExact) {
+        score += 25;
+      } else if (isPrefix) {
         score += 20;
       } else if (isSubstring) {
         score += 6 + Math.min(normCand.length, 10);
@@ -908,32 +979,53 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
       // First token match boost (e.g. "Crash" in "Crash Nitro Kart" matching first word of "Crash Bandicoot")
       const candFirstWord = (cand.split(/\s+/)[0] || '').toLowerCase();
       const titleFirstWord = (cleanTitle.split(/\s+/)[0] || '').toLowerCase();
-      if (
+      const hasFirstWordMatch =
         !isCompilationOrVolumeTitle &&
         candFirstWord.length >= 3 &&
-        candFirstWord === titleFirstWord
-      ) {
+        candFirstWord === titleFirstWord;
+      if (hasFirstWordMatch) {
         score += 12;
       }
 
-      return { item: cand, score };
+      const hasAnyTitleMatch =
+        isExact ||
+        isPrefix ||
+        isSubstring ||
+        sharesSignificantWord ||
+        hasFirstWordMatch;
+
+      return { item: cand, score, hasAnyTitleMatch };
     });
 
-    scores.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return b.item.length - a.item.length;
-    });
+    const maxScore = Math.max(...scores.map((s) => s.score));
+    const topScorers = scores.filter((s) => s.score === maxScore);
+    const distinctTopNorm = new Set(topScorers.map((s) => normalize(s.item)));
 
-    if (scores.length > 0 && scores[0].score > 0) {
-      const winner = scores[0].item;
-      if (EXPLICIT_SPINOFF_REDIRECTS[winner]) {
-        return EXPLICIT_SPINOFF_REDIRECTS[winner] as string;
+    // When multiple distinct candidates compete with no title match (e.g. crossover games with multiple franchises like PlayStation Move Heroes),
+    // do not pick one arbitrarily via string-length tie-breaker.
+    if (
+      maxScore <= 8 &&
+      distinctTopNorm.size > 1 &&
+      !topScorers[0].hasAnyTitleMatch
+    ) {
+      // Disqualify: competing candidates share no title match. Fall through to title fallback.
+    } else {
+      scores.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return b.item.length - a.item.length;
+      });
+
+      if (scores.length > 0 && scores[0].score > 0) {
+        const winner = scores[0].item;
+        if (EXPLICIT_SPINOFF_REDIRECTS[winner]) {
+          return EXPLICIT_SPINOFF_REDIRECTS[winner] as string;
+        }
+        const normWinner = normalize(winner);
+        if (CANONICAL_NAME_MAP[normWinner]) {
+          return CANONICAL_NAME_MAP[normWinner];
+        }
+        return winner;
       }
-      const normWinner = normalize(winner);
-      if (CANONICAL_NAME_MAP[normWinner]) {
-        return CANONICAL_NAME_MAP[normWinner];
-      }
-      return winner;
     }
   }
 

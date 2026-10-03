@@ -369,10 +369,48 @@ describe('Canonical Series Logic Integrity Suite', () => {
       computeGameCanonicalSeries({ title: 'Spider-Man 2' }),
       'Spider-Man',
     );
-    assert.equal(computeGameCanonicalSeries({ title: 'Wolverine' }), 'X-Men');
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Wolverine' }),
+      'Wolverine',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Wolverine: Adamantium Rage',
+        franchises: 'Marvel, X-Men, Wolverine',
+      }),
+      'Wolverine',
+    );
     assert.equal(
       computeGameCanonicalSeries({ title: 'X-Men Origins: Wolverine' }),
       'X-Men',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Silver Surfer',
+        franchises: 'Silver Surfer, Marvel',
+      }),
+      'Silver Surfer',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Swamp Thing',
+        franchises: 'Swamp Thing, DC Comics',
+      }),
+      'Swamp Thing',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Aquaman: Battle for Atlantis',
+        franchises: 'Aquaman, DC Comics',
+      }),
+      'Aquaman',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Young Justice: Legacy',
+        franchises: 'Young Justice, DC Comics',
+      }),
+      'Young Justice',
     );
     assert.equal(computeGameCanonicalSeries({ title: 'Iron Man' }), 'Iron Man');
     assert.equal(
@@ -846,6 +884,63 @@ describe('Canonical Series Logic Integrity Suite', () => {
         franchises: 'DuckTales, Disney, Donald Duck',
       }),
       'DuckTales',
+    );
+  });
+
+  it('should disambiguate multi-franchise crossovers and protect standalone titles from umbrella hijacking', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'PlayStation Move Heroes',
+        franchises: 'Ratchet & Clank, Jak and Daxter, Sly Cooper',
+      }),
+      'PlayStation Move Heroes',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'The Wolf Among Us',
+        franchises: 'Fables, DC Comics',
+        collections: 'The Wolf Among Us',
+      }),
+      'The Wolf Among Us',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Hometown Story',
+        franchises: 'Harvest Moon, Story of Seasons',
+      }),
+      'Hometown Story',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Innocent Life: A Futuristic Harvest Moon',
+        franchises: 'Harvest Moon, Story of Seasons',
+        collections: 'Harvest Moon (old)',
+      }),
+      'Story of Seasons',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Castlevania: Lords of Shadow',
+        franchises: 'Castlevania',
+        collections: 'Castlevania: Lords of Shadow',
+      }),
+      'Castlevania',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Wolfenstein: The New Order',
+        franchises: 'Wolfenstein',
+        collections: 'Wolfenstein: The New Order',
+      }),
+      'Wolfenstein',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Bloodstained: Curse of the Moon',
+        franchises: 'Bloodstained',
+        collections: 'Bloodstained: Curse of the Moon',
+      }),
+      'Bloodstained',
     );
   });
 });
