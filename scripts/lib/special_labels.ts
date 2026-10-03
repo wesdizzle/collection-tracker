@@ -987,6 +987,12 @@ export interface BoxSetDefinition {
   boxSetDisplayTitle: string;
   /** Discs belonging to this box set (for companion disc injection and standalone cross-linking) */
   discs: BoxSetCompanionSpec[];
+  /** Primary Redump / publisher product serial numbers */
+  serials?: string[];
+  /** Retail packaging provenance, novel disc presence, and voucher pack-in notes */
+  rationale?: string;
+  /** Verification source URLs (Redump, Wikipedia, MobyGames, etc.) */
+  sources?: string[];
 }
 
 export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
@@ -994,6 +1000,14 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 32,
     boxSetNormTitle: 'godofwarsaga',
     boxSetDisplayTitle: 'God of War Saga',
+    serials: ['BCUS-98481', 'BCUS-98482'],
+    rationale:
+      'Contains physical Blu-ray discs for God of War Collection (v02.00) and God of War III (v02.00), both unique to this box set. God of War: Origins Collection was included exclusively via a paper PSN voucher code.',
+    sources: [
+      'http://redump.org/disc/29815/',
+      'http://redump.org/disc/29816/',
+      'https://en.wikipedia.org/wiki/God_of_War_(franchise)#Collections_and_remasters',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — God of War Collection (v02.00)',
@@ -1013,6 +1027,14 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 32,
     boxSetNormTitle: 'infamouscollection',
     boxSetDisplayTitle: 'Infamous Collection',
+    serials: ['BCUS-98483', 'BCUS-98484'],
+    rationale:
+      'Contains physical Blu-ray discs for Infamous (v02.00) and Infamous 2 (v02.00), both unique to this box set. Infamous: Festival of Blood was included via a paper PSN voucher code.',
+    sources: [
+      'http://redump.org/disc/29819/',
+      'http://redump.org/disc/29820/',
+      'https://en.wikipedia.org/wiki/Infamous_(video_game)#Collections',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Infamous (v02.00)',
@@ -1032,6 +1054,14 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 32,
     boxSetNormTitle: 'killzonetrilogy',
     boxSetDisplayTitle: 'Killzone Trilogy',
+    serials: ['BCUS-98379', 'BCUS-98380'],
+    rationale:
+      'Disc 1 is a unique physical Blu-ray disc combining the Killzone 1 HD remaster with Killzone 2; Disc 2 contains Killzone 3.',
+    sources: [
+      'http://redump.org/disc/30777/',
+      'http://redump.org/disc/30778/',
+      'https://en.wikipedia.org/wiki/Killzone_(series)#Killzone_Trilogy',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Killzone + Killzone 2',
@@ -1051,6 +1081,14 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 32,
     boxSetNormTitle: 'metalgearsolidthelegacycollection',
     boxSetDisplayTitle: 'Metal Gear Solid: The Legacy Collection',
+    serials: ['BLUS-31197', 'BLUS-31198'],
+    rationale:
+      'Disc 1 is MGS4 (v02.00) featuring Trophy support pre-patched on disc; Disc 2 is MGS HD Collection (MGS2, MGS3, Peace Walker). MGS1 and VR Missions were included via paper PSN voucher codes.',
+    sources: [
+      'http://redump.org/disc/33502/',
+      'http://redump.org/disc/33503/',
+      'https://en.wikipedia.org/wiki/Metal_Gear_Solid:_The_Legacy_Collection',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Metal Gear Solid 4: Guns of the Patriots (v02.00)',
@@ -1070,6 +1108,15 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 32,
     boxSetNormTitle: 'masseffecttrilogy',
     boxSetDisplayTitle: 'Mass Effect Trilogy',
+    serials: ['BLUS-31109', 'BLUS-31110', 'BLUS-31111'],
+    rationale:
+      'First and only physical Blu-ray release of the original Mass Effect on PS3 (standalone ME1 on PS3 was digital-only). Discs 2 and 3 contain ME2 and ME3.',
+    sources: [
+      'http://redump.org/disc/30971/',
+      'http://redump.org/disc/30972/',
+      'http://redump.org/disc/30973/',
+      'https://en.wikipedia.org/wiki/Mass_Effect_(video_game)#Release',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Mass Effect',
@@ -1095,6 +1142,22 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 48,
     boxSetNormTitle: 'masseffecttrilogy',
     boxSetDisplayTitle: 'Mass Effect Trilogy',
+    serials: [
+      'X18-42220-01',
+      'X18-42222-01',
+      'X18-42223-01',
+      'X18-42224-01',
+      'X18-42225-01',
+    ],
+    rationale:
+      '5-disc collection containing Mass Effect (Rev 1), Mass Effect 2 (Discs 1 & 2), and Mass Effect 3 (Discs 1 & 2).',
+    sources: [
+      'http://redump.org/disc/43818/',
+      'http://redump.org/disc/36195/',
+      'http://redump.org/disc/36196/',
+      'http://redump.org/disc/40049/',
+      'http://redump.org/disc/40050/',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Mass Effect (Rev 1)',
@@ -1136,6 +1199,12 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 48,
     boxSetNormTitle: 'farcrycompilation',
     boxSetDisplayTitle: 'Far Cry Compilation',
+    rationale:
+      'Packaged collection of Far Cry 2 and Far Cry 3 on separate physical DVDs. Far Cry 3: Blood Dragon was included via an Xbox Live Arcade voucher.',
+    sources: [
+      'https://www.mobygames.com/game/65004/far-cry-the-wild-expedition/',
+      'https://en.wikipedia.org/wiki/Far_Cry#Compilations',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Far Cry 2',
@@ -1155,6 +1224,13 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 48,
     boxSetNormTitle: 'callofdutythewarcollection',
     boxSetDisplayTitle: 'Call of Duty: The War Collection',
+    serials: ['84144.101.US'],
+    rationale:
+      '3-disc retail box set containing Call of Duty 2 (Rev 1, unique pressing for this collection), Call of Duty 3, and Call of Duty: World at War.',
+    sources: [
+      'http://redump.org/disc/35384/',
+      'https://www.mobygames.com/game/47413/call-of-duty-the-war-collection/',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Call of Duty 2 (Rev 1)',
@@ -1180,6 +1256,13 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 48,
     boxSetNormTitle: 'kinectsportsultimatecollection',
     boxSetDisplayTitle: 'Kinect Sports: Ultimate Collection',
+    serials: ['X18-42721-01', 'X18-40484-01'],
+    rationale:
+      '2-disc retail collection containing Kinect Sports (Rev 1, unique pressing for this collection) and Kinect Sports: Season Two.',
+    sources: [
+      'http://redump.org/disc/42721/',
+      'https://www.mobygames.com/game/65005/kinect-sports-ultimate-collection/',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Kinect Sports (Rev 1)',
@@ -1199,6 +1282,13 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 48,
     boxSetNormTitle: 'assassinscreedheritagecollection',
     boxSetDisplayTitle: "Assassin's Creed: Heritage Collection",
+    serials: ['3307215743477'],
+    rationale:
+      "5-disc European collection containing Assassin's Creed (Rev 1), Assassin's Creed II (GOTY), Brotherhood, Revelations, and Assassin's Creed III (Disc 1 Rev 1).",
+    sources: [
+      'http://redump.org/disc/43763/',
+      'https://www.mobygames.com/game/65006/assassins-creed-heritage-collection/',
+    ],
     discs: [
       {
         discLabel: "Disc 1 — Assassin's Creed",
@@ -1236,6 +1326,13 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 30,
     boxSetNormTitle: 'grandtheftautothetrilogy',
     boxSetDisplayTitle: 'Grand Theft Auto: The Trilogy',
+    serials: ['SLUS-20062', 'SLUS-20552', 'SLUS-20946'],
+    rationale:
+      '3-disc collection containing GTA III, GTA: Vice City, and a revised GTA: San Andreas (v3.00) pressing created specifically for the Trilogy release.',
+    sources: [
+      'http://redump.org/disc/2199/',
+      'https://en.wikipedia.org/wiki/Grand_Theft_Auto:_The_Trilogy',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Grand Theft Auto III',
@@ -1262,6 +1359,14 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 47,
     boxSetNormTitle: 'grandtheftautothetrilogy',
     boxSetDisplayTitle: 'Grand Theft Auto: The Trilogy',
+    rationale:
+      '3-disc Xbox collection containing GTA III, GTA: Vice City (Rev 1), and GTA: San Andreas (Rev 1).',
+    sources: [
+      'http://redump.org/disc/28989/',
+      'http://redump.org/disc/28990/',
+      'http://redump.org/disc/28991/',
+      'https://en.wikipedia.org/wiki/Grand_Theft_Auto:_The_Trilogy',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Grand Theft Auto III',
@@ -1287,6 +1392,13 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 30,
     boxSetNormTitle: 'residenteviltheessentials',
     boxSetDisplayTitle: 'Resident Evil: The Essentials',
+    serials: ['SLUS-20184', 'SLUS-20708', 'SLUS-21134'],
+    rationale:
+      '3-disc collection containing Resident Evil Code: Veronica X, Resident Evil Outbreak (v2.00, revised pressing created for Essentials), and Resident Evil 4.',
+    sources: [
+      'http://redump.org/disc/2447/',
+      'https://www.mobygames.com/game/27532/resident-evil-the-essentials/',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Resident Evil Code: Veronica X',
@@ -1312,6 +1424,13 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
     platformId: 30,
     boxSetNormTitle: 'crashbandicootactionpack',
     boxSetDisplayTitle: 'Crash Bandicoot Action Pack',
+    serials: ['SLUS-20649', 'SLUS-20909', 'SLUS-21147'],
+    rationale:
+      '3-disc collection containing Crash Nitro Kart, Crash Twinsanity (v2.00, revised pressing created for Action Pack), and Crash Tag Team Racing.',
+    sources: [
+      'http://redump.org/disc/2242/',
+      'https://www.mobygames.com/game/27533/crash-bandicoot-action-pack/',
+    ],
     discs: [
       {
         discLabel: 'Disc 1 — Crash Nitro Kart',

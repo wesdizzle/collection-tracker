@@ -1023,15 +1023,40 @@ export async function reconcileRegionalReleasesForGame(
 
     if (matched.length === 0) return 0;
 
+    const siblingGames = dbInstance
+      .prepare(
+        `SELECT stable_id, id, title FROM games WHERE platform_id = ? AND stable_id != ?`,
+      )
+      .all(game.platform_id, game.stable_id) as Array<{
+      stable_id: number;
+      id: string;
+      title: string;
+    }>;
+
+    const getDiffScore = (candidateTitle: string, relTitle: string): number => {
+      const normG = normalizeTitleForMatching(candidateTitle);
+      const normRel = normalizeTitleForMatching(relTitle);
+      let diff = Math.abs(normG.length - normRel.length);
+
+      const brandRegex =
+        /^\s*['"]?(disney|sega|nintendo|sony|microsoft|capcom|konami|namco|square enix|square|enix|atari|ubisoft|ea|marvel|sid meiers?|tom clancys?|lego|nickelodeon|lara croft)s?\b/i;
+      const gHasBrand = brandRegex.test(candidateTitle);
+      const relHasBrand = brandRegex.test(relTitle);
+
+      if (gHasBrand && !relHasBrand) diff += 1000;
+      return diff;
+    };
+
     const existingReleases = dbInstance
       .prepare(
-        `SELECT id, rom_name, rom_crc, region FROM game_releases WHERE game_id = ?`,
+        `SELECT id, rom_name, rom_crc, region, canonical_release_id FROM game_releases WHERE game_id = ?`,
       )
       .all(game.stable_id) as Array<{
       id: string;
       rom_name: string | null;
       rom_crc: string | null;
       region: string | null;
+      canonical_release_id: number | null;
     }>;
 
     const insertRelStmt = dbInstance.prepare(`
@@ -1041,8 +1066,25 @@ export async function reconcileRegionalReleasesForGame(
       ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 1, ?)
     `);
 
+    const updateCanonicalStmt = dbInstance.prepare(`
+      UPDATE game_releases SET canonical_release_id = ? WHERE id = ?
+    `);
+
     for (const cr of matched) {
-      const alreadyExists = existingReleases.some(
+      const cleanCrTitle = cleanTitleWithoutParentheticals(cr.raw_title);
+
+      // Check if another game on the same platform is a strictly better match
+      const currentScore = getDiffScore(game.title, cleanCrTitle);
+      const hasBetterSiblingMatch = siblingGames.some(
+        (sg) =>
+          titlesMatch(sg.title, cleanCrTitle, cr.raw_title, game.platform_id) &&
+          getDiffScore(sg.title, cleanCrTitle) < currentScore,
+      );
+      if (hasBetterSiblingMatch) {
+        continue;
+      }
+
+      const existing = existingReleases.find(
         (er) =>
           (cr.rom_name && er.rom_name === cr.rom_name) ||
           (cr.rom_crc && er.rom_crc === cr.rom_crc) ||
@@ -1050,9 +1092,14 @@ export async function reconcileRegionalReleasesForGame(
             !er.rom_name &&
             regionsMatch(er.region, cr.region || null)),
       );
-      if (alreadyExists) continue;
+      if (existing) {
+        if (!existing.canonical_release_id && cr.id) {
+          updateCanonicalStmt.run(cr.id, existing.id);
+          existing.canonical_release_id = cr.id;
+        }
+        continue;
+      }
 
-      const cleanCrTitle = cleanTitleWithoutParentheticals(cr.raw_title);
       const matchedPrimary = titlesMatch(
         game.title,
         cleanCrTitle,
@@ -1080,6 +1127,7 @@ export async function reconcileRegionalReleasesForGame(
         rom_name: cr.rom_name || null,
         rom_crc: cr.rom_crc || null,
         region: cr.region || null,
+        canonical_release_id: cr.id || null,
       });
       added++;
     }
@@ -1092,8 +1140,14 @@ export async function reconcileRegionalReleasesForGame(
     if (verifiedRegional.length === 0) return 0;
 
     const existingReleases = dbInstance
-      .prepare(`SELECT id, region FROM game_releases WHERE game_id = ?`)
-      .all(game.stable_id) as Array<{ id: string; region: string | null }>;
+      .prepare(
+        `SELECT id, region, canonical_release_id FROM game_releases WHERE game_id = ?`,
+      )
+      .all(game.stable_id) as Array<{
+      id: string;
+      region: string | null;
+      canonical_release_id: number | null;
+    }>;
 
     const findCanonicalStmt = dbInstance.prepare(`
       SELECT id FROM canonical_releases
@@ -1115,6 +1169,10 @@ export async function reconcileRegionalReleasesForGame(
       ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, ?, ?, 1)
     `);
 
+    const updateCanonicalStmt = dbInstance.prepare(`
+      UPDATE game_releases SET canonical_release_id = ? WHERE id = ?
+    `);
+
     for (const vr of verifiedRegional) {
       const normTitle = normalizeTitleForMatching(vr.clean_title);
       let canonicalRow = findCanonicalStmt.get(
@@ -1133,22 +1191,32 @@ export async function reconcileRegionalReleasesForGame(
         canonicalRow = { id: Number(res.lastInsertRowid) };
       }
 
-      const hasRegion = existingReleases.some((er) =>
+      const existing = existingReleases.find((er) =>
         regionsMatch(er.region, vr.region),
       );
-      if (!hasRegion) {
-        const baseSlug = `${game.id}-${vr.region.toLowerCase()}`;
-        const uniqueId = generateUniqueId(baseSlug);
-        insertRelStmt.run(
-          uniqueId,
-          game.stable_id,
-          vr.region,
-          game.release_date || null,
-          canonicalRow.id,
-        );
-        existingReleases.push({ id: uniqueId, region: vr.region });
-        added++;
+      if (existing) {
+        if (!existing.canonical_release_id && canonicalRow?.id) {
+          updateCanonicalStmt.run(canonicalRow.id, existing.id);
+          existing.canonical_release_id = canonicalRow.id;
+        }
+        continue;
       }
+
+      const baseSlug = `${game.id}-${vr.region.toLowerCase()}`;
+      const uniqueId = generateUniqueId(baseSlug);
+      insertRelStmt.run(
+        uniqueId,
+        game.stable_id,
+        vr.region,
+        game.release_date || null,
+        canonicalRow.id,
+      );
+      existingReleases.push({
+        id: uniqueId,
+        region: vr.region,
+        canonical_release_id: canonicalRow.id,
+      });
+      added++;
     }
   }
 

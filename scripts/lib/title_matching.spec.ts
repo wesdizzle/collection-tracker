@@ -143,6 +143,55 @@ describe('Title Matching Strategies', () => {
     ).toBe(true);
   });
 
+  it('should prevent edition games from matching base releases without that edition', () => {
+    // LittleBigPlanet 2
+    expect(
+      titlesMatch('LittleBigPlanet 2: Special Edition', 'LittleBigPlanet 2'),
+    ).toBe(false);
+    expect(
+      titlesMatch(
+        'LittleBigPlanet 2: Special Edition',
+        'LittleBigPlanet 2 - Special Edition',
+      ),
+    ).toBe(true);
+
+    // Dishonored
+    expect(
+      titlesMatch('Dishonored: Game of the Year Edition', 'Dishonored'),
+    ).toBe(false);
+    expect(
+      titlesMatch(
+        'Dishonored: Game of the Year Edition',
+        'Dishonored - Game of the Year Edition',
+      ),
+    ).toBe(true);
+
+    // Resident Evil Director's Cut
+    expect(titlesMatch("Resident Evil: Director's Cut", 'Resident Evil')).toBe(
+      false,
+    );
+    expect(
+      titlesMatch(
+        "Resident Evil: Director's Cut",
+        "Resident Evil - Director's Cut",
+      ),
+    ).toBe(true);
+
+    // Metal Gear Solid 2 Substance
+    expect(
+      titlesMatch(
+        'Metal Gear Solid 2: Substance',
+        'Metal Gear Solid 2 - Sons of Liberty',
+      ),
+    ).toBe(false);
+    expect(
+      titlesMatch(
+        'Metal Gear Solid 2: Substance',
+        'Metal Gear Solid 2 - Substance',
+      ),
+    ).toBe(true);
+  });
+
   it('should match by removing middle segments like "Mission Pack 1" (Strategy 3)', () => {
     expect(
       titlesMatch(

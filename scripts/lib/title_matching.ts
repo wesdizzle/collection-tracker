@@ -482,20 +482,6 @@ function matchAlternative(
     }
   }
 
-  // Case B: The game contains the full release title as one of its segments, and all remaining segments are edition/descriptor labels.
-  if (
-    !GENERIC_DESCRIPTOR_NORMS.has(rNorm) &&
-    rNorm.length >= 4 &&
-    gSegmentNorms.includes(rNorm)
-  ) {
-    const unMatchedSegments = gSegments.filter(
-      (s) => normalizeTitleForMatching(s) !== rNorm,
-    );
-    if (unMatchedSegments.every((s) => isDescriptorSegment(s, rAlt))) {
-      return true;
-    }
-  }
-
   // Strategy 2.5: Swapped segments matching (e.g. "Super Mario World: Super Mario Advance 2" vs "Super Mario Advance 2 - Super Mario World")
   // If both titles split into multiple segments, they match if they contain the exact same set of normalized segments in any order.
   if (gSegmentNorms.length > 1 && rSegmentNorms.length > 1) {
