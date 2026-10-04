@@ -49,6 +49,7 @@ describe('Canonical DAT Downloader', () => {
     const noIntroFiles = NO_INTRO_TARGETS.map((t) => t.remoteFileName);
     expect(noIntroFiles).toContain('Nintendo - Game Boy Advance.dat');
     expect(noIntroFiles).toContain('Nintendo - Nintendo 64.dat');
+    expect(noIntroFiles).toContain('Nintendo - Nintendo Switch.dat');
     expect(noIntroFiles).toContain('Sega - Mega Drive - Genesis.dat');
   });
 
@@ -114,6 +115,50 @@ describe('Canonical DAT Downloader', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('HTTP 503 Service Unavailable');
+  });
+
+  it('should return a manual download error for manualOnly platforms if not present locally', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const switchTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'Nintendo Switch',
+    )!;
+    expect(switchTarget).toBeDefined();
+    expect(switchTarget.manualOnly).toBe(true);
+
+    const result = await downloadNoIntroDat(switchTarget, tempTestDir);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Manual DAT download required');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('should preserve and normalize locally placed DAT files for manualOnly platforms', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const switchTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'Nintendo Switch',
+    )!;
+
+    // Simulate user dropping a manual Switch DAT with timestamp
+    const manualDatName = 'Nintendo - Nintendo Switch (20260401-120000).dat';
+    fs.writeFileSync(
+      path.join(tempTestDir, manualDatName),
+      'clrmamepro ( name "Nintendo - Nintendo Switch" ) game ( name "The Legend of Zelda - Breath of the Wild" )',
+      'utf8',
+    );
+
+    const result = await downloadNoIntroDat(switchTarget, tempTestDir);
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Nintendo - Nintendo Switch.dat');
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    const normalizedPath = path.join(
+      tempTestDir,
+      'Nintendo - Nintendo Switch.dat',
+    );
+    expect(fs.existsSync(normalizedPath)).toBe(true);
   });
 
   describe('applyCanonicalDatPatches', () => {
@@ -277,6 +322,52 @@ game (
         'utf8',
       );
       expect(savedContent).toContain('datomatic.no-intro.org');
+    });
+
+    it('should preserve Nintendo Switch DAT files and migrate loose files from root dats dir', () => {
+      const testNoIntro = path.join(tempTestDir, 'No-Intro');
+      fs.mkdirSync(testNoIntro, { recursive: true });
+
+      // Place a manual Switch DAT directly in No-Intro
+      fs.writeFileSync(
+        path.join(
+          testNoIntro,
+          'Nintendo - Nintendo Switch (20260401-120000).dat',
+        ),
+        'clrmamepro ( name "Nintendo - Nintendo Switch" )',
+        'utf8',
+      );
+
+      // Place a loose No-Intro DAT in the root dats directory
+      fs.writeFileSync(
+        path.join(tempTestDir, 'Nintendo - Game Boy.dat'),
+        'clrmamepro ( name "Nintendo - Game Boy" )',
+        'utf8',
+      );
+
+      const result = pruneAndDeduplicateDats(tempTestDir);
+      expect(result.renamedCount).toBeGreaterThanOrEqual(1);
+
+      // Verify loose file was migrated into No-Intro
+      expect(
+        fs.existsSync(path.join(tempTestDir, 'Nintendo - Game Boy.dat')),
+      ).toBe(false);
+      expect(
+        fs.existsSync(path.join(testNoIntro, 'Nintendo - Game Boy.dat')),
+      ).toBe(true);
+
+      // Verify Switch file was NOT pruned, but rather normalized to canonical name
+      expect(
+        fs.existsSync(path.join(testNoIntro, 'Nintendo - Nintendo Switch.dat')),
+      ).toBe(true);
+      expect(
+        fs.existsSync(
+          path.join(
+            testNoIntro,
+            'Nintendo - Nintendo Switch (20260401-120000).dat',
+          ),
+        ),
+      ).toBe(false);
     });
   });
 

@@ -37,6 +37,7 @@ export interface NoIntroPlatformTarget {
   remoteFileName: string;
   canonicalFileName?: string;
   pattern: RegExp;
+  manualOnly?: boolean;
 }
 
 /**
@@ -204,6 +205,13 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
     remoteFileName: 'Nintendo - New Nintendo 3DS.dat',
     canonicalFileName: 'Nintendo - New Nintendo 3DS.dat',
     pattern: /^Nintendo\s*-\s*New Nintendo 3DS/i,
+  },
+  {
+    name: 'Nintendo Switch',
+    remoteFileName: 'Nintendo - Nintendo Switch.dat',
+    canonicalFileName: 'Nintendo - Nintendo Switch.dat',
+    pattern: /^Nintendo\s*-\s*Nintendo Switch(?!\s*(?:2|\(Digital\)))/i,
+    manualOnly: true,
   },
   {
     name: 'Virtual Boy',
@@ -661,6 +669,51 @@ export async function downloadNoIntroDat(
   const canonicalName = target.canonicalFileName || target.remoteFileName;
   const finalDestination = path.join(destinationDir, canonicalName);
 
+  if (target.manualOnly) {
+    if (fs.existsSync(destinationDir)) {
+      const existingFiles = fs.readdirSync(destinationDir);
+      const existingFile = existingFiles.find((f) => target.pattern.test(f));
+      if (existingFile) {
+        const existingPath = path.join(destinationDir, existingFile);
+        try {
+          const head = fs
+            .readFileSync(existingPath, { encoding: 'utf8', flag: 'r' })
+            .substring(0, 500);
+          if (
+            head.includes('<datafile>') ||
+            head.includes('clrmamepro') ||
+            head.includes('game (')
+          ) {
+            if (existingFile !== canonicalName) {
+              fs.renameSync(existingPath, finalDestination);
+            }
+            for (const other of existingFiles) {
+              if (
+                other !== existingFile &&
+                other !== canonicalName &&
+                target.pattern.test(other)
+              ) {
+                try {
+                  fs.unlinkSync(path.join(destinationDir, other));
+                } catch {
+                  // Ignore removal error
+                }
+              }
+            }
+            const size = fs.statSync(finalDestination).size;
+            return { success: true, fileName: canonicalName, sizeBytes: size };
+          }
+        } catch {
+          // Fall through to manual error
+        }
+      }
+    }
+    return {
+      success: false,
+      error: 'Manual DAT download required: place DAT in dats/No-Intro/',
+    };
+  }
+
   // If an official Datomatic XML datafile already exists locally for this target,
   // preserve it instead of replacing it with a lower-fidelity clrmamepro mirror from libretro
   // unless forceOverwriteXml is true.
@@ -774,6 +827,27 @@ export function pruneAndDeduplicateDats(targetDatsDir: string = datsDir): {
   let renamedCount = 0;
 
   const targetNoIntroDir = path.join(targetDatsDir, 'No-Intro');
+  if (fs.existsSync(targetDatsDir) && fs.existsSync(targetNoIntroDir)) {
+    // If any No-Intro DAT files were placed in root targetDatsDir, migrate them into targetNoIntroDir
+    const rootFiles = fs
+      .readdirSync(targetDatsDir)
+      .filter((f) => f.endsWith('.dat') || f.endsWith('.xml'));
+    for (const file of rootFiles) {
+      const isNoIntro = NO_INTRO_TARGETS.some((t) => t.pattern.test(file));
+      const isRedump = REDUMP_TARGETS.some((t) => t.pattern.test(file));
+      if (isNoIntro && !isRedump) {
+        const srcPath = path.join(targetDatsDir, file);
+        const destPath = path.join(targetNoIntroDir, file);
+        try {
+          fs.renameSync(srcPath, destPath);
+          renamedCount++;
+        } catch {
+          // Ignore rename error
+        }
+      }
+    }
+  }
+
   if (fs.existsSync(targetNoIntroDir)) {
     // Remove unwanted subdirectories if any (e.g. Non-Redump, Source Code, Unofficial)
     const subItems = fs.readdirSync(targetNoIntroDir);
