@@ -40,6 +40,46 @@ export const NSWDB_REGION_MAP: Record<string, string> = {
   RUS: 'Russia',
 };
 
+export const NSWDB_PUNCTUATION_FIXES: Array<[RegExp, string]> = [
+  [/\bAssassins Creed\b/gi, "Assassin's Creed"],
+  [/\bYoshis Crafted World\b/gi, "Yoshi's Crafted World"],
+  [/\bLuigis Mansion\b/gi, "Luigi's Mansion"],
+  [/\bKirbys Return to Dream Land\b/gi, "Kirby's Return to Dream Land"],
+  [/\bBowsers Fury\b/gi, "Bowser's Fury"],
+  [/\bBaldurs Gate\b/gi, "Baldur's Gate"],
+  [/\bSid Meiers\b/gi, "Sid Meier's"],
+  [/\bFive Nights at Freddys\b/gi, "Five Nights at Freddy's"],
+  [/\bNobunagas Ambition\b/gi, "Nobunaga's Ambition"],
+  [/\bJoJos Bizarre Adventure\b/gi, "JoJo's Bizarre Adventure"],
+  [/\bAlwas Collection\b/gi, "Alwa's Collection"],
+  [/\bAlwas Awakening\b/gi, "Alwa's Awakening"],
+  [/\bAlwas Legacy\b/gi, "Alwa's Legacy"],
+  [/\bBlueys Quest\b/gi, "Bluey's Quest"],
+  [/\bCabelas\b/gi, "Cabela's"],
+  [/\bYokus Island Express\b/gi, "Yoku's Island Express"],
+  [/\bLuckys Tale\b/gi, "Lucky's Tale"],
+  [/\bRiskys Revenge\b/gi, "Risky's Revenge"],
+  [/\bPirates Curse\b/gi, "Pirate's Curse"],
+  [/\bDragons Trap\b/gi, "Dragon's Trap"],
+  [/\bDragons Dogma\b/gi, "Dragon's Dogma"],
+  [/\bDragons Lair\b/gi, "Dragon's Lair"],
+  [/\bDevils Dare\b/gi, "Devil's Dare"],
+  [/\bMonsters Expedition\b/gi, "Monster's Expedition"],
+  [/\bAmericas Greatest Game Shows\b/gi, "America's Greatest Game Shows"],
+  [/\bTom Clancys\b/gi, "Tom Clancy's"],
+  [/\bSenuas Sacrifice\b/gi, "Senua's Sacrifice"],
+  [/\bHellblade - Senuas\b/gi, "Hellblade - Senua's"],
+  [/\bOddworld - Munchs\b/gi, "Oddworld - Munch's"],
+  [/\bOddworld - New n Tasty\b/gi, "Oddworld - New 'n' Tasty"],
+  [/\bDirectors Cut\b/gi, "Director's Cut"],
+  [/\bPrinces Edition\b/gi, "Prince's Edition"],
+  [/\bCollectors Edition\b/gi, "Collector's Edition"],
+  [/\bLets Go, Pikachu\b/gi, "Let's Go, Pikachu"],
+  [/\bLets Go, Eevee\b/gi, "Let's Go, Eevee"],
+  [/\bDont Starve\b/gi, "Don't Starve"],
+  [/\bIts About Time\b/gi, "It's About Time"],
+];
+
 export interface NswdbRawRelease {
   id?: string | number;
   name?: string;
@@ -153,6 +193,11 @@ export function normalizeNswdbTitle(
 
   // Clean trailing punctuation or hyphens
   cleanTitle = cleanTitle.replace(/\s*-\s*$/, '').trim();
+
+  // Apply known punctuation and apostrophe fixes for dumper omissions
+  for (const [pattern, replacement] of NSWDB_PUNCTUATION_FIXES) {
+    cleanTitle = cleanTitle.replace(pattern, replacement);
+  }
 
   // Assemble full canonical title: Title (Region) (Variant 1) (Variant 2)
   let fullName = cleanTitle;

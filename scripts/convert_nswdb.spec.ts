@@ -56,6 +56,27 @@ describe('NSWDB XML to Logiqx DAT Converter', () => {
       expect(result.fullName).toBe('Super Mario Odyssey (World) (Demo)');
     });
 
+    it('should restore missing apostrophes and proper punctuation from dumper omissions', () => {
+      const ac = normalizeNswdbTitle(
+        'Assassins Creed: The Rebel Collection',
+        'WLD',
+      );
+      expect(ac.cleanTitle).toBe("Assassin's Creed - The Rebel Collection");
+      expect(ac.fullName).toBe(
+        "Assassin's Creed - The Rebel Collection (World)",
+      );
+
+      const yoshi = normalizeNswdbTitle('Yoshis Crafted World', 'USA');
+      expect(yoshi.cleanTitle).toBe("Yoshi's Crafted World");
+      expect(yoshi.fullName).toBe("Yoshi's Crafted World (USA)");
+
+      const luigi = normalizeNswdbTitle('Luigis Mansion 3', 'WLD');
+      expect(luigi.cleanTitle).toBe("Luigi's Mansion 3");
+
+      const pokemon = normalizeNswdbTitle('Pokemon: Lets Go, Pikachu!', 'USA');
+      expect(pokemon.cleanTitle).toBe("Pokemon - Let's Go, Pikachu!");
+    });
+
     it('should normalize bracketed revisions into parentheticals', () => {
       const result = normalizeNswdbTitle(
         'Mario Kart 8 Deluxe [Rev 1.0.0]',
