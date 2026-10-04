@@ -14,11 +14,13 @@ export interface DatRom {
   crc?: string;
   md5?: string;
   sha1?: string;
+  serial?: string;
 }
 
 export interface DatRelease {
   name: string; // The game/release name in the DAT file
   roms: DatRom[];
+  publisher?: string;
 }
 
 export interface DatFileContent {
@@ -110,6 +112,7 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
         sha1: rawRom.sha1
           ? String(rawRom.sha1).toLowerCase().trim()
           : undefined,
+        serial: rawRom.serial ? String(rawRom.serial).trim() : undefined,
       });
     }
 
@@ -121,6 +124,9 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
     releases.push({
       name: gameName,
       roms,
+      publisher: rawGame.publisher
+        ? String(rawGame.publisher).trim()
+        : undefined,
     });
   }
 

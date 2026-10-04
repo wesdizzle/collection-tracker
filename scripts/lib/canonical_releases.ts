@@ -773,6 +773,7 @@ export function deduplicateDatReleases(
   rawReleases: Array<{
     name: string;
     roms: Array<{ name: string; crc?: string | null; serial?: string | null }>;
+    publisher?: string | null;
   }>,
 ): CanonicalRelease[] {
   const releaseMap = new Map<string, CanonicalRelease>();
@@ -810,7 +811,7 @@ export function deduplicateDatReleases(
         rom_crc: primaryRom.crc || null,
         serial_code: serial || null,
         barcode: null,
-        publisher: null,
+        publisher: rel.publisher || null,
         source: 'dat',
         is_verified_physical: 1,
       });
@@ -822,6 +823,9 @@ export function deduplicateDatReleases(
       }
       if (!existing.serial_code && serial) {
         existing.serial_code = serial;
+      }
+      if (!existing.publisher && rel.publisher) {
+        existing.publisher = rel.publisher;
       }
     }
   }

@@ -117,48 +117,73 @@ describe('Canonical DAT Downloader', () => {
     expect(result.error).toContain('HTTP 503 Service Unavailable');
   });
 
-  it('should return a manual download error for manualOnly platforms if not present locally', async () => {
-    const mockFetch = vi.fn();
+  it('should automatically fetch, convert, and save Nintendo Switch XML from NSWDB into Logiqx DAT', async () => {
+    const mockNswdbXml = `<?xml version="1.0"?>
+<releases>
+  <release>
+    <id>1</id>
+    <name>The Legend of Zelda: Breath of the Wild</name>
+    <publisher>Nintendo</publisher>
+    <region>WLD</region>
+    <serial>LA-H-AAAAA</serial>
+    <imgcrc>5DD119C1</imgcrc>
+    <trimmedsize>14880118272</trimmedsize>
+    <type>1</type>
+  </release>
+</releases>`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => mockNswdbXml,
+    });
     vi.stubGlobal('fetch', mockFetch);
 
     const switchTarget = NO_INTRO_TARGETS.find(
       (t) => t.name === 'Nintendo Switch',
     )!;
     expect(switchTarget).toBeDefined();
-    expect(switchTarget.manualOnly).toBe(true);
 
     const result = await downloadNoIntroDat(switchTarget, tempTestDir);
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Manual DAT download required');
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Nintendo - Nintendo Switch.dat');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://nswdb.com/xml.php',
+      expect.any(Object),
+    );
+
+    const savedPath = path.join(tempTestDir, result.fileName!);
+    expect(fs.existsSync(savedPath)).toBe(true);
+    const content = fs.readFileSync(savedPath, 'utf8');
+    expect(content).toContain('<datafile>');
+    expect(content).toContain(
+      '<game name="The Legend of Zelda - Breath of the Wild (World)">',
+    );
   });
 
-  it('should preserve and normalize locally placed DAT files for manualOnly platforms', async () => {
-    const mockFetch = vi.fn();
+  it('should preserve existing Nintendo Switch DAT if network request fails', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
     vi.stubGlobal('fetch', mockFetch);
 
     const switchTarget = NO_INTRO_TARGETS.find(
       (t) => t.name === 'Nintendo Switch',
     )!;
 
-    // Simulate user dropping a manual Switch DAT with timestamp
-    const manualDatName = 'Nintendo - Nintendo Switch (20260401-120000).dat';
+    // Simulate pre-existing Switch DAT file
+    const preExistingPath = path.join(
+      tempTestDir,
+      'Nintendo - Nintendo Switch.dat',
+    );
     fs.writeFileSync(
-      path.join(tempTestDir, manualDatName),
-      'clrmamepro ( name "Nintendo - Nintendo Switch" ) game ( name "The Legend of Zelda - Breath of the Wild" )',
+      preExistingPath,
+      '<datafile><game name="Pre-existing Game (World)"/></datafile>',
       'utf8',
     );
 
     const result = await downloadNoIntroDat(switchTarget, tempTestDir);
     expect(result.success).toBe(true);
     expect(result.fileName).toBe('Nintendo - Nintendo Switch.dat');
-    expect(mockFetch).not.toHaveBeenCalled();
-
-    const normalizedPath = path.join(
-      tempTestDir,
-      'Nintendo - Nintendo Switch.dat',
-    );
-    expect(fs.existsSync(normalizedPath)).toBe(true);
+    expect(fs.existsSync(preExistingPath)).toBe(true);
   });
 
   describe('applyCanonicalDatPatches', () => {
