@@ -133,6 +133,7 @@ describe('reconcile_releases', () => {
       expect(sqlContent).toContain(
         'UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases',
       );
+      expect(sqlContent).toContain("normalized_title = 'yokuislandexpress'");
     });
 
     it('should not modify database in dry-run mode', () => {

@@ -239,7 +239,7 @@ export function reconcileGameReleasesWithCanonical(
       s !== null ? `'${s.replace(/'/g, "''")}'` : 'NULL';
 
     sqlStatements.push(
-      `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${rel.platform_id} AND rom_name = ${escapeSql(best.rom_name)} LIMIT 1), rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)} WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
+      `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${rel.platform_id} AND normalized_title = ${escapeSql(best.normalized_title)} AND rom_name = ${escapeSql(best.rom_name)} LIMIT 1), rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)} WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
     );
   }
 
