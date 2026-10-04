@@ -22,6 +22,7 @@ import {
   deduplicateDatReleases,
   CanonicalRelease,
 } from './lib/canonical_releases.js';
+import { reconcileGameReleasesWithCanonical } from './lib/reconcile_releases.js';
 
 import { getLocalD1Path } from './lib/db.js';
 
@@ -150,6 +151,11 @@ try {
     processDats();
   }
 
+  // Reconcile unlinked collection game_releases with newly synced canonical_releases
+  const reconcileResult = reconcileGameReleasesWithCanonical(db, {
+    dryRun: isDryRun,
+  });
+
   const BATCH_SIZE = 250;
   const numBatches = Math.ceil(allCanonicalReleases.length / BATCH_SIZE);
   // Estimated seed SQL size (~160 bytes per row + SQL overhead)
@@ -178,6 +184,9 @@ try {
   );
   console.log(
     `- Multi-Disc Deduplication Savings:   ${((1 - totalDeduplicatedCount / (totalRawCount || 1)) * 100).toFixed(1)}% reduction`,
+  );
+  console.log(
+    `- Collection Releases Reconciled:     ${reconcileResult.reconciledCount} releases`,
   );
   console.log(`- SQL Multi-Row Batches (250/batch):  ${numBatches} statements`);
 
@@ -228,6 +237,9 @@ try {
     );
     console.log(
       `[SyncDats] Generated D1 deployment seed SQL: ${path.relative(rootDir, seedSqlPath)} (${actualSizeMb} MB)`,
+    );
+    console.log(
+      `[SyncDats] Generated D1 release reconciliation SQL: ${path.relative(rootDir, reconcileResult.sqlPath)} (${reconcileResult.reconciledCount} updates)`,
     );
   }
 } catch (err) {
