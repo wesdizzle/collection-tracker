@@ -23,10 +23,12 @@ import {
   CanonicalRelease,
 } from './lib/canonical_releases.js';
 
+import { getLocalD1Path } from './lib/db.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.join(__dirname, '..');
-const dbPath = path.join(rootDir, 'collection.sqlite');
+const dbPath = getLocalD1Path();
 const tempDir = path.join(rootDir, 'scripts', 'temp');
 
 if (!fs.existsSync(tempDir)) {

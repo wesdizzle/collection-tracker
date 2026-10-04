@@ -14,10 +14,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
+import { getLocalD1Path } from './lib/db.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.join(__dirname, '..');
-const dbPath = path.join(rootDir, 'collection.sqlite');
+const dbPath = getLocalD1Path();
 
 if (!fs.existsSync(dbPath)) {
   console.error(`[SafetyBackup] Error: database not found at ${dbPath}`);

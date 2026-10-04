@@ -75,8 +75,9 @@ import {
   searchGameyeToy,
   findVerifiedRegionalPhysicalReleases,
 } from './lib/gameye.js';
+import { getDatabase } from './lib/db.js';
 
-const db = new Database('collection.sqlite');
+const db = getDatabase();
 const checkReleaseExistsStmt = db.prepare(
   'SELECT 1 FROM game_releases WHERE id = ?',
 );

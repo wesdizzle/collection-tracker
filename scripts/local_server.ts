@@ -58,8 +58,10 @@ import {
   RetailDealItem,
 } from './lib/bestbuy.js';
 
-// Source of truth local database
-const db = new Database('collection.sqlite');
+import { getDatabase } from './lib/db.js';
+
+// Source of truth local database (unified with Cloudflare D1)
+const db = getDatabase();
 const PORT = 3000;
 
 /**

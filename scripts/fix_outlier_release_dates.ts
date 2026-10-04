@@ -13,7 +13,6 @@
  * npx tsx scripts/fix_outlier_release_dates.ts
  */
 
-import Database from 'better-sqlite3';
 import { getGameById, PLATFORM_LIFESPANS, PLATFORM_MAP } from './lib/igdb.js';
 
 interface GameReleaseRow {
@@ -31,9 +30,11 @@ interface GameReleaseRow {
 /**
  * Main execution function that scans the database and fixes outlier release dates.
  */
+import { getDatabase } from './lib/db.js';
+
 export async function fixOutlierReleaseDates() {
   console.log('=== Outlier Release Date Scanner & Fixer ===\n');
-  const db = new Database('collection.sqlite');
+  const db = getDatabase();
 
   const games: GameReleaseRow[] = db
     .prepare(

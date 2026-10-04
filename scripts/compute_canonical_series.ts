@@ -15,8 +15,10 @@ import {
   GameMetadata,
 } from './lib/canonical_series.js';
 
+import { getLocalD1Path } from './lib/db.js';
+
 const CONFIG = {
-  dbPath: 'collection.sqlite',
+  dbPath: getLocalD1Path(),
   sqlExportPath: 'update_canonical_series.sql',
   columns: {
     stableId: 'stable_id',

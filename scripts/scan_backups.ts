@@ -27,6 +27,7 @@ import {
 } from './lib/title_matching.js';
 import { extractRegions, isPlatformMatch } from './lib/dat_format.js';
 import { stripDiscIndicator } from './lib/queries.js';
+import { getLocalD1Path } from './lib/db.js';
 
 export interface PlatformRow {
   id: number;
@@ -816,7 +817,7 @@ function main(): void {
     'Safety check: Backup folder is treated as strictly read-only.\n',
   );
 
-  const dbPath = path.resolve(process.cwd(), 'collection.sqlite');
+  const dbPath = getLocalD1Path();
   if (!fs.existsSync(dbPath)) {
     console.error(`Error: Database not found at ${dbPath}`);
     process.exit(1);

@@ -15,7 +15,6 @@
  *   npx tsx scripts/sync_bestbuy.ts
  */
 
-import Database from 'better-sqlite3';
 import { execSync } from 'child_process';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
@@ -52,8 +51,9 @@ if (!apiKey) {
   );
 }
 
-const dbPath = path.join(rootDir, 'collection.sqlite');
-const db = new Database(dbPath);
+import { getDatabase } from './lib/db.js';
+
+const db = getDatabase();
 
 function escapeSqlString(str: string): string {
   return str.replace(/'/g, "''");

@@ -39,12 +39,13 @@ interface GameRow {
   ownership_status: number;
 }
 
+import { getLocalD1Path } from './lib/db.js';
+
 export function runReconciliation(
   options: { dryRun?: boolean; dbPath?: string } = {},
 ) {
   const isDryRun = options.dryRun ?? process.argv.includes('--dry-run');
-  const dbFile =
-    options.dbPath ?? path.resolve(process.cwd(), 'collection.sqlite');
+  const dbFile = options.dbPath ?? getLocalD1Path();
 
   console.log('=== Smart Ownership & Backup Reconciliation ===');
   console.log(

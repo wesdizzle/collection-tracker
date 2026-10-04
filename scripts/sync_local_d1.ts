@@ -1,152 +1,45 @@
 /**
- * LOCAL D1 SYNCHRONIZATION BRIDGE
+ * LOCAL D1 INTEGRITY & HEALTH CHECK BRIDGE
  *
- * This script provides a critical link between the source-of-truth
- * 'collection.sqlite' and the internal SQLite instance managed by Cloudflare Wrangler.
+ * With the removal of redundant `collection.sqlite` dual-database state,
+ * Cloudflare Wrangler's local D1 SQLite instance is the single, direct local source
+ * of truth used by both Miniflare (`wrangler dev`) and local development scripts (`local_server.ts`).
  *
- * ARCHITECTURAL DESIGN:
- * 1. **Bypassing Miniflare Isolation**: Cloudflare Workers (via Wrangler) store
- *    their local D1 state in obfuscated paths within `.wrangler/state`. This
- *    script automatically identifies these paths to allow for direct file-level sync.
- * 2. **Initialization Trick**: If the state directory doesn't exist, it triggers
- *     a dummy `wrangler d1 execute` to force Miniflare to generate the
- *    internal directory structure before copying.
- * 3. **Safety Backups**: Before overwriting the D1 instance, it creates a
- *    timestamped backup in `/backups`, ensuring no work is lost if the sync
- *    interrupts an active local session.
- * 4. **Journal Mode Check**: Verifies the SQLite journal mode to ensure
- *    compatibility between the host OS and the Miniflare environment.
+ * This utility validates that the local D1 instance is healthy, verifies WAL journal mode,
+ * and executes SQLite PRAGMA integrity checks to ensure zero-corruption operation.
  */
 
+import Database from 'better-sqlite3';
+import { getLocalD1Path } from './lib/db.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
-import Database from 'better-sqlite3';
 
-// The source database we work with in the root folder
-const sourcePath = 'collection.sqlite';
+console.log('--- Checking Unified Local D1 State ---');
+const d1Path = getLocalD1Path();
 
-console.log('--- Phase 0: Verifying SQLite Mode ---');
-const db = new Database(sourcePath);
-const mode = db.pragma('journal_mode', { simple: true });
-console.log(`Current journal mode: ${mode}`);
-db.close();
-
-// The internal folder where Wrangler stores local persistence
-const d1StateDir = path.join(
-  '.wrangler',
-  'state',
-  'v3',
-  'd1',
-  'miniflare-D1DatabaseObject',
-);
-
-console.log('--- Phase 1: Locating Wrangler Local D1 ---');
-
-// Guard: Ensure source exists
-if (!fs.existsSync(sourcePath)) {
-  console.error(`Error: ${sourcePath} not found.`);
-  process.exit(1);
-}
-
-/**
- * INITIALIZATION TRICK:
- * If the user has never run wrangler dev, the state directory won't exist.
- * We run a dummy query to force it to create the folder structure.
- */
-if (!fs.existsSync(d1StateDir)) {
+if (!fs.existsSync(d1Path)) {
   console.log(
-    'Wrangler state directory not found. Initializing with a dummy query...',
-  );
-  try {
-    const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-    execSync(
-      `${cmd} wrangler d1 execute collection-db --command="SELECT 1;" --local`,
-      {
-        stdio: 'ignore',
-        shell: true,
-      } as unknown as import('child_process').ExecSyncOptions,
-    );
-  } catch {
-    // Ignored
-  }
-}
-
-if (!fs.existsSync(d1StateDir)) {
-  console.error(
-    'Error: Could not find or initialize Wrangler D1 state directory.',
+    `Local D1 database not found at ${d1Path}. Run "npm run db:pull" to pull from remote D1.`,
   );
   process.exit(1);
 }
 
-/**
- * FILE IDENTIFICATION:
- * Wrangler generates a random hash for each database ID in your wrangler.toml.
- * We look for all .sqlite files but EXCLUDE 'metadata.sqlite'.
- */
-const items = fs.readdirSync(d1StateDir);
-const d1Targets: string[] = [];
+console.log(`Local D1 Database: ${path.relative(process.cwd(), d1Path)}`);
 
-for (const item of items) {
-  const fullPath = path.join(d1StateDir, item);
-  const stats = fs.statSync(fullPath);
+const db = new Database(d1Path);
+const journalMode = db.pragma('journal_mode', { simple: true });
+console.log(`Journal Mode: ${journalMode}`);
 
-  if (stats.isDirectory()) {
-    // Modern Wrangler structure: hash.sqlite/db.sqlite
-    // In some versions, the database is inside a directory named after the hash.
-    const nestedFiles = fs.readdirSync(fullPath);
-    for (const nested of nestedFiles) {
-      if (nested.endsWith('.sqlite')) {
-        d1Targets.push(path.join(fullPath, nested));
-      }
-    }
-  } else if (item.endsWith('.sqlite') && !item.startsWith('metadata')) {
-    // Legacy/Traditional structure: hash.sqlite is the file.
-    d1Targets.push(fullPath);
-  }
-}
+const integrity = db.pragma('integrity_check') as Array<{
+  integrity_check: string;
+}>;
+console.log(`Integrity Check: ${JSON.stringify(integrity)}`);
 
-if (d1Targets.length === 0) {
-  console.warn(
-    'No active D1 sqlite targets found. Please run "npm run dev" once, stop it, and try again.',
-  );
+if (integrity.length === 1 && integrity[0]?.integrity_check === 'ok') {
+  console.log('✅ Local D1 database is healthy and ready for development.');
+} else {
+  console.error('❌ Local D1 database integrity issue detected.');
   process.exit(1);
 }
 
-console.log(
-  `Found ${d1Targets.length} potential D1 database target(s). Synchronizing...`,
-);
-
-/**
- * SYNCHRONIZATION:
- * We perform a file-level copy.
- */
-for (const targetPath of d1Targets) {
-  // 1. Create a backup of the existing D1 state if it exists
-  try {
-    const backupDir = path.join(process.cwd(), 'backups');
-    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir);
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dbName = path.basename(targetPath, '.sqlite');
-    const backupPath = path.join(
-      backupDir,
-      `${dbName}_${timestamp}.sqlite.bak`,
-    );
-
-    fs.copyFileSync(targetPath, backupPath);
-    console.log(
-      `[Backup] Saved existing D1 state to: ${path.relative(process.cwd(), backupPath)}`,
-    );
-  } catch (e) {
-    console.warn(`[Backup] Failed to create backup of ${targetPath}:`, e);
-  }
-
-  // 2. Perform the synchronization
-  fs.copyFileSync(sourcePath, targetPath);
-}
-
-console.log(
-  '\nSUCCESS: Local D1 is now 100% synchronized with collection.sqlite.',
-);
-console.log('You can now run: npm run dev');
+db.close();

@@ -18,12 +18,14 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
+import { getLocalD1Path } from './lib/db.js';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.join(__dirname, '..');
-const dbPath = path.join(rootDir, 'collection.sqlite');
+const dbPath = getLocalD1Path();
 
 // CI / Cloudflare Build Environment Check
 // When building in CI/CD, Cloudflare D1 is already the authoritative primary database.

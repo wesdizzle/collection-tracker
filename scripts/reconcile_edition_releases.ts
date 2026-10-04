@@ -14,14 +14,14 @@ interface CliArgs {
   dbPath: string;
 }
 
+import { getLocalD1Path } from './lib/db.js';
+
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run') || args.includes('-n');
   const dbIndex = args.indexOf('--db');
   const dbPath =
-    dbIndex !== -1 && args[dbIndex + 1]
-      ? args[dbIndex + 1]
-      : path.resolve('collection.sqlite');
+    dbIndex !== -1 && args[dbIndex + 1] ? args[dbIndex + 1] : getLocalD1Path();
   return { dryRun, dbPath };
 }
 
