@@ -60,8 +60,6 @@ import {
 
 import { getDatabase } from './lib/db.js';
 
-// Source of truth local database (unified with Cloudflare D1)
-const db = getDatabase();
 const PORT = 3000;
 
 /**
@@ -1769,11 +1767,11 @@ export const handleRequest =
     }
   };
 
-const server = http.createServer(handleRequest(db));
-
 // Only start the server if this file is run directly
 import { fileURLToPath } from 'url';
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const db = getDatabase();
+  const server = http.createServer(handleRequest(db));
   server.listen(PORT, () => {
     console.log(
       `Standalone Local API Server running at http://localhost:${PORT}`,

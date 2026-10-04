@@ -39,6 +39,9 @@ export function getLocalD1Path(): string {
   }
 
   // Fallback to predictable path
+  if (!fs.existsSync(d1StateDir)) {
+    fs.mkdirSync(d1StateDir, { recursive: true });
+  }
   const fallback = path.join(
     d1StateDir,
     '169f8be8b215c89203fa79284f81f610be46edc169f8d19359d676b5963cb1eb.sqlite',
