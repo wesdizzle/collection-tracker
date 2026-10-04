@@ -58,7 +58,7 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '',
-    parseAttributeValue: true,
+    parseAttributeValue: false,
     isArray: (name) => ['game', 'rom'].includes(name),
   });
 
@@ -104,10 +104,12 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
 
       roms.push({
         name: romName,
-        size: rawRom.size,
-        crc: rawRom.crc ? String(rawRom.crc).toLowerCase() : undefined,
-        md5: rawRom.md5 ? String(rawRom.md5).toLowerCase() : undefined,
-        sha1: rawRom.sha1 ? String(rawRom.sha1).toLowerCase() : undefined,
+        size: Number(rawRom.size) || 0,
+        crc: rawRom.crc ? String(rawRom.crc).toLowerCase().trim() : undefined,
+        md5: rawRom.md5 ? String(rawRom.md5).toLowerCase().trim() : undefined,
+        sha1: rawRom.sha1
+          ? String(rawRom.sha1).toLowerCase().trim()
+          : undefined,
       });
     }
 

@@ -152,6 +152,28 @@ game (
     expect(result.releases[0].roms[0].size).toBe(8388608);
   });
 
+  it('should preserve leading zeros and scientific-like hex strings in rom CRCs without numeric coercion', () => {
+    const xml = `<?xml version="1.0"?>
+<datafile>
+    <header>
+        <name>Nintendo - Game Boy</name>
+    </header>
+    <game name="Test Game (World)">
+        <rom name="Test1.gb" size="131072" crc="07436316"/>
+        <rom name="Test2.gb" size="262144" crc="5143e227"/>
+        <rom name="Test3.gb" size="524288" crc="378237e5"/>
+    </game>
+</datafile>`;
+    fs.writeFileSync(tempFilePath, xml, 'utf-8');
+    const result = parseDatFile(tempFilePath);
+
+    expect(result.releases).toHaveLength(1);
+    const roms = result.releases[0].roms;
+    expect(roms[0].crc).toBe('07436316');
+    expect(roms[1].crc).toBe('5143e227');
+    expect(roms[2].crc).toBe('378237e5');
+  });
+
   it('should throw error on invalid DAT file missing datafile root and clrmamepro header', () => {
     const xml = `<?xml version="1.0"?>
 <invalid>

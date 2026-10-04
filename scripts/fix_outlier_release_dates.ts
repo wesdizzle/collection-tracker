@@ -13,7 +13,15 @@
  * npx tsx scripts/fix_outlier_release_dates.ts
  */
 
-import { getGameById, PLATFORM_LIFESPANS, PLATFORM_MAP } from './lib/igdb.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+import {
+  getGameById,
+  PLATFORM_LIFESPANS,
+  PLATFORM_MAP,
+  NormalizedGame,
+} from './lib/igdb.js';
 
 interface GameReleaseRow {
   release_id: string;
@@ -27,13 +35,24 @@ interface GameReleaseRow {
   platform_name: string | null;
 }
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.join(__dirname, '..');
+const tempDir = path.join(rootDir, 'scripts', 'temp');
+
 /**
  * Main execution function that scans the database and fixes outlier release dates.
  */
 import { getDatabase } from './lib/db.js';
 
-export async function fixOutlierReleaseDates() {
-  console.log('=== Outlier Release Date Scanner & Fixer ===\n');
+export async function fixOutlierReleaseDates(isDryRun = false) {
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  console.log(
+    `=== Outlier Release Date Scanner & Fixer ${isDryRun ? '(DRY RUN)' : ''} ===\n`,
+  );
   const db = getDatabase();
 
   const games: GameReleaseRow[] = db
@@ -62,10 +81,12 @@ export async function fixOutlierReleaseDates() {
   let outlierCount = 0;
   let fixedCount = 0;
   let flaggedCount = 0;
+  const gameCache = new Map<string, NormalizedGame | null>();
+  const sqlStatements: string[] = [];
 
-  const updateReleaseStmt = db.prepare(
-    `UPDATE game_releases SET release_date = ? WHERE id = ?`,
-  );
+  const updateReleaseStmt = isDryRun
+    ? null
+    : db.prepare(`UPDATE game_releases SET release_date = ? WHERE id = ?`);
 
   for (const game of games) {
     scannedCount++;
@@ -87,25 +108,31 @@ export async function fixOutlierReleaseDates() {
 
     if (isOutlier && game.igdb_id) {
       outlierCount++;
-      console.log(
-        `[Outlier Detected] "${game.title}" (${platformName} -> IGDB Platform ${igdbPlatformId}): Current Date = ${game.release_date || 'MISSING'} (Lifespan: ${lifespan ? lifespan.join('-') : 'Unknown'})`,
-      );
+      const cacheKey = `${game.igdb_id}-${igdbPlatformId}`;
+      let freshGame = gameCache.get(cacheKey);
 
-      // Re-query IGDB using platform-locked release date logic with correct IGDB platform ID
-      const freshGame = await getGameById(game.igdb_id, igdbPlatformId);
+      if (freshGame === undefined) {
+        freshGame = await getGameById(game.igdb_id, igdbPlatformId);
+        gameCache.set(cacheKey, freshGame);
+      }
 
       if (freshGame && freshGame.release_date) {
         const dateChanged = freshGame.release_date !== game.release_date;
 
         if (dateChanged) {
-          updateReleaseStmt.run(freshGame.release_date, game.release_id);
+          if (!isDryRun && updateReleaseStmt) {
+            updateReleaseStmt.run(freshGame.release_date, game.release_id);
+          }
+          sqlStatements.push(
+            `UPDATE game_releases SET release_date = '${freshGame.release_date}' WHERE id = '${game.release_id.replace(/'/g, "''")}';`,
+          );
           fixedCount++;
           console.log(
-            `  -> UPDATED to authentic release date: ${freshGame.release_date}${freshGame.flagged_outlier ? ' [Flagged Outlier Guideline]' : ''}`,
+            `[Fixed] "${game.title}" (${platformName}): ${game.release_date || 'MISSING'} -> ${freshGame.release_date}${freshGame.flagged_outlier ? ' [Flagged Outlier Guideline]' : ''}`,
           );
         } else {
           console.log(
-            `  -> Maintained date: ${freshGame.release_date}${freshGame.flagged_outlier ? ' [Flagged Outlier Guideline]' : ''}`,
+            `[Maintained] "${game.title}" (${platformName}): ${freshGame.release_date}${freshGame.flagged_outlier ? ' [Flagged Outlier Guideline]' : ''}`,
           );
         }
 
@@ -120,18 +147,26 @@ export async function fixOutlierReleaseDates() {
     }
   }
 
+  const sqlFilePath = path.join(tempDir, 'fix_outlier_release_dates.sql');
+  fs.writeFileSync(sqlFilePath, sqlStatements.join('\n'), 'utf8');
+
   console.log('\n=== Summary ===');
-  console.log(`Total Releases Scanned: ${scannedCount}`);
-  console.log(`Outliers Identified: ${outlierCount}`);
-  console.log(`Releases Updated: ${fixedCount}`);
+  console.log(`Total Releases Scanned:                      ${scannedCount}`);
+  console.log(`Outliers Identified:                         ${outlierCount}`);
+  console.log(`Releases Updated:                            ${fixedCount}`);
   console.log(`Boutique / Late Releases Flagged for Review: ${flaggedCount}`);
+  console.log(
+    `SQL statements generated:                    ${sqlStatements.length}`,
+  );
+  console.log(`SQL migration file:                          ${sqlFilePath}`);
   console.log('================');
 
   db.close();
 }
 
 if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
-  fixOutlierReleaseDates().catch((err) => {
+  const isDryRun = process.argv.includes('--dry-run');
+  fixOutlierReleaseDates(isDryRun).catch((err) => {
     console.error('Fatal error fixing release dates:', err);
     process.exit(1);
   });
