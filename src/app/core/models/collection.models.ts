@@ -122,6 +122,7 @@ export interface Game {
   releases?: GameRelease[];
   bundled_games?: BundledGame[];
   shared_backup_releases?: SharedBackupReleaseLink[];
+  voucher_notes?: string[];
 }
 
 export interface BundledGame {

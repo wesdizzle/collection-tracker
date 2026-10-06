@@ -17,6 +17,7 @@ import {
   BOX_SET_DISC_LABELS,
   BOX_SET_ROM_GROUPING_MAP,
   BoxSetCompanionSpec,
+  CANONICAL_VOUCHER_BUNDLES,
   SUPERSEDED_RELEASE_PAIRS,
   normalizeForLabelMatch,
 } from './special_labels.js';
@@ -637,8 +638,10 @@ function regionsOverlap(
  *    `backup_status` and a link back to the standalone release) without altering `ownership_status`.
  * 3. Case 2 (When viewing a Superseded original release or a standalone game included in a Box Set):
  *    Attaches `shared_backup_releases` linking forward to the GOTY/expanded release(s) or Box Set(s).
+ * 4. Case 3 (When viewing a Physical Release that bundled companion games via digital vouchers):
+ *    Attaches `voucher_notes` detailing the voucher companion contents without creating phantom entries.
  */
-export function enrichGameDetailWithCompanionDiscs(
+export function enrichGameDetailWithCompanionsAndVouchers(
   game: {
     id?: string;
     stable_id?: number;
@@ -649,6 +652,7 @@ export function enrichGameDetailWithCompanionDiscs(
     rom_name?: string | null;
     releases?: Array<Record<string, unknown>>;
     shared_backup_releases?: SharedBackupReleaseLink[];
+    voucher_notes?: string[];
   },
   platformReleases: CompanionDiscCandidateRow[],
 ): void {
@@ -996,7 +1000,28 @@ export function enrichGameDetailWithCompanionDiscs(
   if (sharedLinks.length > 0) {
     game.shared_backup_releases = sharedLinks;
   }
+
+  // 6. Check if this release is a Physical Parent in CANONICAL_VOUCHER_BUNDLES
+  const voucherNotes: string[] = [];
+  for (const bundle of CANONICAL_VOUCHER_BUNDLES) {
+    if (bundle.platformId !== game.platform_id) continue;
+    const isParentMatch =
+      normGameTitle === bundle.parentNormalizedTitle ||
+      normRomTitle === bundle.parentNormalizedTitle ||
+      (bundle.aliases &&
+        (bundle.aliases.includes(normGameTitle) ||
+          bundle.aliases.includes(normRomTitle)));
+    if (isParentMatch) {
+      voucherNotes.push(bundle.note);
+    }
+  }
+  if (voucherNotes.length > 0) {
+    game.voucher_notes = voucherNotes;
+  }
 }
+
+/** Backward-compatible export alias */
+export { enrichGameDetailWithCompanionsAndVouchers as enrichGameDetailWithCompanionDiscs };
 
 // Map of database platform display names to IGDB platform IDs
 export const PLATFORM_MAP: Record<string, number> = {

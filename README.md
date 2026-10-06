@@ -159,6 +159,14 @@ Modern and hybrid platforms (such as PlayStation Vita, Platform 33) have extensi
 - **Full Digital Backup Reconciliation**: Because digital releases are preserved in `canonical_releases` with `is_verified_physical = 0`, backup folder scanning achieves 100% automated Title ID and ROM reconciliation across both physical dumps and digital purchases without requiring duplicate cataloging.
 - **NoNpDrm Archive Standard**: Vita backups adhere to the standard `.zip` archive format containing uncompressed or deflated Title ID structures (e.g., `PCSE00001 [Title].zip`), with automatic Title ID regex extraction (`/PC[SEABGFHIDJ]\d{5}/i`).
 
+#### Multi-Game Retail Bundles & Digital Voucher Tracking
+
+Retail packages for modern and hybrid platforms (e.g. Nintendo Switch, PlayStation Vita) frequently combine physical media with single-use digital download code inserts for companion games (e.g., _Final Fantasy X / X-2 HD Remaster_, _The Sly Collection_, _Mega Man Legacy Collection 1 + 2_, _Resident Evil Triple Pack_, _Bayonetta 2_).
+
+- **Physical Media Focus**: The collection tracker strictly catalogs physical boxes and verified dumps of physical media. Companion titles distributed exclusively via download codes inside physical packaging do not generate separate collection records or phantom detail pages.
+- **Parent Informative Callout**: The parent physical release detail view displays an informative notice (e.g., `🎟️ Original retail release contained Mega Man Legacy Collection on cartridge, plus a digital download voucher for Mega Man Legacy Collection 2`).
+- **Zero Backup Penalties**: Download code vouchers carry zero ROM backup expectations. The physical item is considered 100% backed up based solely on its cartridge or disc media, avoiding artificial missing backup warnings or reductions in backup completion statistics.
+
 ## 🛡️ Engineering Standards
 
 - **In-Code Comments**: All complex logic is thoroughly documented explaining the technical intent.

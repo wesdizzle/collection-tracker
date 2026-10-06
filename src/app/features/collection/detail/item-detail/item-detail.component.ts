@@ -498,6 +498,24 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                           </div>
                         </div>
                       }
+
+                      @if (g.voucher_notes && g.voucher_notes.length > 0) {
+                        <div
+                          class="voucher-notice-banner mt-md flex flex-col gap-2xs"
+                        >
+                          <div
+                            class="text-xs font-semibold flex items-center gap-xs"
+                          >
+                            <span>🎟️</span>
+                            <span>Bundled Digital Content</span>
+                          </div>
+                          @for (note of g.voucher_notes; track note) {
+                            <div class="text-xs text-secondary leading-normal">
+                              {{ note }}
+                            </div>
+                          }
+                        </div>
+                      }
                     </div>
                   } @else if (g.id && g.id.endsWith('-default')) {
                     <div class="meta-box full-width">
@@ -1193,6 +1211,12 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
       .shared-backup-banner {
         background: var(--m3-surface-container-highest);
         border: 1px dashed var(--m3-outline);
+        border-radius: var(--radius-sm);
+        padding: var(--spacing-12) var(--spacing-16);
+      }
+      .voucher-notice-banner {
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline-variant);
         border-radius: var(--radius-sm);
         padding: var(--spacing-12) var(--spacing-16);
       }

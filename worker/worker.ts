@@ -35,7 +35,7 @@ import {
   getRelatedGameTitlesForCompanion,
   CompanionDiscCandidateRow,
   SharedBackupReleaseLink,
-  enrichGameDetailWithCompanionDiscs,
+  enrichGameDetailWithCompanionsAndVouchers,
   resolveRegionalCoverUrl,
   isOfficialIGDBGame,
 } from '../scripts/lib/queries';
@@ -574,7 +574,7 @@ Disallow: /
             }
           }
 
-          enrichGameDetailWithCompanionDiscs(game, candidateReleases);
+          enrichGameDetailWithCompanionsAndVouchers(game, candidateReleases);
         }
 
         if (game.stable_id) {

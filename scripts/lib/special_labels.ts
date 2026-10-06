@@ -1567,3 +1567,107 @@ export function getCuratedReleaseTags(
 
   return tags;
 }
+
+export interface VoucherBundleDefinition {
+  /** Target platform ID (e.g. 33 = Vita, 26 = Switch) */
+  platformId: number;
+  /** Display title of the parent physical package */
+  parentDisplayTitle: string;
+  /** Normalized match title for the parent physical release */
+  parentNormalizedTitle: string;
+  /** Optional title aliases or variations */
+  aliases?: string[];
+  /** Titles of companion games included exclusively via digital voucher code */
+  voucherTitles: string[];
+  /** User-facing explanation of the physical vs voucher contents */
+  note: string;
+}
+
+/**
+ * Curated registry of multi-game retail packages where companion titles were
+ * distributed exclusively via single-use digital download voucher codes rather than on physical media.
+ * Vouchers are tracked purely as informational metadata on the physical parent release.
+ * They carry zero backup expectations and never penalize collection completion stats.
+ */
+export const CANONICAL_VOUCHER_BUNDLES: VoucherBundleDefinition[] = [
+  {
+    platformId: 33, // Vita
+    parentDisplayTitle: 'Final Fantasy X / X-2 HD Remaster',
+    parentNormalizedTitle: normalizeForLabelMatch(
+      'Final Fantasy X / X-2 HD Remaster',
+    ),
+    aliases: [
+      normalizeForLabelMatch('Final Fantasy X/X-2 HD Remaster'),
+      normalizeForLabelMatch(
+        'Final Fantasy X and Final Fantasy X-2 HD Remaster',
+      ),
+    ],
+    voucherTitles: ['Final Fantasy X-2 HD Remaster'],
+    note: 'Original retail release contained Final Fantasy X HD Remaster on game card, plus a digital download voucher for Final Fantasy X-2 HD Remaster.',
+  },
+  {
+    platformId: 33, // Vita
+    parentDisplayTitle: 'The Sly Collection',
+    parentNormalizedTitle: normalizeForLabelMatch('The Sly Collection'),
+    aliases: [normalizeForLabelMatch('Sly Collection')],
+    voucherTitles: ['Sly 3: Honor Among Thieves'],
+    note: 'Original retail release contained Sly 1 and Sly 2 on game card, plus a digital download voucher for Sly 3: Honor Among Thieves.',
+  },
+  {
+    platformId: 26, // Switch
+    parentDisplayTitle: 'Mega Man Legacy Collection 1 + 2',
+    parentNormalizedTitle: normalizeForLabelMatch(
+      'Mega Man Legacy Collection 1 + 2',
+    ),
+    aliases: [
+      normalizeForLabelMatch('Mega Man Legacy Collection 1 and 2'),
+      normalizeForLabelMatch('Mega Man Legacy Collection 1 & 2'),
+    ],
+    voucherTitles: ['Mega Man Legacy Collection 2'],
+    note: 'Original retail release contained Mega Man Legacy Collection on cartridge, plus a digital download voucher for Mega Man Legacy Collection 2.',
+  },
+  {
+    platformId: 26, // Switch
+    parentDisplayTitle: 'Resident Evil: Triple Pack',
+    parentNormalizedTitle: normalizeForLabelMatch('Resident Evil: Triple Pack'),
+    aliases: [normalizeForLabelMatch('Resident Evil Triple Pack')],
+    voucherTitles: ['Resident Evil 5', 'Resident Evil 6'],
+    note: 'Original retail release contained Resident Evil 4 on cartridge, plus digital download vouchers for Resident Evil 5 and Resident Evil 6.',
+  },
+  {
+    platformId: 26, // Switch
+    parentDisplayTitle: 'Resident Evil Revelations Collection',
+    parentNormalizedTitle: normalizeForLabelMatch(
+      'Resident Evil Revelations Collection',
+    ),
+    aliases: [normalizeForLabelMatch('Resident Evil: Revelations Collection')],
+    voucherTitles: ['Resident Evil Revelations 2'],
+    note: 'Original retail release contained Resident Evil Revelations on cartridge, plus a digital download voucher for Resident Evil Revelations 2.',
+  },
+  {
+    platformId: 26, // Switch
+    parentDisplayTitle: 'Bayonetta 2',
+    parentNormalizedTitle: normalizeForLabelMatch('Bayonetta 2'),
+    aliases: [],
+    voucherTitles: ['Bayonetta'],
+    note: 'Original standard retail release included a digital download voucher for the original Bayonetta.',
+  },
+  {
+    platformId: 26, // Switch
+    parentDisplayTitle: 'Borderlands Legendary Collection',
+    parentNormalizedTitle: normalizeForLabelMatch(
+      'Borderlands Legendary Collection',
+    ),
+    aliases: [],
+    voucherTitles: ['Borderlands 2', 'Borderlands: The Pre-Sequel'],
+    note: 'Original retail release contained Borderlands: Game of the Year Edition on cartridge, plus digital download vouchers for Borderlands 2 and Borderlands: The Pre-Sequel.',
+  },
+  {
+    platformId: 26, // Switch
+    parentDisplayTitle: 'Batman: Arkham Trilogy',
+    parentNormalizedTitle: normalizeForLabelMatch('Batman: Arkham Trilogy'),
+    aliases: [normalizeForLabelMatch('Batman Arkham Trilogy')],
+    voucherTitles: ['Batman: Arkham City', 'Batman: Arkham Knight'],
+    note: 'Original retail release contained Batman: Arkham Asylum on cartridge, plus digital download vouchers for Batman: Arkham City and Batman: Arkham Knight.',
+  },
+];

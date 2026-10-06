@@ -18,6 +18,10 @@ import {
   isIgnoredFormatRelease,
 } from './dat_format.js';
 import { KNOWN_VITA_PHYSICAL_SERIALS } from './vita_physical_serials.js';
+export {
+  CANONICAL_VOUCHER_BUNDLES,
+  type VoucherBundleDefinition,
+} from './special_labels.js';
 
 export interface CanonicalRelease {
   id?: number;

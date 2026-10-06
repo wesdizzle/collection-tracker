@@ -48,7 +48,7 @@ import {
   getRelatedGameIdsForCompanion,
   getRelatedGameTitlesForCompanion,
   CompanionDiscCandidateRow,
-  enrichGameDetailWithCompanionDiscs,
+  enrichGameDetailWithCompanionsAndVouchers,
   resolveRegionalCoverUrl,
 } from './lib/queries.js';
 import {
@@ -1646,7 +1646,7 @@ export const handleRequest =
               }
             }
 
-            enrichGameDetailWithCompanionDiscs(game, candidateReleases);
+            enrichGameDetailWithCompanionsAndVouchers(game, candidateReleases);
           }
 
           if (game.stable_id) {

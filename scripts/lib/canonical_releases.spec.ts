@@ -20,7 +20,7 @@ import {
 } from './dat_format.js';
 import {
   getRomGroupingKey,
-  enrichGameDetailWithCompanionDiscs,
+  enrichGameDetailWithCompanionsAndVouchers,
   CompanionDiscCandidateRow,
 } from './queries.js';
 
@@ -589,7 +589,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         ],
       };
 
-      enrichGameDetailWithCompanionDiscs(gotyDetail, platformReleases);
+      enrichGameDetailWithCompanionsAndVouchers(gotyDetail, platformReleases);
 
       // GOTY ownership is untouched (0), but companion Disc 1 is prepended as Backed Up (1) with link back to Original
       expect(gotyDetail.ownership_status).toBe(0);
@@ -646,7 +646,10 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         ],
       };
 
-      enrichGameDetailWithCompanionDiscs(originalDetail, platformReleases);
+      enrichGameDetailWithCompanionsAndVouchers(
+        originalDetail,
+        platformReleases,
+      );
 
       // Original remains unowned (0), backed up (1), and includes forward link to GOTY release
       expect(originalDetail.ownership_status).toBe(0);
@@ -655,6 +658,58 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(originalDetail.shared_backup_releases).toHaveLength(1);
       expect(originalDetail.shared_backup_releases![0].id).toBe(
         'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+      );
+    });
+
+    it('should enrich physical releases with bundled digital voucher notes without modifying ownership or backup status', () => {
+      const ffxDetail: {
+        id: string;
+        title: string;
+        platform_id: number;
+        region: string;
+        releases: Array<Record<string, unknown>>;
+        voucher_notes?: string[];
+        ownership_status: number;
+        backup_status: number;
+      } = {
+        id: 'final-fantasy-x-x-2-hd-remaster-vita',
+        title: 'Final Fantasy X/X-2 HD Remaster',
+        platform_id: 33, // Vita
+        region: 'USA',
+        ownership_status: 1,
+        backup_status: 1,
+        releases: [
+          {
+            id: 'ffx-physical-cart',
+            rom_name: 'Final Fantasy X HD Remaster (USA).zip',
+            backup_status: 1,
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(ffxDetail, []);
+
+      expect(ffxDetail.voucher_notes).toBeDefined();
+      expect(ffxDetail.voucher_notes).toHaveLength(1);
+      expect(ffxDetail.voucher_notes![0]).toContain(
+        'Final Fantasy X-2 HD Remaster',
+      );
+      expect(ffxDetail.ownership_status).toBe(1);
+      expect(ffxDetail.backup_status).toBe(1);
+
+      const megaManDetail = {
+        id: 'mega-man-legacy-collection-1-2-switch',
+        title: 'Mega Man Legacy Collection 1 + 2',
+        platform_id: 26, // Switch
+        region: 'USA',
+        releases: [],
+        voucher_notes: undefined as string[] | undefined,
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(megaManDetail, []);
+      expect(megaManDetail.voucher_notes).toBeDefined();
+      expect(megaManDetail.voucher_notes![0]).toContain(
+        'Mega Man Legacy Collection 2',
       );
     });
   });
