@@ -17,6 +17,7 @@ import {
   extractVariants,
   isIgnoredFormatRelease,
 } from './dat_format.js';
+import { KNOWN_VITA_PHYSICAL_SERIALS } from './vita_physical_serials.js';
 
 export interface CanonicalRelease {
   id?: number;
@@ -610,10 +611,14 @@ export function detectPhysicalReleaseStatus(options: {
     );
   });
 
-  if (matchedReleases.length > 0) {
+  const matchedPhysicalReleases = matchedReleases.filter(
+    (r) => r.is_verified_physical !== 0,
+  );
+
+  if (matchedPhysicalReleases.length > 0) {
     const regions = Array.from(
       new Set(
-        matchedReleases
+        matchedPhysicalReleases
           .map((r) => r.region)
           .filter((reg): reg is string => Boolean(reg))
           .flatMap((reg) => reg.split(',').map((s) => s.trim())),
@@ -621,7 +626,7 @@ export function detectPhysicalReleaseStatus(options: {
     );
 
     reasons.push(
-      `Matched ${matchedReleases.length} canonical physical release variant(s) in DAT database`,
+      `Matched ${matchedPhysicalReleases.length} canonical physical release variant(s) in DAT database`,
     );
 
     return {
@@ -629,8 +634,24 @@ export function detectPhysicalReleaseStatus(options: {
       verification_tier: 1,
       is_physical: true,
       reasons,
-      matched_releases: matchedReleases,
+      matched_releases: matchedPhysicalReleases,
       physical_regions: regions,
+    };
+  }
+
+  // If all matched canonical releases are explicitly digital-only (is_verified_physical === 0)
+  if (matchedReleases.length > 0 && matchedPhysicalReleases.length === 0) {
+    reasons.push(
+      `Matched ${matchedReleases.length} canonical release(s) identified as digital-only PSN release`,
+    );
+
+    return {
+      physical_status: 'digital_only',
+      verification_tier: 3,
+      is_physical: false,
+      reasons,
+      matched_releases: matchedReleases,
+      physical_regions: [],
     };
   }
 
@@ -811,6 +832,22 @@ export function deduplicateDatReleases(
     // Grouping key: platform + normalized title + primary region
     const groupKey = `${platformId}::${normalized}::${region || 'World'}::${variants || 'Standard'}`;
 
+    let isVerifiedPhysical = 1;
+    if (platformId === 33) {
+      const cleanSerial = serial
+        ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
+        : '';
+      const isKnownSerial = cleanSerial
+        ? KNOWN_VITA_PHYSICAL_SERIALS.has(cleanSerial)
+        : false;
+      const isKnownPublisher = rel.publisher
+        ? Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some((p) =>
+            rel.publisher!.toLowerCase().includes(p),
+          )
+        : false;
+      isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
+    }
+
     if (!releaseMap.has(groupKey)) {
       releaseMap.set(groupKey, {
         platform_id: platformId,
@@ -824,11 +861,14 @@ export function deduplicateDatReleases(
         barcode: null,
         publisher: rel.publisher || null,
         source: 'dat',
-        is_verified_physical: 1,
+        is_verified_physical: isVerifiedPhysical,
       });
     } else {
       // If entry exists, append secondary variant info or update CRC if missing
       const existing = releaseMap.get(groupKey)!;
+      if (isVerifiedPhysical === 1) {
+        existing.is_verified_physical = 1;
+      }
       if (!existing.rom_crc && primaryRom.crc && platformId !== 33) {
         existing.rom_crc = primaryRom.crc;
       }

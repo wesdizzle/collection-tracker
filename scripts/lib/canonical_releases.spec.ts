@@ -79,6 +79,35 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(result.physical_regions).toContain('USA');
       expect(result.physical_regions).toContain('Europe');
     });
+
+    it('should classify as digital_only when matched canonical release has is_verified_physical === 0', () => {
+      const mockReleases: CanonicalRelease[] = [
+        {
+          platform_id: 33, // Vita
+          raw_title: 'Digital Only Indie Game',
+          normalized_title: 'digitalonlyindiegame',
+          region: 'USA',
+          variants: null,
+          rom_name: 'Digital Only Indie Game (USA).zip',
+          rom_crc: null,
+          serial_code: 'PCSE-99999',
+          source: 'dat',
+          is_verified_physical: 0,
+        },
+      ];
+
+      const result = detectPhysicalReleaseStatus({
+        platformId: 33,
+        gameTitle: 'Digital Only Indie Game',
+        canonicalReleases: mockReleases,
+      });
+
+      expect(result.physical_status).toBe('digital_only');
+      expect(result.verification_tier).toBe(3);
+      expect(result.is_physical).toBe(false);
+      expect(result.matched_releases).toHaveLength(1);
+      expect(result.reasons[0]).toContain('digital-only PSN release');
+    });
   });
 
   describe('Tier 2: External Metadata & Physical Publisher Allowlist', () => {
@@ -258,24 +287,42 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         },
         {
           name: 'Uncharted - Golden Abyss (USA)',
+          serial: 'PCSA-00017',
           roms: [
             {
               name: 'Uncharted - Golden Abyss (USA).psv',
               crc: 'DEADBEEF',
+              serial: 'PCSA-00017',
+            },
+          ],
+        },
+        {
+          name: 'Pure Digital PSN Indie (USA)',
+          serial: 'PCSE-99999',
+          roms: [
+            {
+              name: 'Pure Digital PSN Indie (USA).zip',
             },
           ],
         },
       ];
 
       const deduplicated = deduplicateDatReleases(33, rawReleases);
-      expect(deduplicated).toHaveLength(2);
+      expect(deduplicated).toHaveLength(3);
       expect(deduplicated[0].raw_title).toBe('Persona 4 Golden');
       expect(deduplicated[0].rom_name).toBe('Persona 4 Golden (USA).zip');
       expect(deduplicated[0].serial_code).toBe('PCSE-00120');
+      expect(deduplicated[0].is_verified_physical).toBe(1);
+
       expect(deduplicated[1].raw_title).toBe('Uncharted - Golden Abyss');
       expect(deduplicated[1].rom_name).toBe(
         'Uncharted - Golden Abyss (USA).zip',
       );
+      expect(deduplicated[1].is_verified_physical).toBe(1);
+
+      expect(deduplicated[2].raw_title).toBe('Pure Digital PSN Indie');
+      expect(deduplicated[2].rom_name).toBe('Pure Digital PSN Indie (USA).zip');
+      expect(deduplicated[2].is_verified_physical).toBe(0);
     });
   });
 

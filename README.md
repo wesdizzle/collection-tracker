@@ -104,6 +104,8 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 
 - **Initialize Local Database**: `npm run db:init` (Builds fresh `collection.sqlite` from schema)
 - **Download Canonical DATs**: `npm run dats:download` (Downloads the latest official No-Intro and Redump XML DATs from canonical sources into `dats/`)
+- **Convert NSWDB Switch XML**: `npm run dats:convert-nswdb` (Converts `NSWreleases.xml` into canonical No-Intro XML DAT for Nintendo Switch)
+- **Convert NoPayStation Vita TSV**: `npm run dats:convert-nps` (Converts `PSV_GAMES.tsv` into canonical Logiqx XML DAT for PlayStation Vita)
 - **Update & Sync All DATs**: `npm run dats:update` (Downloads latest DATs and immediately parses/indexes them into `canonical_releases`)
 - **Sync Canonical DATs**: `npm run dats:sync` (Indexes local No-Intro / Redump DAT releases into `canonical_releases` and creates seed chunks for Cloudflare D1)
 - **Dry-Run DAT Quota Check**: `npm run dats:dry-run` (Analyzes canonical DAT files and evaluates Cloudflare D1 free-tier quota impact without modifying data)

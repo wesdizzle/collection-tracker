@@ -19,6 +19,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { convertNswdbXmlToLogiqxDat } from './convert_nswdb.js';
+import { convertNpsTsvToLogiqxDat } from './convert_nps.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -735,6 +736,71 @@ export async function downloadNoIntroDat(
       return {
         success: false,
         error: `Could not convert NSWDB XML: ${convErr instanceof Error ? convErr.message : String(convErr)}`,
+      };
+    }
+  }
+
+  if (target.name === 'PlayStation Vita') {
+    // 1. Check if a local PSV_GAMES.tsv exists in datsDir
+    const localTsvPath = path.join(datsDir, 'PSV_GAMES.tsv');
+    let tsvContent = '';
+    if (fs.existsSync(localTsvPath)) {
+      try {
+        tsvContent = fs.readFileSync(localTsvPath, 'utf8');
+        // Clean up immediately so dats/ remains strictly .dat files
+        fs.unlinkSync(localTsvPath);
+      } catch {
+        // ignore read error
+      }
+    }
+
+    // 2. Fetch online directly from NoPayStation if no local file was found
+    if (!tsvContent) {
+      try {
+        const response = await fetch(
+          'http://nopaystation.com/tsv/PSV_GAMES.tsv',
+          {
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+          },
+        );
+        if (response.ok) {
+          tsvContent = await response.text();
+        }
+      } catch (fetchErr) {
+        if (fs.existsSync(finalDestination)) {
+          const size = fs.statSync(finalDestination).size;
+          return { success: true, fileName: canonicalName, sizeBytes: size };
+        }
+        return {
+          success: false,
+          error: `Could not fetch from nopaystation.com: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+        };
+      }
+    }
+
+    if (!tsvContent || !tsvContent.includes('Title ID')) {
+      if (fs.existsSync(finalDestination)) {
+        const size = fs.statSync(finalDestination).size;
+        return { success: true, fileName: canonicalName, sizeBytes: size };
+      }
+      return {
+        success: false,
+        error: 'Failed to retrieve valid NoPayStation TSV.',
+      };
+    }
+
+    try {
+      const { datContent } = convertNpsTsvToLogiqxDat(tsvContent);
+      fs.writeFileSync(finalDestination, datContent, 'utf8');
+      const size = fs.statSync(finalDestination).size;
+      return { success: true, fileName: canonicalName, sizeBytes: size };
+    } catch (convErr) {
+      return {
+        success: false,
+        error: `Could not convert NoPayStation TSV: ${convErr instanceof Error ? convErr.message : String(convErr)}`,
       };
     }
   }

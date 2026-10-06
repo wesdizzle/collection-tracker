@@ -186,6 +186,65 @@ describe('Canonical DAT Downloader', () => {
     expect(fs.existsSync(preExistingPath)).toBe(true);
   });
 
+  it('should fetch and convert PlayStation Vita releases directly from NoPayStation TSV', async () => {
+    const mockNpsTsv = `Title ID\tRegion\tName\tPKG direct link\tzRIF\tContent ID\tLast Modification Date\tOriginal Name\tFile Size\tSHA256\tRequired FW\tApp Version
+PCSE00651\tUS\tAxiom Verge\thttp://pkg.link\tKO5ifR1dg...\tUP2188-PCSE00651_00-AXIOMVERGE000001\t2018-01-01\tAxiom Verge\t150000000\te3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\t3.60\t1.00`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => mockNpsTsv,
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const vitaTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'PlayStation Vita',
+    )!;
+    expect(vitaTarget).toBeDefined();
+
+    const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Sony - PlayStation Vita.dat');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://nopaystation.com/tsv/PSV_GAMES.tsv',
+      expect.any(Object),
+    );
+
+    const savedPath = path.join(tempTestDir, result.fileName!);
+    expect(fs.existsSync(savedPath)).toBe(true);
+    const content = fs.readFileSync(savedPath, 'utf8');
+    expect(content).toContain('<datafile>');
+    expect(content).toContain(
+      '<game name="Axiom Verge (USA)" serial="PCSE-00651">',
+    );
+    expect(content).toContain('rom name="Axiom Verge (USA).zip"');
+    expect(content).toContain('serial="PCSE-00651"');
+  });
+
+  it('should preserve existing PlayStation Vita DAT if network request fails', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const vitaTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'PlayStation Vita',
+    )!;
+
+    const preExistingPath = path.join(
+      tempTestDir,
+      'Sony - PlayStation Vita.dat',
+    );
+    fs.writeFileSync(
+      preExistingPath,
+      '<datafile><game name="Pre-existing Vita Game (USA)"/></datafile>',
+      'utf8',
+    );
+
+    const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Sony - PlayStation Vita.dat');
+    expect(fs.existsSync(preExistingPath)).toBe(true);
+  });
+
   describe('applyCanonicalDatPatches', () => {
     it('should enrich CLRMamePro Sega Genesis DAT with the 2 MB standalone Sonic & Knuckles entry', () => {
       const input = `clrmamepro (

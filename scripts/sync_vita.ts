@@ -12,6 +12,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { parseDatFile } from './lib/dat_parser.js';
 import { deduplicateDatReleases } from './lib/canonical_releases.js';
+import { titlesMatch } from './lib/title_matching.js';
 import { reconcileGameReleasesWithCanonical } from './lib/reconcile_releases.js';
 import { getLocalD1Path } from './lib/db.js';
 
@@ -48,6 +49,39 @@ export function syncVitaPlatform(options: { dryRun?: boolean } = {}) {
   const deduplicated = deduplicateDatReleases(33, parsed.releases);
   console.log(
     `[SyncVita] Deduplicated into ${deduplicated.length} canonical .zip releases with Title IDs.`,
+  );
+
+  // Enrich deduplicated releases with DB physical games
+  const dbPhysicalGames = db
+    .prepare(
+      `
+    SELECT DISTINCT g.title
+    FROM games g
+    JOIN game_releases gr ON g.stable_id = gr.game_id
+    WHERE g.platform_id = 33 AND (gr.is_physical = 1 OR gr.ownership_status = 1 OR g.gameye_id IS NOT NULL)
+  `,
+    )
+    .all() as Array<{ title: string }>;
+
+  for (const rel of deduplicated) {
+    if (rel.is_verified_physical === 0) {
+      const isDbPhysical = dbPhysicalGames.some((g) =>
+        titlesMatch(g.title, rel.raw_title, rel.rom_name || undefined, 33),
+      );
+      if (isDbPhysical) {
+        rel.is_verified_physical = 1;
+      }
+    }
+  }
+
+  const physicalCount = deduplicated.filter(
+    (r) => r.is_verified_physical === 1,
+  ).length;
+  const digitalCount = deduplicated.filter(
+    (r) => r.is_verified_physical === 0,
+  ).length;
+  console.log(
+    `[SyncVita] Physical breakdown: ${physicalCount} verified physical (is_verified_physical = 1), ${digitalCount} digital/unverified (is_verified_physical = 0).`,
   );
 
   // Measure before-state
@@ -112,13 +146,12 @@ export function syncVitaPlatform(options: { dryRun?: boolean } = {}) {
         );
       }
 
-      // 3. Clear legacy .psv and .vpk from game_releases so they can be freshly reconciled to .zip
+      // 3. Clear existing Vita rom_name and canonical_release_id so all releases re-match cleanly
       db.prepare(
         `
         UPDATE game_releases
         SET rom_name = NULL, rom_crc = NULL, canonical_release_id = NULL
         WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id = 33)
-          AND (rom_name LIKE '%.psv' OR rom_name LIKE '%.vpk')
       `,
       ).run();
     });
@@ -146,8 +179,8 @@ export function syncVitaPlatform(options: { dryRun?: boolean } = {}) {
   sql += `PRAGMA foreign_keys = OFF;\n\n`;
   sql += `-- Step 1: Remove legacy Platform 33 DAT rows\n`;
   sql += `DELETE FROM canonical_releases WHERE platform_id = 33 AND source = 'dat';\n\n`;
-  sql += `-- Step 2: Clear legacy .psv / .vpk from game_releases\n`;
-  sql += `UPDATE game_releases SET rom_name = NULL, rom_crc = NULL, canonical_release_id = NULL WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id = 33) AND (rom_name LIKE '%.psv' OR rom_name LIKE '%.vpk');\n\n`;
+  sql += `-- Step 2: Clear existing Platform 33 rom_name bindings to allow clean re-reconciliation\n`;
+  sql += `UPDATE game_releases SET rom_name = NULL, rom_crc = NULL, canonical_release_id = NULL WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id = 33);\n\n`;
   sql += `-- Step 3: Insert canonical .zip releases with Title IDs\n`;
 
   for (let i = 0; i < deduplicated.length; i += BATCH_SIZE) {

@@ -114,6 +114,8 @@ export function normalizeTitleForMatching(
     okamizekkeiban: 'okamihd',
     xenosagaepisodeiijenseitsvongutundboese:
       'xenosagaepisodeiijenseitsvongutundbose',
+    littlebigplanetplaystationvita: 'littlebigplanetpsvita',
+    homeuniquehorroradventure: 'home',
   };
 
   if (

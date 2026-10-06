@@ -15,6 +15,7 @@
     "d1:smoke-test": "tsx scripts/d1_smoke_test.ts",
     "dats:download": "tsx scripts/download_canonical_dats.ts",
     "dats:convert-nswdb": "tsx scripts/convert_nswdb.ts",
+    "dats:convert-nps": "tsx scripts/convert_nps.ts",
     "dats:update": "tsx scripts/download_canonical_dats.ts && tsx scripts/sync_canonical_dats.ts",
     "dats:sync": "tsx scripts/sync_canonical_dats.ts",
     "dats:dry-run": "tsx scripts/sync_canonical_dats.ts --dry-run",
