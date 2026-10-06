@@ -107,9 +107,9 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Convert NSWDB Switch XML**: `npm run dats:convert-nswdb` (Converts `NSWreleases.xml` into canonical No-Intro XML DAT for Nintendo Switch)
 - **Convert NoPayStation Vita TSV**: `npm run dats:convert-nps` (Converts `PSV_GAMES.tsv` into canonical Logiqx XML DAT for PlayStation Vita)
 - **Update & Sync All DATs**: `npm run dats:update` (Downloads latest DATs and immediately parses/indexes them into `canonical_releases`)
-- **Sync Canonical DATs**: `npm run dats:sync` (Indexes local No-Intro / Redump DAT releases into `canonical_releases` and creates seed chunks for Cloudflare D1)
-- **Dry-Run DAT Quota Check**: `npm run dats:dry-run` (Analyzes canonical DAT files and evaluates Cloudflare D1 free-tier quota impact without modifying data)
-- **Surgical Platform DAT Sync**: For targeted platform updates without exhausting Cloudflare D1's daily free-tier write quota (100,000 writes/day, where a full 53-platform sync consumes ~85,000 writes), use platform-scoped scripts such as `scripts/sync_vita.ts` or targeted SQL patch migrations (`scripts/temp/`) to keep mutations strictly bounded (<5,000 writes).
+- **Sync Canonical DATs (All Platforms)**: `npm run dats:sync` (Indexes all local No-Intro / Redump DAT releases into `canonical_releases` and generates full `canonical_releases_seed.sql`)
+- **Surgical Platform DAT Sync**: `npm run dats:sync -- --platform=<name|id>` (Scopes DAT parsing, database deletion, insertion, and reconciliation to a single platform, e.g. `npm run dats:sync -- --platform=vita` or `npm run dats:sync -- --platform=26`. Generates a surgical migration `scripts/temp/update_<platform>_d1.sql` consuming <5% of Cloudflare D1's 100k daily write quota)
+- **Dry-Run DAT Quota Check**: `npm run dats:dry-run` or `npm run dats:dry-run -- --platform=<name|id>` (Analyzes DAT files and calculates exact Cloudflare D1 write quota impact without modifying data)
 - **Backup Cold Copy**: `npm run db:backup` (Generates binary, SQL text, and JSON backups locally)
 - **Pull Remote D1**: `npm run db:pull` (Exports remote D1 state to local staging SQLite)
 - **Push to Remote D1**: `ALLOW_LOCAL_DEPLOY=true npm run db:push` (Pushes local staging changes up to Cloudflare D1)

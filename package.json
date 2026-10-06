@@ -18,6 +18,7 @@
     "dats:convert-nps": "tsx scripts/convert_nps.ts",
     "dats:update": "tsx scripts/download_canonical_dats.ts && tsx scripts/sync_canonical_dats.ts",
     "dats:sync": "tsx scripts/sync_canonical_dats.ts",
+    "dats:sync:platform": "tsx scripts/sync_canonical_dats.ts --platform",
     "dats:dry-run": "tsx scripts/sync_canonical_dats.ts --dry-run",
     "sync-db": "tsx scripts/sync_local_d1.ts",
     "fix-dates": "tsx scripts/fix_outlier_release_dates.ts",
