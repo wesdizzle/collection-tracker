@@ -536,8 +536,14 @@ export function isIgnoredFormatRelease(
   ];
   if (badExtensions.includes(ext)) return true;
 
-  if (platformId === 33 && ext !== '.psv' && ext !== '.vpk') {
-    return true;
+  // PlayStation Vita (Platform 33): Prefer .zip archives; do not support .psv or .vpk
+  if (platformId === 33) {
+    if (ext === '.psv' || ext === '.vpk') {
+      return true;
+    }
+    if (ext !== '.zip' && ext !== '.7z' && ext !== '') {
+      return true;
+    }
   }
 
   if (romLower.startsWith('tmd.')) return true;

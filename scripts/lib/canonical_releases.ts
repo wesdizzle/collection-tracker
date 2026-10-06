@@ -334,7 +334,7 @@ export function findCanonicalBundle(
  * Curated list of known physical-only or boutique physical console publishers.
  * Matching these provides a high-confidence Tier 2 physical release signal.
  */
-export const PHYSICAL_PUBLISHERS_WHITELIST = new Set<string>([
+export const PHYSICAL_PUBLISHERS_ALLOWLIST = new Set<string>([
   'limited run games',
   'super rare games',
   'strictly limited games',
@@ -366,8 +366,9 @@ export const PHYSICAL_PUBLISHERS_WHITELIST = new Set<string>([
   'retro-bit',
   'forever limited',
   'badland publishing',
-  'tesura games',
 ]);
+
+export const PHYSICAL_PUBLISHERS_WHITELIST = PHYSICAL_PUBLISHERS_ALLOWLIST;
 
 /**
  * Keywords in titles or metadata that indicate digital-only or emulation wrappers.
@@ -679,13 +680,13 @@ export function detectPhysicalReleaseStatus(options: {
     };
   }
 
-  // Tier 2: Free Signals (Publisher Whitelist, Packaging, Barcode, Serial)
+  // Tier 2: Free Signals (Publisher Allowlist, Packaging, Barcode, Serial)
   const pubClean = (publisher || '').toLowerCase().trim();
-  const isWhitelistedPublisher = Array.from(PHYSICAL_PUBLISHERS_WHITELIST).some(
+  const isAllowlistedPublisher = Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some(
     (p) => pubClean.includes(p),
   );
 
-  if (isWhitelistedPublisher) {
+  if (isAllowlistedPublisher) {
     reasons.push(`Publisher '${publisher}' is a verified physical distributor`);
     return {
       physical_status: 'likely_physical',
@@ -774,6 +775,7 @@ export function deduplicateDatReleases(
     name: string;
     roms: Array<{ name: string; crc?: string | null; serial?: string | null }>;
     publisher?: string | null;
+    serial?: string | null;
   }>,
 ): CanonicalRelease[] {
   const releaseMap = new Map<string, CanonicalRelease>();
@@ -782,7 +784,15 @@ export function deduplicateDatReleases(
     if (!rel.roms || rel.roms.length === 0) continue;
 
     const primaryRom = rel.roms[0];
-    if (isIgnoredFormatRelease(rel.name, primaryRom.name, platformId)) {
+
+    // For Platform 33 (PS Vita): prefer .zip archives, do not support .psv or .vpk
+    let romName = primaryRom.name;
+    if (platformId === 33) {
+      const baseWithoutExt = rel.name.replace(/\.(vpk|psv|zip|7z)$/i, '');
+      romName = `${baseWithoutExt}.zip`;
+    }
+
+    if (isIgnoredFormatRelease(rel.name, romName, platformId)) {
       continue;
     }
 
@@ -794,6 +804,7 @@ export function deduplicateDatReleases(
     const variants = extractVariants(rel.name, platformId);
     const serial =
       primaryRom.serial ||
+      rel.serial ||
       extractSerialCode(rel.name) ||
       extractSerialCode(primaryRom.name);
 
@@ -807,8 +818,8 @@ export function deduplicateDatReleases(
         normalized_title: normalized,
         region: region || null,
         variants: variants || null,
-        rom_name: primaryRom.name,
-        rom_crc: primaryRom.crc || null,
+        rom_name: romName,
+        rom_crc: platformId === 33 ? null : primaryRom.crc || null,
         serial_code: serial || null,
         barcode: null,
         publisher: rel.publisher || null,
@@ -818,7 +829,7 @@ export function deduplicateDatReleases(
     } else {
       // If entry exists, append secondary variant info or update CRC if missing
       const existing = releaseMap.get(groupKey)!;
-      if (!existing.rom_crc && primaryRom.crc) {
+      if (!existing.rom_crc && primaryRom.crc && platformId !== 33) {
         existing.rom_crc = primaryRom.crc;
       }
       if (!existing.serial_code && serial) {

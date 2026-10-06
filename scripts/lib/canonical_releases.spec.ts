@@ -81,7 +81,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
     });
   });
 
-  describe('Tier 2: External Metadata & Physical Publisher Whitelist', () => {
+  describe('Tier 2: External Metadata & Physical Publisher Allowlist', () => {
     it('should confirm likely physical for physical-only publishers', () => {
       const result = detectPhysicalReleaseStatus({
         platformId: 26, // Switch
@@ -241,6 +241,41 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(deduplicated[0].raw_title).toBe('Final Fantasy VII');
       expect(deduplicated[0].normalized_title).toBe('finalfantasyvii');
       expect(deduplicated[0].region).toBe('USA');
+    });
+
+    it('should prefer .zip archives, extract serial code, and normalize names for Vita (Platform 33)', () => {
+      const rawReleases = [
+        {
+          name: 'Persona 4 Golden (USA)',
+          serial: 'PCSE-00120',
+          roms: [
+            {
+              name: 'Persona 4 Golden (USA).vpk',
+              crc: 'ABC12345',
+              serial: 'PCSE-00120',
+            },
+          ],
+        },
+        {
+          name: 'Uncharted - Golden Abyss (USA)',
+          roms: [
+            {
+              name: 'Uncharted - Golden Abyss (USA).psv',
+              crc: 'DEADBEEF',
+            },
+          ],
+        },
+      ];
+
+      const deduplicated = deduplicateDatReleases(33, rawReleases);
+      expect(deduplicated).toHaveLength(2);
+      expect(deduplicated[0].raw_title).toBe('Persona 4 Golden');
+      expect(deduplicated[0].rom_name).toBe('Persona 4 Golden (USA).zip');
+      expect(deduplicated[0].serial_code).toBe('PCSE-00120');
+      expect(deduplicated[1].raw_title).toBe('Uncharted - Golden Abyss');
+      expect(deduplicated[1].rom_name).toBe(
+        'Uncharted - Golden Abyss (USA).zip',
+      );
     });
   });
 

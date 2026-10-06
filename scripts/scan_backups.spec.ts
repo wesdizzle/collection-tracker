@@ -558,5 +558,40 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
         matchingCrcReleases.some((r) => r.id === 'rel-infamous-2-v1'),
       ).toBe(false);
     });
+
+    it('should match Vita NoNpDrm .zip backups and Title IDs to canonical releases', () => {
+      const vitaReleases: ReleaseRow[] = [
+        {
+          id: 'p4g-vita-usa',
+          game_id: 100,
+          title: 'Persona 4 Golden',
+          rom_name: 'Persona 4 Golden (USA).zip',
+          stable_id: 100,
+          region: 'USA',
+          serial_code: 'PCSE-00120',
+        },
+      ];
+
+      // Clean human-readable zip
+      const matchZip = findBestReleaseMatch(
+        'Persona 4 Golden (USA).zip',
+        vitaReleases,
+      );
+      expect(matchZip).not.toBeNull();
+      expect(matchZip?.id).toBe('p4g-vita-usa');
+
+      // Title ID zip (without hyphen)
+      const matchSerial = findBestReleaseMatch('PCSE00120.zip', vitaReleases);
+      expect(matchSerial).not.toBeNull();
+      expect(matchSerial?.id).toBe('p4g-vita-usa');
+
+      // Title ID zip (with hyphen)
+      const matchSerialHyphen = findBestReleaseMatch(
+        'PCSE-00120.zip',
+        vitaReleases,
+      );
+      expect(matchSerialHyphen).not.toBeNull();
+      expect(matchSerialHyphen?.id).toBe('p4g-vita-usa');
+    });
   });
 });

@@ -48,6 +48,7 @@ export interface ReleaseRow {
   ownership_status?: number;
   variants?: string | null;
   rom_crc?: string | null;
+  serial_code?: string | null;
 }
 
 /**
@@ -102,7 +103,6 @@ export const GAME_EXTENSIONS = new Set([
   '.gen',
   '.smd',
   '.pkg',
-  '.psv',
   '.dax',
   '.vb',
   '.j64',
@@ -461,7 +461,18 @@ function getFilesRecursive(dir: string): string[] {
       const fullPath = path.join(dir, file);
       const stat = fs.statSync(fullPath);
       if (stat && stat.isDirectory()) {
-        results = results.concat(getFilesRecursive(fullPath));
+        // Detect container directories (e.g. Vita NoNpDrm / PS3 / Xbox folder dumps)
+        const isGameContainer =
+          fs.existsSync(path.join(fullPath, 'eboot.bin')) ||
+          fs.existsSync(path.join(fullPath, 'sce_sys', 'param.sfo')) ||
+          fs.existsSync(path.join(fullPath, 'default.xex'));
+
+        if (isGameContainer) {
+          // Treat container folder as a virtual .zip archive without recursing into internal assets
+          results.push(path.join(dir, `${file}.zip`));
+        } else {
+          results = results.concat(getFilesRecursive(fullPath));
+        }
       } else {
         results.push(fullPath);
       }
@@ -632,10 +643,30 @@ export function findBestReleaseMatch(
     }
   }
 
+  // 1b. Title ID / Serial Code match (e.g. PCSE00120, PCSE-00120, PCSB00074, SLUS-20001)
+  const fileBaseRaw = getBaseName(filename);
+  if (
+    /^[A-Z]{3,4}-?\d{4,5}$/i.test(fileBaseRaw) ||
+    /^[A-Z]{3,4}-?\d{4,5}$/i.test(fileParts.base)
+  ) {
+    const cleanFileCode = (fileBaseRaw || fileParts.base)
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase();
+    const serialMatch = releases.find((r) => {
+      if (!r.serial_code) return false;
+      const cleanRelCode = r.serial_code
+        .replace(/[^a-z0-9]/gi, '')
+        .toUpperCase();
+      return cleanRelCode === cleanFileCode;
+    });
+    if (serialMatch) {
+      return serialMatch;
+    }
+  }
+
   // 2. Normalized base name match with multi-disc preservation
   // Resolves "Megaman" <-> "Mega Man", "(USA)" <-> "(USA, Canada)", "(Track 1)", Redump language tags,
   // and disc indicators while strictly prioritizing disc-to-disc matching when a disc indicator is present.
-  const fileBaseRaw = getBaseName(filename);
   const fileNormBase = normalizeRomBaseForMatching(fileBaseRaw);
   const matchingCandidates: ReleaseRow[] = [];
 
@@ -917,9 +948,11 @@ function main(): void {
     const dbReleases = db
       .prepare(
         `
-      SELECT r.id, r.game_id, g.title, r.rom_name, r.rom_crc, g.stable_id, r.region, r.ownership_status, r.variants
+      SELECT r.id, r.game_id, g.title, r.rom_name, r.rom_crc, g.stable_id, r.region, r.ownership_status, r.variants,
+             COALESCE(c.serial_code, NULL) as serial_code
       FROM game_releases r
       JOIN games g ON r.game_id = g.stable_id
+      LEFT JOIN canonical_releases c ON r.canonical_release_id = c.id
       WHERE g.platform_id IN (${placeholders}) AND r.rom_name IS NOT NULL
     `,
       )

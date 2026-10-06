@@ -236,17 +236,18 @@ export function getPlatformDatReleases(
   for (const release of parsedDat.releases) {
     let roms = release.roms;
 
-    // Platform-specific rules: PS Vita (ID: 33) cards vs executables
+    // Platform-specific rules: PS Vita (ID: 33) prefer .zip archives, disallow .psv and .vpk
     if (platformId === 33) {
-      const hasPsv = roms.some((r) => r.name.toLowerCase().endsWith('.psv'));
-      if (hasPsv) {
-        roms = roms.filter((r) => r.name.toLowerCase().endsWith('.psv'));
-      } else {
-        roms = roms.filter((r) => !r.name.toLowerCase().endsWith('.rap'));
-      }
+      roms = roms.filter(
+        (r) =>
+          !r.name.toLowerCase().endsWith('.rap') &&
+          !r.name.toLowerCase().endsWith('.pkg') &&
+          !r.name.toLowerCase().endsWith('.psv') &&
+          !r.name.toLowerCase().endsWith('.vpk'),
+      );
     }
 
-    if (roms.length === 0) continue;
+    if (roms.length === 0 && platformId !== 33) continue;
 
     // Pick primary representative ROM
     let primaryRom = roms[0];
@@ -263,14 +264,20 @@ export function getPlatformDatReleases(
       primaryRom = executableRom;
     }
 
-    if (isIgnoredFormatRelease(release.name, primaryRom.name, platformId)) {
+    let romName = primaryRom?.name || `${release.name}.zip`;
+    if (platformId === 33) {
+      const baseWithoutExt = release.name.replace(/\.(vpk|psv|zip|7z)$/i, '');
+      romName = `${baseWithoutExt}.zip`;
+    }
+
+    if (isIgnoredFormatRelease(release.name, romName, platformId)) {
       continue;
     }
 
     cacheData.push({
       name: release.name,
-      romName: primaryRom.name,
-      romCrc: primaryRom.crc || null,
+      romName,
+      romCrc: platformId === 33 ? null : primaryRom?.crc || null,
       region: extractRegions(release.name),
       variants: extractVariants(release.name),
       releaseDate: null, // Populated dynamically during ingestion via IGDB matching

@@ -66,7 +66,7 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
   - _Strategy 3 (Middle-Segment Stripping)_: Handles mission packs and multi-segment layouts (e.g., matching "Grand Theft Auto: London 1969" against "Grand Theft Auto - Mission Pack 1 - London 1969").
   - _Strategy 4 (Bonus Disc Special Matching)_: Uses parenthetical identifiers to resolve bonus and special discs (e.g., "Pokémon Colosseum Bonus Disc").
     It prevents sequel/season collisions by enforcing a strict digit matching check (e.g., separating "Grand Theft Auto" from "London 1969"), while bypassing it for compilation games (e.g. "Marble Madness / Klax" matching "2 Games in One! - Marble Madness + Klax"). Distinct release variants (e.g. regional versions, revisions, and clean Title ID paths for Vita folder dumps) are inserted into the `game_releases` table to track them independently.
-- **Strict Format & Platform Constraints**: The sync scraper filters out digital installer `.pkg` files, unheadered NES ROM `.unh` files, digital/virtual releases containing `(Virtual Console)`, and emulator-wrapped collections like `(Genesis Mini)` or `(Anniversary Collection)`. For PlayStation Vita, it strictly parses physical `.psv` card formats, ignoring digital/homebrew folder dumps and `.vpk` packages.
+- **Strict Format & Platform Constraints**: The sync scraper filters out digital installer `.pkg` files, unheadered NES ROM `.unh` files, digital/virtual releases containing `(Virtual Console)`, and emulator-wrapped collections like `(Genesis Mini)` or `(Anniversary Collection)`. For PlayStation Vita, it prefers canonical `.zip` archives of verified NoNpDrm dumps and extracts Title IDs, disallowing unsupported `.psv` or `.vpk` formats.
 - **Multi-Disc Grouping Rules**: Multiple discs of a game are grouped together on the collection page only if their stripped ROM filenames are identical except for the disc indicators.
 - **Verification Signals**: Uses the presence of an `igdb_id` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Database & Storage Architecture**:
@@ -144,7 +144,7 @@ The **Discovery** tab provides three workflows directly within the web app with 
 #### Physical Verification Architecture (Zero Paid APIs)
 
 - **Tier 1 (Canonical DAT Grounding - 100% Confidence)**: Cross-references game titles against 80,000+ indexed canonical No-Intro cartridge and Redump optical disc releases stored directly in D1/SQLite.
-- **Tier 2 (Modern Heuristics & Open Datasets)**: Validates modern games (Switch, PS4/PS5, Xbox) using free physical signals (physical packaging formats, curated physical publisher whitelist, retail barcodes, and platform serial code patterns).
+- **Tier 2 (Modern Heuristics & Open Datasets)**: Validates modern games (Switch, PS4/PS5, Xbox) using free physical signals (physical packaging formats, curated physical publisher allowlist, retail barcodes, and platform serial code patterns).
 - **Tier 3 (Digital Fluff Elimination)**: Filters out DLC, expansion packs, Virtual Console/arcade re-releases, and digital ports exhibiting platform launch era discrepancies (>3 years prior to platform launch).
 
 ## 🛡️ Engineering Standards
@@ -153,7 +153,7 @@ The **Discovery** tab provides three workflows directly within the web app with 
 - **Colocated Testing**: Unit tests reside alongside the components they validate.
 - **Premium Aesthetics**: Curated HSL palettes and sleek dark modes used throughout the application.
 - **Local CI Validation**: Developers must run `npm run ci-check` before pushing. This script performs Linting, strict Type-Checking, and Unit Testing sequentially.
-- **Hotlinking & Secure Image Delivery**: The application strips the `Referer` header at the element-fetch level (using `referrerpolicy="no-referrer"` on images) to bypass CDN hotlinking restrictions (such as on Fandom/Wikia). Additionally, external assets from SCL (`skylanderscharacterlist.com`) and Fandom are whitelisted in `ngsw-config.json` for service worker caching, and URLs are migrated to HTTPS to prevent Mixed Content security blocks.
+- **Hotlinking & Secure Image Delivery**: The application strips the `Referer` header at the element-fetch level (using `referrerpolicy="no-referrer"` on images) to bypass CDN hotlinking restrictions (such as on Fandom/Wikia). Additionally, external assets from SCL (`skylanderscharacterlist.com`) and Fandom are allowlisted in `ngsw-config.json` for service worker caching, and URLs are migrated to HTTPS to prevent Mixed Content security blocks.
 
 ## 📱 Mobile & PWA Features
 

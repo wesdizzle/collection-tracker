@@ -451,21 +451,18 @@ async function syncDats(): Promise<void> {
     // Use a transaction for performance and safety during reconciliation
     const transaction = db.transaction(() => {
       for (const release of datContent.releases) {
-        // PlayStation Vita platform ID is 33. We prefer physical .psv card backups for this platform,
-        // but if no .psv files are present (e.g. for PSN content DATs), we fall back to other extensions,
-        // while ignoring .rap license/activation files.
+        // PlayStation Vita platform ID is 33. We prefer .zip archives, disallowing .psv and .vpk.
         let roms = release.roms;
         if (dbPlatform.id === 33) {
-          const hasPsv = roms.some((r) =>
-            r.name.toLowerCase().endsWith('.psv'),
+          roms = roms.filter(
+            (r) =>
+              !r.name.toLowerCase().endsWith('.rap') &&
+              !r.name.toLowerCase().endsWith('.pkg') &&
+              !r.name.toLowerCase().endsWith('.psv') &&
+              !r.name.toLowerCase().endsWith('.vpk'),
           );
-          if (hasPsv) {
-            roms = roms.filter((r) => r.name.toLowerCase().endsWith('.psv'));
-          } else {
-            roms = roms.filter((r) => !r.name.toLowerCase().endsWith('.rap'));
-          }
         }
-        if (roms.length === 0) continue;
+        if (roms.length === 0 && dbPlatform.id !== 33) continue;
 
         // Select the primary ROM. For folder-based/decrypted dumps (like Vita/PS3),
         // we search for the main executable (e.g., eboot.bin / EBOOT.BIN) to use as the representative ROM.
@@ -483,10 +480,17 @@ async function syncDats(): Promise<void> {
           primaryRom = executableRom;
         }
 
-        const romName = primaryRom.name;
-        const romCrc = primaryRom.crc || null;
+        let romName = primaryRom?.name || `${release.name}.zip`;
+        if (dbPlatform.id === 33) {
+          const baseWithoutExt = release.name.replace(
+            /\.(vpk|psv|zip|7z)$/i,
+            '',
+          );
+          romName = `${baseWithoutExt}.zip`;
+        }
+        const romCrc = dbPlatform.id === 33 ? null : primaryRom?.crc || null;
 
-        // Skip ignored formats, digital files, updates, or Vita non-.psv dumps
+        // Skip ignored formats, digital files, updates, or unsupported formats
         if (isIgnoredFormatRelease(release.name, romName, dbPlatform.id)) {
           continue;
         }

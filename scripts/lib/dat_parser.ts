@@ -21,6 +21,7 @@ export interface DatRelease {
   name: string; // The game/release name in the DAT file
   roms: DatRom[];
   publisher?: string;
+  serial?: string;
 }
 
 export interface DatFileContent {
@@ -127,6 +128,7 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
       publisher: rawGame.publisher
         ? String(rawGame.publisher).trim()
         : undefined,
+      serial: rawGame.serial ? String(rawGame.serial).trim() : undefined,
     });
   }
 
@@ -158,8 +160,11 @@ function parseClrMameProDat(fileContent: string): DatFileContent {
       continue;
     }
 
+    const gameSerialMatch = block.match(/(?:^|\n|\r)\s*serial\s*"([^"]+)"/i);
+    const gameSerial = gameSerialMatch ? gameSerialMatch[1].trim() : undefined;
+
     const romMatches = block.matchAll(
-      /rom\s*\(\s*name\s*"([^"]+)"(?:\s+size\s+(\d+))?(?:\s+crc\s+([a-f0-9]+))?(?:\s+md5\s+([a-f0-9]+))?(?:\s+sha1\s+([a-f0-9]+))?/gi,
+      /rom\s*\(\s*name\s*"([^"]+)"(?:\s+size\s+(\d+))?(?:\s+crc\s+([a-f0-9]+))?(?:\s+md5\s+([a-f0-9]+))?(?:\s+sha1\s+([a-f0-9]+))?(?:[^)]*serial\s*"([^"]+)")?/gi,
     );
 
     const roms: DatRom[] = [];
@@ -174,6 +179,7 @@ function parseClrMameProDat(fileContent: string): DatFileContent {
         crc: match[3] ? match[3].toLowerCase() : undefined,
         md5: match[4] ? match[4].toLowerCase() : undefined,
         sha1: match[5] ? match[5].toLowerCase() : undefined,
+        serial: match[6] ? match[6].trim() : undefined,
       });
     }
 
@@ -181,6 +187,7 @@ function parseClrMameProDat(fileContent: string): DatFileContent {
       releases.push({
         name: gameName,
         roms,
+        serial: gameSerial,
       });
     }
   }

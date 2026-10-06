@@ -571,6 +571,14 @@ game (
     }
   }
 
+  if (fileName.includes('PlayStation Vita') || fileName.includes('Vita')) {
+    // -------------------------------------------------------------------------
+    // Patch: PlayStation Vita NoNpDrm / Archive normalization
+    // Normalizes .vpk and .psv ROM definitions to preferred .zip archives.
+    // -------------------------------------------------------------------------
+    content = content.replace(/\.vpk"/g, '.zip"').replace(/\.psv"/g, '.zip"');
+  }
+
   return content;
 }
 

@@ -137,9 +137,12 @@ describe('DAT Cache', () => {
       expect(isIgnoredFormatRelease('Game', 'game.gba')).toBe(false);
     });
 
-    it('should enforce Vita .psv constraint on platform 33', () => {
+    it('should prefer .zip archives and disallow .psv and .vpk on platform 33', () => {
       expect(isIgnoredFormatRelease('Game', 'game.bin', 33)).toBe(true);
-      expect(isIgnoredFormatRelease('Game', 'game.psv', 33)).toBe(false);
+      expect(isIgnoredFormatRelease('Game', 'game.psv', 33)).toBe(true);
+      expect(isIgnoredFormatRelease('Game', 'game.vpk', 33)).toBe(true);
+      expect(isIgnoredFormatRelease('Game', 'game.zip', 33)).toBe(false);
+      expect(isIgnoredFormatRelease('Game', 'game.7z', 33)).toBe(false);
     });
   });
 
