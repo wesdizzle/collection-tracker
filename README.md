@@ -146,7 +146,7 @@ The **Discovery** tab provides three workflows directly within the web app with 
 
 #### Physical Verification Architecture (Zero Paid APIs)
 
-- **Tier 1 (Canonical DAT Grounding - 100% Confidence)**: Cross-references game titles against 80,000+ indexed canonical No-Intro cartridge and Redump optical disc releases stored directly in D1/SQLite.
+- **Tier 1 (Canonical DAT Grounding & Disc Serial Catalogs - 100% Confidence)**: Cross-references game titles against 80,000+ indexed canonical No-Intro cartridge and Redump optical disc releases stored directly in D1/SQLite. For modern optical disc consoles (PlayStation 4 `CUSA` and PlayStation 5 `PPSA`) where public Redump DAT dumps are limited, verified retail disc serial indexes compiled from community catalogs (SerialStation / TMDB `media_type: "disc"`) elevate physical disc releases directly to Tier 1 canonical physical verification.
 - **Tier 2 (Modern Heuristics & Open Datasets)**: Validates modern games (Switch, PS4/PS5, Xbox) using free physical signals (physical packaging formats, curated physical publisher allowlist, retail barcodes, and platform serial code patterns).
 - **Tier 3 (Digital Fluff Elimination)**: Filters out DLC, expansion packs, Virtual Console/arcade re-releases, and digital ports exhibiting platform launch era discrepancies (>3 years prior to platform launch).
 

@@ -713,4 +713,55 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       );
     });
   });
+
+  describe('Modern Optical Disc Physical Verification (PS4 & PS5)', () => {
+    it('should elevate PS4 retail games with verified CUSA disc serials to Tier 1 verified_physical', () => {
+      const res = detectPhysicalReleaseStatus({
+        platformId: 34, // PS4
+        gameTitle: "Marvel's Spider-Man",
+        serialCode: 'CUSA-02299',
+        canonicalReleases: [],
+      });
+
+      expect(res.physical_status).toBe('verified_physical');
+      expect(res.verification_tier).toBe(1);
+      expect(res.is_physical).toBe(true);
+      expect(
+        res.reasons.some((r) =>
+          r.includes('Verified physical optical disc serial'),
+        ),
+      ).toBe(true);
+    });
+
+    it('should elevate PS5 retail games with verified PPSA disc serials to Tier 1 verified_physical', () => {
+      const res = detectPhysicalReleaseStatus({
+        platformId: 35, // PS5
+        gameTitle: "Marvel's Spider-Man: Miles Morales",
+        serialCode: 'PPSA-01411',
+        canonicalReleases: [],
+      });
+
+      expect(res.physical_status).toBe('verified_physical');
+      expect(res.verification_tier).toBe(1);
+      expect(res.is_physical).toBe(true);
+      expect(
+        res.reasons.some((r) =>
+          r.includes('Verified physical optical disc serial'),
+        ),
+      ).toBe(true);
+    });
+
+    it('should fall back to Tier 2 likely_physical for unknown/unverified serial codes', () => {
+      const res = detectPhysicalReleaseStatus({
+        platformId: 34, // PS4
+        gameTitle: 'Some Digital PSN Release',
+        serialCode: 'CUSA-99999',
+        canonicalReleases: [],
+      });
+
+      expect(res.physical_status).toBe('likely_physical');
+      expect(res.verification_tier).toBe(2);
+      expect(res.is_physical).toBe(true);
+    });
+  });
 });

@@ -18,6 +18,16 @@ import {
   isIgnoredFormatRelease,
 } from './dat_format.js';
 import { KNOWN_VITA_PHYSICAL_SERIALS } from './vita_physical_serials.js';
+import {
+  isKnownPhysicalModernDiscSerial,
+  KNOWN_PS4_PHYSICAL_DISC_SERIALS,
+  KNOWN_PS5_PHYSICAL_DISC_SERIALS,
+} from './modern_disc_serials.js';
+export {
+  isKnownPhysicalModernDiscSerial,
+  KNOWN_PS4_PHYSICAL_DISC_SERIALS,
+  KNOWN_PS5_PHYSICAL_DISC_SERIALS,
+};
 export {
   CANONICAL_VOUCHER_BUNDLES,
   type VoucherBundleDefinition,
@@ -737,6 +747,20 @@ export function detectPhysicalReleaseStatus(options: {
 
   if (serialCode || extractSerialCode(gameTitle)) {
     const code = serialCode || extractSerialCode(gameTitle);
+    if (code && isKnownPhysicalModernDiscSerial(platformId, code)) {
+      reasons.push(
+        `Verified physical optical disc serial code detected in community catalog: ${code}`,
+      );
+      return {
+        physical_status: 'verified_physical',
+        verification_tier: 1,
+        is_physical: true,
+        reasons,
+        matched_releases: [],
+        physical_regions: ['USA', 'Europe', 'Japan', 'World'],
+      };
+    }
+
     reasons.push(`Physical platform serial code detected: ${code}`);
     return {
       physical_status: 'likely_physical',
@@ -850,6 +874,22 @@ export function deduplicateDatReleases(
           )
         : false;
       isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
+    } else if (platformId === 34 || platformId === 35) {
+      const cleanSerial = serial
+        ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
+        : '';
+      const isKnownSerial = isKnownPhysicalModernDiscSerial(
+        platformId,
+        cleanSerial,
+      );
+      const isKnownPublisher = rel.publisher
+        ? Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some((p) =>
+            rel.publisher!.toLowerCase().includes(p),
+          )
+        : false;
+      if (cleanSerial || rel.publisher) {
+        isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
+      }
     }
 
     if (!releaseMap.has(groupKey)) {
