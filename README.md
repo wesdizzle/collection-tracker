@@ -109,6 +109,7 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Update & Sync All DATs**: `npm run dats:update` (Downloads latest DATs and immediately parses/indexes them into `canonical_releases`)
 - **Sync Canonical DATs**: `npm run dats:sync` (Indexes local No-Intro / Redump DAT releases into `canonical_releases` and creates seed chunks for Cloudflare D1)
 - **Dry-Run DAT Quota Check**: `npm run dats:dry-run` (Analyzes canonical DAT files and evaluates Cloudflare D1 free-tier quota impact without modifying data)
+- **Surgical Platform DAT Sync**: For targeted platform updates without exhausting Cloudflare D1's daily free-tier write quota (100,000 writes/day, where a full 53-platform sync consumes ~85,000 writes), use platform-scoped scripts such as `scripts/sync_vita.ts` or targeted SQL patch migrations (`scripts/temp/`) to keep mutations strictly bounded (<5,000 writes).
 - **Backup Cold Copy**: `npm run db:backup` (Generates binary, SQL text, and JSON backups locally)
 - **Pull Remote D1**: `npm run db:pull` (Exports remote D1 state to local staging SQLite)
 - **Push to Remote D1**: `ALLOW_LOCAL_DEPLOY=true npm run db:push` (Pushes local staging changes up to Cloudflare D1)
@@ -149,6 +150,15 @@ The **Discovery** tab provides three workflows directly within the web app with 
 - **Tier 2 (Modern Heuristics & Open Datasets)**: Validates modern games (Switch, PS4/PS5, Xbox) using free physical signals (physical packaging formats, curated physical publisher allowlist, retail barcodes, and platform serial code patterns).
 - **Tier 3 (Digital Fluff Elimination)**: Filters out DLC, expansion packs, Virtual Console/arcade re-releases, and digital ports exhibiting platform launch era discrepancies (>3 years prior to platform launch).
 
+#### Dual Physical vs. Digital Ingestion Architecture
+
+Modern and hybrid platforms (such as PlayStation Vita, Platform 33) have extensive digital-only releases alongside physical retail cartridges. To provide comprehensive backup coverage without cluttering physical game discovery, the system employs a dual-flag architecture:
+
+- **`is_verified_physical = 1` vs `0` in `canonical_releases`**: When canonical catalogs (e.g., NoPayStation PSV_GAMES TSV) are ingested, entries are verified against physical retail serial sets (e.g., North American `PCSE`, Japanese `PCSG`, European `PCSB`, Asian `PCSA` cartridge serials). Known physical releases are tagged `is_verified_physical = 1`, while digital-only PSN titles receive `is_verified_physical = 0`.
+- **Discovery Search Filtering**: In the Discovery view, the "Hide Digital-Only" filter filters on `is_verified_physical = 1`, ensuring that searches remain strictly focused on genuine retail releases.
+- **Full Digital Backup Reconciliation**: Because digital releases are preserved in `canonical_releases` with `is_verified_physical = 0`, backup folder scanning achieves 100% automated Title ID and ROM reconciliation across both physical dumps and digital purchases without requiring duplicate cataloging.
+- **NoNpDrm Archive Standard**: Vita backups adhere to the standard `.zip` archive format containing uncompressed or deflated Title ID structures (e.g., `PCSE00001 [Title].zip`), with automatic Title ID regex extraction (`/PC[SEABGFHIDJ]\d{5}/i`).
+
 ## 🛡️ Engineering Standards
 
 - **In-Code Comments**: All complex logic is thoroughly documented explaining the technical intent.
@@ -170,7 +180,3 @@ The Collection Tracker is optimized for mobile use:
 
 - **iOS**: Open in Safari, tap "Share", and select "Add to Home Screen".
 - **Android**: Open in Chrome/Edge and tap "Install" or "Add to Home Screen" when prompted.
-
-## 📋 Roadmap
-
-### 1.
