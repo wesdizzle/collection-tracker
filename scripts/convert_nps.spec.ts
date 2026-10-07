@@ -128,5 +128,24 @@ describe('NoPayStation TSV to Logiqx DAT Converter', () => {
         '<game name="Volume (Alt) (USA)" serial="PCSE-00910">',
       );
     });
+
+    it('should convert PlayStation 4 TSV releases with custom platform options', () => {
+      const ps4Tsv = [
+        'Title ID\tRegion\tName\tPKG direct link\tContent ID\tFile Size',
+        'CUSA00007\tUS\tNBA 2K14\thttp://pkg.link\tUP1001-CUSA00007_00-NBA2K14000000000\t41758425088',
+      ].join('\n');
+
+      const { datContent, uniqueCount } = convertNpsTsvToLogiqxDat(ps4Tsv, {
+        platformName: 'Sony - PlayStation 4',
+      });
+
+      expect(uniqueCount).toBe(1);
+      expect(datContent).toContain('<name>Sony - PlayStation 4</name>');
+      expect(datContent).toContain(
+        '<game name="NBA 2K14 (USA)" serial="CUSA-00007">',
+      );
+      expect(datContent).toContain('rom name="NBA 2K14 (USA).zip"');
+      expect(datContent).toContain('serial="CUSA-00007"');
+    });
   });
 });

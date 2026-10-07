@@ -202,11 +202,17 @@ export function normalizeNpsTitle(
 /**
  * Converts NoPayStation TSV content into standard Logiqx XML DAT format.
  */
-export function convertNpsTsvToLogiqxDat(tsvContent: string): {
+export function convertNpsTsvToLogiqxDat(
+  tsvContent: string,
+  options?: { platformName?: string; description?: string },
+): {
   datContent: string;
   totalParsed: number;
   uniqueCount: number;
 } {
+  const platformName = options?.platformName || 'Sony - PlayStation Vita';
+  const description =
+    options?.description || `${platformName} (NoPayStation Canonical Releases)`;
   const lines = tsvContent
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -273,9 +279,8 @@ export function convertNpsTsvToLogiqxDat(tsvContent: string): {
   let datXml = '<?xml version="1.0"?>\n';
   datXml += '<datafile>\n';
   datXml += '\t<header>\n';
-  datXml += '\t\t<name>Sony - PlayStation Vita</name>\n';
-  datXml +=
-    '\t\t<description>Sony - PlayStation Vita (NoPayStation Canonical Releases)</description>\n';
+  datXml += `\t\t<name>${escapeXml(platformName)}</name>\n`;
+  datXml += `\t\t<description>${escapeXml(description)}</description>\n`;
   datXml += '\t\t<version>2026</version>\n';
   datXml += '\t\t<homepage>http://nopaystation.com/</homepage>\n';
   datXml += '\t</header>\n';
@@ -338,6 +343,7 @@ export function convertNpsTsvToLogiqxDat(tsvContent: string): {
 export async function runNpsConversion(
   customSourcePath?: string,
   customDestPath?: string,
+  customPlatform?: 'vita' | 'ps4',
 ): Promise<{ destPath: string; uniqueCount: number }> {
   console.log(
     '===============================================================',
@@ -347,15 +353,28 @@ export async function runNpsConversion(
     '===============================================================',
   );
 
+  const platformArg =
+    customPlatform ||
+    (process.argv.includes('--platform=ps4') ? 'ps4' : 'vita');
+
+  const isPs4 = platformArg === 'ps4';
+  const defaultTsvName = isPs4 ? 'PS4_GAMES.tsv' : 'PSV_GAMES.tsv';
+  const defaultDatName = isPs4
+    ? 'Sony - PlayStation 4.dat'
+    : 'Sony - PlayStation Vita.dat';
+  const platformName = isPs4
+    ? 'Sony - PlayStation 4'
+    : 'Sony - PlayStation Vita';
+
   const sourcePath =
     customSourcePath ||
     process.argv[2] ||
-    path.join(rootDir, 'dats', 'PSV_GAMES.tsv');
+    path.join(rootDir, 'dats', defaultTsvName);
 
   const destPath =
     customDestPath ||
     process.argv[3] ||
-    path.join(rootDir, 'dats', 'No-Intro', 'Sony - PlayStation Vita.dat');
+    path.join(rootDir, 'dats', 'No-Intro', defaultDatName);
 
   let tsvContent: string;
 
@@ -368,7 +387,7 @@ export async function runNpsConversion(
     console.log(
       '[NPS-Converter] Local TSV not found. Downloading live from nopaystation.com...',
     );
-    const url = 'http://nopaystation.com/tsv/PSV_GAMES.tsv';
+    const url = `http://nopaystation.com/tsv/${defaultTsvName}`;
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'CollectionTracker/2.0 (DAT Synchronizer)',
@@ -385,9 +404,13 @@ export async function runNpsConversion(
     );
   }
 
-  console.log('[NPS-Converter] Converting TSV content to Logiqx XML...');
-  const { datContent, totalParsed, uniqueCount } =
-    convertNpsTsvToLogiqxDat(tsvContent);
+  console.log(
+    `[NPS-Converter] Converting TSV content to Logiqx XML (${platformName})...`,
+  );
+  const { datContent, totalParsed, uniqueCount } = convertNpsTsvToLogiqxDat(
+    tsvContent,
+    { platformName },
+  );
 
   const destDir = path.dirname(destPath);
   if (!fs.existsSync(destDir)) {
@@ -401,7 +424,7 @@ export async function runNpsConversion(
     '===============================================================',
   );
   console.log(
-    `✅ Conversion complete: ${uniqueCount} canonical Vita releases generated.`,
+    `✅ Conversion complete: ${uniqueCount} canonical ${platformName} releases generated.`,
   );
   console.log(
     `   (Parsed: ${totalParsed} total rows, XML file: ${destPath} [${sizeMb} MB])`,

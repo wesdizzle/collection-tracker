@@ -7,7 +7,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   REDUMP_TARGETS,
+  REDUMP_WIP_TARGETS,
   NO_INTRO_TARGETS,
+  downloadRedumpDat,
   downloadNoIntroDat,
   applyCanonicalDatPatches,
   pruneAndDeduplicateDats,
@@ -242,6 +244,91 @@ PCSE00651\tUS\tAxiom Verge\thttp://pkg.link\tKO5ifR1dg...\tUP2188-PCSE00651_00-A
     const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
     expect(result.success).toBe(true);
     expect(result.fileName).toBe('Sony - PlayStation Vita.dat');
+    expect(fs.existsSync(preExistingPath)).toBe(true);
+  });
+
+  it('should define REDUMP_WIP_TARGETS for all modern optical disc consoles', () => {
+    expect(REDUMP_WIP_TARGETS.length).toBe(5);
+    const slugs = REDUMP_WIP_TARGETS.map((t) => t.slug);
+    expect(slugs).toContain('wiiu');
+    expect(slugs).toContain('ps4');
+    expect(slugs).toContain('ps5');
+    expect(slugs).toContain('xbone');
+    expect(slugs).toContain('xsx');
+  });
+
+  it('should preserve existing local DAT file when Redump returns 404 for WIP platform', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const wiiuTarget = REDUMP_WIP_TARGETS.find((t) => t.slug === 'wiiu')!;
+    const preExistingPath = path.join(
+      tempTestDir,
+      'Nintendo - Wii U - Datfile (541).dat',
+    );
+    fs.writeFileSync(
+      preExistingPath,
+      '<datafile><game name="Pre-existing Wii U Game"/></datafile>',
+      'utf8',
+    );
+
+    const result = await downloadRedumpDat(wiiuTarget, tempTestDir);
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Nintendo - Wii U - Datfile (541).dat');
+  });
+
+  it('should fetch and convert PlayStation 4 releases directly from NoPayStation TSV', async () => {
+    const mockNpsTsv = `Title ID\tRegion\tName\tPKG direct link\tContent ID\tFile Size
+CUSA00007\tUS\tNBA 2K14\thttp://pkg.link\tUP1001-CUSA00007_00-NBA2K14000000000\t41758425088`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => mockNpsTsv,
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const ps4Target = NO_INTRO_TARGETS.find((t) => t.name === 'PlayStation 4')!;
+    expect(ps4Target).toBeDefined();
+
+    const result = await downloadNoIntroDat(ps4Target, tempTestDir);
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Sony - PlayStation 4.dat');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://nopaystation.com/tsv/PS4_GAMES.tsv',
+      expect.any(Object),
+    );
+
+    const savedPath = path.join(tempTestDir, result.fileName!);
+    expect(fs.existsSync(savedPath)).toBe(true);
+    const content = fs.readFileSync(savedPath, 'utf8');
+    expect(content).toContain('<datafile>');
+    expect(content).toContain('<name>Sony - PlayStation 4</name>');
+    expect(content).toContain(
+      '<game name="NBA 2K14 (USA)" serial="CUSA-00007">',
+    );
+    expect(content).toContain('rom name="NBA 2K14 (USA).zip"');
+  });
+
+  it('should preserve existing PlayStation 4 DAT if network request fails', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const ps4Target = NO_INTRO_TARGETS.find((t) => t.name === 'PlayStation 4')!;
+    const preExistingPath = path.join(tempTestDir, 'Sony - PlayStation 4.dat');
+    fs.writeFileSync(
+      preExistingPath,
+      '<datafile><game name="Pre-existing PS4 Game (USA)"/></datafile>',
+      'utf8',
+    );
+
+    const result = await downloadNoIntroDat(ps4Target, tempTestDir);
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Sony - PlayStation 4.dat');
     expect(fs.existsSync(preExistingPath)).toBe(true);
   });
 

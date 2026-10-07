@@ -105,7 +105,7 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Initialize Local Database**: `npm run db:init` (Builds fresh `collection.sqlite` from schema)
 - **Download Canonical DATs**: `npm run dats:download` (Downloads the latest official No-Intro and Redump XML DATs from canonical sources into `dats/`)
 - **Convert NSWDB Switch XML**: `npm run dats:convert-nswdb` (Converts `NSWreleases.xml` into canonical No-Intro XML DAT for Nintendo Switch)
-- **Convert NoPayStation Vita TSV**: `npm run dats:convert-nps` (Converts `PSV_GAMES.tsv` into canonical Logiqx XML DAT for PlayStation Vita)
+- **Convert NoPayStation TSVs**: `npm run dats:convert-nps` (Converts `PSV_GAMES.tsv` and `PS4_GAMES.tsv` into canonical Logiqx XML DATs for PlayStation Vita and PlayStation 4)
 - **Update & Sync All DATs**: `npm run dats:update` (Downloads latest DATs and immediately parses/indexes them into `canonical_releases`)
 - **Sync Canonical DATs (All Platforms)**: `npm run dats:sync` (Indexes all local No-Intro / Redump DAT releases into `canonical_releases` and generates full `canonical_releases_seed.sql`)
 - **Surgical Platform DAT Sync**: `npm run dats:sync -- --platform=<name|id>` (Scopes DAT parsing, database deletion, insertion, and reconciliation to a single platform, e.g. `npm run dats:sync -- --platform=vita` or `npm run dats:sync -- --platform=26`. Generates a surgical migration `scripts/temp/update_<platform>_d1.sql` consuming <5% of Cloudflare D1's 100k daily write quota)
@@ -147,7 +147,7 @@ The **Discovery** tab provides three workflows directly within the web app with 
 #### Physical Verification Architecture (Zero Paid APIs)
 
 - **Tier 1 (Canonical DAT Grounding & Disc Serial Catalogs - 100% Confidence)**: Cross-references game titles against 80,000+ indexed canonical No-Intro cartridge and Redump optical disc releases stored directly in D1/SQLite. For modern optical disc consoles (PlayStation 4 `CUSA` and PlayStation 5 `PPSA`) where public Redump DAT dumps are limited, verified retail disc serial indexes compiled from community catalogs (SerialStation / TMDB `media_type: "disc"`) elevate physical disc releases directly to Tier 1 canonical physical verification.
-- **Tier 2 (Modern Heuristics & Open Datasets)**: Validates modern games (Switch, PS4/PS5, Xbox) using free physical signals (physical packaging formats, curated physical publisher allowlist, retail barcodes, and platform serial code patterns).
+- **Tier 2 (Modern Heuristics & Open Datasets)**: Validates modern games (Nintendo Switch, Nintendo Switch 2, PS4/PS5, Xbox) using free physical signals (physical packaging formats, curated physical publisher allowlist, retail barcodes, and platform serial code patterns). Nintendo Switch 2 (Platform 27) is an active commercial platform launched June 5, 2025 with physical cartridge distribution, tracked alongside Nintendo Switch (Platform 26) with evolving community backup catalogs.
 - **Tier 3 (Digital Fluff Elimination)**: Filters out DLC, expansion packs, Virtual Console/arcade re-releases, and digital ports exhibiting platform launch era discrepancies (>3 years prior to platform launch).
 
 #### Dual Physical vs. Digital Ingestion Architecture

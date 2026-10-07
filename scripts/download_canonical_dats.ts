@@ -84,6 +84,67 @@ export const REDUMP_TARGETS: RedumpPlatformTarget[] = [
   },
 ];
 
+export interface RedumpWipPlatformTarget {
+  name: string;
+  slug: string;
+  canonicalFileName: string;
+  pattern: RegExp;
+  communityUrl?: string;
+  mirrorUrls?: string[];
+}
+
+/**
+ * Modern optical disc platforms requiring community mirrors or Work-In-Progress fallback.
+ */
+export const REDUMP_WIP_TARGETS: RedumpWipPlatformTarget[] = [
+  {
+    name: 'Nintendo Wii U',
+    slug: 'wiiu',
+    canonicalFileName: 'Nintendo - Wii U.dat',
+    pattern: /^Nintendo\s*-\s*Wii U/i,
+    mirrorUrls: [
+      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
+    ],
+  },
+  {
+    name: 'Sony PlayStation 4',
+    slug: 'ps4',
+    canonicalFileName: 'Sony - PlayStation 4.dat',
+    pattern: /^Sony\s*-\s*PlayStation 4/i,
+    communityUrl: 'http://nopaystation.com/tsv/PS4_GAMES.tsv',
+    mirrorUrls: [
+      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
+    ],
+  },
+  {
+    name: 'Sony PlayStation 5',
+    slug: 'ps5',
+    canonicalFileName: 'Sony - PlayStation 5.dat',
+    pattern: /^Sony\s*-\s*PlayStation 5/i,
+    mirrorUrls: [
+      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
+    ],
+  },
+  {
+    name: 'Microsoft Xbox One',
+    slug: 'xbone',
+    canonicalFileName: 'Microsoft - Xbox One.dat',
+    pattern: /^Microsoft\s*-\s*Xbox One/i,
+    mirrorUrls: [
+      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
+    ],
+  },
+  {
+    name: 'Microsoft Xbox Series X',
+    slug: 'xsx',
+    canonicalFileName: 'Microsoft - Xbox Series X.dat',
+    pattern: /^Microsoft\s*-\s*Xbox Series X/i,
+    mirrorUrls: [
+      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
+    ],
+  },
+];
+
 /**
  * Cartridge and ROM platforms sourced from No-Intro.
  */
@@ -233,6 +294,12 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
     pattern: /^Sony\s*-\s*PlayStation Vita(?!\s*\()/i,
   },
   {
+    name: 'PlayStation 4',
+    remoteFileName: 'Sony - PlayStation 4.dat',
+    canonicalFileName: 'Sony - PlayStation 4.dat',
+    pattern: /^Sony\s*-\s*PlayStation 4(?!\s*(?:VR|\())/i,
+  },
+  {
     name: 'Sega Master System',
     remoteFileName: 'Sega - Master System - Mark III.dat',
     canonicalFileName: 'Sega - Master System - Mark III.dat',
@@ -292,7 +359,7 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
  * Downloads a Redump DAT zip archive and extracts it into the target directory.
  */
 export async function downloadRedumpDat(
-  target: RedumpPlatformTarget,
+  target: RedumpPlatformTarget | RedumpWipPlatformTarget,
   destinationDir: string = datsDir,
 ): Promise<{
   success: boolean;
@@ -304,6 +371,18 @@ export async function downloadRedumpDat(
   const tempZipPath = path.join(tempDir, `redump_${target.slug}.zip`);
   const extractTempDir = path.join(tempDir, `extract_${target.slug}`);
 
+  const findExistingDat = () => {
+    if (fs.existsSync(destinationDir)) {
+      const existingFiles = fs.readdirSync(destinationDir);
+      const existing = existingFiles.find((f) => target.pattern.test(f));
+      if (existing) {
+        const size = fs.statSync(path.join(destinationDir, existing)).size;
+        return { success: true, fileName: existing, sizeBytes: size };
+      }
+    }
+    return null;
+  };
+
   try {
     const response = await fetch(url, {
       headers: {
@@ -312,6 +391,9 @@ export async function downloadRedumpDat(
     });
 
     if (!response.ok) {
+      const existing = findExistingDat();
+      if (existing) return existing;
+
       return {
         success: false,
         error: `HTTP ${response.status} ${response.statusText}`,
@@ -320,6 +402,9 @@ export async function downloadRedumpDat(
 
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.length < 500) {
+      const existing = findExistingDat();
+      if (existing) return existing;
+
       return {
         success: false,
         error: 'Downloaded file is unexpectedly small / empty.',
@@ -368,6 +453,9 @@ export async function downloadRedumpDat(
 
     return { success: true, fileName: datFile, sizeBytes: size };
   } catch (err: unknown) {
+    const existing = findExistingDat();
+    if (existing) return existing;
+
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };
   } finally {
@@ -805,6 +893,72 @@ export async function downloadNoIntroDat(
     }
   }
 
+  if (target.name === 'PlayStation 4') {
+    // 1. Check if a local PS4_GAMES.tsv exists in datsDir
+    const localTsvPath = path.join(datsDir, 'PS4_GAMES.tsv');
+    let tsvContent = '';
+    if (fs.existsSync(localTsvPath)) {
+      try {
+        tsvContent = fs.readFileSync(localTsvPath, 'utf8');
+        fs.unlinkSync(localTsvPath);
+      } catch {
+        // ignore read error
+      }
+    }
+
+    // 2. Fetch online directly from NoPayStation if no local file was found
+    if (!tsvContent) {
+      try {
+        const response = await fetch(
+          'http://nopaystation.com/tsv/PS4_GAMES.tsv',
+          {
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+          },
+        );
+        if (response.ok) {
+          tsvContent = await response.text();
+        }
+      } catch (fetchErr) {
+        if (fs.existsSync(finalDestination)) {
+          const size = fs.statSync(finalDestination).size;
+          return { success: true, fileName: canonicalName, sizeBytes: size };
+        }
+        return {
+          success: false,
+          error: `Could not fetch from nopaystation.com: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+        };
+      }
+    }
+
+    if (!tsvContent || !tsvContent.includes('Title ID')) {
+      if (fs.existsSync(finalDestination)) {
+        const size = fs.statSync(finalDestination).size;
+        return { success: true, fileName: canonicalName, sizeBytes: size };
+      }
+      return {
+        success: false,
+        error: 'Failed to retrieve valid NoPayStation TSV.',
+      };
+    }
+
+    try {
+      const { datContent } = convertNpsTsvToLogiqxDat(tsvContent, {
+        platformName: 'Sony - PlayStation 4',
+      });
+      fs.writeFileSync(finalDestination, datContent, 'utf8');
+      const size = fs.statSync(finalDestination).size;
+      return { success: true, fileName: canonicalName, sizeBytes: size };
+    } catch (convErr) {
+      return {
+        success: false,
+        error: `Could not convert NoPayStation TSV: ${convErr instanceof Error ? convErr.message : String(convErr)}`,
+      };
+    }
+  }
+
   if (target.manualOnly) {
     if (fs.existsSync(destinationDir)) {
       const existingFiles = fs.readdirSync(destinationDir);
@@ -970,7 +1124,9 @@ export function pruneAndDeduplicateDats(targetDatsDir: string = datsDir): {
       .filter((f) => f.endsWith('.dat') || f.endsWith('.xml'));
     for (const file of rootFiles) {
       const isNoIntro = NO_INTRO_TARGETS.some((t) => t.pattern.test(file));
-      const isRedump = REDUMP_TARGETS.some((t) => t.pattern.test(file));
+      const isRedump =
+        REDUMP_TARGETS.some((t) => t.pattern.test(file)) ||
+        REDUMP_WIP_TARGETS.some((t) => t.pattern.test(file));
       if (isNoIntro && !isRedump) {
         const srcPath = path.join(targetDatsDir, file);
         const destPath = path.join(targetNoIntroDir, file);
@@ -1224,7 +1380,7 @@ export async function runDatDownloads() {
   const errors: Array<{ platform: string; source: string; error: string }> = [];
 
   console.log(
-    `\n📦 [1/2] Fetching Redump Optical Disc DATs (${REDUMP_TARGETS.length} targets)...`,
+    `\n📦 [1/3] Fetching Redump Optical Disc DATs (${REDUMP_TARGETS.length} targets)...`,
   );
   for (const target of REDUMP_TARGETS) {
     process.stdout.write(`  - ${target.name.padEnd(35)} `);
@@ -1246,7 +1402,29 @@ export async function runDatDownloads() {
   }
 
   console.log(
-    `\n🕹️ [2/2] Fetching No-Intro Cartridge DATs (${NO_INTRO_TARGETS.length} targets)...`,
+    `\n💿 [2/3] Fetching Modern & WIP Optical Disc DATs (${REDUMP_WIP_TARGETS.length} targets)...`,
+  );
+  for (const target of REDUMP_WIP_TARGETS) {
+    process.stdout.write(`  - ${target.name.padEnd(35)} `);
+    const result = await downloadRedumpDat(target);
+    if (result.success && result.fileName && result.sizeBytes) {
+      successCount++;
+      totalBytes += result.sizeBytes;
+      console.log(
+        `✅ OK (${(result.sizeBytes / 1024).toFixed(0)} KB) -> ${result.fileName}`,
+      );
+    } else {
+      console.log(`⚠️ FAILED: ${result.error}`);
+      errors.push({
+        platform: target.name,
+        source: 'Redump WIP',
+        error: result.error || 'Unknown',
+      });
+    }
+  }
+
+  console.log(
+    `\n🕹️ [3/3] Fetching No-Intro Cartridge & Digital DATs (${NO_INTRO_TARGETS.length} targets)...`,
   );
   for (const target of NO_INTRO_TARGETS) {
     process.stdout.write(`  - ${target.name.padEnd(35)} `);
@@ -1290,7 +1468,8 @@ export async function runDatDownloads() {
     }
   }
 
-  const totalTargets = REDUMP_TARGETS.length + NO_INTRO_TARGETS.length;
+  const totalTargets =
+    REDUMP_TARGETS.length + REDUMP_WIP_TARGETS.length + NO_INTRO_TARGETS.length;
   console.log(
     '\n===============================================================',
   );

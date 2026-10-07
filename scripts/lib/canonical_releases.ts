@@ -543,6 +543,8 @@ export const COMPLETE_DAT_PLATFORM_IDS = new Set<number>([
 /**
  * Platforms that are still active or have incomplete community DAT tracking.
  * On these platforms, DAT files cannot be treated as the sole source of truth for regional releases.
+ * Includes Nintendo Switch 2 (Platform 27, launched June 5, 2025) which is an active commercial platform
+ * with physical cartridge releases and evolving community catalogs.
  */
 export const ACTIVE_OR_INCOMPLETE_DAT_PLATFORM_IDS = new Set<number>([
   12, // Neo Geo X
