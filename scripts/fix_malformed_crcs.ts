@@ -251,6 +251,60 @@ export function fixMalformedCrcs(isDryRun = false) {
     );
   }
 
+  // 4.1. Fix missing CRCs for verified retro physical titles & companion discs
+  const knownMissingRetroCrcs = [
+    {
+      id: 'wolfenstein-3-d-super-nintendo-entertainment-system-568375',
+      canonical_release_id: 914448,
+      rom_crc: '6582a8f5',
+    },
+    {
+      id: 'star-wars-episode-i-obi-wan-s-adventures-game-boy-color-star-wars-episode-i-obi-wan-s-adventures-usa-gbc',
+      canonical_release_id: 917011,
+      rom_crc: '0e697582',
+    },
+    {
+      id: 'rodea-the-sky-soldier-wii-included-rel',
+      canonical_release_id: 930312,
+      rom_crc: 'ac68bc6a',
+    },
+    {
+      id: 'bayonetta-wii-u-included-rel',
+      canonical_release_id: 934990,
+      rom_crc: '5b443b38',
+    },
+  ];
+
+  for (const item of knownMissingRetroCrcs) {
+    const existing = db
+      .prepare(
+        'SELECT id, rom_crc, canonical_release_id FROM game_releases WHERE id = ?',
+      )
+      .get(item.id) as
+      | {
+          id: string;
+          rom_crc: string | null;
+          canonical_release_id: number | null;
+        }
+      | undefined;
+
+    if (
+      existing &&
+      (!existing.rom_crc ||
+        existing.canonical_release_id !== item.canonical_release_id)
+    ) {
+      if (!isDryRun) {
+        db.prepare(
+          'UPDATE game_releases SET rom_crc = ?, canonical_release_id = ? WHERE id = ?',
+        ).run(item.rom_crc, item.canonical_release_id, item.id);
+      }
+      sqlStatements.push(
+        `UPDATE game_releases SET rom_crc = '${item.rom_crc}', canonical_release_id = ${item.canonical_release_id} WHERE id = '${item.id}';`,
+      );
+      fixedGameReleases++;
+    }
+  }
+
   // 5. Write SQL migration script
   const sqlFilePath = path.join(tempDir, 'fix_malformed_crcs.sql');
   fs.writeFileSync(sqlFilePath, sqlStatements.join('\n'), 'utf8');
