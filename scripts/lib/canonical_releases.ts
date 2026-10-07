@@ -569,6 +569,7 @@ export function isPlatformDatComplete(platformId: number): boolean {
  */
 export function detectPhysicalReleaseStatus(options: {
   platformId: number;
+  parentPlatformId?: number | null;
   gameTitle: string;
   alternativeNames?: Array<{ name: string; comment?: string }>;
   firstReleaseDate?: string | number | null;
@@ -583,6 +584,7 @@ export function detectPhysicalReleaseStatus(options: {
 }): PhysicalVerificationResult {
   const {
     platformId,
+    parentPlatformId,
     gameTitle,
     alternativeNames,
     firstReleaseDate,
@@ -614,12 +616,17 @@ export function detectPhysicalReleaseStatus(options: {
 
   // Tier 1: Canonical Match (No-Intro / Redump in D1/SQLite)
   const matchedReleases = canonicalReleases.filter((r) => {
-    if (r.platform_id !== platformId) return false;
+    if (
+      r.platform_id !== platformId &&
+      (!parentPlatformId || r.platform_id !== parentPlatformId)
+    ) {
+      return false;
+    }
     return gameMatchesReleaseWithAlternatives(
       gameTitle,
       cleanTitleWithoutParentheticals(r.raw_title),
       r.raw_title,
-      platformId,
+      r.platform_id,
       alternativeNames,
       r.region,
     );

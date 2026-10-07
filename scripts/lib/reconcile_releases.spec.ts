@@ -68,7 +68,7 @@ describe('reconcile_releases', () => {
     beforeEach(() => {
       db = new Database(':memory:');
       db.exec(`
-        CREATE TABLE platforms (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE platforms (id INTEGER PRIMARY KEY, name TEXT, parent_platform_id INTEGER);
         CREATE TABLE games (stable_id INTEGER PRIMARY KEY, title TEXT, platform_id INTEGER);
         CREATE TABLE game_releases (
           id TEXT PRIMARY KEY,
@@ -91,13 +91,24 @@ describe('reconcile_releases', () => {
           source TEXT
         );
 
-        INSERT INTO platforms (id, name) VALUES (26, 'Nintendo Switch');
+        INSERT INTO platforms (id, name, parent_platform_id) VALUES (26, 'Nintendo Switch', NULL);
+        INSERT INTO platforms (id, name, parent_platform_id) VALUES (34, 'PlayStation 4', NULL);
+        INSERT INTO platforms (id, name, parent_platform_id) VALUES (51, 'PlayStation VR', 34);
+
         INSERT INTO games (stable_id, title, platform_id) VALUES (1873, 'Yoku''s Island Express', 26);
         INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
         VALUES ('1873-default', 1873, 'USA', NULL, NULL, NULL, NULL);
 
         INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
         VALUES (762828, 26, 'Yoku''s Island Express', 'yokuislandexpress', 'World', NULL, 'Yoku''s Island Express (World).xci', 'a95adadb', 'dat');
+
+        -- Child platform test data (PSVR game linking to PS4 Redump release)
+        INSERT INTO games (stable_id, title, platform_id) VALUES (2739, 'Astro Bot: Rescue Mission', 51);
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
+        VALUES ('2739-default', 2739, 'USA', NULL, NULL, NULL, NULL);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
+        VALUES (889900, 34, 'Astro Bot - Rescue Mission', 'astrobotrescuemission', 'USA', NULL, 'Astro Bot - Rescue Mission (USA).iso', '0f563151', 'dat');
       `);
     });
 
@@ -114,8 +125,9 @@ describe('reconcile_releases', () => {
         sqlOutputPath: testSqlPath,
       });
 
-      expect(result.reconciledCount).toBe(1);
+      expect(result.reconciledCount).toBe(2);
       expect(result.updatesByPlatform[26]).toBe(1);
+      expect(result.updatesByPlatform[51]).toBe(1);
 
       const updated = db
         .prepare('SELECT * FROM game_releases WHERE id = ?')
@@ -128,12 +140,26 @@ describe('reconcile_releases', () => {
       expect(updated.rom_name).toBe("Yoku's Island Express (World).xci");
       expect(updated.rom_crc).toBe('a95adadb');
 
+      // Verify child platform (PSVR -> PS4) reconciled
+      const psvrUpdated = db
+        .prepare('SELECT * FROM game_releases WHERE id = ?')
+        .get('2739-default') as {
+        canonical_release_id: number | null;
+        rom_name: string | null;
+        rom_crc: string | null;
+      };
+      expect(psvrUpdated.canonical_release_id).toBe(889900);
+      expect(psvrUpdated.rom_name).toBe('Astro Bot - Rescue Mission (USA).iso');
+      expect(psvrUpdated.rom_crc).toBe('0f563151');
+
       expect(fs.existsSync(testSqlPath)).toBe(true);
       const sqlContent = fs.readFileSync(testSqlPath, 'utf8');
       expect(sqlContent).toContain(
-        'UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases',
+        "UPDATE game_releases SET canonical_release_id = 762828, rom_name = 'Yoku''s Island Express (World).xci', rom_crc = 'a95adadb'",
       );
-      expect(sqlContent).toContain("normalized_title = 'yokuislandexpress'");
+      expect(sqlContent).toContain(
+        "UPDATE game_releases SET canonical_release_id = 889900, rom_name = 'Astro Bot - Rescue Mission (USA).iso', rom_crc = '0f563151'",
+      );
     });
 
     it('should not modify database in dry-run mode', () => {
@@ -142,7 +168,7 @@ describe('reconcile_releases', () => {
         sqlOutputPath: testSqlPath,
       });
 
-      expect(result.reconciledCount).toBe(1);
+      expect(result.reconciledCount).toBe(2);
 
       const notUpdated = db
         .prepare('SELECT * FROM game_releases WHERE id = ?')

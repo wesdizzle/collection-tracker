@@ -237,6 +237,35 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(animalCrossingRes.physical_regions).toEqual(['Japan']);
     });
 
+    it('should verify child platforms like PSVR using parent platform canonical releases', () => {
+      const ps4Canonical = [
+        {
+          id: 889900,
+          platform_id: 34, // PS4
+          raw_title: 'Astro Bot - Rescue Mission',
+          normalized_title: 'astrobotrescuemission',
+          region: 'USA',
+          variants: null,
+          rom_name: 'Astro Bot - Rescue Mission (USA).iso',
+          rom_crc: '0F563151',
+          source: 'dat' as const,
+          is_verified_physical: 1,
+        },
+      ];
+
+      const psvrRes = detectPhysicalReleaseStatus({
+        platformId: 51, // PSVR
+        parentPlatformId: 34, // PS4
+        gameTitle: 'Astro Bot: Rescue Mission',
+        canonicalReleases: ps4Canonical,
+      });
+
+      expect(psvrRes.physical_status).toBe('verified_physical');
+      expect(psvrRes.verification_tier).toBe(1);
+      expect(psvrRes.is_physical).toBe(true);
+      expect(psvrRes.physical_regions).toEqual(['USA']);
+    });
+
     it('should correctly identify era discrepancies', () => {
       expect(hasEraDiscrepancy(1990, 2006)).toBe(true); // SNES game on Wii
       expect(hasEraDiscrepancy(2017, 2017)).toBe(false); // Switch launch game

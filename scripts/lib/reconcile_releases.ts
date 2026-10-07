@@ -11,6 +11,8 @@
 import type Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+import { getDatabase } from './db.js';
 import { normalizeTitleForMatching } from './title_matching.js';
 import { cleanTitleWithoutParentheticals } from './canonical_releases.js';
 
@@ -150,12 +152,38 @@ export function reconcileGameReleasesWithCanonical(
     canonical_release_id: number | null;
   }>;
 
+  // Map parent platform relationships (e.g. PSVR 51 -> PS4 34, PSVR2 52 -> PS5 35)
+  const parentPlatformMap = new Map<number, number>();
+  try {
+    const platformRows = db
+      .prepare(
+        'SELECT id, parent_platform_id FROM platforms WHERE parent_platform_id IS NOT NULL',
+      )
+      .all() as Array<{ id: number; parent_platform_id: number }>;
+    for (const p of platformRows) {
+      parentPlatformMap.set(p.id, p.parent_platform_id);
+    }
+  } catch {
+    // Platforms table lacks parent_platform_id column in simplified test mocks
+  }
+
+  let datPlatformFilter = '';
+  if (options.platformId) {
+    const pId = Number(options.platformId);
+    const parentId = parentPlatformMap.get(pId);
+    if (parentId) {
+      datPlatformFilter = `AND platform_id IN (${pId}, ${parentId})`;
+    } else {
+      datPlatformFilter = `AND platform_id = ${pId}`;
+    }
+  }
+
   // Query all canonical DAT releases
   const datQuery = `
     SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc
     FROM canonical_releases
     WHERE source = 'dat' AND rom_name IS NOT NULL
-    ${options.platformId ? 'AND platform_id = ' + Number(options.platformId) : ''}
+    ${datPlatformFilter}
   `;
 
   const allDatReleases = db.prepare(datQuery).all() as Array<{
@@ -196,26 +224,46 @@ export function reconcileGameReleasesWithCanonical(
 
   for (const rel of candidateReleases) {
     const normMap = datByPlatformNorm.get(rel.platform_id);
-    if (!normMap) continue;
+    const parentId = parentPlatformMap.get(rel.platform_id);
+    const parentNormMap = parentId
+      ? datByPlatformNorm.get(parentId)
+      : undefined;
 
-    // Strategy 1: Exact normalized title match
-    const norm = normalizeTitleForMatching(rel.title);
-    let candidates = normMap.get(norm);
+    // Helper to search a specific norm map
+    const searchMap = (map?: Map<string, typeof allDatReleases>) => {
+      if (!map) return undefined;
+      // Strategy 1: Exact normalized title match
+      const norm = normalizeTitleForMatching(rel.title);
+      let cand = map.get(norm);
 
-    // Strategy 2: Clean parentheticals
-    if (!candidates || candidates.length === 0) {
-      const clean = cleanTitleWithoutParentheticals(rel.title);
-      if (clean !== rel.title) {
-        candidates = normMap.get(normalizeTitleForMatching(clean));
+      // Strategy 2: Clean parentheticals
+      if (!cand || cand.length === 0) {
+        const clean = cleanTitleWithoutParentheticals(rel.title);
+        if (clean !== rel.title) {
+          cand = map.get(normalizeTitleForMatching(clean));
+        }
       }
-    }
 
-    // Strategy 3: Strip common edition suffixes
-    if (!candidates || candidates.length === 0) {
-      const stripped = stripEditionSuffix(rel.title);
-      if (stripped !== rel.title) {
-        candidates = normMap.get(normalizeTitleForMatching(stripped));
+      // Strategy 3: Strip common edition suffixes
+      if (!cand || cand.length === 0) {
+        const stripped = stripEditionSuffix(rel.title);
+        if (stripped !== rel.title) {
+          cand = map.get(normalizeTitleForMatching(stripped));
+        }
       }
+
+      // Strategy 4: Subtitle prefix splitting (e.g. Job Simulator: The 2050 Archives -> Job Simulator)
+      if ((!cand || cand.length === 0) && rel.title.includes(':')) {
+        const prefix = rel.title.split(':')[0].trim();
+        cand = map.get(normalizeTitleForMatching(prefix));
+      }
+
+      return cand;
+    };
+
+    let candidates = searchMap(normMap);
+    if ((!candidates || candidates.length === 0) && parentNormMap) {
+      candidates = searchMap(parentNormMap);
     }
 
     if (!candidates || candidates.length === 0) continue;
@@ -239,7 +287,7 @@ export function reconcileGameReleasesWithCanonical(
       s !== null ? `'${s.replace(/'/g, "''")}'` : 'NULL';
 
     sqlStatements.push(
-      `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${rel.platform_id} AND normalized_title = ${escapeSql(best.normalized_title)} AND rom_name = ${escapeSql(best.rom_name)} LIMIT 1), rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)} WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
+      `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)} WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
     );
   }
 
@@ -274,4 +322,28 @@ export function reconcileGameReleasesWithCanonical(
     sqlPath,
     updates,
   };
+}
+
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  const db = getDatabase();
+  let platformId: number | undefined;
+  const platArg = process.argv.find((a) => a.startsWith('--platform='));
+  if (platArg) {
+    platformId = Number(platArg.split('=')[1]);
+  }
+  const isDryRun = process.argv.includes('--dry-run');
+  const res = reconcileGameReleasesWithCanonical(db, {
+    platformId,
+    dryRun: isDryRun,
+  });
+  console.log(
+    `Evaluated: ${res.totalEvaluated}, Reconciled: ${res.reconciledCount}`,
+  );
+  for (const [pId, cnt] of Object.entries(res.updatesByPlatform)) {
+    console.log(`Platform ${pId}: ${cnt} updates`);
+  }
+  db.close();
 }
