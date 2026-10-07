@@ -165,4 +165,36 @@ describe('CollectionFiltersComponent', () => {
     component.toggleDealsOnly();
     expect(emittedFilters!.deals_only).toBe(false);
   });
+
+  it('should render and select budget label status options', () => {
+    expect(component.getBudgetLabelStatusLabel()).toBe('All');
+
+    fixture.componentRef.setInput('filters', {
+      ownership: 'all',
+      budget_label: 'budget_only',
+    });
+    expect(component.getBudgetLabelStatusLabel()).toBe('Budget label only');
+
+    fixture.componentRef.setInput('filters', {
+      ownership: 'all',
+      budget_label: 'standard_and_budget',
+    });
+    expect(component.getBudgetLabelStatusLabel()).toBe(
+      'Standard and budget labels',
+    );
+
+    fixture.componentRef.setInput('filters', {
+      ownership: 'all',
+      budget_label: 'standard_only',
+    });
+    expect(component.getBudgetLabelStatusLabel()).toBe('Standard label only');
+
+    let emittedFilters: FilterState | undefined;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.selectOption('budget_label', 'budget_only');
+    expect(emittedFilters?.budget_label).toBe('budget_only');
+  });
 });

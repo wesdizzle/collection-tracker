@@ -413,6 +413,78 @@ import {
             </div>
           </div>
 
+          <!-- Budget Label Status -->
+          <div class="filter-group">
+            <div class="filter-group-header">
+              <label class="m3-label">Budget Label Status</label>
+            </div>
+            <div
+              class="input-wrapper dropdown-wrapper"
+              [class.active-wrapper]="activeDropdown() === 'budget_label'"
+            >
+              <button
+                type="button"
+                class="m3-input dropdown-trigger"
+                [class.open]="activeDropdown() === 'budget_label'"
+                (click)="toggleDropdown('budget_label', $event)"
+                id="filter-budget-label"
+                aria-haspopup="listbox"
+                [attr.aria-expanded]="activeDropdown() === 'budget_label'"
+              >
+                <span class="trigger-text">{{
+                  getBudgetLabelStatusLabel()
+                }}</span>
+                <span class="dropdown-icon-wrapper" aria-hidden="true">
+                  <svg
+                    class="dropdown-chevron"
+                    [class.open]="activeDropdown() === 'budget_label'"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="currentColor"
+                  >
+                    <path
+                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                    />
+                  </svg>
+                </span>
+              </button>
+              @if (activeDropdown() === 'budget_label') {
+                <div class="dropdown-list animate-expressive" role="listbox">
+                  @for (opt of budgetLabelOptions; track opt.value) {
+                    <button
+                      type="button"
+                      class="dropdown-item state-layer"
+                      [class.selected]="
+                        (filters().budget_label ?? 'all') === opt.value
+                      "
+                      (click)="selectOption('budget_label', opt.value)"
+                      role="option"
+                      [attr.aria-selected]="
+                        (filters().budget_label ?? 'all') === opt.value
+                      "
+                    >
+                      <span class="item-label">{{ opt.label }}</span>
+                      @if ((filters().budget_label ?? 'all') === opt.value) {
+                        <svg
+                          class="selected-check"
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                          fill="currentColor"
+                        >
+                          <path
+                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                          />
+                        </svg>
+                      }
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+
           <!-- Platform -->
           <div class="filter-group">
             <div class="filter-group-header">
@@ -1791,6 +1863,16 @@ export class CollectionFiltersComponent {
       { value: 0, label: 'Unverified' },
     ];
 
+  readonly budgetLabelOptions: {
+    value: 'all' | 'standard_only' | 'standard_and_budget' | 'budget_only';
+    label: string;
+  }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'standard_only', label: 'Standard label only' },
+    { value: 'standard_and_budget', label: 'Standard and budget labels' },
+    { value: 'budget_only', label: 'Budget label only' },
+  ];
+
   readonly sortByOptions = [
     { value: 'default', label: 'Default' },
     { value: 'retail_asc', label: 'Lowest Retail Price' },
@@ -1973,6 +2055,12 @@ export class CollectionFiltersComponent {
   getPhysicalVerifiedLabel(): string {
     const val = this.filters().physical_verified ?? 'all';
     const opt = this.physicalVerifiedOptions.find((o) => o.value === val);
+    return opt ? opt.label : 'All';
+  }
+
+  getBudgetLabelStatusLabel(): string {
+    const val = this.filters().budget_label ?? 'all';
+    const opt = this.budgetLabelOptions.find((o) => o.value === val);
     return opt ? opt.label : 'All';
   }
 

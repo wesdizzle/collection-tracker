@@ -225,6 +225,11 @@ export interface FilterState {
   backup_status?: 'all' | 0 | 1;
   physical_verified?: 'all' | 0 | 1;
   media_type?: 'physical_only' | 'all' | 'digital_extracted';
+  budget_label?:
+    | 'all'
+    | 'standard_only'
+    | 'standard_and_budget'
+    | 'budget_only';
   platform_id?: number;
   regions?: string[];
   is_linked?: boolean;

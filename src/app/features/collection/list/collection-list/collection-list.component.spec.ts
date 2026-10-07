@@ -1552,4 +1552,87 @@ describe('CollectionListComponent', () => {
     expect(optionalBadges.length).toBe(1);
     expect(optionalBadges[0].textContent.trim()).toBe("± Player's Choice");
   });
+
+  it('should filter releases by budget label status (standard_only, standard_and_budget, budget_only)', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 101,
+        id: 'game-standard-only',
+        title: 'Niche Game (Standard Only)',
+        platform: 'Nintendo GameCube',
+        platform_id: 10,
+        region: 'USA',
+        variants: null,
+        also_released_as: null,
+        ownership_status: 1,
+      },
+      {
+        stable_id: 102,
+        id: 'game-both-std',
+        title: 'Hit Game (Standard Release)',
+        platform: 'Nintendo GameCube',
+        platform_id: 10,
+        region: 'USA',
+        variants: null,
+        also_released_as: "Player's Choice",
+        ownership_status: 1,
+      },
+      {
+        stable_id: 102,
+        id: 'game-both-budget',
+        title: 'Hit Game (Player Choice Release)',
+        platform: 'Nintendo GameCube',
+        platform_id: 10,
+        region: 'USA',
+        variants: "Player's Choice",
+        also_released_as: null,
+        ownership_status: 1,
+      },
+      {
+        stable_id: 103,
+        id: 'game-budget-only',
+        title: 'Classic NES Series: Metroid',
+        platform: 'Game Boy Advance',
+        platform_id: 4,
+        region: 'USA',
+        variants: 'Classic NES Series',
+        also_released_as: null,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    // 1. All (no budget filter)
+    component.filters.set({ ownership: 'all', budget_label: 'all' });
+    expect(component.filteredGames().length).toBe(4);
+
+    // 2. Standard label only
+    component.filters.set({ ownership: 'all', budget_label: 'standard_only' });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-standard-only',
+    ]);
+
+    // 3. Standard and budget labels
+    component.filters.set({
+      ownership: 'all',
+      budget_label: 'standard_and_budget',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-both-budget',
+      'game-both-std',
+    ]);
+
+    // 4. Budget label only
+    component.filters.set({ ownership: 'all', budget_label: 'budget_only' });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-budget-only',
+    ]);
+  });
 });
