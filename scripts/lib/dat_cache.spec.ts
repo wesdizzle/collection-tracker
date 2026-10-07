@@ -144,6 +144,69 @@ describe('DAT Cache', () => {
       expect(isIgnoredFormatRelease('Game', 'game.zip', 33)).toBe(false);
       expect(isIgnoredFormatRelease('Game', 'game.7z', 33)).toBe(false);
     });
+
+    it('should ignore extracted compilation ROMs and digital-only releases', () => {
+      // Super Mario Sunshine extracted from Switch compilation
+      expect(
+        isIgnoredFormatRelease(
+          'Super Mario Sunshine (World)',
+          'Super Mario Sunshine (World) (En,Ja,Fr,De,Es,It) (Super Mario 3D All-Stars).iso',
+          20,
+        ),
+      ).toBe(true);
+
+      // Animal Crossing NES minigame extracts
+      expect(
+        isIgnoredFormatRelease(
+          'Baseball (USA, Europe)',
+          'Baseball (USA, Europe) (Animal Crossing).nes',
+          13,
+        ),
+      ).toBe(true);
+
+      // GameCube compilation extracts on N64
+      expect(
+        isIgnoredFormatRelease(
+          'Legend of Zelda, The - Ocarina of Time (USA)',
+          'Legend of Zelda, The - Ocarina of Time (USA) (GameCube).z64',
+          17,
+        ),
+      ).toBe(true);
+
+      // Zelda Collection extract on NES
+      expect(
+        isIgnoredFormatRelease(
+          'Zelda II - The Adventure of Link (USA)',
+          'Zelda II - The Adventure of Link (USA) (Zelda Collection).nes',
+          13,
+        ),
+      ).toBe(true);
+
+      // Digital-only release tag
+      expect(
+        isIgnoredFormatRelease(
+          "Wonder Boy III - The Dragon's Trap (World)",
+          "Wonder Boy III - The Dragon's Trap (World) (Digital).sms",
+          36,
+        ),
+      ).toBe(true);
+
+      // Preserves authentic physical releases
+      expect(
+        isIgnoredFormatRelease(
+          'Super Mario Sunshine (USA, Canada)',
+          'Super Mario Sunshine (USA, Canada).iso',
+          20,
+        ),
+      ).toBe(false);
+      expect(
+        isIgnoredFormatRelease(
+          'Super Mario 3D All-Stars (World)',
+          'Super Mario 3D All-Stars (World) (Rev 1.0.0).xci',
+          26,
+        ),
+      ).toBe(false);
+    });
   });
 
   describe('getPlatformDatReleases', () => {

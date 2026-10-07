@@ -559,21 +559,30 @@ export function isIgnoredFormatRelease(
     for (const rawParen of parentheticals) {
       const inner = rawParen.slice(1, -1).trim();
       if (
-        /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|namco museum archives|capcom town|famicombox|pokemon box|ds broadcast|manual)\b/i.test(
+        /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|namco museum archives|capcom town|famicombox|pokemon box|ds broadcast|manual|super mario 3d all-stars|digital)\b/i.test(
           inner,
         ) ||
         inner.includes('game & watch') ||
         /\b(?:anniversary|legacy|advance|marvel maximum|disney afternoon|namcot|metal gear solid|kirby's dream|sonic classic|sonic mega|seiken densetsu|20 shuunen special|super mario|zelda|bomberman)\s+collection\b/i.test(
           inner,
         ) ||
-        /\bcollection\s+of\s+(?:mana|saga)\b/i.test(inner)
+        /\bcollection\s+of\s+(?:mana|saga)\b/i.test(inner) ||
+        /\bzelda\s+collector'?s?\s+edition\b/i.test(inner)
       ) {
         return true;
       }
       if (
         platformId !== undefined &&
         platformId !== 20 &&
-        /\b(?:gamecube(?:\s+edition)?|animal crossing)\b/i.test(inner)
+        /\b(?:gamecube(?:\s+edition)?|animal crossing|animal forest)\b/i.test(
+          inner,
+        )
+      ) {
+        return true;
+      }
+      if (
+        platformId === undefined &&
+        /\b(?:animal crossing|animal forest)\b/i.test(inner)
       ) {
         return true;
       }
