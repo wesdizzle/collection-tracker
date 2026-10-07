@@ -112,7 +112,16 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
               } @else if (g.rom_name) {
                 <div class="stat-pill active physical-release">
                   <span class="icon">📦</span>
-                  <span>Physical Release Verified</span>
+                  <span>Catalog Signature Matched</span>
+                </div>
+              } @else if (
+                g.physical_status !== 'digital_only' &&
+                g.release_medium !== 'digital_native' &&
+                g.release_medium !== 'unreleased_prototype'
+              ) {
+                <div class="stat-pill physical-release">
+                  <span class="icon">📦</span>
+                  <span>Physical Retail Release (Modern Platform)</span>
                 </div>
               }
             </div>

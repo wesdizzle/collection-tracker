@@ -112,89 +112,6 @@ export const SPECIAL_LABEL_EXCLUSIVES: SpecialLabelProvenanceRule[] = [
       'http://redump.org/',
     ],
   },
-  {
-    normalizedTitle: 'pikmin2',
-    platformIds: [22],
-    label: 'New Play Control!',
-    regions: ['europe', 'australia', 'japan'],
-    releaseDate: '2009-03-12',
-    serialOrRevision: 'RVL-R2WJ-JPN / RVL-R2WP-EUR',
-    rationale:
-      'Released on Wii in Japan, Europe, and Australia under the New Play Control! (Asobi Kataensaku) widescreen/pointer-control port line.',
-    sources: [
-      'https://www.mariowiki.com/Pikmin_2_(New_Play_Control!)',
-      'https://en.wikipedia.org/wiki/New_Play_Control!',
-    ],
-  },
-  {
-    normalizedTitle: 'pikmin',
-    platformIds: [22],
-    label: 'New Play Control!',
-    regions: ['usa', 'europe', 'australia', 'japan', 'korea'],
-    releaseDate: '2008-12-25',
-    serialOrRevision: 'RVL-R9IE-USA / RVL-R9IP-EUR / RVL-R9IJ-JPN',
-    rationale:
-      'Wii port of the GameCube original released exclusively under the New Play Control! line.',
-    sources: ['https://en.wikipedia.org/wiki/New_Play_Control!'],
-  },
-  {
-    normalizedTitle: 'mariopowertennis',
-    platformIds: [22],
-    label: 'New Play Control!',
-    regions: ['usa', 'europe', 'australia', 'japan'],
-    releaseDate: '2009-03-09',
-    serialOrRevision: 'RVL-RMAJ-JPN / RVL-RMAE-USA / RVL-RMAP-EUR',
-    rationale:
-      'Wii port of Mario Power Tennis launched under the New Play Control! banner in 2009 (and later reprinted as Nintendo Selects in 2012).',
-    sources: [
-      'https://www.mariowiki.com/New_Play_Control!_Mario_Power_Tennis',
-      'https://en.wikipedia.org/wiki/New_Play_Control!',
-    ],
-  },
-  {
-    normalizedTitle: 'donkeykongjunglebeat',
-    platformIds: [22],
-    label: 'New Play Control!',
-    regions: ['usa', 'europe', 'australia', 'japan'],
-    releaseDate: '2008-12-11',
-    serialOrRevision: 'RVL-R49J-JPN / RVL-R49E-USA / RVL-R49P-EUR',
-    rationale:
-      'Wii port of Donkey Kong Jungle Beat released exclusively under the New Play Control! banner.',
-    sources: ['https://en.wikipedia.org/wiki/New_Play_Control!'],
-  },
-  {
-    normalizedTitle: 'chibirobo',
-    platformIds: [22],
-    label: 'New Play Control!',
-    regions: ['japan'],
-    releaseDate: '2009-06-11',
-    serialOrRevision: 'RVL-R24J-JPN',
-    rationale:
-      'Wii port of Chibi-Robo! released exclusively in Japan under the New Play Control! (Asobi Kataensaku) line.',
-    sources: ['https://en.wikipedia.org/wiki/New_Play_Control!'],
-  },
-  {
-    normalizedTitle: 'metroidprime',
-    platformIds: [22],
-    label: 'New Play Control!',
-    regions: ['japan'],
-    releaseDate: '2009-02-19',
-    serialOrRevision: 'RVL-R3IJ-JPN',
-    rationale:
-      'Standalone Wii port of Metroid Prime released in Japan under the New Play Control! line.',
-    sources: ['https://en.wikipedia.org/wiki/New_Play_Control!'],
-  },
-  {
-    normalizedTitle: 'metroidprime2darkechoes',
-    platformIds: [22],
-    label: 'New Play Control!',
-    regions: ['japan'],
-    releaseDate: '2009-06-11',
-    serialOrRevision: 'RVL-R32J-JPN',
-    rationale:
-      'Standalone Wii port of Metroid Prime 2 released in Japan under the New Play Control! line.',
-    sources: ['https://en.wikipedia.org/wiki/New_Play_Control!'],
-  },
 
   // ---------------------------------------------------------------------------
   // Original Xbox: Platinum Hits & Xbox Classics (Platform 47)
@@ -963,7 +880,62 @@ export const BOX_SET_DISC_LABELS: Record<string, string> = {
 
   // Crash Bandicoot Action Pack (PS2)
   'crash twinsanity (usa) (v2.00)': 'Disc 2 — Crash Twinsanity (v2.00)',
+
+  // Retail Pack-In Bonus Discs
+  'mega man legends 2 (usa) (demo)': 'Bonus Disc — Mega Man Legends 2 Demo',
 };
+
+export interface RetailPackInDiscSpec {
+  /** Lowercase regex pattern matching the raw Redump/No-Intro ROM name (without extension) */
+  romPattern: RegExp;
+  /** Normalized title of the host retail game (lowercase alphanumeric) */
+  hostGameNormTitle: string;
+  /** Display title of the host retail game */
+  hostGameDisplayTitle: string;
+  /** Host game platform ID (e.g. 29 = PlayStation) */
+  hostPlatformId: number;
+  /** Explicit disc label in the host release */
+  discLabel: string;
+  /** Standalone companion game slug for cross-linking */
+  companionGameSlug: string;
+  /** Standalone companion game display title */
+  companionGameTitle: string;
+  /** Retail packaging provenance note */
+  rationale: string;
+}
+
+export const RETAIL_PACKIN_DISCS: RetailPackInDiscSpec[] = [
+  {
+    romPattern: /^mega man legends 2.*\(demo\)/i,
+    hostGameNormTitle: 'themisadventuresoftronbonne',
+    hostGameDisplayTitle: 'The Misadventures of Tron Bonne',
+    hostPlatformId: 29, // PlayStation
+    discLabel: 'Bonus Disc — Mega Man Legends 2 Demo',
+    companionGameSlug: 'mega-man-legends-2-playstation',
+    companionGameTitle: 'Mega Man Legends 2',
+    rationale:
+      'Included as a physical bonus demo CD-ROM inside the North American retail jewel case of The Misadventures of Tron Bonne (SLUS-90087).',
+  },
+];
+
+/**
+ * Checks whether a ROM filename corresponds to a recognized commercial retail pack-in disc.
+ */
+export function findRetailPackInDisc(
+  romName: string | null | undefined,
+): RetailPackInDiscSpec | null {
+  if (!romName) return null;
+  const clean = romName
+    .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
+    .trim()
+    .toLowerCase();
+  for (const spec of RETAIL_PACKIN_DISCS) {
+    if (spec.romPattern.test(clean)) {
+      return spec;
+    }
+  }
+  return null;
+}
 
 export interface BoxSetCompanionSpec {
   /** Human-readable disc label in the box set (e.g. 'Disc 2 — Killzone 3') */
@@ -1472,18 +1444,6 @@ export function getCuratedReleaseTags(
     rawLower.startsWith('tu_')
   ) {
     return tags;
-  }
-
-  // 1. Title-embedded special labels (hyphenated or prefix-based in Redump/No-Intro)
-  if (/-\s*essentials(?:\s+edition)?\b/i.test(rawName)) {
-    tags.push('Essentials');
-  }
-  if (/^classic nes series\s*-/i.test(rawName)) {
-    tags.push('Classic NES Series');
-  } else if (/^nes classics\s*-/i.test(rawName)) {
-    tags.push('NES Classics');
-  } else if (/^famicom mini\b/i.test(rawName)) {
-    tags.push('Famicom Mini');
   }
 
   const normTitle = normalizeForLabelMatch(rawName);

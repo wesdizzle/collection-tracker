@@ -20,6 +20,22 @@ A collection tracking application built with **Angular 21**.
 
 ## 🛠️ Architecture & Technical Standards
 
+### Collection Data Model: Games, Releases, and Media
+
+The system operates across three conceptual tiers to cleanly separate intellectual property, retail commercial packaging, and physical media:
+
+1. **Game (`games` table)**:
+   - Represents the intellectual property and game title on a specific platform (e.g., _The Misadventures of Tron Bonne_ on PlayStation, _Mega Man Legends 2_ on PlayStation).
+   - Serves as the parent grouping for all regional releases, series classifications, genres, and pricing.
+2. **Release (Conceptual Commercial SKU / Product Unit)**:
+   - Represents the physical commercial edition or boxed product published for retail sale in a territory (e.g., North American 2-Disc Retail Edition, European Greatest Hits Reissue).
+   - In the frontend UI, the **Collection List displays one card per Release**. Multi-disc sets and bonus pack-in discs are unified under their primary Release card.
+3. **Media (`game_releases` table)**:
+   - Represents an individual physical disc, cartridge, or ROM image inside the retail box.
+   - For a standard 1-disc game, 1 Release = 1 Media row in `game_releases`.
+   - For a multi-disc game (e.g., _Final Fantasy VII_) or a retail product containing a pack-in bonus demo disc (e.g., _The Misadventures of Tron Bonne_ containing the _Mega Man Legends 2 Demo_), 1 Release = multiple Media rows in `game_releases` sharing the same `game_id`.
+   - In the frontend UI, all Media rows belonging to an edition are displayed on the **Item Detail View** under the **"Physical Discs / ROMs"** section.
+
 ### Visual System
 
 The application features a **Material 3 Expressive** interface, prioritizing emotional vibrancy, organic motion, and bold brand expression:

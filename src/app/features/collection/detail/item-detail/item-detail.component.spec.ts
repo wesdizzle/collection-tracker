@@ -184,7 +184,7 @@ describe('ItemDetailComponent', () => {
     // Check for Physical Release Verified pill
     const romPill = compiled.querySelector('.stat-pill.physical-release');
     expect(romPill).toBeTruthy();
-    expect(romPill.textContent).toContain('Physical Release Verified');
+    expect(romPill.textContent).toContain('Catalog Signature Matched');
 
     // Check for ROM filename in the discs list
     const discsSection = compiled.querySelector('.discs-section');

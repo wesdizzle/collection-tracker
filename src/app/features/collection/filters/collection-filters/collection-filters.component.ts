@@ -339,10 +339,10 @@ import {
             </div>
           </div>
 
-          <!-- Physical Verified -->
+          <!-- Catalog Signature Match -->
           <div class="filter-group">
             <div class="filter-group-header">
-              <label class="m3-label">Physical Verified</label>
+              <label class="m3-label">Catalog Signature Match</label>
             </div>
             <div
               class="input-wrapper dropdown-wrapper"
@@ -1859,8 +1859,8 @@ export class CollectionFiltersComponent {
   readonly physicalVerifiedOptions: { value: 'all' | 1 | 0; label: string }[] =
     [
       { value: 'all', label: 'All' },
-      { value: 1, label: 'Verified' },
-      { value: 0, label: 'Unverified' },
+      { value: 1, label: 'Matched in Redump/No-Intro' },
+      { value: 0, label: 'Unmatched / Modern Platform' },
     ];
 
   readonly budgetLabelOptions: {

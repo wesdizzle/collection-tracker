@@ -119,6 +119,10 @@ export interface Game {
   bundle_count?: number;
   verification_tier?: number;
   barcode?: string | null;
+  disc_label?: string | null;
+  companion_game_id?: string;
+  companion_game_title?: string;
+  is_companion_base_disc?: boolean;
   releases?: GameRelease[];
   bundled_games?: BundledGame[];
   shared_backup_releases?: SharedBackupReleaseLink[];

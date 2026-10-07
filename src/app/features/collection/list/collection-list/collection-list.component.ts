@@ -233,7 +233,7 @@ interface GameGroup {
                           ) {
                             <span
                               class="physical-release-badge"
-                              title="Physical Release Verified (No-Intro/Redump)"
+                              title="Catalog Signature Matched (No-Intro/Redump)"
                               >📦</span
                             >
                           } @else if (
@@ -1282,18 +1282,11 @@ export class CollectionListComponent
     ) {
       return 'Xbox Classics';
     }
-    if (/^Essentials$/i.test(t) || /Classics HD:\s*Essentials/i.test(t)) {
-      return 'Essentials';
-    }
-    if (/^New Play Control!$/i.test(t)) {
-      return 'New Play Control!';
-    }
     if (
-      /^Classic NES Series$/i.test(t) ||
-      /^NES Classics$/i.test(t) ||
-      /^Famicom Mini$/i.test(t)
+      /^(?:PSP\s+|PS3\s+|PlayStation\s+)?Essentials$/i.test(t) ||
+      /Classics HD:\s*Essentials/i.test(t)
     ) {
-      return t;
+      return 'Essentials';
     }
     if (/^Favorites$/i.test(t)) return 'Favorites';
     if (/^Sega All Stars$/i.test(t)) return 'Sega All Stars';
@@ -1341,26 +1334,6 @@ export class CollectionListComponent
   public filteredGames = computed(() => {
     const allGames = this.collectionService.games();
     const f = this.filters();
-
-    // Pre-calculate game-level budget label status across all releases in collection
-    const getGameKey = (g: Game) => g.stable_id || g.game_id || g.id;
-    const gameHasStandardSet = new Set<string | number>();
-    const gameHasBudgetSet = new Set<string | number>();
-
-    for (const g of allGames) {
-      const key = getGameKey(g);
-      const hasBudgetVar = (g.variants || '')
-        .split(',')
-        .some((v) => this.isBudgetLabel(v.trim()));
-      const hasBudgetAlso = this.getOptionalBudgetLabels(g).length > 0;
-
-      if (!hasBudgetVar) {
-        gameHasStandardSet.add(key);
-      }
-      if (hasBudgetVar || hasBudgetAlso) {
-        gameHasBudgetSet.add(key);
-      }
-    }
 
     // Group multiple discs of the same release version (game_id, region, variants, and base rom name)
     const groupedMap = new Map<
@@ -1559,18 +1532,36 @@ export class CollectionListComponent
           if (f.physical_verified !== isVerified) return false;
         }
 
-        // Budget Label Status Filter
-        if (f.budget_label && f.budget_label !== 'all') {
-          const key = getGameKey(g);
-          const isStandardGame = gameHasStandardSet.has(key);
-          const isBudgetGame = gameHasBudgetSet.has(key);
+        // Pre-release Guard: hide betas, protos, demos, and kiosk samplers unless it is an owned pack-in companion bonus disc
+        const isPreRelease =
+          /\b(beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
+            g.rom_name || '',
+          ) ||
+          /\b(beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
+            g.variants || '',
+          );
+        if (
+          isPreRelease &&
+          !g.companion_game_id &&
+          !g.is_companion_base_disc &&
+          !g.ownership_status
+        ) {
+          return false;
+        }
 
-          if (f.budget_label === 'budget_only') {
-            if (isStandardGame || !isBudgetGame) return false;
-          } else if (f.budget_label === 'standard_and_budget') {
-            if (!isStandardGame || !isBudgetGame) return false;
+        // Budget Label Status Filter (Strict Release-Level Semantics)
+        if (f.budget_label && f.budget_label !== 'all') {
+          const hasOptionalBudget = this.getOptionalBudgetLabels(g).length > 0;
+          const hasExclusiveBudget = (g.variants || '')
+            .split(',')
+            .some((v) => this.isBudgetLabel(v.trim()));
+
+          if (f.budget_label === 'standard_and_budget') {
+            if (!hasOptionalBudget) return false;
+          } else if (f.budget_label === 'budget_only') {
+            if (!hasExclusiveBudget || hasOptionalBudget) return false;
           } else if (f.budget_label === 'standard_only') {
-            if (!isStandardGame || isBudgetGame) return false;
+            if (hasExclusiveBudget || hasOptionalBudget) return false;
           }
         }
 

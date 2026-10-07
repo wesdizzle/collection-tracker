@@ -18,7 +18,9 @@ import {
   BOX_SET_ROM_GROUPING_MAP,
   BoxSetCompanionSpec,
   CANONICAL_VOUCHER_BUNDLES,
+  RETAIL_PACKIN_DISCS,
   SUPERSEDED_RELEASE_PAIRS,
+  findRetailPackInDisc,
   normalizeForLabelMatch,
 } from './special_labels.js';
 
@@ -658,15 +660,22 @@ export function enrichGameDetailWithCompanionsAndVouchers(
 ): void {
   if (!game || !game.releases) return;
 
-  // 1. Attach human-readable disc_label to each release row
+  // 1. Attach human-readable disc_label and companion links to each release row
   for (const rel of game.releases) {
     const rName = (rel['rom_name'] as string | null) || null;
     const rNameWithoutExt = (rName || '')
       .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
       .trim()
       .toLowerCase();
-    rel['disc_label'] =
-      BOX_SET_DISC_LABELS[rNameWithoutExt] || extractDiscLabel(rName);
+    const packIn = findRetailPackInDisc(rName || '');
+    if (packIn) {
+      rel['disc_label'] = packIn.discLabel;
+      rel['companion_game_id'] = packIn.companionGameSlug;
+      rel['companion_game_title'] = packIn.companionGameTitle;
+    } else {
+      rel['disc_label'] =
+        BOX_SET_DISC_LABELS[rNameWithoutExt] || extractDiscLabel(rName);
+    }
   }
 
   const romLower = (game.rom_name || '').toLowerCase();
@@ -991,6 +1000,33 @@ export function enrichGameDetailWithCompanionsAndVouchers(
             rom_name: boxCand.rom_name,
             ownership_status: boxCand.ownership_status,
             backup_status: boxCand.backup_status,
+          });
+        }
+      }
+    }
+  }
+
+  // 5b. Check if this standalone game has companion pack-in media included in another host release
+  for (const packIn of RETAIL_PACKIN_DISCS) {
+    if (packIn.hostPlatformId !== game.platform_id) continue;
+    const isStandaloneMatch =
+      game.id === packIn.companionGameSlug ||
+      normGameTitle === normalizeForLabelMatch(packIn.companionGameTitle);
+    if (!isStandaloneMatch) continue;
+
+    for (const cand of platformReleases) {
+      if (
+        normalizeForLabelMatch(cand.game_title) === packIn.hostGameNormTitle
+      ) {
+        if (!sharedLinks.some((s) => s.id === cand.id)) {
+          sharedLinks.push({
+            id: cand.id,
+            title: `${packIn.hostGameDisplayTitle} (${packIn.discLabel})`,
+            region: cand.region,
+            variants: cand.variants,
+            rom_name: cand.rom_name,
+            ownership_status: cand.ownership_status,
+            backup_status: cand.backup_status,
           });
         }
       }

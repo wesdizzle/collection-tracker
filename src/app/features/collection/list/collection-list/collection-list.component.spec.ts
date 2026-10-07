@@ -901,7 +901,7 @@ describe('CollectionListComponent', () => {
     );
     expect(physicalReleaseBadge).toBeTruthy();
     expect(physicalReleaseBadge.getAttribute('title')).toContain(
-      'Physical Release Verified',
+      'Catalog Signature Matched',
     );
   });
 
@@ -1039,6 +1039,8 @@ describe('CollectionListComponent', () => {
         release_date: '1998-09-03',
         ownership_status: 1,
         variants: 'Demo',
+        is_companion_base_disc: true,
+        companion_game_id: 'g-main',
         platform_launch_date: '1995-01-01',
         brand: 'Sony',
       },
@@ -1613,26 +1615,26 @@ describe('CollectionListComponent', () => {
     component.filters.set({ ownership: 'all', budget_label: 'all' });
     expect(component.filteredGames().length).toBe(4);
 
-    // 2. Standard label only
+    // 2. Standard label only (includes standard-only and non-budget thematic lines like Classic NES Series)
     component.filters.set({ ownership: 'all', budget_label: 'standard_only' });
     expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-budget-only',
       'game-standard-only',
     ]);
 
-    // 3. Standard and budget labels
+    // 3. Standard and budget labels (strictly releases with identical disc sold with both labels, having ± tag)
     component.filters.set({
       ownership: 'all',
       budget_label: 'standard_and_budget',
     });
     expect(component.filteredGames().map((g) => g.id)).toEqual([
-      'game-both-budget',
       'game-both-std',
     ]);
 
-    // 4. Budget label only
+    // 4. Budget label only (strictly budget-exclusive pressings)
     component.filters.set({ ownership: 'all', budget_label: 'budget_only' });
     expect(component.filteredGames().map((g) => g.id)).toEqual([
-      'game-budget-only',
+      'game-both-budget',
     ]);
   });
 });

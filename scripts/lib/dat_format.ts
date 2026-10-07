@@ -9,6 +9,7 @@
 
 import {
   BOX_SET_DISC_LABELS,
+  findRetailPackInDisc,
   getCuratedReleaseTags,
 } from './special_labels.js';
 
@@ -305,7 +306,7 @@ export function isTrueEditionOrRevisionVariant(content: string): boolean {
 
   // 3. Recognized retail editions, budget lines, hardware enhancements, or compilations
   if (
-    /\b(?:limited edition|collector'?s edition|special edition|deluxe|gold edition|day one edition|complete edition|game of the year|goty|greatest hits|platinum|playstation.*the best|rockstar classics|classic|essentials|nintendo selects|player'?s choice|new play control|shindou|genteiban|shokai|tokubetsu|premium|bundle|walmart|gamestop|best buy|target|amazon|edc|sgb|gb compatible|ndsi|virtual console|switch online|lodgenet|sega channel|e-reader|retro-bit|iam8bit|limited run|rerel|reprint)\b/i.test(
+    /\b(?:limited edition|collector'?s edition|special edition|deluxe|gold edition|day one edition|complete edition|game of the year|goty|greatest hits|platinum|playstation.*the best|rockstar classics|classic|nintendo selects|player'?s choice|shindou|genteiban|shokai|tokubetsu|premium|bundle|walmart|gamestop|best buy|target|amazon|edc|sgb|gb compatible|ndsi|virtual console|switch online|lodgenet|sega channel|e-reader|retro-bit|iam8bit|limited run|rerel|reprint)\b/i.test(
       lower,
     )
   ) {
@@ -520,6 +521,11 @@ export function isIgnoredFormatRelease(
   romName: string,
   platformId?: number,
 ): boolean {
+  // Retail pack-in bonus discs (e.g. Mega Man Legends 2 Demo inside Tron Bonne) are legitimate commercial media
+  if (findRetailPackInDisc(romName)) {
+    return false;
+  }
+
   const romLower = romName.toLowerCase();
   const relLower = releaseName.toLowerCase();
   const lastDot = romLower.lastIndexOf('.');
@@ -558,6 +564,14 @@ export function isIgnoredFormatRelease(
   if (parentheticals) {
     for (const rawParen of parentheticals) {
       const inner = rawParen.slice(1, -1).trim();
+      // Ignore unreleased prototypes, development betas, kiosk demos, and samples
+      if (
+        /\b(?:beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
+          inner,
+        )
+      ) {
+        return true;
+      }
       if (
         /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|namco museum archives|capcom town|famicombox|pokemon box|ds broadcast|manual|super mario 3d all-stars|digital)\b/i.test(
           inner,

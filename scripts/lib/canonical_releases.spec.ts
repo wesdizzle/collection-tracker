@@ -17,6 +17,7 @@ import {
   extractRegions,
   extractVariants,
   extractDiscLabel,
+  isIgnoredFormatRelease,
 } from './dat_format.js';
 import {
   getRomGroupingKey,
@@ -439,18 +440,17 @@ describe('Canonical Releases & Physical Verification Engine', () => {
 
   describe('Special Label Exclusives, Superseded Releases, and Multi-Disc Normalization', () => {
     it('should tag budget-label-exclusive releases with their specific label and line', () => {
-      // Pikmin 2 (USA, Wii) was exclusively released as a Nintendo Selects title in NA, while EU/AU/JP released under New Play Control!
+      // Pikmin 2 (USA, Wii) was exclusively released as a Nintendo Selects title in NA
       expect(extractVariants('Pikmin 2 (USA) (En,Fr,Es).rvz', 22)).toBe(
         'Nintendo Selects',
       );
+      // New Play Control! ports are not budget labels
       expect(
         extractVariants('Pikmin 2 (Europe) (En,Fr,De,Es,It).rvz', 22),
-      ).toBe('New Play Control!');
-
-      // Mario Power Tennis (USA, Wii): launched under the New Play Control! line
+      ).toBeNull();
       expect(
         extractVariants('Mario Power Tennis (USA) (En,Fr,Es).rvz', 22),
-      ).toBe('New Play Control!');
+      ).toBeNull();
 
       // Jet Moto 2 (USA, PS1): Rev 0 was standard black label, Rev 1 (Championship Edition) was Greatest Hits exclusive
       expect(extractVariants('Jet Moto 2 (USA).bin', 29)).toBeNull();
@@ -466,13 +466,36 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         ),
       ).toBe('v2.01, Greatest Hits');
 
-      // Classic NES Series (GBA)
+      // Classic NES Series is a game series title prefix, not a budget label
       expect(
         extractVariants(
           'Classic NES Series - Super Mario Bros. (USA, Europe).gba',
           21,
         ),
-      ).toBe('Classic NES Series');
+      ).toBeNull();
+    });
+
+    it('should preserve retail pack-in demo discs while ignoring unreleased prototypes and standalone demos', () => {
+      // Mega Man Legends 2 Demo bundled inside The Misadventures of Tron Bonne retail jewel case
+      expect(
+        isIgnoredFormatRelease(
+          'Mega Man Legends 2',
+          'Mega Man Legends 2 (USA) (Demo).cue',
+          29,
+        ),
+      ).toBe(false);
+
+      // Unreleased development beta / prototype dumps are ignored
+      expect(
+        isIgnoredFormatRelease(
+          'The Misadventures of Tron Bonne',
+          'Misadventures of Tron Bonne, The (USA) (Beta) (1999-11-05).bin',
+          29,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease('SimCopter', 'SimCopter (USA) (Proto).z64', 17),
+      ).toBe(true);
     });
 
     it('should tag original 1-disc releases reused as Disc 1 in later 2-disc GOTY releases as Superseded', () => {
