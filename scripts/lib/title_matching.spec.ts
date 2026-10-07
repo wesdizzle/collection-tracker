@@ -46,6 +46,9 @@ describe('Title Normalization', () => {
         'The Legend of Zelda: Ocarina of Time + The Legend of Zelda: Ocarina of Time - Master Quest: Two-game Bonus Disc!',
       ),
     ).toBe('legendzeldaocarinatimemasterquest');
+    expect(normalizeTitleForMatching('Fire Emblem - Three Hopes')).toBe(
+      'fireemblemwarriorsthreehopes',
+    );
   });
 });
 
@@ -144,6 +147,17 @@ describe('Title Matching Strategies', () => {
   });
 
   it('should prevent edition games from matching base releases without that edition', () => {
+    // Three Hopes vs Warriors
+    expect(
+      titlesMatch('Fire Emblem Warriors: Three Hopes', 'Fire Emblem Warriors'),
+    ).toBe(false);
+    expect(
+      titlesMatch(
+        'Fire Emblem Warriors: Three Hopes',
+        'Fire Emblem - Three Hopes',
+      ),
+    ).toBe(true);
+
     // LittleBigPlanet 2
     expect(
       titlesMatch('LittleBigPlanet 2: Special Edition', 'LittleBigPlanet 2'),

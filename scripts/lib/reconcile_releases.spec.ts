@@ -179,5 +179,61 @@ describe('reconcile_releases', () => {
       expect(notUpdated.canonical_release_id).toBeNull();
       expect(notUpdated.rom_name).toBeNull();
     });
+
+    it('should strictly reject matching base title when subtitle indicates a sequel or distinct game', () => {
+      db.exec(`
+        INSERT INTO games (stable_id, title, platform_id) VALUES (1571, 'Fire Emblem Warriors: Three Hopes', 26);
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
+        VALUES ('1571-default', 1571, 'USA', NULL, NULL, NULL, NULL);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
+        VALUES (999001, 26, 'Fire Emblem Warriors', 'fireemblemwarriors', 'World', NULL, 'Fire Emblem Warriors (World).xci', '1f09fa41', 'dat');
+      `);
+
+      reconcileGameReleasesWithCanonical(db, {
+        dryRun: false,
+        platformId: 26,
+      });
+
+      const threeHopes = db
+        .prepare(
+          'SELECT canonical_release_id, rom_name FROM game_releases WHERE id = ?',
+        )
+        .get('1571-default') as {
+        canonical_release_id: number | null;
+        rom_name: string | null;
+      };
+
+      expect(threeHopes.canonical_release_id).toBeNull();
+      expect(threeHopes.rom_name).toBeNull();
+    });
+
+    it('should match upstream catalog variants via canonical alias', () => {
+      db.exec(`
+        INSERT INTO games (stable_id, title, platform_id) VALUES (1572, 'Fire Emblem Warriors: Three Hopes', 26);
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
+        VALUES ('1572-default', 1572, 'USA', NULL, NULL, NULL, NULL);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
+        VALUES (999002, 26, 'Fire Emblem - Three Hopes', 'fireemblemwarriorsthreehopes', 'USA', NULL, 'Fire Emblem - Three Hopes (USA).xci', 'b1765d12', 'dat');
+      `);
+
+      reconcileGameReleasesWithCanonical(db, {
+        dryRun: false,
+        platformId: 26,
+      });
+
+      const threeHopes = db
+        .prepare(
+          'SELECT canonical_release_id, rom_name FROM game_releases WHERE id = ?',
+        )
+        .get('1572-default') as {
+        canonical_release_id: number | null;
+        rom_name: string | null;
+      };
+
+      expect(threeHopes.canonical_release_id).toBe(999002);
+      expect(threeHopes.rom_name).toBe('Fire Emblem - Three Hopes (USA).xci');
+    });
   });
 });

@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { getDatabase } from './db.js';
-import { normalizeTitleForMatching } from './title_matching.js';
+import { normalizeTitleForMatching, titlesMatch } from './title_matching.js';
 import { cleanTitleWithoutParentheticals } from './canonical_releases.js';
 
 export interface ReconcileOptions {
@@ -255,7 +255,12 @@ export function reconcileGameReleasesWithCanonical(
       // Strategy 4: Subtitle prefix splitting (e.g. Job Simulator: The 2050 Archives -> Job Simulator)
       if ((!cand || cand.length === 0) && rel.title.includes(':')) {
         const prefix = rel.title.split(':')[0].trim();
-        cand = map.get(normalizeTitleForMatching(prefix));
+        const rawCands = map.get(normalizeTitleForMatching(prefix));
+        if (rawCands && rawCands.length > 0) {
+          cand = rawCands.filter((c) =>
+            titlesMatch(rel.title, c.raw_title, c.raw_title, rel.platform_id),
+          );
+        }
       }
 
       return cand;

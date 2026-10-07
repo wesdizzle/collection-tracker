@@ -116,6 +116,7 @@ export function normalizeTitleForMatching(
       'xenosagaepisodeiijenseitsvongutundbose',
     littlebigplanetplaystationvita: 'littlebigplanetpsvita',
     homeuniquehorroradventure: 'home',
+    fireemblemthreehopes: 'fireemblemwarriorsthreehopes',
   };
 
   if (
