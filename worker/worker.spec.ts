@@ -34,6 +34,10 @@ describe('Worker API Logic', () => {
     storage: Map<string, string>;
     put: (key: string, data: string, options?: unknown) => Promise<unknown>;
     get: (key: string) => Promise<{ text: () => Promise<string> } | null>;
+    list: (options?: { prefix?: string }) => Promise<{
+      objects: { key: string; uploaded?: Date }[];
+    }>;
+    delete: (key: string) => Promise<void>;
   };
   let mockEnv: Env;
 
@@ -214,6 +218,19 @@ describe('Worker API Logic', () => {
         const item = storage.get(key);
         if (!item) return null;
         return { body: item, text: async () => item };
+      },
+      list: async (options?: { prefix?: string }) => {
+        const prefix = options?.prefix || '';
+        const objects: { key: string }[] = [];
+        for (const [key] of storage) {
+          if (key.startsWith(prefix)) {
+            objects.push({ key });
+          }
+        }
+        return { objects };
+      },
+      delete: async (key: string) => {
+        storage.delete(key);
       },
     };
 
@@ -412,6 +429,88 @@ describe('Worker API Logic', () => {
     expect(parsed.metadata.totalRows).toBe(result.rowCount);
     expect(parsed.tables.games.length).toBe(1);
     expect(parsed.tables.platforms.length).toBe(1);
+  });
+
+  it('performScheduledBackup prunes snapshots older than 30 days', async () => {
+    // Add an ancient snapshot (timestamp in 2020)
+    const oldKey = 'snapshots/backup-2020-01-01-1577836800000.json';
+    mockBucket.storage.set(oldKey, JSON.stringify({ old: true }));
+
+    expect(mockBucket.storage.has(oldKey)).toBe(true);
+
+    await performScheduledBackup(mockEnv);
+
+    // Old snapshot should be pruned, while recent snapshot and latest.json exist
+    expect(mockBucket.storage.has(oldKey)).toBe(false);
+    expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
+  });
+
+  it('GET /api/games uses Edge Cache and mutation invalidates it', async () => {
+    const cachedMap = new Map<string, Response>();
+    const mockCache = {
+      match: vi.fn(async (req: RequestInfo | URL) => {
+        const key =
+          typeof req === 'string'
+            ? req
+            : req instanceof Request
+              ? req.url
+              : req.toString();
+        return cachedMap.get(key)?.clone() || undefined;
+      }),
+      put: vi.fn(async (req: RequestInfo | URL, res: Response) => {
+        const key =
+          typeof req === 'string'
+            ? req
+            : req instanceof Request
+              ? req.url
+              : req.toString();
+        cachedMap.set(key, res.clone());
+      }),
+      delete: vi.fn(async (req: RequestInfo | URL) => {
+        const key =
+          typeof req === 'string'
+            ? req
+            : req instanceof Request
+              ? req.url
+              : req.toString();
+        return cachedMap.delete(key);
+      }),
+    };
+
+    vi.stubGlobal('caches', { default: mockCache });
+
+    try {
+      // 1. Initial request populates edge cache
+      const req = new Request('http://example.com/api/games');
+      const res1 = await worker.fetch(req, mockEnv);
+      expect(res1.status).toBe(200);
+      expect(mockCache.put).toHaveBeenCalled();
+
+      // 2. Subsequent request matches cached response
+      const res2 = await worker.fetch(req, mockEnv);
+      expect(res2.status).toBe(200);
+      expect(mockCache.match).toHaveBeenCalled();
+
+      // 3. Mutation invalidates edge cache
+      const toggleReq = new Request(
+        'http://example.com/api/collection/toggle',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-key': 'test',
+          },
+          body: JSON.stringify({ id: 'mario', type: 'game', status: 1 }),
+        },
+      );
+      // Give mockEnv an admin key
+      const adminEnv = { ...mockEnv, ADMIN_KEY: 'test' };
+      const toggleRes = await worker.fetch(toggleReq, adminEnv);
+      expect(toggleRes.status).toBe(200);
+      expect(mockCache.delete).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('POST /api/discovery/add inserts game and releases transactionally', async () => {

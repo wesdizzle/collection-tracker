@@ -96,6 +96,45 @@ let cachedSeriesScanMetadata: {
   expiresAt: number;
 } | null = null;
 
+/**
+ * Safely accesses the Cloudflare Workers Edge Cache API (caches.default).
+ * Returns null if not running in an environment with the Cache API.
+ */
+export async function getEdgeCache(): Promise<Cache | null> {
+  if (typeof caches !== 'undefined') {
+    const cfCaches = caches as unknown as { default?: Cache };
+    if (cfCaches.default) {
+      return cfCaches.default;
+    }
+  }
+  return null;
+}
+
+/**
+ * Invalidates Cloudflare Edge Cache entries for public collection endpoints
+ * whenever a mutation occurs.
+ */
+export async function invalidateEdgeApiCache(originUrl: string): Promise<void> {
+  const edgeCache = await getEdgeCache();
+  if (!edgeCache) return;
+  try {
+    const origin = new URL(originUrl).origin;
+    const paths = ['/api/games', '/api/toys', '/api/platforms'];
+    for (const p of paths) {
+      await edgeCache.delete(new Request(`${origin}${p}`));
+      try {
+        await edgeCache.delete(new Request(`${origin}${p}`), {
+          ignoreSearch: true,
+        });
+      } catch {
+        // ignoreSearch may not be supported in all environments
+      }
+    }
+  } catch (err) {
+    console.warn('[invalidateEdgeApiCache] Failed to purge edge cache:', err);
+  }
+}
+
 export function invalidateSeriesScanCache() {
   cachedSeriesScanMetadata = null;
 }
@@ -362,6 +401,43 @@ export async function performScheduledBackup(
     `[WorkerBackup] Successfully saved daily snapshot ${snapshotKey} (${totalRows} rows)`,
   );
 
+  // 30-day rolling snapshot retention policy: purge snapshots older than 30 days
+  try {
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    if (typeof env.BACKUP_BUCKET.list === 'function') {
+      const listed = await env.BACKUP_BUCKET.list({
+        prefix: 'snapshots/backup-',
+      });
+      if (listed && Array.isArray(listed.objects)) {
+        let prunedCount = 0;
+        for (const obj of listed.objects) {
+          const uploadTime = obj.uploaded ? obj.uploaded.getTime() : null;
+          let isExpired = false;
+          if (uploadTime !== null) {
+            isExpired = uploadTime < thirtyDaysAgo;
+          } else {
+            const match = obj.key.match(/-(\d+)\.json$/);
+            if (match) {
+              const epoch = parseInt(match[1], 10);
+              isExpired = epoch < thirtyDaysAgo;
+            }
+          }
+          if (isExpired && typeof env.BACKUP_BUCKET.delete === 'function') {
+            await env.BACKUP_BUCKET.delete(obj.key);
+            prunedCount++;
+          }
+        }
+        if (prunedCount > 0) {
+          console.log(
+            `[WorkerBackup] Pruned ${prunedCount} snapshot(s) older than 30 days.`,
+          );
+        }
+      }
+    }
+  } catch (pruneErr) {
+    console.warn('[WorkerBackup] Failed to prune aged snapshots:', pruneErr);
+  }
+
   return { key: snapshotKey, rowCount: totalRows };
 }
 
@@ -432,6 +508,21 @@ Disallow: /
        * PUBLIC READ-ONLY API ENDPOINTS
        */
       const isAdmin = isAuthorizedAdmin(request, env);
+      const isPublicCacheable =
+        !isAdmin &&
+        request.method === 'GET' &&
+        (path === '/api/games' ||
+          path === '/api/toys' ||
+          path === '/api/platforms');
+
+      const edgeCache = await getEdgeCache();
+      if (isPublicCacheable && edgeCache) {
+        const cached = await edgeCache.match(request);
+        if (cached) {
+          return cached;
+        }
+      }
+
       const publicCacheHeaders = isAdmin
         ? {
             'Content-Type': 'application/json',
@@ -471,9 +562,13 @@ Disallow: /
         const { results } = await env.DB.prepare(query)
           .bind(...params)
           .all();
-        return new Response(JSON.stringify(results || []), {
+        const res = new Response(JSON.stringify(results || []), {
           headers: publicCacheHeaders,
         });
+        if (isPublicCacheable && edgeCache) {
+          await edgeCache.put(request, res.clone()).catch(() => {});
+        }
+        return res;
       }
 
       // Endpoint: GET /api/games/:id
@@ -597,9 +692,13 @@ Disallow: /
       else if (path === '/api/toys') {
         const query = TOYS_LIST_QUERY;
         const { results } = await env.DB.prepare(query).all();
-        return new Response(JSON.stringify(results || []), {
+        const res = new Response(JSON.stringify(results || []), {
           headers: publicCacheHeaders,
         });
+        if (isPublicCacheable && edgeCache) {
+          await edgeCache.put(request, res.clone()).catch(() => {});
+        }
+        return res;
       }
 
       // Endpoint: GET /api/toys/:id
@@ -617,9 +716,13 @@ Disallow: /
       else if (path === '/api/platforms') {
         const query = PLATFORMS_LIST_QUERY;
         const { results } = await env.DB.prepare(query).all();
-        return new Response(JSON.stringify(results || []), {
+        const res = new Response(JSON.stringify(results || []), {
           headers: platformsCacheHeaders,
         });
+        if (isPublicCacheable && edgeCache) {
+          await edgeCache.put(request, res.clone()).catch(() => {});
+        }
+        return res;
       }
 
       // Endpoint: GET /api/discovery/search
@@ -1961,6 +2064,7 @@ Disallow: /
             .run();
         }
 
+        await invalidateEdgeApiCache(request.url);
         return Response.json({ success: true });
       }
 
@@ -2016,6 +2120,7 @@ Disallow: /
             .run();
         }
 
+        await invalidateEdgeApiCache(request.url);
         return Response.json({ success: true });
       }
 
@@ -2219,6 +2324,7 @@ Disallow: /
         }
 
         invalidateSeriesScanCache();
+        await invalidateEdgeApiCache(request.url);
         return Response.json({ success: true, gameId: candidateGameId });
       }
 
@@ -2331,6 +2437,7 @@ Disallow: /
           )
           .run();
 
+        await invalidateEdgeApiCache(request.url);
         return Response.json({ success: true, id: candidateId });
       }
 
@@ -2344,6 +2451,7 @@ Disallow: /
         }
 
         const result = await syncWorkerRetailDeals(env);
+        await invalidateEdgeApiCache(request.url);
         return Response.json({ success: true, ...result });
       }
 
