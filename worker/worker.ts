@@ -455,7 +455,9 @@ Disallow: /
 
       // Endpoint: GET /api/games
       if (path === '/api/games') {
-        const platformId = url.searchParams.get('platform');
+        const platformId =
+          url.searchParams.get('platform') ||
+          url.searchParams.get('platform_id');
         const params: string[] = [];
         let query = GAMES_LIST_QUERY;
 

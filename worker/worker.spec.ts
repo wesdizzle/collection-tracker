@@ -238,6 +238,28 @@ describe('Worker API Logic', () => {
     expect(data[0].title).toBe('Super Mario Bros');
   });
 
+  it('GET /api/games supports platform and platform_id query filtering', async () => {
+    const req1 = new Request('http://localhost/api/games?platform=1');
+    const res1 = await worker.fetch(req1, mockEnv);
+    expect(res1.status).toBe(200);
+    const data1 = (await res1.json()) as { title: string }[];
+    expect(data1.length).toBe(1);
+    expect(data1[0].title).toBe('Super Mario Bros');
+
+    const req2 = new Request('http://localhost/api/games?platform_id=1');
+    const res2 = await worker.fetch(req2, mockEnv);
+    expect(res2.status).toBe(200);
+    const data2 = (await res2.json()) as { title: string }[];
+    expect(data2.length).toBe(1);
+    expect(data2[0].title).toBe('Super Mario Bros');
+
+    const reqEmpty = new Request('http://localhost/api/games?platform_id=999');
+    const resEmpty = await worker.fetch(reqEmpty, mockEnv);
+    expect(resEmpty.status).toBe(200);
+    const dataEmpty = (await resEmpty.json()) as { title: string }[];
+    expect(dataEmpty.length).toBe(0);
+  });
+
   it('GET /api/toys joins with series info', async () => {
     const req = new Request('http://localhost/api/toys');
     const res = await worker.fetch(req, mockEnv);

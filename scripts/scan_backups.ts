@@ -55,6 +55,7 @@ export interface ReleaseRow {
  * Valid game file extensions to verify base-name matching.
  */
 export const GAME_EXTENSIONS = new Set([
+  '.psv',
   '.rvz',
   '.gcm',
   '.iso',

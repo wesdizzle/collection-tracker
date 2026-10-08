@@ -218,6 +218,11 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       expect(GAME_EXTENSIONS.has('.xiso.iso')).toBe(true);
     });
 
+    it('should NOT ignore .psv PlayStation Vita cartridge dump files', () => {
+      expect(isIgnoredFile('Persona 4 Golden (USA).psv')).toBe(false);
+      expect(GAME_EXTENSIONS.has('.psv')).toBe(true);
+    });
+
     it('should ignore sidecars, save states, desktop files, and macOS junk', () => {
       expect(isIgnoredFile('desktop.ini')).toBe(true);
       expect(isIgnoredFile('.DS_Store')).toBe(true);

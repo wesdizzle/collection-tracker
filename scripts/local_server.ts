@@ -1530,7 +1530,9 @@ export const handleRequest =
 
       // GET /api/games
       else if (req.method === 'GET' && pathname === '/api/games') {
-        const platformId = url.searchParams.get('platform');
+        const platformId =
+          url.searchParams.get('platform') ||
+          url.searchParams.get('platform_id');
         const params: unknown[] = [];
         let query = GAMES_LIST_QUERY;
 
