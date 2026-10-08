@@ -1378,6 +1378,19 @@ export class CollectionListComponent
       }
     }
 
+    // Pre-index candidate games by platform_id to accelerate companion disc matching
+    const allGamesByPlatform = new Map<number, typeof allGames>();
+    for (const g of allGames) {
+      if (g.platform_id != null) {
+        let pList = allGamesByPlatform.get(g.platform_id);
+        if (!pList) {
+          pList = [];
+          allGamesByPlatform.set(g.platform_id, pList);
+        }
+        pList.push(g);
+      }
+    }
+
     const groupedGames = Array.from(groupedMap.values()).map((g) => {
       const discBackups = [...g.discBackups];
 
@@ -1409,8 +1422,10 @@ export class CollectionListComponent
               normTitle === pair.supersetNormalizedTitle) &&
             !pair.excludedRegions?.some((ex) => regTokens.includes(ex));
           if (isSupersetMatch) {
-            const companionCandidates = allGames.filter((cand) => {
-              if (cand.platform_id !== pair.platformId || cand.id === g.id) {
+            const platformCandidates =
+              allGamesByPlatform.get(pair.platformId) || [];
+            const companionCandidates = platformCandidates.filter((cand) => {
+              if (cand.id === g.id) {
                 return false;
               }
               const candRomLower = (cand.rom_name || '').toLowerCase();
@@ -1463,300 +1478,289 @@ export class CollectionListComponent
       };
     });
 
-    return groupedGames
-      .filter((g) => {
-        // Option A: Hide bundled child discs/games from top-level collection list
-        if (g.bundle_parent_id) {
-          return false;
-        }
+    const filteredGamesList = groupedGames.filter((g) => {
+      // Option A: Hide bundled child discs/games from top-level collection list
+      if (g.bundle_parent_id) {
+        return false;
+      }
 
-        // Media Type Filter (Defaults to Physical Only)
-        const mediaType = f.media_type || 'physical_only';
-        if (mediaType === 'physical_only') {
-          if (
-            g.physical_status === 'digital_extracted_rom' ||
-            g.physical_status === 'digital_only' ||
-            g.release_medium === 'digital_extracted_rom' ||
-            g.release_medium === 'digital_native' ||
-            g.release_medium === 'unreleased_prototype'
-          ) {
-            return false;
-          }
-        } else if (mediaType === 'digital_extracted') {
-          const isDigitalOrExtracted =
-            g.physical_status === 'digital_extracted_rom' ||
-            g.physical_status === 'digital_only' ||
-            g.release_medium === 'digital_extracted_rom' ||
-            g.release_medium === 'digital_native' ||
-            g.release_medium === 'unreleased_prototype';
-          if (!isDigitalOrExtracted) {
-            return false;
-          }
-        }
-
-        // Basic Ownership Filter
-        const status = g.ownership_status ?? 0;
-        if (f.ownership === 'seeking_or_unowned') {
-          const isSeekingOrUnowned =
-            status === OwnershipStatus.Seeking ||
-            status === OwnershipStatus.Unowned;
-          if (!isSeekingOrUnowned) return false;
-        } else if (f.ownership !== 'all' && f.ownership !== status) {
-          return false;
-        }
-
-        // Deals Only Filter
-        if (f.deals_only) {
-          const isOnSale = Boolean(g.retail_on_sale);
-          if (!isOnSale) return false;
-        }
-
-        // Play Status Filter
-        if (f.play_status !== undefined && f.play_status !== 'all') {
-          const pStatus = g.play_status ?? 0;
-          if (f.play_status !== pStatus) return false;
-        }
-
-        // Backup Status Filter
-        if (f.backup_status !== undefined && f.backup_status !== 'all') {
-          const bStatus = g.backup_status ? 1 : 0;
-          if (f.backup_status !== bStatus) return false;
-        }
-
-        // Physical Release Verified Filter
+      // Media Type Filter (Defaults to Physical Only)
+      const mediaType = f.media_type || 'physical_only';
+      if (mediaType === 'physical_only') {
         if (
-          f.physical_verified !== undefined &&
-          f.physical_verified !== 'all'
-        ) {
-          const isVerified = g.rom_name ? 1 : 0;
-          if (f.physical_verified !== isVerified) return false;
-        }
-
-        // Pre-release Guard: hide betas, protos, demos, and kiosk samplers unless it is an owned pack-in companion bonus disc
-        const isPreRelease =
-          /\b(beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
-            g.rom_name || '',
-          ) ||
-          /\b(beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
-            g.variants || '',
-          );
-        if (
-          isPreRelease &&
-          !g.companion_game_id &&
-          !g.is_companion_base_disc &&
-          !g.ownership_status
+          g.physical_status === 'digital_extracted_rom' ||
+          g.physical_status === 'digital_only' ||
+          g.release_medium === 'digital_extracted_rom' ||
+          g.release_medium === 'digital_native' ||
+          g.release_medium === 'unreleased_prototype'
         ) {
           return false;
         }
-
-        // Budget Label Status Filter (Strict Release-Level Semantics)
-        if (f.budget_label && f.budget_label !== 'all') {
-          const hasOptionalBudget = this.getOptionalBudgetLabels(g).length > 0;
-          const hasExclusiveBudget = (g.variants || '')
-            .split(',')
-            .some((v) => this.isBudgetLabel(v.trim()));
-
-          if (f.budget_label === 'standard_and_budget') {
-            if (!hasOptionalBudget) return false;
-          } else if (f.budget_label === 'budget_only') {
-            if (!hasExclusiveBudget || hasOptionalBudget) return false;
-          } else if (f.budget_label === 'standard_only') {
-            if (hasExclusiveBudget || hasOptionalBudget) return false;
-          }
+      } else if (mediaType === 'digital_extracted') {
+        const isDigitalOrExtracted =
+          g.physical_status === 'digital_extracted_rom' ||
+          g.physical_status === 'digital_only' ||
+          g.release_medium === 'digital_extracted_rom' ||
+          g.release_medium === 'digital_native' ||
+          g.release_medium === 'unreleased_prototype';
+        if (!isDigitalOrExtracted) {
+          return false;
         }
+      }
 
-        // Platform Filter (Checks both direct platform and parent platform for cross-compatible hardware)
-        if (f.platform_id) {
-          if (
-            g.platform_id !== f.platform_id &&
-            g.parent_platform_id !== f.platform_id
-          )
-            return false;
+      // Basic Ownership Filter
+      const status = g.ownership_status ?? 0;
+      if (f.ownership === 'seeking_or_unowned') {
+        const isSeekingOrUnowned =
+          status === OwnershipStatus.Seeking ||
+          status === OwnershipStatus.Unowned;
+        if (!isSeekingOrUnowned) return false;
+      } else if (f.ownership !== 'all' && f.ownership !== status) {
+        return false;
+      }
+
+      // Deals Only Filter
+      if (f.deals_only) {
+        const isOnSale = Boolean(g.retail_on_sale);
+        if (!isOnSale) return false;
+      }
+
+      // Play Status Filter
+      if (f.play_status !== undefined && f.play_status !== 'all') {
+        const pStatus = g.play_status ?? 0;
+        if (f.play_status !== pStatus) return false;
+      }
+
+      // Backup Status Filter
+      if (f.backup_status !== undefined && f.backup_status !== 'all') {
+        const bStatus = g.backup_status ? 1 : 0;
+        if (f.backup_status !== bStatus) return false;
+      }
+
+      // Physical Release Verified Filter
+      if (f.physical_verified !== undefined && f.physical_verified !== 'all') {
+        const isVerified = g.rom_name ? 1 : 0;
+        if (f.physical_verified !== isVerified) return false;
+      }
+
+      // Pre-release Guard: hide betas, protos, demos, and kiosk samplers unless it is an owned pack-in companion bonus disc
+      const isPreRelease =
+        /\b(beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
+          g.rom_name || '',
+        ) ||
+        /\b(beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
+          g.variants || '',
+        );
+      if (
+        isPreRelease &&
+        !g.companion_game_id &&
+        !g.is_companion_base_disc &&
+        !g.ownership_status
+      ) {
+        return false;
+      }
+
+      // Budget Label Status Filter (Strict Release-Level Semantics)
+      if (f.budget_label && f.budget_label !== 'all') {
+        const hasOptionalBudget = this.getOptionalBudgetLabels(g).length > 0;
+        const hasExclusiveBudget = (g.variants || '')
+          .split(',')
+          .some((v) => this.isBudgetLabel(v.trim()));
+
+        if (f.budget_label === 'standard_and_budget') {
+          if (!hasOptionalBudget) return false;
+        } else if (f.budget_label === 'budget_only') {
+          if (!hasExclusiveBudget || hasOptionalBudget) return false;
+        } else if (f.budget_label === 'standard_only') {
+          if (hasExclusiveBudget || hasOptionalBudget) return false;
         }
+      }
 
-        // Region Filter
-        if (f.regions && f.regions.length > 0) {
-          const itemRegions = (g.region || '')
-            .split(',')
-            .map((r) => r.trim())
-            .filter(Boolean);
-          const match = itemRegions.some((r) => f.regions!.includes(r));
-          if (!match) return false;
+      // Platform Filter (Checks both direct platform and parent platform for cross-compatible hardware)
+      if (f.platform_id) {
+        if (
+          g.platform_id !== f.platform_id &&
+          g.parent_platform_id !== f.platform_id
+        )
+          return false;
+      }
+
+      // Region Filter
+      if (f.regions && f.regions.length > 0) {
+        const itemRegions = (g.region || '')
+          .split(',')
+          .map((r) => r.trim())
+          .filter(Boolean);
+        const match = itemRegions.some((r) => f.regions!.includes(r));
+        if (!match) return false;
+      }
+
+      // Linked Status Filter (IGDB connectivity)
+      if (f.is_linked !== undefined) {
+        const hasIgdb = !!g.igdb_id;
+        if (f.is_linked !== hasIgdb) return false;
+      }
+
+      // Name Filter (Case & Accent Insensitive)
+      const activeNameFilter = f.name || f.seriesOrName;
+      if (activeNameFilter) {
+        const normalizedFilter = this.normalizeString(activeNameFilter);
+        const normalizedTitle = this.normalizeString(g.title || '');
+        if (f.nameExact) {
+          if (normalizedTitle !== normalizedFilter) return false;
+        } else {
+          if (!normalizedTitle.includes(normalizedFilter)) return false;
         }
+      }
 
-        // Linked Status Filter (IGDB connectivity)
-        if (f.is_linked !== undefined) {
-          const hasIgdb = !!g.igdb_id;
-          if (f.is_linked !== hasIgdb) return false;
+      // Series Filter (Case & Accent Insensitive)
+      if (f.series) {
+        const normalizedFilter = this.normalizeString(f.series);
+        const normalizedSeries = this.normalizeString(g.canonical_series || '');
+        if (f.seriesExact) {
+          if (normalizedSeries !== normalizedFilter) return false;
+        } else {
+          if (!normalizedSeries.includes(normalizedFilter)) return false;
         }
+      }
 
-        // Name Filter (Case & Accent Insensitive)
-        const activeNameFilter = f.name || f.seriesOrName;
-        if (activeNameFilter) {
-          const normalizedFilter = this.normalizeString(activeNameFilter);
-          const normalizedTitle = this.normalizeString(g.title || '');
-          if (f.nameExact) {
-            if (normalizedTitle !== normalizedFilter) return false;
-          } else {
-            if (!normalizedTitle.includes(normalizedFilter)) return false;
-          }
-        }
-
-        // Series Filter (Case & Accent Insensitive)
-        if (f.series) {
-          const normalizedFilter = this.normalizeString(f.series);
-          const normalizedSeries = this.normalizeString(
-            g.canonical_series || '',
-          );
-          if (f.seriesExact) {
-            if (normalizedSeries !== normalizedFilter) return false;
-          } else {
-            if (!normalizedSeries.includes(normalizedFilter)) return false;
-          }
-        }
-
-        // Tag / Variant Filter (Case & Accent Insensitive)
-        if (f.tag) {
-          const normalizedFilter = this.normalizeString(f.tag);
-          const itemTags = (g.variants || '')
-            .split(',')
-            .map((v) => this.normalizeString(v.trim()))
-            .filter(Boolean);
-          if (g.also_released_as) {
-            for (const raw of g.also_released_as.split(',')) {
-              const normRaw = this.normalizeString(raw.trim());
-              if (normRaw) {
-                itemTags.push(normRaw);
-                itemTags.push(`± ${normRaw}`);
-              }
-            }
-            for (const optLbl of this.getOptionalBudgetLabels(g)) {
-              const normOpt = this.normalizeString(optLbl);
-              if (normOpt) {
-                itemTags.push(normOpt);
-                itemTags.push(`± ${normOpt}`);
-              }
-            }
-          }
-          if (itemTags.length === 0) return false;
-          if (f.tagExact) {
-            if (!itemTags.some((t) => t === normalizedFilter)) return false;
-          } else {
-            if (!itemTags.some((t) => t.includes(normalizedFilter)))
-              return false;
-          }
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        /**
-         * DESIGN RATIONALE: Client-side Sorting
-         * We perform the "strict" sort in TypeScript rather than SQL for several reasons:
-         * 1. Natural Language Sorting: Stripping articles (A/An/The) and diacritics is
-         *    significantly more complex and brittle in SQLite/D1 than in JS.
-         * 2. Reactivity: Ensures the list remains perfectly ordered even after client-side
-         *    filters (like search text) are applied to the cached signals.
-         * 3. Consistency: Guarantees identical behavior across local dev (SQLite) and
-         *    production (Cloudflare D1) despite potential collation differences.
-         */
-
-        // Retail Price Sorting (Low to High)
-        if (f.sortBy === 'retail_asc') {
-          const priceA = a.retail_price ?? a.price_new ?? null;
-          const priceB = b.retail_price ?? b.price_new ?? null;
-          if (priceA !== null || priceB !== null) {
-            if (priceA === null) return 1;
-            if (priceB === null) return -1;
-            if (priceA !== priceB) return priceA - priceB;
-          }
-        }
-
-        // Deepest Sale Discount Sorting (High to Low)
-        if (f.sortBy === 'discount_desc') {
-          const discA = a.retail_discount_pct ?? 0;
-          const discB = b.retail_discount_pct ?? 0;
-          if (discA !== discB) return discB - discA;
-          const priceA = a.retail_price ?? 999999;
-          const priceB = b.retail_price ?? 999999;
-          if (priceA !== priceB) return priceA - priceB;
-        }
-
-        // Value-Based Sorting (High to Low or Low to High)
-        if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
-          const priceA = this.getEffectiveGamePrice(a);
-          const priceB = this.getEffectiveGamePrice(b);
-          if (priceA !== null || priceB !== null) {
-            if (priceA === null) return 1;
-            if (priceB === null) return -1;
-            if (priceA !== priceB) {
-              return f.sortBy === 'value_desc'
-                ? priceB - priceA
-                : priceA - priceB;
+      // Tag / Variant Filter (Case & Accent Insensitive)
+      if (f.tag) {
+        const normalizedFilter = this.normalizeString(f.tag);
+        const itemTags = (g.variants || '')
+          .split(',')
+          .map((v) => this.normalizeString(v.trim()))
+          .filter(Boolean);
+        if (g.also_released_as) {
+          for (const raw of g.also_released_as.split(',')) {
+            const normRaw = this.normalizeString(raw.trim());
+            if (normRaw) {
+              itemTags.push(normRaw);
+              itemTags.push(`± ${normRaw}`);
             }
           }
-        }
-
-        const isPriceSort =
-          f.sortBy === 'value_desc' ||
-          f.sortBy === 'value_asc' ||
-          f.sortBy === 'retail_asc' ||
-          f.sortBy === 'discount_desc';
-
-        if (!isPriceSort) {
-          // 1. Platform Launch Date (ASC)
-          const dateA = a.platform_launch_date || '9999-99-99';
-          const dateB = b.platform_launch_date || '9999-99-99';
-          if (dateA !== dateB) return dateA.localeCompare(dateB);
-
-          // 2. Platform Brand (ASC)
-          const brandA = this.normalizeForSort(a.brand || '');
-          const brandB = this.normalizeForSort(b.brand || '');
-          if (brandA !== brandB) return brandA.localeCompare(brandB);
-        }
-
-        // 3. Game Canonical Series (ASC, fallback to title)
-        const seriesA = this.normalizeForSort(a.canonical_series || a.title);
-        const seriesB = this.normalizeForSort(b.canonical_series || b.title);
-        if (seriesA !== seriesB) return seriesA.localeCompare(seriesB);
-
-        // 4. Game Release Date (ASC, nulls last)
-        const relA = a.release_date || '9999-99-99';
-        const relB = b.release_date || '9999-99-99';
-        if (relA !== relB) return relA.localeCompare(relB);
-
-        // 5. Sort Index (ASC, nulls last)
-        const sortA = a.sort_index ?? 9999;
-        const sortB = b.sort_index ?? 9999;
-        if (sortA !== sortB) return sortA - sortB;
-
-        // 5.5. Variant Priority (ASC)
-        const getVariantPriority = (
-          variants: string | null | undefined,
-        ): number => {
-          if (!variants) return 0;
-          const lower = variants.toLowerCase();
-          if (
-            /\b(beta|proto|prototype|demo|kiosk|sample|promo)\b/i.test(lower)
-          ) {
-            return 2;
+          for (const optLbl of this.getOptionalBudgetLabels(g)) {
+            const normOpt = this.normalizeString(optLbl);
+            if (normOpt) {
+              itemTags.push(normOpt);
+              itemTags.push(`± ${normOpt}`);
+            }
           }
-          return 1;
-        };
-        const prioA = getVariantPriority(a.variants);
-        const prioB = getVariantPriority(b.variants);
-        if (prioA !== prioB) return prioA - prioB;
+        }
+        if (itemTags.length === 0) return false;
+        if (f.tagExact) {
+          if (!itemTags.some((t) => t === normalizedFilter)) return false;
+        } else {
+          if (!itemTags.some((t) => t.includes(normalizedFilter))) return false;
+        }
+      }
 
-        // 6. Region (ASC)
-        const regA = a.region || '';
-        const regB = b.region || '';
-        if (regA !== regB) return regA.localeCompare(regB);
+      return true;
+    });
 
-        // 7. Release ID (ASC)
-        const idA = a.id || '';
-        const idB = b.id || '';
-        return idA.localeCompare(idB);
-      });
+    /**
+     * DESIGN RATIONALE: Schwartzian Transform (Decorate-Sort-Undecorate)
+     * Sorting 2,000+ games previously invoked normalizeForSort() (NFD diacritics stripping,
+     * regex, and lowercase) over 35,000 times per sort trigger.
+     * Precomputing sort keys once per filtered item reduces normalizations and price calculations
+     * from O(N log N) to O(N).
+     */
+    const decoratedGames = filteredGamesList.map((g) => ({
+      item: g,
+      retailPrice: g.retail_price ?? g.price_new ?? null,
+      discountPct: g.retail_discount_pct ?? 0,
+      effectivePrice: this.getEffectiveGamePrice(g),
+      platformLaunchDate: g.platform_launch_date || '9999-99-99',
+      normBrand: this.normalizeForSort(g.brand || ''),
+      normSeries: this.normalizeForSort(g.canonical_series || g.title),
+      releaseDate: g.release_date || '9999-99-99',
+      sortIndex: g.sort_index ?? 9999,
+      variantPriority: this.getVariantPriority(g.variants),
+      region: g.region || '',
+      id: g.id || '',
+    }));
+
+    decoratedGames.sort((a, b) => {
+      // Retail Price Sorting (Low to High)
+      if (f.sortBy === 'retail_asc') {
+        if (a.retailPrice !== null || b.retailPrice !== null) {
+          if (a.retailPrice === null) return 1;
+          if (b.retailPrice === null) return -1;
+          if (a.retailPrice !== b.retailPrice)
+            return a.retailPrice - b.retailPrice;
+        }
+      }
+
+      // Deepest Sale Discount Sorting (High to Low)
+      if (f.sortBy === 'discount_desc') {
+        if (a.discountPct !== b.discountPct)
+          return b.discountPct - a.discountPct;
+        const priceA = a.retailPrice ?? 999999;
+        const priceB = b.retailPrice ?? 999999;
+        if (priceA !== priceB) return priceA - priceB;
+      }
+
+      // Value-Based Sorting (High to Low or Low to High)
+      if (f.sortBy === 'value_desc' || f.sortBy === 'value_asc') {
+        if (a.effectivePrice !== null || b.effectivePrice !== null) {
+          if (a.effectivePrice === null) return 1;
+          if (b.effectivePrice === null) return -1;
+          if (a.effectivePrice !== b.effectivePrice) {
+            return f.sortBy === 'value_desc'
+              ? b.effectivePrice - a.effectivePrice
+              : a.effectivePrice - b.effectivePrice;
+          }
+        }
+      }
+
+      const isPriceSort =
+        f.sortBy === 'value_desc' ||
+        f.sortBy === 'value_asc' ||
+        f.sortBy === 'retail_asc' ||
+        f.sortBy === 'discount_desc';
+
+      if (!isPriceSort) {
+        // 1. Platform Launch Date (ASC)
+        if (a.platformLaunchDate !== b.platformLaunchDate) {
+          return a.platformLaunchDate.localeCompare(b.platformLaunchDate);
+        }
+
+        // 2. Platform Brand (ASC)
+        if (a.normBrand !== b.normBrand) {
+          return a.normBrand.localeCompare(b.normBrand);
+        }
+      }
+
+      // 3. Game Canonical Series (ASC, fallback to title)
+      if (a.normSeries !== b.normSeries) {
+        return a.normSeries.localeCompare(b.normSeries);
+      }
+
+      // 4. Game Release Date (ASC, nulls last)
+      if (a.releaseDate !== b.releaseDate) {
+        return a.releaseDate.localeCompare(b.releaseDate);
+      }
+
+      // 5. Sort Index (ASC, nulls last)
+      if (a.sortIndex !== b.sortIndex) {
+        return a.sortIndex - b.sortIndex;
+      }
+
+      // 5.5. Variant Priority (ASC)
+      if (a.variantPriority !== b.variantPriority) {
+        return a.variantPriority - b.variantPriority;
+      }
+
+      // 6. Region (ASC)
+      if (a.region !== b.region) {
+        return a.region.localeCompare(b.region);
+      }
+
+      // 7. Release ID (ASC)
+      return a.id.localeCompare(b.id);
+    });
+
+    return decoratedGames.map((entry) => entry.item);
   });
 
   /**
@@ -1789,6 +1793,32 @@ export class CollectionListComponent
     else if (s.startsWith('an ')) s = s.substring(3);
 
     return s.trim();
+  }
+
+  private getVariantPriority(variants: string | null | undefined): number {
+    if (!variants) return 0;
+    const lower = variants.toLowerCase();
+    if (/\b(beta|proto|prototype|demo|kiosk|sample|promo)\b/i.test(lower)) {
+      return 2;
+    }
+    return 1;
+  }
+
+  private getToyTypeOrder(type: string | null | undefined): number {
+    switch (type) {
+      case 'Figure':
+        return 1;
+      case 'Yarn':
+        return 2;
+      case 'Block':
+        return 3;
+      case 'Band':
+        return 4;
+      case 'Card':
+        return 5;
+      default:
+        return 99;
+    }
   }
 
   /**
@@ -2080,134 +2110,134 @@ export class CollectionListComponent
   public filteredToys = computed(() => {
     const allToys = this.collectionService.toys();
     const f = this.filters();
-    return allToys
-      .filter((toy) => {
-        // Ownership Filter
-        const status = toy.ownership_status ?? 0;
-        if (f.ownership !== 'all' && f.ownership !== status) return false;
+    const filteredToysList = allToys.filter((toy) => {
+      // Ownership Filter
+      const status = toy.ownership_status ?? 0;
+      if (f.ownership !== 'all' && f.ownership !== status) return false;
 
-        // Line Filter (e.g. Amiibo, Skylanders)
-        if (f.line && toy.line !== f.line) return false;
+      // Line Filter (e.g. Amiibo, Skylanders)
+      if (f.line && toy.line !== f.line) return false;
 
-        // Type Filter (e.g. Figure, Card)
-        if (f.type && toy.type !== f.type) return false;
+      // Type Filter (e.g. Figure, Card)
+      if (f.type && toy.type !== f.type) return false;
 
-        // Region Filter
-        if (f.regions && f.regions.length > 0) {
-          const itemRegions = (toy.region || '')
-            .split(',')
-            .map((r) => r.trim())
-            .filter(Boolean);
-          const match = itemRegions.some((r) => f.regions!.includes(r));
-          if (!match) return false;
-        }
+      // Region Filter
+      if (f.regions && f.regions.length > 0) {
+        const itemRegions = (toy.region || '')
+          .split(',')
+          .map((r) => r.trim())
+          .filter(Boolean);
+        const match = itemRegions.some((r) => f.regions!.includes(r));
+        if (!match) return false;
+      }
 
-        // Name Filter (Case & Accent Insensitive)
-        const activeNameFilter = f.name || f.seriesOrName;
-        if (activeNameFilter) {
-          const normalizedFilter = this.normalizeString(activeNameFilter);
-          const normalizedName = this.normalizeString(toy.name || '');
-          if (f.nameExact) {
-            if (normalizedName !== normalizedFilter) return false;
-          } else {
-            if (!normalizedName.includes(normalizedFilter)) return false;
-          }
-        }
-
-        // Series Filter (Case & Accent Insensitive)
-        if (f.series) {
-          const normalizedFilter = this.normalizeString(f.series);
-          const normalizedSeries = this.normalizeString(toy.series_name || '');
-          if (f.seriesExact) {
-            if (normalizedSeries !== normalizedFilter) return false;
-          } else {
-            if (!normalizedSeries.includes(normalizedFilter)) return false;
-          }
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        /**
-         * DESIGN RATIONALE: Client-side Sorting
-         * Ensures consistent natural sorting (article stripping/diacritics)
-         * across all toy product lines and series.
-         */
-
-        // Value-Based Sorting (High to Low or Low to High)
-        const isPriceSort =
-          f.sortBy === 'value_desc' || f.sortBy === 'value_asc';
-        if (isPriceSort) {
-          const priceA = a.price_loose ?? null;
-          const priceB = b.price_loose ?? null;
-          if (priceA !== null || priceB !== null) {
-            if (priceA === null) return 1;
-            if (priceB === null) return -1;
-            if (priceA !== priceB) {
-              return f.sortBy === 'value_desc'
-                ? priceB - priceA
-                : priceA - priceB;
-            }
-          }
-        }
-
-        if (!isPriceSort) {
-          // 1. Line (ASC)
-          const lineA = this.normalizeForSort(a.line);
-          const lineB = this.normalizeForSort(b.line);
-          if (lineA !== lineB) return lineA.localeCompare(lineB);
-
-          // 2. Series Sort Index or Name (ASC)
-          const seriesIndexA = a.series_index ?? 9999;
-          const seriesIndexB = b.series_index ?? 9999;
-          if (seriesIndexA !== seriesIndexB) {
-            return seriesIndexA - seriesIndexB;
-          }
-          const seriesA = this.normalizeForSort(a.series_name || '');
-          const seriesB = this.normalizeForSort(b.series_name || '');
-          if (seriesA !== seriesB) return seriesA.localeCompare(seriesB);
-        }
-
-        // 3. Toy-level sorting
-        if (a.line === 'amiibo') {
-          // Priority 1: Type (Figure -> Yarn -> Block -> Band -> Card)
-          const typeOrder: Record<string, number> = {
-            Figure: 1,
-            Yarn: 2,
-            Block: 3,
-            Band: 4,
-            Card: 5,
-          };
-          const orderA = typeOrder[a.type] ?? 99;
-          const orderB = typeOrder[b.type] ?? 99;
-          if (orderA !== orderB) return orderA - orderB;
-
-          // Priority 2: Release Date (ASC, nulls last)
-          const relA = a.release_date || '9999-99-99';
-          const relB = b.release_date || '9999-99-99';
-          if (relA !== relB) return relA.localeCompare(relB);
-
-          // Priority 3: Sort Index (ASC, nulls last)
-          const sortA = a.sort_index ?? 9999;
-          const sortB = b.sort_index ?? 9999;
-          if (sortA !== sortB) return sortA - sortB;
+      // Name Filter (Case & Accent Insensitive)
+      const activeNameFilter = f.name || f.seriesOrName;
+      if (activeNameFilter) {
+        const normalizedFilter = this.normalizeString(activeNameFilter);
+        const normalizedName = this.normalizeString(toy.name || '');
+        if (f.nameExact) {
+          if (normalizedName !== normalizedFilter) return false;
         } else {
-          // Non-amiibo Priority 1: Sort Index (ASC, nulls last)
-          const sortA = a.sort_index ?? 9999;
-          const sortB = b.sort_index ?? 9999;
-          if (sortA !== sortB) return sortA - sortB;
+          if (!normalizedName.includes(normalizedFilter)) return false;
+        }
+      }
 
-          // Non-amiibo Priority 2: Release Date (ASC, nulls last)
-          const relA = a.release_date || '9999-99-99';
-          const relB = b.release_date || '9999-99-99';
-          if (relA !== relB) return relA.localeCompare(relB);
+      // Series Filter (Case & Accent Insensitive)
+      if (f.series) {
+        const normalizedFilter = this.normalizeString(f.series);
+        const normalizedSeries = this.normalizeString(toy.series_name || '');
+        if (f.seriesExact) {
+          if (normalizedSeries !== normalizedFilter) return false;
+        } else {
+          if (!normalizedSeries.includes(normalizedFilter)) return false;
+        }
+      }
+
+      return true;
+    });
+
+    /**
+     * DESIGN RATIONALE: Schwartzian Transform for Toys
+     * Precomputing line, series name, toy name, and type orders reduces string normalization
+     * overhead during sorting across hundreds of toys.
+     */
+    const decoratedToys = filteredToysList.map((toy) => ({
+      item: toy,
+      priceLoose: toy.price_loose ?? null,
+      normLine: this.normalizeForSort(toy.line),
+      seriesIndex: toy.series_index ?? 9999,
+      normSeries: this.normalizeForSort(toy.series_name || ''),
+      isAmiibo: toy.line === 'amiibo',
+      toyTypeOrder: this.getToyTypeOrder(toy.type),
+      releaseDate: toy.release_date || '9999-99-99',
+      sortIndex: toy.sort_index ?? 9999,
+      normName: this.normalizeForSort(toy.name || ''),
+    }));
+
+    decoratedToys.sort((a, b) => {
+      // Value-Based Sorting (High to Low or Low to High)
+      const isPriceSort = f.sortBy === 'value_desc' || f.sortBy === 'value_asc';
+      if (isPriceSort) {
+        if (a.priceLoose !== null || b.priceLoose !== null) {
+          if (a.priceLoose === null) return 1;
+          if (b.priceLoose === null) return -1;
+          if (a.priceLoose !== b.priceLoose) {
+            return f.sortBy === 'value_desc'
+              ? b.priceLoose - a.priceLoose
+              : a.priceLoose - b.priceLoose;
+          }
+        }
+      }
+
+      if (!isPriceSort) {
+        // 1. Line (ASC)
+        if (a.normLine !== b.normLine) {
+          return a.normLine.localeCompare(b.normLine);
         }
 
-        // 4. Name (ASC) fallback
-        const nameA = this.normalizeForSort(a.name || '');
-        const nameB = this.normalizeForSort(b.name || '');
-        return nameA.localeCompare(nameB);
-      });
+        // 2. Series Sort Index or Name (ASC)
+        if (a.seriesIndex !== b.seriesIndex) {
+          return a.seriesIndex - b.seriesIndex;
+        }
+        if (a.normSeries !== b.normSeries) {
+          return a.normSeries.localeCompare(b.normSeries);
+        }
+      }
+
+      // 3. Toy-level sorting
+      if (a.isAmiibo) {
+        // Priority 1: Type (Figure -> Yarn -> Block -> Band -> Card)
+        if (a.toyTypeOrder !== b.toyTypeOrder) {
+          return a.toyTypeOrder - b.toyTypeOrder;
+        }
+
+        // Priority 2: Release Date (ASC, nulls last)
+        if (a.releaseDate !== b.releaseDate) {
+          return a.releaseDate.localeCompare(b.releaseDate);
+        }
+
+        // Priority 3: Sort Index (ASC, nulls last)
+        if (a.sortIndex !== b.sortIndex) {
+          return a.sortIndex - b.sortIndex;
+        }
+      } else {
+        // Non-amiibo Priority 1: Sort Index (ASC, nulls last)
+        if (a.sortIndex !== b.sortIndex) {
+          return a.sortIndex - b.sortIndex;
+        }
+
+        // Non-amiibo Priority 2: Release Date (ASC, nulls last)
+        if (a.releaseDate !== b.releaseDate) {
+          return a.releaseDate.localeCompare(b.releaseDate);
+        }
+      }
+
+      // 4. Name (ASC) fallback
+      return a.normName.localeCompare(b.normName);
+    });
+
+    return decoratedToys.map((entry) => entry.item);
   });
 
   /** Virtual list window for toys */
