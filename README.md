@@ -8,7 +8,9 @@ A collection tracking application built with **Angular 21**.
 - **Durable Metadata**: Deep integration with IGDB for games and AmiiboAPI/SCL for toys.
 - **Physical Release Reconciliation & ROM Display**: Reconciliation of distinct physical release variants using No-Intro and Redump XML DAT files. All releases (including regional versions and revisions) are displayed as individual items in the UI to allow tracking of multiple copies. When a game matches a physical release, the frontend dynamically overrides the displayed game title with the clean ROM filename (excluding its file extension). This clean ROM title is used everywhere in the UI and is fully supported by the name/series filter search.
 - **Manual Discovery Pipeline**: A suggestion-based matching workflow for ambiguous items, surfaced through a generated discovery report for human-in-the-loop verification.
-- **Signals-First Architecture**: Leveraging Angular 21 Signals for high-performance state management and reactive delivery.
+- **Data Portability & ROM Manager Integration**: Export active filtered collections directly to RFC 4180 CSV or standard Logiqx XML DAT format. Generated Logiqx DATs can be directly consumed by ROM managers (`igir`, `clrmamepro`, `RomVault`) to audit, organize, and verify physical dumps against your wishlist.
+- **Interactive Multi-Disc Expansion Trays**: Multi-disc game releases automatically display an inline disc expansion tray showing disc count, individual disc backup statuses, and allow direct 1-click backup toggling per disc.
+- **Signals-First Architecture & Optimized Sorting**: Leveraging Angular 21 Signals for reactive state management, accelerated with Schwartzian transforms and indexed platform candidate lookups for sub-millisecond sorting across thousands of items.
 
 ## 💻 Tech Stack
 
@@ -91,7 +93,8 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
 - **Verification Signals**: Uses the presence of an `igdb_id` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
 - **Database & Storage Architecture**:
   - **Cloudflare D1 (Primary Database)**: Cloudflare D1 serves as the primary live database with edge routing for read queries and authenticated mutations.
-  - **Cloudflare R2 (Indefinite Backups)**: A scheduled worker cron trigger (`0 4 * * *`) automatically generates daily timestamped snapshots into Cloudflare R2 (`collection-backups`), preserving complete database states indefinitely with zero egress fees.
+  - **Edge Caching API**: High-traffic read routes (`/api/games`, `/api/toys`, and `/api/platforms`) utilize the Cloudflare Workers Cache API (`caches.default`) with public 5-minute edge TTLs (`Cache-Control: public, max-age=300`) and sub-millisecond edge response times. All mutation endpoints (`/api/collection/toggle`, `/api/collection/sort`, `/api/discovery/add`, `/api/discovery/add-toy`, `/api/retail/sync-deals`) trigger instant cache eviction across primary listing routes.
+  - **Cloudflare R2 (Automated Daily Backups & Lifecycle Pruning)**: A scheduled worker cron trigger (`0 4 * * *`) automatically generates daily timestamped snapshots into Cloudflare R2 (`collection-backups`), preserving complete database states with zero egress fees. A rolling 30-day snapshot retention pruning cycle automatically removes backups older than 30 days to optimize storage footprint.
   - **Decoupled Local Staging**: Heavy scraping (DAT matching, IGDB ingestion, backup folder scanning) is executed locally against staging SQLite and synchronized to D1 with explicit safeguards (`npm run db:pull` and `npm run db:push`).
 
 ## 📦 Getting Started & Fork Setup

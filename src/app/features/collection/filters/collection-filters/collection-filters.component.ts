@@ -1268,6 +1268,63 @@ import {
             </button>
           }
 
+          <!-- Export Dropdown -->
+          <div
+            class="input-wrapper dropdown-wrapper export-dropdown-wrapper"
+            [class.active-wrapper]="activeDropdown() === 'export'"
+          >
+            <button
+              type="button"
+              class="m3-input dropdown-trigger export-trigger-btn"
+              [class.open]="activeDropdown() === 'export'"
+              (click)="toggleDropdown('export', $event)"
+              id="filter-export"
+              title="Export filtered collection data"
+              aria-haspopup="listbox"
+              [attr.aria-expanded]="activeDropdown() === 'export'"
+            >
+              <span class="export-icon">💾</span>
+              <span class="trigger-text">Export</span>
+              <span class="dropdown-icon-wrapper" aria-hidden="true">
+                <svg
+                  class="dropdown-chevron"
+                  [class.open]="activeDropdown() === 'export'"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                  />
+                </svg>
+              </span>
+            </button>
+            @if (activeDropdown() === 'export') {
+              <div
+                class="dropdown-list animate-expressive export-dropdown-list"
+                role="listbox"
+              >
+                <button
+                  type="button"
+                  class="dropdown-item"
+                  (click)="onExportCsv($event)"
+                >
+                  <span class="item-text">Export as CSV</span>
+                </button>
+                @if (currentTab() === 'games') {
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    (click)="onExportLogiqxDat($event)"
+                  >
+                    <span class="item-text">Export Logiqx XML DAT (igir)</span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
+
           <div
             class="filter-info mobile-hidden flex flex-col items-end gap-2xs"
           >
@@ -1729,6 +1786,37 @@ import {
         box-shadow: 0 2px 10px rgba(239, 68, 68, 0.4);
       }
 
+      .export-trigger-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        gap: var(--spacing-8);
+        padding: 0 1.1rem;
+        height: 46px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--m3-outline);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+        white-space: nowrap;
+      }
+      .export-trigger-btn:hover {
+        background: var(--m3-surface-container-highest);
+      }
+      .export-dropdown-wrapper {
+        min-width: 130px;
+      }
+      .export-dropdown-list {
+        right: 0;
+        left: auto;
+        min-width: 220px;
+      }
+
       .filter-info {
         padding: 0.5rem 1rem;
         min-height: 46px;
@@ -1894,6 +1982,19 @@ export class CollectionFiltersComponent {
 
   /** --- Event Emitters --- */
   public filtersChange = output<FilterState>();
+  public exportRequested = output<'csv' | 'dat'>();
+
+  onExportCsv(event: MouseEvent) {
+    event.stopPropagation();
+    this.closeDropdown();
+    this.exportRequested.emit('csv');
+  }
+
+  onExportLogiqxDat(event: MouseEvent) {
+    event.stopPropagation();
+    this.closeDropdown();
+    this.exportRequested.emit('dat');
+  }
 
   /**
    * Emits a change event when a filter value is updated.

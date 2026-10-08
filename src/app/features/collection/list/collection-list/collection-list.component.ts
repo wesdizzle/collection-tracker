@@ -34,6 +34,7 @@ import {
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller } from '@angular/common';
 import { CollectionService } from '../../../../core/services/collection.service';
+import { ExportService } from '../../../../core/services/export.service';
 import {
   Game,
   Toy,
@@ -79,6 +80,7 @@ interface GameGroup {
         [totalValue]="totalFilteredValue()"
         [lastUpdated]="lastUpdated()"
         (filtersChange)="onFiltersChange($event)"
+        (exportRequested)="onExportRequested($event)"
       >
       </app-collection-filters>
 
@@ -409,6 +411,73 @@ interface GameGroup {
                           >
                             📖 Manual
                           </button>
+                        </div>
+                      }
+
+                      @if (game.discIds && game.discIds.length > 1) {
+                        <div
+                          class="multi-disc-tray mt-2xs"
+                          (click)="
+                            $event.stopPropagation(); $event.preventDefault()
+                          "
+                        >
+                          <div
+                            class="multi-disc-header flex items-center justify-between"
+                          >
+                            <span
+                              class="multi-disc-label text-2xs uppercase letter-spacing-wide"
+                            >
+                              💿 {{ game.discIds.length }} Discs
+                            </span>
+                            <span
+                              class="multi-disc-status text-2xs"
+                              [class.all-backed]="game.backup_status"
+                            >
+                              {{
+                                game.backup_status
+                                  ? 'All Backed Up'
+                                  : getBackedUpDiscCount(game) +
+                                    '/' +
+                                    game.discIds.length +
+                                    ' Backed Up'
+                              }}
+                            </span>
+                          </div>
+                          <div
+                            class="multi-disc-pills flex flex-wrap gap-2xs mt-3xs"
+                          >
+                            @for (
+                              discId of game.discIds;
+                              track discId;
+                              let idx = $index
+                            ) {
+                              <button
+                                type="button"
+                                class="disc-chip state-layer"
+                                [class.backed-up]="
+                                  game.discBackups?.[idx] === 1
+                                "
+                                [title]="
+                                  (game.discRomNames?.[idx] ||
+                                    'Disc ' + (idx + 1)) +
+                                  ' (' +
+                                  (game.discBackups?.[idx] === 1
+                                    ? 'Backed Up'
+                                    : 'Missing') +
+                                  ') - Click to toggle backup'
+                                "
+                                (click)="onToggleDiscBackup($event, game, idx)"
+                              >
+                                {{ 'Disc ' + (idx + 1) }}
+                                <span
+                                  class="disc-dot"
+                                  [class.dot-backed]="
+                                    game.discBackups?.[idx] === 1
+                                  "
+                                ></span>
+                              </button>
+                            }
+                          </div>
                         </div>
                       }
                     </div>
@@ -1033,6 +1102,58 @@ interface GameGroup {
         opacity: 1;
         transform: scale(1.05);
       }
+
+      .multi-disc-tray {
+        background: var(--m3-surface-container);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-sm);
+        padding: 0.35rem 0.5rem;
+      }
+      .multi-disc-header {
+        margin-bottom: 0.25rem;
+      }
+      .multi-disc-label {
+        font-weight: 700;
+        color: var(--m3-on-surface-variant);
+      }
+      .multi-disc-status {
+        font-weight: 600;
+        color: var(--m3-outline);
+      }
+      .multi-disc-status.all-backed {
+        color: #10b981;
+      }
+      .disc-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.15rem 0.45rem;
+        font-size: 0.65rem;
+        font-weight: 600;
+        border-radius: var(--radius-full);
+        border: 1px solid var(--m3-outline-variant);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .disc-chip:hover {
+        background: var(--m3-surface-container-highest);
+      }
+      .disc-chip.backed-up {
+        border-color: #10b981;
+        background: rgba(16, 185, 129, 0.12);
+        color: #047857;
+      }
+      .disc-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--m3-outline-variant);
+      }
+      .disc-dot.dot-backed {
+        background: #10b981;
+      }
     `,
   ],
 })
@@ -1040,6 +1161,7 @@ export class CollectionListComponent
   implements OnInit, AfterViewInit, OnDestroy
 {
   private collectionService = inject(CollectionService);
+  private exportService = inject(ExportService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private viewportScroller = inject(ViewportScroller);
@@ -2724,6 +2846,55 @@ export class CollectionListComponent
     this.collectionService.updateHasManual(game.id, newStatus).subscribe({
       next: () => this.collectionService.refreshAll(),
       error: (err) => console.error('Failed to toggle manual:', err),
+    });
+  }
+
+  public onExportRequested(format: 'csv' | 'dat'): void {
+    if (this.currentTab() === 'games') {
+      const games = this.filteredGames();
+      if (format === 'csv') {
+        this.exportService.exportCsv(games, 'games');
+      } else if (format === 'dat') {
+        const platformName = this.filters().platform_id
+          ? this.platformGroups()
+              .flatMap((g) => g.platforms)
+              .find((p) => p.id === this.filters().platform_id)?.display_name
+          : undefined;
+        this.exportService.exportLogiqxXmlDat(
+          games,
+          platformName
+            ? `${platformName} Collection Wishlist`
+            : 'Gagglog Games Collection Wishlist',
+        );
+      }
+    } else {
+      const toys = this.filteredToys();
+      this.exportService.exportCsv(toys, 'toys');
+    }
+  }
+
+  public getBackedUpDiscCount(game: Game): number {
+    return (game.discBackups || []).filter((b) => b === 1).length;
+  }
+
+  public onToggleDiscBackup(
+    event: MouseEvent,
+    game: Game,
+    discIndex: number,
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const discId = game.discIds?.[discIndex];
+    if (!discId) return;
+    const current = game.discBackups?.[discIndex] === 1;
+    const newStatus = current ? 0 : 1;
+    if (game.discBackups) {
+      game.discBackups[discIndex] = newStatus;
+      game.backup_status = game.discBackups.every((b) => b === 1) ? 1 : 0;
+    }
+    this.collectionService.updateBackupStatus(discId, newStatus).subscribe({
+      next: () => this.collectionService.refreshAll(),
+      error: (err) => console.error('Failed to toggle disc backup:', err),
     });
   }
 }

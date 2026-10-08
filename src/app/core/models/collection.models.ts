@@ -127,6 +127,9 @@ export interface Game {
   bundled_games?: BundledGame[];
   shared_backup_releases?: SharedBackupReleaseLink[];
   voucher_notes?: string[];
+  discIds?: string[];
+  discBackups?: number[];
+  discRomNames?: string[];
 }
 
 export interface BundledGame {

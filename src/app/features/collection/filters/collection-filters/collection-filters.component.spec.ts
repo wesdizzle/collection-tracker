@@ -1,5 +1,5 @@
 import '../../../../../test-setup';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -196,5 +196,22 @@ describe('CollectionFiltersComponent', () => {
 
     component.selectOption('budget_label', 'budget_only');
     expect(emittedFilters?.budget_label).toBe('budget_only');
+  });
+
+  it('should emit exportRequested event when export options are selected', () => {
+    let emittedFormat: 'csv' | 'dat' | undefined;
+    component.exportRequested.subscribe((fmt) => {
+      emittedFormat = fmt;
+    });
+
+    const mockEvent = { stopPropagation: vi.fn() } as unknown as MouseEvent;
+
+    component.onExportCsv(mockEvent);
+    expect(emittedFormat).toBe('csv');
+    expect(component.activeDropdown()).toBeNull();
+
+    component.onExportLogiqxDat(mockEvent);
+    expect(emittedFormat).toBe('dat');
+    expect(component.activeDropdown()).toBeNull();
   });
 });

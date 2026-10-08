@@ -10,6 +10,7 @@ import { ActivatedRoute } from '@angular/router';
 import { of } from 'rxjs';
 import { CollectionListComponent } from './collection-list.component';
 import { CollectionService } from '../../../../core/services/collection.service';
+import { ExportService } from '../../../../core/services/export.service';
 import { ListState, Game } from '../../../../core/models/collection.models';
 
 /**
@@ -1636,5 +1637,65 @@ describe('CollectionListComponent', () => {
     expect(component.filteredGames().map((g) => g.id)).toEqual([
       'game-both-budget',
     ]);
+  });
+
+  it('should forward export requests to ExportService for csv and dat', async () => {
+    const exportService = TestBed.inject(ExportService);
+    const csvSpy = vi
+      .spyOn(exportService, 'exportCsv')
+      .mockImplementation(() => {});
+    const datSpy = vi
+      .spyOn(exportService, 'exportLogiqxXmlDat')
+      .mockImplementation(() => {});
+
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+    httpMock
+      .expectOne('/api/games')
+      .flush([
+        { id: 'game-1', title: 'Game 1', ownership_status: 1, platform: 'NES' },
+      ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    await initPromise;
+
+    component.onExportRequested('csv');
+    expect(csvSpy).toHaveBeenCalledWith(component.filteredGames(), 'games');
+
+    component.onExportRequested('dat');
+    expect(datSpy).toHaveBeenCalledWith(
+      component.filteredGames(),
+      'Gagglog Games Collection Wishlist',
+    );
+  });
+
+  it('should toggle individual disc backup status in multi-disc sets', async () => {
+    const collectionService = TestBed.inject(CollectionService);
+    const updateSpy = vi
+      .spyOn(collectionService, 'updateBackupStatus')
+      .mockReturnValue(of({ success: true }));
+
+    const multiDiscGame = {
+      id: 'mgs-ps1',
+      title: 'Metal Gear Solid',
+      discIds: ['mgs-disc1', 'mgs-disc2'],
+      discBackups: [1, 0],
+      backup_status: 0,
+    } as unknown as Game;
+
+    expect(component.getBackedUpDiscCount(multiDiscGame)).toBe(1);
+
+    // Toggle Disc 2 to backed up
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
+
+    expect(updateSpy).toHaveBeenCalledWith('mgs-disc2', 1);
+    expect(multiDiscGame.discBackups?.[1]).toBe(1);
+    expect(multiDiscGame.backup_status).toBe(1);
+    expect(component.getBackedUpDiscCount(multiDiscGame)).toBe(2);
   });
 });
