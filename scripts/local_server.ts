@@ -59,6 +59,10 @@ import {
 } from './lib/bestbuy.js';
 
 import { getDatabase } from './lib/db.js';
+import {
+  DEFAULT_VAPID_PUBLIC_KEY,
+  sendWebPushNotification,
+} from '../worker/web_push.js';
 
 const PORT = 3000;
 
@@ -1752,6 +1756,221 @@ export const handleRequest =
         } catch (syncErr: unknown) {
           const msg =
             syncErr instanceof Error ? syncErr.message : String(syncErr);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: msg }));
+        }
+      }
+
+      // GET /api/notifications/vapid-public-key
+      else if (
+        req.method === 'GET' &&
+        pathname === '/api/notifications/vapid-public-key'
+      ) {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(
+          JSON.stringify({
+            publicKey:
+              process.env['VAPID_PUBLIC_KEY'] || DEFAULT_VAPID_PUBLIC_KEY,
+          }),
+        );
+      }
+
+      // POST /api/notifications/subscribe
+      else if (
+        req.method === 'POST' &&
+        pathname === '/api/notifications/subscribe'
+      ) {
+        try {
+          const body = await new Promise<string>((resolve, reject) => {
+            let data = '';
+            req.on('data', (chunk) => (data += chunk));
+            req.on('end', () => resolve(data));
+            req.on('error', (err) => reject(err));
+          });
+
+          const payload = JSON.parse(body);
+          if (
+            !payload?.endpoint ||
+            !payload?.keys?.p256dh ||
+            !payload?.keys?.auth
+          ) {
+            res.statusCode = 400;
+            res.end(
+              JSON.stringify({
+                error:
+                  'Invalid payload: endpoint and keys (p256dh, auth) are required.',
+              }),
+            );
+            return;
+          }
+
+          const id = crypto.randomUUID();
+          const nowIso = new Date().toISOString();
+          const userAgent = req.headers['user-agent'] || null;
+          const prefsJson = JSON.stringify(payload.preferences || {});
+
+          db.prepare(
+            `INSERT INTO push_subscriptions (
+               id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(endpoint) DO UPDATE SET
+               p256dh = excluded.p256dh,
+               auth = excluded.auth,
+               preferences_json = excluded.preferences_json,
+               user_agent = excluded.user_agent,
+               updated_at = excluded.updated_at`,
+          ).run(
+            id,
+            payload.endpoint,
+            payload.keys.p256dh,
+            payload.keys.auth,
+            prefsJson,
+            userAgent,
+            nowIso,
+            nowIso,
+          );
+
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: true, id }));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: msg }));
+        }
+      }
+
+      // PUT /api/notifications/preferences
+      else if (
+        req.method === 'PUT' &&
+        pathname === '/api/notifications/preferences'
+      ) {
+        try {
+          const body = await new Promise<string>((resolve, reject) => {
+            let data = '';
+            req.on('data', (chunk) => (data += chunk));
+            req.on('end', () => resolve(data));
+            req.on('error', (err) => reject(err));
+          });
+
+          const payload = JSON.parse(body);
+          if (!payload?.endpoint || !payload?.preferences) {
+            res.statusCode = 400;
+            res.end(
+              JSON.stringify({
+                error: 'Invalid payload: endpoint and preferences required.',
+              }),
+            );
+            return;
+          }
+
+          const nowIso = new Date().toISOString();
+          const prefsJson = JSON.stringify(payload.preferences);
+
+          db.prepare(
+            `UPDATE push_subscriptions
+             SET preferences_json = ?, updated_at = ?
+             WHERE endpoint = ?`,
+          ).run(prefsJson, nowIso, payload.endpoint);
+
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: true }));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: msg }));
+        }
+      }
+
+      // POST /api/notifications/unsubscribe
+      else if (
+        req.method === 'POST' &&
+        pathname === '/api/notifications/unsubscribe'
+      ) {
+        try {
+          const body = await new Promise<string>((resolve, reject) => {
+            let data = '';
+            req.on('data', (chunk) => (data += chunk));
+            req.on('end', () => resolve(data));
+            req.on('error', (err) => reject(err));
+          });
+
+          const { endpoint } = JSON.parse(body);
+          if (!endpoint) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'Endpoint is required.' }));
+            return;
+          }
+
+          db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(
+            endpoint,
+          );
+
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ success: true }));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: msg }));
+        }
+      }
+
+      // POST /api/notifications/test
+      else if (
+        req.method === 'POST' &&
+        pathname === '/api/notifications/test'
+      ) {
+        try {
+          const body = await new Promise<string>((resolve, reject) => {
+            let data = '';
+            req.on('data', (chunk) => (data += chunk));
+            req.on('end', () => resolve(data));
+            req.on('error', (err) => reject(err));
+          });
+
+          const { endpoint } = JSON.parse(body);
+          if (!endpoint) {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: 'Endpoint is required.' }));
+            return;
+          }
+
+          const sub = db
+            .prepare(
+              'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE endpoint = ?',
+            )
+            .get(endpoint) as
+            | { endpoint: string; p256dh: string; auth: string }
+            | undefined;
+
+          if (!sub) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ error: 'Subscription not found.' }));
+            return;
+          }
+
+          const result = await sendWebPushNotification(
+            sub,
+            {
+              title: '🔔 Deal Alerts Active',
+              body: 'Push notifications are successfully configured for your device!',
+              icon: '/favicon.svg',
+              data: { url: '/' },
+            },
+            {
+              publicKey: process.env['VAPID_PUBLIC_KEY'],
+            },
+          );
+
+          if (result.shouldDelete) {
+            db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(
+              endpoint,
+            );
+          }
+
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify(result));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
           res.statusCode = 500;
           res.end(JSON.stringify({ error: msg }));
         }

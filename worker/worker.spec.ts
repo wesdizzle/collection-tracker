@@ -170,6 +170,16 @@ describe('Worker API Logic', () => {
         game_stable_id INTEGER,
         PRIMARY KEY (toy_stable_id, game_stable_id)
       );
+      CREATE TABLE push_subscriptions (
+        id TEXT PRIMARY KEY,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        preferences_json TEXT NOT NULL DEFAULT '{}',
+        user_agent TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
 
       INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (1, 'NES', 'NES', 'Nintendo', '1985-10-18');
       INSERT INTO games (stable_id, id, title, series, platform_id, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 1, 0);
@@ -1201,5 +1211,123 @@ describe('Worker API Logic', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  describe('Notification Endpoints', () => {
+    it('should return the VAPID public key', async () => {
+      const req = new Request(
+        'http://localhost/api/notifications/vapid-public-key',
+      );
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { publicKey: string };
+      expect(body.publicKey).toBeDefined();
+      expect(typeof body.publicKey).toBe('string');
+      expect(body.publicKey.length).toBeGreaterThan(20);
+    });
+
+    it('should subscribe and persist push subscription with preferences', async () => {
+      const subPayload = {
+        endpoint: 'https://push.example.com/sub/12345',
+        keys: {
+          p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QT9ScVw',
+          auth: 'tBHItJI5svbpez7KI4CCXg',
+        },
+        preferences: {
+          enabled: true,
+          scope: 'seeking_only',
+          minDiscountPct: 25,
+          platformIds: [26, 33],
+          stores: ['VGP'],
+        },
+      };
+
+      const req = new Request('http://localhost/api/notifications/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subPayload),
+      });
+
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { success: boolean; id: string };
+      expect(data.success).toBe(true);
+      expect(data.id).toBeDefined();
+
+      const row = db
+        .prepare('SELECT * FROM push_subscriptions WHERE endpoint = ?')
+        .get(subPayload.endpoint) as {
+        endpoint: string;
+        p256dh: string;
+        preferences_json: string;
+      };
+      expect(row).toBeDefined();
+      expect(row.endpoint).toBe(subPayload.endpoint);
+      expect(row.p256dh).toBe(subPayload.keys.p256dh);
+      const savedPrefs = JSON.parse(row.preferences_json);
+      expect(savedPrefs.minDiscountPct).toBe(25);
+      expect(savedPrefs.scope).toBe('seeking_only');
+    });
+
+    it('should update preferences for an existing endpoint', async () => {
+      const endpoint = 'https://push.example.com/sub/update-test';
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, created_at, updated_at)
+         VALUES ('test-id', ?, 'dummy-p256dh', 'dummy-auth', '{}', '2026-01-01', '2026-01-01')`,
+      ).run(endpoint);
+
+      const updateReq = new Request(
+        'http://localhost/api/notifications/preferences',
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            endpoint,
+            preferences: {
+              enabled: true,
+              scope: 'seeking_and_unowned',
+              minDiscountPct: 50,
+            },
+          }),
+        },
+      );
+
+      const res = await worker.fetch(updateReq, mockEnv);
+      expect(res.status).toBe(200);
+
+      const row = db
+        .prepare(
+          'SELECT preferences_json FROM push_subscriptions WHERE endpoint = ?',
+        )
+        .get(endpoint) as { preferences_json: string };
+      const parsed = JSON.parse(row.preferences_json);
+      expect(parsed.minDiscountPct).toBe(50);
+      expect(parsed.scope).toBe('seeking_and_unowned');
+    });
+
+    it('should unsubscribe an endpoint', async () => {
+      const endpoint = 'https://push.example.com/sub/unsub-test';
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, created_at, updated_at)
+         VALUES ('unsub-id', ?, 'p256dh', 'auth', '2026-01-01', '2026-01-01')`,
+      ).run(endpoint);
+
+      const req = new Request(
+        'http://localhost/api/notifications/unsubscribe',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint }),
+        },
+      );
+
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+
+      const row = db
+        .prepare('SELECT 1 FROM push_subscriptions WHERE endpoint = ?')
+        .get(endpoint);
+      expect(row).toBeUndefined();
+    });
   });
 });

@@ -355,3 +355,21 @@ export interface PagedScanSeriesResult {
   totalSeries: number;
   hasMore: boolean;
 }
+
+export interface DealNotificationPreferences {
+  enabled: boolean;
+  scope: 'seeking_only' | 'seeking_and_unowned' | 'all';
+  minDiscountPct: number;
+  maxPriceCents?: number | null;
+  platformIds: number[];
+  stores: string[];
+}
+
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  preferences?: DealNotificationPreferences;
+}

@@ -53,6 +53,11 @@ import {
   CandidateGame,
   RetailDealItem,
 } from '../scripts/lib/bestbuy';
+import {
+  DEFAULT_VAPID_PUBLIC_KEY,
+  sendWebPushNotification,
+  WebPushNotificationPayload,
+} from './web_push';
 
 export interface Env {
   DB: D1Database;
@@ -64,6 +69,8 @@ export interface Env {
   TWITCH_CLIENT_ID?: string;
   TWITCH_CLIENT_SECRET?: string;
   BESTBUY_API_KEY?: string;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
 }
 
 interface DbGame {
@@ -2455,6 +2462,174 @@ Disallow: /
         return Response.json({ success: true, ...result });
       }
 
+      // Endpoint: GET /api/notifications/vapid-public-key
+      else if (
+        request.method === 'GET' &&
+        path === '/api/notifications/vapid-public-key'
+      ) {
+        return Response.json({
+          publicKey: env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC_KEY,
+        });
+      }
+
+      // Endpoint: POST /api/notifications/subscribe
+      else if (
+        request.method === 'POST' &&
+        path === '/api/notifications/subscribe'
+      ) {
+        const body = (await request.json()) as {
+          endpoint?: string;
+          keys?: { p256dh?: string; auth?: string };
+          preferences?: Record<string, unknown>;
+        };
+
+        if (!body?.endpoint || !body?.keys?.p256dh || !body?.keys?.auth) {
+          return Response.json(
+            {
+              error:
+                'Invalid subscription payload: endpoint and keys (p256dh, auth) are required.',
+            },
+            { status: 400 },
+          );
+        }
+
+        const id = crypto.randomUUID();
+        const nowIso = new Date().toISOString();
+        const userAgent = request.headers.get('User-Agent') || null;
+        const prefsJson = JSON.stringify(body.preferences || {});
+
+        await env.DB.prepare(
+          `INSERT INTO push_subscriptions (
+             id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(endpoint) DO UPDATE SET
+             p256dh = excluded.p256dh,
+             auth = excluded.auth,
+             preferences_json = excluded.preferences_json,
+             user_agent = excluded.user_agent,
+             updated_at = excluded.updated_at`,
+        )
+          .bind(
+            id,
+            body.endpoint,
+            body.keys.p256dh,
+            body.keys.auth,
+            prefsJson,
+            userAgent,
+            nowIso,
+            nowIso,
+          )
+          .run();
+
+        return Response.json({ success: true, id });
+      }
+
+      // Endpoint: PUT /api/notifications/preferences
+      else if (
+        request.method === 'PUT' &&
+        path === '/api/notifications/preferences'
+      ) {
+        const body = (await request.json()) as {
+          endpoint?: string;
+          preferences?: Record<string, unknown>;
+        };
+
+        if (!body?.endpoint || !body?.preferences) {
+          return Response.json(
+            {
+              error: 'Invalid payload: endpoint and preferences are required.',
+            },
+            { status: 400 },
+          );
+        }
+
+        const nowIso = new Date().toISOString();
+        const prefsJson = JSON.stringify(body.preferences);
+
+        await env.DB.prepare(
+          `UPDATE push_subscriptions
+           SET preferences_json = ?, updated_at = ?
+           WHERE endpoint = ?`,
+        )
+          .bind(prefsJson, nowIso, body.endpoint)
+          .run();
+
+        return Response.json({ success: true });
+      }
+
+      // Endpoint: POST /api/notifications/unsubscribe
+      else if (
+        request.method === 'POST' &&
+        path === '/api/notifications/unsubscribe'
+      ) {
+        const body = (await request.json()) as { endpoint?: string };
+        if (!body?.endpoint) {
+          return Response.json(
+            { error: 'Endpoint is required.' },
+            { status: 400 },
+          );
+        }
+
+        await env.DB.prepare(
+          'DELETE FROM push_subscriptions WHERE endpoint = ?',
+        )
+          .bind(body.endpoint)
+          .run();
+
+        return Response.json({ success: true });
+      }
+
+      // Endpoint: POST /api/notifications/test
+      else if (
+        request.method === 'POST' &&
+        path === '/api/notifications/test'
+      ) {
+        const body = (await request.json()) as { endpoint?: string };
+        if (!body?.endpoint) {
+          return Response.json(
+            { error: 'Endpoint is required.' },
+            { status: 400 },
+          );
+        }
+
+        const sub = await env.DB.prepare(
+          'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE endpoint = ?',
+        )
+          .bind(body.endpoint)
+          .first<{ endpoint: string; p256dh: string; auth: string } | null>();
+
+        if (!sub) {
+          return Response.json(
+            { error: 'Subscription not found.' },
+            { status: 404 },
+          );
+        }
+
+        const result = await sendWebPushNotification(
+          sub,
+          {
+            title: '🔔 Deal Alerts Active',
+            body: 'Push notifications are successfully configured for your device!',
+            icon: '/favicon.svg',
+            data: { url: '/' },
+          },
+          {
+            publicKey: env.VAPID_PUBLIC_KEY,
+            fetchFn: fetch,
+          },
+        );
+
+        if (result.shouldDelete) {
+          await env.DB.prepare(
+            'DELETE FROM push_subscriptions WHERE endpoint = ?',
+          )
+            .bind(body.endpoint)
+            .run();
+        }
+
+        return Response.json(result);
+      }
+
       /**
        * FALLBACK: Serve from Static Assets
        */
@@ -2511,6 +2686,7 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
   matchedCount: number;
   totalDeals: number;
   sources?: { vgp: number; pnp: number; bestbuy: number };
+  notifications?: { dispatchedCount: number; purgedCount: number };
 }> {
   const { deals, sources } = await fetchAllRetailDeals({
     bestBuyApiKey: env.BESTBUY_API_KEY,
@@ -2525,17 +2701,33 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
   }
 
   const candidateRows = await env.DB.prepare(
-    `SELECT g.stable_id, g.title, g.platform_id, COALESCE(r.barcode, g.barcode) as barcode
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.ownership_status, COALESCE(r.barcode, g.barcode) as barcode
      FROM games g
      LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
   ).all<{
     stable_id: number;
+    id: string;
     title: string;
     platform_id: number;
+    ownership_status: number;
     barcode: string | null;
   }>();
 
   const candidates: CandidateGame[] = candidateRows.results || [];
+  const candidateLookup = new Map<
+    number,
+    { id: string; title: string; platform_id: number; ownership_status: number }
+  >();
+  for (const c of candidateRows.results || []) {
+    if (!candidateLookup.has(c.stable_id)) {
+      candidateLookup.set(c.stable_id, {
+        id: c.id,
+        title: c.title,
+        platform_id: c.platform_id,
+        ownership_status: c.ownership_status ?? 0,
+      });
+    }
+  }
 
   const bestDealByGame = new Map<number, RetailDealItem>();
   for (const deal of deals) {
@@ -2593,11 +2785,181 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
     }
   }
 
+  let notificationResult = { dispatchedCount: 0, purgedCount: 0 };
+  if (bestDealByGame.size > 0) {
+    notificationResult = await dispatchDealPushNotifications(
+      env,
+      candidateLookup,
+      bestDealByGame,
+    );
+  }
+
   return {
     matchedCount: bestDealByGame.size,
     totalDeals: deals.length,
     sources,
+    notifications: notificationResult,
   };
+}
+
+/**
+ * Dispatches Web Push deal notifications to active subscribers matching user preferences.
+ */
+export async function dispatchDealPushNotifications(
+  env: Env,
+  gameLookup: Map<
+    number,
+    { id: string; title: string; platform_id: number; ownership_status: number }
+  >,
+  bestDealByGame: Map<number, RetailDealItem>,
+): Promise<{ dispatchedCount: number; purgedCount: number }> {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
+    ).all<{
+      id: string;
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      preferences_json: string;
+    }>();
+
+    const subscriptions = results || [];
+    if (subscriptions.length === 0 || bestDealByGame.size === 0) {
+      return { dispatchedCount: 0, purgedCount: 0 };
+    }
+
+    let dispatchedCount = 0;
+    let purgedCount = 0;
+
+    for (const sub of subscriptions) {
+      let prefs: {
+        enabled?: boolean;
+        scope?: 'seeking_only' | 'seeking_and_unowned' | 'all';
+        minDiscountPct?: number;
+        maxPriceCents?: number | null;
+        platformIds?: number[];
+        stores?: string[];
+      } = {};
+
+      try {
+        prefs = JSON.parse(sub.preferences_json || '{}');
+      } catch {
+        prefs = {};
+      }
+
+      if (prefs.enabled === false) {
+        continue;
+      }
+
+      const scope = prefs.scope || 'seeking_only';
+      const minDiscount = prefs.minDiscountPct ?? 20;
+      const maxPrice = prefs.maxPriceCents ?? null;
+      const platformIds =
+        prefs.platformIds && prefs.platformIds.length > 0
+          ? new Set(prefs.platformIds)
+          : null;
+      const stores =
+        prefs.stores && prefs.stores.length > 0
+          ? new Set(prefs.stores.map((s) => s.toLowerCase()))
+          : null;
+
+      const matchedGames: Array<{
+        title: string;
+        slug: string;
+        deal: RetailDealItem;
+        discountPct: number;
+      }> = [];
+
+      for (const [stableId, deal] of bestDealByGame.entries()) {
+        const game = gameLookup.get(stableId);
+        if (!game) continue;
+
+        if (scope === 'seeking_only' && game.ownership_status !== 2) {
+          continue;
+        } else if (
+          scope === 'seeking_and_unowned' &&
+          game.ownership_status !== 2 &&
+          game.ownership_status !== 0
+        ) {
+          continue;
+        }
+
+        const discountPct = Math.round(Number(deal.percentSavings) || 0);
+        if (discountPct < minDiscount) {
+          continue;
+        }
+
+        const priceCents = Math.round(deal.salePrice * 100);
+        if (maxPrice !== null && priceCents > maxPrice) {
+          continue;
+        }
+
+        if (platformIds && !platformIds.has(game.platform_id)) {
+          continue;
+        }
+
+        if (stores && !stores.has(deal.store.toLowerCase())) {
+          continue;
+        }
+
+        matchedGames.push({
+          title: game.title,
+          slug: game.id,
+          deal,
+          discountPct,
+        });
+      }
+
+      if (matchedGames.length === 0) {
+        continue;
+      }
+
+      matchedGames.sort((a, b) => b.discountPct - a.discountPct);
+      const top = matchedGames[0];
+
+      let title = `Deal Alert: ${top.title}`;
+      let body = `Now $${top.deal.salePrice.toFixed(2)} (${top.discountPct}% off) at ${top.deal.store}!`;
+      if (matchedGames.length > 1) {
+        title = `Deal Alerts: ${matchedGames.length} Games On Sale`;
+        body = `${top.title} ($${top.deal.salePrice.toFixed(2)}, -${top.discountPct}%) & ${matchedGames.length - 1} more!`;
+      }
+
+      const payload: WebPushNotificationPayload = {
+        title,
+        body,
+        icon: '/favicon.svg',
+        data: {
+          url: `/item/${top.slug}`,
+        },
+      };
+
+      const result = await sendWebPushNotification(
+        { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+        payload,
+        {
+          publicKey: env.VAPID_PUBLIC_KEY,
+          fetchFn: fetch,
+        },
+      );
+
+      if (result.success) {
+        dispatchedCount++;
+      } else if (result.shouldDelete) {
+        await env.DB.prepare(
+          'DELETE FROM push_subscriptions WHERE endpoint = ?',
+        )
+          .bind(sub.endpoint)
+          .run();
+        purgedCount++;
+      }
+    }
+
+    return { dispatchedCount, purgedCount };
+  } catch (err) {
+    console.error('[WebPush] Error dispatching deal notifications:', err);
+    return { dispatchedCount: 0, purgedCount: 0 };
+  }
 }
 
 /**

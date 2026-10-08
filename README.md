@@ -10,6 +10,7 @@ A collection tracking application built with **Angular 21**.
 - **Manual Discovery Pipeline**: A suggestion-based matching workflow for ambiguous items, surfaced through a generated discovery report for human-in-the-loop verification.
 - **Data Portability & ROM Manager Integration**: Export active filtered collections directly to RFC 4180 CSV or standard Logiqx XML DAT format. Generated Logiqx DATs can be directly consumed by ROM managers (`igir`, `clrmamepro`, `RomVault`) to audit, organize, and verify physical dumps against your wishlist.
 - **Interactive Multi-Disc Expansion Trays**: Multi-disc game releases automatically display an inline disc expansion tray showing disc count, individual disc backup statuses, and allow direct 1-click backup toggling per disc.
+- **User-Configurable Web Push Deal Alerts**: Instant push notifications delivered directly to desktop and mobile devices for physical video game price drops across Best Buy, VGP, and PNP Games. Built on RFC 8291 / RFC 8292 standard Web Crypto encryption with zero third-party dependencies. Users can configure collection scope (Seeking Only, Seeking & Unowned, All Games), minimum discount threshold, retail stores allowlist, maximum price cap, and platform filters with integrated delivery verification.
 - **Signals-First Architecture & Optimized Sorting**: Leveraging Angular 21 Signals for reactive state management, accelerated with Schwartzian transforms and indexed platform candidate lookups for sub-millisecond sorting across thousands of items.
 
 ## 💻 Tech Stack
@@ -96,6 +97,11 @@ The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for 
   - **Edge Caching API**: High-traffic read routes (`/api/games`, `/api/toys`, and `/api/platforms`) utilize the Cloudflare Workers Cache API (`caches.default`) with public 5-minute edge TTLs (`Cache-Control: public, max-age=300`) and sub-millisecond edge response times. All mutation endpoints (`/api/collection/toggle`, `/api/collection/sort`, `/api/discovery/add`, `/api/discovery/add-toy`, `/api/retail/sync-deals`) trigger instant cache eviction across primary listing routes.
   - **Cloudflare R2 (Automated Daily Backups & Lifecycle Pruning)**: A scheduled worker cron trigger (`0 4 * * *`) automatically generates daily timestamped snapshots into Cloudflare R2 (`collection-backups`), preserving complete database states with zero egress fees. A rolling 30-day snapshot retention pruning cycle automatically removes backups older than 30 days to optimize storage footprint.
   - **Decoupled Local Staging**: Heavy scraping (DAT matching, IGDB ingestion, backup folder scanning) is executed locally against staging SQLite and synchronized to D1 with explicit safeguards (`npm run db:pull` and `npm run db:push`).
+- **Web Push Deal Notifications Engine (RFC 8291 / RFC 8292)**:
+  - **Zero-Dependency SubtleCrypto Implementation**: Push payload encryption (`aes128gcm`) is implemented natively in `worker/web_push.ts` using the W3C Web Cryptography API (`crypto.subtle`). It performs ECDH key agreement with P-256 subscriber keys, HKDF salt derivation, and AES-GCM record framing without third-party Node or npm crypto libraries.
+  - **RFC 8292 VAPID Authorization**: Generates ES256 JSON Web Tokens (JWT) signed via Web Crypto ECDSA for push service provider authentication across Apple Web Push, Google FCM, and Mozilla Autopush.
+  - **Multi-Dimension Preference Filtering**: The scheduled retail sync worker (`syncWorkerRetailDeals`) evaluates newly scraped price cuts against subscriber preferences stored in Cloudflare D1 (`push_subscriptions` table). Alerts are selectively dispatched based on collection scope, minimum discount percentage, store allowlist, price caps, and platform constraints.
+  - **Autonomous Subscription Pruning**: Automatically purges invalid or expired browser push subscriptions when push gateways return `404 Not Found` or `410 Gone`.
 
 ## 📦 Getting Started & Fork Setup
 
@@ -206,6 +212,7 @@ The Collection Tracker is optimized for mobile use:
 - **Offline Access**: The core application shell and game lists are cached locally, allowing you to browse your collection without an active internet connection.
 - **Safe Area Support**: Full support for modern phone displays with notches and gesture indicators.
 - **Touch-First UI**: Refined touch targets and compact layouts for one-handed use.
+- **Web Push Deal Notifications**: Native push notifications delivered directly to iOS (when installed to Home Screen) and Android devices for matching deals on games in your collection or wishlist. 1-click tap takes you directly to the game detail view and verified retailer purchase links.
 
 ### Installation
 

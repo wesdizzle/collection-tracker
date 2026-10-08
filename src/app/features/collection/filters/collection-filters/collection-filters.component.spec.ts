@@ -4,6 +4,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { SwPush } from '@angular/service-worker';
+import { of } from 'rxjs';
 import { CollectionFiltersComponent } from './collection-filters.component';
 import { FilterState } from '../../../../core/models/collection.models';
 
@@ -25,6 +27,10 @@ describe('CollectionFiltersComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
+        {
+          provide: SwPush,
+          useValue: { isEnabled: false, notificationClicks: of() },
+        },
       ],
     }).compileComponents();
 
@@ -213,5 +219,11 @@ describe('CollectionFiltersComponent', () => {
     component.onExportLogiqxDat(mockEvent);
     expect(emittedFormat).toBe('dat');
     expect(component.activeDropdown()).toBeNull();
+  });
+
+  it('should toggle notification settings modal', () => {
+    expect(component.showNotificationModal()).toBe(false);
+    component.openNotificationSettings();
+    expect(component.showNotificationModal()).toBe(true);
   });
 });

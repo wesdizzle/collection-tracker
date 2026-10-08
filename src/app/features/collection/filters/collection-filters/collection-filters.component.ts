@@ -31,11 +31,13 @@ import {
   FilterState,
   PlatformGroup,
 } from '../../../../core/models/collection.models';
+import { NotificationSettingsModalComponent } from '../../notifications/notification-settings-modal/notification-settings-modal.component';
+import { NotificationService } from '../../../../core/services/notification.service';
 
 @Component({
   selector: 'app-collection-filters',
   standalone: true,
-  imports: [FormsModule, DatePipe],
+  imports: [FormsModule, DatePipe, NotificationSettingsModalComponent],
   template: `
     <div class="filter-wrapper animate-expressive animate-stagger-1">
       <div class="mobile-filter-row desktop-hidden">
@@ -1268,6 +1270,21 @@ import {
             </button>
           }
 
+          <!-- Deal Alerts Notifications Settings Button (Games Tab Only) -->
+          @if (currentTab() === 'games') {
+            <button
+              type="button"
+              class="m3-input alerts-toggle-btn state-layer"
+              [class.active]="isNotificationSubscribed()"
+              (click)="openNotificationSettings()"
+              id="filter-deal-alerts"
+              title="Configure deal notifications"
+            >
+              <span class="alerts-icon">🔔</span>
+              <span>Deal Alerts</span>
+            </button>
+          }
+
           <!-- Export Dropdown -->
           <div
             class="input-wrapper dropdown-wrapper export-dropdown-wrapper"
@@ -1347,6 +1364,12 @@ import {
           </div>
         </div>
       </div>
+
+      @if (showNotificationModal()) {
+        <app-notification-settings-modal
+          (close)="showNotificationModal.set(false)"
+        />
+      }
     </div>
   `,
   styles: [
@@ -1786,6 +1809,38 @@ import {
         box-shadow: 0 2px 10px rgba(239, 68, 68, 0.4);
       }
 
+      .alerts-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        gap: var(--spacing-8);
+        padding: 0 1.1rem;
+        height: 46px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--m3-outline);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        font-family: var(--font-body);
+        font-size: 0.9375rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+        white-space: nowrap;
+      }
+      .alerts-toggle-btn:hover {
+        background: var(--m3-surface-container-highest);
+      }
+      .alerts-toggle-btn.active {
+        background: rgba(56, 189, 248, 0.2);
+        color: #38bdf8;
+        border-color: #38bdf8;
+        box-shadow: 0 2px 10px rgba(56, 189, 248, 0.35);
+      }
+      .alerts-icon {
+        font-size: 1.1rem;
+      }
+
       .export-trigger-btn {
         display: inline-flex;
         align-items: center;
@@ -1883,9 +1938,19 @@ import {
   ],
 })
 export class CollectionFiltersComponent {
+  public readonly notificationService = inject(NotificationService);
+
   /** --- Internal UI State --- */
   public showFilters = signal(false);
   public activeDropdown = signal<string | null>(null);
+  public showNotificationModal = signal<boolean>(false);
+  public readonly isNotificationSubscribed = computed(() =>
+    this.notificationService.isSubscribed(),
+  );
+
+  public openNotificationSettings(): void {
+    this.showNotificationModal.set(true);
+  }
 
   /** Backward-compatible computed for region dropdown open state */
   public isRegionDropdownOpen = computed(
