@@ -843,12 +843,7 @@ export function deduplicateDatReleases(
 
     const primaryRom = rel.roms[0];
 
-    // For Platform 33 (PS Vita): prefer .zip archives, do not support .psv or .vpk
-    let romName = primaryRom.name;
-    if (platformId === 33) {
-      const baseWithoutExt = rel.name.replace(/\.(vpk|psv|zip|7z)$/i, '');
-      romName = `${baseWithoutExt}.zip`;
-    }
+    const romName = primaryRom.name;
 
     if (isIgnoredFormatRelease(rel.name, romName, platformId)) {
       continue;
@@ -871,18 +866,22 @@ export function deduplicateDatReleases(
 
     let isVerifiedPhysical = 1;
     if (platformId === 33) {
-      const cleanSerial = serial
-        ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
-        : '';
-      const isKnownSerial = cleanSerial
-        ? KNOWN_VITA_PHYSICAL_SERIALS.has(cleanSerial)
-        : false;
-      const isKnownPublisher = rel.publisher
-        ? Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some((p) =>
-            rel.publisher!.toLowerCase().includes(p),
-          )
-        : false;
-      isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
+      if (romName.toLowerCase().endsWith('.psv')) {
+        isVerifiedPhysical = 1;
+      } else {
+        const cleanSerial = serial
+          ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
+          : '';
+        const isKnownSerial = cleanSerial
+          ? KNOWN_VITA_PHYSICAL_SERIALS.has(cleanSerial)
+          : false;
+        const isKnownPublisher = rel.publisher
+          ? Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some((p) =>
+              rel.publisher!.toLowerCase().includes(p),
+            )
+          : false;
+        isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
+      }
     } else if (platformId === 34 || platformId === 35) {
       const cleanSerial = serial
         ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
@@ -909,7 +908,7 @@ export function deduplicateDatReleases(
         region: region || null,
         variants: variants || null,
         rom_name: romName,
-        rom_crc: platformId === 33 ? null : primaryRom.crc || null,
+        rom_crc: primaryRom.crc || null,
         serial_code: serial || null,
         barcode: null,
         publisher: rel.publisher || null,
@@ -922,7 +921,7 @@ export function deduplicateDatReleases(
       if (isVerifiedPhysical === 1) {
         existing.is_verified_physical = 1;
       }
-      if (!existing.rom_crc && primaryRom.crc && platformId !== 33) {
+      if (!existing.rom_crc && primaryRom.crc) {
         existing.rom_crc = primaryRom.crc;
       }
       if (!existing.serial_code && serial) {

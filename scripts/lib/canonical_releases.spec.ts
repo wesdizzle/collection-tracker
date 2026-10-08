@@ -302,14 +302,14 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(deduplicated[0].region).toBe('USA');
     });
 
-    it('should prefer .zip archives, extract serial code, and normalize names for Vita (Platform 33)', () => {
+    it('should support .psv cartridge dumps with authentic CRCs and .zip archives for Vita (Platform 33)', () => {
       const rawReleases = [
         {
           name: 'Persona 4 Golden (USA)',
           serial: 'PCSE-00120',
           roms: [
             {
-              name: 'Persona 4 Golden (USA).vpk',
+              name: 'Persona 4 Golden (USA).psv',
               crc: 'ABC12345',
               serial: 'PCSE-00120',
             },
@@ -340,14 +340,16 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       const deduplicated = deduplicateDatReleases(33, rawReleases);
       expect(deduplicated).toHaveLength(3);
       expect(deduplicated[0].raw_title).toBe('Persona 4 Golden');
-      expect(deduplicated[0].rom_name).toBe('Persona 4 Golden (USA).zip');
+      expect(deduplicated[0].rom_name).toBe('Persona 4 Golden (USA).psv');
+      expect(deduplicated[0].rom_crc).toBe('ABC12345');
       expect(deduplicated[0].serial_code).toBe('PCSE-00120');
       expect(deduplicated[0].is_verified_physical).toBe(1);
 
       expect(deduplicated[1].raw_title).toBe('Uncharted - Golden Abyss');
       expect(deduplicated[1].rom_name).toBe(
-        'Uncharted - Golden Abyss (USA).zip',
+        'Uncharted - Golden Abyss (USA).psv',
       );
+      expect(deduplicated[1].rom_crc).toBe('DEADBEEF');
       expect(deduplicated[1].is_verified_physical).toBe(1);
 
       expect(deduplicated[2].raw_title).toBe('Pure Digital PSN Indie');

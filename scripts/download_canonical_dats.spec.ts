@@ -188,14 +188,23 @@ describe('Canonical DAT Downloader', () => {
     expect(fs.existsSync(preExistingPath)).toBe(true);
   });
 
-  it('should fetch and convert PlayStation Vita releases directly from NoPayStation TSV', async () => {
-    const mockNpsTsv = `Title ID\tRegion\tName\tPKG direct link\tzRIF\tContent ID\tLast Modification Date\tOriginal Name\tFile Size\tSHA256\tRequired FW\tApp Version
-PCSE00651\tUS\tAxiom Verge\thttp://pkg.link\tKO5ifR1dg...\tUP2188-PCSE00651_00-AXIOMVERGE000001\t2018-01-01\tAxiom Verge\t150000000\te3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\t3.60\t1.00`;
+  it('should fetch and save canonical PlayStation Vita PSVgameSD releases directly from mirror', async () => {
+    const mockPsvXml = `<?xml version="1.0"?>
+<datafile>
+  <header>
+    <name>Unofficial - Sony - PlayStation Vita (PSVgameSD)</name>
+  </header>
+  <game name="Assassin's Creed III - Liberation (USA)" id="z043">
+    <description>Assassin's Creed III - Liberation (USA)</description>
+    <game_id>PCSE00053</game_id>
+    <rom name="Assassin's Creed III - Liberation (USA).psv" size="3791650816" crc="06fed7b3" serial="PCSE-00053"/>
+  </game>
+</datafile>`;
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      text: async () => mockNpsTsv,
+      text: async () => mockPsvXml,
     });
     vi.stubGlobal('fetch', mockFetch);
 
@@ -206,9 +215,9 @@ PCSE00651\tUS\tAxiom Verge\thttp://pkg.link\tKO5ifR1dg...\tUP2188-PCSE00651_00-A
 
     const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
     expect(result.success).toBe(true);
-    expect(result.fileName).toBe('Sony - PlayStation Vita.dat');
+    expect(result.fileName).toBe('Sony - PlayStation Vita (PSVgameSD).dat');
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://nopaystation.com/tsv/PSV_GAMES.tsv',
+      'https://data.spludlow.co.uk/no-intro/unofficial/Unofficial%20-%20Sony%20-%20PlayStation%20Vita%20(PSVgameSD).xml',
       expect.any(Object),
     );
 
@@ -216,11 +225,11 @@ PCSE00651\tUS\tAxiom Verge\thttp://pkg.link\tKO5ifR1dg...\tUP2188-PCSE00651_00-A
     expect(fs.existsSync(savedPath)).toBe(true);
     const content = fs.readFileSync(savedPath, 'utf8');
     expect(content).toContain('<datafile>');
+    expect(content).toContain("Assassin's Creed III - Liberation (USA)");
     expect(content).toContain(
-      '<game name="Axiom Verge (USA)" serial="PCSE-00651">',
+      'rom name="Assassin\'s Creed III - Liberation (USA).psv"',
     );
-    expect(content).toContain('rom name="Axiom Verge (USA).zip"');
-    expect(content).toContain('serial="PCSE-00651"');
+    expect(content).toContain('crc="06fed7b3"');
   });
 
   it('should preserve existing PlayStation Vita DAT if network request fails', async () => {
@@ -233,17 +242,17 @@ PCSE00651\tUS\tAxiom Verge\thttp://pkg.link\tKO5ifR1dg...\tUP2188-PCSE00651_00-A
 
     const preExistingPath = path.join(
       tempTestDir,
-      'Sony - PlayStation Vita.dat',
+      'Sony - PlayStation Vita (PSVgameSD).dat',
     );
     fs.writeFileSync(
       preExistingPath,
-      '<datafile><game name="Pre-existing Vita Game (USA)"/></datafile>',
+      '<datafile><game name="Pre-existing Vita Game (USA)"><rom name="Pre-existing.psv" crc="12345678"/></game></datafile>',
       'utf8',
     );
 
     const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
     expect(result.success).toBe(true);
-    expect(result.fileName).toBe('Sony - PlayStation Vita.dat');
+    expect(result.fileName).toBe('Sony - PlayStation Vita (PSVgameSD).dat');
     expect(fs.existsSync(preExistingPath)).toBe(true);
   });
 
@@ -281,25 +290,36 @@ PCSE00651\tUS\tAxiom Verge\thttp://pkg.link\tKO5ifR1dg...\tUP2188-PCSE00651_00-A
     expect(result.fileName).toBe('Nintendo - Wii U - Datfile (541).dat');
   });
 
-  it('should fetch and convert PlayStation 4 releases directly from NoPayStation TSV', async () => {
-    const mockNpsTsv = `Title ID\tRegion\tName\tPKG direct link\tContent ID\tFile Size
-CUSA00007\tUS\tNBA 2K14\thttp://pkg.link\tUP1001-CUSA00007_00-NBA2K14000000000\t41758425088`;
+  it('should fetch and save canonical PlayStation Vita NoNpDrm releases directly from mirror', async () => {
+    const mockNonpdrmXml = `<?xml version="1.0"?>
+<datafile>
+  <header>
+    <name>Unofficial - Sony - PlayStation Vita (NoNpDrm)</name>
+  </header>
+  <game name="Bloodstained - Curse of the Moon (USA)" id="z100">
+    <description>Bloodstained - Curse of the Moon (USA)</description>
+    <game_id>PCSE01270</game_id>
+    <rom name="PCSE01270\\\\eboot.bin" size="5000000" crc="aabbccdd" serial="PCSE-01270"/>
+  </game>
+</datafile>`;
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      text: async () => mockNpsTsv,
+      text: async () => mockNonpdrmXml,
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    const ps4Target = NO_INTRO_TARGETS.find((t) => t.name === 'PlayStation 4')!;
-    expect(ps4Target).toBeDefined();
+    const nonpdrmTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'PlayStation Vita (NoNpDrm)',
+    )!;
+    expect(nonpdrmTarget).toBeDefined();
 
-    const result = await downloadNoIntroDat(ps4Target, tempTestDir);
+    const result = await downloadNoIntroDat(nonpdrmTarget, tempTestDir);
     expect(result.success).toBe(true);
-    expect(result.fileName).toBe('Sony - PlayStation 4.dat');
+    expect(result.fileName).toBe('Sony - PlayStation Vita (NoNpDrm).dat');
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://nopaystation.com/tsv/PS4_GAMES.tsv',
+      'https://data.spludlow.co.uk/no-intro/unofficial/Unofficial%20-%20Sony%20-%20PlayStation%20Vita%20(NoNpDrm).xml',
       expect.any(Object),
     );
 
@@ -307,28 +327,29 @@ CUSA00007\tUS\tNBA 2K14\thttp://pkg.link\tUP1001-CUSA00007_00-NBA2K14000000000\t
     expect(fs.existsSync(savedPath)).toBe(true);
     const content = fs.readFileSync(savedPath, 'utf8');
     expect(content).toContain('<datafile>');
-    expect(content).toContain('<name>Sony - PlayStation 4</name>');
-    expect(content).toContain(
-      '<game name="NBA 2K14 (USA)" serial="CUSA-00007">',
-    );
-    expect(content).toContain('rom name="NBA 2K14 (USA).zip"');
+    expect(content).toContain('Bloodstained - Curse of the Moon (USA)');
   });
 
-  it('should preserve existing PlayStation 4 DAT if network request fails', async () => {
+  it('should preserve existing PlayStation Vita NoNpDrm DAT if network request fails', async () => {
     const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
     vi.stubGlobal('fetch', mockFetch);
 
-    const ps4Target = NO_INTRO_TARGETS.find((t) => t.name === 'PlayStation 4')!;
-    const preExistingPath = path.join(tempTestDir, 'Sony - PlayStation 4.dat');
+    const nonpdrmTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'PlayStation Vita (NoNpDrm)',
+    )!;
+    const preExistingPath = path.join(
+      tempTestDir,
+      'Sony - PlayStation Vita (NoNpDrm).dat',
+    );
     fs.writeFileSync(
       preExistingPath,
-      '<datafile><game name="Pre-existing PS4 Game (USA)"/></datafile>',
+      '<datafile><game name="Pre-existing NoNpDrm Game"/></datafile>',
       'utf8',
     );
 
-    const result = await downloadNoIntroDat(ps4Target, tempTestDir);
+    const result = await downloadNoIntroDat(nonpdrmTarget, tempTestDir);
     expect(result.success).toBe(true);
-    expect(result.fileName).toBe('Sony - PlayStation 4.dat');
+    expect(result.fileName).toBe('Sony - PlayStation Vita (NoNpDrm).dat');
     expect(fs.existsSync(preExistingPath)).toBe(true);
   });
 

@@ -19,7 +19,6 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { convertNswdbXmlToLogiqxDat } from './convert_nswdb.js';
-import { convertNpsTsvToLogiqxDat } from './convert_nps.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,7 +110,6 @@ export const REDUMP_WIP_TARGETS: RedumpWipPlatformTarget[] = [
     slug: 'ps4',
     canonicalFileName: 'Sony - PlayStation 4.dat',
     pattern: /^Sony\s*-\s*PlayStation 4/i,
-    communityUrl: 'http://nopaystation.com/tsv/PS4_GAMES.tsv',
     mirrorUrls: [
       'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
     ],
@@ -289,15 +287,17 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
   },
   {
     name: 'PlayStation Vita',
-    remoteFileName: 'Sony - PlayStation Vita.dat',
-    canonicalFileName: 'Sony - PlayStation Vita.dat',
-    pattern: /^Sony\s*-\s*PlayStation Vita(?!\s*\()/i,
+    remoteFileName: 'Unofficial - Sony - PlayStation Vita (PSVgameSD).xml',
+    canonicalFileName: 'Sony - PlayStation Vita (PSVgameSD).dat',
+    pattern:
+      /^(?:Unofficial\s*-\s*)?Sony\s*-\s*PlayStation Vita(?!\s*\(NoNpDrm\))/i,
   },
   {
-    name: 'PlayStation 4',
-    remoteFileName: 'Sony - PlayStation 4.dat',
-    canonicalFileName: 'Sony - PlayStation 4.dat',
-    pattern: /^Sony\s*-\s*PlayStation 4(?!\s*(?:VR|\())/i,
+    name: 'PlayStation Vita (NoNpDrm)',
+    remoteFileName: 'Unofficial - Sony - PlayStation Vita (NoNpDrm).xml',
+    canonicalFileName: 'Sony - PlayStation Vita (NoNpDrm).dat',
+    pattern:
+      /^(?:Unofficial\s*-\s*)?Sony\s*-\s*PlayStation Vita\s*\(NoNpDrm\)/i,
   },
   {
     name: 'Sega Master System',
@@ -660,14 +660,6 @@ game (
     }
   }
 
-  if (fileName.includes('PlayStation Vita') || fileName.includes('Vita')) {
-    // -------------------------------------------------------------------------
-    // Patch: PlayStation Vita NoNpDrm / Archive normalization
-    // Normalizes .vpk and .psv ROM definitions to preferred .zip archives.
-    // -------------------------------------------------------------------------
-    content = content.replace(/\.vpk"/g, '.zip"').replace(/\.psv"/g, '.zip"');
-  }
-
   return content;
 }
 
@@ -828,34 +820,36 @@ export async function downloadNoIntroDat(
     }
   }
 
-  if (target.name === 'PlayStation Vita') {
-    // 1. Check if a local PSV_GAMES.tsv exists in datsDir
-    const localTsvPath = path.join(datsDir, 'PSV_GAMES.tsv');
-    let tsvContent = '';
-    if (fs.existsSync(localTsvPath)) {
+  if (
+    target.name === 'PlayStation Vita' ||
+    target.name === 'PlayStation Vita (NoNpDrm)'
+  ) {
+    const rawBaseName = target.remoteFileName.replace(/\.(?:xml|dat)$/i, '');
+    const spludlowUrl = `https://data.spludlow.co.uk/no-intro/unofficial/${encodeURIComponent(rawBaseName)}.xml`;
+
+    let xmlContent = '';
+
+    // 1. Check if a local manual XML exists in datsDir
+    const localXmlPath = path.join(datsDir, `${rawBaseName}.xml`);
+    if (fs.existsSync(localXmlPath)) {
       try {
-        tsvContent = fs.readFileSync(localTsvPath, 'utf8');
-        // Clean up immediately so dats/ remains strictly .dat files
-        fs.unlinkSync(localTsvPath);
+        xmlContent = fs.readFileSync(localXmlPath, 'utf8');
+        fs.unlinkSync(localXmlPath);
       } catch {
         // ignore read error
       }
     }
 
-    // 2. Fetch online directly from NoPayStation if no local file was found
-    if (!tsvContent) {
+    // 2. Fetch from Spludlow official No-Intro mirror if no local file was found
+    if (!xmlContent) {
       try {
-        const response = await fetch(
-          'http://nopaystation.com/tsv/PSV_GAMES.tsv',
-          {
-            headers: {
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            },
+        const response = await fetch(spludlowUrl, {
+          headers: {
+            'User-Agent': 'CollectionTracker/2.0 (DAT Synchronizer)',
           },
-        );
+        });
         if (response.ok) {
-          tsvContent = await response.text();
+          xmlContent = await response.text();
         }
       } catch (fetchErr) {
         if (fs.existsSync(finalDestination)) {
@@ -864,99 +858,39 @@ export async function downloadNoIntroDat(
         }
         return {
           success: false,
-          error: `Could not fetch from nopaystation.com: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+          error: `Could not fetch from Spludlow mirror: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
         };
       }
     }
 
-    if (!tsvContent || !tsvContent.includes('Title ID')) {
+    if (!xmlContent || !xmlContent.includes('<datafile')) {
       if (fs.existsSync(finalDestination)) {
         const size = fs.statSync(finalDestination).size;
         return { success: true, fileName: canonicalName, sizeBytes: size };
       }
       return {
         success: false,
-        error: 'Failed to retrieve valid NoPayStation TSV.',
+        error: `Failed to retrieve valid No-Intro XML for ${target.name}.`,
       };
     }
 
-    try {
-      const { datContent } = convertNpsTsvToLogiqxDat(tsvContent);
-      fs.writeFileSync(finalDestination, datContent, 'utf8');
-      const size = fs.statSync(finalDestination).size;
-      return { success: true, fileName: canonicalName, sizeBytes: size };
-    } catch (convErr) {
-      return {
-        success: false,
-        error: `Could not convert NoPayStation TSV: ${convErr instanceof Error ? convErr.message : String(convErr)}`,
-      };
-    }
-  }
-
-  if (target.name === 'PlayStation 4') {
-    // 1. Check if a local PS4_GAMES.tsv exists in datsDir
-    const localTsvPath = path.join(datsDir, 'PS4_GAMES.tsv');
-    let tsvContent = '';
-    if (fs.existsSync(localTsvPath)) {
-      try {
-        tsvContent = fs.readFileSync(localTsvPath, 'utf8');
-        fs.unlinkSync(localTsvPath);
-      } catch {
-        // ignore read error
-      }
-    }
-
-    // 2. Fetch online directly from NoPayStation if no local file was found
-    if (!tsvContent) {
-      try {
-        const response = await fetch(
-          'http://nopaystation.com/tsv/PS4_GAMES.tsv',
-          {
-            headers: {
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            },
-          },
-        );
-        if (response.ok) {
-          tsvContent = await response.text();
+    // Remove any older conflicting files matching target.pattern in destinationDir
+    if (fs.existsSync(destinationDir)) {
+      const existingFiles = fs.readdirSync(destinationDir);
+      for (const file of existingFiles) {
+        if (file !== canonicalName && target.pattern.test(file)) {
+          try {
+            fs.unlinkSync(path.join(destinationDir, file));
+          } catch {
+            // ignore removal error
+          }
         }
-      } catch (fetchErr) {
-        if (fs.existsSync(finalDestination)) {
-          const size = fs.statSync(finalDestination).size;
-          return { success: true, fileName: canonicalName, sizeBytes: size };
-        }
-        return {
-          success: false,
-          error: `Could not fetch from nopaystation.com: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
-        };
       }
     }
 
-    if (!tsvContent || !tsvContent.includes('Title ID')) {
-      if (fs.existsSync(finalDestination)) {
-        const size = fs.statSync(finalDestination).size;
-        return { success: true, fileName: canonicalName, sizeBytes: size };
-      }
-      return {
-        success: false,
-        error: 'Failed to retrieve valid NoPayStation TSV.',
-      };
-    }
-
-    try {
-      const { datContent } = convertNpsTsvToLogiqxDat(tsvContent, {
-        platformName: 'Sony - PlayStation 4',
-      });
-      fs.writeFileSync(finalDestination, datContent, 'utf8');
-      const size = fs.statSync(finalDestination).size;
-      return { success: true, fileName: canonicalName, sizeBytes: size };
-    } catch (convErr) {
-      return {
-        success: false,
-        error: `Could not convert NoPayStation TSV: ${convErr instanceof Error ? convErr.message : String(convErr)}`,
-      };
-    }
+    fs.writeFileSync(finalDestination, xmlContent, 'utf8');
+    const size = fs.statSync(finalDestination).size;
+    return { success: true, fileName: canonicalName, sizeBytes: size };
   }
 
   if (target.manualOnly) {

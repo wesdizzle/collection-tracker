@@ -542,12 +542,12 @@ export function isIgnoredFormatRelease(
   ];
   if (badExtensions.includes(ext)) return true;
 
-  // PlayStation Vita (Platform 33): Prefer .zip archives; do not support .psv or .vpk
+  // PlayStation Vita (Platform 33): Support canonical .psv images and .zip archives; reject .vpk
   if (platformId === 33) {
-    if (ext === '.psv' || ext === '.vpk') {
+    if (ext === '.vpk') {
       return true;
     }
-    if (ext !== '.zip' && ext !== '.7z' && ext !== '') {
+    if (ext !== '.psv' && ext !== '.zip' && ext !== '.7z' && ext !== '') {
       return true;
     }
   }
@@ -630,7 +630,7 @@ export function isPlatformMatch(
       .replace(/parent-clone/gi, '')
       .toLowerCase()
       .replace(
-        /\b(nintendo|sony|sega|microsoft|philips|atari|tiger|snk|nec|panasonic|mattel|coleco|bandai|casio|fujitsu|interton|pce|tg16|interactive multimedia system|interactive multiplayer|interactive multimedia|video computer system|mark iii|bigendian|byteswapped|headered|headerless|decrypted|encrypted|bin|lyx|a78|j64|jag|abs|cof|rom|psvgamesd|blackfinpsv|nonpdrm|parentclone|parent clone)\b/gi,
+        /\b(unofficial|nintendo|sony|sega|microsoft|philips|atari|tiger|snk|nec|panasonic|mattel|coleco|bandai|casio|fujitsu|interton|pce|tg16|interactive multimedia system|interactive multiplayer|interactive multimedia|video computer system|mark iii|bigendian|byteswapped|headered|headerless|decrypted|encrypted|bin|lyx|a78|j64|jag|abs|cof|rom|psvgamesd|blackfinpsv|nonpdrm|parentclone|parent clone)\b/gi,
         '',
       )
       .replace(/[^a-z0-9]/g, '');

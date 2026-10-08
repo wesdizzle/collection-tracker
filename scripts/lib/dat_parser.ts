@@ -41,7 +41,7 @@ export function parseDatFile(filePath: string): DatFileContent {
 
   // Check if file is XML (<datafile>) or CLRMamePro plain text
   if (
-    fileContent.includes('<datafile>') ||
+    fileContent.includes('<datafile') ||
     fileContent.trim().startsWith('<?xml')
   ) {
     return parseXmlDat(fileContent, filePath);
