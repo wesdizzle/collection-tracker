@@ -21,6 +21,8 @@ describe('CollectionService', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(() => {
+    sessionStorage.clear();
+    localStorage.clear();
     TestBed.configureTestingModule({
       providers: [
         CollectionService,
@@ -36,6 +38,8 @@ describe('CollectionService', () => {
   });
 
   afterEach(() => {
+    sessionStorage.clear();
+    localStorage.clear();
     httpMock.verify();
   });
 
@@ -87,7 +91,7 @@ describe('CollectionService', () => {
       service.updateListState(mockState);
       expect(service.gamesState()).toEqual(mockState);
 
-      const saved = sessionStorage.getItem('gagglog_list_state_games');
+      const saved = sessionStorage.getItem('app_list_state_games');
       expect(saved).toBeTruthy();
       expect(JSON.parse(saved!)).toEqual(mockState);
     });
@@ -101,17 +105,33 @@ describe('CollectionService', () => {
         scrollY: 1000,
       };
 
-      sessionStorage.setItem(
-        'gagglog_list_state_toys',
-        JSON.stringify(mockState),
-      );
+      sessionStorage.setItem('app_list_state_toys', JSON.stringify(mockState));
       service.loadPersistedState();
 
       expect(service.toysState()).toEqual(mockState);
     });
 
+    it('should fallback to legacy gagglog_list_state keys when app_list_state is absent', () => {
+      sessionStorage.removeItem('app_list_state_toys');
+      const legacyState = {
+        tab: 'toys' as const,
+        filters: { ownership: 'owned' as const },
+        displayLimit: 150,
+        scrollX: 0,
+        scrollY: 200,
+      };
+
+      sessionStorage.setItem(
+        'gagglog_list_state_toys',
+        JSON.stringify(legacyState),
+      );
+      service.loadPersistedState();
+
+      expect(service.toysState()).toEqual(legacyState);
+    });
+
     it('should handle malformed JSON in sessionStorage', () => {
-      sessionStorage.setItem('gagglog_list_state_games', 'invalid-json');
+      sessionStorage.setItem('app_list_state_games', 'invalid-json');
       // Should not throw
       service.loadPersistedState();
       expect(service.gamesState()).toBeNull();

@@ -1,7 +1,7 @@
 /**
  * COLLECTION SERVICE
  *
- * Central data orchestrator for the Gagglog Collection Tracker.
+ * Central data orchestrator for the Collection Tracker.
  * Manages the state of games, toys, and platforms using Angular Signals.
  * Handles API interactions, local state persistence via sessionStorage,
  * and data discovery workflows.
@@ -87,7 +87,9 @@ export class CollectionService {
    * Hydrates the lastUpdated signal from localStorage.
    */
   private loadLastUpdated() {
-    const saved = localStorage.getItem('gagglog_last_updated');
+    const saved =
+      localStorage.getItem('app_last_updated') ??
+      localStorage.getItem('gagglog_last_updated');
     if (saved) {
       const date = new Date(saved);
       if (!isNaN(date.getTime())) {
@@ -104,10 +106,7 @@ export class CollectionService {
   public persistState(tab: 'games' | 'toys') {
     const state = tab === 'games' ? this._gamesState() : this._toysState();
     if (state) {
-      sessionStorage.setItem(
-        `gagglog_list_state_${tab}`,
-        JSON.stringify(state),
-      );
+      sessionStorage.setItem(`app_list_state_${tab}`, JSON.stringify(state));
     }
   }
 
@@ -141,7 +140,9 @@ export class CollectionService {
    */
   public loadPersistedState() {
     ['games', 'toys'].forEach((tab) => {
-      const saved = sessionStorage.getItem(`gagglog_list_state_${tab}`);
+      const saved =
+        sessionStorage.getItem(`app_list_state_${tab}`) ??
+        sessionStorage.getItem(`gagglog_list_state_${tab}`);
       if (saved) {
         try {
           const state = JSON.parse(saved);
@@ -168,6 +169,8 @@ export class CollectionService {
   public resetListState() {
     this._gamesState.set(null);
     this._toysState.set(null);
+    sessionStorage.removeItem('app_list_state_games');
+    sessionStorage.removeItem('app_list_state_toys');
     sessionStorage.removeItem('gagglog_list_state_games');
     sessionStorage.removeItem('gagglog_list_state_toys');
   }
@@ -219,7 +222,7 @@ export class CollectionService {
       if (typeof window !== 'undefined' && window.navigator.onLine) {
         const now = new Date();
         this._lastUpdated.set(now);
-        localStorage.setItem('gagglog_last_updated', now.toISOString());
+        localStorage.setItem('app_last_updated', now.toISOString());
       }
     } catch (err: unknown) {
       console.error('[CollectionService] Global refresh failed:', err);

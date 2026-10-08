@@ -1330,4 +1330,89 @@ describe('Worker API Logic', () => {
       expect(row).toBeUndefined();
     });
   });
+
+  describe('Branding & Dynamic Configuration Endpoints', () => {
+    it('GET /api/config returns default branding when env is unset', async () => {
+      const req = new Request('http://localhost/api/config');
+      const res = await worker.fetch(req, mockEnv);
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as {
+        appName: string;
+        shortName: string;
+        tagline: string;
+      };
+      expect(data.appName).toBe('Collection Tracker');
+      expect(data.shortName).toBe('Tracker');
+      expect(data.tagline).toBe('Physical Game & Toy Collection Tracker');
+    });
+
+    it('GET /api/config returns custom branding when env variables are provided', async () => {
+      const customEnv = {
+        ...mockEnv,
+        APP_NAME: 'Gagglog',
+        APP_SHORT_NAME: 'Gagglog',
+        APP_TAGLINE: 'Cataloging an Eclectic Gaggle of Games',
+      };
+      const req = new Request('http://localhost/api/config');
+      const res = await worker.fetch(req, customEnv);
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as {
+        appName: string;
+        shortName: string;
+        tagline: string;
+      };
+      expect(data.appName).toBe('Gagglog');
+      expect(data.shortName).toBe('Gagglog');
+      expect(data.tagline).toBe('Cataloging an Eclectic Gaggle of Games');
+    });
+
+    it('GET /manifest.webmanifest returns dynamic app name', async () => {
+      const customEnv = {
+        ...mockEnv,
+        APP_NAME: 'Gagglelog',
+        APP_SHORT_NAME: 'Gaggle',
+      };
+      const req = new Request('http://localhost/manifest.webmanifest');
+      const res = await worker.fetch(req, customEnv);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toContain(
+        'application/manifest+json',
+      );
+      const data = (await res.json()) as {
+        name: string;
+        short_name: string;
+      };
+      expect(data.name).toBe('Gagglelog');
+      expect(data.short_name).toBe('Gaggle');
+    });
+
+    it('GET /api/admin/logout sets domain-agnostic cookies based on request host', async () => {
+      const req = new Request('https://tracker.example.com/api/admin/logout');
+      const res = await worker.fetch(req, mockEnv);
+
+      expect(res.status).toBe(200);
+      const cookies = res.headers.getSetCookie();
+      expect(
+        cookies.some((c) => c.includes('Domain=tracker.example.com')),
+      ).toBe(true);
+    });
+
+    it('GET /favicon.svg returns custom SVG when env.CUSTOM_FAVICON_SVG is set', async () => {
+      const customSvg = '<svg viewBox="0 0 10 10"><circle r="5"/></svg>';
+      const customEnv = {
+        ...mockEnv,
+        CUSTOM_FAVICON_SVG: customSvg,
+      };
+      const req = new Request('http://localhost/favicon.svg');
+      const res = await worker.fetch(req, customEnv);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toContain('image/svg+xml');
+      const text = await res.text();
+      expect(text).toBe(customSvg);
+    });
+  });
 });

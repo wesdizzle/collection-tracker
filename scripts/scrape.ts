@@ -1632,7 +1632,7 @@ async function runScraper(): Promise<void> {
     return;
   }
 
-  console.log('--- Starting Gagglog Reconciliation Phase ---');
+  console.log('--- Starting Collection Tracker Reconciliation Phase ---');
   const unmatchedGames: UnmatchedItem[] = [];
   const syncSuggestions: SyncSuggestion[] = [];
   const updateChanges: UpdateChange[] = [];

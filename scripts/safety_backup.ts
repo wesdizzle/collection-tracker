@@ -44,7 +44,7 @@ const tables = db
 
 const stats: Record<string, number> = {};
 let sqlDump =
-  '-- Gagglog Collection Tracker Cold SQL Dump\n-- Generated on ' +
+  '-- Collection Tracker Cold SQL Dump\n-- Generated on ' +
   new Date().toISOString() +
   '\nPRAGMA foreign_keys = OFF;\n\n';
 const jsonDump: Record<string, unknown[]> = {};

@@ -35,6 +35,7 @@ import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller } from '@angular/common';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { ExportService } from '../../../../core/services/export.service';
+import { BrandingService } from '../../../../core/services/branding.service';
 import {
   Game,
   Toy,
@@ -1162,6 +1163,7 @@ export class CollectionListComponent
 {
   private collectionService = inject(CollectionService);
   private exportService = inject(ExportService);
+  private branding = inject(BrandingService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private viewportScroller = inject(ViewportScroller);
@@ -2864,7 +2866,7 @@ export class CollectionListComponent
           games,
           platformName
             ? `${platformName} Collection Wishlist`
-            : 'Gagglog Games Collection Wishlist',
+            : `${this.branding.appName()} Games Collection Wishlist`,
         );
       }
     } else {

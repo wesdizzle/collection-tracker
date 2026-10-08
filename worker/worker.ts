@@ -2,7 +2,7 @@
  * PRODUCTION CLOUDFLARE WORKER
  *
  * This worker acts as the edge API, static asset server, and automated backup engine
- * for the Gagglog Collection Tracker.
+ * for the Collection Tracker.
  *
  * ARCHITECTURAL DESIGN:
  * 1. **Centralized Query Sharing**: Imports SQL constants and PLATFORM_MAP from `../scripts/lib/queries`
@@ -71,6 +71,11 @@ export interface Env {
   BESTBUY_API_KEY?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
+  APP_NAME?: string;
+  APP_SHORT_NAME?: string;
+  APP_TAGLINE?: string;
+  APP_AUTHOR?: string;
+  CUSTOM_FAVICON_SVG?: string;
 }
 
 interface DbGame {
@@ -458,7 +463,7 @@ export default {
 
     // Direct /robots.txt handler for search engines and crawlers
     if (path === '/robots.txt') {
-      const robotsTxt = `# Robots.txt for Gagglog Collection Tracker
+      const robotsTxt = `# Robots.txt for Collection Tracker
 User-agent: *
 Disallow: /api/
 Disallow: /discovery/
@@ -1847,7 +1852,7 @@ Disallow: /
         });
         res.headers.append(
           'Set-Cookie',
-          'CF_AppSession=; Path=/; Domain=gagglog.wesleymiller.me; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
+          `CF_AppSession=; Path=/; Domain=${url.hostname}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
         );
         res.headers.append(
           'Set-Cookie',
@@ -1855,7 +1860,7 @@ Disallow: /
         );
         res.headers.append(
           'Set-Cookie',
-          'CF_Authorization=; Path=/; Domain=gagglog.wesleymiller.me; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
+          `CF_Authorization=; Path=/; Domain=${url.hostname}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
         );
         res.headers.append(
           'Set-Cookie',
@@ -2628,6 +2633,73 @@ Disallow: /
         }
 
         return Response.json(result);
+      }
+
+      // Endpoint: GET /api/config
+      else if (request.method === 'GET' && path === '/api/config') {
+        const appName = env.APP_NAME || 'Collection Tracker';
+        const shortName = env.APP_SHORT_NAME || 'Tracker';
+        const tagline =
+          env.APP_TAGLINE || 'Physical Game & Toy Collection Tracker';
+        const authorName = env.APP_AUTHOR || appName;
+        return Response.json(
+          {
+            appName,
+            shortName,
+            tagline,
+            authorName,
+            logoUrl: '/favicon.svg',
+          },
+          {
+            headers: {
+              'Cache-Control': 'public, max-age=3600',
+            },
+          },
+        );
+      }
+
+      // Endpoint: GET /manifest.webmanifest
+      else if (request.method === 'GET' && path === '/manifest.webmanifest') {
+        const appName = env.APP_NAME || 'Collection Tracker';
+        const shortName = env.APP_SHORT_NAME || 'Tracker';
+        return Response.json(
+          {
+            name: appName,
+            short_name: shortName,
+            start_url: '/',
+            display: 'standalone',
+            background_color: '#121214',
+            theme_color: '#1e1e24',
+            icons: [
+              {
+                src: '/favicon.svg',
+                sizes: 'any',
+                type: 'image/svg+xml',
+                purpose: 'any maskable',
+              },
+            ],
+          },
+          {
+            headers: {
+              'Content-Type': 'application/manifest+json; charset=utf-8',
+              'Cache-Control': 'public, max-age=3600',
+            },
+          },
+        );
+      }
+
+      // Endpoint: GET /favicon.svg (override if provided via env)
+      else if (
+        request.method === 'GET' &&
+        path === '/favicon.svg' &&
+        env.CUSTOM_FAVICON_SVG
+      ) {
+        return new Response(env.CUSTOM_FAVICON_SVG, {
+          headers: {
+            'Content-Type': 'image/svg+xml; charset=utf-8',
+            'Cache-Control': 'public, max-age=86400',
+          },
+        });
       }
 
       /**

@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
+import { BrandingService } from '../../../../core/services/branding.service';
 
 @Component({
   selector: 'app-collection-layout',
@@ -11,8 +12,12 @@ import { CollectionService } from '../../../../core/services/collection.service'
       <header class="main-header">
         <div class="header-left">
           <a routerLink="/collection/games" class="brand-link state-layer">
-            <img src="/favicon.svg" alt="Gagglog Icon" class="brand-icon" />
-            <h1 class="brand-title">Gagglog</h1>
+            <img
+              [src]="branding.logoUrl()"
+              [alt]="branding.appName() + ' Icon'"
+              class="brand-icon"
+            />
+            <h1 class="brand-title">{{ branding.appName() }}</h1>
           </a>
         </div>
 
@@ -99,7 +104,7 @@ import { CollectionService } from '../../../../core/services/collection.service'
 
       <footer class="main-footer">
         <div class="footer-divider"></div>
-        <p class="footer-copy">Gagglog &copy; 2026</p>
+        <p class="footer-copy">{{ branding.appName() }} &copy; 2026</p>
       </footer>
     </div>
   `,
@@ -327,6 +332,7 @@ export class CollectionLayoutComponent {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private collectionService = inject(CollectionService);
+  public readonly branding = inject(BrandingService);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
   public isAdmin = this.collectionService.isAdmin;
 
@@ -342,7 +348,8 @@ export class CollectionLayoutComponent {
       });
     }
 
-    const saved = localStorage.getItem('gagglog-theme') as
+    const saved = (localStorage.getItem('app-theme') ??
+      localStorage.getItem('gagglog-theme')) as
       | 'light'
       | 'dark'
       | 'auto'
@@ -367,7 +374,7 @@ export class CollectionLayoutComponent {
     const modes: ('light' | 'dark' | 'auto')[] = ['light', 'dark', 'auto'];
     const next = modes[(modes.indexOf(this.theme()) + 1) % modes.length];
     this.theme.set(next);
-    localStorage.setItem('gagglog-theme', next);
+    localStorage.setItem('app-theme', next);
     this.applyTheme(next);
   }
 

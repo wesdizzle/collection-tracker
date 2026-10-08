@@ -1,6 +1,6 @@
 {
-  "name": "Gagglog Collection Tracker",
-  "short_name": "Gagglog",
+  "name": "Collection Tracker",
+  "short_name": "Tracker",
   "theme_color": "#17130b",
   "background_color": "#17130b",
   "display": "standalone",

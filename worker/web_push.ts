@@ -136,7 +136,7 @@ export async function createVapidAuthHeader(
 ): Promise<string> {
   const publicKey = options?.publicKey || DEFAULT_VAPID_PUBLIC_KEY;
   const jwk = options?.privateKeyJwk || DEFAULT_VAPID_JWK;
-  const subject = options?.subject || 'mailto:admin@gagglog.com';
+  const subject = options?.subject || 'mailto:admin@collection-tracker.local';
 
   const origin = new URL(endpoint).origin;
   const exp = Math.floor(Date.now() / 1000) + 12 * 3600; // 12 hours expiry

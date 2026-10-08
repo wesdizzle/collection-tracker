@@ -17,14 +17,16 @@ export const DEFAULT_DEAL_PREFERENCES: DealNotificationPreferences = {
   stores: ['Best Buy', 'VGP', 'PNP Games'],
 };
 
-const STORAGE_KEY_PREFS = 'gagglog_deal_notification_prefs';
-const STORAGE_KEY_ENDPOINT = 'gagglog_push_endpoint';
+const STORAGE_KEY_PREFS = 'app_deal_notification_prefs';
+const STORAGE_KEY_ENDPOINT = 'app_push_endpoint';
+const LEGACY_STORAGE_KEY_PREFS = 'gagglog_deal_notification_prefs';
+const LEGACY_STORAGE_KEY_ENDPOINT = 'gagglog_push_endpoint';
 
 /**
  * NOTIFICATION SERVICE
  *
  * Manages Web Push subscriptions and user-configurable deal notification
- * preferences for the Gagglog Collection Tracker PWA.
+ * preferences for the Collection Tracker PWA.
  */
 @Injectable({
   providedIn: 'root',
@@ -64,13 +66,17 @@ export class NotificationService {
     // Load persisted local preferences
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
-        const storedPrefs = localStorage.getItem(STORAGE_KEY_PREFS);
+        const storedPrefs =
+          localStorage.getItem(STORAGE_KEY_PREFS) ??
+          localStorage.getItem(LEGACY_STORAGE_KEY_PREFS);
         if (storedPrefs) {
           const parsed = JSON.parse(storedPrefs);
           this.preferences.set({ ...DEFAULT_DEAL_PREFERENCES, ...parsed });
         }
 
-        const storedEndpoint = localStorage.getItem(STORAGE_KEY_ENDPOINT);
+        const storedEndpoint =
+          localStorage.getItem(STORAGE_KEY_ENDPOINT) ??
+          localStorage.getItem(LEGACY_STORAGE_KEY_ENDPOINT);
         if (storedEndpoint) {
           this.currentEndpoint.set(storedEndpoint);
           this.isSubscribed.set(true);
@@ -203,6 +209,7 @@ export class NotificationService {
 
       if (typeof window !== 'undefined' && window.localStorage) {
         localStorage.removeItem(STORAGE_KEY_ENDPOINT);
+        localStorage.removeItem(LEGACY_STORAGE_KEY_ENDPOINT);
         localStorage.setItem(STORAGE_KEY_PREFS, JSON.stringify(updatedPrefs));
       }
 

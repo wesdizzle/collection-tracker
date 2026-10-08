@@ -1665,7 +1665,7 @@ describe('CollectionListComponent', () => {
     component.onExportRequested('dat');
     expect(datSpy).toHaveBeenCalledWith(
       component.filteredGames(),
-      'Gagglog Games Collection Wishlist',
+      'Collection Tracker Games Collection Wishlist',
     );
   });
 

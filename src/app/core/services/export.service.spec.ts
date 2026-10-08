@@ -1,5 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import '../../../test-setup';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import {
+  provideHttpClientTesting,
+  HttpTestingController,
+} from '@angular/common/http/testing';
 import { ExportService } from './export.service';
+import { BrandingService } from './branding.service';
 import {
   Game,
   Toy,
@@ -9,9 +17,25 @@ import {
 
 describe('ExportService', () => {
   let service: ExportService;
+  let httpTesting: HttpTestingController;
 
   beforeEach(() => {
-    service = new ExportService();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        BrandingService,
+        ExportService,
+      ],
+    });
+    service = TestBed.inject(ExportService);
+    httpTesting = TestBed.inject(HttpTestingController);
+    httpTesting.expectOne('/api/config').flush({});
+  });
+
+  afterEach(() => {
+    httpTesting.verify();
+    TestBed.resetTestingModule();
   });
 
   const mockGames: Game[] = [
@@ -125,7 +149,7 @@ describe('ExportService', () => {
         '<!DOCTYPE datafile PUBLIC "-//Logiqx//DTD ROMs//EN"',
       );
       expect(xml).toContain('<name>My Curated Collection</name>');
-      expect(xml).toContain('<author>Gagglog Collection Tracker</author>');
+      expect(xml).toContain('<author>Collection Tracker</author>');
 
       // NES game
       expect(xml).toContain('<game name="Super Mario Bros. (USA)">');

@@ -313,7 +313,7 @@ export async function fetchBestBuyDeals(
     const res = await fetchFn(url, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'GagglogCollectionTracker/1.0',
+        'User-Agent': 'CollectionTracker/1.0',
       },
     });
 
@@ -370,7 +370,7 @@ export async function fetchVgpDeals(
     const res = await fetchFn(url, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'GagglogCollectionTracker/1.0',
+        'User-Agent': 'CollectionTracker/1.0',
       },
     });
 
@@ -472,7 +472,7 @@ export async function fetchPnpDeals(
     const res = await fetchFn(url, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'GagglogCollectionTracker/1.0',
+        'User-Agent': 'CollectionTracker/1.0',
       },
     });
 

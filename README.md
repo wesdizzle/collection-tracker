@@ -1,4 +1,4 @@
-# Gagglog Collection Tracker
+# Collection Tracker
 
 A collection tracking application built with **Angular 21**.
 
@@ -58,7 +58,7 @@ The application prioritizes a consistent browsing context by isolating collectio
 
 - **Isolated Contexts**: Your active filters and scroll position on the Games page are stored separately from those on the Toys page. Switching between the two tabs will restore each respective state exactly as you left it.
 - **Intelligent Name/Series Filtering**: The name/series filter is case and accent insensitive (e.g., searching for `poke` will match both the `Pokémon` series and items with `Pokémon` in their name/title), and supports substring matching for improved searchability.
-- **Persistent Context**: Clicking the "Gagglog" brand logo, using the browser's back button, or navigating via the "Back to Collection" link will all maintain your active context for the current tab.
+- **Persistent Context**: Clicking the brand logo, using the browser's back button, or navigating via the "Back to Collection" link will all maintain your active context for the current tab.
 
 ### Metadata Reconciliation & Discovery
 
@@ -164,6 +164,25 @@ Configure your Twitch credentials as Cloudflare Worker Secrets so the Edge API c
 npx wrangler secret put TWITCH_CLIENT_ID
 npx wrangler secret put TWITCH_CLIENT_SECRET
 ```
+
+#### 🎨 Configurable Branding & White-Label Identity
+
+The repository defaults to **Collection Tracker** as a neutral, open-source fallback. Deployers can customize their instance's title, mobile PWA name, tagline, author metadata, and favicon without modifying git-tracked source code:
+
+| Variable             | Description                                                                        | Default                                            |
+| :------------------- | :--------------------------------------------------------------------------------- | :------------------------------------------------- |
+| `APP_NAME`           | Primary application title displayed in header, page titles, and Logiqx DAT exports | `Collection Tracker`                               |
+| `APP_SHORT_NAME`     | Short name for mobile PWA home screen tiles                                        | `Tracker`                                          |
+| `APP_TAGLINE`        | App description and SEO meta description                                           | `Physical Game & Toy Collection Tracker`           |
+| `APP_AUTHOR`         | Author credit included in exported CSV and DAT files                               | `Collection Tracker`                               |
+| `CUSTOM_FAVICON_SVG` | Optional raw SVG text override served at `/favicon.svg`                            | Modern geometric cartridge emblem (`/favicon.svg`) |
+
+- **Local Development**: Add overrides directly to `.dev.vars` (e.g. `APP_NAME="Gagglog"`).
+- **Production (Cloudflare Workers)**: Set via Cloudflare Dashboard under **Workers & Pages > Settings > Variables and Secrets**, or via Wrangler:
+  ```bash
+  npx wrangler secret put APP_NAME
+  ```
+- **Dynamic Manifest & Endpoints**: The backend serves a runtime-generated Web App Manifest (`/manifest.webmanifest`), runtime branding config (`/api/config`), and dynamic favicon (`/favicon.svg`), while cookie domains dynamically follow `request.headers.get('Host')` so the application runs seamlessly on any custom domain or Cloudflare subdomain.
 
 ### 🔍 Edge-Native Discovery & 3-Tier Physical Verification
 

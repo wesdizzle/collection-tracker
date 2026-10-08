@@ -40,4 +40,9 @@ describe('CollectionLayoutComponent', () => {
     const brandLink = fixture.nativeElement.querySelector('.brand-link');
     expect(brandLink.getAttribute('routerlink')).toBe('/collection/games');
   });
+
+  it('should render brand title from BrandingService', () => {
+    const brandTitle = fixture.nativeElement.querySelector('.brand-title');
+    expect(brandTitle.textContent.trim()).toBe('Collection Tracker');
+  });
 });

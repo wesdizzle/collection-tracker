@@ -21,7 +21,7 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
   it('should generate a valid VAPID authorization header', async () => {
     const endpoint = 'https://fcm.googleapis.com/fcm/send/fake-sub-token';
     const authHeader = await createVapidAuthHeader(endpoint, {
-      subject: 'mailto:test@gagglog.com',
+      subject: 'mailto:test@example.com',
       publicKey: DEFAULT_VAPID_PUBLIC_KEY,
       privateKeyJwk: DEFAULT_VAPID_JWK,
     });
@@ -48,7 +48,7 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     expect(header.alg).toBe('ES256');
     expect(header.typ).toBe('JWT');
     expect(claims.aud).toBe('https://fcm.googleapis.com');
-    expect(claims.sub).toBe('mailto:test@gagglog.com');
+    expect(claims.sub).toBe('mailto:test@example.com');
     expect(claims.exp).toBeGreaterThan(Math.floor(Date.now() / 1000));
   });
 

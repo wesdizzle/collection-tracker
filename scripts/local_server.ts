@@ -1761,6 +1761,54 @@ export const handleRequest =
         }
       }
 
+      // GET /api/config
+      else if (req.method === 'GET' && pathname === '/api/config') {
+        const appName = process.env['APP_NAME'] || 'Collection Tracker';
+        const shortName = process.env['APP_SHORT_NAME'] || 'Tracker';
+        const tagline =
+          process.env['APP_TAGLINE'] ||
+          'Physical Game & Toy Collection Tracker';
+        const authorName = process.env['APP_AUTHOR'] || appName;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(
+          JSON.stringify({
+            appName,
+            shortName,
+            tagline,
+            authorName,
+            logoUrl: '/favicon.svg',
+          }),
+        );
+      }
+
+      // GET /manifest.webmanifest
+      else if (req.method === 'GET' && pathname === '/manifest.webmanifest') {
+        const appName = process.env['APP_NAME'] || 'Collection Tracker';
+        const shortName = process.env['APP_SHORT_NAME'] || 'Tracker';
+        res.setHeader(
+          'Content-Type',
+          'application/manifest+json; charset=utf-8',
+        );
+        res.end(
+          JSON.stringify({
+            name: appName,
+            short_name: shortName,
+            start_url: '/',
+            display: 'standalone',
+            background_color: '#121214',
+            theme_color: '#1e1e24',
+            icons: [
+              {
+                src: '/favicon.svg',
+                sizes: 'any',
+                type: 'image/svg+xml',
+                purpose: 'any maskable',
+              },
+            ],
+          }),
+        );
+      }
+
       // GET /api/notifications/vapid-public-key
       else if (
         req.method === 'GET' &&
