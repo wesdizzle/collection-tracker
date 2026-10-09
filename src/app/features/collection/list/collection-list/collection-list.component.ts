@@ -92,28 +92,15 @@ interface GameGroup {
             <div class="platform-section mb-xl">
               <header class="platform-header">
                 <div class="header-content">
-                  <div class="platform-logo-frame">
-                    @if (group.platformLogo) {
+                  @if (group.platformLogo) {
+                    <div class="platform-logo-frame">
                       <img
                         [src]="group.platformLogo"
                         [alt]="group.platformName"
                         class="platform-logo"
                       />
-                    } @else {
-                      <div class="platform-logo-placeholder">
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="20"
-                          height="20"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm3-3c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
-                          />
-                        </svg>
-                      </div>
-                    }
-                  </div>
+                    </div>
+                  }
                   <h2 class="platform-title">
                     <span>{{ group.platformName }}</span>
                     @if (group.launchYear) {
@@ -501,20 +488,6 @@ interface GameGroup {
             <div class="platform-section mb-xl">
               <header class="platform-header">
                 <div class="header-content">
-                  <div class="platform-logo-frame">
-                    <div class="platform-logo-placeholder">
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="20"
-                        height="20"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"
-                        />
-                      </svg>
-                    </div>
-                  </div>
                   <h2 class="platform-title uppercase letter-spacing-wide">
                     {{ group.lineName }}
                   </h2>
@@ -729,11 +702,6 @@ interface GameGroup {
         max-height: 100%;
         object-fit: contain;
         filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
-      }
-      .platform-logo-placeholder {
-        font-weight: 700;
-        color: var(--m3-primary);
-        font-family: var(--font-heading);
       }
       .platform-title {
         font-size: 1.25rem;
