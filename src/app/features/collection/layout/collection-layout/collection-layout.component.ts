@@ -2,11 +2,12 @@ import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { BrandingService } from '../../../../core/services/branding.service';
+import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
   selector: 'app-collection-layout',
   standalone: true,
-  imports: [RouterModule],
+  imports: [RouterModule, IconComponent],
   template: `
     <div class="layout-container">
       <header class="main-header">
@@ -32,11 +33,11 @@ import { BrandingService } from '../../../../core/services/branding.service';
             [title]="'Theme: ' + theme()"
           >
             @if (theme() === 'light') {
-              ☀️
+              <app-icon name="sun" [size]="18" />
             } @else if (theme() === 'dark') {
-              🌙
+              <app-icon name="moon" [size]="18" />
             } @else {
-              🌗
+              <app-icon name="sun-moon" [size]="18" />
             }
           </button>
 
@@ -50,9 +51,9 @@ import { BrandingService } from '../../../../core/services/branding.service';
             "
           >
             @if (isAdmin()) {
-              🔓
+              <app-icon name="unlock" [size]="18" />
             } @else {
-              🔒
+              <app-icon name="lock" [size]="18" />
             }
           </button>
 

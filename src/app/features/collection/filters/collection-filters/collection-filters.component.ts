@@ -33,11 +33,17 @@ import {
 } from '../../../../core/models/collection.models';
 import { NotificationSettingsModalComponent } from '../../notifications/notification-settings-modal/notification-settings-modal.component';
 import { NotificationService } from '../../../../core/services/notification.service';
+import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
   selector: 'app-collection-filters',
   standalone: true,
-  imports: [FormsModule, DatePipe, NotificationSettingsModalComponent],
+  imports: [
+    FormsModule,
+    DatePipe,
+    NotificationSettingsModalComponent,
+    IconComponent,
+  ],
   template: `
     <div class="filter-wrapper animate-expressive animate-stagger-1">
       <div class="mobile-filter-row desktop-hidden">
@@ -45,7 +51,13 @@ import { NotificationService } from '../../../../core/services/notification.serv
           class="m3-button m3-button-tonal"
           (click)="showFilters.set(!showFilters())"
         >
-          <span class="icon">{{ showFilters() ? '✕' : '🔍' }}</span>
+          <span class="icon">
+            @if (showFilters()) {
+              <app-icon name="close" [size]="16" />
+            } @else {
+              <app-icon name="seeking" [size]="16" />
+            }
+          </span>
           <span>{{ showFilters() ? 'Hide Filters' : 'Show Filters' }}</span>
         </button>
         @if (!showFilters()) {
@@ -1265,7 +1277,9 @@ import { NotificationService } from '../../../../core/services/notification.serv
               id="filter-deals-only"
               title="Show only games currently on sale or clearance"
             >
-              <span class="deals-icon">🔥</span>
+              <span class="deals-icon"
+                ><app-icon name="flame" [size]="16"
+              /></span>
               <span>Deals Only</span>
             </button>
           }
@@ -1280,7 +1294,9 @@ import { NotificationService } from '../../../../core/services/notification.serv
               id="filter-deal-alerts"
               title="Configure deal notifications"
             >
-              <span class="alerts-icon">🔔</span>
+              <span class="alerts-icon"
+                ><app-icon name="bell" [size]="16"
+              /></span>
               <span>Deal Alerts</span>
             </button>
           }
@@ -1300,7 +1316,9 @@ import { NotificationService } from '../../../../core/services/notification.serv
               aria-haspopup="listbox"
               [attr.aria-expanded]="activeDropdown() === 'export'"
             >
-              <span class="export-icon">💾</span>
+              <span class="export-icon"
+                ><app-icon name="rom-archive" [size]="16"
+              /></span>
               <span class="trigger-text">Export</span>
               <span class="dropdown-icon-wrapper" aria-hidden="true">
                 <svg

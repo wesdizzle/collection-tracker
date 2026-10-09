@@ -47,6 +47,7 @@ import {
   OwnershipStatus,
 } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
+import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 interface GameGroup {
   platformName: string;
@@ -60,7 +61,7 @@ interface GameGroup {
 @Component({
   selector: 'app-collection-list',
   standalone: true,
-  imports: [RouterModule, CollectionFiltersComponent],
+  imports: [RouterModule, CollectionFiltersComponent, IconComponent],
   template: `
     <div class="animate-expressive" data-version="final-v12">
       <app-collection-filters
@@ -237,8 +238,9 @@ interface GameGroup {
                             <span
                               class="physical-release-badge"
                               title="Catalog Signature Matched (No-Intro/Redump)"
-                              >📦</span
                             >
+                              <app-icon name="physical-box" [size]="14" />
+                            </span>
                           } @else if (
                             game.physical_status === 'digital_extracted_rom' ||
                             game.release_medium === 'digital_extracted_rom'
@@ -246,8 +248,9 @@ interface GameGroup {
                             <span
                               class="digital-extracted-badge"
                               title="Archival Extracted ROM (Official VC/NSO/Compilation)"
-                              >💾</span
                             >
+                              <app-icon name="rom-archive" [size]="14" />
+                            </span>
                           }
                           @if (
                             (game.bundle_count && game.bundle_count > 0) ||
@@ -262,10 +265,11 @@ interface GameGroup {
                                   game.bundled_games?.length) +
                                 ' Included Game/Disc in Box'
                               "
-                              >💿 +{{
-                                game.bundle_count || game.bundled_games?.length
-                              }}</span
                             >
+                              <app-icon name="disc" [size]="12" /> +{{
+                                game.bundle_count || game.bundled_games?.length
+                              }}
+                            </span>
                           }
                         </div>
                         @if (game.release_date) {
@@ -345,7 +349,7 @@ interface GameGroup {
                                 : '')
                             "
                           >
-                            🔥
+                            <app-icon name="flame" [size]="14" />
                             {{
                               game.retail_discount_pct
                                 ? game.retail_discount_pct + '% OFF · '
@@ -372,8 +376,8 @@ interface GameGroup {
                                 ' cheaper than PriceCharting CIB used value'
                               "
                             >
-                              ⚡ Save {{ '$' + (savings / 100).toFixed(2) }} vs
-                              Used
+                              <app-icon name="zap" [size]="14" /> Save
+                              {{ '$' + (savings / 100).toFixed(2) }} vs Used
                             </span>
                           }
                         </div>
@@ -401,7 +405,7 @@ interface GameGroup {
                             (click)="onToggleCase($event, game)"
                             title="Toggle Case / Box Ownership"
                           >
-                            📦 Case
+                            <app-icon name="physical-box" [size]="14" /> Case
                           </button>
                           <button
                             type="button"
@@ -410,7 +414,7 @@ interface GameGroup {
                             (click)="onToggleManual($event, game)"
                             title="Toggle Manual Ownership"
                           >
-                            📖 Manual
+                            <app-icon name="book-open" [size]="14" /> Manual
                           </button>
                         </div>
                       }
@@ -426,9 +430,10 @@ interface GameGroup {
                             class="multi-disc-header flex items-center justify-between"
                           >
                             <span
-                              class="multi-disc-label text-2xs uppercase letter-spacing-wide"
+                              class="multi-disc-label text-2xs uppercase letter-spacing-wide flex items-center gap-1"
                             >
-                              💿 {{ game.discIds.length }} Discs
+                              <app-icon name="disc" [size]="12" />
+                              {{ game.discIds.length }} Discs
                             </span>
                             <span
                               class="multi-disc-status text-2xs"

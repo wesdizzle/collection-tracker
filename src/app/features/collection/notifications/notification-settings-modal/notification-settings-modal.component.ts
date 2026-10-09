@@ -9,6 +9,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NotificationService } from '../../../../core/services/notification.service';
 import { DealNotificationPreferences } from '../../../../core/models/collection.models';
+import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 interface PlatformOption {
   id: number;
@@ -27,7 +28,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
 @Component({
   selector: 'app-notification-settings-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, IconComponent],
   template: `
     <div
       class="modal-backdrop fade-in"
@@ -40,7 +41,9 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         <!-- Header -->
         <div class="modal-header">
           <div class="flex items-center gap-xs">
-            <span class="header-icon">🔔</span>
+            <span class="header-icon"
+              ><app-icon name="bell" [size]="20"
+            /></span>
             <h2 id="modal-title" class="modal-title">Deal Alert Settings</h2>
           </div>
           <button
@@ -49,7 +52,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             (click)="close.emit()"
             aria-label="Close settings"
           >
-            ✕
+            <app-icon name="close" [size]="18" />
           </button>
         </div>
 
@@ -58,7 +61,9 @@ const COMMON_PLATFORMS: PlatformOption[] = [
           <!-- Browser Support & Permission Banners -->
           @if (!notificationService.isSupported()) {
             <div class="alert-banner warning">
-              <span class="banner-icon">⚠️</span>
+              <span class="banner-icon"
+                ><app-icon name="alert-triangle" [size]="18"
+              /></span>
               <div>
                 <strong>Web Push Unsupported</strong>
                 <p class="text-xs mt-3xs">
@@ -70,7 +75,9 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             </div>
           } @else if (notificationService.permissionState() === 'denied') {
             <div class="alert-banner danger">
-              <span class="banner-icon">🚫</span>
+              <span class="banner-icon"
+                ><app-icon name="ban" [size]="18"
+              /></span>
               <div>
                 <strong>Notifications Blocked</strong>
                 <p class="text-xs mt-3xs">
@@ -766,7 +773,7 @@ export class NotificationSettingsModalComponent {
       this.testMessage.set(
         ok
           ? '✓ Test alert sent! Check your notification tray.'
-          : '⚠️ Failed to send test alert. Verify site permissions.',
+          : 'Failed to send test alert. Verify site permissions.',
       );
     } finally {
       this.isTestingAlert.set(false);

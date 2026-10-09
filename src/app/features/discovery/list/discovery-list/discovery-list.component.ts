@@ -35,11 +35,12 @@ import {
   Toy,
 } from '../../../../core/models/collection.models';
 import { RouterModule } from '@angular/router';
+import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
   selector: 'app-discovery-list',
   standalone: true,
-  imports: [RouterModule],
+  imports: [RouterModule, IconComponent],
   template: `
     <div class="discovery-container">
       <!-- Header Area -->
@@ -57,21 +58,27 @@ import { RouterModule } from '@angular/router';
           [class.active]="activeTab() === 'search'"
           (click)="activeTab.set('search')"
         >
-          <span class="tab-icon">🔍</span> Game Search
+          <span class="tab-icon flex items-center gap-xs"
+            ><app-icon name="seeking" [size]="16" /> Game Search</span
+          >
         </button>
         <button
           class="tab-button"
           [class.active]="activeTab() === 'scan'"
           (click)="activeTab.set('scan')"
         >
-          <span class="tab-icon">🔄</span> Franchise Discovery
+          <span class="tab-icon flex items-center gap-xs"
+            ><app-icon name="compass" [size]="16" /> Franchise Discovery</span
+          >
         </button>
         <button
           class="tab-button"
           [class.active]="activeTab() === 'amiibo'"
           (click)="activeTab.set('amiibo')"
         >
-          <span class="tab-icon">👾</span> Amiibo Discovery
+          <span class="tab-icon flex items-center gap-xs"
+            ><app-icon name="figure-toy" [size]="16" /> Amiibo Discovery</span
+          >
           @if (amiiboResults().length > 0) {
             <span class="tab-badge">{{ amiiboResults().length }}</span>
           }
@@ -84,7 +91,9 @@ import { RouterModule } from '@angular/router';
           <!-- Control Panel -->
           <div class="search-controls mb-lg">
             <div class="m3-input-wrapper">
-              <span class="input-prefix-icon">🔍</span>
+              <span class="input-prefix-icon"
+                ><app-icon name="seeking" [size]="16"
+              /></span>
               <input
                 #queryInput
                 type="text"
@@ -146,7 +155,9 @@ import { RouterModule } from '@angular/router';
 
           @if (searchError()) {
             <div class="error-banner mb-md">
-              <span class="icon">⚠️</span>
+              <span class="icon"
+                ><app-icon name="alert-triangle" [size]="16"
+              /></span>
               <p>{{ searchError() }}</p>
             </div>
           }
@@ -158,7 +169,9 @@ import { RouterModule } from '@angular/router';
             !searchPerformed()
           ) {
             <div class="empty-state">
-              <div class="empty-icon text-4xl">🔍</div>
+              <div class="empty-icon text-4xl">
+                <app-icon name="seeking" [size]="48" />
+              </div>
               <h3>Begin Manual Search</h3>
               <p class="text-secondary">
                 Select a platform and type a title above to discover matches
@@ -174,7 +187,9 @@ import { RouterModule } from '@angular/router';
             searchPerformed()
           ) {
             <div class="empty-state animate-slide-up">
-              <div class="empty-icon text-4xl">📭</div>
+              <div class="empty-icon text-4xl">
+                <app-icon name="inbox-empty" [size]="48" />
+              </div>
               <h3>No Games Found on IGDB</h3>
               <p class="text-secondary mb-md">
                 We couldn't find any games matching "{{ lastQuery() }}" on the
@@ -197,7 +212,9 @@ import { RouterModule } from '@angular/router';
             searchPerformed()
           ) {
             <div class="empty-state animate-slide-up">
-              <div class="empty-icon text-4xl">⚪</div>
+              <div class="empty-icon text-4xl">
+                <app-icon name="circle-empty" [size]="48" />
+              </div>
               <h3>All {{ searchResults().length }} Results are Digital-Only</h3>
               <p class="text-secondary mb-md">
                 Uncheck "Hide Digital-Only" above to view digital releases for
@@ -239,7 +256,13 @@ import { RouterModule } from '@angular/router';
                           <span
                             class="physical-badge verified"
                             title="Canonical Physical Cartridge / Disc Match"
-                            >🟢 Verified Physical</span
+                            class="flex items-center gap-2xs"
+                            ><app-icon
+                              name="circle-fill"
+                              [size]="12"
+                              class="text-emerald-500"
+                            />
+                            Verified Physical</span
                           >
                         } @else if (
                           game.physical_status === 'likely_physical'
@@ -247,13 +270,25 @@ import { RouterModule } from '@angular/router';
                           <span
                             class="physical-badge likely"
                             title="Modern Retail Publisher / Barcode Match"
-                            >🟡 Likely Physical</span
+                            class="flex items-center gap-2xs"
+                            ><app-icon
+                              name="circle-half"
+                              [size]="12"
+                              class="text-amber-500"
+                            />
+                            Likely Physical</span
                           >
                         } @else if (game.physical_status === 'digital_only') {
                           <span
                             class="physical-badge digital"
                             title="Digital-Only / Virtual Console Re-release"
-                            >⚪ Digital Only</span
+                            class="flex items-center gap-2xs"
+                            ><app-icon
+                              name="circle-empty"
+                              [size]="12"
+                              class="text-slate-400"
+                            />
+                            Digital Only</span
                           >
                         }
                       </div>
@@ -321,9 +356,15 @@ import { RouterModule } from '@angular/router';
                     (click)="triggerSeriesScan()"
                   >
                     @if (selectedSeries()) {
-                      🔍 Scan {{ selectedSeries() }}
+                      <span class="flex items-center gap-xs"
+                        ><app-icon name="seeking" [size]="16" /> Scan
+                        {{ selectedSeries() }}</span
+                      >
                     } @else {
-                      🧭 Scan All Franchises (Progressive)
+                      <span class="flex items-center gap-xs"
+                        ><app-icon name="compass" [size]="16" /> Scan All
+                        Franchises (Progressive)</span
+                      >
                     }
                   </button>
                 }
@@ -378,7 +419,9 @@ import { RouterModule } from '@angular/router';
             !scanError()
           ) {
             <div class="scan-cta-card">
-              <div class="text-4xl mb-md">🧭</div>
+              <div class="text-4xl mb-md flex justify-center">
+                <app-icon name="compass" [size]="48" />
+              </div>
               <h2>Franchise Discovery</h2>
               <p class="text-secondary mb-lg max-w-md mx-auto">
                 Scan all {{ trackedSeriesList().length }} tracked franchises
@@ -390,9 +433,15 @@ import { RouterModule } from '@angular/router';
                 (click)="triggerSeriesScan()"
               >
                 @if (selectedSeries()) {
-                  🔍 Scan {{ selectedSeries() }}
+                  <span class="flex items-center gap-xs"
+                    ><app-icon name="seeking" [size]="16" /> Scan
+                    {{ selectedSeries() }}</span
+                  >
                 } @else {
-                  🔄 Start Progressive Franchise Scan
+                  <span class="flex items-center gap-xs"
+                    ><app-icon name="refresh" [size]="16" /> Start Progressive
+                    Franchise Scan</span
+                  >
                 }
               </button>
             </div>
@@ -413,7 +462,9 @@ import { RouterModule } from '@angular/router';
           <!-- Scan Error State -->
           @if (scanError()) {
             <div class="error-banner mb-md">
-              <span class="icon">⚠️</span>
+              <span class="icon"
+                ><app-icon name="alert-triangle" [size]="16"
+              /></span>
               <p>{{ scanError() }}</p>
             </div>
           }
@@ -426,7 +477,9 @@ import { RouterModule } from '@angular/router';
             scanPerformed()
           ) {
             <div class="empty-state animate-slide-up">
-              <div class="empty-icon text-4xl">🎉</div>
+              <div class="empty-icon text-4xl">
+                <app-icon name="sparkles" [size]="48" />
+              </div>
               <h3>All Tracked Franchises Reconciled!</h3>
               <p class="text-secondary mb-md">
                 No missing canonical entries were found for your tracked
@@ -436,7 +489,9 @@ import { RouterModule } from '@angular/router';
                 class="m3-btn m3-btn-secondary btn-sm"
                 (click)="triggerSeriesScan()"
               >
-                🔄 Scan Again
+                <span class="flex items-center gap-xs"
+                  ><app-icon name="refresh" [size]="16" /> Scan Again</span
+                >
               </button>
             </div>
           }
@@ -448,7 +503,9 @@ import { RouterModule } from '@angular/router';
             !scanError()
           ) {
             <div class="empty-state animate-slide-up">
-              <div class="empty-icon text-4xl">⚪</div>
+              <div class="empty-icon text-4xl">
+                <app-icon name="circle-empty" [size]="48" />
+              </div>
               <h3>
                 All {{ scanResults().length }} Suggestions are Digital-Only
               </h3>
@@ -540,7 +597,13 @@ import { RouterModule } from '@angular/router';
                             <span
                               class="physical-badge verified"
                               title="Canonical Physical Cartridge / Disc Match"
-                              >🟢 Verified Physical</span
+                              class="flex items-center gap-2xs"
+                              ><app-icon
+                                name="circle-fill"
+                                [size]="12"
+                                class="text-emerald-500"
+                              />
+                              Verified Physical</span
                             >
                           } @else if (
                             game.physical_status === 'likely_physical'
@@ -548,13 +611,25 @@ import { RouterModule } from '@angular/router';
                             <span
                               class="physical-badge likely"
                               title="Modern Retail Publisher / Barcode Match"
-                              >🟡 Likely Physical</span
+                              class="flex items-center gap-2xs"
+                              ><app-icon
+                                name="circle-half"
+                                [size]="12"
+                                class="text-amber-500"
+                              />
+                              Likely Physical</span
                             >
                           } @else if (game.physical_status === 'digital_only') {
                             <span
                               class="physical-badge digital"
                               title="Digital-Only / Virtual Console Re-release"
-                              >⚪ Digital Only</span
+                              class="flex items-center gap-2xs"
+                              ><app-icon
+                                name="circle-empty"
+                                [size]="12"
+                                class="text-slate-400"
+                              />
+                              Digital Only</span
                             >
                           }
                           @if (game.collections) {
@@ -600,7 +675,9 @@ import { RouterModule } from '@angular/router';
             !amiiboPerformed()
           ) {
             <div class="scan-cta-card">
-              <div class="text-4xl mb-md">👾</div>
+              <div class="text-4xl mb-md flex justify-center">
+                <app-icon name="figure-toy" [size]="48" />
+              </div>
               <h2>Scan Amiibo Catalog</h2>
               <p class="text-secondary mb-lg max-w-md mx-auto">
                 Query the canonical AmiiboAPI database to discover newly
@@ -611,7 +688,10 @@ import { RouterModule } from '@angular/router';
                 class="m3-btn m3-btn-primary"
                 (click)="triggerAmiiboScan()"
               >
-                👾 Scan Missing Amiibo
+                <span class="flex items-center gap-xs"
+                  ><app-icon name="figure-toy" [size]="16" /> Scan Missing
+                  Amiibo</span
+                >
               </button>
             </div>
           }
@@ -631,7 +711,9 @@ import { RouterModule } from '@angular/router';
           <!-- Scan Error State -->
           @if (amiiboError()) {
             <div class="error-banner mb-md">
-              <span class="icon">⚠️</span>
+              <span class="icon"
+                ><app-icon name="alert-triangle" [size]="16"
+              /></span>
               <p>{{ amiiboError() }}</p>
             </div>
           }
@@ -644,7 +726,9 @@ import { RouterModule } from '@angular/router';
             amiiboPerformed()
           ) {
             <div class="empty-state animate-slide-up">
-              <div class="empty-icon text-4xl">🎉</div>
+              <div class="empty-icon text-4xl">
+                <app-icon name="sparkles" [size]="48" />
+              </div>
               <h3>All Amiibo Reconciled!</h3>
               <p class="text-secondary mb-md">
                 Your collection includes every amiibo currently registered in
@@ -654,7 +738,9 @@ import { RouterModule } from '@angular/router';
                 class="m3-btn m3-btn-secondary btn-sm"
                 (click)="triggerAmiiboScan()"
               >
-                🔄 Scan Again
+                <span class="flex items-center gap-xs"
+                  ><app-icon name="refresh" [size]="16" /> Scan Again</span
+                >
               </button>
             </div>
           }
@@ -848,16 +934,37 @@ import { RouterModule } from '@angular/router';
                       game.platform || 'Unknown Platform'
                     }}</span>
                     @if (game.physical_status === 'verified_physical') {
-                      <span class="physical-badge verified"
-                        >🟢 Verified Physical</span
+                      <span
+                        class="physical-badge verified"
+                        class="flex items-center gap-2xs"
+                        ><app-icon
+                          name="circle-fill"
+                          [size]="12"
+                          class="text-emerald-500"
+                        />
+                        Verified Physical</span
                       >
                     } @else if (game.physical_status === 'likely_physical') {
-                      <span class="physical-badge likely"
-                        >🟡 Likely Physical</span
+                      <span
+                        class="physical-badge likely"
+                        class="flex items-center gap-2xs"
+                        ><app-icon
+                          name="circle-half"
+                          [size]="12"
+                          class="text-amber-500"
+                        />
+                        Likely Physical</span
                       >
                     } @else if (game.physical_status === 'digital_only') {
-                      <span class="physical-badge digital"
-                        >⚪ Digital Only</span
+                      <span
+                        class="physical-badge digital"
+                        class="flex items-center gap-2xs"
+                        ><app-icon
+                          name="circle-empty"
+                          [size]="12"
+                          class="text-slate-400"
+                        />
+                        Digital Only</span
                       >
                     }
                   </div>
@@ -1050,7 +1157,9 @@ import { RouterModule } from '@angular/router';
     @if (toastMessage()) {
       <div class="m3-toast-container animate-toast">
         <div class="m3-toast-card">
-          <span class="m3-toast-icon">✨</span>
+          <span class="m3-toast-icon"
+            ><app-icon name="sparkles" [size]="18"
+          /></span>
           <span class="m3-toast-text">{{ toastMessage() }}</span>
           <button class="m3-toast-close" (click)="toastMessage.set(null)">
             &times;

@@ -30,11 +30,13 @@ import {
 import { combineLatest, of, Observable } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { IconComponent } from '../../../../shared/components/icon/icon.component';
+import { IconName } from '../../../../shared/components/icon/icon.catalog';
 
 @Component({
   selector: 'app-item-detail',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, RouterModule, IconComponent],
   template: `
     @if (item(); as i) {
       <div class="container animate-expressive pb-xl" data-version="final-v12">
@@ -64,7 +66,11 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 [class.active]="g.play_status !== 0"
                 (click)="onEditPlayed(g)"
               >
-                <span class="icon">{{ getPlayStatusIcon(g.play_status) }}</span>
+                <span class="icon"
+                  ><app-icon
+                    [name]="getPlayStatusIconName(g.play_status)"
+                    [size]="14"
+                /></span>
                 <span>{{ getPlayStatusText(g.play_status) }}</span>
               </div>
               <div
@@ -72,15 +78,12 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 [class.active]="g.ownership_status !== 0"
                 (click)="onEditOwnership(g, 'game')"
               >
-                <span class="icon">{{
-                  g.ownership_status === 1
-                    ? '✅'
-                    : g.ownership_status === 2
-                      ? '🔍'
-                      : g.ownership_status === 3
-                        ? '📦'
-                        : '⭕'
-                }}</span>
+                <span class="icon">
+                  <app-icon
+                    [name]="getOwnershipStatusIconName(g.ownership_status)"
+                    [size]="14"
+                  />
+                </span>
                 <span>{{
                   g.ownership_status === 1
                     ? 'Owned'
@@ -97,7 +100,9 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   target="_blank"
                   class="stat-pill active igdb interactive"
                 >
-                  <span class="icon">🆔</span>
+                  <span class="icon"
+                    ><app-icon name="verified-badge" [size]="14"
+                  /></span>
                   <span>IGDB Verified</span>
                 </a>
               }
@@ -106,12 +111,16 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 g.release_medium === 'digital_extracted_rom'
               ) {
                 <div class="stat-pill active extracted-rom">
-                  <span class="icon">💾</span>
+                  <span class="icon"
+                    ><app-icon name="rom-archive" [size]="14"
+                  /></span>
                   <span>Extracted Archival ROM</span>
                 </div>
               } @else if (g.rom_name) {
                 <div class="stat-pill active physical-release">
-                  <span class="icon">📦</span>
+                  <span class="icon"
+                    ><app-icon name="physical-box" [size]="14"
+                  /></span>
                   <span>Catalog Signature Matched</span>
                 </div>
               } @else if (
@@ -120,7 +129,9 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 g.release_medium !== 'unreleased_prototype'
               ) {
                 <div class="stat-pill physical-release">
-                  <span class="icon">📦</span>
+                  <span class="icon"
+                    ><app-icon name="physical-box" [size]="14"
+                  /></span>
                   <span>Physical Retail Release (Modern Platform)</span>
                 </div>
               }
@@ -132,15 +143,12 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 [class.active]="t.ownership_status !== 0"
                 (click)="onEditOwnership(t, 'toy')"
               >
-                <span class="icon">{{
-                  t.ownership_status === 1
-                    ? '✅'
-                    : t.ownership_status === 2
-                      ? '🔍'
-                      : t.ownership_status === 3
-                        ? '📦'
-                        : '⭕'
-                }}</span>
+                <span class="icon">
+                  <app-icon
+                    [name]="getOwnershipStatusIconName(t.ownership_status)"
+                    [size]="14"
+                  />
+                </span>
                 <span>{{
                   t.ownership_status === 1
                     ? 'Owned'
@@ -158,7 +166,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   class="stat-pill active physical interactive"
                   style="text-decoration: none;"
                 >
-                  <span class="icon">🔗</span>
+                  <span class="icon"><app-icon name="link" [size]="14" /></span>
                   <span>{{ source.label }}</span>
                 </a>
               }
@@ -341,9 +349,16 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                                 class="stat-pill"
                                 [class.active]="!!b.backup_status"
                               >
-                                <span class="icon">{{
-                                  b.backup_status ? '💾' : '❌'
-                                }}</span>
+                                <span class="icon">
+                                  <app-icon
+                                    [name]="
+                                      b.backup_status
+                                        ? 'rom-archive'
+                                        : 'missing-dump'
+                                    "
+                                    [size]="14"
+                                  />
+                                </span>
                                 <span>{{
                                   b.backup_status ? 'Backed Up' : 'No Backup'
                                 }}</span>
@@ -381,9 +396,11 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                                     release.is_companion_base_disc &&
                                     release.companion_game_id
                                   ) {
-                                    <span class="companion-disc-note text-xs">
-                                      🔗 Identical disc master to original
-                                      release:
+                                    <span
+                                      class="companion-disc-note text-xs flex items-center gap-xs"
+                                    >
+                                      <app-icon name="link" [size]="12" />
+                                      Identical disc master to original release:
                                       <a
                                         [routerLink]="[
                                           '/collection',
@@ -399,8 +416,11 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                                       </a>
                                     </span>
                                   } @else if (release.companion_game_id) {
-                                    <span class="companion-disc-note text-xs">
-                                      🔗 Standalone game:
+                                    <span
+                                      class="companion-disc-note text-xs flex items-center gap-xs"
+                                    >
+                                      <app-icon name="link" [size]="12" />
+                                      Standalone game:
                                       <a
                                         [routerLink]="[
                                           '/collection',
@@ -435,7 +455,8 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                                 <div
                                   class="rom-text warning-text font-mono mb-2xs"
                                 >
-                                  ⚠️ No dump exists in community DAT files
+                                  <app-icon name="alert-triangle" [size]="14" />
+                                  No dump exists in community DAT files
                                 </div>
                               }
                               @if (release.rom_crc) {
@@ -453,9 +474,15 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                                 (click)="onToggleDiscBackup(release)"
                                 title="Toggle Backup Status"
                               >
-                                <span class="icon">{{
-                                  release.backup_status ? '💾' : '❌'
-                                }}</span>
+                                <span class="icon"
+                                  ><app-icon
+                                    [name]="
+                                      release.backup_status
+                                        ? 'rom-archive'
+                                        : 'missing-dump'
+                                    "
+                                    [size]="14"
+                                /></span>
                                 <span>{{
                                   release.backup_status
                                     ? 'Backed Up'
@@ -473,8 +500,8 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                       ) {
                         <div class="shared-backup-banner mt-md p-sm rounded-md">
                           <div class="text-xs font-semibold mb-2xs">
-                            🔗 Included in Compilation / Expanded Release — Also
-                            part of:
+                            <app-icon name="link" [size]="14" /> Included in
+                            Compilation / Expanded Release — Also part of:
                           </div>
                           <div class="flex flex-wrap gap-xs mt-2xs">
                             @for (
@@ -489,7 +516,10 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                                 ]"
                                 class="jump-link-pill"
                               >
-                                <span>💿 {{ shared.title }}</span>
+                                <span class="flex items-center gap-xs"
+                                  ><app-icon name="disc" [size]="12" />
+                                  {{ shared.title }}</span
+                                >
                                 @if (shared.region) {
                                   <span class="text-2xs text-secondary"
                                     >({{ shared.region }})</span
@@ -499,7 +529,9 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                                   <span
                                     class="text-2xs"
                                     title="Owned in collection"
-                                    >✅ Owned</span
+                                    class="flex items-center gap-2xs"
+                                    ><app-icon name="check" [size]="12" />
+                                    Owned</span
                                   >
                                 }
                               </a>
@@ -515,7 +547,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                           <div
                             class="text-xs font-semibold flex items-center gap-xs"
                           >
-                            <span>🎟️</span>
+                            <app-icon name="ticket" [size]="14" />
                             <span>Bundled Digital Content</span>
                           </div>
                           @for (note of g.voucher_notes; track note) {
@@ -529,8 +561,11 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   } @else if (g.id && g.id.endsWith('-default')) {
                     <div class="meta-box full-width">
                       <span class="label">ROM Filename</span>
-                      <span class="value rom-text warning-text"
-                        >⚠️ No dump exists in community DAT files</span
+                      <span
+                        class="value rom-text warning-text"
+                        class="flex items-center gap-xs"
+                        ><app-icon name="alert-triangle" [size]="14" /> No dump
+                        exists in community DAT files</span
                       >
                     </div>
                   }
@@ -577,7 +612,10 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
           <section class="market-section animate-slide-up mb-xl">
             <div class="market-header flex justify-between items-center mb-md">
               <h2 class="text-xl font-bold flex items-center gap-xs m-0">
-                <span>💰</span> Market Valuation & Retail Deals
+                <span class="flex items-center gap-xs"
+                  ><app-icon name="coins" [size]="20" /> Market Valuation &
+                  Retail Deals</span
+                >
               </h2>
               @if (g.retail_updated_at || g.price_updated_at) {
                 <span class="text-xs text-secondary">
@@ -593,7 +631,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 <div class="deal-info">
                   <div class="flex items-center gap-sm flex-wrap">
                     <span class="deal-badge-pill font-bold">
-                      🔥
+                      <app-icon name="flame" [size]="14" />
                       {{
                         g.retail_discount_pct
                           ? g.retail_discount_pct + '% OFF'
@@ -618,7 +656,8 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                   </div>
                   @if (getDealArbitrageSavings(g); as savings) {
                     <div class="deal-arb-note text-sm font-semibold mt-xs">
-                      ⚡ Arbitrage Opportunity: Brand new retail copy is
+                      <app-icon name="zap" [size]="16" /> Arbitrage Opportunity:
+                      Brand new retail copy is
                       {{ '$' + (savings / 100).toFixed(2) }} cheaper than
                       PriceCharting CIB used value!
                     </div>
@@ -707,7 +746,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 class="jump-link-pill ebay"
                 title="Search eBay for Complete in Box (CIB) copies in Video Games"
               >
-                🔍 eBay (CIB / Complete)
+                <app-icon name="seeking" [size]="14" /> eBay (CIB / Complete)
               </a>
               <a
                 [href]="getSmartEbayUrl(g, 'loose')"
@@ -716,7 +755,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 class="jump-link-pill ebay"
                 title="Search eBay for Authentic Loose copies"
               >
-                🔍 eBay (Loose)
+                <app-icon name="seeking" [size]="14" /> eBay (Loose)
               </a>
               <a
                 [href]="getDekuDealsUrl(g)"
@@ -725,7 +764,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 class="jump-link-pill deku"
                 title="Check Deku Deals for price history & alerts"
               >
-                🏷️ Deku Deals
+                <app-icon name="tag" [size]="14" /> Deku Deals
               </a>
               <a
                 [href]="getBestBuyUrl(g)"
@@ -734,7 +773,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 class="jump-link-pill bestbuy"
                 title="Check Best Buy"
               >
-                🛒 Best Buy
+                <app-icon name="shopping-cart" [size]="14" /> Best Buy
               </a>
               <a
                 [href]="getVgpUrl(g)"
@@ -743,7 +782,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 class="jump-link-pill"
                 title="Search VideoGamesPlus (VGP)"
               >
-                🍁 VGP
+                <app-icon name="storefront" [size]="14" /> VGP
               </a>
               <a
                 [href]="getPnpUrl(g)"
@@ -752,7 +791,7 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
                 class="jump-link-pill"
                 title="Search PNP Games"
               >
-                🍁 PNP Games
+                <app-icon name="storefront" [size]="14" /> PNP Games
               </a>
             </div>
           </section>
@@ -799,7 +838,9 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
           </a>
         </nav>
         <div class="loading-state error-state">
-          <div class="error-icon">⚠️</div>
+          <div class="error-icon">
+            <app-icon name="alert-triangle" [size]="40" />
+          </div>
           <p class="error-message">{{ error }}</p>
           <a
             [routerLink]="['/collection', type() ? type() + 's' : 'games']"
@@ -1520,22 +1561,35 @@ export class ItemDetailComponent {
     this.router.navigate(['/collection', tab]);
   }
 
-  getPlayStatusIcon(status: PlayStatus): string {
+  getOwnershipStatusIconName(status: number): IconName {
+    switch (status) {
+      case 1:
+        return 'owned';
+      case 2:
+        return 'seeking';
+      case 3:
+        return 'ordered';
+      default:
+        return 'unowned';
+    }
+  }
+
+  getPlayStatusIconName(status: PlayStatus): IconName {
     switch (status) {
       case PlayStatus.Unplayed:
-        return '⏳';
+        return 'hourglass';
       case PlayStatus.Played:
-        return '🎮';
+        return 'gamepad';
       case PlayStatus.Playing:
-        return '▶️';
+        return 'play';
       case PlayStatus.Queued:
-        return '📋';
+        return 'list-queued';
       case PlayStatus.Paused:
-        return '⏸️';
+        return 'pause';
       case PlayStatus.Dropped:
-        return '🛑';
+        return 'stop-circle';
       default:
-        return '⏳';
+        return 'hourglass';
     }
   }
 
