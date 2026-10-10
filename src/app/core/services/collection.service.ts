@@ -163,6 +163,21 @@ export class CollectionService {
   }
 
   /**
+   * Resets the scroll coordinates for a given tab back to the top.
+   * Invoked when navigating via top/bottom navigation tabs or brand link.
+   */
+  public resetTabScroll(tab: 'games' | 'toys') {
+    const state = tab === 'games' ? this._gamesState() : this._toysState();
+    if (state) {
+      this.updateListState({
+        ...state,
+        scrollX: 0,
+        scrollY: 0,
+      });
+    }
+  }
+
+  /**
    * Clears all persisted and in-memory list state.
    * Useful for "hard refresh" or logout scenarios.
    */

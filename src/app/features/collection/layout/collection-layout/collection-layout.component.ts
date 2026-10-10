@@ -12,7 +12,11 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
     <div class="layout-container">
       <header class="main-header">
         <div class="header-left">
-          <a routerLink="/collection/games" class="brand-link state-layer">
+          <a
+            routerLink="/collection/games"
+            (click)="onNavClick('games')"
+            class="brand-link state-layer"
+          >
             <img
               [src]="branding.logoUrl()"
               [alt]="branding.appName() + ' Icon'"
@@ -75,6 +79,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       <nav class="main-nav">
         <a
           routerLink="/collection/games"
+          (click)="onNavClick('games')"
           routerLinkActive="active"
           class="nav-item"
         >
@@ -83,6 +88,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         </a>
         <a
           routerLink="/collection/toys"
+          (click)="onNavClick('toys')"
           routerLinkActive="active"
           class="nav-item"
         >
@@ -91,6 +97,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         </a>
         <a
           routerLink="/collection/discovery"
+          (click)="onNavClick()"
           routerLinkActive="active"
           class="nav-item dev-item"
         >
@@ -358,6 +365,15 @@ export class CollectionLayoutComponent {
     if (saved) {
       this.theme.set(saved);
       this.applyTheme(saved);
+    }
+  }
+
+  onNavClick(tab?: 'games' | 'toys') {
+    if (tab) {
+      this.collectionService.resetTabScroll(tab);
+    }
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }
   }
 

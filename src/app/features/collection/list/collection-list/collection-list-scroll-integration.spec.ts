@@ -50,10 +50,23 @@ describe('CollectionListComponent - DOM Scroll Restoration Integration', () => {
     collectionService = TestBed.inject(CollectionService);
 
     collectionService.resetListState();
+
+    Object.defineProperty(window, 'scrollY', {
+      value: 0,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(window, 'scrollX', {
+      value: 0,
+      configurable: true,
+      writable: true,
+    });
   });
 
   afterEach(() => {
+    fixture.destroy();
     httpMock.match(() => true).forEach((req) => req.flush([]));
+    vi.restoreAllMocks();
   });
 
   it('should restore scroll position without spurious loadMore triggers or displayLimit mutations during initialization', async () => {
@@ -99,5 +112,40 @@ describe('CollectionListComponent - DOM Scroll Restoration Integration', () => {
     expect(scrollToSpy).toHaveBeenCalledWith(
       expect.objectContaining({ top: 800, left: 0 }),
     );
+  });
+
+  it('should not call scrollTo if target scrollY is 0', async () => {
+    const savedState: ListState = {
+      tab: 'games',
+      filters: { ownership: 'all' },
+      displayLimit: 100,
+      scrollX: 0,
+      scrollY: 0,
+    };
+    collectionService.updateListState(savedState);
+
+    const scrollToSpy = vi.spyOn(window, 'scrollTo');
+
+    const initPromise = component.ngOnInit();
+    httpMock.match(() => true).forEach((req) => req.flush([]));
+    await initPromise;
+    fixture.detectChanges();
+
+    expect(scrollToSpy).not.toHaveBeenCalled();
+  });
+
+  it('should reset tab scroll to 0 when resetTabScroll is called', () => {
+    const savedState: ListState = {
+      tab: 'games',
+      filters: { ownership: 'all' },
+      displayLimit: 100,
+      scrollX: 0,
+      scrollY: 800,
+    };
+    collectionService.updateListState(savedState);
+    expect(collectionService.getListState('games')?.scrollY).toBe(800);
+
+    collectionService.resetTabScroll('games');
+    expect(collectionService.getListState('games')?.scrollY).toBe(0);
   });
 });

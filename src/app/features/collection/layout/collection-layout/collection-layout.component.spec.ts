@@ -1,5 +1,5 @@
 import '../../../../../test-setup';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -44,5 +44,17 @@ describe('CollectionLayoutComponent', () => {
   it('should render brand title from BrandingService', () => {
     const brandTitle = fixture.nativeElement.querySelector('.brand-title');
     expect(brandTitle.textContent.trim()).toBe('Collection Tracker');
+  });
+
+  it('should reset tab scroll and scroll to top when onNavClick is invoked', () => {
+    const scrollToSpy = vi
+      .spyOn(window, 'scrollTo')
+      .mockImplementation(() => {});
+    component.onNavClick('games');
+    expect(scrollToSpy).toHaveBeenCalledWith({
+      top: 0,
+      left: 0,
+      behavior: 'instant',
+    });
   });
 });

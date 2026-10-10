@@ -2583,7 +2583,7 @@ export class CollectionListComponent
     if (this.scrollTimeout) return;
     this.scrollTimeout = setTimeout(() => {
       this.scrollTimeout = null;
-      if (this.stateInitialized() && window.scrollY > 0) {
+      if (this.stateInitialized() && window.scrollY >= 0) {
         const currentState = this.collectionService.getListState(
           this.currentTab(),
         );
@@ -2619,11 +2619,17 @@ export class CollectionListComponent
     const targetY = savedState.scrollY || 0;
     const targetX = savedState.scrollX || 0;
 
-    window.scrollTo({
-      left: targetX,
-      top: targetY,
-      behavior: 'instant' as ScrollBehavior,
-    });
+    if (
+      targetY > 0 &&
+      typeof window !== 'undefined' &&
+      window.scrollY !== targetY
+    ) {
+      window.scrollTo({
+        left: targetX,
+        top: targetY,
+        behavior: 'instant' as ScrollBehavior,
+      });
+    }
     this.stateInitialized.set(true);
   }
 
@@ -2642,8 +2648,18 @@ export class CollectionListComponent
       this.displayLimit.set(savedState.displayLimit);
     }
 
-    await this.collectionService.refreshAll();
-    this.restoreScroll();
+    const hasData =
+      this.currentTab() === 'games'
+        ? this.collectionService.games().length > 0
+        : this.collectionService.toys().length > 0;
+
+    if (hasData) {
+      this.restoreScroll();
+      await this.collectionService.refreshAll();
+    } else {
+      await this.collectionService.refreshAll();
+      this.restoreScroll();
+    }
 
     if (typeof window !== 'undefined') {
       this.ngZone.runOutsideAngular(() => {
