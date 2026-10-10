@@ -2638,7 +2638,7 @@ Disallow: /
       // Endpoint: GET /api/config
       else if (request.method === 'GET' && path === '/api/config') {
         const appName = env.APP_NAME || 'Collection Tracker';
-        const shortName = env.APP_SHORT_NAME || 'Tracker';
+        const shortName = env.APP_SHORT_NAME || env.APP_NAME || 'Tracker';
         const tagline =
           env.APP_TAGLINE || 'Physical Game & Toy Collection Tracker';
         const authorName = env.APP_AUTHOR || appName;
@@ -2661,7 +2661,7 @@ Disallow: /
       // Endpoint: GET /manifest.webmanifest
       else if (request.method === 'GET' && path === '/manifest.webmanifest') {
         const appName = env.APP_NAME || 'Collection Tracker';
-        const shortName = env.APP_SHORT_NAME || 'Tracker';
+        const shortName = env.APP_SHORT_NAME || env.APP_NAME || 'Tracker';
         return Response.json(
           {
             name: appName,

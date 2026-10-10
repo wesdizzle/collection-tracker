@@ -1764,7 +1764,8 @@ export const handleRequest =
       // GET /api/config
       else if (req.method === 'GET' && pathname === '/api/config') {
         const appName = process.env['APP_NAME'] || 'Collection Tracker';
-        const shortName = process.env['APP_SHORT_NAME'] || 'Tracker';
+        const shortName =
+          process.env['APP_SHORT_NAME'] || process.env['APP_NAME'] || 'Tracker';
         const tagline =
           process.env['APP_TAGLINE'] ||
           'Physical Game & Toy Collection Tracker';
@@ -1784,7 +1785,8 @@ export const handleRequest =
       // GET /manifest.webmanifest
       else if (req.method === 'GET' && pathname === '/manifest.webmanifest') {
         const appName = process.env['APP_NAME'] || 'Collection Tracker';
-        const shortName = process.env['APP_SHORT_NAME'] || 'Tracker';
+        const shortName =
+          process.env['APP_SHORT_NAME'] || process.env['APP_NAME'] || 'Tracker';
         res.setHeader(
           'Content-Type',
           'application/manifest+json; charset=utf-8',
