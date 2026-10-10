@@ -391,7 +391,7 @@ export function buildPushNotificationBody(
 ): string {
   const url = payload.data?.url || '/';
   const icon = payload.icon || '/icons/icon-192.png';
-  const badge = payload.badge || '/icons/icon-192.png';
+  const badge = payload.badge || '/icons/badge-96.png';
 
   const notificationData = {
     ...(payload.data || {}),

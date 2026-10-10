@@ -2617,7 +2617,7 @@ Disallow: /
             title: '🔔 Deal Alerts Active',
             body: 'Push notifications are successfully configured for your device!',
             icon: '/icons/icon-192.png',
-            badge: '/icons/icon-192.png',
+            badge: '/icons/badge-96.png',
             data: { url: '/' },
           },
           {
@@ -2702,6 +2702,12 @@ Disallow: /
                 sizes: '512x512',
                 type: 'image/png',
                 purpose: 'maskable',
+              },
+              {
+                src: '/icons/badge-96.png',
+                sizes: '96x96',
+                type: 'image/png',
+                purpose: 'monochrome',
               },
             ],
           },
@@ -3027,7 +3033,7 @@ export async function dispatchDealPushNotifications(
         title,
         body,
         icon: '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
+        badge: '/icons/badge-96.png',
         data: {
           url: `/item/${top.slug}`,
         },

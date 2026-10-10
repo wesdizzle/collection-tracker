@@ -1824,6 +1824,12 @@ export const handleRequest =
                 type: 'image/png',
                 purpose: 'maskable',
               },
+              {
+                src: '/icons/badge-96.png',
+                sizes: '96x96',
+                type: 'image/png',
+                purpose: 'monochrome',
+              },
             ],
           }),
         );
@@ -2021,7 +2027,8 @@ export const handleRequest =
             {
               title: '🔔 Deal Alerts Active',
               body: 'Push notifications are successfully configured for your device!',
-              icon: '/favicon.svg',
+              icon: '/icons/icon-192.png',
+              badge: '/icons/badge-96.png',
               data: { url: '/' },
             },
             {

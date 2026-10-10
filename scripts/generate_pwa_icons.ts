@@ -47,6 +47,54 @@ async function generatePwaIcons() {
     .png()
     .toFile(path.join(outDir, 'icon-maskable-512.png'));
   console.log('Generated public/icons/icon-maskable-512.png');
+
+  // 5. Android Notification Badges (Monochrome white outline on transparent background)
+  const badgeSvgPath = path.resolve('public/badge.svg');
+  const badgeSvgBuffer = fs.existsSync(badgeSvgPath)
+    ? fs.readFileSync(badgeSvgPath)
+    : svgBuffer;
+
+  await sharp(badgeSvgBuffer)
+    .resize(96, 96)
+    .png()
+    .toFile(path.join(outDir, 'badge-96.png'));
+  console.log('Generated public/icons/badge-96.png');
+
+  await sharp(badgeSvgBuffer)
+    .resize(72, 72)
+    .png()
+    .toFile(path.join(outDir, 'badge-72.png'));
+  console.log('Generated public/icons/badge-72.png');
+
+  await sharp(badgeSvgBuffer)
+    .resize(96, 96)
+    .png()
+    .toFile(path.join(outDir, 'badge.png'));
+  console.log('Generated public/icons/badge.png');
+
+  // Sync to dist if dist build exists
+  const distIconsDir = path.resolve('dist/tracker/browser/icons');
+  if (fs.existsSync(distIconsDir)) {
+    for (const file of [
+      'icon-192.png',
+      'icon-512.png',
+      'apple-touch-icon.png',
+      'icon-maskable-512.png',
+      'badge-96.png',
+      'badge-72.png',
+      'badge.png',
+    ]) {
+      fs.copyFileSync(path.join(outDir, file), path.join(distIconsDir, file));
+    }
+    const distFavicon = path.resolve('dist/tracker/browser/favicon.svg');
+    if (fs.existsSync(path.dirname(distFavicon))) {
+      fs.copyFileSync(svgPath, distFavicon);
+    }
+    const distBadge = path.resolve('dist/tracker/browser/badge.svg');
+    if (fs.existsSync(badgeSvgPath) && fs.existsSync(path.dirname(distBadge))) {
+      fs.copyFileSync(badgeSvgPath, distBadge);
+    }
+  }
 }
 
 generatePwaIcons().catch((err) => {

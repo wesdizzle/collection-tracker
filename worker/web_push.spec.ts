@@ -270,7 +270,7 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     expect(parsed.notification.title).toBe(raw.title);
     expect(parsed.notification.body).toBe(raw.body);
     expect(parsed.notification.icon).toBe('/icons/icon-192.png');
-    expect(parsed.notification.badge).toBe('/icons/icon-192.png');
+    expect(parsed.notification.badge).toBe('/icons/badge-96.png');
     expect(parsed.notification.data.url).toBe('/item/chrono-trigger-ds');
     expect(parsed.notification.data.onActionClick.default).toEqual({
       operation: 'openWindow',
