@@ -1320,7 +1320,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                 ><app-icon name="rom-archive" [size]="16"
               /></span>
               <span class="trigger-text">Export</span>
-              <span class="dropdown-icon-wrapper" aria-hidden="true">
+              <span class="export-chevron-wrapper" aria-hidden="true">
                 <svg
                   class="dropdown-chevron"
                   [class.open]="activeDropdown() === 'export'"
@@ -1798,13 +1798,23 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         cursor: pointer;
       }
 
+      .deals-icon,
+      .alerts-icon,
+      .export-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        line-height: 1;
+      }
+
       .deals-toggle-btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         width: auto;
-        gap: var(--spacing-8);
-        padding: 0 1.1rem;
+        gap: var(--spacing-10);
+        padding: 0 var(--spacing-16);
         height: 46px;
         border-radius: var(--radius-sm);
         border: 1px solid var(--m3-outline);
@@ -1816,6 +1826,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
         white-space: nowrap;
+        flex-shrink: 0;
       }
       .deals-toggle-btn:hover {
         background: var(--m3-surface-container-highest);
@@ -1832,8 +1843,8 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         align-items: center;
         justify-content: center;
         width: auto;
-        gap: var(--spacing-8);
-        padding: 0 1.1rem;
+        gap: var(--spacing-10);
+        padding: 0 var(--spacing-16);
         height: 46px;
         border-radius: var(--radius-sm);
         border: 1px solid var(--m3-outline);
@@ -1845,6 +1856,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
         white-space: nowrap;
+        flex-shrink: 0;
       }
       .alerts-toggle-btn:hover {
         background: var(--m3-surface-container-highest);
@@ -1855,9 +1867,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         border-color: #38bdf8;
         box-shadow: 0 2px 10px rgba(56, 189, 248, 0.35);
       }
-      .alerts-icon {
-        font-size: 1.1rem;
-      }
 
       .export-trigger-btn {
         display: inline-flex;
@@ -1865,7 +1874,8 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         justify-content: center;
         width: auto;
         gap: var(--spacing-8);
-        padding: 0 1.1rem;
+        padding: 0 var(--spacing-16);
+        min-width: 140px;
         height: 46px;
         border-radius: var(--radius-sm);
         border: 1px solid var(--m3-outline);
@@ -1877,17 +1887,39 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
         white-space: nowrap;
+        flex-shrink: 0;
       }
       .export-trigger-btn:hover {
         background: var(--m3-surface-container-highest);
       }
+      .export-chevron-wrapper {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: var(--spacing-4);
+        color: var(--m3-on-surface-variant);
+        transition: color 0.2s ease;
+        flex-shrink: 0;
+      }
+      .export-trigger-btn:hover .export-chevron-wrapper,
+      .export-trigger-btn.open .export-chevron-wrapper {
+        color: var(--m3-primary);
+      }
       .export-dropdown-wrapper {
-        min-width: 130px;
+        min-width: 140px;
+        flex-shrink: 0;
       }
       .export-dropdown-list {
         right: 0;
         left: auto;
         min-width: 220px;
+      }
+
+      .filter-bar-footer {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-12);
+        flex-wrap: wrap;
       }
 
       .filter-info {
@@ -1942,6 +1974,12 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
           min-width: 0;
           flex: 1 1 calc(50% - var(--spacing-8));
         }
+        .filter-bar-footer {
+          width: 100%;
+          justify-content: flex-start;
+          gap: var(--spacing-8);
+          margin-left: 0;
+        }
         .mobile-collapsed {
           display: none;
         }
@@ -1950,6 +1988,18 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       @media (max-width: 480px) {
         .filter-group {
           flex: 1 1 100%;
+        }
+        .filter-bar-footer {
+          flex-direction: column;
+          align-items: stretch;
+          width: 100%;
+        }
+        .deals-toggle-btn,
+        .alerts-toggle-btn,
+        .export-dropdown-wrapper,
+        .export-trigger-btn {
+          width: 100%;
+          justify-content: center;
         }
       }
     `,

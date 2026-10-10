@@ -226,4 +226,21 @@ describe('CollectionFiltersComponent', () => {
     component.openNotificationSettings();
     expect(component.showNotificationModal()).toBe(true);
   });
+
+  it('should render deals, alerts, and export buttons with icon and chevron elements', () => {
+    const dealsBtn = fixture.nativeElement.querySelector('#filter-deals-only');
+    expect(dealsBtn).toBeTruthy();
+    expect(dealsBtn.querySelector('.deals-icon')).toBeTruthy();
+
+    const alertsBtn = fixture.nativeElement.querySelector(
+      '#filter-deal-alerts',
+    );
+    expect(alertsBtn).toBeTruthy();
+    expect(alertsBtn.querySelector('.alerts-icon')).toBeTruthy();
+
+    const exportBtn = fixture.nativeElement.querySelector('#filter-export');
+    expect(exportBtn).toBeTruthy();
+    expect(exportBtn.querySelector('.export-icon')).toBeTruthy();
+    expect(exportBtn.querySelector('.export-chevron-wrapper')).toBeTruthy();
+  });
 });
