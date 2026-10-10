@@ -68,12 +68,14 @@ describe('ItemDetailComponent', () => {
       convertToParamMap({ id: '1', type: 'game' }),
     );
 
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+
     await TestBed.configureTestingModule({
       imports: [ItemDetailComponent],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        provideRouter([]),
+        provideRouter([{ path: '**', component: class {} }]),
         {
           provide: ActivatedRoute,
           useValue: {
@@ -126,7 +128,7 @@ describe('ItemDetailComponent', () => {
     );
   });
 
-  it('should navigate to collection with exact series filter', () => {
+  it('should navigate to collection with exact series filter and reset scroll', () => {
     const navigateSpy = vi.spyOn(router, 'navigate');
     const updateStateSpy = vi.spyOn(collectionService, 'updateListState');
 
@@ -138,9 +140,39 @@ describe('ItemDetailComponent', () => {
           seriesOrName: 'Mario',
           seriesExact: true,
         }),
+        scrollX: 0,
+        scrollY: 0,
       }),
     );
     expect(navigateSpy).toHaveBeenCalledWith(['/collection', 'games']);
+  });
+
+  it('should reset window scroll to (0, 0) on initialization and param change', () => {
+    const scrollToSpy = vi
+      .spyOn(window, 'scrollTo')
+      .mockImplementation(() => {});
+
+    paramMapSubject.next(convertToParamMap({ id: '2', type: 'game' }));
+    fixture.detectChanges();
+
+    expect(scrollToSpy).toHaveBeenCalledWith({
+      top: 0,
+      left: 0,
+      behavior: 'instant',
+    });
+  });
+
+  it('should delegate to navigationHistory.back on onBack', () => {
+    const backSpy = vi
+      .spyOn(component.navigationHistory, 'back')
+      .mockImplementation(() => {});
+    const preventDefault = vi.fn();
+    const mockEvent = { preventDefault } as unknown as Event;
+
+    component.onBack(mockEvent);
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(backSpy).toHaveBeenCalledWith(['/collection', 'games']);
   });
 
   it('should handle missing release dates gracefully', async () => {

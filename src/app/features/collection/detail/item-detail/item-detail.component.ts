@@ -30,6 +30,7 @@ import {
 import { combineLatest, of, Observable } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { NavigationHistoryService } from '../../../../core/services/navigation-history.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 import { IconName } from '../../../../shared/components/icon/icon.catalog';
 
@@ -42,7 +43,8 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
       <div class="container animate-expressive pb-xl" data-version="final-v12">
         <nav class="details-nav mb-lg flex justify-between items-center">
           <a
-            [routerLink]="['/collection', type() + 's']"
+            [href]="'/collection/' + (type() ? type() + 's' : 'games')"
+            (click)="onBack($event)"
             class="back-link flex items-center gap-sm"
           >
             <svg
@@ -819,7 +821,8 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
       <div class="container pb-xl animate-expressive">
         <nav class="details-nav mb-lg flex justify-between items-center">
           <a
-            [routerLink]="['/collection', type() ? type() + 's' : 'games']"
+            [href]="'/collection/' + (type() ? type() + 's' : 'games')"
+            (click)="onBack($event)"
             class="back-link flex items-center gap-sm"
           >
             <svg
@@ -843,7 +846,8 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
           </div>
           <p class="error-message">{{ error }}</p>
           <a
-            [routerLink]="['/collection', type() ? type() + 's' : 'games']"
+            [href]="'/collection/' + (type() ? type() + 's' : 'games')"
+            (click)="onBack($event)"
             class="retry-btn"
           >
             Return to Collection
@@ -1398,6 +1402,26 @@ export class ItemDetailComponent {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private collectionService = inject(CollectionService);
+  public navigationHistory = inject(NavigationHistoryService);
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    }
+    this.route.paramMap.subscribe(() => {
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      }
+    });
+  }
+
+  onBack(event?: Event) {
+    if (event) {
+      event.preventDefault();
+    }
+    const tab = this.type() === 'toy' ? 'toys' : 'games';
+    this.navigationHistory.back(['/collection', tab]);
+  }
 
   /** The current item type ('game', 'toy', or 'platform') derived from the route */
   public type = toSignal(
@@ -1542,6 +1566,8 @@ export class ItemDetailComponent {
           seriesOrName: series,
           seriesExact: true,
         },
+        scrollX: 0,
+        scrollY: 0,
       });
     } else {
       this.collectionService.updateListState({

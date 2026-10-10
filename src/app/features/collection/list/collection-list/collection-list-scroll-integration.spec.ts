@@ -148,4 +148,39 @@ describe('CollectionListComponent - DOM Scroll Restoration Integration', () => {
     collectionService.resetTabScroll('games');
     expect(collectionService.getListState('games')?.scrollY).toBe(0);
   });
+
+  it('should capture current window scroll position synchronously on ngOnDestroy', async () => {
+    const initPromise = component.ngOnInit();
+    httpMock.match(() => true).forEach((req) => req.flush([]));
+    await initPromise;
+    fixture.detectChanges();
+
+    Object.defineProperty(window, 'scrollY', {
+      value: 1250,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(window, 'scrollX', {
+      value: 0,
+      configurable: true,
+      writable: true,
+    });
+
+    component.ngOnDestroy();
+
+    expect(collectionService.getListState('games')?.scrollY).toBe(1250);
+  });
+
+  it('should not mutate displayLimit on loadMore when stateInitialized is false', () => {
+    (
+      component as unknown as {
+        stateInitialized: { set: (v: boolean) => void };
+      }
+    )['stateInitialized'].set(false);
+    const initialLimit = component.displayLimit();
+
+    component.loadMore();
+
+    expect(component.displayLimit()).toBe(initialLimit);
+  });
 });

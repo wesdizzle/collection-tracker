@@ -2579,6 +2579,18 @@ export class CollectionListComponent
    * from firing on every frame, which causes severe scroll jank. Throttled.
    */
   private scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+  private isScrollListenerAttached = false;
+
+  private attachScrollListener() {
+    if (this.isScrollListenerAttached || typeof window === 'undefined') return;
+    this.isScrollListenerAttached = true;
+    this.ngZone.runOutsideAngular(() => {
+      window.addEventListener('scroll', this.onScrollHandler, {
+        passive: true,
+      });
+    });
+  }
+
   private onScrollHandler = () => {
     if (this.scrollTimeout) return;
     this.scrollTimeout = setTimeout(() => {
@@ -2607,36 +2619,90 @@ export class CollectionListComponent
   /**
    * Restores the previously saved scroll position after rendering.
    * Since displayLimit is hydrated before initial render, all items are present
-   * in the DOM tree upfront.
+   * in the DOM tree upfront. Uses frame-based retries to avoid browser clamping
+   * before DOM layout completes.
    */
   private restoreScroll() {
     const savedState = this.collectionService.getListState(this.currentTab());
-    if (!savedState || savedState.scrollY === undefined) {
+    if (
+      !savedState ||
+      savedState.scrollY === undefined ||
+      savedState.scrollY <= 0
+    ) {
+      this.stateInitialized.set(true);
+      this.attachScrollListener();
+      return;
+    }
+
+    const targetY = savedState.scrollY;
+    const targetX = savedState.scrollX || 0;
+
+    if (typeof window === 'undefined') {
       this.stateInitialized.set(true);
       return;
     }
 
-    const targetY = savedState.scrollY || 0;
-    const targetX = savedState.scrollX || 0;
-
-    if (
-      targetY > 0 &&
-      typeof window !== 'undefined' &&
-      window.scrollY !== targetY
-    ) {
+    if (window.scrollY !== targetY) {
       window.scrollTo({
         left: targetX,
         top: targetY,
         behavior: 'instant' as ScrollBehavior,
       });
     }
-    this.stateInitialized.set(true);
+
+    // If already at target position (e.g. synchronous mock in tests or layout already valid), finish immediately
+    if (Math.abs(window.scrollY - targetY) < 5) {
+      this.stateInitialized.set(true);
+      this.attachScrollListener();
+      return;
+    }
+
+    // Otherwise, browser clamped the scroll because DOM height isn't ready. Retry on animation frames.
+    let attempts = 0;
+    const maxAttempts = 15;
+
+    const attemptScroll = () => {
+      attempts++;
+      const scrollHeight = document.documentElement.scrollHeight || 0;
+      const innerHeight = window.innerHeight || 0;
+      const maxScroll = Math.max(0, scrollHeight - innerHeight);
+
+      if (
+        maxScroll >= targetY ||
+        attempts >= maxAttempts ||
+        (scrollHeight === 0 && attempts >= 1)
+      ) {
+        window.scrollTo({
+          left: targetX,
+          top: targetY,
+          behavior: 'instant' as ScrollBehavior,
+        });
+
+        if (
+          Math.abs(window.scrollY - targetY) < 5 ||
+          attempts >= maxAttempts ||
+          scrollHeight === 0
+        ) {
+          this.stateInitialized.set(true);
+          this.attachScrollListener();
+          return;
+        }
+      }
+
+      requestAnimationFrame(attemptScroll);
+    };
+
+    requestAnimationFrame(attemptScroll);
   }
+
+  private isInitialized = false;
 
   /**
    * Component Lifecycle: Restores previous tab state and initiates data refresh.
    */
   async ngOnInit() {
+    if (this.isInitialized) return;
+    this.isInitialized = true;
     this.stateInitialized.set(false);
     this.currentTab.set(
       (this.route.snapshot.url[0]?.path as 'games' | 'toys') || 'games',
@@ -2660,14 +2726,6 @@ export class CollectionListComponent
       await this.collectionService.refreshAll();
       this.restoreScroll();
     }
-
-    if (typeof window !== 'undefined') {
-      this.ngZone.runOutsideAngular(() => {
-        window.addEventListener('scroll', this.onScrollHandler, {
-          passive: true,
-        });
-      });
-    }
   }
 
   /**
@@ -2681,9 +2739,33 @@ export class CollectionListComponent
    * Cleanup: disconnects observer to prevent memory leaks and persists final state.
    */
   ngOnDestroy() {
+    this.isInitialized = false;
     if (this.observer) this.observer.disconnect();
+    if (this.scrollTimeout) {
+      clearTimeout(this.scrollTimeout);
+      this.scrollTimeout = null;
+    }
     if (typeof window !== 'undefined') {
       window.removeEventListener('scroll', this.onScrollHandler);
+      this.isScrollListenerAttached = false;
+      if (this.stateInitialized()) {
+        const currentState = this.collectionService.getListState(
+          this.currentTab(),
+        );
+        const state: ListState = currentState || {
+          tab: this.currentTab(),
+          filters: this.filters(),
+          displayLimit: this.displayLimit(),
+          scrollX: 0,
+          scrollY: 0,
+        };
+        this.collectionService.updateListState({
+          ...state,
+          displayLimit: this.displayLimit(),
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        });
+      }
     }
     this.collectionService.persistState(this.currentTab());
   }
@@ -2708,6 +2790,7 @@ export class CollectionListComponent
    * pipelines to slice a larger portion of the collection into the DOM.
    */
   loadMore() {
+    if (!this.stateInitialized()) return;
     this.displayLimit.update((limit) => limit + 100);
   }
 
