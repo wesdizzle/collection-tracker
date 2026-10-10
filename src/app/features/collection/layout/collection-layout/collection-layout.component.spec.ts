@@ -58,6 +58,36 @@ describe('CollectionLayoutComponent', () => {
     });
   });
 
+  describe('Notification Settings Modal Rendering', () => {
+    it('should not render notification modal by default', () => {
+      const modal = fixture.nativeElement.querySelector(
+        'app-notification-settings-modal',
+      );
+      expect(modal).toBeNull();
+    });
+
+    it('should render notification modal outside layout-container when open', () => {
+      component.notificationService.openSettingsModal();
+      fixture.detectChanges();
+
+      const modal = fixture.nativeElement.querySelector(
+        'app-notification-settings-modal',
+      );
+      expect(modal).toBeTruthy();
+
+      const layoutContainer =
+        fixture.nativeElement.querySelector('.layout-container');
+      expect(layoutContainer.contains(modal)).toBe(false);
+
+      component.notificationService.closeSettingsModal();
+      fixture.detectChanges();
+
+      expect(
+        fixture.nativeElement.querySelector('app-notification-settings-modal'),
+      ).toBeNull();
+    });
+  });
+
   describe('Theme and PWA Meta Tag Synchronization', () => {
     let metaDark: HTMLMetaElement;
     let metaLight: HTMLMetaElement;

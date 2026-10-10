@@ -31,22 +31,13 @@ import {
   FilterState,
   PlatformGroup,
 } from '../../../../core/models/collection.models';
-import { NotificationSettingsModalComponent } from '../../notifications/notification-settings-modal/notification-settings-modal.component';
 import { NotificationService } from '../../../../core/services/notification.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
   selector: 'app-collection-filters',
   standalone: true,
-  imports: [
-    FormsModule,
-    DatePipe,
-    NotificationSettingsModalComponent,
-    IconComponent,
-  ],
-  host: {
-    '[class.modal-open]': 'showNotificationModal()',
-  },
+  imports: [FormsModule, DatePipe, IconComponent],
   template: `
     <div class="filter-wrapper animate-expressive animate-stagger-1">
       <div class="mobile-filter-row desktop-hidden">
@@ -1385,12 +1376,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
           </div>
         </div>
       </div>
-
-      @if (showNotificationModal()) {
-        <app-notification-settings-modal
-          (close)="showNotificationModal.set(false)"
-        />
-      }
     </div>
   `,
   styles: [
@@ -1399,11 +1384,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         display: block;
         position: relative;
         z-index: 20;
-      }
-
-      :host.modal-open,
-      :host:has(app-notification-settings-modal) {
-        z-index: 2000;
       }
 
       .mb-lg {
@@ -2025,13 +2005,18 @@ export class CollectionFiltersComponent {
   /** --- Internal UI State --- */
   public showFilters = signal(false);
   public activeDropdown = signal<string | null>(null);
-  public showNotificationModal = signal<boolean>(false);
+  public readonly showNotificationModal =
+    this.notificationService.isSettingsModalOpen;
   public readonly isNotificationSubscribed = computed(() =>
     this.notificationService.isSubscribed(),
   );
 
   public openNotificationSettings(): void {
-    this.showNotificationModal.set(true);
+    this.notificationService.openSettingsModal();
+  }
+
+  public closeNotificationSettings(): void {
+    this.notificationService.closeSettingsModal();
   }
 
   /** Backward-compatible computed for region dropdown open state */

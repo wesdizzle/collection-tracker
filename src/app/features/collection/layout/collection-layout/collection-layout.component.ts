@@ -2,12 +2,14 @@ import { Component, inject, signal, OnDestroy } from '@angular/core';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { BrandingService } from '../../../../core/services/branding.service';
+import { NotificationService } from '../../../../core/services/notification.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
+import { NotificationSettingsModalComponent } from '../../notifications/notification-settings-modal/notification-settings-modal.component';
 
 @Component({
   selector: 'app-collection-layout',
   standalone: true,
-  imports: [RouterModule, IconComponent],
+  imports: [RouterModule, IconComponent, NotificationSettingsModalComponent],
   template: `
     <div class="layout-container">
       <header class="main-header">
@@ -115,6 +117,12 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         <p class="footer-copy">{{ branding.appName() }} &copy; 2026</p>
       </footer>
     </div>
+
+    @if (notificationService.isSettingsModalOpen()) {
+      <app-notification-settings-modal
+        (close)="notificationService.closeSettingsModal()"
+      />
+    }
   `,
   styles: [
     `
@@ -340,6 +348,7 @@ export class CollectionLayoutComponent implements OnDestroy {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private collectionService = inject(CollectionService);
+  public readonly notificationService = inject(NotificationService);
   public readonly branding = inject(BrandingService);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
   public isAdmin = this.collectionService.isAdmin;

@@ -3,6 +3,7 @@ import {
   signal,
   output,
   inject,
+  HostListener,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -332,6 +333,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         justify-content: center;
         z-index: 2000;
         padding: 1rem;
+        overscroll-behavior: contain;
       }
 
       .modal-card {
@@ -690,6 +692,11 @@ export class NotificationSettingsModalComponent {
     if (event.target === event.currentTarget) {
       this.close.emit();
     }
+  }
+
+  @HostListener('window:keydown.escape')
+  public onEscapeKey(): void {
+    this.close.emit();
   }
 
   public async onToggleMaster(enable: boolean): Promise<void> {

@@ -110,4 +110,22 @@ describe('NotificationSettingsModalComponent', () => {
     );
     expect(component.saveMessage()).toBe('✓ Saved!');
   });
+
+  it('should emit close on escape key and backdrop click', () => {
+    let closed = false;
+    component.close.subscribe(() => {
+      closed = true;
+    });
+
+    component.onEscapeKey();
+    expect(closed).toBe(true);
+
+    closed = false;
+    const mockBackdropEvent = {
+      target: fixture.nativeElement.querySelector('.modal-backdrop'),
+      currentTarget: fixture.nativeElement.querySelector('.modal-backdrop'),
+    } as unknown as MouseEvent;
+    component.onBackdropClick(mockBackdropEvent);
+    expect(closed).toBe(true);
+  });
 });

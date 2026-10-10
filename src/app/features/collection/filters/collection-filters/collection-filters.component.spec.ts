@@ -225,6 +225,8 @@ describe('CollectionFiltersComponent', () => {
     expect(component.showNotificationModal()).toBe(false);
     component.openNotificationSettings();
     expect(component.showNotificationModal()).toBe(true);
+    component.closeNotificationSettings();
+    expect(component.showNotificationModal()).toBe(false);
   });
 
   it('should render deals, alerts, and export buttons with icon and chevron elements', () => {

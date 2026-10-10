@@ -45,6 +45,7 @@ export class NotificationService {
   public readonly isProcessing = signal<boolean>(false);
   public readonly currentEndpoint = signal<string | null>(null);
   public readonly lastTestError = signal<string | null>(null);
+  public readonly isSettingsModalOpen = signal<boolean>(false);
 
   constructor() {
     this.init();
@@ -295,5 +296,19 @@ export class NotificationService {
     } finally {
       this.isProcessing.set(false);
     }
+  }
+
+  /**
+   * Opens the deal alert notification settings modal.
+   */
+  public openSettingsModal(): void {
+    this.isSettingsModalOpen.set(true);
+  }
+
+  /**
+   * Closes the deal alert notification settings modal.
+   */
+  public closeSettingsModal(): void {
+    this.isSettingsModalOpen.set(false);
   }
 }

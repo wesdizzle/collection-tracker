@@ -195,4 +195,12 @@ describe('NotificationService', () => {
 
     expect(mockRouter.navigateByUrl).toHaveBeenCalledWith('/item/mario-switch');
   });
+
+  it('should toggle settings modal state', () => {
+    expect(service.isSettingsModalOpen()).toBe(false);
+    service.openSettingsModal();
+    expect(service.isSettingsModalOpen()).toBe(true);
+    service.closeSettingsModal();
+    expect(service.isSettingsModalOpen()).toBe(false);
+  });
 });
