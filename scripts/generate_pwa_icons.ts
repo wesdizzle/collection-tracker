@@ -40,8 +40,8 @@ async function generatePwaIcons() {
     .toFile(path.join(outDir, 'apple-touch-icon.png'));
   console.log('Generated public/icons/apple-touch-icon.png');
 
-  // 4. Maskable 512x512 (scaled to 256x256 inside 512x512 on white background for Pixel UI circular mask)
-  const iconResized = await sharp(svgBuffer).resize(256, 256).toBuffer();
+  // 4. Maskable 512x512 (scaled to 340x340 inside 512x512 on white background for Pixel UI circular mask)
+  const iconResized = await sharp(svgBuffer).resize(340, 340).toBuffer();
 
   await sharp({
     create: {
