@@ -25,22 +25,30 @@ async function generatePwaIcons() {
     .toFile(path.join(outDir, 'icon-512.png'));
   console.log('Generated public/icons/icon-512.png');
 
-  // 3. Apple Touch Icon 180x180 PNG
-  await sharp(svgBuffer)
-    .resize(180, 180)
+  // 3. Apple Touch Icon 180x180 PNG (safe padding on clean white background)
+  const appleIconResized = await sharp(svgBuffer).resize(120, 120).toBuffer();
+  await sharp({
+    create: {
+      width: 180,
+      height: 180,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 }, // #ffffff white background
+    },
+  })
+    .composite([{ input: appleIconResized, gravity: 'center' }])
     .png()
     .toFile(path.join(outDir, 'apple-touch-icon.png'));
   console.log('Generated public/icons/apple-touch-icon.png');
 
-  // 4. Maskable 512x512 (with safe area padding ~10%)
-  const iconResized = await sharp(svgBuffer).resize(410, 410).toBuffer();
+  // 4. Maskable 512x512 (scaled to 256x256 inside 512x512 on white background for Pixel UI circular mask)
+  const iconResized = await sharp(svgBuffer).resize(256, 256).toBuffer();
 
   await sharp({
     create: {
       width: 512,
       height: 512,
       channels: 4,
-      background: { r: 18, g: 18, b: 20, alpha: 1 }, // #121214 dark background
+      background: { r: 255, g: 255, b: 255, alpha: 1 }, // #ffffff white background
     },
   })
     .composite([{ input: iconResized, gravity: 'center' }])
