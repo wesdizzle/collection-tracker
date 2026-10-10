@@ -263,7 +263,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
           </div>
 
           <!-- Test Alert Section -->
-          @if (notificationService.isSubscribed()) {
+          @if (notificationService.isSubscribed() || testMessage()) {
             <div class="test-alert-box">
               <div class="flex items-center justify-between">
                 <div>
@@ -276,7 +276,9 @@ const COMMON_PLATFORMS: PlatformOption[] = [
                   type="button"
                   class="btn-secondary text-xs"
                   [disabled]="
-                    notificationService.isProcessing() || isTestingAlert()
+                    !notificationService.isSubscribed() ||
+                    notificationService.isProcessing() ||
+                    isTestingAlert()
                   "
                   (click)="onSendTest()"
                 >
@@ -337,8 +339,8 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .modal-card {
-        background: var(--surface-container-high, #1e1e24);
-        border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.12));
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline-variant);
         border-radius: 24px;
         width: 100%;
         max-width: 520px;
@@ -346,7 +348,12 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         display: flex;
         flex-direction: column;
         box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
-        color: var(--on-surface, #e2e2e8);
+        color: var(--m3-on-surface);
+      }
+
+      :host-context(.theme-light) .modal-card {
+        background: #ffffff;
+        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
       }
 
       .modal-header {
@@ -354,8 +361,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         align-items: center;
         justify-content: space-between;
         padding: 1.25rem 1.5rem 0.75rem;
-        border-bottom: 1px solid
-          var(--outline-variant, rgba(255, 255, 255, 0.08));
+        border-bottom: 1px solid var(--m3-outline-variant);
       }
 
       .modal-title {
@@ -363,25 +369,30 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         font-size: 1.15rem;
         font-weight: 700;
         letter-spacing: -0.01em;
+        color: var(--m3-on-surface);
       }
 
       .header-icon {
         font-size: 1.25rem;
+        color: var(--m3-primary);
       }
 
       .close-button {
         background: transparent;
         border: none;
-        color: var(--on-surface-variant, #a0a0aa);
+        color: var(--m3-on-surface-variant);
         font-size: 1.15rem;
         cursor: pointer;
         padding: 0.25rem 0.5rem;
         border-radius: 50%;
-        transition: color 0.15s ease;
+        transition:
+          color 0.15s ease,
+          background-color 0.15s ease;
       }
 
       .close-button:hover {
-        color: var(--on-surface, #ffffff);
+        color: var(--m3-on-surface);
+        background: var(--m3-surface-container-highest);
       }
 
       .modal-body {
@@ -402,13 +413,23 @@ const COMMON_PLATFORMS: PlatformOption[] = [
 
       .alert-banner.warning {
         background: rgba(234, 179, 8, 0.12);
-        border: 1px solid rgba(234, 179, 8, 0.3);
+        border: 1px solid rgba(234, 179, 8, 0.35);
+        color: #ca8a04;
+      }
+
+      :host-context(.theme-dark) .alert-banner.warning {
+        background: rgba(234, 179, 8, 0.15);
         color: #fde047;
       }
 
       .alert-banner.danger {
         background: rgba(239, 68, 68, 0.12);
-        border: 1px solid rgba(239, 68, 68, 0.3);
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        color: #dc2626;
+      }
+
+      :host-context(.theme-dark) .alert-banner.danger {
+        background: rgba(239, 68, 68, 0.15);
         color: #fca5a5;
       }
 
@@ -423,10 +444,10 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .master-switch-row {
-        background: var(--surface-container, rgba(255, 255, 255, 0.04));
+        background: var(--m3-surface-container-low);
         padding: 0.85rem 1rem;
         border-radius: 16px;
-        border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.08));
+        border: 1px solid var(--m3-outline-variant);
       }
 
       .status-chip {
@@ -439,48 +460,58 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .status-chip.active {
-        background: rgba(34, 197, 94, 0.18);
-        color: #4ade80;
+        background: rgba(34, 197, 94, 0.15);
+        color: #16a34a;
         border: 1px solid rgba(34, 197, 94, 0.35);
       }
 
+      :host-context(.theme-dark) .status-chip.active {
+        color: #4ade80;
+      }
+
       .status-chip.inactive {
-        background: rgba(148, 163, 184, 0.12);
-        color: #94a3b8;
-        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface-variant);
+        border: 1px solid var(--m3-outline-variant);
       }
 
       .btn-toggle {
         width: 44px;
         height: 24px;
         border-radius: 12px;
-        border: none;
+        border: 1px solid transparent;
         cursor: pointer;
         position: relative;
-        transition: background 0.2s ease;
+        transition:
+          background 0.2s ease,
+          border-color 0.2s ease;
       }
 
       .btn-toggle.active {
-        background: var(--primary, #38bdf8);
+        background: var(--m3-primary);
+        border-color: var(--m3-primary);
       }
 
       .btn-toggle.inactive {
-        background: rgba(255, 255, 255, 0.2);
+        background: var(--m3-surface-container-highest);
+        border-color: var(--m3-outline-variant);
       }
 
       .toggle-knob {
         position: absolute;
         top: 2px;
         left: 2px;
-        width: 20px;
-        height: 20px;
+        width: 18px;
+        height: 18px;
         border-radius: 50%;
         background: #ffffff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
         transition: transform 0.2s ease;
       }
 
       .btn-toggle.active .toggle-knob {
         transform: translateX(20px);
+        background: var(--m3-on-primary);
       }
 
       .setting-section {
@@ -492,15 +523,15 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       .section-label {
         font-size: 0.8rem;
         font-weight: 600;
-        color: var(--on-surface-variant, #c4c4cc);
+        color: var(--m3-on-surface-variant);
         text-transform: uppercase;
         letter-spacing: 0.04em;
       }
 
       .segmented-group {
         display: flex;
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.08));
+        background: var(--m3-surface-container-low);
+        border: 1px solid var(--m3-outline-variant);
         border-radius: 14px;
         padding: 3px;
         gap: 3px;
@@ -510,7 +541,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         flex: 1;
         background: transparent;
         border: none;
-        color: var(--on-surface-variant, #a0a0aa);
+        color: var(--m3-on-surface-variant);
         padding: 0.5rem 0.6rem;
         font-size: 0.8rem;
         font-weight: 500;
@@ -519,10 +550,19 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         transition: all 0.15s ease;
       }
 
+      .segmented-btn:hover {
+        color: var(--m3-on-surface);
+      }
+
       .segmented-btn.active {
-        background: var(--surface-container-highest, rgba(255, 255, 255, 0.12));
-        color: var(--on-surface, #ffffff);
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface);
         font-weight: 600;
+      }
+
+      :host-context(.theme-light) .segmented-btn.active {
+        background: #ffffff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
       }
 
       .chip-group {
@@ -532,9 +572,9 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .filter-chip {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.12));
-        color: var(--on-surface-variant, #b5b5be);
+        background: var(--m3-surface-container-low);
+        border: 1px solid var(--m3-outline-variant);
+        color: var(--m3-on-surface-variant);
         padding: 0.35rem 0.75rem;
         font-size: 0.8rem;
         border-radius: 9999px;
@@ -542,10 +582,15 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         transition: all 0.15s ease;
       }
 
+      .filter-chip:hover {
+        color: var(--m3-on-surface);
+        border-color: var(--m3-outline);
+      }
+
       .filter-chip.active {
-        background: var(--primary-container, rgba(56, 189, 248, 0.16));
-        border-color: var(--primary, #38bdf8);
-        color: var(--primary, #38bdf8);
+        background: var(--m3-primary-container);
+        border-color: var(--m3-primary);
+        color: var(--m3-on-primary-container);
         font-weight: 600;
       }
 
@@ -559,42 +604,43 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       .currency-symbol {
         position: absolute;
         left: 0.75rem;
-        color: var(--on-surface-variant, #888);
+        color: var(--m3-on-surface-variant);
         font-size: 0.9rem;
       }
 
       .price-input {
         width: 100%;
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.15));
+        background: var(--m3-surface-container-low);
+        border: 1px solid var(--m3-outline-variant);
         border-radius: 12px;
         padding: 0.45rem 0.75rem 0.45rem 1.6rem;
-        color: var(--on-surface, #ffffff);
+        color: var(--m3-on-surface);
         font-size: 0.85rem;
       }
 
       .price-input:focus {
         outline: none;
-        border-color: var(--primary, #38bdf8);
+        border-color: var(--m3-primary);
+        box-shadow: 0 0 0 2px var(--m3-primary-container);
       }
 
       .test-alert-box {
-        background: rgba(0, 0, 0, 0.25);
-        border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.08));
+        background: var(--m3-surface-container-low);
+        border: 1px solid var(--m3-outline-variant);
         border-radius: 14px;
         padding: 0.75rem 1rem;
       }
 
       .modal-footer {
         padding: 0.85rem 1.5rem;
-        border-top: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.08));
+        border-top: 1px solid var(--m3-outline-variant);
         display: flex;
         align-items: center;
       }
 
       .btn-primary {
-        background: var(--primary, #38bdf8);
-        color: #0b1320;
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
         border: none;
         padding: 0.5rem 1.15rem;
         border-radius: 12px;
@@ -614,9 +660,9 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .btn-secondary {
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--on-surface, #e2e2e8);
-        border: 1px solid var(--outline-variant, rgba(255, 255, 255, 0.12));
+        background: var(--m3-surface-container-low);
+        color: var(--m3-on-surface);
+        border: 1px solid var(--m3-outline-variant);
         padding: 0.5rem 1rem;
         border-radius: 12px;
         font-size: 0.85rem;
@@ -625,22 +671,34 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .btn-secondary:hover:not(:disabled) {
-        background: rgba(255, 255, 255, 0.14);
+        background: var(--m3-surface-container);
       }
 
       .btn-text {
         background: transparent;
         border: none;
-        color: var(--primary, #38bdf8);
+        color: var(--m3-primary);
         cursor: pointer;
         padding: 0;
       }
 
+      .text-muted {
+        color: var(--m3-on-surface-variant);
+      }
+
       .text-success {
+        color: #16a34a;
+      }
+
+      :host-context(.theme-dark) .text-success {
         color: #4ade80;
       }
 
       .text-danger {
+        color: #dc2626;
+      }
+
+      :host-context(.theme-dark) .text-danger {
         color: #f87171;
       }
     `,
@@ -700,6 +758,7 @@ export class NotificationSettingsModalComponent {
   }
 
   public async onToggleMaster(enable: boolean): Promise<void> {
+    this.testMessage.set(null);
     if (enable) {
       const ok = await this.notificationService.enableNotifications();
       if (ok) {

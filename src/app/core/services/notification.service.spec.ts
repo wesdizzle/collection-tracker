@@ -196,6 +196,49 @@ describe('NotificationService', () => {
     expect(mockRouter.navigateByUrl).toHaveBeenCalledWith('/item/mario-switch');
   });
 
+  it('should safely unsubscribe and clear local state even when SwPush.unsubscribe rejects', async () => {
+    mockSwPush.unsubscribe.mockRejectedValue(
+      new Error('Not subscribed to push notifications.'),
+    );
+    service.currentEndpoint.set('https://push.example.com/sub/test-stale');
+    service.isSubscribed.set(true);
+
+    const disablePromise = service.disableNotifications();
+
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+    }
+
+    const unsubReq = httpTesting.expectOne('/api/notifications/unsubscribe');
+    unsubReq.flush({ success: true });
+
+    const result = await disablePromise;
+    expect(result).toBe(true);
+    expect(service.isSubscribed()).toBe(false);
+    expect(service.currentEndpoint()).toBeNull();
+  });
+
+  it('should invalidate stale endpoint when sendTestAlert encounters 404', async () => {
+    service.currentEndpoint.set('https://push.example.com/sub/test-invalid');
+    service.isSubscribed.set(true);
+
+    const testPromise = service.sendTestAlert();
+
+    const testReq = httpTesting.expectOne('/api/notifications/test');
+    testReq.flush(
+      { error: 'Subscription not found.' },
+      { status: 404, statusText: 'Not Found' },
+    );
+
+    const result = await testPromise;
+    expect(result).toBe(false);
+    expect(service.isSubscribed()).toBe(false);
+    expect(service.currentEndpoint()).toBeNull();
+    expect(service.lastTestError()).toContain(
+      'Push subscription expired or was invalidated',
+    );
+  });
+
   it('should toggle settings modal state', () => {
     expect(service.isSettingsModalOpen()).toBe(false);
     service.openSettingsModal();

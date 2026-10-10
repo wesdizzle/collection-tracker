@@ -88,6 +88,68 @@ export class NotificationService {
       }
     }
 
+    // Observe browser subscription state to keep local state synchronized
+    if (this.swPush?.isEnabled && this.swPush.subscription) {
+      this.swPush.subscription.subscribe({
+        next: (sub) => {
+          if (sub) {
+            this.currentEndpoint.set(sub.endpoint);
+            this.isSubscribed.set(true);
+            if (typeof window !== 'undefined' && window.localStorage) {
+              localStorage.setItem(STORAGE_KEY_ENDPOINT, sub.endpoint);
+            }
+          } else {
+            // Browser has no active push subscription
+            if (this.isSubscribed()) {
+              this.currentEndpoint.set(null);
+              this.isSubscribed.set(false);
+              if (typeof window !== 'undefined' && window.localStorage) {
+                localStorage.removeItem(STORAGE_KEY_ENDPOINT);
+                localStorage.removeItem(LEGACY_STORAGE_KEY_ENDPOINT);
+              }
+              console.info(
+                'Detected missing/unregistered browser push subscription; local state reset.',
+              );
+            }
+          }
+        },
+        error: (err) => {
+          console.warn('Error observing push subscription:', err);
+        },
+      });
+    }
+
+    // Direct PushManager check if service worker is active
+    if (
+      typeof window !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      navigator.serviceWorker.ready
+    ) {
+      navigator.serviceWorker.ready
+        .then(async (reg) => {
+          try {
+            const sub = await reg.pushManager.getSubscription();
+            if (!sub && this.isSubscribed()) {
+              this.currentEndpoint.set(null);
+              this.isSubscribed.set(false);
+              if (typeof window !== 'undefined' && window.localStorage) {
+                localStorage.removeItem(STORAGE_KEY_ENDPOINT);
+                localStorage.removeItem(LEGACY_STORAGE_KEY_ENDPOINT);
+              }
+            } else if (sub && sub.endpoint !== this.currentEndpoint()) {
+              this.currentEndpoint.set(sub.endpoint);
+              this.isSubscribed.set(true);
+              if (typeof window !== 'undefined' && window.localStorage) {
+                localStorage.setItem(STORAGE_KEY_ENDPOINT, sub.endpoint);
+              }
+            }
+          } catch (e) {
+            console.warn('Could not query pushManager subscription:', e);
+          }
+        })
+        .catch(() => {});
+    }
+
     // Subscribe to notification clicks for routing
     if (this.swPush?.isEnabled) {
       this.swPush.notificationClicks.subscribe(({ notification }) => {
@@ -97,6 +159,22 @@ export class NotificationService {
         }
       });
     }
+  }
+
+  /**
+   * Cleans up stale/invalid subscription state when backend or push service reports 404/410.
+   */
+  private handleStaleSubscription(customMsg?: string): void {
+    this.isSubscribed.set(false);
+    this.currentEndpoint.set(null);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem(STORAGE_KEY_ENDPOINT);
+      localStorage.removeItem(LEGACY_STORAGE_KEY_ENDPOINT);
+    }
+    this.lastTestError.set(
+      customMsg ||
+        'Push subscription expired or was invalidated on this device (e.g. after reinstall). Please toggle notifications on again to re-register.',
+    );
   }
 
   /**
@@ -121,7 +199,16 @@ export class NotificationService {
         throw new Error('VAPID public key not found from server');
       }
 
-      // 2. Request browser push subscription
+      // 2. Unsubscribe any stale browser subscription before creating a fresh one
+      if (this.swPush?.isEnabled) {
+        try {
+          await this.swPush.unsubscribe();
+        } catch {
+          // Bypassed if not subscribed
+        }
+      }
+
+      // 3. Request browser push subscription
       if (!this.swPush) {
         throw new Error('SwPush service worker integration is not available');
       }
@@ -150,7 +237,7 @@ export class NotificationService {
         preferences: activePrefs,
       };
 
-      // 3. Register with backend
+      // 4. Register with backend
       await firstValueFrom(
         this.http.post<{ success: boolean }>(
           '/api/notifications/subscribe',
@@ -158,9 +245,10 @@ export class NotificationService {
         ),
       );
 
-      // 4. Update local state
+      // 5. Update local state
       this.isSubscribed.set(true);
       this.currentEndpoint.set(sub.endpoint);
+      this.lastTestError.set(null);
       this.preferences.set(activePrefs);
       if (typeof window !== 'undefined' && 'Notification' in window) {
         this.permissionState.set(Notification.permission);
@@ -192,21 +280,30 @@ export class NotificationService {
 
     try {
       if (this.swPush?.isEnabled) {
-        await this.swPush.unsubscribe();
+        try {
+          await this.swPush.unsubscribe();
+        } catch (swErr) {
+          console.warn('Browser push unsubscribe bypassed:', swErr);
+        }
       }
 
       if (endpoint) {
-        await firstValueFrom(
-          this.http.post<{ success: boolean }>(
-            '/api/notifications/unsubscribe',
-            { endpoint },
-          ),
-        );
+        try {
+          await firstValueFrom(
+            this.http.post<{ success: boolean }>(
+              '/api/notifications/unsubscribe',
+              { endpoint },
+            ),
+          );
+        } catch (apiErr) {
+          console.warn('Backend push unsubscribe warning:', apiErr);
+        }
       }
 
       const updatedPrefs = { ...this.preferences(), enabled: false };
       this.isSubscribed.set(false);
       this.currentEndpoint.set(null);
+      this.lastTestError.set(null);
       this.preferences.set(updatedPrefs);
 
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -218,7 +315,14 @@ export class NotificationService {
       return true;
     } catch (err) {
       console.error('Failed to unsubscribe from notifications:', err);
-      return false;
+      // Fallback cleanup so the user is never permanently stuck
+      this.isSubscribed.set(false);
+      this.currentEndpoint.set(null);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.removeItem(STORAGE_KEY_ENDPOINT);
+        localStorage.removeItem(LEGACY_STORAGE_KEY_ENDPOINT);
+      }
+      return true;
     } finally {
       this.isProcessing.set(false);
     }
@@ -275,23 +379,46 @@ export class NotificationService {
     this.lastTestError.set(null);
     try {
       const res = await firstValueFrom(
-        this.http.post<{ success: boolean; error?: string; status?: number }>(
-          '/api/notifications/test',
-          { endpoint },
-        ),
+        this.http.post<{
+          success: boolean;
+          error?: string;
+          status?: number;
+          shouldDelete?: boolean;
+        }>('/api/notifications/test', { endpoint }),
       );
-      if (!res.success && res.error) {
-        this.lastTestError.set(res.error);
+
+      if (!res.success) {
+        if (res.shouldDelete || res.status === 404 || res.status === 410) {
+          this.handleStaleSubscription();
+        } else if (res.error) {
+          this.lastTestError.set(res.error);
+        }
+        return false;
       }
       return Boolean(res.success);
     } catch (err: unknown) {
       console.error('Failed to send test notification:', err);
-      const httpErr = err as { error?: { error?: string }; message?: string };
+      const httpErr = err as {
+        status?: number;
+        error?: { error?: string; shouldDelete?: boolean };
+        message?: string;
+      };
       const msg =
         httpErr?.error?.error ||
         httpErr?.message ||
         'Network error while sending test notification.';
-      this.lastTestError.set(msg);
+
+      if (
+        httpErr?.status === 404 ||
+        httpErr?.status === 410 ||
+        httpErr?.error?.shouldDelete ||
+        msg.toLowerCase().includes('subscription not found') ||
+        msg.toLowerCase().includes('410')
+      ) {
+        this.handleStaleSubscription();
+      } else {
+        this.lastTestError.set(msg);
+      }
       return false;
     } finally {
       this.isProcessing.set(false);
