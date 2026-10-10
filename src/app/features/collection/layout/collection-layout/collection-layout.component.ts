@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, OnDestroy } from '@angular/core';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { BrandingService } from '../../../../core/services/branding.service';
@@ -336,7 +336,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
     `,
   ],
 })
-export class CollectionLayoutComponent {
+export class CollectionLayoutComponent implements OnDestroy {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private collectionService = inject(CollectionService);
@@ -344,7 +344,27 @@ export class CollectionLayoutComponent {
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
   public isAdmin = this.collectionService.isAdmin;
 
+  private mediaQuery =
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
+  private mediaQueryListener = () => {
+    if (this.theme() === 'auto') {
+      this.applyTheme('auto');
+    }
+  };
+
   constructor() {
+    if (this.mediaQuery) {
+      if (this.mediaQuery.addEventListener) {
+        this.mediaQuery.addEventListener('change', this.mediaQueryListener);
+      } else if ('addListener' in this.mediaQuery) {
+        (
+          this.mediaQuery as { addListener: (listener: () => void) => void }
+        ).addListener(this.mediaQueryListener);
+      }
+    }
+
     if (
       typeof window !== 'undefined' &&
       window.location.search.includes('nonce=')
@@ -367,6 +387,18 @@ export class CollectionLayoutComponent {
       this.applyTheme(saved);
     } else {
       this.applyTheme(this.theme());
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.mediaQuery) {
+      if (this.mediaQuery.removeEventListener) {
+        this.mediaQuery.removeEventListener('change', this.mediaQueryListener);
+      } else if ('removeListener' in this.mediaQuery) {
+        (
+          this.mediaQuery as { removeListener: (listener: () => void) => void }
+        ).removeListener(this.mediaQueryListener);
+      }
     }
   }
 
@@ -401,25 +433,52 @@ export class CollectionLayoutComponent {
     if (typeof document === 'undefined') return;
     const body = document.body;
     body.classList.remove('theme-light', 'theme-dark');
-    let effectiveTheme: 'light' | 'dark';
-    if (mode === 'auto') {
-      effectiveTheme =
+
+    if (mode === 'dark') {
+      body.classList.add('theme-dark');
+      this.updateThemeColorMeta('dark');
+    } else if (mode === 'light') {
+      body.classList.add('theme-light');
+      this.updateThemeColorMeta('light');
+    } else {
+      const prefersDark =
         typeof window !== 'undefined' &&
         window.matchMedia &&
-        window.matchMedia('(prefers-color-scheme: light)').matches
-          ? 'light'
-          : 'dark';
-    } else {
-      body.classList.add(`theme-${mode}`);
-      effectiveTheme = mode;
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      body.classList.add(prefersDark ? 'theme-dark' : 'theme-light');
+      this.updateThemeColorMeta('auto', prefersDark ? 'dark' : 'light');
     }
-    this.updateThemeColorMeta(effectiveTheme);
   }
 
-  private updateThemeColorMeta(theme: 'light' | 'dark') {
+  private updateThemeColorMeta(
+    mode: 'light' | 'dark' | 'auto',
+    fallbackTheme: 'light' | 'dark' = 'dark',
+  ) {
     if (typeof document === 'undefined') return;
-    const color = theme === 'dark' ? '#121214' : '#f8fafc';
-    const metas = document.querySelectorAll('meta[name="theme-color"]');
-    metas.forEach((meta) => meta.setAttribute('content', color));
+    const darkColor = '#121214';
+    const lightColor = '#f8fafc';
+
+    const metas = document.querySelectorAll<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
+    metas.forEach((meta) => {
+      const media = meta.getAttribute('media');
+      if (mode === 'dark') {
+        meta.setAttribute('content', darkColor);
+      } else if (mode === 'light') {
+        meta.setAttribute('content', lightColor);
+      } else {
+        if (media && media.includes('prefers-color-scheme: dark')) {
+          meta.setAttribute('content', darkColor);
+        } else if (media && media.includes('prefers-color-scheme: light')) {
+          meta.setAttribute('content', lightColor);
+        } else {
+          meta.setAttribute(
+            'content',
+            fallbackTheme === 'dark' ? darkColor : lightColor,
+          );
+        }
+      }
+    });
   }
 }
