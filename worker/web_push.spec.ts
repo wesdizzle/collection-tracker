@@ -5,6 +5,9 @@ import {
   createVapidAuthHeader,
   encryptWebPushPayload,
   sendWebPushNotification,
+  buildPushNotificationBody,
+  resolveVapidSubject,
+  resolveVapidJwk,
   DEFAULT_VAPID_PUBLIC_KEY,
   DEFAULT_VAPID_JWK,
   WebPushSubscription,
@@ -250,5 +253,62 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     expect(result.success).toBe(false);
     expect(result.status).toBe(410);
     expect(result.shouldDelete).toBe(true);
+  });
+
+  it('should format push notification body for Angular Service Worker and mobile devices', () => {
+    const raw = {
+      title: 'Deal Alert: Chrono Trigger',
+      body: 'Now $49.99 (25% off) at VGP!',
+      data: { url: '/item/chrono-trigger-ds' },
+    };
+
+    const formatted = buildPushNotificationBody(raw);
+    const parsed = JSON.parse(formatted);
+
+    // Angular Service Worker ngsw-worker.js requirement:
+    expect(parsed.notification).toBeDefined();
+    expect(parsed.notification.title).toBe(raw.title);
+    expect(parsed.notification.body).toBe(raw.body);
+    expect(parsed.notification.icon).toBe('/icons/icon-192.png');
+    expect(parsed.notification.badge).toBe('/icons/icon-192.png');
+    expect(parsed.notification.data.url).toBe('/item/chrono-trigger-ds');
+    expect(parsed.notification.data.onActionClick.default).toEqual({
+      operation: 'openWindow',
+      url: '/item/chrono-trigger-ds',
+    });
+
+    // Top-level compatibility for generic push listeners:
+    expect(parsed.title).toBe(raw.title);
+    expect(parsed.body).toBe(raw.body);
+    expect(parsed.icon).toBe('/icons/icon-192.png');
+  });
+
+  it('should resolve a routable VAPID subject and never emit .local or localhost', () => {
+    // Rejects .local fallback
+    const localAttempt = resolveVapidSubject('mailto:admin@test.local');
+    expect(localAttempt.includes('.local')).toBe(false);
+    expect(
+      localAttempt.startsWith('mailto:') || localAttempt.startsWith('https:'),
+    ).toBe(true);
+
+    // Uses adminEmail if provided
+    const withAdmin = resolveVapidSubject(
+      undefined,
+      undefined,
+      'wesley@example.com',
+    );
+    expect(withAdmin).toBe('mailto:wesley@example.com');
+
+    // Uses request origin if HTTPS
+    const withReq = resolveVapidSubject(
+      undefined,
+      'https://gagglog.example.com/api/test',
+    );
+    expect(withReq).toBe('https://gagglog.example.com');
+  });
+
+  it('should resolve VAPID JWK from base64url private key and public key', () => {
+    const jwk = resolveVapidJwk(DEFAULT_VAPID_JWK.d, DEFAULT_VAPID_PUBLIC_KEY);
+    expect(jwk).toEqual(DEFAULT_VAPID_JWK);
   });
 });

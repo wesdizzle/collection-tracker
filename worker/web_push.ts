@@ -28,8 +28,30 @@ export interface WebPushNotificationPayload {
   badge?: string;
   data?: {
     url?: string;
+    onActionClick?: Record<string, { operation: string; url?: string }>;
     [key: string]: unknown;
   };
+  notification?: {
+    title: string;
+    body: string;
+    icon?: string;
+    badge?: string;
+    data?: {
+      url?: string;
+      onActionClick?: Record<string, { operation: string; url?: string }>;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface SendWebPushOptions {
+  subject?: string;
+  publicKey?: string;
+  privateKey?: string;
+  privateKeyJwk?: VapidJwk;
+  fetchFn?: typeof fetch;
 }
 
 export interface SendWebPushResult {
@@ -124,19 +146,100 @@ async function hkdfExpand(
 }
 
 /**
+ * Resolves a valid, routable contact URI for the VAPID 'sub' claim (RFC 8292).
+ * Apple APNs explicitly rejects .local / localhost addresses with 403 BadJwtToken.
+ */
+export function resolveVapidSubject(
+  subject?: string,
+  requestUrl?: string,
+  adminEmail?: string,
+): string {
+  if (
+    subject &&
+    !subject.includes('.local') &&
+    !subject.includes('localhost')
+  ) {
+    return subject;
+  }
+  if (
+    adminEmail &&
+    adminEmail.includes('@') &&
+    !adminEmail.includes('.local')
+  ) {
+    return `mailto:${adminEmail.trim()}`;
+  }
+  if (requestUrl) {
+    try {
+      const parsed = new URL(requestUrl);
+      if (
+        parsed.protocol === 'https:' &&
+        !parsed.hostname.includes('.local') &&
+        !parsed.hostname.includes('localhost')
+      ) {
+        return `https://${parsed.host}`;
+      }
+    } catch {
+      // fallback
+    }
+  }
+  return 'mailto:admin@collection-tracker.app';
+}
+
+/**
+ * Resolves or derives a valid P-256 JWK from private key options.
+ */
+export function resolveVapidJwk(
+  customPrivateKey?: string,
+  customPublicKey?: string,
+  explicitJwk?: VapidJwk,
+): VapidJwk {
+  if (explicitJwk) {
+    return explicitJwk;
+  }
+  if (customPrivateKey) {
+    const trimmed = customPrivateKey.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        return JSON.parse(trimmed) as VapidJwk;
+      } catch {
+        // continue
+      }
+    }
+    const pubKeyToUse = customPublicKey || DEFAULT_VAPID_PUBLIC_KEY;
+    try {
+      const pubBytes = base64UrlToUint8Array(pubKeyToUse);
+      if (pubBytes.length === 65 && pubBytes[0] === 4) {
+        const x = uint8ArrayToBase64Url(pubBytes.subarray(1, 33));
+        const y = uint8ArrayToBase64Url(pubBytes.subarray(33, 65));
+        return {
+          kty: 'EC',
+          crv: 'P-256',
+          d: trimmed,
+          x,
+          y,
+        };
+      }
+    } catch {
+      // fallback
+    }
+  }
+  return DEFAULT_VAPID_JWK;
+}
+
+/**
  * Generates an RFC 8292 VAPID Authorization header string for a given push endpoint.
  */
 export async function createVapidAuthHeader(
   endpoint: string,
-  options?: {
-    subject?: string;
-    publicKey?: string;
-    privateKeyJwk?: VapidJwk;
-  },
+  options?: SendWebPushOptions,
 ): Promise<string> {
   const publicKey = options?.publicKey || DEFAULT_VAPID_PUBLIC_KEY;
-  const jwk = options?.privateKeyJwk || DEFAULT_VAPID_JWK;
-  const subject = options?.subject || 'mailto:admin@collection-tracker.local';
+  const jwk = resolveVapidJwk(
+    options?.privateKey,
+    options?.publicKey,
+    options?.privateKeyJwk,
+  );
+  const subject = resolveVapidSubject(options?.subject);
 
   const origin = new URL(endpoint).origin;
   const exp = Math.floor(Date.now() / 1000) + 12 * 3600; // 12 hours expiry
@@ -277,25 +380,64 @@ export async function encryptWebPushPayload(
 }
 
 /**
+ * Normalizes and packages a push notification payload so that it is natively handled by:
+ * 1. Angular Service Worker (`ngsw-worker.js`), which requires `payload.notification.title`.
+ * 2. Mobile OSes (Android & iOS) with rasterized PNG icons instead of SVG.
+ * 3. Deep-linking tap routing via `notification.data.onActionClick`.
+ * 4. Generic Web Push handlers that read top-level fields.
+ */
+export function buildPushNotificationBody(
+  payload: WebPushNotificationPayload,
+): string {
+  const url = payload.data?.url || '/';
+  const icon = payload.icon || '/icons/icon-192.png';
+  const badge = payload.badge || '/icons/icon-192.png';
+
+  const notificationData = {
+    ...(payload.data || {}),
+    url,
+    onActionClick: payload.data?.onActionClick || {
+      default: {
+        operation: 'openWindow',
+        url,
+      },
+    },
+  };
+
+  const formattedPayload: WebPushNotificationPayload = {
+    ...payload,
+    icon,
+    badge,
+    data: notificationData,
+    notification: {
+      title: payload.title,
+      body: payload.body,
+      icon,
+      badge,
+      data: notificationData,
+      ...(payload.notification || {}),
+    },
+  };
+
+  return JSON.stringify(formattedPayload);
+}
+
+/**
  * Dispatches an encrypted Web Push notification to a push subscription.
  */
 export async function sendWebPushNotification(
   subscription: WebPushSubscription,
   payload: WebPushNotificationPayload,
-  options?: {
-    subject?: string;
-    publicKey?: string;
-    privateKeyJwk?: VapidJwk;
-    fetchFn?: typeof fetch;
-  },
+  options?: SendWebPushOptions,
 ): Promise<SendWebPushResult> {
   const fetchFn = options?.fetchFn || fetch;
 
   try {
+    const jsonBody = buildPushNotificationBody(payload);
     const encryptedBody = await encryptWebPushPayload(
       subscription.p256dh,
       subscription.auth,
-      JSON.stringify(payload),
+      jsonBody,
     );
 
     const authHeader = await createVapidAuthHeader(
@@ -319,10 +461,21 @@ export async function sendWebPushNotification(
     const shouldDelete = status === 404 || status === 410;
     const success = response.ok || status === 201;
 
+    let errorDetail: string | undefined;
+    if (!success) {
+      try {
+        const errorText = await response.text();
+        errorDetail = `Push service responded with status ${status}: ${errorText}`;
+      } catch {
+        errorDetail = `Push service responded with status ${status}`;
+      }
+    }
+
     return {
       success,
       status,
       shouldDelete,
+      error: errorDetail,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

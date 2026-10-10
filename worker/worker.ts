@@ -56,6 +56,7 @@ import {
 import {
   DEFAULT_VAPID_PUBLIC_KEY,
   sendWebPushNotification,
+  resolveVapidSubject,
   WebPushNotificationPayload,
 } from './web_push';
 
@@ -2615,11 +2616,18 @@ Disallow: /
           {
             title: '🔔 Deal Alerts Active',
             body: 'Push notifications are successfully configured for your device!',
-            icon: '/favicon.svg',
+            icon: '/icons/icon-192.png',
+            badge: '/icons/icon-192.png',
             data: { url: '/' },
           },
           {
             publicKey: env.VAPID_PUBLIC_KEY,
+            privateKey: env.VAPID_PRIVATE_KEY,
+            subject: resolveVapidSubject(
+              undefined,
+              request.url,
+              env.ADMIN_EMAIL,
+            ),
             fetchFn: fetch,
           },
         );
@@ -3018,7 +3026,8 @@ export async function dispatchDealPushNotifications(
       const payload: WebPushNotificationPayload = {
         title,
         body,
-        icon: '/favicon.svg',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-192.png',
         data: {
           url: `/item/${top.slug}`,
         },
@@ -3029,6 +3038,8 @@ export async function dispatchDealPushNotifications(
         payload,
         {
           publicKey: env.VAPID_PUBLIC_KEY,
+          privateKey: env.VAPID_PRIVATE_KEY,
+          subject: resolveVapidSubject(undefined, undefined, env.ADMIN_EMAIL),
           fetchFn: fetch,
         },
       );

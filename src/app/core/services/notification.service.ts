@@ -44,6 +44,7 @@ export class NotificationService {
   );
   public readonly isProcessing = signal<boolean>(false);
   public readonly currentEndpoint = signal<string | null>(null);
+  public readonly lastTestError = signal<string | null>(null);
 
   constructor() {
     this.init();
@@ -265,19 +266,31 @@ export class NotificationService {
   public async sendTestAlert(): Promise<boolean> {
     const endpoint = this.currentEndpoint();
     if (!endpoint) {
+      this.lastTestError.set('No active push endpoint found on this device.');
       return false;
     }
 
     this.isProcessing.set(true);
+    this.lastTestError.set(null);
     try {
       const res = await firstValueFrom(
-        this.http.post<{ success: boolean }>('/api/notifications/test', {
-          endpoint,
-        }),
+        this.http.post<{ success: boolean; error?: string; status?: number }>(
+          '/api/notifications/test',
+          { endpoint },
+        ),
       );
+      if (!res.success && res.error) {
+        this.lastTestError.set(res.error);
+      }
       return Boolean(res.success);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to send test notification:', err);
+      const httpErr = err as { error?: { error?: string }; message?: string };
+      const msg =
+        httpErr?.error?.error ||
+        httpErr?.message ||
+        'Network error while sending test notification.';
+      this.lastTestError.set(msg);
       return false;
     } finally {
       this.isProcessing.set(false);
