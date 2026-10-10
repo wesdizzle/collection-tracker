@@ -1384,9 +1384,13 @@ describe('Worker API Logic', () => {
       const data = (await res.json()) as {
         name: string;
         short_name: string;
+        theme_color: string;
+        background_color: string;
       };
       expect(data.name).toBe('Gagglelog');
       expect(data.short_name).toBe('Gaggle');
+      expect(data.theme_color).toBe('#121214');
+      expect(data.background_color).toBe('#121214');
     });
 
     it('GET /api/admin/logout sets domain-agnostic cookies based on request host', async () => {

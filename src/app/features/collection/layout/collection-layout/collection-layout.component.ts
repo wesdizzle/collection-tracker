@@ -365,6 +365,8 @@ export class CollectionLayoutComponent {
     if (saved) {
       this.theme.set(saved);
       this.applyTheme(saved);
+    } else {
+      this.applyTheme(this.theme());
     }
   }
 
@@ -396,12 +398,28 @@ export class CollectionLayoutComponent {
   }
 
   private applyTheme(mode: 'light' | 'dark' | 'auto') {
+    if (typeof document === 'undefined') return;
     const body = document.body;
     body.classList.remove('theme-light', 'theme-dark');
+    let effectiveTheme: 'light' | 'dark';
     if (mode === 'auto') {
-      // Respect browser preference
+      effectiveTheme =
+        typeof window !== 'undefined' &&
+        window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: light)').matches
+          ? 'light'
+          : 'dark';
     } else {
       body.classList.add(`theme-${mode}`);
+      effectiveTheme = mode;
     }
+    this.updateThemeColorMeta(effectiveTheme);
+  }
+
+  private updateThemeColorMeta(theme: 'light' | 'dark') {
+    if (typeof document === 'undefined') return;
+    const color = theme === 'dark' ? '#121214' : '#f8fafc';
+    const metas = document.querySelectorAll('meta[name="theme-color"]');
+    metas.forEach((meta) => meta.setAttribute('content', color));
   }
 }

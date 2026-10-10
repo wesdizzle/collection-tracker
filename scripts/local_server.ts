@@ -1798,7 +1798,7 @@ export const handleRequest =
             start_url: '/',
             display: 'standalone',
             background_color: '#121214',
-            theme_color: '#1e1e24',
+            theme_color: '#121214',
             icons: [
               {
                 src: '/favicon.svg',

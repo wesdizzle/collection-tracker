@@ -1,8 +1,8 @@
 {
   "name": "Collection Tracker",
   "short_name": "Tracker",
-  "theme_color": "#17130b",
-  "background_color": "#17130b",
+  "theme_color": "#121214",
+  "background_color": "#121214",
   "display": "standalone",
   "scope": "/",
   "start_url": "/",

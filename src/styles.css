@@ -36,35 +36,35 @@
 .theme-dark {
   color-scheme: dark;
 
-  --m3-primary: #ffb951; /* Expressive Gold */
-  --m3-on-primary: #452b00;
-  --m3-primary-container: #633f00;
-  --m3-on-primary-container: #ffddb3;
+  --m3-primary: #38bdf8; /* Logo Sky Blue / Cyan */
+  --m3-on-primary: #003549;
+  --m3-primary-container: #004d67;
+  --m3-on-primary-container: #bfe9ff;
 
-  --m3-secondary: #dfc397; /* Tonal Muted Gold */
-  --m3-on-secondary: #3e2e16;
-  --m3-secondary-container: #56452a;
-  --m3-on-secondary-container: #fcdfac;
+  --m3-secondary: #818cf8; /* Logo Indigo / Periwinkle */
+  --m3-on-secondary: #1e1b4b;
+  --m3-secondary-container: #312e81;
+  --m3-on-secondary-container: #e0e7ff;
 
-  --m3-tertiary: #b2f08d; /* High-chroma Lime */
-  --m3-on-tertiary: #193700;
-  --m3-tertiary-container: #285000;
-  --m3-on-tertiary-container: #ceffb0;
+  --m3-tertiary: #fb7185; /* Logo Optical Disc Rose Accent */
+  --m3-on-tertiary: #4c0519;
+  --m3-tertiary-container: #881337;
+  --m3-on-tertiary-container: #ffe4e6;
 
-  --m3-surface: #17130b; /* Tonal Surface */
-  --m3-on-surface: #e9e1d9;
-  --m3-surface-variant: #2d251a;
-  --m3-on-surface-variant: #d1c5b4;
+  --m3-surface: #121214; /* Logo Spindle Hub Obsidian */
+  --m3-on-surface: #f1f1f5;
+  --m3-surface-variant: #23232b;
+  --m3-on-surface-variant: #a2a2b4;
 
-  --m3-surface-container-low: #1f1911;
-  --m3-surface-container: #241d15;
-  --m3-surface-container-high: #2f271d;
-  --m3-surface-container-highest: #3a3127;
+  --m3-surface-container-low: #16161a;
+  --m3-surface-container: #1a1a20;
+  --m3-surface-container-high: #1e1e24; /* Logo Cartridge Body Slate */
+  --m3-surface-container-highest: #26262e;
 
-  --m3-outline: #9a8f80;
-  --m3-outline-variant: #4f4539;
+  --m3-outline: #8e8e9c;
+  --m3-outline-variant: #2e2e38;
 
-  --glass-bg: rgba(23, 19, 11, 0.7);
+  --glass-bg: rgba(18, 18, 20, 0.75);
   --glass-border: rgba(255, 255, 255, 0.08);
 }
 
@@ -72,35 +72,35 @@
 .theme-light {
   color-scheme: light;
 
-  --m3-primary: #825500; /* Deep Expressive Gold */
+  --m3-primary: #0284c7; /* Deep Sky Blue */
   --m3-on-primary: #ffffff;
-  --m3-primary-container: #ffddb3;
-  --m3-on-primary-container: #291800;
+  --m3-primary-container: #e0f2fe;
+  --m3-on-primary-container: #034b6e;
 
-  --m3-secondary: #705d3f;
+  --m3-secondary: #4f46e5; /* Deep Indigo */
   --m3-on-secondary: #ffffff;
-  --m3-secondary-container: #fcdfac;
-  --m3-on-secondary-container: #281904;
+  --m3-secondary-container: #e0e7ff;
+  --m3-on-secondary-container: #1e1b4b;
 
-  --m3-tertiary: #4b6545; /* Deep Green */
+  --m3-tertiary: #e11d48; /* Deep Rose */
   --m3-on-tertiary: #ffffff;
-  --m3-tertiary-container: #ccebc3;
-  --m3-on-tertiary-container: #082107;
+  --m3-tertiary-container: #ffe4e6;
+  --m3-on-tertiary-container: #881337;
 
-  --m3-surface: #fff8f2; /* Warm Expressive White */
-  --m3-on-surface: #1f1b16;
-  --m3-surface-variant: #f0e0d0;
-  --m3-on-surface-variant: #4f4539;
+  --m3-surface: #f8fafc; /* Crisp Clean Slate White */
+  --m3-on-surface: #0f172a;
+  --m3-surface-variant: #e2e8f0;
+  --m3-on-surface-variant: #475569;
 
-  --m3-surface-container-low: #faf2e9;
-  --m3-surface-container: #f4ece3;
-  --m3-surface-container-high: #eee6dd;
-  --m3-surface-container-highest: #e9e1d9;
+  --m3-surface-container-low: #f1f5f9;
+  --m3-surface-container: #e2e8f0;
+  --m3-surface-container-high: #cbd5e1;
+  --m3-surface-container-highest: #94a3b8;
 
-  --m3-outline: #817567;
-  --m3-outline-variant: #d1c5b4;
+  --m3-outline: #94a3b8;
+  --m3-outline-variant: #cbd5e1;
 
-  --glass-bg: rgba(255, 248, 242, 0.7);
+  --glass-bg: rgba(248, 250, 252, 0.8);
   --glass-border: rgba(0, 0, 0, 0.08);
 }
 

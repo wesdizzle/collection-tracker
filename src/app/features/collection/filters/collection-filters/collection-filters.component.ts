@@ -44,6 +44,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
     NotificationSettingsModalComponent,
     IconComponent,
   ],
+  host: {
+    '[class.modal-open]': 'showNotificationModal()',
+  },
   template: `
     <div class="filter-wrapper animate-expressive animate-stagger-1">
       <div class="mobile-filter-row desktop-hidden">
@@ -1266,7 +1269,28 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
           </div>
         </div>
 
-        <div class="filter-bar-footer ml-auto flex items-center gap-md">
+        <div class="filter-bar-footer flex items-center gap-md">
+          <div
+            class="filter-info mobile-hidden flex flex-col items-start gap-2xs mr-auto"
+          >
+            <span class="count-badge">
+              {{ resultCount() }} items
+              @if (totalValue() > 0) {
+                • {{ formatCurrency(totalValue()) }}
+              }
+            </span>
+            @if (lastUpdated()) {
+              <span
+                class="sync-timestamp"
+                [title]="
+                  'Last synced with server: ' + (lastUpdated() | date: 'medium')
+                "
+              >
+                Updated {{ lastUpdated() | date: 'shortTime' }}
+              </span>
+            }
+          </div>
+
           <!-- Deals Only Toggle (Games Tab Only) -->
           @if (currentTab() === 'games') {
             <button
@@ -1359,27 +1383,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
               </div>
             }
           </div>
-
-          <div
-            class="filter-info mobile-hidden flex flex-col items-end gap-2xs"
-          >
-            <span class="count-badge">
-              {{ resultCount() }} items
-              @if (totalValue() > 0) {
-                • {{ formatCurrency(totalValue()) }}
-              }
-            </span>
-            @if (lastUpdated()) {
-              <span
-                class="sync-timestamp"
-                [title]="
-                  'Last synced with server: ' + (lastUpdated() | date: 'medium')
-                "
-              >
-                Updated {{ lastUpdated() | date: 'shortTime' }}
-              </span>
-            }
-          </div>
         </div>
       </div>
 
@@ -1396,6 +1399,11 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         display: block;
         position: relative;
         z-index: 20;
+      }
+
+      :host.modal-open,
+      :host:has(app-notification-settings-modal) {
+        z-index: 2000;
       }
 
       .mb-lg {
@@ -1813,7 +1821,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         align-items: center;
         justify-content: center;
         width: auto;
-        gap: var(--spacing-10);
+        gap: var(--spacing-8);
         padding: 0 var(--spacing-16);
         height: 46px;
         border-radius: var(--radius-sm);
@@ -1843,7 +1851,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         align-items: center;
         justify-content: center;
         width: auto;
-        gap: var(--spacing-10);
+        gap: var(--spacing-8);
         padding: 0 var(--spacing-16);
         height: 46px;
         border-radius: var(--radius-sm);
@@ -1906,8 +1914,11 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         color: var(--m3-primary);
       }
       .export-dropdown-wrapper {
+        position: relative;
+        width: auto;
         min-width: 140px;
         flex-shrink: 0;
+        display: inline-flex;
       }
       .export-dropdown-list {
         right: 0;
@@ -1916,10 +1927,13 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       }
 
       .filter-bar-footer {
+        width: 100%;
         display: flex;
         align-items: center;
+        justify-content: flex-end;
         gap: var(--spacing-12);
         flex-wrap: wrap;
+        margin-top: var(--spacing-8);
       }
 
       .filter-info {
