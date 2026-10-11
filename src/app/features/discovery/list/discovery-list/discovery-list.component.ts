@@ -348,7 +348,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
               <div class="flex items-center gap-sm">
                 @if (scanLoading()) {
                   <button class="m3-btn m3-btn-secondary" (click)="stopScan()">
-                    ⏹ Stop Scan
+                    <span class="flex items-center gap-xs">
+                      <app-icon name="square-stop" [size]="16" /> Stop Scan
+                    </span>
                   </button>
                 } @else {
                   <button

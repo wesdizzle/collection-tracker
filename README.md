@@ -1,239 +1,155 @@
 # Collection Tracker
 
-A collection tracking application built with **Angular 21**.
+A web application for tracking physical video games, toys-to-life figures (amiibo, Skylanders, Starlink), and digital backups. Built with Angular and Cloudflare Workers.
 
-## 🚀 Key Features
+## Features
 
-- **Toy Collection & Grounding**: Full support for amiibo, Skylanders, and Starlink with verified metadata, regional tracking, and automated discovery.
-- **Durable Metadata**: Deep integration with IGDB for games and AmiiboAPI/SCL for toys.
-- **Physical Release Reconciliation & ROM Display**: Reconciliation of distinct physical release variants using No-Intro and Redump XML DAT files. All releases (including regional versions and revisions) are displayed as individual items in the UI to allow tracking of multiple copies. When a game matches a physical release, the frontend dynamically overrides the displayed game title with the clean ROM filename (excluding its file extension). This clean ROM title is used everywhere in the UI and is fully supported by the name/series filter search.
-- **Manual Discovery Pipeline**: A suggestion-based matching workflow for ambiguous items, surfaced through a generated discovery report for human-in-the-loop verification.
-- **Data Portability & ROM Manager Integration**: Export active filtered collections directly to RFC 4180 CSV or standard Logiqx XML DAT format. Generated Logiqx DATs can be directly consumed by ROM managers (`igir`, `clrmamepro`, `RomVault`) to audit, organize, and verify physical dumps against your wishlist.
-- **Interactive Multi-Disc Expansion Trays**: Multi-disc game releases automatically display an inline disc expansion tray showing disc count, individual disc backup statuses, and allow direct 1-click backup toggling per disc.
-- **User-Configurable Web Push Deal Alerts**: Instant push notifications delivered directly to desktop and mobile devices for physical video game price drops across Best Buy, VGP, and PNP Games. Built on RFC 8291 / RFC 8292 standard Web Crypto encryption with zero third-party dependencies. Users can configure collection scope (Seeking Only, Seeking & Unowned, All Games), minimum discount threshold, retail stores allowlist, maximum price cap, and platform filters with integrated delivery verification.
-- **Signals-First Architecture & Optimized Sorting**: Leveraging Angular 21 Signals for reactive state management, accelerated with Schwartzian transforms and indexed platform candidate lookups for sub-millisecond sorting across thousands of items.
+- **Game & Release Tracking**: Tracks games across 50+ platforms. Distinguishes intellectual property, commercial retail releases, and individual physical media (cartridges, discs, bonus/demo discs).
+- **Physical Release Verification**: Reconciles items against canonical No-Intro and Redump XML DAT catalogs. Clean ROM titles can override displayed titles, matching filenames used by ROM managers.
+- **Multi-Disc Sets**: Groups multi-disc releases with inline disc expansion trays to track backup status per disc.
+- **Toy Collection**: Supports amiibo, Skylanders, and Starlink figures and cards with series tracking, variant classification, and metadata from AmiiboAPI and SCL.
+- **Discovery Pipeline**: Integrated search across IGDB and AmiiboAPI to identify uncollected titles, sequels, and figures with automated variant matching.
+- **Data Portability**: Exports filtered collections to RFC 4180 CSV and Logiqx XML DAT formats compatible with ROM managers (`igir`, `clrmamepro`, `RomVault`).
+- **Retail Deal Tracking & Web Push Alerts**: Monitors price cuts across retailers (Best Buy, VGP, PNP Games) and dispatches Web Push notifications (RFC 8291 / RFC 8292 Web Crypto) based on user-configured thresholds, stores, and platforms.
+- **Theme Support**: Light, dark, and system-automatic modes with responsive top navigation and mobile bottom navigation.
+- **PWA Support**: Installable progressive web app with offline listing access.
 
-## 💻 Tech Stack
+## Tech Stack
 
-- **Frontend**: Angular 21 (Signals, Standalone Components)
-- **Styling**: Vanilla CSS with HSL-based design tokens
-- **Build/Test**: Vite & Vitest
-- **Database**: Cloudflare D1 (SQLite-compatible with game releases table tracking distinct regions and release dates)
-- **Backend**: Cloudflare Workers
+- **Frontend**: Angular 21 (Standalone Components, Signals)
+- **Styling**: Modern CSS using Material 3 design tokens (`--m3-*`)
+- **Testing**: Vitest
+- **Build**: Angular CLI (`ng build` with esbuild)
+- **Edge API & Hosting**: Cloudflare Workers
+- **Database**: Cloudflare D1 (SQLite-compatible) in production; SQLite (`better-sqlite3`) for local staging
+- **Storage**: Cloudflare R2 for automated daily snapshots
 
-## 🛠️ Architecture & Technical Standards
+## Architecture & Data Model
 
-### Collection Data Model: Games, Releases, and Media
+### Data Hierarchy: Game, Release, and Media
 
-The system operates across three conceptual tiers to cleanly separate intellectual property, retail commercial packaging, and physical media:
+The database models collection items across three tiers:
 
-1. **Game (`games` table)**:
-   - Represents the intellectual property and game title on a specific platform (e.g., _The Misadventures of Tron Bonne_ on PlayStation, _Mega Man Legends 2_ on PlayStation).
-   - Serves as the parent grouping for all regional releases, series classifications, genres, and pricing.
-2. **Release (Conceptual Commercial SKU / Product Unit)**:
-   - Represents the physical commercial edition or boxed product published for retail sale in a territory (e.g., North American 2-Disc Retail Edition, European Greatest Hits Reissue).
-   - In the frontend UI, the **Collection List displays one card per Release**. Multi-disc sets and bonus pack-in discs are unified under their primary Release card.
-3. **Media (`game_releases` table)**:
-   - Represents an individual physical disc, cartridge, or ROM image inside the retail box.
-   - For a standard 1-disc game, 1 Release = 1 Media row in `game_releases`.
-   - For a multi-disc game (e.g., _Final Fantasy VII_) or a retail product containing a pack-in bonus demo disc (e.g., _The Misadventures of Tron Bonne_ containing the _Mega Man Legends 2 Demo_), 1 Release = multiple Media rows in `game_releases` sharing the same `game_id`.
-   - In the frontend UI, all Media rows belonging to an edition are displayed on the **Item Detail View** under the **"Physical Discs / ROMs"** section.
+1. **Game (`games` table)**: The title/intellectual property for a platform (e.g., _Final Fantasy VII_ on PlayStation). Stores series classifications, genres, and pricing.
+2. **Release**: The commercial retail SKU published in a territory. The collection list view displays one card per release.
+3. **Media (`game_releases` table)**: Physical discs, cartridges, or ROM images within that release. A multi-disc game or package with a pack-in demo has multiple `game_releases` records linked to the same `game_id`. Individual media rows are displayed in the item detail view under "Physical Discs / ROMs".
 
-### Visual System
+### Navigation and State Isolation
 
-The application features a **Material 3 Expressive** interface, prioritizing emotional vibrancy, organic motion, and bold brand expression:
+- **Tab State**: Active filters, sorting modes, and scroll positions are tracked independently between the **Games** and **Toys** views in `CollectionService`. Switching tabs restores each view's state without reloading.
+- **Top Bar**: Full-bleed sticky header across the viewport housing the brand link, persistent navigation tabs, theme toggle, and admin controls. On mobile viewports ($\le$ 768px), navigation shifts to a fixed bottom navigation bar.
+- **Platform Sections**: Platform headers scroll naturally with their respective item grids.
 
-- **Expressive Palette**: Uses high-chroma, vibrant color schemes (Gold/Orange/Purple) that adapt to Light and Dark modes.
-- **Organic Shapes**: Implements a progressive shape system with increased corner radii (up to 48px) and fully rounded "pill" targets for a tactile feel.
-- **Expressive Typography**: Leverages **Roboto Flex** variable fonts for display and headlines, allowing for dynamic weight and width adjustments to emphasize visual hierarchy.
-- **Glassmorphism**: Tonal surfaces utilize backdrop-blur effects (glassmorphism) to create depth and focus in complex layouts.
-- **Fluid Motion**: Collection items and UI transitions use expressive, spring-based animations to provide immediate, delightful feedback.
-- **Dual-Theme Engine**: Full support for Light, Dark, and System-aware modes with a built-in theme switcher.
-- **Interactive Status Pills**: Consolidated status markers (Ownership: Unowned/Owned/Seeking/Ordered, Play Status: Unplayed/Played/Playing/Queued/Paused/Dropped, Backup Status) use high-contrast expressive chip patterns for instant recognition. When running via the local proxy, these pills become fully interactive, allowing users to update metadata statuses directly from the detail pages via a sleek modal interface.
-- **Verified Badges**: High-contrast indicator badges on both the collection list game cards and game detail pages. In addition to IGDB verification (`🆔`), a dedicated Physical Release Verified badge (`📦`) identifies physical releases backed by parsed No-Intro and Redump XML DAT files.
+### Metadata Ingestion & Physical Reconciliation
 
-### Navigation & Filter Logic
+Heavy scraping and data indexing are performed locally against staging SQLite and synchronized to Cloudflare D1:
 
-The application prioritizes a consistent browsing context by isolating collection state (filters, pagination, and scroll position) between the **Games** and **Toys** collections:
+- **Canonical DAT Sync (`scripts/sync_canonical_dats.ts`)**: Parses No-Intro and Redump XML DAT files in `dats/` to build the `canonical_releases` index.
+- **Title Matching Strategies (`scripts/lib/title_matching.ts`)**:
+  - _Strategy 1 (Exact Match)_: Compares normalized titles with diacritics stripped, punctuation cleaned, and common publisher prefixes removed.
+  - _Strategy 2 (Segment/Subtitle Matching)_: Splits titles on colons and dashes to match base games against subtitle variations.
+  - _Strategy 3 (Middle-Segment Stripping)_: Handles mission packs and multi-segment naming patterns.
+  - _Strategy 4 (Bonus Disc Matching)_: Uses parenthetical identifiers to resolve pack-in discs.
+- **Physical vs. Digital Distinction**: Disregards digital installers (`.pkg`), Virtual Console re-releases, and mini-console wrappers. For PlayStation Vita, canonical retail cartridge serials (`PCSE`, `PCSB`, `PCSG`, `PCSA`) are tagged as `is_verified_physical = 1` while digital-only PSN titles are tagged `0`.
+- **Bundles & Download Vouchers**: When physical releases include digital vouchers for companion games, the voucher details are shown as an informative note on the parent release without penalizing physical media backup status.
 
-- **Isolated Contexts**: Your active filters and scroll position on the Games page are stored separately from those on the Toys page. Switching between the two tabs will restore each respective state exactly as you left it.
-- **Intelligent Name/Series Filtering**: The name/series filter is case and accent insensitive (e.g., searching for `poke` will match both the `Pokémon` series and items with `Pokémon` in their name/title), and supports substring matching for improved searchability.
-- **Persistent Context**: Clicking the brand logo, using the browser's back button, or navigating via the "Back to Collection" link will all maintain your active context for the current tab.
+### Web Push Deal Notifications Engine
 
-### Metadata Reconciliation & Discovery
+- **Web Crypto Standards**: Push payload encryption (`aes128gcm`) is implemented natively in `worker/web_push.ts` using the W3C Web Cryptography API (`crypto.subtle`) with ECDH key agreement (P-256) and RFC 8292 VAPID authorization.
+- **Notification Filters**: Evaluates scraped price drops against subscriber preferences stored in D1 (`push_subscriptions`), filtering by collection status, minimum discount percentage, store allowlist, and platform selection.
+- **Subscription Maintenance**: Automatically removes dead endpoints when push services return `404 Not Found` or `410 Gone`.
 
-The application includes a robust Node-based pipeline (`scripts/scrape.ts`) for maintaining collection integrity and discovering new content:
+## Getting Started
 
-- **Multi-Pass Search**: Automatically falls back to simplified title searches if a direct platform match isn't found, handling complex bundle and special edition naming patterns.
-- **Confidence Scoring**: Uses word-overlap and category heuristics to automatically reconcile high-confidence matches. Ambiguous items are offloaded to a manual `discovery_report.md` for user verification.
-- **amiibo Discovery**: The `--discovery` pass automatically identifies all missing amiibo (including cards) from the canonical AmiiboAPI and adds them to your collection as "Unowned" items.
-- **Skylanders Matching & Ingestion**: Matches Skylanders figures against the SCL (Skylanders Character List) sitemap using:
-  - Base character name parsing (stripping variant modifiers and trailing "gear"/"figure" words globally, while preserving exception gates like "King Pen").
-  - Dynamically computed series ranking (checking a character's release list within the database to determine its expected SCL series suffix).
-  - Strict critical variant modifier isolation (ensuring variants like `legendary`, `lightcore`, `dark`, `gold`, `metallic`, and `gitd` (glow in the dark) cannot cross-match with standard or other sculpt variants).
-  - A static element/shape map for Creation Crystals to match Element + Shape (e.g. "Air Lantern" -> "Air Lantern Creation Crystal").
-  - A multi-strategy variant verification pass that handles pose modifiers, gear exclusions, and explicit series tie-breakers to resolve ambiguity.
-  - An audit pass in `scripts/scrape.ts` that audits all database records against SCL URLs, automatically correcting mismatched images (such as LightCore Grim Creeper vs Legendary LightCore Grim Creeper) and backfilling missing artwork.
-- **Metadata Refresh**: The `--refresh` pass periodically updates images, technical metadata, and queries IGDB for regional release dates for all verified releases. It also normalizes all database slugs to a canonical format and generates an `update_report.md` summarizing the changes.
-- **Physical Release Sync & Title Matching**: The `--sync-dats` pass scans the `/dats/` directory for XML DAT files, parses their structure, and reconciles physical releases using a specialized title matching module (`scripts/lib/title_matching.ts`). It avoids word-scrambling side effects by maintaining natural word order, and employs a multi-strategy sequence:
-  - _Strategy 1 (Exact Match)_: Compares normalized titles (lowercased, diacritics normalized, punctuation stripped). Normalization rules include:
-    - Early stripping of apostrophe-s (`'s`) to cleanly remove publisher/franchise prefixes (e.g., "Disney's" -> "Disney" -> stripped).
-    - Normalizing visual character substitutions such as replacing dollar signs (`$`) with `"s"` (e.g., `"Mega Party Game$!"` -> `"Mega Party Games"`).
-    - Stripping trailing platform suffixes (e.g., `ds`, `gba`, `3ds`, `wii`) to match database titles like "Plants vs. Zombies DS".
-    - Stripping franchise-specific prefixes like "Lara Croft" (e.g., "Lara Croft Tomb Raider - Legend" -> "Tomb Raider - Legend").
-  - _Strategy 2 (Segment/Subtitle Matching)_: Splits titles on colons/dashes to match base games against subtitle variants (e.g., matching "Tomb Raider II" against "Tomb Raider II - Starring Lara Croft" or "Super Mario All-Stars" against "Super Mario All-Stars: Limited Edition").
-  - _Strategy 3 (Middle-Segment Stripping)_: Handles mission packs and multi-segment layouts (e.g., matching "Grand Theft Auto: London 1969" against "Grand Theft Auto - Mission Pack 1 - London 1969").
-  - _Strategy 4 (Bonus Disc Special Matching)_: Uses parenthetical identifiers to resolve bonus and special discs (e.g., "Pokémon Colosseum Bonus Disc").
-- **Strict Format & Platform Constraints**: The sync scraper filters out digital installer `.pkg` files, unheadered NES ROM `.unh` files, digital/virtual releases containing `(Virtual Console)`, and emulator-wrapped collections like `(Genesis Mini)` or `(Anniversary Collection)`. For PlayStation Vita, it indexes canonical 1:1 `.psv` cartridge dumps from No-Intro (`PSVgameSD`) alongside decrypted NoNpDrm folder/archive dumps and Title IDs.
-- **Canonical Upstream DAT Authorities**:
-  - **Optical Discs**: [Redump](http://redump.org) (PlayStation 1–5, PSP, Sega Saturn/Dreamcast/CD, Xbox/360, GameCube, Wii, Wii U).
-  - **Standard Cartridges & ROMs**: [No-Intro Standard](https://www.no-intro.org) via official mirrors (NES, SNES, N64, Game Boy, GBC, GBA, DS, 3DS, Genesis, Atari, etc.).
-  - **PlayStation Vita Game Cards**: [No-Intro Unofficial](https://datomatic.no-intro.org) (`Sony - PlayStation Vita (PSVgameSD)` & `NoNpDrm`) via the official [Spludlow Data Web](https://data.spludlow.co.uk/no-intro/unofficial/) mirror.
-  - **Nintendo Switch**: [NSWDB](http://nswdb.com) XML converted to Logiqx XML.
-- **Multi-Disc Grouping Rules**: Multiple discs of a game are grouped together on the collection page only if their stripped ROM filenames are identical except for the disc indicators.
-- **Verification Signals**: Uses the presence of an `igdb_id` as a permanent verification signal, preventing the scraper from overwriting manually curated metadata.
-- **Database & Storage Architecture**:
-  - **Cloudflare D1 (Primary Database)**: Cloudflare D1 serves as the primary live database with edge routing for read queries and authenticated mutations.
-  - **Edge Caching API**: High-traffic read routes (`/api/games`, `/api/toys`, and `/api/platforms`) utilize the Cloudflare Workers Cache API (`caches.default`) with public 5-minute edge TTLs (`Cache-Control: public, max-age=300`) and sub-millisecond edge response times. All mutation endpoints (`/api/collection/toggle`, `/api/collection/sort`, `/api/discovery/add`, `/api/discovery/add-toy`, `/api/retail/sync-deals`) trigger instant cache eviction across primary listing routes.
-  - **Cloudflare R2 (Automated Daily Backups & Lifecycle Pruning)**: A scheduled worker cron trigger (`0 4 * * *`) automatically generates daily timestamped snapshots into Cloudflare R2 (`collection-backups`), preserving complete database states with zero egress fees. A rolling 30-day snapshot retention pruning cycle automatically removes backups older than 30 days to optimize storage footprint.
-  - **Decoupled Local Staging**: Heavy scraping (DAT matching, IGDB ingestion, backup folder scanning) is executed locally against staging SQLite and synchronized to D1 with explicit safeguards (`npm run db:pull` and `npm run db:push`).
-- **Web Push Deal Notifications Engine (RFC 8291 / RFC 8292)**:
-  - **Zero-Dependency SubtleCrypto Implementation**: Push payload encryption (`aes128gcm`) is implemented natively in `worker/web_push.ts` using the W3C Web Cryptography API (`crypto.subtle`). It performs ECDH key agreement with P-256 subscriber keys, HKDF salt derivation, and AES-GCM record framing without third-party Node or npm crypto libraries.
-  - **RFC 8292 VAPID Authorization**: Generates ES256 JSON Web Tokens (JWT) signed via Web Crypto ECDSA for push service provider authentication across Apple Web Push, Google FCM, and Mozilla Autopush.
-  - **Multi-Dimension Preference Filtering**: The scheduled retail sync worker (`syncWorkerRetailDeals`) evaluates newly scraped price cuts against subscriber preferences stored in Cloudflare D1 (`push_subscriptions` table). Alerts are selectively dispatched based on collection scope, minimum discount percentage, store allowlist, price caps, and platform constraints.
-  - **Autonomous Subscription Pruning**: Automatically purges invalid or expired browser push subscriptions when push gateways return `404 Not Found` or `410 Gone`.
+### Local Development Setup
 
-## 📦 Getting Started & Fork Setup
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd collection-tracker
+   ```
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+3. **Initialize local database**:
+   ```bash
+   npm run db:init
+   ```
+   Creates local `collection.sqlite` with canonical schema, platforms, and default taxonomies.
+4. **Configure environment variables**:
+   Create a `.dev.vars` file in the root directory:
+   ```env
+   TWITCH_CLIENT_ID=your_twitch_client_id
+   TWITCH_CLIENT_SECRET=your_twitch_client_secret
+   ```
+5. **Start local development server**:
+   ```bash
+   npm run dev
+   ```
 
-### Option A: Local Development & Staging Setup
+### Cloudflare Deployment
 
-1. **Clone the repository**: `git clone <your-fork-url>`
-2. **Install dependencies**: `npm install`
-3. **Initialize Database**: `npm run db:init` (Creates local `collection.sqlite` with canonical schema, 53 pre-configured gaming platforms, and toy series catalogs)
-4. **Run Local API & Frontend**: `npm run dev` (or `npm start`)
-
-### Option B: Cloudflare D1 Deployment
-
-1. **Create your Cloudflare D1 database**:
+1. **Create Cloudflare D1 database**:
    ```bash
    npx wrangler d1 create collection-db
    ```
-2. **Update `wrangler.toml`**: Replace `database_id` with the ID generated above.
-3. **Apply Initial Schema & Seed Reference Data**:
+2. **Update `wrangler.toml`**: Set `database_id` to the ID returned above.
+3. **Apply schema**:
    ```bash
    npx wrangler d1 migrations apply collection-db --remote
    ```
-4. **Create R2 Backup Bucket**: In Cloudflare Dashboard, create an R2 bucket named `collection-backups`.
-5. **Deploy**:
+4. **Create R2 backup bucket**:
+   Create a bucket named `collection-backups` in the Cloudflare Dashboard or via Wrangler.
+5. **Configure Worker Secrets**:
+   ```bash
+   npx wrangler secret put TWITCH_CLIENT_ID
+   npx wrangler secret put TWITCH_CLIENT_SECRET
+   ```
+6. **Deploy**:
    ```bash
    ALLOW_LOCAL_DEPLOY=true npm run deploy
    ```
 
-### 🛠️ Local Staging & Sync CLI Commands
+## CLI Commands
 
-- **Initialize Local Database**: `npm run db:init` (Builds fresh `collection.sqlite` from schema)
-- **Download Canonical DATs**: `npm run dats:download` (Downloads the latest official No-Intro and Redump XML DATs from canonical sources into `dats/`)
-- **Convert NSWDB Switch XML**: `npm run dats:convert-nswdb` (Converts `NSWreleases.xml` into canonical No-Intro XML DAT for Nintendo Switch)
-- **Convert NoPayStation TSVs**: `npm run dats:convert-nps` (Converts `PSV_GAMES.tsv` and `PS4_GAMES.tsv` into canonical Logiqx XML DATs for PlayStation Vita and PlayStation 4)
-- **Update & Sync All DATs**: `npm run dats:update` (Downloads latest DATs and immediately parses/indexes them into `canonical_releases`)
-- **Sync Canonical DATs (All Platforms)**: `npm run dats:sync` (Indexes all local No-Intro / Redump DAT releases into `canonical_releases` and generates full `canonical_releases_seed.sql`)
-- **Surgical Platform DAT Sync**: `npm run dats:sync -- --platform=<name|id>` (Scopes DAT parsing, database deletion, insertion, and reconciliation to a single platform, e.g. `npm run dats:sync -- --platform=vita` or `npm run dats:sync -- --platform=26`. Generates a surgical migration `scripts/temp/update_<platform>_d1.sql` consuming <5% of Cloudflare D1's 100k daily write quota)
-- **Dry-Run DAT Quota Check**: `npm run dats:dry-run` or `npm run dats:dry-run -- --platform=<name|id>` (Analyzes DAT files and calculates exact Cloudflare D1 write quota impact without modifying data)
-- **Backup Cold Copy**: `npm run db:backup` (Generates binary, SQL text, and JSON backups locally)
-- **Pull Remote D1**: `npm run db:pull` (Exports remote D1 state to local staging SQLite)
-- **Push to Remote D1**: `ALLOW_LOCAL_DEPLOY=true npm run db:push` (Pushes local staging changes up to Cloudflare D1)
-- **Update Canonical Series (D1)**: `ALLOW_REMOTE_DEPLOY=true npm run d1:update-canonical` (Applies surgical canonical series updates to remote Cloudflare D1 and executes smoke test)
-- **Smoke Test Canonical Series (D1)**: `npm run d1:smoke-test` (Runs remote sentinel smoke test verifying series classifications across all taxonomies)
+### Database & Scraper Scripts
 
-### 🔑 Environment Configuration
+| Command                                               | Description                                                                        |
+| :---------------------------------------------------- | :--------------------------------------------------------------------------------- |
+| `npm run db:init`                                     | Initializes fresh local `collection.sqlite` from schema                            |
+| `npm run db:backup`                                   | Exports binary, SQL, and JSON backups locally                                      |
+| `npm run db:pull`                                     | Exports remote D1 state to local staging SQLite                                    |
+| `npm run dats:download`                               | Downloads latest No-Intro and Redump XML DATs into `dats/`                         |
+| `npm run dats:update`                                 | Downloads latest DATs and updates `canonical_releases`                             |
+| `npm run dats:sync`                                   | Indexes local DAT releases into `canonical_releases`                               |
+| `npm run dats:sync:platform -- --platform=<name\|id>` | Runs scoped DAT sync for a single platform to minimize D1 write quota              |
+| `npm run dats:dry-run`                                | Analyzes DATs and estimates Cloudflare D1 write quota usage without modifying data |
+| `npm run sync:gameye`                                 | Scrapes and syncs collection data with Gameye backups                              |
+| `npm run sync:bestbuy`                                | Scrapes current retail game deals from Best Buy                                    |
 
-#### Local Development
+### Development & Quality Gates
 
-Create a `.dev.vars` file in the root directory with your IGDB Twitch credentials:
+| Command              | Description                                                                     |
+| :------------------- | :------------------------------------------------------------------------------ |
+| `npm start`          | Runs Angular dev server via `ng serve`                                          |
+| `npm run dev`        | Runs local API proxy and frontend concurrently                                  |
+| `npm run build`      | Compiles production Angular bundle to `dist/tracker`                            |
+| `npm test`           | Runs frontend (`test:ng`) and script/worker (`test:node`) test suites           |
+| `npm run test:ng`    | Runs frontend unit tests via Vitest                                             |
+| `npm run test:node`  | Runs backend worker and scraper tests                                           |
+| `npm run type-check` | Runs TypeScript compiler checks (`tsc --noEmit`)                                |
+| `npm run lint`       | Runs ESLint                                                                     |
+| `npm run ci-check`   | Runs lint, type-check, tests, and build sequentially (used by pre-commit hooks) |
 
-```env
-TWITCH_CLIENT_ID=your_client_id
-TWITCH_CLIENT_SECRET=your_client_secret
-```
+## Custom Branding Configuration
 
-#### Production (Cloudflare Workers)
+The app defaults to **Collection Tracker** as a neutral instance name. Deployers can customize branding via environment variables or Cloudflare Worker variables without modifying source code:
 
-Configure your Twitch credentials as Cloudflare Worker Secrets so the Edge API can query IGDB directly in production:
-
-```bash
-npx wrangler secret put TWITCH_CLIENT_ID
-npx wrangler secret put TWITCH_CLIENT_SECRET
-```
-
-#### 🎨 Configurable Branding & White-Label Identity
-
-The repository defaults to **Collection Tracker** as a neutral, open-source fallback. Deployers can customize their instance's title, mobile PWA name, tagline, author metadata, and favicon without modifying git-tracked source code:
-
-| Variable             | Description                                                                        | Default                                            |
-| :------------------- | :--------------------------------------------------------------------------------- | :------------------------------------------------- |
-| `APP_NAME`           | Primary application title displayed in header, page titles, and Logiqx DAT exports | `Collection Tracker`                               |
-| `APP_SHORT_NAME`     | Short name for mobile PWA home screen tiles                                        | `Tracker`                                          |
-| `APP_TAGLINE`        | App description and SEO meta description                                           | `Physical Game & Toy Collection Tracker`           |
-| `APP_AUTHOR`         | Author credit included in exported CSV and DAT files                               | `Collection Tracker`                               |
-| `CUSTOM_FAVICON_SVG` | Optional raw SVG text override served at `/favicon.svg`                            | Modern geometric cartridge emblem (`/favicon.svg`) |
-
-- **Local Development**: Add overrides directly to `.dev.vars` (e.g. `APP_NAME="Gagglog"`).
-- **Production (Cloudflare Workers)**: Set via Cloudflare Dashboard under **Workers & Pages > Settings > Variables and Secrets**, or via Wrangler:
-  ```bash
-  npx wrangler secret put APP_NAME
-  ```
-- **Dynamic Manifest & Endpoints**: The backend serves a runtime-generated Web App Manifest (`/manifest.webmanifest`), runtime branding config (`/api/config`), and dynamic favicon (`/favicon.svg`), while cookie domains dynamically follow `request.headers.get('Host')` so the application runs seamlessly on any custom domain or Cloudflare subdomain.
-
-### 🔍 Edge-Native Discovery & 3-Tier Physical Verification
-
-The **Discovery** tab provides three workflows directly within the web app with built-in physical vs digital release verification:
-
-1. **Game Search**: Search the entire IGDB database across any platform, filter out digital-only and Virtual Console fluff, inspect verified physical status badges (🟢 Verified Physical, 🟡 Likely Physical, ⚪ Digital Only), and ingest games into Cloudflare D1 with custom status tracking.
-2. **Franchise Discovery**: Automatically scans existing series in your collection against IGDB to surface uncollected sequels, spin-offs, and ports with canonical physical variant cross-referencing.
-3. **Amiibo Discovery**: Connects directly to AmiiboAPI to detect unreleased or missing amiibo figures and cards, supporting one-click and bulk ingestion into your collection.
-
-#### Physical Verification Architecture (Zero Paid APIs)
-
-- **Tier 1 (Canonical DAT Grounding & Disc Serial Catalogs - 100% Confidence)**: Cross-references game titles against 80,000+ indexed canonical No-Intro cartridge and Redump optical disc releases stored directly in D1/SQLite. For modern optical disc consoles (PlayStation 4 `CUSA` and PlayStation 5 `PPSA`) where public Redump DAT dumps are limited, verified retail disc serial indexes compiled from community catalogs (SerialStation / TMDB `media_type: "disc"`) elevate physical disc releases directly to Tier 1 canonical physical verification.
-- **Tier 2 (Modern Heuristics & Open Datasets)**: Validates modern games (Nintendo Switch, Nintendo Switch 2, PS4/PS5, Xbox) using free physical signals (physical packaging formats, curated physical publisher allowlist, retail barcodes, and platform serial code patterns). Nintendo Switch 2 (Platform 27) is an active commercial platform launched June 5, 2025 with physical cartridge distribution, tracked alongside Nintendo Switch (Platform 26) with evolving community backup catalogs.
-- **Tier 3 (Digital Fluff Elimination)**: Filters out DLC, expansion packs, Virtual Console/arcade re-releases, and digital ports exhibiting platform launch era discrepancies (>3 years prior to platform launch).
-
-#### Dual Physical vs. Digital Ingestion Architecture
-
-Modern and hybrid platforms (such as PlayStation Vita, Platform 33) have extensive digital-only releases alongside physical retail cartridges. To provide comprehensive backup coverage without cluttering physical game discovery, the system employs a dual-flag architecture:
-
-- **`is_verified_physical = 1` vs `0` in `canonical_releases`**: When canonical catalogs (e.g., NoPayStation PSV_GAMES TSV) are ingested, entries are verified against physical retail serial sets (e.g., North American `PCSE`, Japanese `PCSG`, European `PCSB`, Asian `PCSA` cartridge serials). Known physical releases are tagged `is_verified_physical = 1`, while digital-only PSN titles receive `is_verified_physical = 0`.
-- **Discovery Search Filtering**: In the Discovery view, the "Hide Digital-Only" filter filters on `is_verified_physical = 1`, ensuring that searches remain strictly focused on genuine retail releases.
-- **Full Digital Backup Reconciliation**: Because digital releases are preserved in `canonical_releases` with `is_verified_physical = 0`, backup folder scanning achieves 100% automated Title ID and ROM reconciliation across both physical dumps and digital purchases without requiring duplicate cataloging.
-- **NoNpDrm Archive Standard**: Vita backups adhere to the standard `.zip` archive format containing uncompressed or deflated Title ID structures (e.g., `PCSE00001 [Title].zip`), with automatic Title ID regex extraction (`/PC[SEABGFHIDJ]\d{5}/i`).
-
-#### Multi-Game Retail Bundles & Digital Voucher Tracking
-
-Retail packages for modern and hybrid platforms (e.g. Nintendo Switch, PlayStation Vita) frequently combine physical media with single-use digital download code inserts for companion games (e.g., _Final Fantasy X / X-2 HD Remaster_, _The Sly Collection_, _Mega Man Legacy Collection 1 + 2_, _Resident Evil Triple Pack_, _Bayonetta 2_).
-
-- **Physical Media Focus**: The collection tracker strictly catalogs physical boxes and verified dumps of physical media. Companion titles distributed exclusively via download codes inside physical packaging do not generate separate collection records or phantom detail pages.
-- **Parent Informative Callout**: The parent physical release detail view displays an informative notice (e.g., `🎟️ Original retail release contained Mega Man Legacy Collection on cartridge, plus a digital download voucher for Mega Man Legacy Collection 2`).
-- **Zero Backup Penalties**: Download code vouchers carry zero ROM backup expectations. The physical item is considered 100% backed up based solely on its cartridge or disc media, avoiding artificial missing backup warnings or reductions in backup completion statistics.
-
-## 🛡️ Engineering Standards
-
-- **In-Code Comments**: All complex logic is thoroughly documented explaining the technical intent.
-- **Colocated Testing**: Unit tests reside alongside the components they validate.
-- **Premium Aesthetics**: Curated HSL palettes and sleek dark modes used throughout the application.
-- **Local CI Validation**: Developers must run `npm run ci-check` before pushing. This script performs Linting, strict Type-Checking, and Unit Testing sequentially.
-- **Hotlinking & Secure Image Delivery**: The application strips the `Referer` header at the element-fetch level (using `referrerpolicy="no-referrer"` on images) to bypass CDN hotlinking restrictions (such as on Fandom/Wikia). Additionally, external assets from SCL (`skylanderscharacterlist.com`) and Fandom are allowlisted in `ngsw-config.json` for service worker caching, and URLs are migrated to HTTPS to prevent Mixed Content security blocks.
-
-## 📱 Mobile & PWA Features
-
-The Collection Tracker is optimized for mobile use:
-
-- **Standalone Mode**: Install it on your iOS or Android device for a full-screen, app-like experience without browser chrome.
-- **Offline Access**: The core application shell and game lists are cached locally, allowing you to browse your collection without an active internet connection.
-- **Safe Area Support**: Full support for modern phone displays with notches and gesture indicators.
-- **Touch-First UI**: Refined touch targets and compact layouts for one-handed use.
-- **Web Push Deal Notifications**: Native push notifications delivered directly to iOS (when installed to Home Screen) and Android devices for matching deals on games in your collection or wishlist. 1-click tap takes you directly to the game detail view and verified retailer purchase links.
-
-### Installation
-
-- **iOS**: Open in Safari, tap "Share", and select "Add to Home Screen".
-- **Android**: Open in Chrome/Edge and tap "Install" or "Add to Home Screen" when prompted.
+| Variable             | Description                                      | Default                                  |
+| :------------------- | :----------------------------------------------- | :--------------------------------------- |
+| `APP_NAME`           | Title shown in header, page titles, and exports  | `Collection Tracker`                     |
+| `APP_SHORT_NAME`     | Short name for PWA home screen tiles             | `Tracker`                                |
+| `APP_TAGLINE`        | Tagline for SEO and metadata                     | `Physical Game & Toy Collection Tracker` |
+| `APP_AUTHOR`         | Author credit in exported CSV and DAT files      | `Collection Tracker`                     |
+| `CUSTOM_FAVICON_SVG` | Optional raw SVG string served at `/favicon.svg` | Cartridge emblem (`/favicon.svg`)        |

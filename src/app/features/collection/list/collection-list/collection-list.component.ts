@@ -213,9 +213,9 @@ interface GameGroup {
                       <div class="content-header">
                         <div class="flex gap-2xs items-center">
                           @if (game.igdb_id) {
-                            <span class="igdb-icon" title="Verified by IGDB"
-                              >🆔</span
-                            >
+                            <span class="igdb-icon" title="Verified by IGDB">
+                              <app-icon name="verified-badge" [size]="14" />
+                            </span>
                           }
                           @if (
                             game.rom_name &&
@@ -667,10 +667,6 @@ interface GameGroup {
       }
 
       .platform-header {
-        position: sticky;
-        top: 0;
-        z-index: 10;
-        background: var(--m3-surface);
         padding: 1rem 0;
         margin-bottom: 1.5rem;
       }
@@ -844,6 +840,9 @@ interface GameGroup {
 
       .igdb-icon {
         font-size: 0.8rem;
+        display: inline-flex;
+        align-items: center;
+        color: var(--m3-primary);
       }
       .physical-release-badge {
         font-size: 0.8rem;
