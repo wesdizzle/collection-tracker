@@ -1,5 +1,11 @@
 import { Component, inject, signal, OnDestroy } from '@angular/core';
-import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import {
+  ActivatedRoute,
+  Router,
+  RouterModule,
+  RouteReuseStrategy,
+} from '@angular/router';
+import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { BrandingService } from '../../../../core/services/branding.service';
 import { NotificationService } from '../../../../core/services/notification.service';
@@ -346,6 +352,7 @@ export class CollectionLayoutComponent implements OnDestroy {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private collectionService = inject(CollectionService);
+  private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
   public readonly notificationService = inject(NotificationService);
   public readonly branding = inject(BrandingService);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
@@ -411,6 +418,9 @@ export class CollectionLayoutComponent implements OnDestroy {
 
   onNavClick(tab?: 'games' | 'toys') {
     if (tab) {
+      if (this.routeReuseStrategy instanceof CollectionRouteReuseStrategy) {
+        this.routeReuseStrategy.resetScroll(tab);
+      }
       this.collectionService.resetTabScroll(tab);
     }
     if (typeof window !== 'undefined') {

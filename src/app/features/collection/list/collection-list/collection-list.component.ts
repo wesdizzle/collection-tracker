@@ -29,6 +29,7 @@ import {
   signal,
   computed,
   effect,
+  untracked,
   NgZone,
 } from '@angular/core';
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
@@ -2560,14 +2561,22 @@ export class CollectionListComponent
    */
   constructor() {
     effect(() => {
-      const state: ListState = {
-        tab: this.currentTab(),
-        filters: this.filters(),
-        displayLimit: this.displayLimit(),
-        scrollX: window.scrollX,
-        scrollY: window.scrollY,
-      };
-      if (this.stateInitialized()) {
+      const tab = this.currentTab();
+      const filters = this.filters();
+      const displayLimit = this.displayLimit();
+      const initialized = this.stateInitialized();
+
+      if (initialized) {
+        const current = untracked(() =>
+          this.collectionService.getListState(tab),
+        );
+        const state: ListState = {
+          tab,
+          filters,
+          displayLimit,
+          scrollX: current?.scrollX ?? 0,
+          scrollY: current?.scrollY ?? 0,
+        };
         this.collectionService.updateListState(state);
       }
     });
@@ -2618,8 +2627,7 @@ export class CollectionListComponent
   /**
    * Restores the previously saved scroll position after rendering.
    * Since displayLimit is hydrated before initial render, all items are present
-   * in the DOM tree upfront. Uses frame-based retries to avoid browser clamping
-   * before DOM layout completes.
+   * in the DOM tree upfront.
    */
   private restoreScroll() {
     const savedState = this.collectionService.getListState(this.currentTab());
@@ -2641,57 +2649,14 @@ export class CollectionListComponent
       return;
     }
 
-    if (window.scrollY !== targetY) {
-      window.scrollTo({
-        left: targetX,
-        top: targetY,
-        behavior: 'instant' as ScrollBehavior,
-      });
-    }
+    window.scrollTo({
+      left: targetX,
+      top: targetY,
+      behavior: 'instant' as ScrollBehavior,
+    });
 
-    // If already at target position (e.g. synchronous mock in tests or layout already valid), finish immediately
-    if (Math.abs(window.scrollY - targetY) < 5) {
-      this.stateInitialized.set(true);
-      this.attachScrollListener();
-      return;
-    }
-
-    // Otherwise, browser clamped the scroll because DOM height isn't ready. Retry on animation frames.
-    let attempts = 0;
-    const maxAttempts = 15;
-
-    const attemptScroll = () => {
-      attempts++;
-      const scrollHeight = document.documentElement.scrollHeight || 0;
-      const innerHeight = window.innerHeight || 0;
-      const maxScroll = Math.max(0, scrollHeight - innerHeight);
-
-      if (
-        maxScroll >= targetY ||
-        attempts >= maxAttempts ||
-        (scrollHeight === 0 && attempts >= 1)
-      ) {
-        window.scrollTo({
-          left: targetX,
-          top: targetY,
-          behavior: 'instant' as ScrollBehavior,
-        });
-
-        if (
-          Math.abs(window.scrollY - targetY) < 5 ||
-          attempts >= maxAttempts ||
-          scrollHeight === 0
-        ) {
-          this.stateInitialized.set(true);
-          this.attachScrollListener();
-          return;
-        }
-      }
-
-      requestAnimationFrame(attemptScroll);
-    };
-
-    requestAnimationFrame(attemptScroll);
+    this.stateInitialized.set(true);
+    this.attachScrollListener();
   }
 
   private isInitialized = false;

@@ -4,6 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
 import { CollectionLayoutComponent } from './collection-layout.component';
 
 /**
@@ -56,6 +57,20 @@ describe('CollectionLayoutComponent', () => {
       left: 0,
       behavior: 'instant',
     });
+  });
+
+  it('should reset route reuse scroll when onNavClick is invoked with CollectionRouteReuseStrategy', () => {
+    const reuseStrategy = new CollectionRouteReuseStrategy();
+    const resetScrollSpy = vi.spyOn(reuseStrategy, 'resetScroll');
+    (
+      component as unknown as {
+        routeReuseStrategy: CollectionRouteReuseStrategy;
+      }
+    ).routeReuseStrategy = reuseStrategy;
+
+    component.onNavClick('games');
+
+    expect(resetScrollSpy).toHaveBeenCalledWith('games');
   });
 
   describe('Top Bar and Navigation Hierarchy', () => {

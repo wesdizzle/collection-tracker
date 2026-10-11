@@ -11,6 +11,7 @@ import {
   ParamMap,
 } from '@angular/router';
 import { of, BehaviorSubject, throwError } from 'rxjs';
+import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
 import { ItemDetailComponent } from './item-detail.component';
 import { CollectionService } from '../../../../core/services/collection.service';
 import {
@@ -129,11 +130,20 @@ describe('ItemDetailComponent', () => {
   });
 
   it('should navigate to collection with exact series filter and reset scroll', () => {
+    const reuseStrategy = new CollectionRouteReuseStrategy();
+    const clearRouteSpy = vi.spyOn(reuseStrategy, 'clearRoute');
+    (
+      component as unknown as {
+        routeReuseStrategy: CollectionRouteReuseStrategy;
+      }
+    ).routeReuseStrategy = reuseStrategy;
+
     const navigateSpy = vi.spyOn(router, 'navigate');
     const updateStateSpy = vi.spyOn(collectionService, 'updateListState');
 
     component.filterBySeries('Mario');
 
+    expect(clearRouteSpy).toHaveBeenCalledWith('games');
     expect(updateStateSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         filters: expect.objectContaining({

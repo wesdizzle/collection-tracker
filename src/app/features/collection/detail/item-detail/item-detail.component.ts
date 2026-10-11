@@ -18,7 +18,13 @@
 
 import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, RouterModule, Router } from '@angular/router';
+import {
+  ActivatedRoute,
+  RouterModule,
+  Router,
+  RouteReuseStrategy,
+} from '@angular/router';
+import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
 import { CollectionService } from '../../../../core/services/collection.service';
 import {
   Game,
@@ -1402,6 +1408,7 @@ export class ItemDetailComponent {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private collectionService = inject(CollectionService);
+  private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
   public navigationHistory = inject(NavigationHistoryService);
 
   constructor() {
@@ -1557,6 +1564,9 @@ export class ItemDetailComponent {
    */
   filterBySeries(series: string) {
     const tab = this.type() === 'toy' ? 'toys' : 'games';
+    if (this.routeReuseStrategy instanceof CollectionRouteReuseStrategy) {
+      this.routeReuseStrategy.clearRoute(tab);
+    }
     const currentState = this.collectionService.getListState(tab);
     if (currentState) {
       this.collectionService.updateListState({
