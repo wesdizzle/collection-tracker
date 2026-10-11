@@ -1030,7 +1030,7 @@ interface GameGroup {
                         >
                       </div>
 
-                      <div class="compact-table-body">
+                      <div class="compact-table-body toys-body">
                         @for (toy of series.toys; track toy.id) {
                           <a
                             [routerLink]="['/collection', 'toy', toy.id]"
@@ -1692,10 +1692,6 @@ interface GameGroup {
         color: var(--m3-on-surface-variant);
         gap: 0.75rem;
         min-width: 860px;
-        position: sticky;
-        top: var(--header-height);
-        z-index: 10;
-        backdrop-filter: blur(8px);
       }
 
       .compact-table-header.toys-header {
@@ -1706,6 +1702,10 @@ interface GameGroup {
         display: flex;
         flex-direction: column;
         min-width: 860px;
+      }
+
+      .compact-table-body.toys-body {
+        min-width: 680px;
       }
 
       .compact-table-row {

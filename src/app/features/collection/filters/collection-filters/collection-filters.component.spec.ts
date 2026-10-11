@@ -274,4 +274,23 @@ describe('CollectionFiltersComponent', () => {
     expect(compactBtn.classList.contains('active')).toBe(true);
     expect(gridBtn.classList.contains('active')).toBe(false);
   });
+
+  it('should display Show Controls / Hide Controls on mobile toggle button and toggle panel visibility', () => {
+    fixture.detectChanges();
+    const toggleBtn = fixture.nativeElement.querySelector(
+      '.mobile-filter-row button.m3-button',
+    ) as HTMLButtonElement;
+    expect(toggleBtn).toBeTruthy();
+    expect(toggleBtn.textContent).toContain('Show Controls');
+
+    toggleBtn.click();
+    fixture.detectChanges();
+    expect(component.showFilters()).toBe(true);
+    expect(toggleBtn.textContent).toContain('Hide Controls');
+
+    toggleBtn.click();
+    fixture.detectChanges();
+    expect(component.showFilters()).toBe(false);
+    expect(toggleBtn.textContent).toContain('Show Controls');
+  });
 });

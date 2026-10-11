@@ -34,7 +34,7 @@ describe('IconComponent', () => {
     expect(svg.innerHTML).toContain('circle');
   });
 
-  it('should render view-list and view-grid icons correctly', () => {
+  it('should render view-list, view-grid, and tune icons correctly', () => {
     fixture.componentRef.setInput('name', 'view-list');
     fixture.detectChanges();
     let svg = fixture.nativeElement.querySelector('svg');
@@ -46,5 +46,12 @@ describe('IconComponent', () => {
     svg = fixture.nativeElement.querySelector('svg');
     expect(svg).toBeTruthy();
     expect(svg.innerHTML).toContain('rect');
+
+    fixture.componentRef.setInput('name', 'tune');
+    fixture.detectChanges();
+    svg = fixture.nativeElement.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg.innerHTML).toContain('circle');
+    expect(svg.innerHTML).toContain('line');
   });
 });

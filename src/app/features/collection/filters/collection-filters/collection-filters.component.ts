@@ -45,15 +45,16 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         <button
           class="m3-button m3-button-tonal"
           (click)="showFilters.set(!showFilters())"
+          [attr.aria-expanded]="showFilters()"
         >
           <span class="icon">
             @if (showFilters()) {
               <app-icon name="close" [size]="16" />
             } @else {
-              <app-icon name="seeking" [size]="16" />
+              <app-icon name="tune" [size]="16" />
             }
           </span>
-          <span>{{ showFilters() ? 'Hide Filters' : 'Show Filters' }}</span>
+          <span>{{ showFilters() ? 'Hide Controls' : 'Show Controls' }}</span>
         </button>
         @if (!showFilters()) {
           <div class="m3-badge">
