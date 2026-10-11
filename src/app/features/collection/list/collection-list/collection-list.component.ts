@@ -1221,6 +1221,12 @@ interface GameGroup {
         gap: 0.25rem;
       }
 
+      .platform-section {
+        contain: layout style;
+        content-visibility: auto;
+        contain-intrinsic-size: auto 320px;
+      }
+
       .platform-header {
         padding: 1rem 0;
         margin-bottom: 1.5rem;
@@ -1462,7 +1468,9 @@ interface GameGroup {
         z-index: 3;
         border: 1px solid rgba(255, 255, 255, 0.1);
         cursor: default;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition:
+          transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+          filter 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
       .status-badge.interactive {
@@ -1510,7 +1518,11 @@ interface GameGroup {
         backdrop-filter: blur(8px);
         z-index: 3;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition:
+          transform 0.2s ease,
+          background-color 0.2s ease,
+          color 0.2s ease,
+          box-shadow 0.2s ease;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       }
 
@@ -1688,6 +1700,10 @@ interface GameGroup {
         width: 100%;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+        will-change: scroll-position;
+        transform: translateZ(0);
+        contain: paint layout;
         background: var(--m3-surface);
         border: 1px solid var(--m3-outline-variant);
         border-radius: var(--radius-sm);
@@ -1737,6 +1753,7 @@ interface GameGroup {
         transition: background-color 0.15s ease;
         width: 100%;
         box-sizing: border-box;
+        contain: layout;
       }
 
       .compact-table-row:nth-child(even) {

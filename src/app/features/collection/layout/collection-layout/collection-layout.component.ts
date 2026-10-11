@@ -448,22 +448,48 @@ export class CollectionLayoutComponent implements OnDestroy {
 
   private applyTheme(mode: 'light' | 'dark' | 'auto') {
     if (typeof document === 'undefined') return;
-    const body = document.body;
-    body.classList.remove('theme-light', 'theme-dark');
 
-    if (mode === 'dark') {
-      body.classList.add('theme-dark');
-      this.updateThemeColorMeta('dark');
-    } else if (mode === 'light') {
-      body.classList.add('theme-light');
-      this.updateThemeColorMeta('light');
+    const updateDom = () => {
+      const body = document.body;
+      body.classList.remove('theme-light', 'theme-dark');
+
+      if (mode === 'dark') {
+        body.classList.add('theme-dark');
+        this.updateThemeColorMeta('dark');
+      } else if (mode === 'light') {
+        body.classList.add('theme-light');
+        this.updateThemeColorMeta('light');
+      } else {
+        const prefersDark =
+          typeof window !== 'undefined' &&
+          window.matchMedia &&
+          window.matchMedia('(prefers-color-scheme: dark)').matches;
+        body.classList.add(prefersDark ? 'theme-dark' : 'theme-light');
+        this.updateThemeColorMeta('auto', prefersDark ? 'dark' : 'light');
+      }
+    };
+
+    const doc = document as unknown as {
+      startViewTransition?: (callback: () => void) => void;
+    };
+
+    if (typeof doc.startViewTransition === 'function') {
+      doc.startViewTransition(() => {
+        updateDom();
+      });
     } else {
-      const prefersDark =
-        typeof window !== 'undefined' &&
-        window.matchMedia &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches;
-      body.classList.add(prefersDark ? 'theme-dark' : 'theme-light');
-      this.updateThemeColorMeta('auto', prefersDark ? 'dark' : 'light');
+      document.documentElement.classList.add('disable-theme-transitions');
+      updateDom();
+      if (typeof window !== 'undefined') {
+        void document.body.offsetHeight;
+        requestAnimationFrame(() => {
+          document.documentElement.classList.remove(
+            'disable-theme-transitions',
+          );
+        });
+      } else {
+        document.documentElement.classList.remove('disable-theme-transitions');
+      }
     }
   }
 
