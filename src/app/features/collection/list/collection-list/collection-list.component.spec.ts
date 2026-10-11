@@ -1698,4 +1698,77 @@ describe('CollectionListComponent', () => {
     expect(multiDiscGame.backup_status).toBe(1);
     expect(component.getBackedUpDiscCount(multiDiscGame)).toBe(2);
   });
+
+  it('should render compact table rows and columns when viewMode is compact', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const mockGames: Game[] = [
+      {
+        id: 'g1',
+        stable_id: 1,
+        title: 'Super Mario Bros.',
+        platform: 'NES',
+        platform_id: 1,
+        region: 'USA',
+        release_date: '1985-09-13',
+        ownership_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        price_cib: 8500,
+        image_url: 'https://example.com/mario.jpg',
+      } as unknown as Game,
+    ];
+
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush(mockGames);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([
+      {
+        id: 1,
+        name: 'NES',
+        display_name: 'Nintendo Entertainment System',
+        brand: 'Nintendo',
+      },
+    ]);
+    await initPromise;
+
+    component.viewMode.set('compact');
+    fixture.detectChanges();
+
+    const tableContainer = fixture.nativeElement.querySelector(
+      '.compact-table-container',
+    );
+    expect(tableContainer).toBeTruthy();
+
+    const header = tableContainer.querySelector('.compact-table-header');
+    expect(header).toBeTruthy();
+    expect(header.textContent).toContain('Status');
+    expect(header.textContent).toContain('Title');
+    expect(header.textContent).toContain('Price');
+
+    const row = tableContainer.querySelector('.compact-table-row');
+    expect(row).toBeTruthy();
+    expect(row.querySelector('.row-title-text').textContent).toContain(
+      'Super Mario Bros.',
+    );
+    expect(row.querySelector('.col-year').textContent).toContain('1985');
+    expect(row.querySelector('.col-region').textContent).toContain('USA');
+    expect(row.querySelector('.col-completeness').textContent).toContain(
+      'Case',
+    );
+    expect(row.querySelector('.col-price').textContent).toContain('$85.00');
+
+    // Switch back to grid
+    component.viewMode.set('grid');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('.compact-table-container'),
+    ).toBeFalsy();
+    expect(fixture.nativeElement.querySelector('.grid')).toBeTruthy();
+  });
+
+  it('should handle onViewModeChange and persist preference to localStorage', () => {
+    component.onViewModeChange('compact');
+    expect(component.viewMode()).toBe('compact');
+    expect(localStorage.getItem('app_preferred_view_mode')).toBe('compact');
+  });
 });

@@ -31,6 +31,7 @@ import {
   Toy,
   Platform,
   ListState,
+  ViewMode,
   PlayStatus,
   IGDBSearchResult,
   DiscoveryRelease,
@@ -107,6 +108,9 @@ export class CollectionService {
     const state = tab === 'games' ? this._gamesState() : this._toysState();
     if (state) {
       sessionStorage.setItem(`app_list_state_${tab}`, JSON.stringify(state));
+      if (state.viewMode) {
+        localStorage.setItem('app_preferred_view_mode', state.viewMode);
+      }
     }
   }
 
@@ -139,6 +143,10 @@ export class CollectionService {
    * Called during construction to hydrate signals before first render.
    */
   public loadPersistedState() {
+    const savedGlobalViewMode = localStorage.getItem(
+      'app_preferred_view_mode',
+    ) as ViewMode | null;
+
     ['games', 'toys'].forEach((tab) => {
       const saved =
         sessionStorage.getItem(`app_list_state_${tab}`) ??
@@ -149,6 +157,9 @@ export class CollectionService {
           if (state?.filters?.seriesOrName && !state.filters.name) {
             state.filters.name = state.filters.seriesOrName;
             delete state.filters.seriesOrName;
+          }
+          if (!state.viewMode && savedGlobalViewMode) {
+            state.viewMode = savedGlobalViewMode;
           }
           if (tab === 'games') this._gamesState.set(state);
           else this._toysState.set(state);

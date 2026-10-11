@@ -130,6 +130,37 @@ describe('CollectionService', () => {
       expect(service.toysState()).toEqual(legacyState);
     });
 
+    it('should persist viewMode and restore from localStorage if absent in session', () => {
+      const mockState = {
+        tab: 'games' as const,
+        filters: { ownership: 1 as const },
+        displayLimit: 200,
+        viewMode: 'compact' as const,
+        scrollX: 0,
+        scrollY: 500,
+      };
+
+      service.updateListState(mockState);
+      expect(localStorage.getItem('app_preferred_view_mode')).toBe('compact');
+
+      // Clear service in-memory state and load again
+      sessionStorage.clear();
+      const stateWithoutViewMode = {
+        tab: 'games' as const,
+        filters: { ownership: 1 as const },
+        displayLimit: 200,
+        scrollX: 0,
+        scrollY: 0,
+      };
+      sessionStorage.setItem(
+        'app_list_state_games',
+        JSON.stringify(stateWithoutViewMode),
+      );
+
+      service.loadPersistedState();
+      expect(service.gamesState()?.viewMode).toBe('compact');
+    });
+
     it('should handle malformed JSON in sessionStorage', () => {
       sessionStorage.setItem('app_list_state_games', 'invalid-json');
       // Should not throw

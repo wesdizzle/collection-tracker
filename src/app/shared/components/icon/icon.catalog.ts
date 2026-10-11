@@ -41,7 +41,9 @@ export type IconName =
   | 'sun-moon'
   | 'circle-fill'
   | 'circle-half'
-  | 'circle-empty';
+  | 'circle-empty'
+  | 'view-list'
+  | 'view-grid';
 
 export interface IconDef {
   viewBox: string;
@@ -220,5 +222,13 @@ export const ICON_CATALOG: Record<IconName, IconDef> = {
   'circle-empty': {
     viewBox: '0 0 24 24',
     svgInner: `<circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/>`,
+  },
+  'view-list': {
+    viewBox: '0 0 24 24',
+    svgInner: `<line x1="3" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
+  },
+  'view-grid': {
+    viewBox: '0 0 24 24',
+    svgInner: `<rect x="3" y="3" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/>`,
   },
 };

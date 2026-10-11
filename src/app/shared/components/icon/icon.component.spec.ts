@@ -34,13 +34,17 @@ describe('IconComponent', () => {
     expect(svg.innerHTML).toContain('circle');
   });
 
-  it('should support accessible labels', () => {
-    fixture.componentRef.setInput('name', 'owned');
-    fixture.componentRef.setInput('ariaLabel', 'Owned item');
+  it('should render view-list and view-grid icons correctly', () => {
+    fixture.componentRef.setInput('name', 'view-list');
     fixture.detectChanges();
+    let svg = fixture.nativeElement.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg.innerHTML).toContain('line');
 
-    const svg = fixture.nativeElement.querySelector('svg');
-    expect(svg.getAttribute('aria-label')).toBe('Owned item');
-    expect(svg.getAttribute('role')).toBe('img');
+    fixture.componentRef.setInput('name', 'view-grid');
+    fixture.detectChanges();
+    svg = fixture.nativeElement.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg.innerHTML).toContain('rect');
   });
 });

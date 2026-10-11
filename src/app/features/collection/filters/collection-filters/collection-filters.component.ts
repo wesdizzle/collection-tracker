@@ -30,6 +30,7 @@ import { DatePipe } from '@angular/common';
 import {
   FilterState,
   PlatformGroup,
+  ViewMode,
 } from '../../../../core/models/collection.models';
 import { NotificationService } from '../../../../core/services/notification.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
@@ -62,6 +63,32 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             }
           </div>
         }
+        <div
+          class="view-toggle-group ml-auto"
+          role="group"
+          aria-label="View layout"
+        >
+          <button
+            type="button"
+            class="view-toggle-btn state-layer"
+            [class.active]="viewMode() === 'grid'"
+            (click)="onViewModeSelect('grid')"
+            title="Tile View (Grid)"
+            aria-label="Tile View"
+          >
+            <app-icon name="view-grid" [size]="16" />
+          </button>
+          <button
+            type="button"
+            class="view-toggle-btn state-layer"
+            [class.active]="viewMode() === 'compact'"
+            (click)="onViewModeSelect('compact')"
+            title="Compact View (Rows)"
+            aria-label="Compact View"
+          >
+            <app-icon name="view-list" [size]="16" />
+          </button>
+        </div>
       </div>
 
       <div
@@ -1374,6 +1401,30 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
               </div>
             }
           </div>
+
+          <!-- View Mode Toggle -->
+          <div class="view-toggle-group" role="group" aria-label="View layout">
+            <button
+              type="button"
+              class="view-toggle-btn state-layer"
+              [class.active]="viewMode() === 'grid'"
+              (click)="onViewModeSelect('grid')"
+              title="Tile View (Grid)"
+              aria-label="Tile View"
+            >
+              <app-icon name="view-grid" [size]="16" />
+            </button>
+            <button
+              type="button"
+              class="view-toggle-btn state-layer"
+              [class.active]="viewMode() === 'compact'"
+              (click)="onViewModeSelect('compact')"
+              title="Compact View (Rows)"
+              aria-label="Compact View"
+            >
+              <app-icon name="view-list" [size]="16" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1996,6 +2047,53 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
           justify-content: center;
         }
       }
+
+      .view-toggle-group {
+        display: inline-flex;
+        align-items: center;
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline);
+        border-radius: var(--radius-sm);
+        padding: 3px;
+        gap: 2px;
+        box-sizing: border-box;
+        height: 46px;
+      }
+
+      .mobile-filter-row .view-toggle-group {
+        height: 40px;
+        padding: 2px;
+      }
+
+      .mobile-filter-row .view-toggle-btn {
+        width: 34px;
+        height: 34px;
+      }
+
+      .view-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        color: var(--m3-on-surface-variant);
+        border: none;
+        border-radius: calc(var(--radius-sm) - 4px);
+        width: 38px;
+        height: 38px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .view-toggle-btn:hover {
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface);
+      }
+
+      .view-toggle-btn.active {
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      }
     `,
   ],
 })
@@ -2037,6 +2135,7 @@ export class CollectionFiltersComponent {
   public totalValue = input<number>(0);
   public filters = input.required<FilterState>();
   public lastUpdated = input<Date | null>(null);
+  public viewMode = input<ViewMode>('grid');
 
   /** --- Options Catalogues --- */
   readonly ownershipOptions: {
@@ -2115,6 +2214,13 @@ export class CollectionFiltersComponent {
   /** --- Event Emitters --- */
   public filtersChange = output<FilterState>();
   public exportRequested = output<'csv' | 'dat'>();
+  public viewModeChange = output<ViewMode>();
+
+  onViewModeSelect(mode: ViewMode) {
+    if (this.viewMode() !== mode) {
+      this.viewModeChange.emit(mode);
+    }
+  }
 
   onExportCsv(event: MouseEvent) {
     event.stopPropagation();

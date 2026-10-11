@@ -263,10 +263,13 @@ export interface PlatformGroup {
   platforms: Platform[];
 }
 
+export type ViewMode = 'grid' | 'compact';
+
 export interface ListState {
   tab: 'games' | 'toys';
   filters: FilterState;
   displayLimit: number;
+  viewMode?: ViewMode;
   scrollX?: number;
   scrollY?: number;
 }

@@ -45,6 +45,7 @@ import {
   PlatformGroup,
   ToyGroup,
   ListState,
+  ViewMode,
   OwnershipStatus,
 } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
@@ -82,8 +83,10 @@ interface GameGroup {
         "
         [totalValue]="totalFilteredValue()"
         [lastUpdated]="lastUpdated()"
+        [viewMode]="viewMode()"
         (filtersChange)="onFiltersChange($event)"
         (exportRequested)="onExportRequested($event)"
+        (viewModeChange)="onViewModeChange($event)"
       >
       </app-collection-filters>
 
@@ -117,179 +120,585 @@ interface GameGroup {
                 </div>
               </header>
 
-              <div class="grid">
-                @for (game of group.games; track game.id) {
-                  <a
-                    [routerLink]="['/collection', 'game', game.id]"
-                    class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden"
-                  >
-                    <div class="card-art-frame">
-                      @if (game.image_url) {
-                        <img
-                          [src]="game.image_url"
-                          alt="Cover"
-                          class="card-art"
-                          loading="lazy"
-                          decoding="async"
-                          referrerpolicy="no-referrer"
-                        />
-                      } @else {
+              @if (viewMode() === 'grid') {
+                <div class="grid">
+                  @for (game of group.games; track game.id) {
+                    <a
+                      [routerLink]="['/collection', 'game', game.id]"
+                      class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden"
+                    >
+                      <div class="card-art-frame">
+                        @if (game.image_url) {
+                          <img
+                            [src]="game.image_url"
+                            alt="Cover"
+                            class="card-art"
+                            loading="lazy"
+                            decoding="async"
+                            referrerpolicy="no-referrer"
+                          />
+                        } @else {
+                          <div
+                            class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide"
+                          >
+                            No Image
+                          </div>
+                        }
                         <div
-                          class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide"
+                          class="region-flag"
+                          [title]="'Region: ' + game.region"
                         >
-                          No Image
+                          {{ game.region }}
                         </div>
-                      }
-                      <div
-                        class="region-flag"
-                        [title]="'Region: ' + game.region"
-                      >
-                        {{ game.region }}
+
+                        <!-- Status Badge -->
+                        <button
+                          class="status-badge state-layer interactive"
+                          [class]="'status-' + game.ownership_status"
+                          [title]="
+                            game.ownership_status === 1
+                              ? 'Owned'
+                              : game.ownership_status === 2
+                                ? 'Seeking'
+                                : game.ownership_status === 3
+                                  ? 'Ordered'
+                                  : 'Unowned'
+                          "
+                          (click)="onToggleStatus($event, game, 'game')"
+                        >
+                          @if (game.ownership_status === 1) {
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="14"
+                              height="14"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          } @else if (game.ownership_status === 2) {
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="14"
+                              height="14"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+                              />
+                            </svg>
+                          } @else if (game.ownership_status === 3) {
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="14"
+                              height="14"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
+                              />
+                            </svg>
+                          } @else {
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="14"
+                              height="14"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                              />
+                            </svg>
+                          }
+                        </button>
                       </div>
 
-                      <!-- Status Badge -->
-                      <button
-                        class="status-badge state-layer interactive"
-                        [class]="'status-' + game.ownership_status"
-                        [title]="
-                          game.ownership_status === 1
-                            ? 'Owned'
-                            : game.ownership_status === 2
-                              ? 'Seeking'
-                              : game.ownership_status === 3
-                                ? 'Ordered'
-                                : 'Unowned'
-                        "
-                        (click)="onToggleStatus($event, game, 'game')"
-                      >
-                        @if (game.ownership_status === 1) {
-                          <svg
-                            viewBox="0 0 24 24"
-                            width="14"
-                            height="14"
-                            fill="currentColor"
-                          >
-                            <path
-                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                            />
-                          </svg>
-                        } @else if (game.ownership_status === 2) {
-                          <svg
-                            viewBox="0 0 24 24"
-                            width="14"
-                            height="14"
-                            fill="currentColor"
-                          >
-                            <path
-                              d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
-                            />
-                          </svg>
-                        } @else if (game.ownership_status === 3) {
-                          <svg
-                            viewBox="0 0 24 24"
-                            width="14"
-                            height="14"
-                            fill="currentColor"
-                          >
-                            <path
-                              d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
-                            />
-                          </svg>
-                        } @else {
-                          <svg
-                            viewBox="0 0 24 24"
-                            width="14"
-                            height="14"
-                            fill="currentColor"
-                          >
-                            <path
-                              d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                            />
-                          </svg>
+                      <div class="card-content">
+                        <div class="content-header">
+                          <div class="flex gap-2xs items-center">
+                            @if (game.igdb_id) {
+                              <span class="igdb-icon" title="Verified by IGDB">
+                                <app-icon name="verified-badge" [size]="14" />
+                              </span>
+                            }
+                            @if (
+                              game.rom_name &&
+                              (game.physical_status === 'verified_physical' ||
+                                !game.physical_status)
+                            ) {
+                              <span
+                                class="physical-release-badge"
+                                title="Catalog Signature Matched (No-Intro/Redump)"
+                              >
+                                <app-icon name="physical-box" [size]="14" />
+                              </span>
+                            } @else if (
+                              game.physical_status ===
+                                'digital_extracted_rom' ||
+                              game.release_medium === 'digital_extracted_rom'
+                            ) {
+                              <span
+                                class="digital-extracted-badge"
+                                title="Archival Extracted ROM (Official VC/NSO/Compilation)"
+                              >
+                                <app-icon name="rom-archive" [size]="14" />
+                              </span>
+                            }
+                            @if (
+                              (game.bundle_count && game.bundle_count > 0) ||
+                              (game.bundled_games &&
+                                game.bundled_games.length > 0)
+                            ) {
+                              <span
+                                class="bundle-badge"
+                                [title]="
+                                  '+' +
+                                  (game.bundle_count ||
+                                    game.bundled_games?.length) +
+                                  ' Included Game/Disc in Box'
+                                "
+                              >
+                                <app-icon name="disc" [size]="12" /> +{{
+                                  game.bundle_count ||
+                                    game.bundled_games?.length
+                                }}
+                              </span>
+                            }
+                          </div>
+                          @if (game.release_date) {
+                            <span class="release-year">{{
+                              game.release_date.substring(0, 4)
+                            }}</span>
+                          }
+                        </div>
+                        <h3 class="card-title">{{ game.title }}</h3>
+                        @if (
+                          filters().sortBy &&
+                          filters().sortBy !== 'default' &&
+                          !filters().platform_id
+                        ) {
+                          <div class="card-subtitle" title="Platform & Series">
+                            {{ game.display_name || game.platform
+                            }}{{
+                              game.canonical_series
+                                ? ' • ' + game.canonical_series
+                                : ''
+                            }}
+                          </div>
+                        } @else if (game.canonical_series) {
+                          <div class="card-subtitle" title="Series">
+                            {{ game.canonical_series }}
+                          </div>
                         }
-                      </button>
-                    </div>
+                        @if (
+                          game.variants ||
+                          getOptionalBudgetLabels(game).length > 0
+                        ) {
+                          <div class="flex flex-wrap gap-2xs mt-2xs">
+                            @if (game.variants) {
+                              @for (
+                                variant of game.variants.split(',');
+                                track variant
+                              ) {
+                                @if (variant.trim()) {
+                                  <span
+                                    class="variant-badge"
+                                    [class.badge-budget-exclusive]="
+                                      isBudgetLabel(variant.trim())
+                                    "
+                                    >{{ variant.trim() }}</span
+                                  >
+                                }
+                              }
+                            }
+                            @for (
+                              label of getOptionalBudgetLabels(game);
+                              track label
+                            ) {
+                              <span
+                                class="variant-badge badge-budget-optional"
+                                [title]="
+                                  'Identical disc/cartridge image was also sold in ' +
+                                  label +
+                                  ' packaging'
+                                "
+                                >± {{ label }}</span
+                              >
+                            }
+                          </div>
+                        }
 
-                    <div class="card-content">
-                      <div class="content-header">
-                        <div class="flex gap-2xs items-center">
-                          @if (game.igdb_id) {
-                            <span class="igdb-icon" title="Verified by IGDB">
-                              <app-icon name="verified-badge" [size]="14" />
-                            </span>
-                          }
-                          @if (
-                            game.rom_name &&
-                            (game.physical_status === 'verified_physical' ||
-                              !game.physical_status)
-                          ) {
+                        @if (game.retail_on_sale && game.retail_price) {
+                          <div
+                            class="mt-2xs flex items-center gap-2xs flex-wrap"
+                          >
                             <span
-                              class="physical-release-badge"
-                              title="Catalog Signature Matched (No-Intro/Redump)"
-                            >
-                              <app-icon name="physical-box" [size]="14" />
-                            </span>
-                          } @else if (
-                            game.physical_status === 'digital_extracted_rom' ||
-                            game.release_medium === 'digital_extracted_rom'
-                          ) {
-                            <span
-                              class="digital-extracted-badge"
-                              title="Archival Extracted ROM (Official VC/NSO/Compilation)"
-                            >
-                              <app-icon name="rom-archive" [size]="14" />
-                            </span>
-                          }
-                          @if (
-                            (game.bundle_count && game.bundle_count > 0) ||
-                            (game.bundled_games &&
-                              game.bundled_games.length > 0)
-                          ) {
-                            <span
-                              class="bundle-badge"
+                              class="deal-sale-badge"
                               [title]="
-                                '+' +
-                                (game.bundle_count ||
-                                  game.bundled_games?.length) +
-                                ' Included Game/Disc in Box'
+                                'On Sale at ' +
+                                (game.retail_store || 'Best Buy') +
+                                (game.retail_regular_price
+                                  ? ' (Reg: $' +
+                                    (game.retail_regular_price / 100).toFixed(
+                                      2
+                                    ) +
+                                    ')'
+                                  : '')
                               "
                             >
-                              <app-icon name="disc" [size]="12" /> +{{
-                                game.bundle_count || game.bundled_games?.length
-                              }}
+                              <app-icon name="flame" [size]="14" />
+                              {{
+                                game.retail_discount_pct
+                                  ? game.retail_discount_pct + '% OFF · '
+                                  : ''
+                              }}{{ '$' + (game.retail_price / 100).toFixed(2) }}
                             </span>
-                          }
-                        </div>
-                        @if (game.release_date) {
-                          <span class="release-year">{{
-                            game.release_date.substring(0, 4)
-                          }}</span>
+                            @if (
+                              game.retail_regular_price &&
+                              game.retail_regular_price > game.retail_price
+                            ) {
+                              <span class="deal-strikethrough-price">
+                                {{
+                                  '$' +
+                                    (game.retail_regular_price / 100).toFixed(2)
+                                }}
+                              </span>
+                            }
+                            @if (getDealArbitrageSavings(game); as savings) {
+                              <span
+                                class="deal-arb-badge"
+                                [title]="
+                                  '$' +
+                                  (savings / 100).toFixed(2) +
+                                  ' cheaper than PriceCharting CIB used value'
+                                "
+                              >
+                                <app-icon name="zap" [size]="14" /> Save
+                                {{ '$' + (savings / 100).toFixed(2) }} vs Used
+                              </span>
+                            }
+                          </div>
+                        } @else if (getGamePriceBadge(game); as badge) {
+                          <div class="mt-2xs">
+                            <span
+                              class="valuation-badge"
+                              [title]="
+                                'Estimated Market Value: $' +
+                                (badge.cents / 100).toFixed(2)
+                              "
+                            >
+                              {{ '$' + (badge.cents / 100).toFixed(2) }}
+                              {{ badge.label }}
+                            </span>
+                          </div>
+                        }
+
+                        @if (game.ownership_status === 1) {
+                          <div class="completeness-chips mt-2xs">
+                            <button
+                              type="button"
+                              class="completeness-chip state-layer"
+                              [class.active]="game.has_case"
+                              (click)="onToggleCase($event, game)"
+                              title="Toggle Case / Box Ownership"
+                            >
+                              <app-icon name="physical-box" [size]="14" /> Case
+                            </button>
+                            <button
+                              type="button"
+                              class="completeness-chip state-layer"
+                              [class.active]="game.has_manual"
+                              (click)="onToggleManual($event, game)"
+                              title="Toggle Manual Ownership"
+                            >
+                              <app-icon name="book-open" [size]="14" /> Manual
+                            </button>
+                          </div>
+                        }
+
+                        @if (game.discIds && game.discIds.length > 1) {
+                          <div
+                            class="multi-disc-tray mt-2xs"
+                            (click)="
+                              $event.stopPropagation(); $event.preventDefault()
+                            "
+                          >
+                            <div
+                              class="multi-disc-header flex items-center justify-between"
+                            >
+                              <span
+                                class="multi-disc-label text-2xs uppercase letter-spacing-wide flex items-center gap-1"
+                              >
+                                <app-icon name="disc" [size]="12" />
+                                {{ game.discIds.length }} Discs
+                              </span>
+                              <span
+                                class="multi-disc-status text-2xs"
+                                [class.all-backed]="game.backup_status"
+                              >
+                                {{
+                                  game.backup_status
+                                    ? 'All Backed Up'
+                                    : getBackedUpDiscCount(game) +
+                                      '/' +
+                                      game.discIds.length +
+                                      ' Backed Up'
+                                }}
+                              </span>
+                            </div>
+                            <div
+                              class="multi-disc-pills flex flex-wrap gap-2xs mt-3xs"
+                            >
+                              @for (
+                                discId of game.discIds;
+                                track discId;
+                                let idx = $index
+                              ) {
+                                <button
+                                  type="button"
+                                  class="disc-chip state-layer"
+                                  [class.backed-up]="
+                                    game.discBackups?.[idx] === 1
+                                  "
+                                  [title]="
+                                    (game.discRomNames?.[idx] ||
+                                      'Disc ' + (idx + 1)) +
+                                    ' (' +
+                                    (game.discBackups?.[idx] === 1
+                                      ? 'Backed Up'
+                                      : 'Missing') +
+                                    ') - Click to toggle backup'
+                                  "
+                                  (click)="
+                                    onToggleDiscBackup($event, game, idx)
+                                  "
+                                >
+                                  {{ 'Disc ' + (idx + 1) }}
+                                  <span
+                                    class="disc-dot"
+                                    [class.dot-backed]="
+                                      game.discBackups?.[idx] === 1
+                                    "
+                                  ></span>
+                                </button>
+                              }
+                            </div>
+                          </div>
                         }
                       </div>
-                      <h3 class="card-title">{{ game.title }}</h3>
-                      @if (
-                        filters().sortBy &&
-                        filters().sortBy !== 'default' &&
-                        !filters().platform_id
-                      ) {
-                        <div class="card-subtitle" title="Platform & Series">
-                          {{ game.display_name || game.platform
-                          }}{{
-                            game.canonical_series
-                              ? ' • ' + game.canonical_series
-                              : ''
+                    </a>
+                  }
+                </div>
+              } @else {
+                <div class="compact-table-container">
+                  <div class="compact-table-header">
+                    <span class="col-status" title="Ownership Status"
+                      >Status</span
+                    >
+                    <span class="col-art" title="Artwork">Art</span>
+                    <span class="col-title" title="Title">Title</span>
+                    @if (
+                      filters().sortBy &&
+                      filters().sortBy !== 'default' &&
+                      !filters().platform_id
+                    ) {
+                      <span class="col-platform" title="Platform"
+                        >Platform</span
+                      >
+                    }
+                    <span class="col-series" title="Series">Series</span>
+                    <span class="col-year" title="Release Year">Year</span>
+                    <span class="col-region" title="Region">Region</span>
+                    <span class="col-edition" title="Edition / Variants"
+                      >Edition</span
+                    >
+                    <span class="col-completeness" title="Completeness / Discs"
+                      >Completeness</span
+                    >
+                    <span class="col-price" title="Price / Value">Price</span>
+                  </div>
+
+                  <div class="compact-table-body">
+                    @for (game of group.games; track game.id) {
+                      <a
+                        [routerLink]="['/collection', 'game', game.id]"
+                        class="compact-table-row state-layer"
+                      >
+                        <div class="col-status">
+                          <button
+                            class="row-status-btn state-layer interactive"
+                            [class]="'status-' + game.ownership_status"
+                            [title]="
+                              game.ownership_status === 1
+                                ? 'Owned'
+                                : game.ownership_status === 2
+                                  ? 'Seeking'
+                                  : game.ownership_status === 3
+                                    ? 'Ordered'
+                                    : 'Unowned'
+                            "
+                            (click)="onToggleStatus($event, game, 'game')"
+                          >
+                            @if (game.ownership_status === 1) {
+                              <svg
+                                viewBox="0 0 24 24"
+                                width="12"
+                                height="12"
+                                fill="currentColor"
+                              >
+                                <path
+                                  d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                                />
+                              </svg>
+                            } @else if (game.ownership_status === 2) {
+                              <svg
+                                viewBox="0 0 24 24"
+                                width="12"
+                                height="12"
+                                fill="currentColor"
+                              >
+                                <path
+                                  d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+                                />
+                              </svg>
+                            } @else if (game.ownership_status === 3) {
+                              <svg
+                                viewBox="0 0 24 24"
+                                width="12"
+                                height="12"
+                                fill="currentColor"
+                              >
+                                <path
+                                  d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
+                                />
+                              </svg>
+                            } @else {
+                              <svg
+                                viewBox="0 0 24 24"
+                                width="12"
+                                height="12"
+                                fill="currentColor"
+                              >
+                                <path
+                                  d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                                />
+                              </svg>
+                            }
+                          </button>
+                        </div>
+
+                        <div class="col-art">
+                          @if (game.image_url) {
+                            <img
+                              [src]="game.image_url"
+                              alt=""
+                              class="compact-thumbnail"
+                              loading="lazy"
+                              decoding="async"
+                              referrerpolicy="no-referrer"
+                            />
+                          } @else {
+                            <div class="compact-art-placeholder">
+                              <app-icon name="gamepad" [size]="14" />
+                            </div>
+                          }
+                        </div>
+
+                        <div class="col-title">
+                          <span class="row-title-text" [title]="game.title">{{
+                            game.title
+                          }}</span>
+                          <div class="row-inline-badges">
+                            @if (game.igdb_id) {
+                              <span class="igdb-icon" title="Verified by IGDB">
+                                <app-icon name="verified-badge" [size]="12" />
+                              </span>
+                            }
+                            @if (
+                              game.rom_name &&
+                              (game.physical_status === 'verified_physical' ||
+                                !game.physical_status)
+                            ) {
+                              <span
+                                class="physical-release-badge"
+                                title="Catalog Signature Matched (No-Intro/Redump)"
+                              >
+                                <app-icon name="physical-box" [size]="12" />
+                              </span>
+                            } @else if (
+                              game.physical_status ===
+                                'digital_extracted_rom' ||
+                              game.release_medium === 'digital_extracted_rom'
+                            ) {
+                              <span
+                                class="digital-extracted-badge"
+                                title="Archival Extracted ROM (Official VC/NSO/Compilation)"
+                              >
+                                <app-icon name="rom-archive" [size]="12" />
+                              </span>
+                            }
+                            @if (
+                              (game.bundle_count && game.bundle_count > 0) ||
+                              (game.bundled_games &&
+                                game.bundled_games.length > 0)
+                            ) {
+                              <span
+                                class="bundle-badge compact-badge"
+                                [title]="
+                                  '+' +
+                                  (game.bundle_count ||
+                                    game.bundled_games?.length) +
+                                  ' Included Game/Disc in Box'
+                                "
+                              >
+                                <app-icon name="disc" [size]="10" /> +{{
+                                  game.bundle_count ||
+                                    game.bundled_games?.length
+                                }}
+                              </span>
+                            }
+                          </div>
+                        </div>
+
+                        @if (
+                          filters().sortBy &&
+                          filters().sortBy !== 'default' &&
+                          !filters().platform_id
+                        ) {
+                          <div
+                            class="col-platform text-truncate"
+                            [title]="game.display_name || game.platform"
+                          >
+                            {{ game.display_name || game.platform }}
+                          </div>
+                        }
+
+                        <div
+                          class="col-series text-truncate"
+                          [title]="game.canonical_series || ''"
+                        >
+                          {{ game.canonical_series || '-' }}
+                        </div>
+
+                        <div class="col-year">
+                          {{
+                            game.release_date
+                              ? game.release_date.substring(0, 4)
+                              : '-'
                           }}
                         </div>
-                      } @else if (game.canonical_series) {
-                        <div class="card-subtitle" title="Series">
-                          {{ game.canonical_series }}
+
+                        <div class="col-region">
+                          <span
+                            class="compact-region-flag"
+                            [title]="'Region: ' + game.region"
+                          >
+                            {{ game.region }}
+                          </span>
                         </div>
-                      }
-                      @if (
-                        game.variants ||
-                        getOptionalBudgetLabels(game).length > 0
-                      ) {
-                        <div class="flex flex-wrap gap-2xs mt-2xs">
+
+                        <div class="col-edition">
                           @if (game.variants) {
                             @for (
                               variant of game.variants.split(',');
@@ -297,12 +706,13 @@ interface GameGroup {
                             ) {
                               @if (variant.trim()) {
                                 <span
-                                  class="variant-badge"
+                                  class="variant-badge compact-badge"
                                   [class.badge-budget-exclusive]="
                                     isBudgetLabel(variant.trim())
                                   "
-                                  >{{ variant.trim() }}</span
                                 >
+                                  {{ variant.trim() }}
+                                </span>
                               }
                             }
                           }
@@ -311,173 +721,140 @@ interface GameGroup {
                             track label
                           ) {
                             <span
-                              class="variant-badge badge-budget-optional"
+                              class="variant-badge badge-budget-optional compact-badge"
                               [title]="
-                                'Identical disc/cartridge image was also sold in ' +
+                                'Identical disc/cartridge was also sold in ' +
                                 label +
                                 ' packaging'
                               "
-                              >± {{ label }}</span
                             >
+                              ± {{ label }}
+                            </span>
                           }
-                        </div>
-                      }
-
-                      @if (game.retail_on_sale && game.retail_price) {
-                        <div class="mt-2xs flex items-center gap-2xs flex-wrap">
-                          <span
-                            class="deal-sale-badge"
-                            [title]="
-                              'On Sale at ' +
-                              (game.retail_store || 'Best Buy') +
-                              (game.retail_regular_price
-                                ? ' (Reg: $' +
-                                  (game.retail_regular_price / 100).toFixed(2) +
-                                  ')'
-                                : '')
-                            "
-                          >
-                            <app-icon name="flame" [size]="14" />
-                            {{
-                              game.retail_discount_pct
-                                ? game.retail_discount_pct + '% OFF · '
-                                : ''
-                            }}{{ '$' + (game.retail_price / 100).toFixed(2) }}
-                          </span>
                           @if (
-                            game.retail_regular_price &&
-                            game.retail_regular_price > game.retail_price
+                            !game.variants &&
+                            getOptionalBudgetLabels(game).length === 0
                           ) {
-                            <span class="deal-strikethrough-price">
-                              {{
-                                '$' +
-                                  (game.retail_regular_price / 100).toFixed(2)
-                              }}
-                            </span>
-                          }
-                          @if (getDealArbitrageSavings(game); as savings) {
-                            <span
-                              class="deal-arb-badge"
-                              [title]="
-                                '$' +
-                                (savings / 100).toFixed(2) +
-                                ' cheaper than PriceCharting CIB used value'
-                              "
-                            >
-                              <app-icon name="zap" [size]="14" /> Save
-                              {{ '$' + (savings / 100).toFixed(2) }} vs Used
-                            </span>
+                            <span class="empty-cell-dash">-</span>
                           }
                         </div>
-                      } @else if (getGamePriceBadge(game); as badge) {
-                        <div class="mt-2xs">
-                          <span
-                            class="valuation-badge"
-                            [title]="
-                              'Estimated Market Value: $' +
-                              (badge.cents / 100).toFixed(2)
-                            "
-                          >
-                            {{ '$' + (badge.cents / 100).toFixed(2) }}
-                            {{ badge.label }}
-                          </span>
-                        </div>
-                      }
 
-                      @if (game.ownership_status === 1) {
-                        <div class="completeness-chips mt-2xs">
-                          <button
-                            type="button"
-                            class="completeness-chip state-layer"
-                            [class.active]="game.has_case"
-                            (click)="onToggleCase($event, game)"
-                            title="Toggle Case / Box Ownership"
-                          >
-                            <app-icon name="physical-box" [size]="14" /> Case
-                          </button>
-                          <button
-                            type="button"
-                            class="completeness-chip state-layer"
-                            [class.active]="game.has_manual"
-                            (click)="onToggleManual($event, game)"
-                            title="Toggle Manual Ownership"
-                          >
-                            <app-icon name="book-open" [size]="14" /> Manual
-                          </button>
-                        </div>
-                      }
-
-                      @if (game.discIds && game.discIds.length > 1) {
-                        <div
-                          class="multi-disc-tray mt-2xs"
-                          (click)="
-                            $event.stopPropagation(); $event.preventDefault()
-                          "
-                        >
-                          <div
-                            class="multi-disc-header flex items-center justify-between"
-                          >
-                            <span
-                              class="multi-disc-label text-2xs uppercase letter-spacing-wide flex items-center gap-1"
+                        <div class="col-completeness">
+                          @if (game.ownership_status === 1) {
+                            <div
+                              class="completeness-chips compact-completeness-chips"
                             >
-                              <app-icon name="disc" [size]="12" />
-                              {{ game.discIds.length }} Discs
-                            </span>
-                            <span
-                              class="multi-disc-status text-2xs"
-                              [class.all-backed]="game.backup_status"
-                            >
-                              {{
-                                game.backup_status
-                                  ? 'All Backed Up'
-                                  : getBackedUpDiscCount(game) +
-                                    '/' +
-                                    game.discIds.length +
-                                    ' Backed Up'
-                              }}
-                            </span>
-                          </div>
-                          <div
-                            class="multi-disc-pills flex flex-wrap gap-2xs mt-3xs"
-                          >
-                            @for (
-                              discId of game.discIds;
-                              track discId;
-                              let idx = $index
-                            ) {
                               <button
                                 type="button"
-                                class="disc-chip state-layer"
-                                [class.backed-up]="
-                                  game.discBackups?.[idx] === 1
-                                "
-                                [title]="
-                                  (game.discRomNames?.[idx] ||
-                                    'Disc ' + (idx + 1)) +
-                                  ' (' +
-                                  (game.discBackups?.[idx] === 1
-                                    ? 'Backed Up'
-                                    : 'Missing') +
-                                  ') - Click to toggle backup'
-                                "
-                                (click)="onToggleDiscBackup($event, game, idx)"
+                                class="completeness-chip state-layer compact-chip"
+                                [class.active]="game.has_case"
+                                (click)="onToggleCase($event, game)"
+                                title="Toggle Case / Box Ownership"
                               >
-                                {{ 'Disc ' + (idx + 1) }}
-                                <span
-                                  class="disc-dot"
-                                  [class.dot-backed]="
+                                <app-icon name="physical-box" [size]="12" />
+                                Case
+                              </button>
+                              <button
+                                type="button"
+                                class="completeness-chip state-layer compact-chip"
+                                [class.active]="game.has_manual"
+                                (click)="onToggleManual($event, game)"
+                                title="Toggle Manual Ownership"
+                              >
+                                <app-icon name="book-open" [size]="12" /> Manual
+                              </button>
+                            </div>
+                          }
+                          @if (game.discIds && game.discIds.length > 1) {
+                            <div
+                              class="compact-discs-container"
+                              (click)="
+                                $event.stopPropagation();
+                                $event.preventDefault()
+                              "
+                            >
+                              @for (
+                                discId of game.discIds;
+                                track discId;
+                                let idx = $index
+                              ) {
+                                <button
+                                  type="button"
+                                  class="disc-chip state-layer compact-disc-chip"
+                                  [class.backed-up]="
                                     game.discBackups?.[idx] === 1
                                   "
-                                ></span>
-                              </button>
-                            }
-                          </div>
+                                  [title]="
+                                    (game.discRomNames?.[idx] ||
+                                      'Disc ' + (idx + 1)) +
+                                    ' (' +
+                                    (game.discBackups?.[idx] === 1
+                                      ? 'Backed Up'
+                                      : 'Missing') +
+                                    ') - Click to toggle backup'
+                                  "
+                                  (click)="
+                                    onToggleDiscBackup($event, game, idx)
+                                  "
+                                >
+                                  D{{ idx + 1 }}
+                                  <span
+                                    class="disc-dot"
+                                    [class.dot-backed]="
+                                      game.discBackups?.[idx] === 1
+                                    "
+                                  ></span>
+                                </button>
+                              }
+                            </div>
+                          }
+                          @if (
+                            game.ownership_status !== 1 &&
+                            (!game.discIds || game.discIds.length <= 1)
+                          ) {
+                            <span class="empty-cell-dash">-</span>
+                          }
                         </div>
-                      }
-                    </div>
-                  </a>
-                }
-              </div>
+
+                        <div class="col-price">
+                          @if (game.retail_on_sale && game.retail_price) {
+                            <span
+                              class="deal-sale-badge compact-badge"
+                              [title]="
+                                'On Sale at ' +
+                                (game.retail_store || 'Best Buy') +
+                                (game.retail_regular_price
+                                  ? ' (Reg: $' +
+                                    (game.retail_regular_price / 100).toFixed(
+                                      2
+                                    ) +
+                                    ')'
+                                  : '')
+                              "
+                            >
+                              <app-icon name="flame" [size]="12" />
+                              {{ '$' + (game.retail_price / 100).toFixed(2) }}
+                            </span>
+                          } @else if (getGamePriceBadge(game); as badge) {
+                            <span
+                              class="valuation-badge compact-badge"
+                              [title]="
+                                'Estimated Market Value: $' +
+                                (badge.cents / 100).toFixed(2)
+                              "
+                            >
+                              {{ '$' + (badge.cents / 100).toFixed(2) }}
+                              {{ badge.label }}
+                            </span>
+                          } @else {
+                            <span class="empty-cell-dash">-</span>
+                          }
+                        </div>
+                      </a>
+                    }
+                  </div>
+                </div>
+              }
             </div>
           }
         </div>
@@ -512,129 +889,290 @@ interface GameGroup {
                       }
                     </div>
                   </header>
-                  <div class="grid">
-                    @for (toy of series.toys; track toy.id) {
-                      <a
-                        [routerLink]="['/collection', 'toy', toy.id]"
-                        class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden"
-                      >
-                        <div class="card-art-frame toy-frame">
-                          @if (toy.image_url) {
-                            <img
-                              [src]="toy.image_url"
-                              alt="Toy"
-                              class="card-art toy-art"
-                              loading="lazy"
-                              decoding="async"
-                              referrerpolicy="no-referrer"
-                            />
-                          } @else {
-                            <div
-                              class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide"
-                            >
-                              No Image
-                            </div>
-                          }
-                          <div
-                            class="region-flag"
-                            [title]="'Region: ' + toy.region"
-                          >
-                            {{ toy.region }}
-                          </div>
-
-                          <!-- Status Badge -->
-                          <button
-                            class="status-badge state-layer interactive"
-                            [class]="'status-' + toy.ownership_status"
-                            [title]="
-                              toy.ownership_status === 1
-                                ? 'Owned'
-                                : toy.ownership_status === 2
-                                  ? 'Seeking'
-                                  : toy.ownership_status === 3
-                                    ? 'Ordered'
-                                    : 'Unowned'
-                            "
-                            (click)="onToggleStatus($event, toy, 'toy')"
-                          >
-                            @if (toy.ownership_status === 1) {
-                              <svg
-                                viewBox="0 0 24 24"
-                                width="14"
-                                height="14"
-                                fill="currentColor"
-                              >
-                                <path
-                                  d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                                />
-                              </svg>
-                            } @else if (toy.ownership_status === 2) {
-                              <svg
-                                viewBox="0 0 24 24"
-                                width="14"
-                                height="14"
-                                fill="currentColor"
-                              >
-                                <path
-                                  d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
-                                />
-                              </svg>
-                            } @else if (toy.ownership_status === 3) {
-                              <svg
-                                viewBox="0 0 24 24"
-                                width="14"
-                                height="14"
-                                fill="currentColor"
-                              >
-                                <path
-                                  d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
-                                />
-                              </svg>
+                  @if (viewMode() === 'grid') {
+                    <div class="grid">
+                      @for (toy of series.toys; track toy.id) {
+                        <a
+                          [routerLink]="['/collection', 'toy', toy.id]"
+                          class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden"
+                        >
+                          <div class="card-art-frame toy-frame">
+                            @if (toy.image_url) {
+                              <img
+                                [src]="toy.image_url"
+                                alt="Toy"
+                                class="card-art toy-art"
+                                loading="lazy"
+                                decoding="async"
+                                referrerpolicy="no-referrer"
+                              />
                             } @else {
-                              <svg
-                                viewBox="0 0 24 24"
-                                width="14"
-                                height="14"
-                                fill="currentColor"
+                              <div
+                                class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide"
                               >
-                                <path
-                                  d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                                />
-                              </svg>
+                                No Image
+                              </div>
                             }
-                          </button>
-                        </div>
-
-                        <div class="card-content">
-                          <div class="content-header">
-                            <div class="flex gap-2xs items-center">
-                              <span class="release-year">{{ toy.type }}</span>
+                            <div
+                              class="region-flag"
+                              [title]="'Region: ' + toy.region"
+                            >
+                              {{ toy.region }}
                             </div>
-                            @if (toy.release_date) {
-                              <span class="release-year">{{
-                                toy.release_date.substring(0, 4)
-                              }}</span>
+
+                            <!-- Status Badge -->
+                            <button
+                              class="status-badge state-layer interactive"
+                              [class]="'status-' + toy.ownership_status"
+                              [title]="
+                                toy.ownership_status === 1
+                                  ? 'Owned'
+                                  : toy.ownership_status === 2
+                                    ? 'Seeking'
+                                    : toy.ownership_status === 3
+                                      ? 'Ordered'
+                                      : 'Unowned'
+                              "
+                              (click)="onToggleStatus($event, toy, 'toy')"
+                            >
+                              @if (toy.ownership_status === 1) {
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  width="14"
+                                  height="14"
+                                  fill="currentColor"
+                                >
+                                  <path
+                                    d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                                  />
+                                </svg>
+                              } @else if (toy.ownership_status === 2) {
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  width="14"
+                                  height="14"
+                                  fill="currentColor"
+                                >
+                                  <path
+                                    d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+                                  />
+                                </svg>
+                              } @else if (toy.ownership_status === 3) {
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  width="14"
+                                  height="14"
+                                  fill="currentColor"
+                                >
+                                  <path
+                                    d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
+                                  />
+                                </svg>
+                              } @else {
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  width="14"
+                                  height="14"
+                                  fill="currentColor"
+                                >
+                                  <path
+                                    d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                                  />
+                                </svg>
+                              }
+                            </button>
+                          </div>
+
+                          <div class="card-content">
+                            <div class="content-header">
+                              <div class="flex gap-2xs items-center">
+                                <span class="release-year">{{ toy.type }}</span>
+                              </div>
+                              @if (toy.release_date) {
+                                <span class="release-year">{{
+                                  toy.release_date.substring(0, 4)
+                                }}</span>
+                              }
+                            </div>
+                            <h3 class="card-title">{{ toy.name }}</h3>
+                            @if (toy.price_loose) {
+                              <div class="mt-2xs">
+                                <span
+                                  class="valuation-badge"
+                                  [title]="
+                                    'Estimated Loose Market Value: $' +
+                                    (toy.price_loose / 100).toFixed(2)
+                                  "
+                                >
+                                  {{ '$' + (toy.price_loose / 100).toFixed(2) }}
+                                  Loose
+                                </span>
+                              </div>
                             }
                           </div>
-                          <h3 class="card-title">{{ toy.name }}</h3>
-                          @if (toy.price_loose) {
-                            <div class="mt-2xs">
-                              <span
-                                class="valuation-badge"
+                        </a>
+                      }
+                    </div>
+                  } @else {
+                    <div class="compact-table-container">
+                      <div class="compact-table-header toys-header">
+                        <span class="col-status" title="Ownership Status"
+                          >Status</span
+                        >
+                        <span class="col-art" title="Artwork">Art</span>
+                        <span class="col-title" title="Name">Name</span>
+                        <span class="col-toy-type" title="Type">Type</span>
+                        <span class="col-series" title="Series">Series</span>
+                        <span class="col-year" title="Release Year">Year</span>
+                        <span class="col-region" title="Region">Region</span>
+                        <span class="col-price" title="Price / Value"
+                          >Price</span
+                        >
+                      </div>
+
+                      <div class="compact-table-body">
+                        @for (toy of series.toys; track toy.id) {
+                          <a
+                            [routerLink]="['/collection', 'toy', toy.id]"
+                            class="compact-table-row state-layer toys-row"
+                          >
+                            <div class="col-status">
+                              <button
+                                class="row-status-btn state-layer interactive"
+                                [class]="'status-' + toy.ownership_status"
                                 [title]="
-                                  'Estimated Loose Market Value: $' +
-                                  (toy.price_loose / 100).toFixed(2)
+                                  toy.ownership_status === 1
+                                    ? 'Owned'
+                                    : toy.ownership_status === 2
+                                      ? 'Seeking'
+                                      : toy.ownership_status === 3
+                                        ? 'Ordered'
+                                        : 'Unowned'
                                 "
+                                (click)="onToggleStatus($event, toy, 'toy')"
                               >
-                                {{ '$' + (toy.price_loose / 100).toFixed(2) }}
-                                Loose
+                                @if (toy.ownership_status === 1) {
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    width="12"
+                                    height="12"
+                                    fill="currentColor"
+                                  >
+                                    <path
+                                      d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                                    />
+                                  </svg>
+                                } @else if (toy.ownership_status === 2) {
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    width="12"
+                                    height="12"
+                                    fill="currentColor"
+                                  >
+                                    <path
+                                      d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+                                    />
+                                  </svg>
+                                } @else if (toy.ownership_status === 3) {
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    width="12"
+                                    height="12"
+                                    fill="currentColor"
+                                  >
+                                    <path
+                                      d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
+                                    />
+                                  </svg>
+                                } @else {
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    width="12"
+                                    height="12"
+                                    fill="currentColor"
+                                  >
+                                    <path
+                                      d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                                    />
+                                  </svg>
+                                }
+                              </button>
+                            </div>
+
+                            <div class="col-art">
+                              @if (toy.image_url) {
+                                <img
+                                  [src]="toy.image_url"
+                                  alt=""
+                                  class="compact-thumbnail toy-thumbnail"
+                                  loading="lazy"
+                                  decoding="async"
+                                  referrerpolicy="no-referrer"
+                                />
+                              } @else {
+                                <div class="compact-art-placeholder">
+                                  <app-icon name="figure-toy" [size]="14" />
+                                </div>
+                              }
+                            </div>
+
+                            <div class="col-title">
+                              <span class="row-title-text" [title]="toy.name">{{
+                                toy.name
+                              }}</span>
+                            </div>
+
+                            <div class="col-toy-type">
+                              <span class="release-year compact-badge">{{
+                                toy.type
+                              }}</span>
+                            </div>
+
+                            <div
+                              class="col-series text-truncate"
+                              [title]="toy.series_name || ''"
+                            >
+                              {{ toy.series_name || '-' }}
+                            </div>
+
+                            <div class="col-year">
+                              {{
+                                toy.release_date
+                                  ? toy.release_date.substring(0, 4)
+                                  : '-'
+                              }}
+                            </div>
+
+                            <div class="col-region">
+                              <span
+                                class="compact-region-flag"
+                                [title]="'Region: ' + toy.region"
+                              >
+                                {{ toy.region }}
                               </span>
                             </div>
-                          }
-                        </div>
-                      </a>
-                    }
-                  </div>
+
+                            <div class="col-price">
+                              @if (toy.price_loose) {
+                                <span
+                                  class="valuation-badge compact-badge"
+                                  [title]="
+                                    'Estimated Loose Market Value: $' +
+                                    (toy.price_loose / 100).toFixed(2)
+                                  "
+                                >
+                                  {{ '$' + (toy.price_loose / 100).toFixed(2) }}
+                                  Loose
+                                </span>
+                              } @else {
+                                <span class="empty-cell-dash">-</span>
+                              }
+                            </div>
+                          </a>
+                        }
+                      </div>
+                    </div>
+                  }
                 </div>
               }
             </div>
@@ -1128,6 +1666,265 @@ interface GameGroup {
       .disc-dot.dot-backed {
         background: #10b981;
       }
+
+      /* --- Compact Row / Table View Styles --- */
+      .compact-table-container {
+        width: 100%;
+        overflow-x: auto;
+        background: var(--m3-surface);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-sm);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        margin-bottom: var(--spacing-16);
+      }
+
+      .compact-table-header {
+        display: flex;
+        align-items: center;
+        background: var(--m3-surface-container-high);
+        border-bottom: 2px solid var(--m3-outline-variant);
+        padding: 0.5rem 0.75rem;
+        font-family: var(--font-body);
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--m3-on-surface-variant);
+        gap: 0.75rem;
+        min-width: 860px;
+        position: sticky;
+        top: var(--header-height);
+        z-index: 10;
+        backdrop-filter: blur(8px);
+      }
+
+      .compact-table-header.toys-header {
+        min-width: 680px;
+      }
+
+      .compact-table-body {
+        display: flex;
+        flex-direction: column;
+        min-width: 860px;
+      }
+
+      .compact-table-row {
+        display: flex;
+        align-items: center;
+        padding: 0.35rem 0.75rem;
+        min-height: 42px;
+        border-bottom: 1px solid var(--m3-outline-variant);
+        gap: 0.75rem;
+        color: inherit;
+        text-decoration: none;
+        transition: background-color 0.15s ease;
+      }
+
+      .compact-table-row:nth-child(even) {
+        background: var(--m3-surface-container-low);
+      }
+
+      .compact-table-row:hover {
+        background: var(--m3-surface-container-highest);
+      }
+
+      .compact-table-row.toys-row {
+        min-width: 680px;
+      }
+
+      .col-status {
+        width: 28px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .row-status-btn {
+        width: 24px;
+        height: 24px;
+        border-radius: var(--radius-full);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        cursor: pointer;
+        transition: transform 0.15s ease;
+      }
+
+      .row-status-btn:hover {
+        transform: scale(1.15);
+      }
+
+      .col-art {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .compact-thumbnail {
+        width: 32px;
+        height: 32px;
+        object-fit: cover;
+        border-radius: var(--radius-tag);
+        background: var(--m3-surface-container-highest);
+      }
+
+      .compact-thumbnail.toy-thumbnail {
+        object-fit: contain;
+      }
+
+      .compact-art-placeholder {
+        width: 32px;
+        height: 32px;
+        border-radius: var(--radius-tag);
+        background: var(--m3-surface-container-highest);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--m3-on-surface-variant);
+        opacity: 0.6;
+      }
+
+      .col-title {
+        flex: 3;
+        min-width: 180px;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        overflow: hidden;
+      }
+
+      .row-title-text {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--m3-on-surface);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .row-inline-badges {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-shrink: 0;
+      }
+
+      .col-platform {
+        flex: 1.2;
+        min-width: 100px;
+        font-size: 0.8rem;
+        color: var(--m3-on-surface-variant);
+        font-weight: 500;
+      }
+
+      .col-series {
+        flex: 1.5;
+        min-width: 110px;
+        font-size: 0.8rem;
+        color: var(--m3-on-surface-variant);
+      }
+
+      .col-toy-type {
+        width: 70px;
+        flex-shrink: 0;
+      }
+
+      .col-year {
+        width: 55px;
+        flex-shrink: 0;
+        font-family: var(--font-body);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--m3-on-surface-variant);
+      }
+
+      .col-region {
+        width: 60px;
+        flex-shrink: 0;
+      }
+
+      .compact-region-flag {
+        display: inline-block;
+        padding: 0.1rem 0.35rem;
+        background: var(--m3-surface-container-highest);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-tag);
+        font-family: var(--font-body);
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: var(--m3-on-surface);
+      }
+
+      .col-edition {
+        flex: 1.5;
+        min-width: 110px;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+      }
+
+      .col-completeness {
+        width: 155px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+
+      .compact-completeness-chips {
+        display: inline-flex;
+        gap: 0.25rem;
+      }
+
+      .compact-chip {
+        padding: 0.1rem 0.35rem !important;
+        font-size: 0.65rem !important;
+        border-radius: var(--radius-tag) !important;
+      }
+
+      .compact-discs-container {
+        display: inline-flex;
+        gap: 0.2rem;
+      }
+
+      .compact-disc-chip {
+        padding: 0.1rem 0.3rem !important;
+        font-size: 0.65rem !important;
+        border-radius: var(--radius-tag) !important;
+      }
+
+      .col-price {
+        width: 110px;
+        flex-shrink: 0;
+        display: flex;
+        justify-content: flex-end;
+        text-align: right;
+      }
+
+      .compact-badge {
+        font-size: 0.65rem !important;
+        padding: 0.1rem 0.4rem !important;
+        border-radius: var(--radius-tag) !important;
+        white-space: nowrap;
+      }
+
+      .empty-cell-dash {
+        color: var(--m3-on-surface-variant);
+        opacity: 0.4;
+        font-size: 0.8rem;
+      }
+
+      .text-truncate {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
     `,
   ],
 })
@@ -1168,6 +1965,7 @@ export class CollectionListComponent
     sortBy: 'default',
   });
   public displayLimit = signal<number>(100);
+  public viewMode = signal<ViewMode>('grid');
   public lastUpdated = this.collectionService.lastUpdated;
 
   /**
@@ -2565,6 +3363,7 @@ export class CollectionListComponent
       const tab = this.currentTab();
       const filters = this.filters();
       const displayLimit = this.displayLimit();
+      const viewMode = this.viewMode();
       const initialized = this.stateInitialized();
 
       if (initialized) {
@@ -2575,6 +3374,7 @@ export class CollectionListComponent
           tab,
           filters,
           displayLimit,
+          viewMode,
           scrollX: current?.scrollX ?? 0,
           scrollY: current?.scrollY ?? 0,
         };
@@ -2679,6 +3479,16 @@ export class CollectionListComponent
     if (savedState) {
       this.filters.set({ ...savedState.filters });
       this.displayLimit.set(savedState.displayLimit);
+      if (savedState.viewMode) {
+        this.viewMode.set(savedState.viewMode);
+      }
+    } else if (typeof localStorage !== 'undefined') {
+      const globalPref = localStorage.getItem(
+        'app_preferred_view_mode',
+      ) as ViewMode | null;
+      if (globalPref === 'grid' || globalPref === 'compact') {
+        this.viewMode.set(globalPref);
+      }
     }
 
     const hasData =
@@ -2723,12 +3533,14 @@ export class CollectionListComponent
           tab: this.currentTab(),
           filters: this.filters(),
           displayLimit: this.displayLimit(),
+          viewMode: this.viewMode(),
           scrollX: 0,
           scrollY: 0,
         };
         this.collectionService.updateListState({
           ...state,
           displayLimit: this.displayLimit(),
+          viewMode: this.viewMode(),
           scrollX: window.scrollX,
           scrollY: window.scrollY,
         });
@@ -2768,6 +3580,16 @@ export class CollectionListComponent
   onFiltersChange(newFilters: FilterState) {
     this.filters.set({ ...newFilters });
     this.displayLimit.set(100);
+  }
+
+  /**
+   * Event handler for view mode toggle updates (grid vs compact rows).
+   */
+  onViewModeChange(mode: ViewMode) {
+    this.viewMode.set(mode);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('app_preferred_view_mode', mode);
+    }
   }
 
   /** --- Toggle Ownership Handlers --- */

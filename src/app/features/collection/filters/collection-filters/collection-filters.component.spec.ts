@@ -245,4 +245,33 @@ describe('CollectionFiltersComponent', () => {
     expect(exportBtn.querySelector('.export-icon')).toBeTruthy();
     expect(exportBtn.querySelector('.export-chevron-wrapper')).toBeTruthy();
   });
+
+  it('should render view mode toggle buttons and emit viewModeChange on click', () => {
+    fixture.componentRef.setInput('viewMode', 'grid');
+    fixture.detectChanges();
+
+    const viewToggles = fixture.nativeElement.querySelectorAll(
+      '.view-toggle-group .view-toggle-btn',
+    );
+    expect(viewToggles.length).toBeGreaterThanOrEqual(2);
+
+    const [gridBtn, compactBtn] = Array.from(
+      viewToggles,
+    ) as HTMLButtonElement[];
+    expect(gridBtn.classList.contains('active')).toBe(true);
+    expect(compactBtn.classList.contains('active')).toBe(false);
+
+    let emittedMode: string | undefined;
+    component.viewModeChange.subscribe((mode) => {
+      emittedMode = mode;
+    });
+
+    compactBtn.click();
+    expect(emittedMode).toBe('compact');
+
+    fixture.componentRef.setInput('viewMode', 'compact');
+    fixture.detectChanges();
+    expect(compactBtn.classList.contains('active')).toBe(true);
+    expect(gridBtn.classList.contains('active')).toBe(false);
+  });
 });
