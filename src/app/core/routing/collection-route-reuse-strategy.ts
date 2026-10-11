@@ -31,18 +31,45 @@ export interface StoredRouteHandle {
 })
 export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
   private readonly storedHandles = new Map<string, StoredRouteHandle>();
+  private readonly pendingScroll = new Map<
+    string,
+    { scrollX: number; scrollY: number }
+  >();
+
+  constructor() {
+    super();
+    if (
+      typeof window !== 'undefined' &&
+      'scrollRestoration' in window.history
+    ) {
+      window.history.scrollRestoration = 'manual';
+    }
+  }
 
   /**
    * Determines if a route should be detached for later reuse.
    * Only the primary collection list views ('games' and 'toys') are preserved.
+   *
+   * Crucially, this is called BEFORE Angular's RouterOutlet detaches the component
+   * view from the DOM. Capturing window.scrollX and window.scrollY here records the
+   * true scroll coordinates before the document collapses to 0 height.
    */
   override shouldDetach(route: ActivatedRouteSnapshot): boolean {
     const path = this.getRoutePath(route);
-    return path === 'games' || path === 'toys';
+    if (path === 'games' || path === 'toys') {
+      if (typeof window !== 'undefined') {
+        this.pendingScroll.set(path, {
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        });
+      }
+      return true;
+    }
+    return false;
   }
 
   /**
-   * Stores the detached route handle along with its current scroll coordinates.
+   * Stores the detached route handle along with its preserved scroll coordinates.
    */
   override store(
     route: ActivatedRouteSnapshot,
@@ -52,11 +79,18 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
     if (!path) return;
 
     if (handle) {
-      const scrollX = typeof window !== 'undefined' ? window.scrollX : 0;
-      const scrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+      const pending = this.pendingScroll.get(path);
+      const scrollX =
+        pending?.scrollX ??
+        (typeof window !== 'undefined' ? window.scrollX : 0);
+      const scrollY =
+        pending?.scrollY ??
+        (typeof window !== 'undefined' ? window.scrollY : 0);
+      this.pendingScroll.delete(path);
       this.storedHandles.set(path, { handle, scrollX, scrollY });
     } else {
       this.storedHandles.delete(path);
+      this.pendingScroll.delete(path);
     }
   }
 
@@ -71,6 +105,10 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
   /**
    * Retrieves the stored route handle for reattachment and schedules
    * scroll restoration to the preserved coordinate.
+   *
+   * Note: The component view is reattached to the DOM synchronously right AFTER
+   * retrieve() returns. We schedule restoration across animation frames to guarantee
+   * the host elements are mounted and reflowed before restoring scroll.
    */
   override retrieve(route: ActivatedRouteSnapshot): DetachedRouteHandle | null {
     const path = this.getRoutePath(route);
@@ -81,22 +119,31 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
 
     if (typeof window !== 'undefined') {
       const { scrollX, scrollY } = stored;
-      // Immediate scroll restore
+      // Immediate attempt in case the DOM is already sized
       window.scrollTo({
         left: scrollX,
         top: scrollY,
         behavior: 'instant' as ScrollBehavior,
       });
 
-      // Frame guard to ensure layout reflow does not clamp the position
+      // Frame 1: Restore scroll as soon as the outlet attaches the hostView to the DOM
       requestAnimationFrame(() => {
-        if (window.scrollY !== scrollY) {
-          window.scrollTo({
-            left: scrollX,
-            top: scrollY,
-            behavior: 'instant' as ScrollBehavior,
-          });
-        }
+        window.scrollTo({
+          left: scrollX,
+          top: scrollY,
+          behavior: 'instant' as ScrollBehavior,
+        });
+
+        // Frame 2: Guard against any post-attachment micro-reflows
+        requestAnimationFrame(() => {
+          if (window.scrollY !== scrollY) {
+            window.scrollTo({
+              left: scrollX,
+              top: scrollY,
+              behavior: 'instant' as ScrollBehavior,
+            });
+          }
+        });
       });
     }
 
@@ -114,11 +161,13 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
         stored.scrollX = 0;
         stored.scrollY = 0;
       }
+      this.pendingScroll.delete(path);
     } else {
       this.storedHandles.forEach((stored) => {
         stored.scrollX = 0;
         stored.scrollY = 0;
       });
+      this.pendingScroll.clear();
     }
   }
 
@@ -128,6 +177,7 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    */
   public clearRoute(path: 'games' | 'toys'): void {
     this.storedHandles.delete(path);
+    this.pendingScroll.delete(path);
   }
 
   /**
@@ -135,6 +185,7 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    */
   public clearAll(): void {
     this.storedHandles.clear();
+    this.pendingScroll.clear();
   }
 
   /**

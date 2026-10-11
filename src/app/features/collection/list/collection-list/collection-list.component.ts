@@ -1143,6 +1143,7 @@ export class CollectionListComponent
   private observer?: IntersectionObserver;
   @ViewChild('scrollTrigger') scrollTrigger?: ElementRef;
   private ngZone = inject(NgZone);
+  private elementRef = inject(ElementRef);
 
   private restorationPending = true;
   private stateInitialized = signal(false);
@@ -2600,9 +2601,11 @@ export class CollectionListComponent
   }
 
   private onScrollHandler = () => {
+    if (!this.elementRef.nativeElement.isConnected) return;
     if (this.scrollTimeout) return;
     this.scrollTimeout = setTimeout(() => {
       this.scrollTimeout = null;
+      if (!this.elementRef.nativeElement.isConnected) return;
       if (this.stateInitialized() && window.scrollY >= 0) {
         const currentState = this.collectionService.getListState(
           this.currentTab(),

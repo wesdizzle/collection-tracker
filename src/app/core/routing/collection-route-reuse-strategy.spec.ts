@@ -35,10 +35,36 @@ describe('CollectionRouteReuseStrategy', () => {
     vi.restoreAllMocks();
   });
 
+  describe('constructor', () => {
+    it('should set history.scrollRestoration to manual if supported', () => {
+      Object.defineProperty(window.history, 'scrollRestoration', {
+        value: 'auto',
+        writable: true,
+        configurable: true,
+      });
+      new CollectionRouteReuseStrategy();
+      expect(window.history.scrollRestoration).toBe('manual');
+    });
+  });
+
   describe('shouldDetach', () => {
-    it('should return true for games and toys routes', () => {
+    it('should return true for games and toys routes and capture current scroll', () => {
+      Object.defineProperty(window, 'scrollY', { value: 2350 });
+      Object.defineProperty(window, 'scrollX', { value: 10 });
+
       expect(strategy.shouldDetach(createSnapshot('games'))).toBe(true);
       expect(strategy.shouldDetach(createSnapshot('toys'))).toBe(true);
+
+      // Now simulate outlet detach where window scroll collapses to 0
+      Object.defineProperty(window, 'scrollY', { value: 0 });
+      Object.defineProperty(window, 'scrollX', { value: 0 });
+
+      // Storing after detachment should still retain the captured scroll
+      strategy.store(createSnapshot('games'), createMockHandle());
+      expect(strategy.getStoredScroll('games')).toEqual({
+        scrollX: 10,
+        scrollY: 2350,
+      });
     });
 
     it('should return false for detail, discovery, and other routes', () => {
@@ -49,7 +75,7 @@ describe('CollectionRouteReuseStrategy', () => {
   });
 
   describe('store and shouldAttach', () => {
-    it('should capture window scroll coordinates when storing a detached handle', () => {
+    it('should capture window scroll coordinates when storing a detached handle directly', () => {
       Object.defineProperty(window, 'scrollY', { value: 1450 });
       Object.defineProperty(window, 'scrollX', { value: 0 });
 
