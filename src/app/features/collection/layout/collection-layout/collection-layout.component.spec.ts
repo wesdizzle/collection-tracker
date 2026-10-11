@@ -58,6 +58,46 @@ describe('CollectionLayoutComponent', () => {
     });
   });
 
+  describe('Top Bar and Navigation Hierarchy', () => {
+    it('should place main-header outside layout-container for full-bleed width', () => {
+      const header = fixture.nativeElement.querySelector('.main-header');
+      const layoutContainer =
+        fixture.nativeElement.querySelector('.layout-container');
+
+      expect(header).toBeTruthy();
+      expect(layoutContainer).toBeTruthy();
+      expect(layoutContainer.contains(header)).toBe(false);
+    });
+
+    it('should house navigation tabs inside header-inner within main-header to persist during scroll', () => {
+      const header = fixture.nativeElement.querySelector('.main-header');
+      const headerInner = header.querySelector('.header-inner');
+      const mainNav = headerInner.querySelector('.main-nav');
+      const navLinks = Array.from(
+        mainNav.querySelectorAll('.nav-item'),
+      ) as HTMLElement[];
+
+      expect(headerInner).toBeTruthy();
+      expect(mainNav).toBeTruthy();
+      expect(navLinks.length).toBe(3);
+
+      const labels = navLinks.map((el) =>
+        el.querySelector('.label')?.textContent?.trim(),
+      );
+      expect(labels).toEqual(['Games', 'Toys', 'Discovery']);
+    });
+
+    it('should house content-area and main-footer inside layout-container', () => {
+      const layoutContainer =
+        fixture.nativeElement.querySelector('.layout-container');
+      const contentArea = layoutContainer.querySelector('.content-area');
+      const mainFooter = layoutContainer.querySelector('.main-footer');
+
+      expect(contentArea).toBeTruthy();
+      expect(mainFooter).toBeTruthy();
+    });
+  });
+
   describe('Notification Settings Modal Rendering', () => {
     it('should not render notification modal by default', () => {
       const modal = fixture.nativeElement.querySelector(

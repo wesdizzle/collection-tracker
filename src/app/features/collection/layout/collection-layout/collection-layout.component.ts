@@ -11,8 +11,8 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
   standalone: true,
   imports: [RouterModule, IconComponent, NotificationSettingsModalComponent],
   template: `
-    <div class="layout-container">
-      <header class="main-header">
+    <header class="main-header">
+      <div class="header-inner">
         <div class="header-left">
           <a
             routerLink="/collection/games"
@@ -28,9 +28,35 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
           </a>
         </div>
 
-        <div class="header-nav-placeholder desktop-only">
-          <!-- The nav will be positioned here on desktop via CSS -->
-        </div>
+        <nav class="main-nav">
+          <a
+            routerLink="/collection/games"
+            (click)="onNavClick('games')"
+            routerLinkActive="active"
+            class="nav-item"
+          >
+            <span class="label">Games</span>
+            <div class="indicator"></div>
+          </a>
+          <a
+            routerLink="/collection/toys"
+            (click)="onNavClick('toys')"
+            routerLinkActive="active"
+            class="nav-item"
+          >
+            <span class="label">Toys</span>
+            <div class="indicator"></div>
+          </a>
+          <a
+            routerLink="/collection/discovery"
+            (click)="onNavClick()"
+            routerLinkActive="active"
+            class="nav-item dev-item"
+          >
+            <span class="label">Discovery</span>
+            <div class="indicator"></div>
+          </a>
+        </nav>
 
         <div class="header-right">
           <button
@@ -76,38 +102,10 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
             </svg>
           </a>
         </div>
-      </header>
+      </div>
+    </header>
 
-      <nav class="main-nav">
-        <a
-          routerLink="/collection/games"
-          (click)="onNavClick('games')"
-          routerLinkActive="active"
-          class="nav-item"
-        >
-          <span class="label">Games</span>
-          <div class="indicator"></div>
-        </a>
-        <a
-          routerLink="/collection/toys"
-          (click)="onNavClick('toys')"
-          routerLinkActive="active"
-          class="nav-item"
-        >
-          <span class="label">Toys</span>
-          <div class="indicator"></div>
-        </a>
-        <a
-          routerLink="/collection/discovery"
-          (click)="onNavClick()"
-          routerLinkActive="active"
-          class="nav-item dev-item"
-        >
-          <span class="label">Discovery</span>
-          <div class="indicator"></div>
-        </a>
-      </nav>
-
+    <div class="layout-container">
       <main class="content-area animate-expressive">
         <router-outlet></router-outlet>
       </main>
@@ -126,28 +124,33 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
   `,
   styles: [
     `
-      .layout-container {
+      .main-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        width: 100%;
+        background: var(--m3-surface);
+        border-bottom: 1px solid var(--m3-outline-variant);
+      }
+
+      .header-inner {
         max-width: 1400px;
         margin: 0 auto;
         padding: 0 var(--container-padding);
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        position: relative; /* For absolute centering of nav */
-      }
-
-      .main-header {
+        height: var(--header-height);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        height: var(--header-height);
-        margin-top: var(--spacing-8);
-        margin-bottom: var(--spacing-32);
-        border-bottom: 1px solid var(--m3-outline-variant);
-        position: sticky;
-        top: 0;
-        background: var(--m3-surface);
-        z-index: 100;
+        position: relative; /* For absolute centering of desktop nav */
+      }
+
+      .layout-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: var(--spacing-32) var(--container-padding) 0;
+        min-height: calc(100vh - var(--header-height));
+        display: flex;
+        flex-direction: column;
       }
 
       .header-left,
@@ -160,9 +163,6 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
 
       .header-right {
         justify-content: flex-end;
-      }
-      .desktop-only {
-        display: block;
       }
 
       .brand-link {
@@ -198,8 +198,8 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
           position: absolute;
           left: 50%;
           transform: translateX(-50%);
-          top: var(--spacing-8);
-          height: var(--header-height);
+          top: 0;
+          height: 100%;
         }
       }
 
@@ -290,13 +290,11 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
       }
 
       @media (max-width: 768px) {
-        .main-header {
-          margin-bottom: var(--spacing-24);
-          padding: 0 var(--spacing-16);
+        .layout-container {
+          padding-top: var(--spacing-24);
         }
 
-        .brand-title,
-        .desktop-only {
+        .brand-title {
           display: none;
         }
 
