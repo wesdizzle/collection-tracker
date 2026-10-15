@@ -1,0 +1,95 @@
+<a
+  [routerLink]="['/collection', 'toy', toy().id]"
+  class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden"
+>
+  <div class="card-art-frame toy-frame">
+    @if (toy().image_url) {
+      <img
+        [src]="toy().image_url"
+        alt="Toy"
+        class="card-art toy-art"
+        loading="lazy"
+        decoding="async"
+        referrerpolicy="no-referrer"
+      />
+    } @else {
+      <div
+        class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide"
+      >
+        No Image
+      </div>
+    }
+    @if (toy().region) {
+      <div class="region-flag" [title]="'Region: ' + toy().region">
+        {{ toy().region }}
+      </div>
+    }
+
+    <!-- Status Badge -->
+    <button
+      class="status-badge state-layer interactive"
+      [class]="'status-' + toy().ownership_status"
+      [title]="
+        toy().ownership_status === 1
+          ? 'Owned'
+          : toy().ownership_status === 2
+            ? 'Seeking'
+            : toy().ownership_status === 3
+              ? 'Ordered'
+              : 'Unowned'
+      "
+      (click)="onToggleStatusClick($event)"
+    >
+      @if (toy().ownership_status === 1) {
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+        </svg>
+      } @else if (toy().ownership_status === 2) {
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path
+            d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+          />
+        </svg>
+      } @else if (toy().ownership_status === 3) {
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path
+            d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
+          />
+        </svg>
+      } @else {
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+          <path
+            d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+          />
+        </svg>
+      }
+    </button>
+  </div>
+
+  <div class="card-content">
+    <div class="content-header">
+      <div class="flex gap-2xs items-center">
+        <span class="release-year">{{ toy().type }}</span>
+      </div>
+      @if (toy().release_date) {
+        <span class="release-year">{{
+          toy().release_date.substring(0, 4)
+        }}</span>
+      }
+    </div>
+    <h3 class="card-title">{{ toy().name }}</h3>
+    @if (toy().price_loose; as priceLoose) {
+      <div class="mt-2xs">
+        <span
+          class="valuation-badge"
+          [title]="
+            'Estimated Loose Market Value: $' + (priceLoose / 100).toFixed(2)
+          "
+        >
+          {{ '$' + (priceLoose / 100).toFixed(2) }}
+          Loose
+        </span>
+      </div>
+    }
+  </div>
+</a>
