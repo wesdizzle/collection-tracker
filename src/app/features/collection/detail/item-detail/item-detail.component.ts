@@ -84,6 +84,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
               <div
                 class="stat-pill interactive"
                 [class.active]="g.ownership_status !== 0"
+                [class.owned]="g.ownership_status === 1"
+                [class.seeking]="g.ownership_status === 2"
+                [class.ordered]="g.ownership_status === 3"
                 (click)="onEditOwnership(g, 'game')"
               >
                 <span class="icon">
@@ -149,6 +152,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
               <div
                 class="stat-pill interactive"
                 [class.active]="t.ownership_status !== 0"
+                [class.owned]="t.ownership_status === 1"
+                [class.seeking]="t.ownership_status === 2"
+                [class.ordered]="t.ownership_status === 3"
                 (click)="onEditOwnership(t, 'toy')"
               >
                 <span class="icon">
@@ -913,9 +919,19 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
       }
 
       .stat-pill.active {
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
+        border-color: transparent;
+      }
+
+      .stat-pill.active.seeking {
         background: var(--m3-tertiary-container);
         color: var(--m3-on-tertiary-container);
-        border-color: transparent;
+      }
+
+      .stat-pill.active.ordered {
+        background: rgba(59, 130, 246, 0.2);
+        color: #60a5fa;
       }
 
       .stat-pill.active.igdb {

@@ -604,9 +604,9 @@ interface GameGroup {
         font-family: var(--font-body);
         font-size: 0.7rem;
         font-weight: 700;
-        color: #10b981;
-        background: rgba(16, 185, 129, 0.12);
-        border: 1px solid rgba(16, 185, 129, 0.25);
+        color: var(--m3-primary);
+        background: var(--m3-surface-container-highest);
+        border: 1px solid var(--m3-outline-variant);
         padding: 0.15rem 0.45rem;
         border-radius: var(--radius-tag, 6px);
         letter-spacing: 0.01em;
@@ -702,7 +702,7 @@ interface GameGroup {
         color: var(--m3-outline);
       }
       .multi-disc-status.all-backed {
-        color: #10b981;
+        color: var(--m3-primary);
       }
       .disc-chip {
         display: inline-flex;
@@ -722,9 +722,9 @@ interface GameGroup {
         background: var(--m3-surface-container-highest);
       }
       .disc-chip.backed-up {
-        border-color: #10b981;
-        background: rgba(16, 185, 129, 0.12);
-        color: #047857;
+        border-color: var(--m3-primary);
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
       }
       .disc-dot {
         width: 6px;
@@ -733,7 +733,7 @@ interface GameGroup {
         background: var(--m3-outline-variant);
       }
       .disc-dot.dot-backed {
-        background: #10b981;
+        background: var(--m3-primary);
       }
     `,
   ],

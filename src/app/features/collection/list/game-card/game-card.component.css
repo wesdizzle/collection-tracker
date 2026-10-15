@@ -85,8 +85,8 @@
 }
 
 .status-1 {
-  background: #10b981;
-  color: #fff;
+  background: var(--m3-primary);
+  color: var(--m3-on-primary, #ffffff);
 }
 
 .status-2 {
@@ -282,10 +282,10 @@
 }
 
 .disc-dot.dot-backed {
-  background: #10b981;
+  background: var(--m3-primary);
 }
 
 .multi-disc-status.all-backed {
-  color: #10b981;
+  color: var(--m3-primary);
   font-weight: 600;
 }
