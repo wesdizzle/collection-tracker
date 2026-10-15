@@ -94,12 +94,12 @@ describe('CollectionLayoutComponent', () => {
 
       expect(headerInner).toBeTruthy();
       expect(mainNav).toBeTruthy();
-      expect(navLinks.length).toBe(3);
+      expect(navLinks.length).toBe(4);
 
       const labels = navLinks.map((el) =>
         el.querySelector('.label')?.textContent?.trim(),
       );
-      expect(labels).toEqual(['Games', 'Toys', 'Discovery']);
+      expect(labels).toEqual(['Games', 'Toys', 'Insights', 'Discovery']);
     });
 
     it('should house content-area and main-footer inside layout-container', () => {

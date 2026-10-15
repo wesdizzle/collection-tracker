@@ -54,6 +54,15 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
             <div class="indicator"></div>
           </a>
           <a
+            routerLink="/collection/insights"
+            (click)="onNavClick()"
+            routerLinkActive="active"
+            class="nav-item"
+          >
+            <span class="label">Insights</span>
+            <div class="indicator"></div>
+          </a>
+          <a
             routerLink="/collection/discovery"
             (click)="onNavClick()"
             routerLinkActive="active"

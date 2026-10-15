@@ -1,0 +1,474 @@
+<div class="insights-container animate-expressive">
+  <!-- Header Bar -->
+  <header class="insights-header">
+    <div class="header-titles">
+      <h1 class="insights-title">Collection Insights</h1>
+      <p class="insights-subtitle">
+        Visual analytics, platform completion, condition audit, and preservation
+        health.
+      </p>
+    </div>
+    <div class="header-actions">
+      <button
+        type="button"
+        class="refresh-btn m3-button-outlined"
+        (click)="refresh()"
+        [disabled]="isRefreshing()"
+        title="Refresh collection data from server"
+      >
+        <span class="btn-icon" [class.spinning]="isRefreshing()">
+          <app-icon name="refresh" [size]="16" />
+        </span>
+        <span>{{ isRefreshing() ? 'Refreshing...' : 'Refresh Data' }}</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Metric Summary Cards Row -->
+  <section class="summary-cards-grid">
+    <div class="stat-card valuation-card">
+      <div class="stat-card-header">
+        <span class="stat-label">Estimated Collection Value</span>
+        <span class="card-icon-badge primary-badge">
+          <app-icon name="coins" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">
+        {{ formatCurrency(totalCollectionValue()) }}
+      </div>
+      <div class="stat-subtext">
+        <span>Games: {{ formatCurrency(totalGamesValue()) }}</span>
+        @if (totalToysValue() > 0) {
+          <span> • Toys: {{ formatCurrency(totalToysValue()) }}</span>
+        }
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <span class="stat-label">Games Owned</span>
+        <span class="card-icon-badge secondary-badge">
+          <app-icon name="gamepad" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">
+        {{ ownedGames().length }}
+      </div>
+      <div class="stat-subtext">
+        <span>{{ cibCount() }} CIB ({{ cibPct() }}%)</span>
+        @if (seekingGamesCount() > 0) {
+          <span> • {{ seekingGamesCount() }} Seeking</span>
+        }
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <span class="stat-label">Physical Backup Health</span>
+        <span
+          class="card-icon-badge"
+          [class.success-badge]="backupRatePct() >= 80"
+          [class.warning-badge]="backupRatePct() < 80"
+        >
+          <app-icon name="verified-badge" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">{{ backupRatePct() }}%</div>
+      <div class="stat-subtext">
+        <span
+          >{{ backedUpOwnedGames().length }} /
+          {{ physicalOwnedGames().length }} releases</span
+        >
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <span class="stat-label">Toys Owned</span>
+        <span class="card-icon-badge tertiary-badge">
+          <app-icon name="figure-toy" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">
+        {{ ownedToys().length }}
+      </div>
+      <div class="stat-subtext">
+        <span>{{ formatCurrency(totalToysValue()) }} estimated value</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Detailed Analytics Grid -->
+  <div class="insights-content-grid">
+    <!-- Left Column: Preservation, Condition & Backlog -->
+    <div class="insights-column">
+      <!-- Physical Preservation & Backup Rate Card -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">ROM Preservation & Backups</h2>
+            <p class="panel-subtitle">
+              Verified Redump/No-Intro digital backups of owned physical
+              releases
+            </p>
+          </div>
+          <span class="rate-pill" [class.success]="backupRatePct() >= 80">
+            {{ backupRatePct() }}% Preserved
+          </span>
+        </div>
+
+        <div class="meter-bar-container">
+          <div
+            class="meter-bar-fill"
+            [style.width.%]="backupRatePct()"
+            [class.high]="backupRatePct() >= 80"
+          ></div>
+        </div>
+
+        <div class="backup-stats-row">
+          <div class="backup-stat-item">
+            <span class="backup-stat-number">{{
+              backedUpOwnedGames().length
+            }}</span>
+            <span class="backup-stat-desc">Backed Up</span>
+          </div>
+          <div class="backup-stat-item">
+            <span class="backup-stat-number warning">{{
+              missingBackupsCount()
+            }}</span>
+            <span class="backup-stat-desc">Missing Backups</span>
+          </div>
+          <div class="backup-stat-item">
+            <span class="backup-stat-number">{{
+              physicalOwnedGames().length
+            }}</span>
+            <span class="backup-stat-desc">Physical Total</span>
+          </div>
+        </div>
+
+        @if (missingBackupsCount() > 0) {
+          <div class="backup-action-banner">
+            <div class="banner-text">
+              <strong>{{ missingBackupsCount() }} owned games</strong> need
+              clean dumps to secure your preservation archive.
+            </div>
+            <a
+              routerLink="/collection/games"
+              class="m3-button m3-button-tonal view-missing-btn"
+            >
+              Browse Collection
+            </a>
+          </div>
+        }
+      </section>
+
+      <!-- Packaging Condition Breakdown -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Packaging Condition Breakdown</h2>
+            <p class="panel-subtitle">
+              Completeness distribution across owned games
+            </p>
+          </div>
+        </div>
+
+        <!-- Segmented Condition Bar -->
+        <div class="segmented-condition-bar">
+          @if (cibPct() > 0) {
+            <div
+              class="condition-segment cib-segment"
+              [style.width.%]="cibPct()"
+              [title]="
+                'Complete in Box: ' + cibCount() + ' (' + cibPct() + '%)'
+              "
+            ></div>
+          }
+          @if (boxedPct() > 0) {
+            <div
+              class="condition-segment boxed-segment"
+              [style.width.%]="boxedPct()"
+              [title]="
+                'Box / Case Only: ' +
+                boxedOnlyCount() +
+                ' (' +
+                boxedPct() +
+                '%)'
+              "
+            ></div>
+          }
+          @if (loosePct() > 0) {
+            <div
+              class="condition-segment loose-segment"
+              [style.width.%]="loosePct()"
+              [title]="
+                'Loose Disc/Cart: ' + looseCount() + ' (' + loosePct() + '%)'
+              "
+            ></div>
+          }
+        </div>
+
+        <div class="condition-legend">
+          <div class="legend-item">
+            <span class="legend-dot cib-dot"></span>
+            <span class="legend-label">Complete in Box (CIB)</span>
+            <span class="legend-count">{{ cibCount() }} ({{ cibPct() }}%)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot boxed-dot"></span>
+            <span class="legend-label">Box / Case Only</span>
+            <span class="legend-count"
+              >{{ boxedOnlyCount() }} ({{ boxedPct() }}%)</span
+            >
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot loose-dot"></span>
+            <span class="legend-label">Loose Disc / Cart</span>
+            <span class="legend-count"
+              >{{ looseCount() }} ({{ loosePct() }}%)</span
+            >
+          </div>
+        </div>
+
+        <div class="condition-valuation-summary">
+          <div class="cond-val-col">
+            <span class="val-header">Pure CIB Value</span>
+            <span class="val-num">{{ formatCurrency(cibTotalValue()) }}</span>
+          </div>
+          <div class="cond-val-col">
+            <span class="val-header">Pure Loose Value</span>
+            <span class="val-num">{{ formatCurrency(looseTotalValue()) }}</span>
+          </div>
+          <div class="cond-val-col">
+            <span class="val-header">New / Sealed Value</span>
+            <span class="val-num">{{ formatCurrency(newTotalValue()) }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Backlog & Play Status -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Play Backlog & Progress</h2>
+            <p class="panel-subtitle">Play journey across owned library</p>
+          </div>
+          <span class="rate-pill">
+            {{ playStatusStats().playedPct }}% Finished
+          </span>
+        </div>
+
+        <div class="play-status-grid">
+          <div class="play-status-chip played-chip">
+            <span class="chip-number">{{ playStatusStats().played }}</span>
+            <span class="chip-label">Played</span>
+          </div>
+          <div class="play-status-chip playing-chip">
+            <span class="chip-number">{{ playStatusStats().playing }}</span>
+            <span class="chip-label">Playing</span>
+          </div>
+          <div class="play-status-chip queued-chip">
+            <span class="chip-number">{{ playStatusStats().queued }}</span>
+            <span class="chip-label">Queued</span>
+          </div>
+          <div class="play-status-chip unplayed-chip">
+            <span class="chip-number">{{ playStatusStats().unplayed }}</span>
+            <span class="chip-label">Unplayed</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Franchise Representation -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Top Franchises & Series</h2>
+            <p class="panel-subtitle">
+              Highest represented series in your library
+            </p>
+          </div>
+        </div>
+
+        <div class="series-list">
+          @for (s of topSeries(); track s.name) {
+            <div class="series-row">
+              <span class="series-name">{{ s.name }}</span>
+              <div class="series-meta">
+                <span class="series-badge">{{ s.ownedCount }} games</span>
+                <span class="series-value">{{
+                  formatCurrency(s.totalValue)
+                }}</span>
+              </div>
+            </div>
+          }
+          @if (topSeries().length === 0) {
+            <div class="empty-state">No franchise data available</div>
+          }
+        </div>
+      </section>
+    </div>
+
+    <!-- Right Column: Platform Completion & Top Items -->
+    <div class="insights-column">
+      <!-- Platform Completion & Distribution -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">
+              Platform Distribution & Catalog Completion
+            </h2>
+            <p class="panel-subtitle">
+              Games owned relative to canonical catalog releases
+            </p>
+          </div>
+        </div>
+
+        <div class="platform-list">
+          @for (p of platformStats(); track p.id) {
+            <div class="platform-item">
+              <div class="platform-item-header">
+                <div class="platform-name-group">
+                  @if (p.logo) {
+                    <img
+                      [src]="p.logo"
+                      [alt]="p.name"
+                      class="platform-thumb-logo"
+                    />
+                  }
+                  <span class="platform-item-name">{{ p.name }}</span>
+                </div>
+                <div class="platform-counts">
+                  <span class="owned-fraction">
+                    <strong>{{ p.ownedCount }}</strong> / {{ p.catalogCount }}
+                  </span>
+                  <span class="completion-percentage"
+                    >({{ p.completionPct }}%)</span
+                  >
+                  @if (p.totalValue > 0) {
+                    <span class="platform-item-value"
+                      >• {{ formatCurrency(p.totalValue) }}</span
+                    >
+                  }
+                </div>
+              </div>
+
+              <!-- Completion Progress Bar -->
+              <div class="platform-progress-track">
+                <div
+                  class="platform-progress-fill"
+                  [style.width.%]="p.completionPct"
+                ></div>
+              </div>
+
+              <div class="platform-item-footer">
+                <span class="platform-backup-stat">
+                  ROM Backups: {{ p.backupCount }} / {{ p.ownedCount }} ({{
+                    p.backupPct
+                  }}%)
+                </span>
+              </div>
+            </div>
+          }
+          @if (platformStats().length === 0) {
+            <div class="empty-state">No platforms recorded</div>
+          }
+        </div>
+      </section>
+
+      <!-- Top Most Valuable Games in Collection -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Top 5 Most Valuable Games</h2>
+            <p class="panel-subtitle">
+              Estimated market valuation based on condition
+            </p>
+          </div>
+        </div>
+
+        <div class="valuable-items-list">
+          @for (g of topValuableGames(); track g.id; let i = $index) {
+            <div class="valuable-item-row">
+              <span class="rank-badge">#{{ i + 1 }}</span>
+              @if (g.image_url) {
+                <img
+                  [src]="g.image_url"
+                  [alt]="g.title"
+                  class="valuable-item-cover"
+                />
+              }
+              <div class="valuable-item-info">
+                <div class="valuable-item-title" [title]="g.title">
+                  {{ g.title }}
+                </div>
+                <div class="valuable-item-meta">
+                  <span class="valuable-item-platform">{{ g.platform }}</span>
+                  <span class="valuable-item-cond">
+                    {{
+                      g.has_case && g.has_manual
+                        ? 'CIB'
+                        : g.has_case
+                          ? 'Boxed'
+                          : 'Loose'
+                    }}
+                  </span>
+                </div>
+              </div>
+              <div class="valuable-item-price">
+                {{ formatCurrencyDetailed(getEffectiveGamePrice(g)) }}
+              </div>
+            </div>
+          }
+          @if (topValuableGames().length === 0) {
+            <div class="empty-state">No priced games in collection</div>
+          }
+        </div>
+      </section>
+
+      <!-- Top Most Valuable Toys in Collection -->
+      @if (topValuableToys().length > 0) {
+        <section class="insight-panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <h2 class="panel-title">Top Most Valuable Toys</h2>
+              <p class="panel-subtitle">
+                Highest valued amiibo and collectible toys
+              </p>
+            </div>
+          </div>
+
+          <div class="valuable-items-list">
+            @for (t of topValuableToys(); track t.id; let i = $index) {
+              <div class="valuable-item-row">
+                <span class="rank-badge">#{{ i + 1 }}</span>
+                @if (t.image_url) {
+                  <img
+                    [src]="t.image_url"
+                    [alt]="t.name"
+                    class="valuable-item-cover"
+                  />
+                }
+                <div class="valuable-item-info">
+                  <div class="valuable-item-title" [title]="t.name">
+                    {{ t.name }}
+                  </div>
+                  <div class="valuable-item-meta">
+                    <span class="valuable-item-platform">{{ t.line }}</span>
+                    @if (t.series_name) {
+                      <span class="valuable-item-cond">{{
+                        t.series_name
+                      }}</span>
+                    }
+                  </div>
+                </div>
+                <div class="valuable-item-price">
+                  {{ formatCurrencyDetailed(getEffectiveToyPrice(t)) }}
+                </div>
+              </div>
+            }
+          </div>
+        </section>
+      }
+    </div>
+  </div>
+</div>

@@ -35,6 +35,14 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'insights',
+        title: 'Collection Insights',
+        loadComponent: () =>
+          import('./features/collection/insights/collection-insights.component').then(
+            (m) => m.CollectionInsightsComponent,
+          ),
+      },
+      {
         path: ':type/:id',
         loadComponent: () =>
           import('./features/collection/detail/item-detail/item-detail.component').then(
