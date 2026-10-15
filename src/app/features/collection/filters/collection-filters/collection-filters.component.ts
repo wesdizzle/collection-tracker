@@ -41,61 +41,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
   imports: [FormsModule, DatePipe, IconComponent],
   template: `
     <div class="filter-wrapper animate-expressive animate-stagger-1">
-      <div class="mobile-filter-row desktop-hidden">
-        <button
-          class="m3-button m3-button-tonal"
-          (click)="showFilters.set(!showFilters())"
-          [attr.aria-expanded]="showFilters()"
-        >
-          <span class="icon">
-            @if (showFilters()) {
-              <app-icon name="close" [size]="16" />
-            } @else {
-              <app-icon name="tune" [size]="16" />
-            }
-          </span>
-          <span>{{ showFilters() ? 'Hide Controls' : 'Show Controls' }}</span>
-        </button>
-        @if (!showFilters()) {
-          <div class="m3-badge">
-            {{ resultCount() }}
-            @if (totalValue() > 0) {
-              • {{ formatCurrency(totalValue()) }}
-            }
-          </div>
-        }
-        <div
-          class="view-toggle-group ml-auto"
-          role="group"
-          aria-label="View layout"
-        >
-          <button
-            type="button"
-            class="view-toggle-btn state-layer"
-            [class.active]="viewMode() === 'grid'"
-            (click)="onViewModeSelect('grid')"
-            title="Tile View (Grid)"
-            aria-label="Tile View"
-          >
-            <app-icon name="view-grid" [size]="16" />
-          </button>
-          <button
-            type="button"
-            class="view-toggle-btn state-layer"
-            [class.active]="viewMode() === 'compact'"
-            (click)="onViewModeSelect('compact')"
-            title="Compact View (Rows)"
-            aria-label="Compact View"
-          >
-            <app-icon name="view-list" [size]="16" />
-          </button>
-        </div>
-      </div>
-
-      <div
-        class="filter-bar m3-surface-container mb-lg"
-        [class.mobile-collapsed]="!showFilters()"
-      >
+      <div class="filter-bar m3-surface-container mb-lg">
         <!-- Tier 1: Quick Toolbar -->
         <div class="quick-toolbar">
           <!-- Search input -->
@@ -280,7 +226,46 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             }
           </button>
 
-          <!-- View Mode Toggle -->
+          <!-- Deal Notifications Button -->
+          @if (currentTab() === 'games') {
+            <button
+              type="button"
+              class="m3-button m3-button-outlined alerts-toolbar-btn state-layer"
+              [class.active]="isNotificationSubscribed()"
+              (click)="openNotificationSettings()"
+              id="filter-deal-alerts"
+              title="Configure deal notifications"
+              aria-label="Configure deal notifications"
+            >
+              <span class="alerts-icon"
+                ><app-icon name="bell" [size]="16"
+              /></span>
+              <span class="alerts-label">Alerts</span>
+            </button>
+          }
+        </div>
+
+        <!-- Auxiliary Row: Count/Valuation & Layout Toggle -->
+        <div class="toolbar-auxiliary-row flex items-center justify-between">
+          <div class="filter-info flex items-center gap-xs">
+            <span class="count-badge">
+              {{ resultCount() }} items
+              @if (totalValue() > 0) {
+                • {{ formatCurrency(totalValue()) }}
+              }
+            </span>
+            @if (lastUpdated()) {
+              <span
+                class="sync-timestamp"
+                [title]="
+                  'Last synced with server: ' + (lastUpdated() | date: 'medium')
+                "
+              >
+                • Updated {{ lastUpdated() | date: 'shortTime' }}
+              </span>
+            }
+          </div>
+
           <div class="view-toggle-group" role="group" aria-label="View layout">
             <button
               type="button"
@@ -302,28 +287,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             >
               <app-icon name="view-list" [size]="16" />
             </button>
-          </div>
-
-          <!-- Result Count & Valuation Badge -->
-          <div
-            class="filter-info mobile-hidden flex flex-col items-start gap-2xs ml-auto"
-          >
-            <span class="count-badge">
-              {{ resultCount() }} items
-              @if (totalValue() > 0) {
-                • {{ formatCurrency(totalValue()) }}
-              }
-            </span>
-            @if (lastUpdated()) {
-              <span
-                class="sync-timestamp"
-                [title]="
-                  'Last synced with server: ' + (lastUpdated() | date: 'medium')
-                "
-              >
-                Updated {{ lastUpdated() | date: 'shortTime' }}
-              </span>
-            }
           </div>
         </div>
 
@@ -1427,20 +1390,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                   /></span>
                   <span>Deals Only</span>
                 </button>
-
-                <button
-                  type="button"
-                  class="m3-input alerts-toggle-btn state-layer"
-                  [class.active]="isNotificationSubscribed()"
-                  (click)="openNotificationSettings()"
-                  id="filter-deal-alerts"
-                  title="Configure deal notifications"
-                >
-                  <span class="alerts-icon"
-                    ><app-icon name="bell" [size]="16"
-                  /></span>
-                  <span>Deal Alerts</span>
-                </button>
               </div>
             }
           </div>
@@ -1480,13 +1429,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
 
       .filter-wrapper {
         margin-top: calc(-1 * var(--spacing-8));
-      }
-
-      .mobile-filter-row {
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-16);
-        margin-bottom: var(--spacing-16);
       }
 
       .m3-button {
@@ -1994,18 +1936,15 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       }
 
       /* RESPONSIVE BREAKPOINTS */
-      @media (min-width: 769px) {
-        .mobile-filter-row {
-          display: none;
-        }
-        .filter-bar.mobile-collapsed {
-          display: flex;
-        }
-      }
-
       @media (max-width: 768px) {
         .filter-bar {
-          padding: var(--spacing-24);
+          padding: var(--spacing-16);
+        }
+        .quick-toolbar {
+          gap: var(--spacing-8);
+        }
+        .quick-search-box {
+          flex: 1 1 100%;
         }
         .filter-group {
           min-width: 0;
@@ -2017,12 +1956,25 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
           gap: var(--spacing-8);
           margin-left: 0;
         }
-        .mobile-collapsed {
-          display: none;
+        .toolbar-auxiliary-row {
+          flex-wrap: wrap;
+          gap: var(--spacing-8);
         }
       }
 
       @media (max-width: 480px) {
+        .segmented-status-group {
+          width: 100%;
+          justify-content: space-between;
+        }
+        .status-pill-btn {
+          flex: 1;
+          justify-content: center;
+          padding: 0.375rem 0.5rem;
+        }
+        .quick-sort-wrapper {
+          flex: 1 1 100%;
+        }
         .filter-group {
           flex: 1 1 100%;
         }
@@ -2036,6 +1988,54 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
           width: 100%;
           justify-content: center;
         }
+        .toolbar-auxiliary-row {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--spacing-8);
+        }
+        .toolbar-auxiliary-row .view-toggle-group {
+          align-self: flex-end;
+        }
+      }
+
+      .toolbar-auxiliary-row {
+        margin-top: var(--spacing-12);
+        padding-top: var(--spacing-8);
+        border-top: 1px solid var(--m3-outline-variant);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--spacing-12);
+        width: 100%;
+      }
+
+      .alerts-toolbar-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-6);
+        height: 46px;
+        padding: 0 var(--spacing-12);
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--m3-outline);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        font-family: var(--font-body);
+        font-size: 0.875rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .alerts-toolbar-btn:hover {
+        background: var(--m3-surface-container-highest);
+      }
+
+      .alerts-toolbar-btn.active {
+        border-color: var(--m3-primary);
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
       }
 
       .view-toggle-group {
@@ -2048,16 +2048,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         gap: 2px;
         box-sizing: border-box;
         height: 46px;
-      }
-
-      .mobile-filter-row .view-toggle-group {
-        height: 40px;
-        padding: 2px;
-      }
-
-      .mobile-filter-row .view-toggle-btn {
-        width: 34px;
-        height: 34px;
       }
 
       .view-toggle-btn {
@@ -2386,13 +2376,17 @@ export class CollectionFiltersComponent {
   });
 
   public readonly isDealsActive = computed(() => {
-    return Boolean(this.filters().deals_only);
+    return (
+      Boolean(this.filters().deals_only) &&
+      this.filters().ownership === 'seeking_or_unowned'
+    );
   });
 
   public selectQuickStatus(status: 'owned' | 'all' | 'seeking' | 'deals') {
     if (status === 'deals') {
       this.filtersChange.emit({
         ...this.filters(),
+        ownership: 'seeking_or_unowned',
         deals_only: true,
       });
     } else if (status === 'owned') {

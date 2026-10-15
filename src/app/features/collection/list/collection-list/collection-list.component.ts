@@ -2715,7 +2715,14 @@ export class CollectionListComponent
     const filteredToysList = allToys.filter((toy) => {
       // Ownership Filter
       const status = toy.ownership_status ?? 0;
-      if (f.ownership !== 'all' && f.ownership !== status) return false;
+      if (f.ownership === 'seeking_or_unowned') {
+        const isSeekingOrUnowned =
+          status === OwnershipStatus.Seeking ||
+          status === OwnershipStatus.Unowned;
+        if (!isSeekingOrUnowned) return false;
+      } else if (f.ownership !== 'all' && f.ownership !== status) {
+        return false;
+      }
 
       // Line Filter (e.g. Amiibo, Skylanders)
       if (f.line && toy.line !== f.line) return false;

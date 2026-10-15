@@ -253,23 +253,16 @@ describe('CollectionFiltersComponent', () => {
     expect(gridBtn.classList.contains('active')).toBe(false);
   });
 
-  it('should display Show Controls / Hide Controls on mobile toggle button and toggle panel visibility', () => {
+  it('should render quick toolbar and deal alerts button in main row', () => {
     fixture.detectChanges();
-    const toggleBtn = fixture.nativeElement.querySelector(
-      '.mobile-filter-row button.m3-button',
-    ) as HTMLButtonElement;
-    expect(toggleBtn).toBeTruthy();
-    expect(toggleBtn.textContent).toContain('Show Controls');
+    const toolbar = fixture.nativeElement.querySelector('.quick-toolbar');
+    expect(toolbar).toBeTruthy();
 
-    toggleBtn.click();
-    fixture.detectChanges();
-    expect(component.showFilters()).toBe(true);
-    expect(toggleBtn.textContent).toContain('Hide Controls');
-
-    toggleBtn.click();
-    fixture.detectChanges();
-    expect(component.showFilters()).toBe(false);
-    expect(toggleBtn.textContent).toContain('Show Controls');
+    const alertsBtn = fixture.nativeElement.querySelector(
+      '#filter-deal-alerts',
+    );
+    expect(alertsBtn).toBeTruthy();
+    expect(alertsBtn.querySelector('.alerts-icon')).toBeTruthy();
   });
 
   it('should render quick status segmented buttons and activate Owned by default', () => {
@@ -301,12 +294,15 @@ describe('CollectionFiltersComponent', () => {
 
     component.selectQuickStatus('seeking');
     expect(emittedFilters?.ownership).toBe(2);
+    expect(emittedFilters?.deals_only).toBe(false);
 
     component.selectQuickStatus('deals');
+    expect(emittedFilters?.ownership).toBe('seeking_or_unowned');
     expect(emittedFilters?.deals_only).toBe(true);
 
     component.selectQuickStatus('owned');
     expect(emittedFilters?.ownership).toBe(1);
+    expect(emittedFilters?.deals_only).toBe(false);
   });
 
   it('should toggle secondary drawer and calculate activeFilterCount correctly', () => {
