@@ -10,7 +10,6 @@ import { ActivatedRoute } from '@angular/router';
 import { of } from 'rxjs';
 import { CollectionListComponent } from './collection-list.component';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { ExportService } from '../../../../core/services/export.service';
 import { ListState, Game } from '../../../../core/models/collection.models';
 
 /**
@@ -1637,36 +1636,6 @@ describe('CollectionListComponent', () => {
     expect(component.filteredGames().map((g) => g.id)).toEqual([
       'game-both-budget',
     ]);
-  });
-
-  it('should forward export requests to ExportService for csv and dat', async () => {
-    const exportService = TestBed.inject(ExportService);
-    const csvSpy = vi
-      .spyOn(exportService, 'exportCsv')
-      .mockImplementation(() => {});
-    const datSpy = vi
-      .spyOn(exportService, 'exportLogiqxXmlDat')
-      .mockImplementation(() => {});
-
-    const httpMock = TestBed.inject(HttpTestingController);
-    const initPromise = component.ngOnInit();
-    httpMock
-      .expectOne('/api/games')
-      .flush([
-        { id: 'game-1', title: 'Game 1', ownership_status: 1, platform: 'NES' },
-      ]);
-    httpMock.expectOne('/api/toys').flush([]);
-    httpMock.expectOne('/api/platforms').flush([]);
-    await initPromise;
-
-    component.onExportRequested('csv');
-    expect(csvSpy).toHaveBeenCalledWith(component.filteredGames(), 'games');
-
-    component.onExportRequested('dat');
-    expect(datSpy).toHaveBeenCalledWith(
-      component.filteredGames(),
-      'Collection Tracker Games Collection Wishlist',
-    );
   });
 
   it('should toggle individual disc backup status in multi-disc sets', async () => {

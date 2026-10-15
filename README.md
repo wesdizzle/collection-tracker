@@ -11,7 +11,6 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **Discovery Pipeline**: Integrated search across IGDB and AmiiboAPI to identify uncollected titles, sequels, and figures with automated variant matching.
 - **Model Context Protocol (MCP) Server**: Edge-native Streamable HTTP JSON-RPC 2.0 server (`/mcp` and `/api/mcp`) exposing 8 read-only tools for AI assistants (Google Gemini, Claude, Cursor) to quickly query game and toy ownership, physical completeness, market valuations, and deals with sub-millisecond indexed responses.
 - **Pricing & Market Valuations**: Tracks loose, CIB (Complete in Box), and new market values for games and toys with aggregate collection valuation metrics.
-- **Data Portability**: Exports filtered collections to RFC 4180 CSV and Logiqx XML DAT formats compatible with ROM managers (`igir`, `clrmamepro`, `RomVault`).
 - **Retail Deal Tracking & Web Push Alerts**: Monitors price cuts across retailers (Best Buy, VGP, PNP Games) and dispatches Web Push notifications (RFC 8291 / RFC 8292 Web Crypto) based on user-configured thresholds, stores, and platforms.
 - **Theme Support**: Light, dark, and system-automatic modes with responsive top navigation and mobile bottom navigation.
 - **PWA Support**: Installable progressive web app with offline listing access.

@@ -35,7 +35,7 @@ import {
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller } from '@angular/common';
 import { CollectionService } from '../../../../core/services/collection.service';
-import { ExportService } from '../../../../core/services/export.service';
+
 import { BrandingService } from '../../../../core/services/branding.service';
 import {
   Game,
@@ -85,7 +85,6 @@ interface GameGroup {
         [lastUpdated]="lastUpdated()"
         [viewMode]="viewMode()"
         (filtersChange)="onFiltersChange($event)"
-        (exportRequested)="onExportRequested($event)"
         (viewModeChange)="onViewModeChange($event)"
       >
       </app-collection-filters>
@@ -1977,7 +1976,6 @@ export class CollectionListComponent
   implements OnInit, AfterViewInit, OnDestroy
 {
   private collectionService = inject(CollectionService);
-  private exportService = inject(ExportService);
   private branding = inject(BrandingService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -3755,30 +3753,6 @@ export class CollectionListComponent
       next: () => this.collectionService.refreshAll(),
       error: (err) => console.error('Failed to toggle manual:', err),
     });
-  }
-
-  public onExportRequested(format: 'csv' | 'dat'): void {
-    if (this.currentTab() === 'games') {
-      const games = this.filteredGames();
-      if (format === 'csv') {
-        this.exportService.exportCsv(games, 'games');
-      } else if (format === 'dat') {
-        const platformName = this.filters().platform_id
-          ? this.platformGroups()
-              .flatMap((g) => g.platforms)
-              .find((p) => p.id === this.filters().platform_id)?.display_name
-          : undefined;
-        this.exportService.exportLogiqxXmlDat(
-          games,
-          platformName
-            ? `${platformName} Collection Wishlist`
-            : `${this.branding.appName()} Games Collection Wishlist`,
-        );
-      }
-    } else {
-      const toys = this.filteredToys();
-      this.exportService.exportCsv(toys, 'toys');
-    }
   }
 
   public getBackedUpDiscCount(game: Game): number {

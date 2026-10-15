@@ -1,5 +1,5 @@
 import '../../../../../test-setup';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -204,23 +204,6 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters?.budget_label).toBe('budget_only');
   });
 
-  it('should emit exportRequested event when export options are selected', () => {
-    let emittedFormat: 'csv' | 'dat' | undefined;
-    component.exportRequested.subscribe((fmt) => {
-      emittedFormat = fmt;
-    });
-
-    const mockEvent = { stopPropagation: vi.fn() } as unknown as MouseEvent;
-
-    component.onExportCsv(mockEvent);
-    expect(emittedFormat).toBe('csv');
-    expect(component.activeDropdown()).toBeNull();
-
-    component.onExportLogiqxDat(mockEvent);
-    expect(emittedFormat).toBe('dat');
-    expect(component.activeDropdown()).toBeNull();
-  });
-
   it('should toggle notification settings modal', () => {
     expect(component.showNotificationModal()).toBe(false);
     component.openNotificationSettings();
@@ -229,7 +212,7 @@ describe('CollectionFiltersComponent', () => {
     expect(component.showNotificationModal()).toBe(false);
   });
 
-  it('should render deals, alerts, and export buttons with icon and chevron elements', () => {
+  it('should render deals and alerts buttons with icon elements', () => {
     const dealsBtn = fixture.nativeElement.querySelector('#filter-deals-only');
     expect(dealsBtn).toBeTruthy();
     expect(dealsBtn.querySelector('.deals-icon')).toBeTruthy();
@@ -239,11 +222,6 @@ describe('CollectionFiltersComponent', () => {
     );
     expect(alertsBtn).toBeTruthy();
     expect(alertsBtn.querySelector('.alerts-icon')).toBeTruthy();
-
-    const exportBtn = fixture.nativeElement.querySelector('#filter-export');
-    expect(exportBtn).toBeTruthy();
-    expect(exportBtn.querySelector('.export-icon')).toBeTruthy();
-    expect(exportBtn.querySelector('.export-chevron-wrapper')).toBeTruthy();
   });
 
   it('should render view mode toggle buttons and emit viewModeChange on click', () => {

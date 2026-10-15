@@ -1344,65 +1344,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             </button>
           }
 
-          <!-- Export Dropdown -->
-          <div
-            class="input-wrapper dropdown-wrapper export-dropdown-wrapper"
-            [class.active-wrapper]="activeDropdown() === 'export'"
-          >
-            <button
-              type="button"
-              class="m3-input dropdown-trigger export-trigger-btn"
-              [class.open]="activeDropdown() === 'export'"
-              (click)="toggleDropdown('export', $event)"
-              id="filter-export"
-              title="Export filtered collection data"
-              aria-haspopup="listbox"
-              [attr.aria-expanded]="activeDropdown() === 'export'"
-            >
-              <span class="export-icon"
-                ><app-icon name="rom-archive" [size]="16"
-              /></span>
-              <span class="trigger-text">Export</span>
-              <span class="export-chevron-wrapper" aria-hidden="true">
-                <svg
-                  class="dropdown-chevron"
-                  [class.open]="activeDropdown() === 'export'"
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  fill="currentColor"
-                >
-                  <path
-                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                  />
-                </svg>
-              </span>
-            </button>
-            @if (activeDropdown() === 'export') {
-              <div
-                class="dropdown-list animate-expressive export-dropdown-list"
-                role="listbox"
-              >
-                <button
-                  type="button"
-                  class="dropdown-item"
-                  (click)="onExportCsv($event)"
-                >
-                  <span class="item-text">Export as CSV</span>
-                </button>
-                @if (currentTab() === 'games') {
-                  <button
-                    type="button"
-                    class="dropdown-item"
-                    (click)="onExportLogiqxDat($event)"
-                  >
-                    <span class="item-text">Export Logiqx XML DAT (igir)</span>
-                  </button>
-                }
-              </div>
-            }
-          </div>
-
           <!-- View Mode Toggle -->
           <div class="view-toggle-group" role="group" aria-label="View layout">
             <button
@@ -1929,34 +1870,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         white-space: nowrap;
         flex-shrink: 0;
       }
-      .export-trigger-btn:hover {
-        background: var(--m3-surface-container-highest);
-      }
-      .export-chevron-wrapper {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-left: var(--spacing-4);
-        color: var(--m3-on-surface-variant);
-        transition: color 0.2s ease;
-        flex-shrink: 0;
-      }
-      .export-trigger-btn:hover .export-chevron-wrapper,
-      .export-trigger-btn.open .export-chevron-wrapper {
-        color: var(--m3-primary);
-      }
-      .export-dropdown-wrapper {
-        position: relative;
-        width: auto;
-        min-width: 140px;
-        flex-shrink: 0;
-        display: inline-flex;
-      }
-      .export-dropdown-list {
-        right: 0;
-        left: auto;
-        min-width: 220px;
-      }
 
       .filter-bar-footer {
         width: 100%;
@@ -2041,9 +1954,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
           width: 100%;
         }
         .deals-toggle-btn,
-        .alerts-toggle-btn,
-        .export-dropdown-wrapper,
-        .export-trigger-btn {
+        .alerts-toggle-btn {
           width: 100%;
           justify-content: center;
         }
@@ -2212,27 +2123,13 @@ export class CollectionFiltersComponent {
 
   private elementRef = inject(ElementRef);
 
-  /** --- Event Emitters --- */
   public filtersChange = output<FilterState>();
-  public exportRequested = output<'csv' | 'dat'>();
   public viewModeChange = output<ViewMode>();
 
   onViewModeSelect(mode: ViewMode) {
     if (this.viewMode() !== mode) {
       this.viewModeChange.emit(mode);
     }
-  }
-
-  onExportCsv(event: MouseEvent) {
-    event.stopPropagation();
-    this.closeDropdown();
-    this.exportRequested.emit('csv');
-  }
-
-  onExportLogiqxDat(event: MouseEvent) {
-    event.stopPropagation();
-    this.closeDropdown();
-    this.exportRequested.emit('dat');
   }
 
   /**
