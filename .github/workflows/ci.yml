@@ -24,8 +24,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run Type Check
+        run: npm run type-check
+
       - name: Run Linting
         run: npm run lint
 
       - name: Run Unified Tests (Vitest)
         run: npm run test
+
+      - name: Run Production Build
+        run: npm run build
