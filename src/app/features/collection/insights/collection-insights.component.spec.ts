@@ -397,4 +397,75 @@ describe('CollectionInsightsComponent', () => {
     );
     expect(playChips.length).toBe(4);
   });
+
+  it('should deduplicate multi-disc releases in ownedGames while preserving physical backup tracking in ownedReleases', () => {
+    const multiDiscGames: Game[] = [
+      {
+        stable_id: 10,
+        game_id: 'ffvii-ps1',
+        id: 'ffvii-disc-1',
+        title: 'Final Fantasy VII (Disc 1)',
+        series: 'Final Fantasy',
+        canonical_series: 'Final Fantasy',
+        platform: 'PS1',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 0,
+        price_loose: 1500,
+        release_date: '1997-01-31',
+      },
+      {
+        stable_id: 11,
+        game_id: 'ffvii-ps1',
+        id: 'ffvii-disc-2',
+        title: 'Final Fantasy VII (Disc 2)',
+        series: 'Final Fantasy',
+        canonical_series: 'Final Fantasy',
+        platform: 'PS1',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 0,
+        price_loose: 1500,
+        release_date: '1997-01-31',
+      },
+      {
+        stable_id: 12,
+        game_id: 'ffvii-ps1',
+        id: 'ffvii-disc-3',
+        title: 'Final Fantasy VII (Disc 3)',
+        series: 'Final Fantasy',
+        canonical_series: 'Final Fantasy',
+        platform: 'PS1',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 0,
+        has_case: 1,
+        has_manual: 0,
+        price_loose: 1500,
+        release_date: '1997-01-31',
+      },
+    ];
+
+    mockGames.set(multiDiscGames);
+    fixture.detectChanges();
+
+    // ownedReleases has all 3 discs
+    expect(component.ownedReleases().length).toBe(3);
+    // ownedGames deduplicates by game_id so it counts as 1 distinct game
+    expect(component.ownedGames().length).toBe(1);
+    // physicalOwnedGames tracks all 3 discs for backup coverage
+    expect(component.physicalOwnedGames().length).toBe(3);
+    expect(component.backedUpOwnedGames().length).toBe(2);
+
+    // Verify boxed condition label rendered in HTML
+    const html = fixture.nativeElement.innerHTML;
+    expect(html).toContain('Game + Box / Case (No Manual)');
+  });
 });

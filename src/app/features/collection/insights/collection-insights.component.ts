@@ -101,9 +101,24 @@ export class CollectionInsightsComponent implements OnInit {
   }
 
   /** --- Owned Datasets --- */
-  public readonly ownedGames = computed<Game[]>(() =>
+  public readonly ownedReleases = computed<Game[]>(() =>
     this.collectionService.games().filter((g) => g.ownership_status === 1),
   );
+
+  /** Distinct owned games deduplicated across multi-disc releases */
+  public readonly ownedGames = computed<Game[]>(() => {
+    const releases = this.ownedReleases();
+    const seen = new Set<string | number>();
+    const distinct: Game[] = [];
+    for (const g of releases) {
+      const key = g.game_id || g.stable_id || g.id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        distinct.push(g);
+      }
+    }
+    return distinct;
+  });
 
   public readonly ownedToys = computed<Toy[]>(() =>
     this.collectionService.toys().filter((t) => t.ownership_status === 1),
@@ -174,7 +189,7 @@ export class CollectionInsightsComponent implements OnInit {
 
   /** --- Preservation & Backup Health --- */
   public readonly physicalOwnedGames = computed<Game[]>(() =>
-    this.ownedGames().filter(
+    this.ownedReleases().filter(
       (g) =>
         g.release_medium !== 'digital_extracted_rom' &&
         g.release_medium !== 'digital_native',

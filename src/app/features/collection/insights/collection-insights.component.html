@@ -205,7 +205,7 @@
               class="condition-segment boxed-segment"
               [style.width.%]="boxedPct()"
               [title]="
-                'Box / Case Only: ' +
+                'Game + Box / Case (No Manual): ' +
                 boxedOnlyCount() +
                 ' (' +
                 boxedPct() +
@@ -232,7 +232,7 @@
           </div>
           <div class="legend-item">
             <span class="legend-dot boxed-dot"></span>
-            <span class="legend-label">Box / Case Only</span>
+            <span class="legend-label">Game + Box / Case (No Manual)</span>
             <span class="legend-count"
               >{{ boxedOnlyCount() }} ({{ boxedPct() }}%)</span
             >
@@ -415,79 +415,6 @@
           }
         </div>
       </section>
-    </div>
-
-    <!-- Right Column: Platform Completion & Top Items -->
-    <div class="insights-column">
-      <!-- Platform Completion & Distribution -->
-      <section class="insight-panel">
-        <div class="panel-header">
-          <div class="panel-title-group">
-            <h2 class="panel-title">
-              Platform Distribution & Catalog Completion
-            </h2>
-            <p class="panel-subtitle">
-              Games owned relative to canonical catalog releases
-            </p>
-          </div>
-        </div>
-
-        <div class="platform-list">
-          @for (p of platformStats(); track p.id) {
-            <a
-              [routerLink]="['/collection']"
-              [queryParams]="{ platform_id: p.id }"
-              class="platform-item clickable state-layer"
-              title="Filter collection to {{ p.name }}"
-            >
-              <div class="platform-item-header">
-                <div class="platform-name-group">
-                  @if (p.logo) {
-                    <img
-                      [src]="p.logo"
-                      [alt]="p.name"
-                      class="platform-thumb-logo"
-                    />
-                  }
-                  <span class="platform-item-name">{{ p.name }}</span>
-                </div>
-                <div class="platform-counts">
-                  <span class="owned-fraction">
-                    <strong>{{ p.ownedCount }}</strong> / {{ p.catalogCount }}
-                  </span>
-                  <span class="completion-percentage"
-                    >({{ p.completionPct }}%)</span
-                  >
-                  @if (p.totalValue > 0) {
-                    <span class="platform-item-value"
-                      >• {{ formatCurrency(p.totalValue) }}</span
-                    >
-                  }
-                </div>
-              </div>
-
-              <!-- Completion Progress Bar -->
-              <div class="platform-progress-track">
-                <div
-                  class="platform-progress-fill"
-                  [style.width.%]="p.completionPct"
-                ></div>
-              </div>
-
-              <div class="platform-item-footer">
-                <span class="platform-backup-stat">
-                  ROM Backups: {{ p.backupCount }} / {{ p.ownedCount }} ({{
-                    p.backupPct
-                  }}%)
-                </span>
-              </div>
-            </a>
-          }
-          @if (platformStats().length === 0) {
-            <div class="empty-state">No platforms recorded</div>
-          }
-        </div>
-      </section>
 
       <!-- Top Most Valuable Games in Collection -->
       <section class="insight-panel">
@@ -591,6 +518,79 @@
           </div>
         </section>
       }
+    </div>
+
+    <!-- Right Column: Platform Completion & Catalog Distribution -->
+    <div class="insights-column">
+      <!-- Platform Completion & Distribution -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">
+              Platform Distribution & Catalog Completion
+            </h2>
+            <p class="panel-subtitle">
+              Games owned relative to canonical catalog releases
+            </p>
+          </div>
+        </div>
+
+        <div class="platform-list">
+          @for (p of platformStats(); track p.id) {
+            <a
+              [routerLink]="['/collection']"
+              [queryParams]="{ platform_id: p.id }"
+              class="platform-item clickable state-layer"
+              title="Filter collection to {{ p.name }}"
+            >
+              <div class="platform-item-header">
+                <div class="platform-name-group">
+                  @if (p.logo) {
+                    <img
+                      [src]="p.logo"
+                      [alt]="p.name"
+                      class="platform-thumb-logo"
+                    />
+                  }
+                  <span class="platform-item-name">{{ p.name }}</span>
+                </div>
+                <div class="platform-counts">
+                  <span class="owned-fraction">
+                    <strong>{{ p.ownedCount }}</strong> / {{ p.catalogCount }}
+                  </span>
+                  <span class="completion-percentage"
+                    >({{ p.completionPct }}%)</span
+                  >
+                  @if (p.totalValue > 0) {
+                    <span class="platform-item-value"
+                      >• {{ formatCurrency(p.totalValue) }}</span
+                    >
+                  }
+                </div>
+              </div>
+
+              <!-- Completion Progress Bar -->
+              <div class="platform-progress-track">
+                <div
+                  class="platform-progress-fill"
+                  [style.width.%]="p.completionPct"
+                ></div>
+              </div>
+
+              <div class="platform-item-footer">
+                <span class="platform-backup-stat">
+                  ROM Backups: {{ p.backupCount }} / {{ p.ownedCount }} ({{
+                    p.backupPct
+                  }}%)
+                </span>
+              </div>
+            </a>
+          }
+          @if (platformStats().length === 0) {
+            <div class="empty-state">No platforms recorded</div>
+          }
+        </div>
+      </section>
     </div>
   </div>
 </div>
