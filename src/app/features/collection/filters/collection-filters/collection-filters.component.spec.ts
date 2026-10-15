@@ -271,4 +271,96 @@ describe('CollectionFiltersComponent', () => {
     expect(component.showFilters()).toBe(false);
     expect(toggleBtn.textContent).toContain('Show Controls');
   });
+
+  it('should render quick status segmented buttons and activate Owned by default', () => {
+    fixture.componentRef.setInput('filters', { ownership: 1 });
+    fixture.detectChanges();
+
+    expect(component.isOwnedActive()).toBe(true);
+    expect(component.isAllActive()).toBe(false);
+    expect(component.isSeekingActive()).toBe(false);
+
+    const pills = Array.from(
+      fixture.nativeElement.querySelectorAll('.status-pill-btn'),
+    ) as HTMLButtonElement[];
+    expect(pills.length).toBeGreaterThanOrEqual(3);
+    const ownedPill = pills.find((p) => p.textContent?.includes('Owned'));
+    expect(ownedPill).toBeTruthy();
+    expect(ownedPill!.classList.contains('active')).toBe(true);
+  });
+
+  it('should emit filter changes when clicking quick status pills', () => {
+    let emittedFilters: FilterState | undefined;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.selectQuickStatus('all');
+    expect(emittedFilters?.ownership).toBe('all');
+    expect(emittedFilters?.deals_only).toBe(false);
+
+    component.selectQuickStatus('seeking');
+    expect(emittedFilters?.ownership).toBe(2);
+
+    component.selectQuickStatus('deals');
+    expect(emittedFilters?.deals_only).toBe(true);
+
+    component.selectQuickStatus('owned');
+    expect(emittedFilters?.ownership).toBe(1);
+  });
+
+  it('should toggle secondary drawer and calculate activeFilterCount correctly', () => {
+    expect(component.showDrawer()).toBe(false);
+    expect(component.activeFilterCount()).toBe(0);
+
+    const moreBtn = fixture.nativeElement.querySelector(
+      '#toggle-more-filters',
+    ) as HTMLButtonElement;
+    expect(moreBtn).toBeTruthy();
+
+    moreBtn.click();
+    fixture.detectChanges();
+    expect(component.showDrawer()).toBe(true);
+
+    // Apply secondary filters
+    fixture.componentRef.setInput('filters', {
+      ownership: 1,
+      platform_id: 4,
+      media_type: 'digital_extracted',
+    });
+    fixture.detectChanges();
+    expect(component.activeFilterCount()).toBe(2);
+
+    const badge = fixture.nativeElement.querySelector('.filter-count-badge');
+    expect(badge).toBeTruthy();
+    expect(badge.textContent.trim()).toBe('2');
+  });
+
+  it('should emit filter change when quick search input changes or clears', () => {
+    let emittedFilters: FilterState | undefined;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.onQuickSearchChange('Metroid');
+    expect(emittedFilters?.name).toBe('Metroid');
+
+    component.clearQuickSearch();
+    expect(emittedFilters?.name).toBe('');
+  });
+
+  it('should reset all filters to Owned default when resetFilters is invoked', () => {
+    let emittedFilters: FilterState | undefined;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.resetFilters();
+    expect(emittedFilters).toBeTruthy();
+    expect(emittedFilters?.ownership).toBe(1);
+    expect(emittedFilters?.deals_only).toBe(false);
+    expect(emittedFilters?.name).toBe('');
+    expect(emittedFilters?.regions).toEqual([]);
+    expect(emittedFilters?.media_type).toBe('physical_only');
+  });
 });

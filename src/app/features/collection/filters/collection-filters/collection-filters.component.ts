@@ -93,998 +93,132 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       </div>
 
       <div
-        class="filter-bar m3-surface-container flex p-md gap-md items-end mb-lg flex-wrap"
+        class="filter-bar m3-surface-container mb-lg"
         [class.mobile-collapsed]="!showFilters()"
       >
-        <!-- Ownership Status -->
-        <div class="filter-group">
-          <div class="filter-group-header">
-            <label class="m3-label">Ownership Status</label>
-          </div>
-          <div
-            class="input-wrapper dropdown-wrapper"
-            [class.active-wrapper]="activeDropdown() === 'ownership'"
-          >
-            <button
-              type="button"
-              class="m3-input dropdown-trigger"
-              [class.open]="activeDropdown() === 'ownership'"
-              (click)="toggleDropdown('ownership', $event)"
-              id="filter-ownership"
-              aria-haspopup="listbox"
-              [attr.aria-expanded]="activeDropdown() === 'ownership'"
-            >
-              <span class="trigger-text">{{ getOwnershipLabel() }}</span>
-              <span class="dropdown-icon-wrapper" aria-hidden="true">
-                <svg
-                  class="dropdown-chevron"
-                  [class.open]="activeDropdown() === 'ownership'"
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  fill="currentColor"
-                >
-                  <path
-                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                  />
-                </svg>
-              </span>
-            </button>
-            @if (activeDropdown() === 'ownership') {
-              <div class="dropdown-list animate-expressive" role="listbox">
-                @for (opt of ownershipOptions; track opt.value) {
-                  <button
-                    type="button"
-                    class="dropdown-item state-layer"
-                    [class.selected]="filters().ownership === opt.value"
-                    (click)="selectOption('ownership', opt.value)"
-                    role="option"
-                    [attr.aria-selected]="filters().ownership === opt.value"
-                  >
-                    <span class="item-label">{{ opt.label }}</span>
-                    @if (filters().ownership === opt.value) {
-                      <svg
-                        class="selected-check"
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                        />
-                      </svg>
-                    }
-                  </button>
-                }
-              </div>
-            }
-          </div>
-        </div>
-
-        @if (currentTab() === 'games') {
-          <!-- Play Status -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label class="m3-label">Play Status</label>
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'play_status'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'play_status'"
-                (click)="toggleDropdown('play_status', $event)"
-                id="filter-play-status"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'play_status'"
+        <!-- Tier 1: Quick Toolbar -->
+        <div class="quick-toolbar">
+          <!-- Search input -->
+          <div class="quick-search-box">
+            <span class="search-icon-wrapper" aria-hidden="true">
+              <svg
+                class="search-svg"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
               >
-                <span class="trigger-text">{{ getPlayStatusLabel() }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'play_status'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'play_status') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  @for (opt of playStatusOptions; track opt.value) {
-                    <button
-                      type="button"
-                      class="dropdown-item state-layer"
-                      [class.selected]="
-                        (filters().play_status || 'all') === opt.value
-                      "
-                      (click)="selectOption('play_status', opt.value)"
-                      role="option"
-                      [attr.aria-selected]="
-                        (filters().play_status || 'all') === opt.value
-                      "
-                    >
-                      <span class="item-label">{{ opt.label }}</span>
-                      @if ((filters().play_status || 'all') === opt.value) {
-                        <svg
-                          class="selected-check"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                          />
-                        </svg>
-                      }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-
-          <!-- Media Type -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label class="m3-label">Media Type</label>
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'media_type'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'media_type'"
-                (click)="toggleDropdown('media_type', $event)"
-                id="filter-media-type"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'media_type'"
-              >
-                <span class="trigger-text">{{ getMediaTypeLabel() }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'media_type'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'media_type') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  @for (opt of mediaTypeOptions; track opt.value) {
-                    <button
-                      type="button"
-                      class="dropdown-item state-layer"
-                      [class.selected]="
-                        (filters().media_type || 'physical_only') === opt.value
-                      "
-                      (click)="selectOption('media_type', opt.value)"
-                      role="option"
-                      [attr.aria-selected]="
-                        (filters().media_type || 'physical_only') === opt.value
-                      "
-                    >
-                      <span class="item-label">{{ opt.label }}</span>
-                      @if (
-                        (filters().media_type || 'physical_only') === opt.value
-                      ) {
-                        <svg
-                          class="selected-check"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                          />
-                        </svg>
-                      }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-
-          <!-- Backup -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label class="m3-label">Backup</label>
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'backup_status'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'backup_status'"
-                (click)="toggleDropdown('backup_status', $event)"
-                id="filter-backup-status"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'backup_status'"
-              >
-                <span class="trigger-text">{{ getBackupLabel() }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'backup_status'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'backup_status') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  @for (opt of backupOptions; track opt.value) {
-                    <button
-                      type="button"
-                      class="dropdown-item state-layer"
-                      [class.selected]="
-                        (filters().backup_status ?? 'all') === opt.value
-                      "
-                      (click)="selectOption('backup_status', opt.value)"
-                      role="option"
-                      [attr.aria-selected]="
-                        (filters().backup_status ?? 'all') === opt.value
-                      "
-                    >
-                      <span class="item-label">{{ opt.label }}</span>
-                      @if ((filters().backup_status ?? 'all') === opt.value) {
-                        <svg
-                          class="selected-check"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                          />
-                        </svg>
-                      }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-
-          <!-- Catalog Signature Match -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label class="m3-label">Catalog Signature Match</label>
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'physical_verified'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'physical_verified'"
-                (click)="toggleDropdown('physical_verified', $event)"
-                id="filter-physical-verified"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'physical_verified'"
-              >
-                <span class="trigger-text">{{
-                  getPhysicalVerifiedLabel()
-                }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'physical_verified'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'physical_verified') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  @for (opt of physicalVerifiedOptions; track opt.value) {
-                    <button
-                      type="button"
-                      class="dropdown-item state-layer"
-                      [class.selected]="
-                        (filters().physical_verified ?? 'all') === opt.value
-                      "
-                      (click)="selectOption('physical_verified', opt.value)"
-                      role="option"
-                      [attr.aria-selected]="
-                        (filters().physical_verified ?? 'all') === opt.value
-                      "
-                    >
-                      <span class="item-label">{{ opt.label }}</span>
-                      @if (
-                        (filters().physical_verified ?? 'all') === opt.value
-                      ) {
-                        <svg
-                          class="selected-check"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                          />
-                        </svg>
-                      }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-
-          <!-- Budget Label Status -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label class="m3-label">Budget Label Status</label>
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'budget_label'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'budget_label'"
-                (click)="toggleDropdown('budget_label', $event)"
-                id="filter-budget-label"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'budget_label'"
-              >
-                <span class="trigger-text">{{
-                  getBudgetLabelStatusLabel()
-                }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'budget_label'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'budget_label') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  @for (opt of budgetLabelOptions; track opt.value) {
-                    <button
-                      type="button"
-                      class="dropdown-item state-layer"
-                      [class.selected]="
-                        (filters().budget_label ?? 'all') === opt.value
-                      "
-                      (click)="selectOption('budget_label', opt.value)"
-                      role="option"
-                      [attr.aria-selected]="
-                        (filters().budget_label ?? 'all') === opt.value
-                      "
-                    >
-                      <span class="item-label">{{ opt.label }}</span>
-                      @if ((filters().budget_label ?? 'all') === opt.value) {
-                        <svg
-                          class="selected-check"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                          />
-                        </svg>
-                      }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-
-          <!-- Platform -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label class="m3-label">Platform</label>
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'platform'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'platform'"
-                (click)="toggleDropdown('platform', $event)"
-                id="filter-platform"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'platform'"
-              >
-                <span class="trigger-text">{{ getPlatformLabel() }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'platform'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'platform') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  <button
-                    type="button"
-                    class="dropdown-item state-layer"
-                    [class.selected]="filters().platform_id === undefined"
-                    (click)="selectPlatform(undefined)"
-                    role="option"
-                    [attr.aria-selected]="filters().platform_id === undefined"
-                  >
-                    <span class="item-label">All Platforms</span>
-                    @if (filters().platform_id === undefined) {
-                      <svg
-                        class="selected-check"
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                        />
-                      </svg>
-                    }
-                  </button>
-                  @for (group of platformGroups(); track group.brand) {
-                    <div class="dropdown-group-header">{{ group.brand }}</div>
-                    @for (p of group.platforms; track p.id) {
-                      <button
-                        type="button"
-                        class="dropdown-item state-layer"
-                        [class.child-platform]="!!p.parent_platform_id"
-                        [class.selected]="filters().platform_id === p.id"
-                        (click)="selectPlatform(p.id)"
-                        role="option"
-                        [attr.aria-selected]="filters().platform_id === p.id"
-                      >
-                        <span class="item-label">
-                          @if (p.parent_platform_id) {
-                            <span class="sub-platform-arrow">↳</span>
-                          }
-                          {{ p.display_name || p.name }}
-                        </span>
-                        @if (filters().platform_id === p.id) {
-                          <svg
-                            class="selected-check"
-                            viewBox="0 0 24 24"
-                            width="16"
-                            height="16"
-                            fill="currentColor"
-                          >
-                            <path
-                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                            />
-                          </svg>
-                        }
-                      </button>
-                    }
-                  }
-                </div>
-              }
-            </div>
-          </div>
-        }
-
-        @if (currentTab() === 'toys') {
-          <!-- Line -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label class="m3-label">Line</label>
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'line'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'line'"
-                (click)="toggleDropdown('line', $event)"
-                id="filter-line"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'line'"
-              >
-                <span class="trigger-text">{{ getLineLabel() }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'line'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'line') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  <button
-                    type="button"
-                    class="dropdown-item state-layer"
-                    [class.selected]="!filters().line"
-                    (click)="selectOption('line', '')"
-                    role="option"
-                    [attr.aria-selected]="!filters().line"
-                  >
-                    <span class="item-label">All Lines</span>
-                    @if (!filters().line) {
-                      <svg
-                        class="selected-check"
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                        />
-                      </svg>
-                    }
-                  </button>
-                  @for (l of uniqueLines(); track l) {
-                    <button
-                      type="button"
-                      class="dropdown-item state-layer"
-                      [class.selected]="filters().line === l"
-                      (click)="selectOption('line', l)"
-                      role="option"
-                      [attr.aria-selected]="filters().line === l"
-                    >
-                      <span class="item-label">{{ l }}</span>
-                      @if (filters().line === l) {
-                        <svg
-                          class="selected-check"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                          />
-                        </svg>
-                      }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-
-          <!-- Type -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label
-                class="m3-label"
-                title="Form factor (e.g. Figure, Card, Yarn)"
-                >Type</label
-              >
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'type'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'type'"
-                (click)="toggleDropdown('type', $event)"
-                id="filter-type"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'type'"
-              >
-                <span class="trigger-text">{{ getTypeLabel() }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'type'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'type') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  <button
-                    type="button"
-                    class="dropdown-item state-layer"
-                    [class.selected]="!filters().type"
-                    (click)="selectOption('type', '')"
-                    role="option"
-                    [attr.aria-selected]="!filters().type"
-                  >
-                    <span class="item-label">All Types</span>
-                    @if (!filters().type) {
-                      <svg
-                        class="selected-check"
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                        />
-                      </svg>
-                    }
-                  </button>
-                  @for (t of uniqueTypes(); track t) {
-                    <button
-                      type="button"
-                      class="dropdown-item state-layer"
-                      [class.selected]="filters().type === t"
-                      (click)="selectOption('type', t)"
-                      role="option"
-                      [attr.aria-selected]="filters().type === t"
-                    >
-                      <span class="item-label">{{ t }}</span>
-                      @if (filters().type === t) {
-                        <svg
-                          class="selected-check"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                          />
-                        </svg>
-                      }
-                    </button>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-        }
-
-        <!-- Name Combobox Text Input Dropdown -->
-        <div class="filter-group">
-          <div
-            class="filter-group-header flex justify-between items-center pr-xs"
-          >
-            <label class="m3-label" for="filter-name">Name</label>
-            <label class="m3-checkbox-label" title="Exact Normalized Match">
-              <input
-                type="checkbox"
-                [ngModel]="filters().nameExact"
-                (ngModelChange)="onPartialChange('nameExact', $event)"
-                class="m3-checkbox"
-              />
-              <span>Exact</span>
-            </label>
-          </div>
-          <div
-            class="input-wrapper combobox-wrapper"
-            [class.active-wrapper]="activeDropdown() === 'name'"
-          >
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+            </span>
             <input
               type="text"
+              class="m3-input quick-search-input"
+              placeholder="Search by title or series..."
               [ngModel]="filters().name || filters().seriesOrName"
-              (ngModelChange)="onNameInputChange($event)"
-              (focus)="activeDropdown.set('name')"
-              class="m3-input list-input"
-              [class.open]="activeDropdown() === 'name'"
-              placeholder="All"
+              (ngModelChange)="onQuickSearchChange($event)"
               id="filter-name"
               autocomplete="off"
             />
-            <button
-              type="button"
-              class="combobox-chevron-btn"
-              (click)="toggleDropdown('name', $event)"
-              tabindex="-1"
-              aria-label="Toggle name suggestions"
-            >
-              <span class="dropdown-icon-wrapper" aria-hidden="true">
-                <svg
-                  class="dropdown-chevron"
-                  [class.open]="activeDropdown() === 'name'"
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  fill="currentColor"
-                >
-                  <path
-                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                  />
-                </svg>
-              </span>
-            </button>
-
-            @if (activeDropdown() === 'name') {
-              <div class="dropdown-list animate-expressive" role="listbox">
-                <button
-                  type="button"
-                  class="dropdown-item state-layer"
-                  [class.selected]="!filters().name && !filters().seriesOrName"
-                  (click)="selectName('')"
-                  role="option"
-                  [attr.aria-selected]="
-                    !filters().name && !filters().seriesOrName
-                  "
-                >
-                  <span class="item-label">All Names</span>
-                  @if (!filters().name && !filters().seriesOrName) {
-                    <svg
-                      class="selected-check"
-                      viewBox="0 0 24 24"
-                      width="16"
-                      height="16"
-                      fill="currentColor"
-                    >
-                      <path
-                        d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                      />
-                    </svg>
-                  }
-                </button>
-                @for (n of filteredNamesList(); track n) {
-                  <button
-                    type="button"
-                    class="dropdown-item state-layer"
-                    [class.selected]="filters().name === n"
-                    (click)="selectName(n)"
-                    role="option"
-                    [attr.aria-selected]="filters().name === n"
-                  >
-                    <span class="item-label">{{ n }}</span>
-                    @if (filters().name === n) {
-                      <svg
-                        class="selected-check"
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                        />
-                      </svg>
-                    }
-                  </button>
-                }
-                @if (
-                  filteredNamesList().length === 0 &&
-                  (filters().name || filters().seriesOrName)
-                ) {
-                  <div class="dropdown-empty">
-                    No names matching "{{
-                      filters().name || filters().seriesOrName
-                    }}"
-                  </div>
-                }
-              </div>
-            }
-          </div>
-        </div>
-
-        <!-- Series Combobox Text Input Dropdown -->
-        <div class="filter-group">
-          <div
-            class="filter-group-header flex justify-between items-center pr-xs"
-          >
-            <label class="m3-label" for="filter-series">Series</label>
-            <label class="m3-checkbox-label" title="Exact Normalized Match">
-              <input
-                type="checkbox"
-                [ngModel]="filters().seriesExact"
-                (ngModelChange)="onPartialChange('seriesExact', $event)"
-                class="m3-checkbox"
-              />
-              <span>Exact</span>
-            </label>
-          </div>
-          <div
-            class="input-wrapper combobox-wrapper"
-            [class.active-wrapper]="activeDropdown() === 'series'"
-          >
-            <input
-              type="text"
-              [ngModel]="filters().series"
-              (ngModelChange)="onSeriesInputChange($event)"
-              (focus)="activeDropdown.set('series')"
-              class="m3-input list-input"
-              [class.open]="activeDropdown() === 'series'"
-              placeholder="All"
-              id="filter-series"
-              autocomplete="off"
-            />
-            <button
-              type="button"
-              class="combobox-chevron-btn"
-              (click)="toggleDropdown('series', $event)"
-              tabindex="-1"
-              aria-label="Toggle series suggestions"
-            >
-              <span class="dropdown-icon-wrapper" aria-hidden="true">
-                <svg
-                  class="dropdown-chevron"
-                  [class.open]="activeDropdown() === 'series'"
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  fill="currentColor"
-                >
-                  <path
-                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                  />
-                </svg>
-              </span>
-            </button>
-
-            @if (activeDropdown() === 'series') {
-              <div class="dropdown-list animate-expressive" role="listbox">
-                <button
-                  type="button"
-                  class="dropdown-item state-layer"
-                  [class.selected]="!filters().series"
-                  (click)="selectSeries('')"
-                  role="option"
-                  [attr.aria-selected]="!filters().series"
-                >
-                  <span class="item-label">All Series</span>
-                  @if (!filters().series) {
-                    <svg
-                      class="selected-check"
-                      viewBox="0 0 24 24"
-                      width="16"
-                      height="16"
-                      fill="currentColor"
-                    >
-                      <path
-                        d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                      />
-                    </svg>
-                  }
-                </button>
-                @for (s of filteredSeriesList(); track s) {
-                  <button
-                    type="button"
-                    class="dropdown-item state-layer"
-                    [class.selected]="filters().series === s"
-                    (click)="selectSeries(s)"
-                    role="option"
-                    [attr.aria-selected]="filters().series === s"
-                  >
-                    <span class="item-label">{{ s }}</span>
-                    @if (filters().series === s) {
-                      <svg
-                        class="selected-check"
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                        />
-                      </svg>
-                    }
-                  </button>
-                }
-                @if (filteredSeriesList().length === 0 && filters().series) {
-                  <div class="dropdown-empty">
-                    No series matching "{{ filters().series }}"
-                  </div>
-                }
-              </div>
-            }
-          </div>
-        </div>
-
-        <!-- Tag Combobox Text Input Dropdown (Games Tab) -->
-        @if (currentTab() === 'games') {
-          <div class="filter-group">
-            <div
-              class="filter-group-header flex justify-between items-center pr-xs"
-            >
-              <label class="m3-label" for="filter-tag">Tag</label>
-              <label class="m3-checkbox-label" title="Exact Normalized Match">
-                <input
-                  type="checkbox"
-                  [ngModel]="filters().tagExact"
-                  (ngModelChange)="onPartialChange('tagExact', $event)"
-                  class="m3-checkbox"
-                />
-                <span>Exact</span>
-              </label>
-            </div>
-            <div
-              class="input-wrapper combobox-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'tag'"
-            >
-              <input
-                type="text"
-                [ngModel]="filters().tag"
-                (ngModelChange)="onTagInputChange($event)"
-                (focus)="activeDropdown.set('tag')"
-                class="m3-input list-input"
-                [class.open]="activeDropdown() === 'tag'"
-                placeholder="All"
-                id="filter-tag"
-                autocomplete="off"
-              />
+            @if (filters().name || filters().seriesOrName) {
               <button
                 type="button"
-                class="combobox-chevron-btn"
-                (click)="toggleDropdown('tag', $event)"
-                tabindex="-1"
-                aria-label="Toggle tag suggestions"
+                class="clear-search-btn"
+                (click)="clearQuickSearch()"
+                aria-label="Clear search"
               >
+                <app-icon name="close" [size]="14" />
+              </button>
+            }
+          </div>
+
+          <!-- Segmented Quick Status Pills -->
+          <div
+            class="segmented-status-group"
+            role="group"
+            aria-label="Quick ownership filter"
+          >
+            <button
+              type="button"
+              class="status-pill-btn state-layer"
+              [class.active]="isOwnedActive()"
+              (click)="selectQuickStatus('owned')"
+            >
+              Owned
+            </button>
+            <button
+              type="button"
+              class="status-pill-btn state-layer"
+              [class.active]="isAllActive()"
+              (click)="selectQuickStatus('all')"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              class="status-pill-btn state-layer"
+              [class.active]="isSeekingActive()"
+              (click)="selectQuickStatus('seeking')"
+            >
+              Seeking
+            </button>
+            @if (currentTab() === 'games') {
+              <button
+                type="button"
+                class="status-pill-btn deals-pill state-layer"
+                [class.active]="isDealsActive()"
+                (click)="selectQuickStatus('deals')"
+              >
+                <span class="pill-fire-icon"
+                  ><app-icon name="flame" [size]="14"
+                /></span>
+                Deals
+              </button>
+            }
+          </div>
+
+          <!-- Compact Sort By -->
+          <div class="quick-sort-wrapper">
+            <div
+              class="input-wrapper dropdown-wrapper"
+              [class.active-wrapper]="activeDropdown() === 'sortBy'"
+            >
+              <button
+                type="button"
+                class="m3-input dropdown-trigger quick-sort-trigger"
+                [class.open]="activeDropdown() === 'sortBy'"
+                (click)="toggleDropdown('sortBy', $event)"
+                id="filter-sort-by"
+                aria-haspopup="listbox"
+                [attr.aria-expanded]="activeDropdown() === 'sortBy'"
+              >
+                <span class="sort-icon-prefix" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 6h18M6 12h12M10 18h4" />
+                  </svg>
+                </span>
+                <span class="trigger-text">{{ getSortByLabel() }}</span>
                 <span class="dropdown-icon-wrapper" aria-hidden="true">
                   <svg
                     class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'tag'"
+                    [class.open]="activeDropdown() === 'sortBy'"
                     viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
+                    width="16"
+                    height="16"
                     fill="currentColor"
                   >
                     <path
@@ -1093,43 +227,23 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                   </svg>
                 </span>
               </button>
-
-              @if (activeDropdown() === 'tag') {
+              @if (activeDropdown() === 'sortBy') {
                 <div class="dropdown-list animate-expressive" role="listbox">
-                  <button
-                    type="button"
-                    class="dropdown-item state-layer"
-                    [class.selected]="!filters().tag"
-                    (click)="selectTag('')"
-                    role="option"
-                    [attr.aria-selected]="!filters().tag"
-                  >
-                    <span class="item-label">All Tags</span>
-                    @if (!filters().tag) {
-                      <svg
-                        class="selected-check"
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                        />
-                      </svg>
-                    }
-                  </button>
-                  @for (t of filteredTagsList(); track t) {
+                  @for (opt of sortByOptions; track opt.value) {
                     <button
                       type="button"
                       class="dropdown-item state-layer"
-                      [class.selected]="filters().tag === t"
-                      (click)="selectTag(t)"
+                      [class.selected]="
+                        (filters().sortBy || 'default') === opt.value
+                      "
+                      (click)="selectOption('sortBy', opt.value)"
                       role="option"
-                      [attr.aria-selected]="filters().tag === t"
+                      [attr.aria-selected]="
+                        (filters().sortBy || 'default') === opt.value
+                      "
                     >
-                      <span class="item-label">{{ t }}</span>
-                      @if (filters().tag === t) {
+                      <span class="item-label">{{ opt.label }}</span>
+                      @if ((filters().sortBy || 'default') === opt.value) {
                         <svg
                           class="selected-check"
                           viewBox="0 0 24 24"
@@ -1144,205 +258,27 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                       }
                     </button>
                   }
-                  @if (filteredTagsList().length === 0 && filters().tag) {
-                    <div class="dropdown-empty">
-                      No tags matching "{{ filters().tag }}"
-                    </div>
-                  }
                 </div>
               }
             </div>
           </div>
-        }
 
-        <!-- Region Multi-Select Dropdown -->
-        <div class="filter-group region-dropdown-container">
-          <div class="filter-group-header">
-            <label class="m3-label">Region</label>
-          </div>
-          <div
-            class="input-wrapper dropdown-wrapper"
-            [class.active-wrapper]="activeDropdown() === 'region'"
+          <!-- More Filters Toggle Button -->
+          <button
+            type="button"
+            class="m3-button m3-button-outlined more-filters-btn"
+            [class.drawer-active]="showDrawer() || activeFilterCount() > 0"
+            (click)="showDrawer.set(!showDrawer())"
+            id="toggle-more-filters"
+            aria-haspopup="true"
+            [attr.aria-expanded]="showDrawer()"
           >
-            <button
-              type="button"
-              class="m3-input dropdown-trigger"
-              [class.open]="activeDropdown() === 'region'"
-              (click)="toggleDropdown('region', $event)"
-              id="filter-region"
-              aria-haspopup="listbox"
-              [attr.aria-expanded]="activeDropdown() === 'region'"
-            >
-              <span class="trigger-text">{{ getRegionLabel() }}</span>
-              <span class="dropdown-icon-wrapper" aria-hidden="true">
-                <svg
-                  class="dropdown-chevron"
-                  [class.open]="activeDropdown() === 'region'"
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  fill="currentColor"
-                >
-                  <path
-                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                  />
-                </svg>
-              </span>
-            </button>
-            @if (activeDropdown() === 'region') {
-              <div class="dropdown-list animate-expressive" role="listbox">
-                <button
-                  type="button"
-                  class="dropdown-clear-btn state-layer"
-                  (click)="clearRegions()"
-                  [disabled]="(filters().regions || []).length === 0"
-                >
-                  Clear Selection
-                </button>
-                @for (region of uniqueRegions(); track region) {
-                  <label class="dropdown-item state-layer checkbox-item">
-                    <input
-                      type="checkbox"
-                      [checked]="isRegionSelected(region)"
-                      (change)="onRegionToggle(region)"
-                      class="m3-checkbox"
-                    />
-                    <span class="item-label">{{ region }}</span>
-                  </label>
-                }
-                @if (uniqueRegions().length === 0) {
-                  <div class="dropdown-empty">No regions found</div>
-                }
-              </div>
+            <app-icon name="tune" [size]="16" />
+            <span>Filters</span>
+            @if (activeFilterCount() > 0) {
+              <span class="filter-count-badge">{{ activeFilterCount() }}</span>
             }
-          </div>
-        </div>
-
-        <!-- Sort By -->
-        <div class="filter-group">
-          <div class="filter-group-header">
-            <label class="m3-label">Sort By</label>
-          </div>
-          <div
-            class="input-wrapper dropdown-wrapper"
-            [class.active-wrapper]="activeDropdown() === 'sortBy'"
-          >
-            <button
-              type="button"
-              class="m3-input dropdown-trigger"
-              [class.open]="activeDropdown() === 'sortBy'"
-              (click)="toggleDropdown('sortBy', $event)"
-              id="filter-sort-by"
-              aria-haspopup="listbox"
-              [attr.aria-expanded]="activeDropdown() === 'sortBy'"
-            >
-              <span class="trigger-text">{{ getSortByLabel() }}</span>
-              <span class="dropdown-icon-wrapper" aria-hidden="true">
-                <svg
-                  class="dropdown-chevron"
-                  [class.open]="activeDropdown() === 'sortBy'"
-                  viewBox="0 0 24 24"
-                  width="18"
-                  height="18"
-                  fill="currentColor"
-                >
-                  <path
-                    d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                  />
-                </svg>
-              </span>
-            </button>
-            @if (activeDropdown() === 'sortBy') {
-              <div class="dropdown-list animate-expressive" role="listbox">
-                @for (opt of sortByOptions; track opt.value) {
-                  <button
-                    type="button"
-                    class="dropdown-item state-layer"
-                    [class.selected]="
-                      (filters().sortBy || 'default') === opt.value
-                    "
-                    (click)="selectOption('sortBy', opt.value)"
-                    role="option"
-                    [attr.aria-selected]="
-                      (filters().sortBy || 'default') === opt.value
-                    "
-                  >
-                    <span class="item-label">{{ opt.label }}</span>
-                    @if ((filters().sortBy || 'default') === opt.value) {
-                      <svg
-                        class="selected-check"
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                        />
-                      </svg>
-                    }
-                  </button>
-                }
-              </div>
-            }
-          </div>
-        </div>
-
-        <div class="filter-bar-footer flex items-center gap-md">
-          <div
-            class="filter-info mobile-hidden flex flex-col items-start gap-2xs mr-auto"
-          >
-            <span class="count-badge">
-              {{ resultCount() }} items
-              @if (totalValue() > 0) {
-                • {{ formatCurrency(totalValue()) }}
-              }
-            </span>
-            @if (lastUpdated()) {
-              <span
-                class="sync-timestamp"
-                [title]="
-                  'Last synced with server: ' + (lastUpdated() | date: 'medium')
-                "
-              >
-                Updated {{ lastUpdated() | date: 'shortTime' }}
-              </span>
-            }
-          </div>
-
-          <!-- Deals Only Toggle (Games Tab Only) -->
-          @if (currentTab() === 'games') {
-            <button
-              type="button"
-              class="m3-input deals-toggle-btn state-layer"
-              [class.active]="filters().deals_only"
-              (click)="toggleDealsOnly()"
-              id="filter-deals-only"
-              title="Show only games currently on sale or clearance"
-            >
-              <span class="deals-icon"
-                ><app-icon name="flame" [size]="16"
-              /></span>
-              <span>Deals Only</span>
-            </button>
-          }
-
-          <!-- Deal Alerts Notifications Settings Button (Games Tab Only) -->
-          @if (currentTab() === 'games') {
-            <button
-              type="button"
-              class="m3-input alerts-toggle-btn state-layer"
-              [class.active]="isNotificationSubscribed()"
-              (click)="openNotificationSettings()"
-              id="filter-deal-alerts"
-              title="Configure deal notifications"
-            >
-              <span class="alerts-icon"
-                ><app-icon name="bell" [size]="16"
-              /></span>
-              <span>Deal Alerts</span>
-            </button>
-          }
+          </button>
 
           <!-- View Mode Toggle -->
           <div class="view-toggle-group" role="group" aria-label="View layout">
@@ -1366,6 +302,1147 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             >
               <app-icon name="view-list" [size]="16" />
             </button>
+          </div>
+
+          <!-- Result Count & Valuation Badge -->
+          <div
+            class="filter-info mobile-hidden flex flex-col items-start gap-2xs ml-auto"
+          >
+            <span class="count-badge">
+              {{ resultCount() }} items
+              @if (totalValue() > 0) {
+                • {{ formatCurrency(totalValue()) }}
+              }
+            </span>
+            @if (lastUpdated()) {
+              <span
+                class="sync-timestamp"
+                [title]="
+                  'Last synced with server: ' + (lastUpdated() | date: 'medium')
+                "
+              >
+                Updated {{ lastUpdated() | date: 'shortTime' }}
+              </span>
+            }
+          </div>
+        </div>
+
+        <!-- Tier 2: Collapsible Secondary Filter Drawer -->
+        <div
+          class="secondary-filters-drawer"
+          [class.drawer-collapsed]="!showDrawer()"
+        >
+          <div class="drawer-header flex items-center justify-between">
+            <div class="drawer-title flex items-center gap-xs">
+              <span class="drawer-heading">Advanced Filters</span>
+              @if (activeFilterCount() > 0) {
+                <span class="active-tag">{{ activeFilterCount() }} active</span>
+              }
+            </div>
+            <div class="drawer-actions flex items-center gap-sm">
+              <button
+                type="button"
+                class="m3-button m3-button-text reset-filters-btn"
+                (click)="resetFilters()"
+                title="Reset all filters back to Owned"
+              >
+                <app-icon name="refresh" [size]="14" />
+                <span>Reset All</span>
+              </button>
+              <button
+                type="button"
+                class="drawer-close-btn"
+                (click)="showDrawer.set(false)"
+                aria-label="Close filters drawer"
+              >
+                <app-icon name="close" [size]="16" />
+              </button>
+            </div>
+          </div>
+
+          <div class="secondary-filters-grid">
+            <!-- Ownership Status -->
+            <div class="filter-group">
+              <div class="filter-group-header">
+                <label class="m3-label">Ownership Status</label>
+              </div>
+              <div
+                class="input-wrapper dropdown-wrapper"
+                [class.active-wrapper]="activeDropdown() === 'ownership'"
+              >
+                <button
+                  type="button"
+                  class="m3-input dropdown-trigger"
+                  [class.open]="activeDropdown() === 'ownership'"
+                  (click)="toggleDropdown('ownership', $event)"
+                  id="filter-ownership"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="activeDropdown() === 'ownership'"
+                >
+                  <span class="trigger-text">{{ getOwnershipLabel() }}</span>
+                  <span class="dropdown-icon-wrapper" aria-hidden="true">
+                    <svg
+                      class="dropdown-chevron"
+                      [class.open]="activeDropdown() === 'ownership'"
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      fill="currentColor"
+                    >
+                      <path
+                        d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                      />
+                    </svg>
+                  </span>
+                </button>
+                @if (activeDropdown() === 'ownership') {
+                  <div class="dropdown-list animate-expressive" role="listbox">
+                    @for (opt of ownershipOptions; track opt.value) {
+                      <button
+                        type="button"
+                        class="dropdown-item state-layer"
+                        [class.selected]="filters().ownership === opt.value"
+                        (click)="selectOption('ownership', opt.value)"
+                        role="option"
+                        [attr.aria-selected]="filters().ownership === opt.value"
+                      >
+                        <span class="item-label">{{ opt.label }}</span>
+                        @if (filters().ownership === opt.value) {
+                          <svg
+                            class="selected-check"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="currentColor"
+                          >
+                            <path
+                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                            />
+                          </svg>
+                        }
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+
+            @if (currentTab() === 'games') {
+              <!-- Play Status -->
+              <div class="filter-group">
+                <div class="filter-group-header">
+                  <label class="m3-label">Play Status</label>
+                </div>
+                <div
+                  class="input-wrapper dropdown-wrapper"
+                  [class.active-wrapper]="activeDropdown() === 'play_status'"
+                >
+                  <button
+                    type="button"
+                    class="m3-input dropdown-trigger"
+                    [class.open]="activeDropdown() === 'play_status'"
+                    (click)="toggleDropdown('play_status', $event)"
+                    id="filter-play-status"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="activeDropdown() === 'play_status'"
+                  >
+                    <span class="trigger-text">{{ getPlayStatusLabel() }}</span>
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'play_status'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  @if (activeDropdown() === 'play_status') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      @for (opt of playStatusOptions; track opt.value) {
+                        <button
+                          type="button"
+                          class="dropdown-item state-layer"
+                          [class.selected]="
+                            (filters().play_status || 'all') === opt.value
+                          "
+                          (click)="selectOption('play_status', opt.value)"
+                          role="option"
+                          [attr.aria-selected]="
+                            (filters().play_status || 'all') === opt.value
+                          "
+                        >
+                          <span class="item-label">{{ opt.label }}</span>
+                          @if ((filters().play_status || 'all') === opt.value) {
+                            <svg
+                              class="selected-check"
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          }
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Media Type -->
+              <div class="filter-group">
+                <div class="filter-group-header">
+                  <label class="m3-label">Media Type</label>
+                </div>
+                <div
+                  class="input-wrapper dropdown-wrapper"
+                  [class.active-wrapper]="activeDropdown() === 'media_type'"
+                >
+                  <button
+                    type="button"
+                    class="m3-input dropdown-trigger"
+                    [class.open]="activeDropdown() === 'media_type'"
+                    (click)="toggleDropdown('media_type', $event)"
+                    id="filter-media-type"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="activeDropdown() === 'media_type'"
+                  >
+                    <span class="trigger-text">{{ getMediaTypeLabel() }}</span>
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'media_type'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  @if (activeDropdown() === 'media_type') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      @for (opt of mediaTypeOptions; track opt.value) {
+                        <button
+                          type="button"
+                          class="dropdown-item state-layer"
+                          [class.selected]="
+                            (filters().media_type || 'physical_only') ===
+                            opt.value
+                          "
+                          (click)="selectOption('media_type', opt.value)"
+                          role="option"
+                          [attr.aria-selected]="
+                            (filters().media_type || 'physical_only') ===
+                            opt.value
+                          "
+                        >
+                          <span class="item-label">{{ opt.label }}</span>
+                          @if (
+                            (filters().media_type || 'physical_only') ===
+                            opt.value
+                          ) {
+                            <svg
+                              class="selected-check"
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          }
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Backup -->
+              <div class="filter-group">
+                <div class="filter-group-header">
+                  <label class="m3-label">Backup</label>
+                </div>
+                <div
+                  class="input-wrapper dropdown-wrapper"
+                  [class.active-wrapper]="activeDropdown() === 'backup_status'"
+                >
+                  <button
+                    type="button"
+                    class="m3-input dropdown-trigger"
+                    [class.open]="activeDropdown() === 'backup_status'"
+                    (click)="toggleDropdown('backup_status', $event)"
+                    id="filter-backup-status"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="activeDropdown() === 'backup_status'"
+                  >
+                    <span class="trigger-text">{{ getBackupLabel() }}</span>
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'backup_status'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  @if (activeDropdown() === 'backup_status') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      @for (opt of backupOptions; track opt.value) {
+                        <button
+                          type="button"
+                          class="dropdown-item state-layer"
+                          [class.selected]="
+                            (filters().backup_status ?? 'all') === opt.value
+                          "
+                          (click)="selectOption('backup_status', opt.value)"
+                          role="option"
+                          [attr.aria-selected]="
+                            (filters().backup_status ?? 'all') === opt.value
+                          "
+                        >
+                          <span class="item-label">{{ opt.label }}</span>
+                          @if (
+                            (filters().backup_status ?? 'all') === opt.value
+                          ) {
+                            <svg
+                              class="selected-check"
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          }
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Catalog Signature Match -->
+              <div class="filter-group">
+                <div class="filter-group-header">
+                  <label class="m3-label">Catalog Signature Match</label>
+                </div>
+                <div
+                  class="input-wrapper dropdown-wrapper"
+                  [class.active-wrapper]="
+                    activeDropdown() === 'physical_verified'
+                  "
+                >
+                  <button
+                    type="button"
+                    class="m3-input dropdown-trigger"
+                    [class.open]="activeDropdown() === 'physical_verified'"
+                    (click)="toggleDropdown('physical_verified', $event)"
+                    id="filter-physical-verified"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="
+                      activeDropdown() === 'physical_verified'
+                    "
+                  >
+                    <span class="trigger-text">{{
+                      getPhysicalVerifiedLabel()
+                    }}</span>
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'physical_verified'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  @if (activeDropdown() === 'physical_verified') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      @for (opt of physicalVerifiedOptions; track opt.value) {
+                        <button
+                          type="button"
+                          class="dropdown-item state-layer"
+                          [class.selected]="
+                            (filters().physical_verified ?? 'all') === opt.value
+                          "
+                          (click)="selectOption('physical_verified', opt.value)"
+                          role="option"
+                          [attr.aria-selected]="
+                            (filters().physical_verified ?? 'all') === opt.value
+                          "
+                        >
+                          <span class="item-label">{{ opt.label }}</span>
+                          @if (
+                            (filters().physical_verified ?? 'all') === opt.value
+                          ) {
+                            <svg
+                              class="selected-check"
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          }
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Budget Label Status -->
+              <div class="filter-group">
+                <div class="filter-group-header">
+                  <label class="m3-label">Budget Label Status</label>
+                </div>
+                <div
+                  class="input-wrapper dropdown-wrapper"
+                  [class.active-wrapper]="activeDropdown() === 'budget_label'"
+                >
+                  <button
+                    type="button"
+                    class="m3-input dropdown-trigger"
+                    [class.open]="activeDropdown() === 'budget_label'"
+                    (click)="toggleDropdown('budget_label', $event)"
+                    id="filter-budget-label"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="activeDropdown() === 'budget_label'"
+                  >
+                    <span class="trigger-text">{{
+                      getBudgetLabelStatusLabel()
+                    }}</span>
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'budget_label'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  @if (activeDropdown() === 'budget_label') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      @for (opt of budgetLabelOptions; track opt.value) {
+                        <button
+                          type="button"
+                          class="dropdown-item state-layer"
+                          [class.selected]="
+                            (filters().budget_label ?? 'all') === opt.value
+                          "
+                          (click)="selectOption('budget_label', opt.value)"
+                          role="option"
+                          [attr.aria-selected]="
+                            (filters().budget_label ?? 'all') === opt.value
+                          "
+                        >
+                          <span class="item-label">{{ opt.label }}</span>
+                          @if (
+                            (filters().budget_label ?? 'all') === opt.value
+                          ) {
+                            <svg
+                              class="selected-check"
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          }
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Platform -->
+              <div class="filter-group">
+                <div class="filter-group-header">
+                  <label class="m3-label">Platform</label>
+                </div>
+                <div
+                  class="input-wrapper dropdown-wrapper"
+                  [class.active-wrapper]="activeDropdown() === 'platform'"
+                >
+                  <button
+                    type="button"
+                    class="m3-input dropdown-trigger"
+                    [class.open]="activeDropdown() === 'platform'"
+                    (click)="toggleDropdown('platform', $event)"
+                    id="filter-platform"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="activeDropdown() === 'platform'"
+                  >
+                    <span class="trigger-text">{{ getPlatformLabel() }}</span>
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'platform'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  @if (activeDropdown() === 'platform') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      <button
+                        type="button"
+                        class="dropdown-item state-layer"
+                        [class.selected]="filters().platform_id === undefined"
+                        (click)="selectPlatform(undefined)"
+                        role="option"
+                        [attr.aria-selected]="
+                          filters().platform_id === undefined
+                        "
+                      >
+                        <span class="item-label">All Platforms</span>
+                        @if (filters().platform_id === undefined) {
+                          <svg
+                            class="selected-check"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="currentColor"
+                          >
+                            <path
+                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                            />
+                          </svg>
+                        }
+                      </button>
+                      @for (group of platformGroups(); track group.brand) {
+                        <div class="dropdown-group-header">
+                          {{ group.brand }}
+                        </div>
+                        @for (p of group.platforms; track p.id) {
+                          <button
+                            type="button"
+                            class="dropdown-item state-layer"
+                            [class.child-platform]="!!p.parent_platform_id"
+                            [class.selected]="filters().platform_id === p.id"
+                            (click)="selectPlatform(p.id)"
+                            role="option"
+                            [attr.aria-selected]="
+                              filters().platform_id === p.id
+                            "
+                          >
+                            <span class="item-label">
+                              @if (p.parent_platform_id) {
+                                <span class="sub-platform-arrow">↳</span>
+                              }
+                              {{ p.display_name || p.name }}
+                            </span>
+                            @if (filters().platform_id === p.id) {
+                              <svg
+                                class="selected-check"
+                                viewBox="0 0 24 24"
+                                width="16"
+                                height="16"
+                                fill="currentColor"
+                              >
+                                <path
+                                  d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                                />
+                              </svg>
+                            }
+                          </button>
+                        }
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            @if (currentTab() === 'toys') {
+              <!-- Line -->
+              <div class="filter-group">
+                <div class="filter-group-header">
+                  <label class="m3-label">Line</label>
+                </div>
+                <div
+                  class="input-wrapper dropdown-wrapper"
+                  [class.active-wrapper]="activeDropdown() === 'line'"
+                >
+                  <button
+                    type="button"
+                    class="m3-input dropdown-trigger"
+                    [class.open]="activeDropdown() === 'line'"
+                    (click)="toggleDropdown('line', $event)"
+                    id="filter-line"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="activeDropdown() === 'line'"
+                  >
+                    <span class="trigger-text">{{ getLineLabel() }}</span>
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'line'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  @if (activeDropdown() === 'line') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      <button
+                        type="button"
+                        class="dropdown-item state-layer"
+                        [class.selected]="!filters().line"
+                        (click)="selectOption('line', '')"
+                        role="option"
+                        [attr.aria-selected]="!filters().line"
+                      >
+                        <span class="item-label">All Lines</span>
+                        @if (!filters().line) {
+                          <svg
+                            class="selected-check"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="currentColor"
+                          >
+                            <path
+                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                            />
+                          </svg>
+                        }
+                      </button>
+                      @for (l of uniqueLines(); track l) {
+                        <button
+                          type="button"
+                          class="dropdown-item state-layer"
+                          [class.selected]="filters().line === l"
+                          (click)="selectOption('line', l)"
+                          role="option"
+                          [attr.aria-selected]="filters().line === l"
+                        >
+                          <span class="item-label">{{ l }}</span>
+                          @if (filters().line === l) {
+                            <svg
+                              class="selected-check"
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          }
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Type -->
+              <div class="filter-group">
+                <div class="filter-group-header">
+                  <label
+                    class="m3-label"
+                    title="Form factor (e.g. Figure, Card, Yarn)"
+                    >Type</label
+                  >
+                </div>
+                <div
+                  class="input-wrapper dropdown-wrapper"
+                  [class.active-wrapper]="activeDropdown() === 'type'"
+                >
+                  <button
+                    type="button"
+                    class="m3-input dropdown-trigger"
+                    [class.open]="activeDropdown() === 'type'"
+                    (click)="toggleDropdown('type', $event)"
+                    id="filter-type"
+                    aria-haspopup="listbox"
+                    [attr.aria-expanded]="activeDropdown() === 'type'"
+                  >
+                    <span class="trigger-text">{{ getTypeLabel() }}</span>
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'type'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  @if (activeDropdown() === 'type') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      <button
+                        type="button"
+                        class="dropdown-item state-layer"
+                        [class.selected]="!filters().type"
+                        (click)="selectOption('type', '')"
+                        role="option"
+                        [attr.aria-selected]="!filters().type"
+                      >
+                        <span class="item-label">All Types</span>
+                        @if (!filters().type) {
+                          <svg
+                            class="selected-check"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="currentColor"
+                          >
+                            <path
+                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                            />
+                          </svg>
+                        }
+                      </button>
+                      @for (t of uniqueTypes(); track t) {
+                        <button
+                          type="button"
+                          class="dropdown-item state-layer"
+                          [class.selected]="filters().type === t"
+                          (click)="selectOption('type', t)"
+                          role="option"
+                          [attr.aria-selected]="filters().type === t"
+                        >
+                          <span class="item-label">{{ t }}</span>
+                          @if (filters().type === t) {
+                            <svg
+                              class="selected-check"
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          }
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Series Combobox Text Input Dropdown -->
+            <div class="filter-group">
+              <div
+                class="filter-group-header flex justify-between items-center pr-xs"
+              >
+                <label class="m3-label" for="filter-series">Series</label>
+                <label class="m3-checkbox-label" title="Exact Normalized Match">
+                  <input
+                    type="checkbox"
+                    [ngModel]="filters().seriesExact"
+                    (ngModelChange)="onPartialChange('seriesExact', $event)"
+                    class="m3-checkbox"
+                  />
+                  <span>Exact</span>
+                </label>
+              </div>
+              <div
+                class="input-wrapper combobox-wrapper"
+                [class.active-wrapper]="activeDropdown() === 'series'"
+              >
+                <input
+                  type="text"
+                  [ngModel]="filters().series"
+                  (ngModelChange)="onSeriesInputChange($event)"
+                  (focus)="activeDropdown.set('series')"
+                  class="m3-input list-input"
+                  [class.open]="activeDropdown() === 'series'"
+                  placeholder="All"
+                  id="filter-series"
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  class="combobox-chevron-btn"
+                  (click)="toggleDropdown('series', $event)"
+                  tabindex="-1"
+                  aria-label="Toggle series suggestions"
+                >
+                  <span class="dropdown-icon-wrapper" aria-hidden="true">
+                    <svg
+                      class="dropdown-chevron"
+                      [class.open]="activeDropdown() === 'series'"
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      fill="currentColor"
+                    >
+                      <path
+                        d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                      />
+                    </svg>
+                  </span>
+                </button>
+
+                @if (activeDropdown() === 'series') {
+                  <div class="dropdown-list animate-expressive" role="listbox">
+                    <button
+                      type="button"
+                      class="dropdown-item state-layer"
+                      [class.selected]="!filters().series"
+                      (click)="selectSeries('')"
+                      role="option"
+                      [attr.aria-selected]="!filters().series"
+                    >
+                      <span class="item-label">All Series</span>
+                      @if (!filters().series) {
+                        <svg
+                          class="selected-check"
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                          fill="currentColor"
+                        >
+                          <path
+                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                          />
+                        </svg>
+                      }
+                    </button>
+                    @for (s of filteredSeriesList(); track s) {
+                      <button
+                        type="button"
+                        class="dropdown-item state-layer"
+                        [class.selected]="filters().series === s"
+                        (click)="selectSeries(s)"
+                        role="option"
+                        [attr.aria-selected]="filters().series === s"
+                      >
+                        <span class="item-label">{{ s }}</span>
+                        @if (filters().series === s) {
+                          <svg
+                            class="selected-check"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="currentColor"
+                          >
+                            <path
+                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                            />
+                          </svg>
+                        }
+                      </button>
+                    }
+                    @if (
+                      filteredSeriesList().length === 0 && filters().series
+                    ) {
+                      <div class="dropdown-empty">
+                        No series matching "{{ filters().series }}"
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+
+            <!-- Tag Combobox Text Input Dropdown (Games Tab) -->
+            @if (currentTab() === 'games') {
+              <div class="filter-group">
+                <div
+                  class="filter-group-header flex justify-between items-center pr-xs"
+                >
+                  <label class="m3-label" for="filter-tag">Tag</label>
+                  <label
+                    class="m3-checkbox-label"
+                    title="Exact Normalized Match"
+                  >
+                    <input
+                      type="checkbox"
+                      [ngModel]="filters().tagExact"
+                      (ngModelChange)="onPartialChange('tagExact', $event)"
+                      class="m3-checkbox"
+                    />
+                    <span>Exact</span>
+                  </label>
+                </div>
+                <div
+                  class="input-wrapper combobox-wrapper"
+                  [class.active-wrapper]="activeDropdown() === 'tag'"
+                >
+                  <input
+                    type="text"
+                    [ngModel]="filters().tag"
+                    (ngModelChange)="onTagInputChange($event)"
+                    (focus)="activeDropdown.set('tag')"
+                    class="m3-input list-input"
+                    [class.open]="activeDropdown() === 'tag'"
+                    placeholder="All"
+                    id="filter-tag"
+                    autocomplete="off"
+                  />
+                  <button
+                    type="button"
+                    class="combobox-chevron-btn"
+                    (click)="toggleDropdown('tag', $event)"
+                    tabindex="-1"
+                    aria-label="Toggle tag suggestions"
+                  >
+                    <span class="dropdown-icon-wrapper" aria-hidden="true">
+                      <svg
+                        class="dropdown-chevron"
+                        [class.open]="activeDropdown() === 'tag'"
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+
+                  @if (activeDropdown() === 'tag') {
+                    <div
+                      class="dropdown-list animate-expressive"
+                      role="listbox"
+                    >
+                      <button
+                        type="button"
+                        class="dropdown-item state-layer"
+                        [class.selected]="!filters().tag"
+                        (click)="selectTag('')"
+                        role="option"
+                        [attr.aria-selected]="!filters().tag"
+                      >
+                        <span class="item-label">All Tags</span>
+                        @if (!filters().tag) {
+                          <svg
+                            class="selected-check"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="currentColor"
+                          >
+                            <path
+                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                            />
+                          </svg>
+                        }
+                      </button>
+                      @for (t of filteredTagsList(); track t) {
+                        <button
+                          type="button"
+                          class="dropdown-item state-layer"
+                          [class.selected]="filters().tag === t"
+                          (click)="selectTag(t)"
+                          role="option"
+                          [attr.aria-selected]="filters().tag === t"
+                        >
+                          <span class="item-label">{{ t }}</span>
+                          @if (filters().tag === t) {
+                            <svg
+                              class="selected-check"
+                              viewBox="0 0 24 24"
+                              width="16"
+                              height="16"
+                              fill="currentColor"
+                            >
+                              <path
+                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                              />
+                            </svg>
+                          }
+                        </button>
+                      }
+                      @if (filteredTagsList().length === 0 && filters().tag) {
+                        <div class="dropdown-empty">
+                          No tags matching "{{ filters().tag }}"
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Region Multi-Select Dropdown -->
+            <div class="filter-group region-dropdown-container">
+              <div class="filter-group-header">
+                <label class="m3-label">Region</label>
+              </div>
+              <div
+                class="input-wrapper dropdown-wrapper"
+                [class.active-wrapper]="activeDropdown() === 'region'"
+              >
+                <button
+                  type="button"
+                  class="m3-input dropdown-trigger"
+                  [class.open]="activeDropdown() === 'region'"
+                  (click)="toggleDropdown('region', $event)"
+                  id="filter-region"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="activeDropdown() === 'region'"
+                >
+                  <span class="trigger-text">{{ getRegionLabel() }}</span>
+                  <span class="dropdown-icon-wrapper" aria-hidden="true">
+                    <svg
+                      class="dropdown-chevron"
+                      [class.open]="activeDropdown() === 'region'"
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      fill="currentColor"
+                    >
+                      <path
+                        d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                      />
+                    </svg>
+                  </span>
+                </button>
+                @if (activeDropdown() === 'region') {
+                  <div class="dropdown-list animate-expressive" role="listbox">
+                    <button
+                      type="button"
+                      class="dropdown-clear-btn state-layer"
+                      (click)="clearRegions()"
+                      [disabled]="(filters().regions || []).length === 0"
+                    >
+                      Clear Selection
+                    </button>
+                    @for (region of uniqueRegions(); track region) {
+                      <label class="dropdown-item state-layer checkbox-item">
+                        <input
+                          type="checkbox"
+                          [checked]="isRegionSelected(region)"
+                          (change)="onRegionToggle(region)"
+                          class="m3-checkbox"
+                        />
+                        <span class="item-label">{{ region }}</span>
+                      </label>
+                    }
+                    @if (uniqueRegions().length === 0) {
+                      <div class="dropdown-empty">No regions found</div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+
+            <!-- Secondary Action Buttons (Games Tab) -->
+            @if (currentTab() === 'games') {
+              <div class="secondary-actions-group">
+                <button
+                  type="button"
+                  class="m3-input deals-toggle-btn state-layer"
+                  [class.active]="filters().deals_only"
+                  (click)="toggleDealsOnly()"
+                  id="filter-deals-only"
+                  title="Show only games currently on sale or clearance"
+                >
+                  <span class="deals-icon"
+                    ><app-icon name="flame" [size]="16"
+                  /></span>
+                  <span>Deals Only</span>
+                </button>
+
+                <button
+                  type="button"
+                  class="m3-input alerts-toggle-btn state-layer"
+                  [class.active]="isNotificationSubscribed()"
+                  (click)="openNotificationSettings()"
+                  id="filter-deal-alerts"
+                  title="Configure deal notifications"
+                >
+                  <span class="alerts-icon"
+                    ><app-icon name="bell" [size]="16"
+                  /></span>
+                  <span>Deal Alerts</span>
+                </button>
+              </div>
+            }
           </div>
         </div>
       </div>
@@ -1449,6 +1526,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
         z-index: 20;
+        padding: var(--spacing-16) var(--spacing-24);
       }
 
       .filter-group {
@@ -2006,6 +2084,277 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         color: var(--m3-on-primary);
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
       }
+
+      /* Quick Toolbar (Tier 1) */
+      .quick-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-12);
+        width: 100%;
+        flex-wrap: wrap;
+      }
+
+      .quick-search-box {
+        position: relative;
+        flex: 1 1 240px;
+        min-width: 180px;
+        display: flex;
+        align-items: center;
+      }
+
+      .search-icon-wrapper {
+        position: absolute;
+        left: 0.875rem;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        color: var(--m3-on-surface-variant);
+        display: flex;
+        align-items: center;
+        z-index: 1;
+      }
+
+      .quick-search-input {
+        padding-left: 2.5rem !important;
+        padding-right: 2.25rem !important;
+      }
+
+      .clear-search-btn {
+        position: absolute;
+        right: 0.625rem;
+        top: 50%;
+        transform: translateY(-50%);
+        background: transparent;
+        border: none;
+        color: var(--m3-on-surface-variant);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px;
+        border-radius: 50%;
+        transition:
+          background-color 0.15s ease,
+          color 0.15s ease;
+        z-index: 2;
+      }
+
+      .clear-search-btn:hover {
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface);
+      }
+
+      /* Segmented Status Pills */
+      .segmented-status-group {
+        display: inline-flex;
+        align-items: center;
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline);
+        border-radius: var(--radius-full);
+        padding: 3px;
+        gap: 2px;
+        height: 46px;
+        box-sizing: border-box;
+      }
+
+      .status-pill-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-full);
+        padding: 0.375rem 0.875rem;
+        font-family: var(--font-body);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--m3-on-surface-variant);
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+        white-space: nowrap;
+        height: 38px;
+      }
+
+      .status-pill-btn:hover {
+        color: var(--m3-on-surface);
+        background: var(--m3-surface-container-highest);
+      }
+
+      .status-pill-btn.active {
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      }
+
+      .status-pill-btn.deals-pill.active {
+        background: #ef4444;
+        color: #ffffff;
+        box-shadow: 0 1px 4px rgba(239, 68, 68, 0.4);
+      }
+
+      .pill-fire-icon {
+        display: inline-flex;
+        align-items: center;
+        line-height: 1;
+      }
+
+      .quick-sort-wrapper {
+        min-width: 170px;
+        flex: 0 1 190px;
+      }
+
+      .quick-sort-trigger {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .sort-icon-prefix {
+        display: inline-flex;
+        align-items: center;
+        color: var(--m3-on-surface-variant);
+        flex-shrink: 0;
+      }
+
+      .more-filters-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-8);
+        height: 46px;
+        padding: 0 var(--spacing-16);
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--m3-outline);
+        background: var(--m3-surface-container-high);
+        color: var(--m3-on-surface);
+        font-family: var(--font-body);
+        font-size: 0.875rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .more-filters-btn:hover {
+        background: var(--m3-surface-container-highest);
+      }
+
+      .more-filters-btn.drawer-active {
+        border-color: var(--m3-primary);
+        background: var(--m3-secondary-container);
+        color: var(--m3-on-secondary-container);
+      }
+
+      .filter-count-badge {
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
+        font-size: 0.75rem;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 1px 7px;
+        line-height: 1.4;
+      }
+
+      /* Secondary Filters Drawer (Tier 2) */
+      .secondary-filters-drawer {
+        width: 100%;
+        margin-top: var(--spacing-16);
+        padding-top: var(--spacing-16);
+        border-top: 1px solid var(--m3-outline-variant);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .secondary-filters-drawer.drawer-collapsed {
+        display: none;
+      }
+
+      .drawer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--spacing-16);
+      }
+
+      .drawer-title {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-8);
+      }
+
+      .drawer-heading {
+        font-size: 0.875rem;
+        font-weight: 700;
+        color: var(--m3-on-surface);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .active-tag {
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: var(--radius-full);
+      }
+
+      .drawer-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-12);
+      }
+
+      .reset-filters-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: transparent;
+        border: 1px solid var(--m3-outline);
+        border-radius: var(--radius-full);
+        padding: 0.375rem 0.875rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--m3-primary);
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .reset-filters-btn:hover {
+        background: var(--m3-surface-container-highest);
+        border-color: var(--m3-primary);
+      }
+
+      .drawer-close-btn {
+        background: transparent;
+        border: none;
+        color: var(--m3-on-surface-variant);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px;
+        border-radius: 50%;
+        transition: all 0.2s;
+      }
+
+      .drawer-close-btn:hover {
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface);
+      }
+
+      .secondary-filters-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--spacing-16);
+        align-items: flex-end;
+      }
+
+      .secondary-actions-group {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-8);
+        flex-wrap: wrap;
+      }
     `,
   ],
 })
@@ -2014,12 +2363,121 @@ export class CollectionFiltersComponent {
 
   /** --- Internal UI State --- */
   public showFilters = signal(false);
+  public showDrawer = signal(false);
   public activeDropdown = signal<string | null>(null);
   public readonly showNotificationModal =
     this.notificationService.isSettingsModalOpen;
   public readonly isNotificationSubscribed = computed(() =>
     this.notificationService.isSubscribed(),
   );
+
+  /** Quick Status Helpers */
+  public readonly isOwnedActive = computed(() => {
+    return this.filters().ownership === 1 && !this.filters().deals_only;
+  });
+
+  public readonly isAllActive = computed(() => {
+    const o = this.filters().ownership;
+    return (o === 'all' || o === undefined) && !this.filters().deals_only;
+  });
+
+  public readonly isSeekingActive = computed(() => {
+    return this.filters().ownership === 2 && !this.filters().deals_only;
+  });
+
+  public readonly isDealsActive = computed(() => {
+    return Boolean(this.filters().deals_only);
+  });
+
+  public selectQuickStatus(status: 'owned' | 'all' | 'seeking' | 'deals') {
+    if (status === 'deals') {
+      this.filtersChange.emit({
+        ...this.filters(),
+        deals_only: true,
+      });
+    } else if (status === 'owned') {
+      this.filtersChange.emit({
+        ...this.filters(),
+        ownership: 1,
+        deals_only: false,
+      });
+    } else if (status === 'seeking') {
+      this.filtersChange.emit({
+        ...this.filters(),
+        ownership: 2,
+        deals_only: false,
+      });
+    } else {
+      this.filtersChange.emit({
+        ...this.filters(),
+        ownership: 'all',
+        deals_only: false,
+      });
+    }
+  }
+
+  public readonly activeFilterCount = computed(() => {
+    let count = 0;
+    const f = this.filters();
+    if (f.platform_id !== undefined && f.platform_id !== null) count++;
+    if (f.regions && f.regions.length > 0) count++;
+    if (f.play_status && f.play_status !== 'all') count++;
+    if (f.media_type && f.media_type !== 'physical_only') count++;
+    if (f.backup_status !== undefined && f.backup_status !== 'all') count++;
+    if (f.physical_verified !== undefined && f.physical_verified !== 'all')
+      count++;
+    if (f.budget_label && f.budget_label !== 'all') count++;
+    if (f.line) count++;
+    if (f.type) count++;
+    if (f.series) count++;
+    if (f.tag) count++;
+    if (
+      f.ownership === 3 ||
+      f.ownership === 0 ||
+      f.ownership === 'seeking_or_unowned'
+    )
+      count++;
+    return count;
+  });
+
+  public resetFilters() {
+    this.filtersChange.emit({
+      ownership: 1,
+      play_status: 'all',
+      backup_status: 'all',
+      physical_verified: 'all',
+      platform_id: undefined,
+      regions: [],
+      line: '',
+      type: '',
+      name: '',
+      nameExact: false,
+      series: '',
+      seriesExact: false,
+      tag: '',
+      tagExact: false,
+      sortBy: 'default',
+      deals_only: false,
+      media_type: 'physical_only',
+      budget_label: 'all',
+    });
+  }
+
+  public onQuickSearchChange(value: string) {
+    this.filtersChange.emit({
+      ...this.filters(),
+      name: value,
+      seriesOrName: undefined,
+    });
+  }
+
+  public clearQuickSearch() {
+    this.filtersChange.emit({
+      ...this.filters(),
+      name: '',
+      seriesOrName: undefined,
+    });
+  }
 
   public openNotificationSettings(): void {
     this.notificationService.openSettingsModal();
