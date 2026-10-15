@@ -890,7 +890,7 @@ function main(): void {
       `Resetting existing backup status for ${allScannedPlatformIds.size} scanned platform(s)...`,
     );
     db.prepare(
-      `UPDATE game_releases SET backup_status = 0 WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${resetPlaceholders}))`,
+      `UPDATE game_releases SET backup_status = 0 WHERE backup_status != 0 AND game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${resetPlaceholders}))`,
     ).run(...allScannedPlatformIds);
   }
 
@@ -1058,7 +1058,7 @@ function main(): void {
 
     if (matchesToUpdate.length > 0) {
       const updateStmt = db.prepare(
-        'UPDATE game_releases SET backup_status = 1 WHERE id = ?',
+        'UPDATE game_releases SET backup_status = 1 WHERE backup_status != 1 AND id = ?',
       );
       const transaction = db.transaction(() => {
         for (const releaseId of matchesToUpdate) {
@@ -1080,10 +1080,10 @@ function main(): void {
       .map(() => '?')
       .join(',');
     db.prepare(
-      `UPDATE games SET backup_status = 0 WHERE platform_id IN (${platPlaceholders})`,
+      `UPDATE games SET backup_status = 0 WHERE backup_status != 0 AND platform_id IN (${platPlaceholders})`,
     ).run(...allScannedPlatformIds);
     db.prepare(
-      `UPDATE games SET backup_status = 1 WHERE stable_id IN (
+      `UPDATE games SET backup_status = 1 WHERE backup_status != 1 AND stable_id IN (
         SELECT DISTINCT game_id FROM game_releases WHERE backup_status = 1 AND game_id IS NOT NULL
       ) AND platform_id IN (${platPlaceholders})`,
     ).run(...allScannedPlatformIds);
@@ -1121,7 +1121,7 @@ function main(): void {
   if (allScannedPlatformIds.size > 0) {
     const platList = Array.from(allScannedPlatformIds).join(', ');
     sqlContent += `-- 1. Reset backup_status only for scanned platforms\n`;
-    sqlContent += `UPDATE game_releases SET backup_status = 0 WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${platList}));\n\n`;
+    sqlContent += `UPDATE game_releases SET backup_status = 0 WHERE backup_status != 0 AND game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${platList}));\n\n`;
   }
 
   if (allMatchedReleaseIds.size > 0) {
@@ -1133,7 +1133,7 @@ function main(): void {
       const escapedIds = chunk
         .map((id) => `'${id.replace(/'/g, "''")}'`)
         .join(', ');
-      sqlContent += `UPDATE game_releases SET backup_status = 1 WHERE id IN (${escapedIds});\n`;
+      sqlContent += `UPDATE game_releases SET backup_status = 1 WHERE backup_status != 1 AND id IN (${escapedIds});\n`;
     }
     sqlContent += '\n';
   }
@@ -1141,8 +1141,8 @@ function main(): void {
   if (allScannedPlatformIds.size > 0) {
     const platList = Array.from(allScannedPlatformIds).join(', ');
     sqlContent += `-- 3. Synchronize games table backup_status\n`;
-    sqlContent += `UPDATE games SET backup_status = 0 WHERE platform_id IN (${platList});\n`;
-    sqlContent += `UPDATE games SET backup_status = 1 WHERE stable_id IN (SELECT DISTINCT game_id FROM game_releases WHERE backup_status = 1 AND game_id IS NOT NULL) AND platform_id IN (${platList});\n\n`;
+    sqlContent += `UPDATE games SET backup_status = 0 WHERE backup_status != 0 AND platform_id IN (${platList});\n`;
+    sqlContent += `UPDATE games SET backup_status = 1 WHERE backup_status != 1 AND stable_id IN (SELECT DISTINCT game_id FROM game_releases WHERE backup_status = 1 AND game_id IS NOT NULL) AND platform_id IN (${platList});\n\n`;
   }
 
   sqlContent += 'PRAGMA foreign_keys = ON;\n';

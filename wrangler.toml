@@ -20,7 +20,7 @@ binding = "BACKUP_BUCKET"
 bucket_name = "collection-backups"
 
 [triggers]
-crons = ["0 4 * * *"]
+crons = ["30 23 * * *"]
 
 [build]
 command = "npm run build"

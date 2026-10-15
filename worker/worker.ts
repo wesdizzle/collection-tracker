@@ -2851,10 +2851,10 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
     }
   }
 
-  // Reset previous retail sales flags before applying fresh state
+  // Reset previous retail sales flags only for games that were previously marked on sale
   const statements: D1PreparedStatement[] = [
     env.DB.prepare(
-      `UPDATE games SET retail_on_sale = 0 WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games')`,
+      `UPDATE games SET retail_on_sale = 0 WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games') AND retail_on_sale != 0`,
     ),
   ];
 
@@ -2875,7 +2875,8 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
              retail_store = ?,
              retail_url = ?,
              retail_updated_at = ?
-         WHERE stable_id = ?`,
+         WHERE stable_id = ?
+           AND (retail_on_sale != 1 OR retail_price != ? OR retail_regular_price != ? OR retail_discount_pct != ? OR retail_store != ? OR retail_url != ?)`,
       ).bind(
         salePriceCents,
         regularPriceCents,
@@ -2884,6 +2885,11 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
         deal.url,
         nowIso,
         stableId,
+        salePriceCents,
+        regularPriceCents,
+        discountPct,
+        deal.store,
+        deal.url,
       ),
     );
   }
