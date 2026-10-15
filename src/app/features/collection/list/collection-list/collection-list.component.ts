@@ -34,6 +34,7 @@ import {
 } from '@angular/core';
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller } from '@angular/common';
+import { Subscription } from 'rxjs';
 import { CollectionService } from '../../../../core/services/collection.service';
 
 import { BrandingService } from '../../../../core/services/branding.service';
@@ -47,6 +48,7 @@ import {
   ListState,
   ViewMode,
   OwnershipStatus,
+  PlayStatus,
 } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
@@ -1650,6 +1652,49 @@ export class CollectionListComponent
 
   private restorationPending = true;
   private stateInitialized = signal(false);
+  private queryParamsSub?: Subscription;
+
+  private applyQueryParams(qp: Record<string, unknown>) {
+    if (!qp || Object.keys(qp).length === 0) return;
+    const qpFilters: Partial<FilterState> = {};
+    if (qp['platform_id'] !== undefined) {
+      const pid = parseInt(String(qp['platform_id']), 10);
+      if (!isNaN(pid)) qpFilters.platform_id = pid;
+    }
+    if (qp['backup_status'] !== undefined) {
+      const val = String(qp['backup_status']);
+      if (val === '0' || val === 'missing') {
+        qpFilters.backup_status = 0;
+      } else if (val === '1' || val === 'backed_up') {
+        qpFilters.backup_status = 1;
+      } else if (val === 'all') {
+        qpFilters.backup_status = 'all';
+      }
+    }
+    if (qp['play_status'] !== undefined) {
+      const ps = parseInt(String(qp['play_status']), 10);
+      if (!isNaN(ps)) qpFilters.play_status = ps as PlayStatus;
+    }
+    if (qp['ownership'] !== undefined) {
+      const ownStr = String(qp['ownership']);
+      if (ownStr === 'all' || ownStr === 'seeking_or_unowned') {
+        qpFilters.ownership = ownStr;
+      } else {
+        const own = parseInt(ownStr, 10);
+        if (!isNaN(own)) qpFilters.ownership = own as OwnershipStatus;
+      }
+    }
+    if (qp['media_type']) {
+      qpFilters.media_type = qp['media_type'] as FilterState['media_type'];
+    }
+    if (qp['deals_only'] !== undefined) {
+      qpFilters.deals_only =
+        String(qp['deals_only']) === 'true' || String(qp['deals_only']) === '1';
+    }
+    if (Object.keys(qpFilters).length > 0) {
+      this.filters.update((f) => ({ ...f, ...qpFilters }));
+    }
+  }
 
   /** --- Reactive Application State --- */
   public currentTab = signal<'games' | 'toys'>('games');
@@ -3204,6 +3249,16 @@ export class CollectionListComponent
       }
     }
 
+    // Apply any inbound query parameters (e.g. from Insights drill-down links)
+    if (this.route?.snapshot?.queryParams) {
+      this.applyQueryParams(this.route.snapshot.queryParams);
+    }
+    if (this.route?.queryParams) {
+      this.queryParamsSub = this.route.queryParams.subscribe((params) => {
+        this.applyQueryParams(params);
+      });
+    }
+
     const hasData =
       this.currentTab() === 'games'
         ? this.collectionService.games().length > 0
@@ -3230,6 +3285,9 @@ export class CollectionListComponent
    */
   ngOnDestroy() {
     this.isInitialized = false;
+    if (this.queryParamsSub) {
+      this.queryParamsSub.unsubscribe();
+    }
     if (this.observer) this.observer.disconnect();
     if (this.scrollTimeout) {
       clearTimeout(this.scrollTimeout);

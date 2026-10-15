@@ -7,6 +7,7 @@ import {
   HttpTestingController,
 } from '@angular/common/http/testing';
 import { ActivatedRoute } from '@angular/router';
+import { of } from 'rxjs';
 import { CollectionListComponent } from './collection-list.component';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { ListState } from '../../../../core/models/collection.models';
@@ -38,7 +39,8 @@ describe('CollectionListComponent - DOM Scroll Restoration Integration', () => {
         {
           provide: ActivatedRoute,
           useValue: {
-            snapshot: { url: [{ path: 'games' }] },
+            snapshot: { url: [{ path: 'games' }], queryParams: {} },
+            queryParams: of({}),
           },
         },
       ],

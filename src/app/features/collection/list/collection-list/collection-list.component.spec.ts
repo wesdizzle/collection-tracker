@@ -32,7 +32,8 @@ describe('CollectionListComponent', () => {
         {
           provide: ActivatedRoute,
           useValue: {
-            snapshot: { url: [{ path: 'games' }] },
+            snapshot: { url: [{ path: 'games' }], queryParams: {} },
+            queryParams: of({}),
           },
         },
       ],

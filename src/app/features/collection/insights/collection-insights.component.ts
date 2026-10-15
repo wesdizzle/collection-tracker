@@ -31,6 +31,14 @@ export interface SeriesStat {
   totalValue: number;
 }
 
+export interface DecadeStat {
+  decade: string;
+  eraName: string;
+  count: number;
+  pct: number;
+  totalValue: number;
+}
+
 @Component({
   selector: 'app-collection-insights',
   standalone: true,
@@ -325,5 +333,94 @@ export class CollectionInsightsComponent implements OnInit {
       backlogPct:
         total > 0 ? Math.round(((unplayed + queued) / total) * 100) : 0,
     };
+  });
+
+  public readonly playingGames = computed<Game[]>(() =>
+    this.ownedGames()
+      .filter((g) => g.play_status === 2)
+      .slice(0, 4),
+  );
+
+  public readonly queuedGames = computed<Game[]>(() =>
+    this.ownedGames()
+      .filter((g) => g.play_status === 3)
+      .slice(0, 4),
+  );
+
+  /** --- Release Era / Decade Distribution --- */
+  public readonly decadeDistribution = computed<DecadeStat[]>(() => {
+    const games = this.ownedGames();
+    const eras: Record<
+      string,
+      { eraName: string; count: number; totalValue: number }
+    > = {
+      '70s_80s': {
+        eraName: '1970s & 1980s (Early Era)',
+        count: 0,
+        totalValue: 0,
+      },
+      '90s': {
+        eraName: '1990s (16 & 32-Bit Era)',
+        count: 0,
+        totalValue: 0,
+      },
+      '00s': {
+        eraName: '2000s (Sixth & Seventh Gen)',
+        count: 0,
+        totalValue: 0,
+      },
+      '10s': {
+        eraName: '2010s (HD Generation)',
+        count: 0,
+        totalValue: 0,
+      },
+      '20s': {
+        eraName: '2020s (Modern Generation)',
+        count: 0,
+        totalValue: 0,
+      },
+    };
+
+    let datedCount = 0;
+    for (const g of games) {
+      const dateStr = g.release_date;
+      if (!dateStr) continue;
+      const match = dateStr.match(/\b(19\d\d|20\d\d)\b/);
+      if (!match) continue;
+      const year = parseInt(match[1], 10);
+      const val = this.getEffectiveGamePrice(g) || 0;
+      datedCount++;
+
+      if (year < 1990) {
+        eras['70s_80s'].count++;
+        eras['70s_80s'].totalValue += val;
+      } else if (year < 2000) {
+        eras['90s'].count++;
+        eras['90s'].totalValue += val;
+      } else if (year < 2010) {
+        eras['00s'].count++;
+        eras['00s'].totalValue += val;
+      } else if (year < 2020) {
+        eras['10s'].count++;
+        eras['10s'].totalValue += val;
+      } else {
+        eras['20s'].count++;
+        eras['20s'].totalValue += val;
+      }
+    }
+
+    const order = ['70s_80s', '90s', '00s', '10s', '20s'];
+    return order.map((key) => {
+      const item = eras[key];
+      const pct =
+        datedCount > 0 ? Math.round((item.count / datedCount) * 100) : 0;
+      return {
+        decade: key,
+        eraName: item.eraName,
+        count: item.count,
+        pct,
+        totalValue: item.totalValue,
+      };
+    });
   });
 }

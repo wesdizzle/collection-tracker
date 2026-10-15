@@ -126,24 +126,39 @@
         </div>
 
         <div class="backup-stats-row">
-          <div class="backup-stat-item">
+          <a
+            class="backup-stat-item clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ backup_status: 1 }"
+            title="Filter collection to Backed Up physical releases"
+          >
             <span class="backup-stat-number">{{
               backedUpOwnedGames().length
             }}</span>
             <span class="backup-stat-desc">Backed Up</span>
-          </div>
-          <div class="backup-stat-item">
+          </a>
+          <a
+            class="backup-stat-item clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ backup_status: 0 }"
+            title="Filter collection to Missing Backups"
+          >
             <span class="backup-stat-number warning">{{
               missingBackupsCount()
             }}</span>
             <span class="backup-stat-desc">Missing Backups</span>
-          </div>
-          <div class="backup-stat-item">
+          </a>
+          <a
+            class="backup-stat-item clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ media_type: 'physical_only' }"
+            title="Filter collection to Physical Games"
+          >
             <span class="backup-stat-number">{{
               physicalOwnedGames().length
             }}</span>
             <span class="backup-stat-desc">Physical Total</span>
-          </div>
+          </a>
         </div>
 
         @if (missingBackupsCount() > 0) {
@@ -153,10 +168,11 @@
               clean dumps to secure your preservation archive.
             </div>
             <a
-              routerLink="/collection/games"
+              [routerLink]="['/collection']"
+              [queryParams]="{ backup_status: 0 }"
               class="m3-button m3-button-tonal view-missing-btn"
             >
-              Browse Collection
+              View Missing Backups
             </a>
           </div>
         }
@@ -259,22 +275,115 @@
         </div>
 
         <div class="play-status-grid">
-          <div class="play-status-chip played-chip">
+          <a
+            class="play-status-chip played-chip clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ play_status: 1 }"
+            title="Filter to Played games"
+          >
             <span class="chip-number">{{ playStatusStats().played }}</span>
             <span class="chip-label">Played</span>
-          </div>
-          <div class="play-status-chip playing-chip">
+          </a>
+          <a
+            class="play-status-chip playing-chip clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ play_status: 2 }"
+            title="Filter to Currently Playing games"
+          >
             <span class="chip-number">{{ playStatusStats().playing }}</span>
             <span class="chip-label">Playing</span>
-          </div>
-          <div class="play-status-chip queued-chip">
+          </a>
+          <a
+            class="play-status-chip queued-chip clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ play_status: 3 }"
+            title="Filter to Queued games"
+          >
             <span class="chip-number">{{ playStatusStats().queued }}</span>
             <span class="chip-label">Queued</span>
-          </div>
-          <div class="play-status-chip unplayed-chip">
+          </a>
+          <a
+            class="play-status-chip unplayed-chip clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ play_status: 0 }"
+            title="Filter to Unplayed games"
+          >
             <span class="chip-number">{{ playStatusStats().unplayed }}</span>
             <span class="chip-label">Unplayed</span>
+          </a>
+        </div>
+
+        @if (playingGames().length > 0) {
+          <div class="backlog-subgroup">
+            <div class="backlog-subgroup-title">Currently Playing</div>
+            <div class="backlog-mini-list">
+              @for (g of playingGames(); track g.id) {
+                <a
+                  [routerLink]="['/collection', 'game', g.id]"
+                  class="backlog-mini-card state-layer"
+                  [title]="g.title"
+                >
+                  <span class="backlog-mini-title">{{ g.title }}</span>
+                  <span class="backlog-mini-platform">{{ g.platform }}</span>
+                </a>
+              }
+            </div>
           </div>
+        }
+
+        @if (queuedGames().length > 0) {
+          <div class="backlog-subgroup">
+            <div class="backlog-subgroup-title">Up Next in Queue</div>
+            <div class="backlog-mini-list">
+              @for (g of queuedGames(); track g.id) {
+                <a
+                  [routerLink]="['/collection', 'game', g.id]"
+                  class="backlog-mini-card state-layer"
+                  [title]="g.title"
+                >
+                  <span class="backlog-mini-title">{{ g.title }}</span>
+                  <span class="backlog-mini-platform">{{ g.platform }}</span>
+                </a>
+              }
+            </div>
+          </div>
+        }
+      </section>
+
+      <!-- Release Era & Decade Distribution Histogram -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Era & Release Decade Distribution</h2>
+            <p class="panel-subtitle">
+              Historical timeline and valuation of owned games
+            </p>
+          </div>
+        </div>
+
+        <div class="decade-histogram">
+          @for (d of decadeDistribution(); track d.decade) {
+            <div class="decade-row">
+              <div class="decade-info">
+                <span class="decade-name">{{ d.eraName }}</span>
+                <span class="decade-meta">
+                  <strong>{{ d.count }}</strong> games ({{ d.pct }}%)
+                  @if (d.totalValue > 0) {
+                    • {{ formatCurrency(d.totalValue) }}
+                  }
+                </span>
+              </div>
+              <div class="decade-bar-track">
+                <div
+                  class="decade-bar-fill"
+                  [style.width.%]="d.pct"
+                  [title]="
+                    d.eraName + ': ' + d.count + ' games (' + d.pct + '%)'
+                  "
+                ></div>
+              </div>
+            </div>
+          }
         </div>
       </section>
 
@@ -325,7 +434,12 @@
 
         <div class="platform-list">
           @for (p of platformStats(); track p.id) {
-            <div class="platform-item">
+            <a
+              [routerLink]="['/collection']"
+              [queryParams]="{ platform_id: p.id }"
+              class="platform-item clickable state-layer"
+              title="Filter collection to {{ p.name }}"
+            >
               <div class="platform-item-header">
                 <div class="platform-name-group">
                   @if (p.logo) {
@@ -367,7 +481,7 @@
                   }}%)
                 </span>
               </div>
-            </div>
+            </a>
           }
           @if (platformStats().length === 0) {
             <div class="empty-state">No platforms recorded</div>
@@ -388,7 +502,11 @@
 
         <div class="valuable-items-list">
           @for (g of topValuableGames(); track g.id; let i = $index) {
-            <div class="valuable-item-row">
+            <a
+              [routerLink]="['/collection', 'game', g.id]"
+              class="valuable-item-row clickable state-layer"
+              [title]="'View details for ' + g.title"
+            >
               <span class="rank-badge">#{{ i + 1 }}</span>
               @if (g.image_url) {
                 <img
@@ -417,7 +535,7 @@
               <div class="valuable-item-price">
                 {{ formatCurrencyDetailed(getEffectiveGamePrice(g)) }}
               </div>
-            </div>
+            </a>
           }
           @if (topValuableGames().length === 0) {
             <div class="empty-state">No priced games in collection</div>
@@ -439,7 +557,11 @@
 
           <div class="valuable-items-list">
             @for (t of topValuableToys(); track t.id; let i = $index) {
-              <div class="valuable-item-row">
+              <a
+                [routerLink]="['/collection', 'toy', t.id]"
+                class="valuable-item-row clickable state-layer"
+                [title]="'View details for ' + t.name"
+              >
                 <span class="rank-badge">#{{ i + 1 }}</span>
                 @if (t.image_url) {
                   <img
@@ -464,7 +586,7 @@
                 <div class="valuable-item-price">
                   {{ formatCurrencyDetailed(getEffectiveToyPrice(t)) }}
                 </div>
-              </div>
+              </a>
             }
           </div>
         </section>
