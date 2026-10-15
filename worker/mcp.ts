@@ -41,9 +41,32 @@ interface JsonRpcResponse {
 }
 
 /**
+ * Standard MCP Prompt definition
+ */
+export interface McpPrompt {
+  name: string;
+  description: string;
+  arguments?: Array<{
+    name: string;
+    description: string;
+    required?: boolean;
+  }>;
+}
+
+/**
+ * Standard MCP Resource definition
+ */
+export interface McpResource {
+  uri: string;
+  name: string;
+  description: string;
+  mimeType: string;
+}
+
+/**
  * Standard MCP 2024-11-05 / 2025-03-26 Tool definition
  */
-interface McpTool {
+export interface McpTool {
   name: string;
   description: string;
   inputSchema: {
@@ -514,6 +537,139 @@ export const MCP_TOOLS: McpTool[] = [
         },
       },
     },
+  },
+  {
+    name: 'get_backlog',
+    description:
+      "Retrieves the user's gaming backlog (owned games marked as unplayed, playing, queued, or paused) with optional platform and status filtering.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        platform: {
+          type: 'string',
+          description:
+            'Optional platform name or alias (e.g. "Switch", "GameCube", "PS4").',
+        },
+        play_status: {
+          type: 'string',
+          enum: ['all', 'unplayed', 'playing', 'queued', 'paused'],
+          description:
+            'Filter by specific play status: "unplayed" (not yet started), "playing" (in progress), "queued" (next up), "paused" (on hold), or "all" (any active backlog item). Default: "all".',
+        },
+        limit: {
+          type: 'integer',
+          description:
+            'Maximum number of backlog games to return (default: 15, max: 50).',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_platform_completion',
+    description:
+      'Retrieves platform completion and preservation metrics, including owned count, backup count, CIB count, and catalog completion percentage.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        platform: {
+          type: 'string',
+          description:
+            'Optional platform name or alias to inspect. If omitted, returns completion stats across all platforms.',
+        },
+      },
+    },
+  },
+];
+
+/**
+ * Standard MCP Prompts for AI-guided interactions
+ */
+export const MCP_PROMPTS: McpPrompt[] = [
+  {
+    name: 'recommend_backlog_game',
+    description:
+      'Generates a prompt suggesting what game to play next based on owned unplayed or queued games in your collection.',
+    arguments: [
+      {
+        name: 'platform',
+        description:
+          'Optional platform filter (e.g. "Switch", "GameCube", "PS4").',
+        required: false,
+      },
+      {
+        name: 'max_candidates',
+        description:
+          'Number of backlog games to include for consideration (default: 5).',
+        required: false,
+      },
+    ],
+  },
+  {
+    name: 'audit_missing_backups',
+    description:
+      'Generates a prompt to audit owned physical games that lack digital backups, prioritizing valuable or fragile media.',
+    arguments: [
+      {
+        name: 'platform',
+        description: 'Optional platform filter.',
+        required: false,
+      },
+      {
+        name: 'limit',
+        description:
+          'Maximum number of missing backup candidates to review (default: 10).',
+        required: false,
+      },
+    ],
+  },
+  {
+    name: 'evaluate_deal',
+    description:
+      'Analyzes a potential game purchase or retailer deal against existing collection ownership, series affinity, and pricing.',
+    arguments: [
+      {
+        name: 'title',
+        description: 'Title of the game on sale or being evaluated.',
+        required: true,
+      },
+      {
+        name: 'sale_price',
+        description: 'Sale price (e.g. "$19.99" or 19.99).',
+        required: true,
+      },
+      {
+        name: 'store',
+        description: 'Retailer or store name (e.g. "Best Buy", "VGP").',
+        required: false,
+      },
+    ],
+  },
+];
+
+/**
+ * Standard MCP Resources for collection insights and live data feeds
+ */
+export const MCP_RESOURCES: McpResource[] = [
+  {
+    uri: 'collection://stats',
+    name: 'Collection Overview & Statistics',
+    description:
+      'Real-time overview of total games tracked, owned counts, backup health, and estimated collection value.',
+    mimeType: 'text/markdown',
+  },
+  {
+    uri: 'collection://wishlist',
+    name: 'Seeking & Wishlist Items',
+    description:
+      'List of games currently marked as Seeking or Ordered in the collection.',
+    mimeType: 'text/markdown',
+  },
+  {
+    uri: 'collection://deals',
+    name: 'Active Retail Deals',
+    description:
+      'Current retailer sales and price drops for games tracked in the collection.',
+    mimeType: 'text/markdown',
   },
 ];
 
@@ -1340,6 +1496,185 @@ export async function executeMcpTool(
         };
       }
 
+      /**
+       * TOOL 9: get_backlog
+       */
+      case 'get_backlog': {
+        const platformFilter = await resolvePlatform(
+          db,
+          safeArgs['platform'] as string | undefined,
+        );
+        const statusArg = String(
+          safeArgs['play_status'] || 'all',
+        ).toLowerCase();
+        const limit = Math.min(
+          Math.max(Number(safeArgs['limit']) || 15, 1),
+          50,
+        );
+
+        let statusClause = 'g.play_status IN (0, 2, 3, 4)';
+        if (statusArg === 'unplayed') statusClause = 'g.play_status = 0';
+        else if (statusArg === 'playing') statusClause = 'g.play_status = 2';
+        else if (statusArg === 'queued') statusClause = 'g.play_status = 3';
+        else if (statusArg === 'paused') statusClause = 'g.play_status = 4';
+
+        let sql = `
+          SELECT g.id as game_id, g.title, COALESCE(g.play_status, 0) as play_status,
+                 g.series, g.genres, g.summary,
+                 COALESCE(pp.display_name, p.display_name) as platform
+          FROM games g
+          JOIN game_releases r ON g.stable_id = r.game_id
+          JOIN platforms p ON g.platform_id = p.id
+          LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+          WHERE r.ownership_status = 1 AND ${statusClause}
+        `;
+        const params: (string | number)[] = [];
+        if (platformFilter) {
+          sql += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
+          params.push(platformFilter.id, platformFilter.id);
+        }
+
+        sql += ` GROUP BY g.stable_id ORDER BY g.play_status DESC, g.title ASC LIMIT ?`;
+        params.push(limit);
+
+        const queryResult = await db
+          .prepare(sql)
+          .bind(...params)
+          .all();
+        const rows = (queryResult.results || []) as unknown as Array<{
+          game_id: string;
+          title: string;
+          play_status: number;
+          series: string | null;
+          genres: string | null;
+          summary: string | null;
+          platform: string;
+        }>;
+
+        const PLAY_STATUS_LABELS: Record<number, string> = {
+          0: 'Unplayed',
+          1: 'Played',
+          2: 'Playing',
+          3: 'Queued',
+          4: 'Paused',
+          5: 'Dropped',
+        };
+
+        const backlog = rows.map((r) => ({
+          id: r.game_id,
+          title: r.title,
+          platform: r.platform,
+          play_status: PLAY_STATUS_LABELS[r.play_status] || 'Unplayed',
+          play_status_code: r.play_status,
+          series: r.series || null,
+          genres: r.genres || null,
+          summary: r.summary || null,
+          url: `${origin}/collection/games/${r.game_id}`,
+        }));
+
+        return {
+          text: JSON.stringify(
+            {
+              count: backlog.length,
+              platform: platformFilter?.displayName || 'All Platforms',
+              filter_status: statusArg,
+              backlog,
+            },
+            null,
+            2,
+          ),
+        };
+      }
+
+      /**
+       * TOOL 10: get_platform_completion
+       */
+      case 'get_platform_completion': {
+        const platformFilter = await resolvePlatform(
+          db,
+          safeArgs['platform'] as string | undefined,
+        );
+
+        let sql = `
+          SELECT 
+            COALESCE(pp.id, p.id) as platform_id,
+            COALESCE(pp.display_name, p.display_name) as platform_name,
+            COALESCE(pp.brand, p.brand) as brand,
+            COUNT(DISTINCT g.stable_id) as total_catalog_games,
+            COUNT(DISTINCT CASE WHEN r.ownership_status = 1 THEN g.stable_id END) as owned_games,
+            COUNT(DISTINCT CASE WHEN r.ownership_status = 1 AND r.backup_status = 1 THEN g.stable_id END) as backed_up_games,
+            COUNT(DISTINCT CASE WHEN r.ownership_status = 1 AND r.has_case = 1 AND r.has_manual = 1 THEN g.stable_id END) as cib_games
+          FROM platforms p
+          LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+          JOIN games g ON g.platform_id = p.id
+          LEFT JOIN game_releases r ON g.stable_id = r.game_id
+          WHERE 1=1
+        `;
+        const params: (string | number)[] = [];
+        if (platformFilter) {
+          sql += ` AND (p.id = ? OR p.parent_platform_id = ?)`;
+          params.push(platformFilter.id, platformFilter.id);
+        }
+
+        sql += `
+          GROUP BY 1, 2, 3
+        `;
+        if (!platformFilter) {
+          sql += ` HAVING owned_games > 0`;
+        }
+        sql += ` ORDER BY owned_games DESC, platform_name ASC`;
+
+        const queryResult = await db
+          .prepare(sql)
+          .bind(...params)
+          .all();
+        const rows = (queryResult.results || []) as unknown as Array<{
+          platform_id: number;
+          platform_name: string;
+          brand: string | null;
+          total_catalog_games: number;
+          owned_games: number;
+          backed_up_games: number;
+          cib_games: number;
+        }>;
+
+        const platforms = rows.map((r) => {
+          const owned = Number(r.owned_games);
+          const backedUp = Number(r.backed_up_games);
+          const totalCatalog = Number(r.total_catalog_games);
+          const backupPct =
+            owned > 0 ? ((backedUp / owned) * 100).toFixed(1) + '%' : '0.0%';
+          const catalogPct =
+            totalCatalog > 0
+              ? ((owned / totalCatalog) * 100).toFixed(1) + '%'
+              : '0.0%';
+
+          return {
+            platform_id: Number(r.platform_id),
+            platform: r.platform_name,
+            brand: r.brand,
+            owned_games_count: owned,
+            backed_up_games_count: backedUp,
+            backup_completion_pct: backupPct,
+            cib_games_count: Number(r.cib_games),
+            total_catalog_games: totalCatalog,
+            catalog_completion_pct: catalogPct,
+          };
+        });
+
+        return {
+          text: JSON.stringify(
+            {
+              count: platforms.length,
+              filter_platform: platformFilter?.displayName || null,
+              platforms,
+            },
+            null,
+            2,
+          ),
+        };
+      }
+
       default:
         return {
           text: `Unknown MCP tool: "${toolName}". Use "tools/list" to see available tools.`,
@@ -1353,6 +1688,508 @@ export async function executeMcpTool(
       text: `Database error executing "${toolName}": ${msg}`,
       isError: true,
     };
+  }
+}
+
+/**
+ * Dispatches an MCP prompt invocation to construct contextual reasoning templates
+ */
+export async function executeMcpPrompt(
+  promptName: string,
+  args: Record<string, string> | undefined,
+  env: McpEnv,
+  _origin: string,
+): Promise<{
+  description?: string;
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: { type: 'text'; text: string };
+  }>;
+}> {
+  const db = env.DB;
+  const safeArgs = args || {};
+
+  switch (promptName) {
+    case 'recommend_backlog_game': {
+      const platformFilter = await resolvePlatform(db, safeArgs['platform']);
+      const maxCandidates = Math.min(
+        Math.max(Number(safeArgs['max_candidates']) || 5, 1),
+        20,
+      );
+
+      let sql = `
+        SELECT g.id, g.title, COALESCE(g.play_status, 0) as play_status,
+               g.series, g.canonical_series, g.genres, g.summary,
+               COALESCE(pp.display_name, p.display_name) as platform
+        FROM games g
+        JOIN game_releases r ON g.stable_id = r.game_id
+        JOIN platforms p ON g.platform_id = p.id
+        LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+        WHERE r.ownership_status = 1 AND g.play_status IN (0, 2, 3)
+      `;
+      const params: (string | number)[] = [];
+      if (platformFilter) {
+        sql += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
+        params.push(platformFilter.id, platformFilter.id);
+      }
+      sql += ` GROUP BY g.stable_id ORDER BY CASE WHEN g.play_status = 3 THEN 1 WHEN g.play_status = 2 THEN 2 ELSE 3 END, g.title ASC LIMIT ?`;
+      params.push(maxCandidates);
+
+      const queryResult = await db
+        .prepare(sql)
+        .bind(...params)
+        .all();
+      const rows = (queryResult.results || []) as unknown as Array<{
+        id: string;
+        title: string;
+        play_status: number;
+        series: string | null;
+        canonical_series: string | null;
+        genres: string | null;
+        summary: string | null;
+        platform: string;
+      }>;
+
+      const STATUS_NAMES: Record<number, string> = {
+        0: 'Unplayed',
+        2: 'Currently Playing',
+        3: 'Queued (Next Up)',
+      };
+
+      const candidateLines = rows.map((r, i) => {
+        const status = STATUS_NAMES[r.play_status] || 'Unplayed';
+        const seriesInfo =
+          r.canonical_series || r.series
+            ? ` | Series: ${r.canonical_series || r.series}`
+            : '';
+        const genreInfo = r.genres ? ` | Genres: ${r.genres}` : '';
+        const summary = r.summary ? `\n   Summary: ${r.summary}` : '';
+        return `${i + 1}. **${r.title}** (${r.platform}) [${status}]${seriesInfo}${genreInfo}${summary}`;
+      });
+
+      const platText = platformFilter
+        ? ` for ${platformFilter.displayName}`
+        : '';
+      const promptText =
+        rows.length > 0
+          ? `I am looking for a recommendation on what video game to play next from my owned backlog${platText}.\n\nHere are candidate games currently in my backlog:\n${candidateLines.join(
+              '\n\n',
+            )}\n\nPlease evaluate these options and recommend which game I should play next, factoring in gameplay style, pacing, and time commitment. If there is a game currently in progress, highlight whether I should finish it first or switch.`
+          : `I am looking for a recommendation on what video game to play next from my owned backlog${platText}, but no matching unplayed or queued games were found in the collection. Please advise on exploring new titles or revisiting completed favorites.`;
+
+      return {
+        description:
+          'Recommendation prompt for selecting a backlog game to play next',
+        messages: [
+          {
+            role: 'user',
+            content: {
+              type: 'text',
+              text: promptText,
+            },
+          },
+        ],
+      };
+    }
+
+    case 'audit_missing_backups': {
+      const platformFilter = await resolvePlatform(db, safeArgs['platform']);
+      const limit = Math.min(Math.max(Number(safeArgs['limit']) || 10, 1), 25);
+
+      let sql = `
+        SELECT g.id, g.title,
+               COALESCE(pp.display_name, p.display_name) as platform,
+               r.has_case, r.has_manual, g.release_medium,
+               COALESCE(g.price_cib, g.price_loose, 0) as estimated_cents
+        FROM games g
+        JOIN game_releases r ON g.stable_id = r.game_id
+        JOIN platforms p ON g.platform_id = p.id
+        LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+        WHERE r.ownership_status = 1 
+          AND r.backup_status = 0
+          AND (g.release_medium IS NULL OR g.release_medium != 'digital')
+      `;
+      const params: (string | number)[] = [];
+      if (platformFilter) {
+        sql += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
+        params.push(platformFilter.id, platformFilter.id);
+      }
+      sql += ` GROUP BY g.stable_id ORDER BY estimated_cents DESC, g.title ASC LIMIT ?`;
+      params.push(limit);
+
+      const queryResult = await db
+        .prepare(sql)
+        .bind(...params)
+        .all();
+      const rows = (queryResult.results || []) as unknown as Array<{
+        id: string;
+        title: string;
+        platform: string;
+        has_case: number;
+        has_manual: number;
+        release_medium: string | null;
+        estimated_cents: number;
+      }>;
+
+      const candidates = rows.map((r, i) => {
+        const comp = computeCompleteness(
+          r.release_medium,
+          r.has_case,
+          r.has_manual,
+        );
+        const val = formatCents(r.estimated_cents) || '$0.00';
+        return `${i + 1}. **${r.title}** (${r.platform}) - Completeness: ${comp}, Estimated Value: ${val}`;
+      });
+
+      const platText = platformFilter
+        ? ` for ${platformFilter.displayName}`
+        : '';
+      const promptText =
+        rows.length > 0
+          ? `Please help me audit and prioritize physical video games in my collection${platText} that are currently missing digital ROM/disc preservation backups.\n\nHere are the highest-priority owned physical games missing digital backups:\n${candidates.join(
+              '\n',
+            )}\n\nPlease analyze this list and suggest an efficient backup priority order, highlighting disc-based media prone to disc rot or high-value cartridges.`
+          : `All owned physical games${platText} are currently fully backed up! Please suggest archival verification or hash-checking routines to ensure backup integrity.`;
+
+      return {
+        description:
+          'Prompt to audit owned physical games missing digital ROM/ISO preservation backups',
+        messages: [
+          {
+            role: 'user',
+            content: {
+              type: 'text',
+              text: promptText,
+            },
+          },
+        ],
+      };
+    }
+
+    case 'evaluate_deal': {
+      const title = String(safeArgs['title'] || '').trim();
+      const salePrice = String(safeArgs['sale_price'] || '').trim();
+      const store = safeArgs['store'] ? String(safeArgs['store']).trim() : null;
+
+      if (!title || !salePrice) {
+        throw new Error(
+          '"title" and "sale_price" arguments are required for evaluate_deal.',
+        );
+      }
+
+      // Check existing ownership
+      const checkSql = `
+        SELECT g.id, g.title, g.series, g.canonical_series,
+               COALESCE(pp.display_name, p.display_name) as platform,
+               COALESCE(r.ownership_status, 0) as ownership_status,
+               r.has_case, r.has_manual, g.release_medium,
+               g.price_loose, g.price_cib, g.price_new
+        FROM games g
+        LEFT JOIN game_releases r ON g.stable_id = r.game_id
+        JOIN platforms p ON g.platform_id = p.id
+        LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+        WHERE g.title COLLATE NOCASE = ? OR g.title COLLATE NOCASE LIKE ?
+        LIMIT 5
+      `;
+      const queryResult = await db
+        .prepare(checkSql)
+        .bind(title, `%${title}%`)
+        .all();
+      const matches = (queryResult.results || []) as unknown as Array<{
+        id: string;
+        title: string;
+        series: string | null;
+        canonical_series: string | null;
+        platform: string;
+        ownership_status: number;
+        has_case: number;
+        has_manual: number;
+        release_medium: string | null;
+        price_loose: number | null;
+        price_cib: number | null;
+        price_new: number | null;
+      }>;
+
+      const ownedMatch = matches.find((m) => Number(m.ownership_status) === 1);
+      const exactOrFirst = matches[0];
+
+      let ownershipText = 'Not owned in current collection.';
+      if (ownedMatch) {
+        const comp = computeCompleteness(
+          ownedMatch.release_medium,
+          ownedMatch.has_case,
+          ownedMatch.has_manual,
+        );
+        ownershipText = `ALREADY OWNED on ${ownedMatch.platform} (${comp}).`;
+      }
+
+      const seriesName =
+        exactOrFirst?.canonical_series || exactOrFirst?.series || null;
+      let priceGuideText =
+        'No PriceCharting market data available for this title.';
+      if (
+        exactOrFirst &&
+        (exactOrFirst.price_loose ||
+          exactOrFirst.price_cib ||
+          exactOrFirst.price_new)
+      ) {
+        priceGuideText = `Market Estimates: Loose: ${formatCents(exactOrFirst.price_loose) || 'N/A'}, CIB: ${formatCents(exactOrFirst.price_cib) || 'N/A'}, New/Sealed: ${formatCents(exactOrFirst.price_new) || 'N/A'}`;
+      }
+
+      const storeText = store ? ` at ${store}` : '';
+      const promptText = `I am considering purchasing the following video game deal:\n\n- **Game Title**: ${title}\n- **Sale Price**: ${salePrice}${storeText}\n- **Collection Status**: ${ownershipText}\n- **Series / Franchise**: ${seriesName || 'Standalone / Unknown'}\n- **Price Guide**: ${priceGuideText}\n\nPlease evaluate whether this deal is worth buying. Consider whether I already own a copy, how the sale price compares to market value, and whether it represents good value for the collection.`;
+
+      return {
+        description:
+          'Prompt to evaluate a retail game deal against collection ownership and series preference',
+        messages: [
+          {
+            role: 'user',
+            content: {
+              type: 'text',
+              text: promptText,
+            },
+          },
+        ],
+      };
+    }
+
+    default:
+      throw new Error(`Prompt not found: "${promptName}"`);
+  }
+}
+
+/**
+ * Dispatches an MCP resource read to generate structured Markdown documents
+ */
+export async function executeMcpResource(
+  uri: string,
+  env: McpEnv,
+  _origin: string,
+): Promise<{
+  contents: Array<{
+    uri: string;
+    mimeType: string;
+    text: string;
+  }>;
+}> {
+  const db = env.DB;
+
+  switch (uri) {
+    case 'collection://stats': {
+      const statsSql = `
+        SELECT 
+          COUNT(DISTINCT g.stable_id) as total_games_tracked,
+          COUNT(DISTINCT CASE WHEN r.ownership_status = 1 THEN g.stable_id END) as owned_games,
+          COUNT(DISTINCT CASE WHEN r.ownership_status = 1 AND r.backup_status = 1 THEN g.stable_id END) as backed_up_games,
+          SUM(
+            CASE WHEN r.ownership_status = 1 THEN
+              CASE 
+                WHEN r.has_case = 1 AND r.has_manual = 1 THEN COALESCE(g.price_cib, g.price_loose, 0)
+                WHEN r.has_case = 1 THEN COALESCE(g.price_cib, g.price_loose, 0)
+                ELSE COALESCE(g.price_loose, g.price_cib, 0)
+              END
+            ELSE 0 END
+          ) as total_value_cents
+        FROM games g
+        LEFT JOIN game_releases r ON g.stable_id = r.game_id
+      `;
+      const statsRow = (await db.prepare(statsSql).first()) as {
+        total_games_tracked: number;
+        owned_games: number;
+        backed_up_games: number;
+        total_value_cents: number | null;
+      } | null;
+
+      const ownedGames = Number(statsRow?.owned_games || 0);
+      const backedUp = Number(statsRow?.backed_up_games || 0);
+      const missing = Math.max(0, ownedGames - backedUp);
+      const backupPct =
+        ownedGames > 0
+          ? ((backedUp / ownedGames) * 100).toFixed(1) + '%'
+          : '0.0%';
+
+      const toyRow = (await db
+        .prepare(
+          `SELECT COUNT(*) as owned_toys FROM toys WHERE ownership_status = 1`,
+        )
+        .first()) as { owned_toys: number } | null;
+      const totalToys = Number(toyRow?.owned_toys || 0);
+
+      const { results: topPlatResults } = await db
+        .prepare(
+          `SELECT COALESCE(pp.display_name, p.display_name) as platform_name,
+                  COUNT(DISTINCT CASE WHEN r.ownership_status = 1 THEN g.stable_id END) as owned_count
+           FROM games g
+           JOIN game_releases r ON g.stable_id = r.game_id
+           JOIN platforms p ON g.platform_id = p.id
+           LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+           GROUP BY platform_name
+           ORDER BY owned_count DESC
+           LIMIT 5`,
+        )
+        .all();
+      const topPlatforms = (topPlatResults || []) as unknown as Array<{
+        platform_name: string;
+        owned_count: number;
+      }>;
+
+      const lines = [
+        '# Collection Statistics Overview',
+        '',
+        `- **Total Catalog Games Tracked:** ${Number(statsRow?.total_games_tracked || 0)}`,
+        `- **Owned Games:** ${ownedGames}`,
+        `- **Backed Up Games:** ${backedUp} (${backupPct})`,
+        `- **Missing Backups:** ${missing}`,
+        `- **Toys & Amiibo Owned:** ${totalToys}`,
+        `- **Estimated Collection Market Value:** ${formatCents(statsRow?.total_value_cents) || '$0.00'}`,
+        '',
+        '## Top Platforms by Owned Count',
+      ];
+
+      for (const p of topPlatforms) {
+        lines.push(`- **${p.platform_name}**: ${p.owned_count} games`);
+      }
+
+      return {
+        contents: [
+          {
+            uri: 'collection://stats',
+            mimeType: 'text/markdown',
+            text: lines.join('\n'),
+          },
+        ],
+      };
+    }
+
+    case 'collection://wishlist': {
+      const sql = `
+        SELECT g.id, g.title,
+               COALESCE(pp.display_name, p.display_name) as platform,
+               r.ownership_status,
+               g.price_loose, g.price_cib
+        FROM games g
+        JOIN game_releases r ON g.stable_id = r.game_id
+        JOIN platforms p ON g.platform_id = p.id
+        LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+        WHERE r.ownership_status IN (2, 3)
+        GROUP BY g.stable_id
+        ORDER BY r.ownership_status DESC, g.title ASC
+        LIMIT 50
+      `;
+      const queryResult = await db.prepare(sql).all();
+      const rows = (queryResult.results || []) as unknown as Array<{
+        id: string;
+        title: string;
+        platform: string;
+        ownership_status: number;
+        price_loose: number | null;
+        price_cib: number | null;
+      }>;
+
+      const ordered = rows.filter((r) => Number(r.ownership_status) === 3);
+      const seeking = rows.filter((r) => Number(r.ownership_status) === 2);
+
+      const lines = ['# Collection Wishlist & Seeking Items', ''];
+
+      lines.push('## Currently Ordered (Incoming)');
+      if (ordered.length === 0) {
+        lines.push('_No games currently on order._');
+      } else {
+        for (const o of ordered) {
+          const val = formatCents(o.price_cib || o.price_loose);
+          lines.push(
+            `- **${o.title}** (${o.platform})${val ? ` - Est: ${val}` : ''}`,
+          );
+        }
+      }
+
+      lines.push('');
+      lines.push('## Seeking (Wishlist)');
+      if (seeking.length === 0) {
+        lines.push('_No games currently marked as seeking._');
+      } else {
+        for (const s of seeking) {
+          const val = formatCents(s.price_cib || s.price_loose);
+          lines.push(
+            `- **${s.title}** (${s.platform})${val ? ` - Est: ${val}` : ''}`,
+          );
+        }
+      }
+
+      return {
+        contents: [
+          {
+            uri: 'collection://wishlist',
+            mimeType: 'text/markdown',
+            text: lines.join('\n'),
+          },
+        ],
+      };
+    }
+
+    case 'collection://deals': {
+      const sql = `
+        SELECT g.id, g.title,
+               COALESCE(pp.display_name, p.display_name) as platform,
+               g.retail_store, g.retail_price, g.retail_regular_price,
+               g.retail_discount_pct, g.retail_url,
+               COALESCE(r.ownership_status, 0) as ownership_status
+        FROM games g
+        LEFT JOIN game_releases r ON g.stable_id = r.game_id
+        JOIN platforms p ON g.platform_id = p.id
+        LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+        WHERE g.retail_on_sale = 1
+        GROUP BY g.stable_id
+        ORDER BY g.retail_discount_pct DESC
+        LIMIT 25
+      `;
+      const queryResult = await db.prepare(sql).all();
+      const rows = (queryResult.results || []) as unknown as Array<{
+        id: string;
+        title: string;
+        platform: string;
+        retail_store: string | null;
+        retail_price: number | null;
+        retail_regular_price: number | null;
+        retail_discount_pct: number | null;
+        retail_url: string | null;
+        ownership_status: number;
+      }>;
+
+      const lines = ['# Active Retail Deals & Discounts', ''];
+      if (rows.length === 0) {
+        lines.push('_No active retail deals currently tracked._');
+      } else {
+        for (const d of rows) {
+          const owned =
+            Number(d.ownership_status) === 1 ? ' *(Already Owned)*' : '';
+          const saleVal = formatCents(d.retail_price) || 'Sale';
+          const regVal = formatCents(d.retail_regular_price) || 'Regular';
+          const store = d.retail_store || 'Retailer';
+          lines.push(`- **${d.title}** (${d.platform})${owned}`);
+          lines.push(
+            `  - Price: ${saleVal} (was ${regVal}, -${d.retail_discount_pct}%) at ${store}`,
+          );
+          if (d.retail_url) {
+            lines.push(`  - Link: ${d.retail_url}`);
+          }
+        }
+      }
+
+      return {
+        contents: [
+          {
+            uri: 'collection://deals',
+            mimeType: 'text/markdown',
+            text: lines.join('\n'),
+          },
+        ],
+      };
+    }
+
+    default:
+      throw new Error(`Resource not found: "${uri}"`);
   }
 }
 
@@ -1429,9 +2266,20 @@ export async function handleMcpRequest(
         server: 'collection-tracker-mcp',
         app: appName,
         tools_count: MCP_TOOLS.length,
+        prompts_count: MCP_PROMPTS.length,
+        resources_count: MCP_RESOURCES.length,
         tools: MCP_TOOLS.map((t) => ({
           name: t.name,
           description: t.description,
+        })),
+        prompts: MCP_PROMPTS.map((p) => ({
+          name: p.name,
+          description: p.description,
+        })),
+        resources: MCP_RESOURCES.map((r) => ({
+          uri: r.uri,
+          name: r.name,
+          description: r.description,
         })),
       },
       {
@@ -1486,6 +2334,8 @@ export async function handleMcpRequest(
             protocolVersion: '2024-11-05',
             capabilities: {
               tools: {},
+              prompts: {},
+              resources: {},
             },
             serverInfo: {
               name: 'collection-tracker-mcp',
@@ -1555,6 +2405,123 @@ export async function handleMcpRequest(
           },
         };
         return Response.json(response, { headers: MCP_CORS_HEADERS });
+      }
+
+      // Prompt Discovery
+      case 'prompts/list': {
+        const response: JsonRpcResponse = {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            prompts: MCP_PROMPTS,
+          },
+        };
+        return Response.json(response, { headers: MCP_CORS_HEADERS });
+      }
+
+      // Prompt Execution / Retrieval
+      case 'prompts/get': {
+        const promptParams = params as
+          | { name?: string; arguments?: Record<string, string> }
+          | undefined;
+        const promptName = promptParams?.name;
+
+        if (!promptName) {
+          return Response.json(
+            {
+              jsonrpc: '2.0',
+              id,
+              error: {
+                code: -32602,
+                message: 'Invalid params: "name" is required for prompts/get',
+              },
+            },
+            { status: 400, headers: MCP_CORS_HEADERS },
+          );
+        }
+
+        try {
+          const result = await executeMcpPrompt(
+            promptName,
+            promptParams?.arguments,
+            env,
+            origin,
+          );
+          const response: JsonRpcResponse = {
+            jsonrpc: '2.0',
+            id,
+            result,
+          };
+          return Response.json(response, { headers: MCP_CORS_HEADERS });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return Response.json(
+            {
+              jsonrpc: '2.0',
+              id,
+              error: {
+                code: -32602,
+                message: msg,
+              },
+            },
+            { status: 404, headers: MCP_CORS_HEADERS },
+          );
+        }
+      }
+
+      // Resource Discovery
+      case 'resources/list': {
+        const response: JsonRpcResponse = {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            resources: MCP_RESOURCES,
+          },
+        };
+        return Response.json(response, { headers: MCP_CORS_HEADERS });
+      }
+
+      // Resource Reading
+      case 'resources/read': {
+        const resourceParams = params as { uri?: string } | undefined;
+        const uri = resourceParams?.uri;
+
+        if (!uri) {
+          return Response.json(
+            {
+              jsonrpc: '2.0',
+              id,
+              error: {
+                code: -32602,
+                message: 'Invalid params: "uri" is required for resources/read',
+              },
+            },
+            { status: 400, headers: MCP_CORS_HEADERS },
+          );
+        }
+
+        try {
+          const result = await executeMcpResource(uri, env, origin);
+          const response: JsonRpcResponse = {
+            jsonrpc: '2.0',
+            id,
+            result,
+          };
+          return Response.json(response, { headers: MCP_CORS_HEADERS });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return Response.json(
+            {
+              jsonrpc: '2.0',
+              id,
+              error: {
+                code: -32602,
+                message: msg,
+              },
+            },
+            { status: 404, headers: MCP_CORS_HEADERS },
+          );
+        }
       }
 
       // Health Check Ping

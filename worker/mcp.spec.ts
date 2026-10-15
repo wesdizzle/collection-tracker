@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { handleMcpRequest, McpEnv, MCP_TOOLS } from './mcp';
+import {
+  handleMcpRequest,
+  McpEnv,
+  MCP_TOOLS,
+  MCP_PROMPTS,
+  MCP_RESOURCES,
+} from './mcp';
 import worker, { Env } from './worker';
 
 interface TestJsonRpcResponse {
@@ -8,10 +14,15 @@ interface TestJsonRpcResponse {
   id: string | number | null;
   result?: {
     protocolVersion?: string;
-    capabilities?: { tools?: unknown };
+    capabilities?: { tools?: unknown; prompts?: unknown; resources?: unknown };
     serverInfo?: { name: string; version: string };
     tools?: Array<{ name: string; description: string }>;
+    prompts?: Array<{ name: string; description: string }>;
+    resources?: Array<{ uri: string; name: string; description: string }>;
     content?: Array<{ type: string; text: string }>;
+    contents?: Array<{ uri: string; mimeType: string; text: string }>;
+    messages?: Array<{ role: string; content: { type: string; text: string } }>;
+    description?: string;
     isError?: boolean;
   };
   error?: {
@@ -28,7 +39,11 @@ interface TestGetStatusResponse {
   server: string;
   app: string;
   tools_count: number;
+  prompts_count: number;
+  resources_count: number;
   tools: Array<{ name: string; description: string }>;
+  prompts: Array<{ name: string; description: string }>;
+  resources: Array<{ uri: string; name: string; description: string }>;
 }
 
 interface ParsedOwnershipResponse {
@@ -161,6 +176,7 @@ describe('Model Context Protocol (MCP) Server', () => {
         igdb_url TEXT,
         barcode TEXT,
         region TEXT,
+        play_status INTEGER DEFAULT 0,
         physical_status TEXT DEFAULT 'unverified',
         release_medium TEXT DEFAULT 'physical_retail',
         price_loose INTEGER,
@@ -221,16 +237,16 @@ describe('Model Context Protocol (MCP) Server', () => {
         (165, 'PlayStation VR', 'PlayStation VR', 'Sony', '2016-10-13', 48);
 
       -- Seed Games & Releases
-      -- 1. Super Mario Galaxy (Wii, Owned, CIB, Backed Up)
-      INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, price_loose, price_cib, summary)
-      VALUES (1, 'super-mario-galaxy-wii', 'Super Mario Galaxy', 'Mario', 'Super Mario', 15, 1200, 1550, 'Mario in space.');
+      -- 1. Super Mario Galaxy (Wii, Owned, CIB, Backed Up, Queued)
+      INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, play_status, price_loose, price_cib, summary)
+      VALUES (1, 'super-mario-galaxy-wii', 'Super Mario Galaxy', 'Mario', 'Super Mario', 15, 3, 1200, 1550, 'Mario in space.');
 
       INSERT INTO game_releases (id, game_id, region, variants, backup_status, ownership_status, has_case, has_manual, rom_name)
       VALUES ('smg-us', 1, 'USA, Canada', NULL, 1, 1, 1, 1, 'Super Mario Galaxy (USA).iso');
 
-      -- 2. Beat Saber (PSVR under PS4, Owned, Digital, Missing Backup)
-      INSERT INTO games (stable_id, id, title, series, platform_id, release_medium)
-      VALUES (2, 'beat-saber-ps4', 'Beat Saber', 'Beat Saber', 165, 'digital');
+      -- 2. Beat Saber (PSVR under PS4, Owned, Digital, Missing Backup, Playing)
+      INSERT INTO games (stable_id, id, title, series, platform_id, play_status, release_medium)
+      VALUES (2, 'beat-saber-ps4', 'Beat Saber', 'Beat Saber', 165, 2, 'digital');
 
       INSERT INTO game_releases (id, game_id, region, backup_status, ownership_status)
       VALUES ('bs-us', 2, 'USA', 0, 1);
@@ -243,6 +259,13 @@ describe('Model Context Protocol (MCP) Server', () => {
         3, 'metroid-prime-4-switch', 'Metroid Prime 4: Beyond', 15, 1, 'Best Buy',
         4999, 6999, 28, 'https://bestbuy.com/metroid'
       );
+
+      -- 4. Seeking Game (Wishlist)
+      INSERT INTO games (stable_id, id, title, series, platform_id, price_loose, price_cib)
+      VALUES (4, 'xenoblade-chronicles-wii', 'Xenoblade Chronicles', 'Xenoblade', 15, 2500, 3200);
+
+      INSERT INTO game_releases (id, game_id, region, ownership_status)
+      VALUES ('xc-us', 4, 'USA', 2);
 
       -- Seed Toys
       INSERT INTO toy_series (id, name, line) VALUES ('zelda', 'The Legend of Zelda', 'amiibo');
@@ -296,7 +319,11 @@ describe('Model Context Protocol (MCP) Server', () => {
     const data = (await res.json()) as TestGetStatusResponse;
     expect(data.status).toBe('ok');
     expect(data.tools_count).toBe(MCP_TOOLS.length);
+    expect(data.prompts_count).toBe(MCP_PROMPTS.length);
+    expect(data.resources_count).toBe(MCP_RESOURCES.length);
     expect(data.tools).toBeDefined();
+    expect(data.prompts).toBeDefined();
+    expect(data.resources).toBeDefined();
   });
 
   it('handles MCP initialize handshake', async () => {
@@ -317,6 +344,8 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(data.id).toBe(1);
     expect(data.result?.serverInfo?.name).toBe('collection-tracker-mcp');
     expect(data.result?.capabilities?.tools).toBeDefined();
+    expect(data.result?.capabilities?.prompts).toBeDefined();
+    expect(data.result?.capabilities?.resources).toBeDefined();
   });
 
   it('handles MCP tools/list discovery', async () => {
@@ -333,7 +362,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     const res = await handleMcpRequest(req, mockEnv);
     const data = (await res.json()) as TestJsonRpcResponse;
     expect(data.id).toBe(2);
-    expect(data.result?.tools?.length).toBe(8);
+    expect(data.result?.tools?.length).toBe(10);
     const toolNames = (data.result?.tools || []).map((t) => t.name);
     expect(toolNames).toContain('check_game_ownership');
     expect(toolNames).toContain('search_collection');
@@ -343,6 +372,8 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(toolNames).toContain('get_collection_stats');
     expect(toolNames).toContain('get_platforms');
     expect(toolNames).toContain('get_active_deals');
+    expect(toolNames).toContain('get_backlog');
+    expect(toolNames).toContain('get_platform_completion');
   });
 
   describe('Tool 1: check_game_ownership', () => {
@@ -541,7 +572,7 @@ describe('Model Context Protocol (MCP) Server', () => {
       const parsed = JSON.parse(
         data.result?.content?.[0]?.text || '{}',
       ) as ParsedStatsResponse;
-      expect(parsed.total_games_tracked).toBe(3);
+      expect(parsed.total_games_tracked).toBe(4);
       expect(parsed.owned_games_count).toBe(2);
       expect(parsed.backed_up_games_count).toBe(1);
       expect(parsed.missing_backup_count).toBe(1);
@@ -608,6 +639,367 @@ describe('Model Context Protocol (MCP) Server', () => {
         'https://tracker.test/collection/games/metroid-prime-4-switch',
       );
       expect(parsed.deals[0]?.already_owned).toBe(false);
+    });
+  });
+
+  describe('Tool 9: get_backlog', () => {
+    it('returns owned games in gaming backlog', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 50,
+          method: 'tools/call',
+          params: {
+            name: 'get_backlog',
+            arguments: {},
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      const parsed = JSON.parse(data.result?.content?.[0]?.text || '{}') as {
+        count: number;
+        platform: string;
+        backlog: Array<{
+          id: string;
+          title: string;
+          platform: string;
+          play_status: string;
+          play_status_code: number;
+        }>;
+      };
+
+      expect(parsed.count).toBe(2);
+      expect(parsed.platform).toBe('All Platforms');
+      const titles = parsed.backlog.map((b) => b.title);
+      expect(titles).toContain('Super Mario Galaxy');
+      expect(titles).toContain('Beat Saber');
+    });
+
+    it('filters backlog by specific play status and platform', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 51,
+          method: 'tools/call',
+          params: {
+            name: 'get_backlog',
+            arguments: {
+              play_status: 'queued',
+              platform: 'Wii',
+            },
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      const parsed = JSON.parse(data.result?.content?.[0]?.text || '{}') as {
+        count: number;
+        platform: string;
+        backlog: Array<{ id: string; title: string; play_status: string }>;
+      };
+
+      expect(parsed.count).toBe(1);
+      expect(parsed.platform).toBe('Wii');
+      expect(parsed.backlog[0]?.title).toBe('Super Mario Galaxy');
+      expect(parsed.backlog[0]?.play_status).toBe('Queued');
+    });
+  });
+
+  describe('Tool 10: get_platform_completion', () => {
+    it('returns platform completion breakdown for systems with owned games', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 55,
+          method: 'tools/call',
+          params: {
+            name: 'get_platform_completion',
+            arguments: {},
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      const parsed = JSON.parse(data.result?.content?.[0]?.text || '{}') as {
+        count: number;
+        platforms: Array<{
+          platform_id: number;
+          platform: string;
+          owned_games_count: number;
+          backed_up_games_count: number;
+          cib_games_count: number;
+          total_catalog_games: number;
+        }>;
+      };
+
+      expect(parsed.count).toBeGreaterThan(0);
+      const wii = parsed.platforms.find((p) => p.platform === 'Wii');
+      expect(wii).toBeDefined();
+      expect(wii?.owned_games_count).toBe(1);
+      expect(wii?.backed_up_games_count).toBe(1);
+      expect(wii?.cib_games_count).toBe(1);
+    });
+
+    it('returns single platform metrics when filtered by platform', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 56,
+          method: 'tools/call',
+          params: {
+            name: 'get_platform_completion',
+            arguments: {
+              platform: 'Wii',
+            },
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      const parsed = JSON.parse(data.result?.content?.[0]?.text || '{}') as {
+        count: number;
+        filter_platform: string;
+        platforms: Array<{ platform: string }>;
+      };
+
+      expect(parsed.filter_platform).toBe('Wii');
+      expect(parsed.count).toBe(1);
+      expect(parsed.platforms[0]?.platform).toBe('Wii');
+    });
+  });
+
+  describe('MCP Prompts', () => {
+    it('handles prompts/list discovery', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 60,
+          method: 'prompts/list',
+          params: {},
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(60);
+      expect(data.result?.prompts?.length).toBe(3);
+      const names = (data.result?.prompts || []).map((p) => p.name);
+      expect(names).toContain('recommend_backlog_game');
+      expect(names).toContain('audit_missing_backups');
+      expect(names).toContain('evaluate_deal');
+    });
+
+    it('generates recommend_backlog_game prompt', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 61,
+          method: 'prompts/get',
+          params: {
+            name: 'recommend_backlog_game',
+            arguments: { platform: 'Wii' },
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(61);
+      expect(data.result?.messages?.length).toBe(1);
+      const text = data.result?.messages?.[0]?.content.text || '';
+      expect(text).toContain('Super Mario Galaxy');
+      expect(text).toContain('Queued');
+    });
+
+    it('generates audit_missing_backups prompt', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 62,
+          method: 'prompts/get',
+          params: {
+            name: 'audit_missing_backups',
+            arguments: {},
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(62);
+      expect(data.result?.messages?.length).toBe(1);
+    });
+
+    it('generates evaluate_deal prompt', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 63,
+          method: 'prompts/get',
+          params: {
+            name: 'evaluate_deal',
+            arguments: {
+              title: 'Metroid Prime 4: Beyond',
+              sale_price: '$49.99',
+              store: 'Best Buy',
+            },
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(63);
+      expect(data.result?.messages?.length).toBe(1);
+      const text = data.result?.messages?.[0]?.content.text || '';
+      expect(text).toContain('Metroid Prime 4: Beyond');
+      expect(text).toContain('$49.99');
+      expect(text).toContain('Best Buy');
+    });
+
+    it('returns error for unknown prompt name', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 64,
+          method: 'prompts/get',
+          params: {
+            name: 'non_existent_prompt',
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      expect(res.status).toBe(404);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.error?.code).toBe(-32602);
+    });
+  });
+
+  describe('MCP Resources', () => {
+    it('handles resources/list discovery', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 70,
+          method: 'resources/list',
+          params: {},
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(70);
+      expect(data.result?.resources?.length).toBe(3);
+      const uris = (data.result?.resources || []).map((r) => r.uri);
+      expect(uris).toContain('collection://stats');
+      expect(uris).toContain('collection://wishlist');
+      expect(uris).toContain('collection://deals');
+    });
+
+    it('reads collection://stats resource', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 71,
+          method: 'resources/read',
+          params: {
+            uri: 'collection://stats',
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(71);
+      expect(data.result?.contents?.length).toBe(1);
+      const content = data.result?.contents?.[0];
+      expect(content?.uri).toBe('collection://stats');
+      expect(content?.mimeType).toBe('text/markdown');
+      expect(content?.text).toContain('# Collection Statistics Overview');
+      expect(content?.text).toContain('Owned Games:');
+    });
+
+    it('reads collection://wishlist resource', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 72,
+          method: 'resources/read',
+          params: {
+            uri: 'collection://wishlist',
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(72);
+      expect(data.result?.contents?.length).toBe(1);
+      const content = data.result?.contents?.[0];
+      expect(content?.uri).toBe('collection://wishlist');
+      expect(content?.mimeType).toBe('text/markdown');
+      expect(content?.text).toContain('Xenoblade Chronicles');
+    });
+
+    it('reads collection://deals resource', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 73,
+          method: 'resources/read',
+          params: {
+            uri: 'collection://deals',
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(73);
+      expect(data.result?.contents?.length).toBe(1);
+      const content = data.result?.contents?.[0];
+      expect(content?.uri).toBe('collection://deals');
+      expect(content?.mimeType).toBe('text/markdown');
+      expect(content?.text).toContain('Metroid Prime 4: Beyond');
+      expect(content?.text).toContain('Best Buy');
+    });
+
+    it('returns error for unknown resource uri', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 74,
+          method: 'resources/read',
+          params: {
+            uri: 'collection://unknown',
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      expect(res.status).toBe(404);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.error?.code).toBe(-32602);
     });
   });
 
