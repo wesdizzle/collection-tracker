@@ -757,6 +757,37 @@ export class CollectionListComponent
 
   private applyQueryParams(qp: Record<string, unknown>) {
     if (!qp || Object.keys(qp).length === 0) return;
+
+    if (qp['reset'] === '1' || qp['reset'] === 'true') {
+      this.filters.set({
+        ownership: 1,
+        play_status: 'all',
+        backup_status: 'all',
+        physical_verified: 'all',
+        platform_id: undefined,
+        regions: [],
+        line: '',
+        type: '',
+        name: '',
+        nameExact: false,
+        series: '',
+        seriesExact: false,
+        tag: '',
+        tagExact: false,
+        sortBy: 'default',
+        deals_only: false,
+        media_type: 'physical_only',
+        budget_label: 'all',
+      });
+      this.displayLimit.set(100);
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: {},
+        replaceUrl: true,
+      });
+      return;
+    }
+
     const qpFilters: Partial<FilterState> = {};
     if (qp['platform_id'] !== undefined) {
       const pid = parseInt(String(qp['platform_id']), 10);
@@ -773,8 +804,26 @@ export class CollectionListComponent
       }
     }
     if (qp['play_status'] !== undefined) {
-      const ps = parseInt(String(qp['play_status']), 10);
-      if (!isNaN(ps)) qpFilters.play_status = ps as PlayStatus;
+      const psVal = String(qp['play_status']);
+      if (psVal === 'backlog' || psVal === 'queued') {
+        qpFilters.play_status = 3;
+      } else if (psVal === 'playing') {
+        qpFilters.play_status = 2;
+      } else if (psVal === 'played') {
+        qpFilters.play_status = 1;
+      } else {
+        const ps = parseInt(psVal, 10);
+        if (!isNaN(ps)) qpFilters.play_status = ps as PlayStatus;
+      }
+    }
+    if (qp['quick_status'] !== undefined) {
+      const qs = String(qp['quick_status']);
+      if (qs === 'deals') {
+        qpFilters.deals_only = true;
+        qpFilters.ownership = 0;
+      } else if (qs === 'seeking') {
+        qpFilters.ownership = 2;
+      }
     }
     if (qp['ownership'] !== undefined) {
       const ownStr = String(qp['ownership']);

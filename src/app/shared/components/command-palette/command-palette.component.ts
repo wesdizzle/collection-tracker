@@ -119,13 +119,24 @@ export class CommandPaletteComponent {
 
   private filterActions: CommandPaletteItem[] = [
     {
+      id: 'filter-reset',
+      title: 'Reset All Filters',
+      subtitle: 'Clear all active filters and return to default owned view',
+      category: 'Quick Filters',
+      icon: 'refresh',
+      action: () => this.resetAllFilters(),
+    },
+    {
       id: 'filter-deals',
       title: 'Unowned Deals',
       subtitle: 'Games currently on sale or below retail price',
       category: 'Quick Filters',
       icon: 'coins',
       action: () =>
-        this.navigate('/collection/games', { quick_status: 'deals' }),
+        this.navigate('/collection/games', {
+          deals_only: 'true',
+          ownership: '0',
+        }),
     },
     {
       id: 'filter-backlog',
@@ -133,8 +144,7 @@ export class CommandPaletteComponent {
       subtitle: 'Games queued up to play next',
       category: 'Quick Filters',
       icon: 'list-queued',
-      action: () =>
-        this.navigate('/collection/games', { play_status: 'backlog' }),
+      action: () => this.navigate('/collection/games', { play_status: '3' }),
     },
     {
       id: 'filter-playing',
@@ -142,8 +152,7 @@ export class CommandPaletteComponent {
       subtitle: 'Active playthroughs',
       category: 'Quick Filters',
       icon: 'play',
-      action: () =>
-        this.navigate('/collection/games', { play_status: 'playing' }),
+      action: () => this.navigate('/collection/games', { play_status: '2' }),
     },
     {
       id: 'filter-seeking',
@@ -151,8 +160,7 @@ export class CommandPaletteComponent {
       subtitle: 'Games marked as actively seeking',
       category: 'Quick Filters',
       icon: 'seeking',
-      action: () =>
-        this.navigate('/collection/games', { quick_status: 'seeking' }),
+      action: () => this.navigate('/collection/games', { ownership: '2' }),
     },
     {
       id: 'filter-missing-backups',
@@ -167,19 +175,42 @@ export class CommandPaletteComponent {
   public readonly flatResults = computed<CommandPaletteItem[]>(() => {
     const rawQuery = this.query().trim().toLowerCase();
     const platforms = this.collectionService.platforms();
+    const games = this.collectionService.games();
+
+    const ownedCountsByPlatform = new Map<number, number>();
+    for (const g of games) {
+      if (g.ownership_status === 1 && g.platform_id != null) {
+        ownedCountsByPlatform.set(
+          g.platform_id,
+          (ownedCountsByPlatform.get(g.platform_id) || 0) + 1,
+        );
+      }
+    }
 
     if (!rawQuery) {
-      const topPlatforms: CommandPaletteItem[] = platforms
+      const sortedPlatforms = [...platforms].sort((a, b) => {
+        const countA = ownedCountsByPlatform.get(a.id) || 0;
+        const countB = ownedCountsByPlatform.get(b.id) || 0;
+        if (countB !== countA) return countB - countA;
+        return (a.display_name || a.name).localeCompare(
+          b.display_name || b.name,
+        );
+      });
+
+      const topPlatforms: CommandPaletteItem[] = sortedPlatforms
         .slice(0, 8)
-        .map((p) => ({
-          id: `platform-${p.id}`,
-          title: p.display_name || p.name,
-          subtitle: `${p.brand} platform`,
-          category: 'Platforms',
-          icon: 'gamepad' as IconName,
-          action: () =>
-            this.navigate('/collection/games', { platform_id: p.id }),
-        }));
+        .map((p) => {
+          const count = ownedCountsByPlatform.get(p.id) || 0;
+          return {
+            id: `platform-${p.id}`,
+            title: p.display_name || p.name,
+            subtitle: `${p.brand} platform${count > 0 ? ` • ${count} owned` : ''}`,
+            category: 'Platforms',
+            icon: 'gamepad' as IconName,
+            action: () =>
+              this.navigate('/collection/games', { platform_id: p.id }),
+          };
+        });
 
       return [
         ...this.navigationActions,
@@ -211,17 +242,25 @@ export class CommandPaletteComponent {
           matchesTokens(p.display_name || '') ||
           matchesTokens(p.brand || ''),
       )
+      .sort((a, b) => {
+        const countA = ownedCountsByPlatform.get(a.id) || 0;
+        const countB = ownedCountsByPlatform.get(b.id) || 0;
+        return countB - countA;
+      })
       .slice(0, 6)
-      .map((p) => ({
-        id: `platform-${p.id}`,
-        title: p.display_name || p.name,
-        subtitle: `${p.brand} platform`,
-        category: 'Platforms',
-        icon: 'gamepad' as IconName,
-        action: () => this.navigate('/collection/games', { platform_id: p.id }),
-      }));
+      .map((p) => {
+        const count = ownedCountsByPlatform.get(p.id) || 0;
+        return {
+          id: `platform-${p.id}`,
+          title: p.display_name || p.name,
+          subtitle: `${p.brand} platform${count > 0 ? ` • ${count} owned` : ''}`,
+          category: 'Platforms',
+          icon: 'gamepad' as IconName,
+          action: () =>
+            this.navigate('/collection/games', { platform_id: p.id }),
+        };
+      });
 
-    const games = this.collectionService.games();
     const matchingGames: CommandPaletteItem[] = games
       .filter(
         (g) =>
@@ -376,6 +415,14 @@ export class CommandPaletteComponent {
         activeEl.scrollIntoView({ block: 'nearest' });
       }
     }, 0);
+  }
+
+  private resetAllFilters() {
+    this.paletteService.close();
+    this.collectionService.resetListState();
+    this.router.navigate(['/collection/games'], {
+      queryParams: { reset: '1' },
+    });
   }
 
   private navigate(

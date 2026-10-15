@@ -83,6 +83,7 @@ describe('CommandPaletteComponent', () => {
     toys: mockToysSignal.asReadonly(),
     platforms: mockPlatformsSignal.asReadonly(),
     refreshAll: vi.fn().mockResolvedValue(undefined),
+    resetListState: vi.fn(),
   };
 
   beforeEach(async () => {
@@ -131,6 +132,61 @@ describe('CommandPaletteComponent', () => {
     expect(categories).toContain('Navigation');
     expect(categories).toContain('Quick Filters');
     expect(categories).toContain('Platforms');
+
+    // Reset filters action exists
+    const resetAction = results.find((r) => r.id === 'filter-reset');
+    expect(resetAction).toBeTruthy();
+    expect(resetAction?.title).toBe('Reset All Filters');
+  });
+
+  it('should reset list state and navigate with reset param when Reset All Filters is selected', () => {
+    paletteService.open();
+    fixture.detectChanges();
+
+    const resetAction = component
+      .flatResults()
+      .find((r) => r.id === 'filter-reset');
+    expect(resetAction).toBeTruthy();
+
+    resetAction?.action();
+
+    expect(mockCollectionService.resetListState).toHaveBeenCalled();
+    expect(router.navigate).toHaveBeenCalledWith(['/collection/games'], {
+      queryParams: { reset: '1' },
+    });
+    expect(paletteService.isOpen()).toBe(false);
+  });
+
+  it('should sort platform suggestions by owned games count', () => {
+    mockPlatformsSignal.set([
+      {
+        id: 10,
+        name: 'Empty Console',
+        display_name: 'Empty Console',
+        brand: 'BrandX',
+        launch_date: '2000-01-01',
+        image_url: '',
+      },
+      {
+        id: 1,
+        name: 'Nintendo 64',
+        display_name: 'N64',
+        brand: 'Nintendo',
+        launch_date: '1996-06-23',
+        image_url: '',
+      },
+    ]);
+    paletteService.open();
+    fixture.detectChanges();
+
+    const platformItems = component
+      .flatResults()
+      .filter((r) => r.category === 'Platforms');
+    expect(platformItems.length).toBe(2);
+    // Nintendo 64 has 1 owned game in mockGames, Empty Console has 0
+    expect(platformItems[0].title).toBe('N64');
+    expect(platformItems[0].subtitle).toContain('1 owned');
+    expect(platformItems[1].title).toBe('Empty Console');
   });
 
   it('should filter games and toys when a search query is entered', () => {
