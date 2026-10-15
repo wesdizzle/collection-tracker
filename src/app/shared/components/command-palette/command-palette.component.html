@@ -7,6 +7,14 @@
       aria-modal="true"
       aria-label="Command palette"
     >
+      <header class="palette-header">
+        <div class="palette-title-group">
+          <app-icon name="gamepad" [size]="15" />
+          <h2 class="palette-title">Command Palette</h2>
+        </div>
+        <span class="palette-shortcut-badge">Ctrl + K</span>
+      </header>
+
       <div class="palette-search-wrapper">
         <app-icon name="search" [size]="20" className="search-icon" />
         <input
@@ -45,9 +53,16 @@
                     <app-icon [name]="entry.item.icon" [size]="18" />
                   </div>
                   <div class="palette-item-info">
-                    <span class="palette-item-title">{{
-                      entry.item.title
-                    }}</span>
+                    <div class="palette-title-row">
+                      <span class="palette-item-title">{{
+                        entry.item.title
+                      }}</span>
+                      @if (entry.item.region) {
+                        <span class="palette-region-badge">{{
+                          entry.item.region
+                        }}</span>
+                      }
+                    </div>
                     @if (entry.item.subtitle) {
                       <span class="palette-item-subtitle">{{
                         entry.item.subtitle

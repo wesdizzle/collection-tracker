@@ -13,6 +13,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { CommandPaletteService } from '../../../core/services/command-palette.service';
 import { CollectionService } from '../../../core/services/collection.service';
+import { getMediaIconName } from '../../../core/models/collection.models';
 import { IconComponent } from '../icon/icon.component';
 import { IconName } from '../icon/icon.catalog';
 
@@ -20,11 +21,49 @@ export interface CommandPaletteItem {
   id: string;
   title: string;
   subtitle?: string;
+  region?: string;
   category: 'Navigation' | 'Quick Filters' | 'Platforms' | 'Games' | 'Toys';
   icon: IconName;
   badge?: string;
   action: () => void;
 }
+
+export const PLATFORM_NAME_TO_ALIASES: Record<string, string[]> = {
+  PlayStation: ['ps1', 'psx', 'psone'],
+  'PlayStation 2': ['ps2'],
+  'PlayStation 3': ['ps3'],
+  'PlayStation 4': ['ps4'],
+  'PlayStation 5': ['ps5'],
+  'PlayStation Portable': ['psp'],
+  'PlayStation Vita': ['psv', 'vita'],
+  'Super Nintendo Entertainment System': ['snes', 'super nintendo', 'sfc'],
+  'Nintendo Entertainment System': ['nes', 'famicom'],
+  'Nintendo 64': ['n64'],
+  'Nintendo 64DD': ['64dd', 'n64dd'],
+  'Famicom Disk System': ['fds'],
+  'Game Boy': ['gb'],
+  'Game Boy Color': ['gbc'],
+  'Game Boy Advance': ['gba'],
+  'Nintendo DS': ['nds', 'ds'],
+  'Nintendo 3DS': ['3ds'],
+  'Nintendo GameCube': ['ngc', 'gcn', 'gamecube'],
+  'Nintendo Wii': ['wii'],
+  'Nintendo Wii U': ['wiiu', 'wii u'],
+  'Nintendo Switch': ['switch', 'nsw'],
+  'Sega Genesis': ['gen', 'genesis', 'md', 'mega drive'],
+  'Sega Master System': ['sms', 'master system'],
+  'Sega Game Gear': ['gg', 'game gear'],
+  'Sega Saturn': ['saturn'],
+  'Sega Dreamcast': ['dc', 'dreamcast'],
+  'Sega CD': ['segacd', 'mega cd', 'mcd'],
+  'Sega 32X': ['32x'],
+  'TurboGrafx-16': ['tg16', 'pce', 'pc engine'],
+  'TurboGrafx-CD': ['pcecd', 'turbografx-cd'],
+  Xbox: ['xbox', 'ogx'],
+  'Xbox 360': ['x360', '360'],
+  'Xbox One': ['xone', 'xbone'],
+  'Xbox Series X/S': ['xsx', 'xss', 'series x', 'series s'],
+};
 
 export interface CommandPaletteGroup {
   category: string;
@@ -236,12 +275,18 @@ export class CommandPaletteComponent {
     );
 
     const matchingPlatforms: CommandPaletteItem[] = platforms
-      .filter(
-        (p) =>
-          matchesTokens(p.name) ||
-          matchesTokens(p.display_name || '') ||
-          matchesTokens(p.brand || ''),
-      )
+      .filter((p) => {
+        const aliases = PLATFORM_NAME_TO_ALIASES[p.name] || [];
+        const platformSearchText = [
+          p.name,
+          p.display_name || '',
+          p.brand || '',
+          ...aliases,
+        ]
+          .join(' ')
+          .toLowerCase();
+        return tokens.every((token) => platformSearchText.includes(token));
+      })
       .sort((a, b) => {
         const countA = ownedCountsByPlatform.get(a.id) || 0;
         const countB = ownedCountsByPlatform.get(b.id) || 0;
@@ -262,19 +307,29 @@ export class CommandPaletteComponent {
       });
 
     const matchingGames: CommandPaletteItem[] = games
-      .filter(
-        (g) =>
-          matchesTokens(g.title) ||
-          (g.series && matchesTokens(g.series)) ||
-          (g.platform && matchesTokens(g.platform)),
-      )
+      .filter((g) => {
+        const aliases =
+          (g.platform && PLATFORM_NAME_TO_ALIASES[g.platform]) || [];
+        const gameSearchText = [
+          g.title,
+          g.series || '',
+          g.canonical_series || '',
+          g.platform || '',
+          g.region || '',
+          ...aliases,
+        ]
+          .join(' ')
+          .toLowerCase();
+        return tokens.every((token) => gameSearchText.includes(token));
+      })
       .slice(0, 15)
       .map((g) => ({
         id: `game-${g.id || g.stable_id}`,
         title: g.title,
         subtitle: `${g.platform || ''}${g.series ? ' • ' + g.series : ''}`,
+        region: g.region || undefined,
         category: 'Games',
-        icon: 'disc' as IconName,
+        icon: getMediaIconName(g.platform, g.backup_status) as IconName,
         badge:
           g.ownership_status === 1
             ? 'Owned'

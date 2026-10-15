@@ -29,6 +29,7 @@ describe('CommandPaletteComponent', () => {
       release_date: '1996-06-23',
       platform: 'Nintendo 64',
       platform_id: 1,
+      region: 'USA',
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Played,
       backup_status: true,
@@ -42,6 +43,7 @@ describe('CommandPaletteComponent', () => {
       release_date: '1998-11-21',
       platform: 'Nintendo 64',
       platform_id: 1,
+      region: 'EUR',
       ownership_status: OwnershipStatus.Seeking,
       play_status: PlayStatus.Unplayed,
       backup_status: false,
@@ -198,6 +200,53 @@ describe('CommandPaletteComponent', () => {
     const results = component.flatResults();
     expect(results.some((r) => r.title.includes('Ocarina of Time'))).toBe(true);
     expect(results.some((r) => r.title === 'Super Mario 64')).toBe(false);
+  });
+
+  it('should render modal header with title and shortcut badge', () => {
+    paletteService.open();
+    fixture.detectChanges();
+
+    const titleEl = fixture.nativeElement.querySelector('.palette-title');
+    expect(titleEl?.textContent?.trim()).toBe('Command Palette');
+
+    const badgeEl = fixture.nativeElement.querySelector(
+      '.palette-shortcut-badge',
+    );
+    expect(badgeEl?.textContent?.trim()).toBe('Ctrl + K');
+  });
+
+  it('should render region badge for games in the results list', () => {
+    paletteService.open();
+    fixture.detectChanges();
+    component.query.set('mario');
+    fixture.detectChanges();
+
+    const regionBadge = fixture.nativeElement.querySelector(
+      '.palette-region-badge',
+    );
+    expect(regionBadge).not.toBeNull();
+    expect(regionBadge?.textContent?.trim()).toBe('USA');
+  });
+
+  it('should match platforms and games using short platform aliases', () => {
+    paletteService.open();
+    fixture.detectChanges();
+    // 'n64' is an alias for 'Nintendo 64'
+    component.query.set('n64');
+    fixture.detectChanges();
+
+    const results = component.flatResults();
+    // Platform should match via alias
+    const platformMatch = results.find(
+      (r) => r.category === 'Platforms' && r.title === 'N64',
+    );
+    expect(platformMatch).toBeTruthy();
+
+    // Games on N64 should match via alias
+    const gameMatch = results.find(
+      (r) => r.category === 'Games' && r.title === 'Super Mario 64',
+    );
+    expect(gameMatch).toBeTruthy();
   });
 
   it('should navigate and close when an item is selected', () => {
