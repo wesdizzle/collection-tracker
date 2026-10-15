@@ -512,15 +512,23 @@ Disallow: /
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers':
-            'Content-Type, Authorization, Cf-Access-Authenticated-User-Email, Cf-Access-Jwt-Assertion, X-Requested-With, Mcp-Session-Id',
+            'Content-Type, Authorization, Cf-Access-Authenticated-User-Email, Cf-Access-Jwt-Assertion, X-Requested-With, Mcp-Session-Id, Accept, Cache-Control, Last-Event-ID',
+          'Access-Control-Expose-Headers': 'Mcp-Session-Id',
           'Access-Control-Max-Age': '86400',
         },
       });
     }
 
     try {
-      // Endpoint: Model Context Protocol (MCP) Streamable HTTP Server
-      if (path === '/mcp' || path === '/api/mcp') {
+      // Endpoint: Model Context Protocol (MCP) Streamable HTTP Server & SSE
+      if (
+        path === '/mcp' ||
+        path.startsWith('/mcp/') ||
+        path === '/api/mcp' ||
+        path.startsWith('/api/mcp/') ||
+        path === '/sse' ||
+        path === '/messages'
+      ) {
         return handleMcpRequest(request, env);
       }
 

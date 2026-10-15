@@ -2523,7 +2523,8 @@ const MCP_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers':
-    'Content-Type, Authorization, X-Requested-With, Mcp-Session-Id',
+    'Content-Type, Authorization, X-Requested-With, Mcp-Session-Id, Accept, Cache-Control, Last-Event-ID',
+  'Access-Control-Expose-Headers': 'Mcp-Session-Id',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -2578,8 +2579,29 @@ export async function handleMcpRequest(
     }
   }
 
-  // 3. GET request: Informational / Health check
+  // 3. GET request: SSE Endpoint or Informational / Health check
   if (request.method === 'GET') {
+    const accept = request.headers.get('Accept') || '';
+    if (accept.includes('text/event-stream')) {
+      const endpoint = `${origin}/mcp${url.search}`;
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(`event: endpoint\r\ndata: ${endpoint}\r\n\r\n`),
+          );
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+          ...MCP_CORS_HEADERS,
+        },
+      });
+    }
+
     const appName = env.APP_NAME || 'Collection Tracker';
     return Response.json(
       {
@@ -2650,11 +2672,18 @@ export async function handleMcpRequest(
     switch (method) {
       // MCP Handshake
       case 'initialize': {
+        const clientVersion = (params as { protocolVersion?: string })
+          ?.protocolVersion;
+        const protocolVersion =
+          clientVersion && typeof clientVersion === 'string'
+            ? clientVersion
+            : '2024-11-05';
+
         const response: JsonRpcResponse = {
           jsonrpc: '2.0',
           id,
           result: {
-            protocolVersion: '2024-11-05',
+            protocolVersion,
             capabilities: {
               tools: {},
               prompts: {},

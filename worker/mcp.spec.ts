@@ -1213,5 +1213,52 @@ describe('Model Context Protocol (MCP) Server', () => {
       const data = (await res.json()) as TestJsonRpcResponse;
       expect(data.id).toBe(91);
     });
+
+    it('routes /sse and returns text/event-stream with endpoint event', async () => {
+      const req = new Request('https://tracker.test/sse', {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+      });
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('text/event-stream');
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+
+      const reader = res.body?.getReader();
+      expect(reader).toBeDefined();
+      const chunk = await reader?.read();
+      const text = new TextDecoder().decode(chunk?.value);
+      expect(text).toContain('event: endpoint');
+      expect(text).toContain('data: https://tracker.test/mcp');
+    });
+
+    it('routes /mcp/messages POST directly in worker.fetch', async () => {
+      const req = new Request('https://tracker.test/mcp/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 92, method: 'ping' }),
+      });
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.id).toBe(92);
+    });
+
+    it('negotiates client protocolVersion on initialize', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 93,
+          method: 'initialize',
+          params: { protocolVersion: '2025-03-26' },
+        }),
+      });
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.result?.protocolVersion).toBe('2025-03-26');
+    });
   });
 });
