@@ -579,6 +579,55 @@ export const MCP_TOOLS: McpTool[] = [
       },
     },
   },
+  {
+    name: 'get_franchise_chronology',
+    description:
+      'Queries the chronological release history of a video game franchise or series (e.g. "Metroid", "The Legend of Zelda", "Super Mario", "Castlevania"), annotated with collection ownership, physical completeness, and backup status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        franchise: {
+          type: 'string',
+          description:
+            'Franchise or series name to query (e.g. "Metroid", "Zelda", "Castlevania").',
+        },
+        platform: {
+          type: 'string',
+          description: 'Optional platform filter.',
+        },
+        limit: {
+          type: 'integer',
+          description:
+            'Maximum number of chronological releases to return (default: 50, max: 100).',
+        },
+      },
+      required: ['franchise'],
+    },
+  },
+  {
+    name: 'find_bargains',
+    description:
+      'Discovers games on sale where current retail prices offer deep discounts or arbitrage below PriceCharting CIB market values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        platform: {
+          type: 'string',
+          description: 'Optional platform filter.',
+        },
+        min_discount_pct: {
+          type: 'integer',
+          description:
+            'Minimum discount percentage below market or regular price (default: 20).',
+        },
+        limit: {
+          type: 'integer',
+          description:
+            'Maximum number of bargains to return (default: 20, max: 50).',
+        },
+      },
+    },
+  },
 ];
 
 /**
@@ -1668,6 +1717,280 @@ export async function executeMcpTool(
               count: platforms.length,
               filter_platform: platformFilter?.displayName || null,
               platforms,
+            },
+            null,
+            2,
+          ),
+        };
+      }
+
+      /**
+       * TOOL 11: get_franchise_chronology
+       */
+      case 'get_franchise_chronology': {
+        const franchise = String(safeArgs['franchise'] || '').trim();
+        if (!franchise) {
+          return {
+            text: 'Error: "franchise" argument is required (e.g. "Metroid", "The Legend of Zelda", "Castlevania").',
+            isError: true,
+          };
+        }
+
+        const platformFilter = await resolvePlatform(
+          db,
+          safeArgs['platform'] as string | undefined,
+        );
+        const limit = Math.min(
+          Math.max(Number(safeArgs['limit']) || 50, 1),
+          100,
+        );
+
+        let sql = `
+          SELECT g.stable_id, g.id as game_id, g.title, g.canonical_series, g.series,
+                 COALESCE(pp.display_name, p.display_name) as platform,
+                 COALESCE(MAX(r.ownership_status), 0) as ownership_status,
+                 COALESCE(MAX(r.backup_status), 0) as backup_status,
+                 COALESCE(MAX(r.has_case), 0) as has_case,
+                 COALESCE(MAX(r.has_manual), 0) as has_manual,
+                 MIN(r.release_date) as release_date,
+                 g.price_cib, g.price_loose
+          FROM games g
+          LEFT JOIN game_releases r ON g.stable_id = r.game_id
+          JOIN platforms p ON g.platform_id = p.id
+          LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+          WHERE (g.canonical_series COLLATE NOCASE = ? 
+             OR g.series COLLATE NOCASE = ? 
+             OR g.title COLLATE NOCASE LIKE ?) `;
+
+        const params: (string | number)[] = [
+          franchise,
+          franchise,
+          `%${franchise}%`,
+        ];
+
+        if (platformFilter) {
+          sql += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
+          params.push(platformFilter.id, platformFilter.id);
+        }
+
+        sql += ` GROUP BY g.stable_id ORDER BY COALESCE(MIN(r.release_date), '9999-99-99') ASC, g.title ASC LIMIT ?`;
+        params.push(limit);
+
+        const queryResult = await db
+          .prepare(sql)
+          .bind(...params)
+          .all();
+
+        interface ChronologyRow {
+          stable_id: number;
+          game_id: string;
+          title: string;
+          canonical_series: string | null;
+          series: string | null;
+          platform: string;
+          ownership_status: number;
+          backup_status: number;
+          has_case: number;
+          has_manual: number;
+          release_date: string | null;
+          price_cib: number | null;
+          price_loose: number | null;
+        }
+
+        const results = (queryResult.results ||
+          []) as unknown as ChronologyRow[];
+
+        const totalGames = results.length;
+        const ownedCount = results.filter(
+          (r) => Number(r.ownership_status) === 1,
+        ).length;
+        const seekingCount = results.filter(
+          (r) => Number(r.ownership_status) === 2,
+        ).length;
+        const backedUpCount = results.filter(
+          (r) => Number(r.backup_status) === 1,
+        ).length;
+        const completionPct =
+          totalGames > 0
+            ? `${Math.round((ownedCount / totalGames) * 100)}%`
+            : '0%';
+
+        const chronology = results.map((r) => {
+          const isOwned = Number(r.ownership_status) === 1;
+          const isSeeking = Number(r.ownership_status) === 2;
+          const isCib = Number(r.has_case) === 1 && Number(r.has_manual) === 1;
+          const isBoxed = Number(r.has_case) === 1;
+
+          let completeness = 'Loose / Digital';
+          if (isCib) completeness = 'CIB';
+          else if (isBoxed) completeness = 'Boxed (No Manual)';
+
+          return {
+            title: r.title,
+            platform: r.platform,
+            release_date: r.release_date || null,
+            release_year: r.release_date
+              ? r.release_date.substring(0, 4)
+              : null,
+            ownership: isOwned ? 'Owned' : isSeeking ? 'Seeking' : 'Unowned',
+            completeness: isOwned ? completeness : null,
+            backed_up: Number(r.backup_status) === 1,
+            market_value_cib: r.price_cib
+              ? `$${(r.price_cib / 100).toFixed(2)}`
+              : null,
+            market_value_loose: r.price_loose
+              ? `$${(r.price_loose / 100).toFixed(2)}`
+              : null,
+            url: `${origin}/collection/game/${r.game_id}`,
+          };
+        });
+
+        return {
+          text: JSON.stringify(
+            {
+              franchise,
+              platform_filter: platformFilter?.displayName || null,
+              total_games: totalGames,
+              owned_games: ownedCount,
+              seeking_games: seekingCount,
+              backed_up_games: backedUpCount,
+              franchise_completion_pct: completionPct,
+              chronology,
+            },
+            null,
+            2,
+          ),
+        };
+      }
+
+      /**
+       * TOOL 12: find_bargains
+       */
+      case 'find_bargains': {
+        const minDiscount = Math.max(
+          Number(safeArgs['min_discount_pct']) || 20,
+          1,
+        );
+        const limit = Math.min(
+          Math.max(Number(safeArgs['limit']) || 20, 1),
+          50,
+        );
+        const platformFilter = await resolvePlatform(
+          db,
+          safeArgs['platform'] as string | undefined,
+        );
+
+        let sql = `
+          SELECT g.id as game_id, g.title,
+                 COALESCE(pp.display_name, p.display_name) as platform,
+                 g.retail_store, g.retail_price, g.retail_regular_price,
+                 g.retail_discount_pct, g.retail_url,
+                 g.price_cib, g.price_loose,
+                 COALESCE(MAX(r.ownership_status), 0) as ownership_status
+          FROM games g
+          LEFT JOIN game_releases r ON g.stable_id = r.game_id
+          JOIN platforms p ON g.platform_id = p.id
+          LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+          WHERE g.retail_price > 0 
+            AND (
+              (g.price_cib IS NOT NULL AND g.price_cib > g.retail_price)
+              OR (g.retail_on_sale = 1 AND g.retail_discount_pct >= ?)
+              OR (g.retail_regular_price IS NOT NULL AND g.retail_regular_price > g.retail_price)
+            ) `;
+
+        const params: (string | number)[] = [minDiscount];
+
+        if (platformFilter) {
+          sql += ` AND (g.platform_id = ? OR p.parent_platform_id = ?)`;
+          params.push(platformFilter.id, platformFilter.id);
+        }
+
+        sql += ` GROUP BY g.stable_id LIMIT 100`;
+
+        const queryResult = await db
+          .prepare(sql)
+          .bind(...params)
+          .all();
+
+        interface BargainRow {
+          game_id: string;
+          title: string;
+          platform: string;
+          retail_store: string | null;
+          retail_price: number;
+          retail_regular_price: number | null;
+          retail_discount_pct: number | null;
+          retail_url: string | null;
+          price_cib: number | null;
+          price_loose: number | null;
+          ownership_status: number;
+        }
+
+        const results = (queryResult.results || []) as unknown as BargainRow[];
+
+        const bargains = results
+          .map((r) => {
+            const salePrice = r.retail_price;
+            let benchmark: 'market_cib' | 'regular_retail' | 'retail_sale' =
+              'retail_sale';
+            let benchmarkPrice = r.retail_regular_price || salePrice;
+            let discountPct = r.retail_discount_pct || 0;
+
+            if (r.price_cib && r.price_cib > salePrice) {
+              benchmark = 'market_cib';
+              benchmarkPrice = r.price_cib;
+              discountPct = Math.round(
+                ((r.price_cib - salePrice) / r.price_cib) * 100,
+              );
+            } else if (
+              r.retail_regular_price &&
+              r.retail_regular_price > salePrice
+            ) {
+              benchmark = 'regular_retail';
+              benchmarkPrice = r.retail_regular_price;
+              discountPct = Math.round(
+                ((r.retail_regular_price - salePrice) /
+                  r.retail_regular_price) *
+                  100,
+              );
+            }
+
+            if (discountPct < minDiscount) return null;
+
+            const savingsCents = benchmarkPrice - salePrice;
+
+            return {
+              title: r.title,
+              platform: r.platform,
+              store: r.retail_store || 'Retailer',
+              sale_price: `$${(salePrice / 100).toFixed(2)}`,
+              market_cib: r.price_cib
+                ? `$${(r.price_cib / 100).toFixed(2)}`
+                : null,
+              regular_retail_price: r.retail_regular_price
+                ? `$${(r.retail_regular_price / 100).toFixed(2)}`
+                : null,
+              discount_pct: `${discountPct}%`,
+              dollar_savings: `$${(savingsCents / 100).toFixed(2)}`,
+              benchmark_comparison: benchmark,
+              already_owned: Number(r.ownership_status) === 1,
+              store_url: r.retail_url,
+              collection_url: `${origin}/collection/game/${r.game_id}`,
+              _savingsSort: savingsCents,
+            };
+          })
+          .filter((b): b is NonNullable<typeof b> => b !== null)
+          .sort((a, b) => b._savingsSort - a._savingsSort)
+          .slice(0, limit)
+          .map(({ _savingsSort, ...rest }) => rest);
+
+        return {
+          text: JSON.stringify(
+            {
+              bargains_count: bargains.length,
+              min_discount_pct: minDiscount,
+              platform_filter: platformFilter?.displayName || null,
+              bargains,
             },
             null,
             2,

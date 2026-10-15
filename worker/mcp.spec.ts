@@ -362,7 +362,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     const res = await handleMcpRequest(req, mockEnv);
     const data = (await res.json()) as TestJsonRpcResponse;
     expect(data.id).toBe(2);
-    expect(data.result?.tools?.length).toBe(10);
+    expect(data.result?.tools?.length).toBe(MCP_TOOLS.length);
     const toolNames = (data.result?.tools || []).map((t) => t.name);
     expect(toolNames).toContain('check_game_ownership');
     expect(toolNames).toContain('search_collection');
@@ -374,6 +374,8 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(toolNames).toContain('get_active_deals');
     expect(toolNames).toContain('get_backlog');
     expect(toolNames).toContain('get_platform_completion');
+    expect(toolNames).toContain('get_franchise_chronology');
+    expect(toolNames).toContain('find_bargains');
   });
 
   describe('Tool 1: check_game_ownership', () => {
@@ -774,6 +776,137 @@ describe('Model Context Protocol (MCP) Server', () => {
       expect(parsed.filter_platform).toBe('Wii');
       expect(parsed.count).toBe(1);
       expect(parsed.platforms[0]?.platform).toBe('Wii');
+    });
+  });
+
+  describe('Tool 11: get_franchise_chronology', () => {
+    it('returns chronological franchise releases and collection completion metrics', async () => {
+      // Seed a second Mario game with release date
+      db.exec(`
+        INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, price_cib)
+        VALUES (10, 'super-mario-sunshine-gc', 'Super Mario Sunshine', 'Mario', 'Super Mario', 15, 6000);
+        INSERT INTO game_releases (id, game_id, region, release_date, ownership_status, backup_status)
+        VALUES ('sms-us', 10, 'USA', '2002-08-26', 0, 0);
+
+        UPDATE game_releases SET release_date = '2007-11-12' WHERE id = 'smg-us';
+      `);
+
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 57,
+          method: 'tools/call',
+          params: {
+            name: 'get_franchise_chronology',
+            arguments: { franchise: 'Super Mario' },
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      const parsed = JSON.parse(data.result?.content?.[0]?.text || '{}') as {
+        franchise: string;
+        total_games: number;
+        owned_games: number;
+        franchise_completion_pct: string;
+        chronology: Array<{
+          title: string;
+          platform: string;
+          release_year: string | null;
+          ownership: string;
+          completeness: string | null;
+          backed_up: boolean;
+        }>;
+      };
+
+      expect(parsed.franchise).toBe('Super Mario');
+      expect(parsed.total_games).toBe(2);
+      expect(parsed.owned_games).toBe(1);
+      expect(parsed.chronology[0]?.title).toBe('Super Mario Sunshine');
+      expect(parsed.chronology[0]?.release_year).toBe('2002');
+      expect(parsed.chronology[0]?.ownership).toBe('Unowned');
+      expect(parsed.chronology[1]?.title).toBe('Super Mario Galaxy');
+      expect(parsed.chronology[1]?.release_year).toBe('2007');
+      expect(parsed.chronology[1]?.ownership).toBe('Owned');
+      expect(parsed.chronology[1]?.completeness).toBe('CIB');
+      expect(parsed.chronology[1]?.backed_up).toBe(true);
+    });
+
+    it('requires franchise parameter and returns error when omitted', async () => {
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 58,
+          method: 'tools/call',
+          params: {
+            name: 'get_franchise_chronology',
+            arguments: {},
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      expect(data.result?.isError).toBe(true);
+      expect(data.result?.content?.[0]?.text).toContain(
+        '"franchise" argument is required',
+      );
+    });
+  });
+
+  describe('Tool 12: find_bargains', () => {
+    it('evaluates active deals and market arbitrage with discounts', async () => {
+      // Seed game with CIB market arbitrage
+      db.exec(`
+        INSERT INTO games (
+          stable_id, id, title, platform_id, retail_on_sale, retail_store,
+          retail_price, price_cib, retail_url
+        ) VALUES (
+          11, 'zelda-totk-bargain', 'The Legend of Zelda: Tears of the Kingdom', 15, 0, 'Target',
+          3500, 7000, 'https://target.com/zelda'
+        );
+      `);
+
+      const req = new Request('https://tracker.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 59,
+          method: 'tools/call',
+          params: {
+            name: 'find_bargains',
+            arguments: { min_discount_pct: 25 },
+          },
+        }),
+      });
+      const res = await handleMcpRequest(req, mockEnv);
+      const data = (await res.json()) as TestJsonRpcResponse;
+      const parsed = JSON.parse(data.result?.content?.[0]?.text || '{}') as {
+        bargains_count: number;
+        min_discount_pct: number;
+        bargains: Array<{
+          title: string;
+          store: string;
+          sale_price: string;
+          market_cib: string | null;
+          discount_pct: string;
+          benchmark_comparison: string;
+        }>;
+      };
+
+      expect(parsed.bargains_count).toBeGreaterThan(0);
+      const totk = parsed.bargains.find((b) =>
+        b.title.includes('Tears of the Kingdom'),
+      );
+      expect(totk).toBeDefined();
+      expect(totk?.sale_price).toBe('$35.00');
+      expect(totk?.market_cib).toBe('$70.00');
+      expect(totk?.benchmark_comparison).toBe('market_cib');
+      expect(totk?.discount_pct).toBe('50%');
     });
   });
 
