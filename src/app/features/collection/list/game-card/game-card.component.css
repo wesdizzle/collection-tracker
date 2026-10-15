@@ -145,11 +145,37 @@
   letter-spacing: 0.02em;
 }
 
-.igdb-icon {
-  font-size: 0.8rem;
+.backup-badge {
   display: inline-flex;
   align-items: center;
-  color: var(--m3-primary);
+  gap: 0.25rem;
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-tag, 6px);
+  border: 1px solid var(--m3-outline-variant);
+  background: var(--m3-surface-container-high);
+  color: var(--m3-on-surface-variant);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.backup-badge:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+.backup-badge.backed-up {
+  background: var(--m3-primary-container);
+  color: var(--m3-on-primary-container);
+  border-color: var(--m3-primary);
+}
+
+.backup-badge.missing {
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
 }
 
 .bundle-badge {

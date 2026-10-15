@@ -68,10 +68,31 @@
   <div class="card-content">
     <div class="content-header">
       <div class="flex gap-2xs items-center">
-        @if (game().igdb_id) {
-          <span class="igdb-icon" title="Verified by IGDB">
-            <app-icon name="verified-badge" [size]="14" />
-          </span>
+        @if (
+          game().ownership_status === 1 &&
+          game().release_medium !== 'digital_native' &&
+          (!game().discIds || game().discIds!.length <= 1)
+        ) {
+          <button
+            type="button"
+            class="backup-badge state-layer interactive"
+            [class.backed-up]="!!game().backup_status"
+            [class.missing]="!game().backup_status"
+            [title]="
+              game().backup_status
+                ? 'Archival backup verified - Click to toggle'
+                : 'Missing archival backup - Click to toggle'
+            "
+            (click)="onToggleDiscBackupClick($event, 0)"
+          >
+            <app-icon
+              [name]="game().backup_status ? 'disc' : 'missing-dump'"
+              [size]="13"
+            />
+            <span class="backup-text">{{
+              game().backup_status ? 'Backed Up' : 'No Backup'
+            }}</span>
+          </button>
         }
         @if (
           game().rom_name &&

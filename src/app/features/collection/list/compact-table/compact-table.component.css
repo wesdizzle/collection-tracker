@@ -353,6 +353,18 @@
   border-radius: var(--radius-tag) !important;
 }
 
+.disc-chip.backed-up {
+  border-color: var(--m3-primary);
+  background: var(--m3-primary-container);
+  color: var(--m3-on-primary-container);
+}
+
+.disc-chip.missing {
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+}
+
 .disc-dot {
   width: 6px;
   height: 6px;

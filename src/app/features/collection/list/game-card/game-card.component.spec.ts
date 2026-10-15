@@ -130,4 +130,34 @@ describe('GameCardComponent', () => {
     };
     expect(component.getDealArbitrageSavings(dealGame)).toBe(1500);
   });
+
+  it('should render backup-badge for single-disc physical games and emit toggleDiscBackup on click', () => {
+    const singleDiscGame: Game = {
+      ...mockGame,
+      id: 'single-disc-game',
+      discIds: ['single-cart-1'],
+      backup_status: 1,
+      igdb_id: 12345,
+    };
+    fixture.componentRef.setInput('game', singleDiscGame);
+    fixture.detectChanges();
+
+    // Verify IGDB ribbon is NOT rendered
+    expect(fixture.nativeElement.querySelector('.igdb-icon')).toBeNull();
+
+    // Verify backup badge is rendered
+    const backupBadge = fixture.nativeElement.querySelector(
+      '.backup-badge',
+    ) as HTMLButtonElement;
+    expect(backupBadge).toBeTruthy();
+    expect(backupBadge.textContent).toContain('Backed Up');
+
+    let emittedIndex = -1;
+    component.toggleDiscBackup.subscribe((evt) => {
+      emittedIndex = evt.discIndex;
+    });
+
+    backupBadge.click();
+    expect(emittedIndex).toBe(0);
+  });
 });

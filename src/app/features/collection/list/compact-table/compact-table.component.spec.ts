@@ -114,6 +114,24 @@ describe('CompactTableComponent', () => {
       chips[1].click();
       expect(manualEmitted).toBe(true);
     });
+
+    it('should render backup chip for single-disc owned games, omit igdb ribbon, and emit toggleDiscBackup on click', () => {
+      expect(fixture.nativeElement.querySelector('.igdb-icon')).toBeNull();
+
+      const discBtn = fixture.nativeElement.querySelector(
+        '.col-completeness .compact-disc-chip',
+      ) as HTMLButtonElement;
+      expect(discBtn).toBeTruthy();
+      expect(discBtn.textContent).toContain('ROM');
+
+      let emittedIndex = -1;
+      component.toggleDiscBackup.subscribe((evt) => {
+        emittedIndex = evt.discIndex;
+      });
+
+      discBtn.click();
+      expect(emittedIndex).toBe(0);
+    });
   });
 
   describe('Toys mode', () => {
