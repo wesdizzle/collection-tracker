@@ -59,6 +59,7 @@ import {
   resolveVapidSubject,
   WebPushNotificationPayload,
 } from './web_push';
+import { handleMcpRequest } from './mcp';
 
 export interface Env {
   DB: D1Database;
@@ -66,6 +67,7 @@ export interface Env {
   BACKUP_BUCKET?: R2Bucket;
   ADMIN_EMAIL?: string;
   ADMIN_KEY?: string;
+  MCP_AUTH_KEY?: string;
   TEAM_DOMAIN?: string;
   TWITCH_CLIENT_ID?: string;
   TWITCH_CLIENT_SECRET?: string;
@@ -510,13 +512,18 @@ Disallow: /
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers':
-            'Content-Type, Authorization, Cf-Access-Authenticated-User-Email, Cf-Access-Jwt-Assertion',
+            'Content-Type, Authorization, Cf-Access-Authenticated-User-Email, Cf-Access-Jwt-Assertion, X-Requested-With, Mcp-Session-Id',
           'Access-Control-Max-Age': '86400',
         },
       });
     }
 
     try {
+      // Endpoint: Model Context Protocol (MCP) Streamable HTTP Server
+      if (path === '/mcp' || path === '/api/mcp') {
+        return handleMcpRequest(request, env);
+      }
+
       /**
        * PUBLIC READ-ONLY API ENDPOINTS
        */
