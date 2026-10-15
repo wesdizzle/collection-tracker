@@ -59,11 +59,82 @@ export async function deployBackupStatusToD1() {
     `[D1Deploy] Applying ${statementCount} surgical statement(s) from ${path.basename(sqlPath)} to remote D1 (collection-db)...`,
   );
 
-  const rawStatements = sqlContent
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => s + ';');
+  // Comment-aware and quote-aware SQL statement parser that respects semicolons inside string literals
+  const rawStatements: string[] = [];
+  let currentStmt = '';
+  let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < sqlContent.length; i++) {
+    const char = sqlContent[i];
+    const nextChar = sqlContent[i + 1];
+
+    if (inLineComment) {
+      if (char === '\n') {
+        inLineComment = false;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (char === '*' && nextChar === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+
+    if (inString) {
+      currentStmt += char;
+      if (char === "'") {
+        if (nextChar === "'") {
+          currentStmt += nextChar;
+          i++;
+        } else {
+          inString = false;
+        }
+      }
+      continue;
+    }
+
+    // Check for comment starts
+    if (char === '-' && nextChar === '-') {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+
+    if (char === '/' && nextChar === '*') {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+
+    // Check for string start
+    if (char === "'") {
+      inString = true;
+      currentStmt += char;
+      continue;
+    }
+
+    // Check for statement terminator
+    if (char === ';') {
+      const trimmed = currentStmt.trim();
+      if (trimmed && !trimmed.toUpperCase().startsWith('PRAGMA')) {
+        rawStatements.push(trimmed + ';');
+      }
+      currentStmt = '';
+      continue;
+    }
+
+    currentStmt += char;
+  }
+
+  const leftover = currentStmt.trim();
+  if (leftover && !leftover.toUpperCase().startsWith('PRAGMA')) {
+    rawStatements.push(leftover.endsWith(';') ? leftover : leftover + ';');
+  }
 
   // Group statements into chunks <= 12KB to avoid Wrangler /import endpoint authentication error
   const MAX_CHUNK_BYTES = 12000;
