@@ -2,6 +2,8 @@
   <router-outlet></router-outlet>
 </main>
 
+<app-command-palette></app-command-palette>
+
 @if (dialogState().visible) {
   <app-confirmation-dialog
     [title]="dialogState().title"

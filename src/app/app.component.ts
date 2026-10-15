@@ -2,11 +2,12 @@ import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { SwUpdate } from '@angular/service-worker';
 import { ConfirmationDialogComponent } from './shared/components/confirmation-dialog/confirmation-dialog.component';
+import { CommandPaletteComponent } from './shared/components/command-palette/command-palette.component';
 import { CollectionService } from './core/services/collection.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, ConfirmationDialogComponent],
+  imports: [RouterOutlet, ConfirmationDialogComponent, CommandPaletteComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })

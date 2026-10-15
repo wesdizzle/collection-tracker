@@ -44,7 +44,8 @@ export type IconName =
   | 'circle-empty'
   | 'view-list'
   | 'view-grid'
-  | 'tune';
+  | 'tune'
+  | 'search';
 
 export interface IconDef {
   viewBox: string;
@@ -235,5 +236,9 @@ export const ICON_CATALOG: Record<IconName, IconDef> = {
   tune: {
     viewBox: '0 0 24 24',
     svgInner: `<line x1="4" y1="6" x2="20" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="6" r="2" fill="currentColor"/><line x1="4" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="12" r="2" fill="currentColor"/><line x1="4" y1="18" x2="20" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="10" cy="18" r="2" fill="currentColor"/>`,
+  },
+  search: {
+    viewBox: '0 0 24 24',
+    svgInner: `<circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16.5 16.5 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
   },
 };

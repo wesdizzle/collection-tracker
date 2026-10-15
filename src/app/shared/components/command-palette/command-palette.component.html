@@ -1,0 +1,90 @@
+@if (paletteService.isOpen()) {
+  <div class="palette-overlay" (click)="paletteService.close()">
+    <div
+      class="palette-dialog m3-surface-container-high animate-expressive"
+      (click)="$event.stopPropagation()"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
+    >
+      <div class="palette-search-wrapper">
+        <app-icon name="search" [size]="20" className="search-icon" />
+        <input
+          #searchInput
+          type="text"
+          class="palette-input"
+          [value]="query()"
+          (input)="onInputChange($event)"
+          placeholder="Search games, toys, platforms, commands..."
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <kbd class="palette-kbd esc-badge" (click)="paletteService.close()"
+          >ESC</kbd
+        >
+      </div>
+
+      <div class="palette-results" #resultsContainer>
+        @if (flatResults().length === 0) {
+          <div class="palette-empty-state">
+            <app-icon name="inbox-empty" [size]="32" />
+            <p>No results found for "{{ query() }}"</p>
+          </div>
+        } @else {
+          @for (group of groupedResults(); track group.category) {
+            <div class="palette-group">
+              <div class="palette-group-title">{{ group.category }}</div>
+              @for (entry of group.items; track entry.item.id) {
+                <div
+                  class="palette-item"
+                  [class.selected]="selectedIndex() === entry.flatIndex"
+                  (click)="onSelect(entry.item)"
+                  (mouseenter)="onHover(entry.flatIndex)"
+                >
+                  <div class="palette-item-icon">
+                    <app-icon [name]="entry.item.icon" [size]="18" />
+                  </div>
+                  <div class="palette-item-info">
+                    <span class="palette-item-title">{{
+                      entry.item.title
+                    }}</span>
+                    @if (entry.item.subtitle) {
+                      <span class="palette-item-subtitle">{{
+                        entry.item.subtitle
+                      }}</span>
+                    }
+                  </div>
+                  @if (entry.item.badge) {
+                    <span
+                      class="palette-item-badge"
+                      [class.badge-owned]="entry.item.badge === 'Owned'"
+                      [class.badge-seeking]="entry.item.badge === 'Seeking'"
+                    >
+                      {{ entry.item.badge }}
+                    </span>
+                  }
+                </div>
+              }
+            </div>
+          }
+        }
+      </div>
+
+      <footer class="palette-footer">
+        <div class="palette-hint">
+          <kbd class="palette-kbd mini">↑</kbd>
+          <kbd class="palette-kbd mini">↓</kbd>
+          <span>Navigate</span>
+        </div>
+        <div class="palette-hint">
+          <kbd class="palette-kbd mini">↵</kbd>
+          <span>Select</span>
+        </div>
+        <div class="palette-hint">
+          <kbd class="palette-kbd mini">esc</kbd>
+          <span>Close</span>
+        </div>
+      </footer>
+    </div>
+  </div>
+}

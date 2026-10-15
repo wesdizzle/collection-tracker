@@ -5,6 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
+import { CommandPaletteService } from '../../../../core/services/command-palette.service';
 import { CollectionLayoutComponent } from './collection-layout.component';
 
 /**
@@ -239,6 +240,17 @@ describe('CollectionLayoutComponent', () => {
       expect(metaDark.getAttribute('content')).toBe('#121214');
       expect(metaLight.getAttribute('content')).toBe('#f8fafc');
       expect(metaFallback.getAttribute('content')).toBe('#f8fafc');
+    });
+
+    it('should open command palette when command palette button is clicked', () => {
+      const paletteService = TestBed.inject(CommandPaletteService);
+      const openSpy = vi.spyOn(paletteService, 'open');
+      const button = fixture.nativeElement.querySelector(
+        'button[aria-label="Open command palette"]',
+      );
+      expect(button).toBeTruthy();
+      button.click();
+      expect(openSpy).toHaveBeenCalled();
     });
   });
 });

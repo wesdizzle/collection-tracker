@@ -9,6 +9,7 @@ import { CollectionRouteReuseStrategy } from '../../../../core/routing/collectio
 import { CollectionService } from '../../../../core/services/collection.service';
 import { BrandingService } from '../../../../core/services/branding.service';
 import { NotificationService } from '../../../../core/services/notification.service';
+import { CommandPaletteService } from '../../../../core/services/command-palette.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 import { NotificationSettingsModalComponent } from '../../notifications/notification-settings-modal/notification-settings-modal.component';
 
@@ -74,6 +75,15 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
         </nav>
 
         <div class="header-right">
+          <button
+            (click)="commandPalette.open()"
+            class="m3-button-icon state-layer"
+            title="Search & Command Palette (Ctrl+K)"
+            aria-label="Open command palette"
+          >
+            <app-icon name="search" [size]="18" />
+          </button>
+
           <button
             (click)="toggleTheme()"
             class="theme-toggle m3-button-icon state-layer"
@@ -363,6 +373,7 @@ export class CollectionLayoutComponent implements OnDestroy {
   private collectionService = inject(CollectionService);
   private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
   public readonly notificationService = inject(NotificationService);
+  public readonly commandPalette = inject(CommandPaletteService);
   public readonly branding = inject(BrandingService);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
   public isAdmin = this.collectionService.isAdmin;
