@@ -104,13 +104,13 @@ describe('GameCardComponent', () => {
       discIndexEmitted = event.discIndex;
     });
 
-    const discChips = fixture.nativeElement.querySelectorAll(
-      '.disc-chip',
+    const backupBadges = fixture.nativeElement.querySelectorAll(
+      '.backup-badge',
     ) as NodeListOf<HTMLButtonElement>;
-    expect(discChips.length).toBe(2);
+    expect(backupBadges.length).toBe(2);
 
-    discChips[1].click();
-    expect(discIndexEmitted).toBe(1);
+    backupBadges[0].click();
+    expect(discIndexEmitted).toBe(0);
   });
 
   it('should calculate budget labels and arbitrage savings', () => {

@@ -5,7 +5,10 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { RouterModule } from '@angular/router';
-import { Game } from '../../../../core/models/collection.models';
+import {
+  Game,
+  getMediaIconName,
+} from '../../../../core/models/collection.models';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
@@ -106,6 +109,19 @@ export class GameCardComponent {
 
   public getBackedUpDiscCount(game: Game): number {
     return (game.discBackups || []).filter((b) => b === 1).length;
+  }
+
+  public getMissingDiscCount(game: Game): number {
+    const total = game.discIds?.length || 1;
+    const backed = this.getBackedUpDiscCount(game);
+    return Math.max(0, total - backed);
+  }
+
+  public getMediaIcon(
+    game: Game,
+    backedUp: boolean | number,
+  ): 'disc' | 'rom-archive' | 'missing-dump' {
+    return getMediaIconName(game.platform, backedUp);
   }
 
   private normalizeBudgetToken(token: string): string | null {

@@ -32,6 +32,7 @@ import {
   Platform,
   PlayStatus,
   GameRelease,
+  getMediaIconName,
 } from '../../../../core/models/collection.models';
 import { combineLatest, of, Observable } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
@@ -485,15 +486,17 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                               <button
                                 class="stat-pill interactive"
                                 [class.active]="!!release.backup_status"
+                                [class.missing]="!release.backup_status"
                                 (click)="onToggleDiscBackup(release)"
                                 title="Toggle Backup Status"
                               >
                                 <span class="icon"
                                   ><app-icon
                                     [name]="
-                                      release.backup_status
-                                        ? 'rom-archive'
-                                        : 'missing-dump'
+                                      getMediaIcon(
+                                        g.platform,
+                                        release.backup_status
+                                      )
                                     "
                                     [size]="14"
                                 /></span>
@@ -922,6 +925,12 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         background: var(--m3-primary-container);
         color: var(--m3-on-primary-container);
         border-color: transparent;
+      }
+
+      .stat-pill.missing {
+        color: #fbbf24;
+        border-color: rgba(245, 158, 11, 0.35);
+        background: rgba(245, 158, 11, 0.08);
       }
 
       .stat-pill.active.seeking {
@@ -1722,6 +1731,13 @@ export class ItemDetailComponent {
           });
       },
     );
+  }
+
+  getMediaIcon(
+    platform: string | null | undefined,
+    backedUp: boolean | number,
+  ): IconName {
+    return getMediaIconName(platform, backedUp);
   }
 
   onToggleDiscBackup(release: GameRelease) {

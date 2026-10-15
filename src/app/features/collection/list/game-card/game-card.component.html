@@ -86,13 +86,89 @@
             (click)="onToggleDiscBackupClick($event, 0)"
           >
             <app-icon
-              [name]="game().backup_status ? 'disc' : 'missing-dump'"
+              [name]="getMediaIcon(game(), game().backup_status)"
               [size]="13"
             />
             <span class="backup-text">{{
               game().backup_status ? 'Backed Up' : 'No Backup'
             }}</span>
           </button>
+        }
+        @if (
+          game().ownership_status === 1 &&
+          game().release_medium !== 'digital_native' &&
+          game().discIds &&
+          game().discIds!.length > 1
+        ) {
+          @if (getBackedUpDiscCount(game()) === game().discIds!.length) {
+            <button
+              type="button"
+              class="backup-badge state-layer interactive backed-up"
+              [title]="
+                game().discIds!.length +
+                ' Discs All Backed Up - Click to toggle'
+              "
+              (click)="onToggleDiscBackupClick($event, 0)"
+            >
+              <app-icon [name]="getMediaIcon(game(), 1)" [size]="13" />
+              <span class="backup-text"
+                >{{ game().discIds!.length }} Backed Up</span
+              >
+            </button>
+          } @else if (getBackedUpDiscCount(game()) === 0) {
+            <button
+              type="button"
+              class="backup-badge state-layer interactive missing"
+              [title]="
+                game().discIds!.length +
+                ' Discs Missing Backup - Click to toggle'
+              "
+              (click)="onToggleDiscBackupClick($event, 0)"
+            >
+              <app-icon name="missing-dump" [size]="13" />
+              <span class="backup-text"
+                >{{ game().discIds!.length }} No Backup</span
+              >
+            </button>
+          } @else {
+            <div
+              class="flex gap-2xs items-center"
+              (click)="$event.stopPropagation(); $event.preventDefault()"
+            >
+              <button
+                type="button"
+                class="backup-badge state-layer interactive backed-up"
+                [title]="
+                  getBackedUpDiscCount(game()) +
+                  '/' +
+                  game().discIds!.length +
+                  ' Discs Backed Up'
+                "
+                (click)="onToggleDiscBackupClick($event, 0)"
+              >
+                <app-icon [name]="getMediaIcon(game(), 1)" [size]="13" />
+                <span class="backup-text">{{
+                  getBackedUpDiscCount(game())
+                }}</span>
+              </button>
+              <button
+                type="button"
+                class="backup-badge state-layer interactive missing"
+                [title]="
+                  getMissingDiscCount(game()) +
+                  '/' +
+                  game().discIds!.length +
+                  ' Discs Missing Backup'
+                "
+                (click)="onToggleDiscBackupClick($event, 0)"
+              >
+                <app-icon name="missing-dump" [size]="13" />
+                <span class="backup-text">{{
+                  getMissingDiscCount(game())
+                }}</span>
+              </button>
+            </div>
+          }
         }
         @if (
           game().rom_name &&
@@ -253,57 +329,6 @@
         >
           <app-icon name="book-open" [size]="14" /> Manual
         </button>
-      </div>
-    }
-
-    @if (game().discIds && game().discIds!.length > 1) {
-      <div
-        class="multi-disc-tray mt-2xs"
-        (click)="$event.stopPropagation(); $event.preventDefault()"
-      >
-        <div class="multi-disc-header flex items-center justify-between">
-          <span
-            class="multi-disc-label text-2xs uppercase letter-spacing-wide flex items-center gap-1"
-          >
-            <app-icon name="disc" [size]="12" />
-            {{ game().discIds!.length }} Discs
-          </span>
-          <span
-            class="multi-disc-status text-2xs"
-            [class.all-backed]="game().backup_status"
-          >
-            {{
-              game().backup_status
-                ? 'All Backed Up'
-                : getBackedUpDiscCount(game()) +
-                  '/' +
-                  game().discIds!.length +
-                  ' Backed Up'
-            }}
-          </span>
-        </div>
-        <div class="multi-disc-pills flex flex-wrap gap-2xs mt-3xs">
-          @for (discId of game().discIds; track discId; let idx = $index) {
-            <button
-              type="button"
-              class="disc-chip state-layer"
-              [class.backed-up]="game().discBackups?.[idx] === 1"
-              [title]="
-                (game().discRomNames?.[idx] || 'Disc ' + (idx + 1)) +
-                ' (' +
-                (game().discBackups?.[idx] === 1 ? 'Backed Up' : 'Missing') +
-                ') - Click to toggle backup'
-              "
-              (click)="onToggleDiscBackupClick($event, idx)"
-            >
-              {{ 'Disc ' + (idx + 1) }}
-              <span
-                class="disc-dot"
-                [class.dot-backed]="game().discBackups?.[idx] === 1"
-              ></span>
-            </button>
-          }
-        </div>
       </div>
     }
   </div>

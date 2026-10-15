@@ -376,3 +376,42 @@ export interface PushSubscriptionPayload {
   };
   preferences?: DealNotificationPreferences;
 }
+
+export function isOpticalPlatform(
+  platform: string | null | undefined,
+): boolean {
+  if (!platform) return false;
+  const p = platform.toLowerCase();
+  if (p.includes('vita') || p.includes('psv')) return false;
+  return (
+    p.includes('playstation') ||
+    p.includes('ps1') ||
+    p.includes('ps2') ||
+    p.includes('ps3') ||
+    p.includes('ps4') ||
+    p.includes('ps5') ||
+    p.includes('psp') ||
+    p.includes('saturn') ||
+    p.includes('sega cd') ||
+    p.includes('mega-cd') ||
+    p.includes('mega cd') ||
+    p.includes('dreamcast') ||
+    p.includes('gamecube') ||
+    p.includes('wii') ||
+    p.includes('xbox') ||
+    p.includes('3do') ||
+    p.includes('cd-rom') ||
+    p.includes('turbografx-cd') ||
+    p.includes('pc engine cd') ||
+    p.includes('neo geo cd') ||
+    p.includes('laseractive')
+  );
+}
+
+export function getMediaIconName(
+  platform: string | null | undefined,
+  backedUp: boolean | number,
+): 'disc' | 'rom-archive' | 'missing-dump' {
+  if (!backedUp) return 'missing-dump';
+  return isOpticalPlatform(platform) ? 'disc' : 'rom-archive';
+}

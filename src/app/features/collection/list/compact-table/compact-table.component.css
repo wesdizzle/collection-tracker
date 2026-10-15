@@ -290,7 +290,7 @@
 }
 
 .col-completeness {
-  width: 160px;
+  width: 185px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -300,6 +300,7 @@
 .compact-completeness-chips {
   display: inline-flex;
   gap: 0.25rem;
+  flex-shrink: 0;
 }
 
 .completeness-chip {
@@ -315,6 +316,8 @@
   align-items: center;
   gap: 0.25rem;
   transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .completeness-chip.active {
@@ -332,6 +335,8 @@
 .compact-discs-container {
   display: inline-flex;
   gap: 0.2rem;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .disc-chip {
@@ -345,12 +350,21 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.disc-count-num {
+  font-weight: 700;
+  font-size: 0.6875rem;
 }
 
 .compact-disc-chip {
   padding: 0.1rem 0.3rem !important;
   font-size: 0.65rem !important;
   border-radius: var(--radius-tag) !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
 }
 
 .disc-chip.backed-up {

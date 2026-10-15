@@ -264,7 +264,7 @@
                   (click)="onToggleDiscBackupClick($event, game, 0)"
                 >
                   <app-icon
-                    [name]="game.backup_status ? 'disc' : 'missing-dump'"
+                    [name]="getMediaIcon(game, game.backup_status)"
                     [size]="11"
                   />
                   <span>{{ game.backup_status ? 'ROM' : 'No ROM' }}</span>
@@ -275,30 +275,68 @@
                   class="compact-discs-container"
                   (click)="$event.stopPropagation(); $event.preventDefault()"
                 >
-                  @for (
-                    discId of game.discIds;
-                    track discId;
-                    let idx = $index
-                  ) {
+                  @if (getBackedUpDiscCount(game) === game.discIds.length) {
                     <button
                       type="button"
-                      class="disc-chip state-layer compact-disc-chip"
-                      [class.backed-up]="game.discBackups?.[idx] === 1"
+                      class="disc-chip state-layer compact-disc-chip backed-up"
                       [title]="
-                        (game.discRomNames?.[idx] || 'Disc ' + (idx + 1)) +
-                        ' (' +
-                        (game.discBackups?.[idx] === 1
-                          ? 'Backed Up'
-                          : 'Missing') +
-                        ') - Click to toggle backup'
+                        game.discIds.length +
+                        ' Discs All Backed Up - Click to toggle'
                       "
-                      (click)="onToggleDiscBackupClick($event, game, idx)"
+                      (click)="onToggleDiscBackupClick($event, game, 0)"
                     >
-                      D{{ idx + 1 }}
-                      <span
-                        class="disc-dot"
-                        [class.dot-backed]="game.discBackups?.[idx] === 1"
-                      ></span>
+                      <span class="disc-count-num">{{
+                        game.discIds.length
+                      }}</span>
+                      <app-icon [name]="getMediaIcon(game, 1)" [size]="11" />
+                    </button>
+                  } @else if (getBackedUpDiscCount(game) === 0) {
+                    <button
+                      type="button"
+                      class="disc-chip state-layer compact-disc-chip missing"
+                      [title]="
+                        game.discIds.length +
+                        ' Discs Missing Backup - Click to toggle'
+                      "
+                      (click)="onToggleDiscBackupClick($event, game, 0)"
+                    >
+                      <span class="disc-count-num">{{
+                        game.discIds.length
+                      }}</span>
+                      <app-icon name="missing-dump" [size]="11" />
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="disc-chip state-layer compact-disc-chip backed-up"
+                      [title]="
+                        getBackedUpDiscCount(game) +
+                        '/' +
+                        game.discIds.length +
+                        ' Discs Backed Up'
+                      "
+                      (click)="onToggleDiscBackupClick($event, game, 0)"
+                    >
+                      <span class="disc-count-num">{{
+                        getBackedUpDiscCount(game)
+                      }}</span>
+                      <app-icon [name]="getMediaIcon(game, 1)" [size]="11" />
+                    </button>
+                    <button
+                      type="button"
+                      class="disc-chip state-layer compact-disc-chip missing"
+                      [title]="
+                        getMissingDiscCount(game) +
+                        '/' +
+                        game.discIds.length +
+                        ' Discs Missing Backup'
+                      "
+                      (click)="onToggleDiscBackupClick($event, game, 0)"
+                    >
+                      <span class="disc-count-num">{{
+                        getMissingDiscCount(game)
+                      }}</span>
+                      <app-icon name="missing-dump" [size]="11" />
                     </button>
                   }
                 </div>
