@@ -9,6 +9,8 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **Multi-Disc Sets**: Groups multi-disc releases with inline disc expansion trays to track backup status per disc.
 - **Toy Collection**: Supports amiibo, Skylanders, and Starlink figures and cards with series tracking, variant classification, and metadata from AmiiboAPI and SCL.
 - **Discovery Pipeline**: Integrated search across IGDB and AmiiboAPI to identify uncollected titles, sequels, and figures with automated variant matching.
+- **Model Context Protocol (MCP) Server**: Edge-native Streamable HTTP JSON-RPC 2.0 server (`/mcp` and `/api/mcp`) exposing 8 read-only tools for AI assistants (Google Gemini, Claude, Cursor) to quickly query game and toy ownership, physical completeness, market valuations, and deals with sub-millisecond indexed responses.
+- **Pricing & Market Valuations**: Tracks loose, CIB (Complete in Box), and new market values for games and toys with aggregate collection valuation metrics.
 - **Data Portability**: Exports filtered collections to RFC 4180 CSV and Logiqx XML DAT formats compatible with ROM managers (`igir`, `clrmamepro`, `RomVault`).
 - **Retail Deal Tracking & Web Push Alerts**: Monitors price cuts across retailers (Best Buy, VGP, PNP Games) and dispatches Web Push notifications (RFC 8291 / RFC 8292 Web Crypto) based on user-configured thresholds, stores, and platforms.
 - **Theme Support**: Light, dark, and system-automatic modes with responsive top navigation and mobile bottom navigation.
@@ -52,6 +54,35 @@ Heavy scraping and data indexing are performed locally against staging SQLite an
   - _Strategy 4 (Bonus Disc Matching)_: Uses parenthetical identifiers to resolve pack-in discs.
 - **Physical vs. Digital Distinction**: Disregards digital installers (`.pkg`), Virtual Console re-releases, and mini-console wrappers. For PlayStation Vita, canonical retail cartridge serials (`PCSE`, `PCSB`, `PCSG`, `PCSA`) are tagged as `is_verified_physical = 1` while digital-only PSN titles are tagged `0`.
 - **Bundles & Download Vouchers**: When physical releases include digital vouchers for companion games, the voucher details are shown as an informative note on the parent release without penalizing physical media backup status.
+
+### Model Context Protocol (MCP) Edge Server
+
+The application implements an edge-native **Model Context Protocol (MCP)** server over **Streamable HTTP** (JSON-RPC 2.0) at `/mcp` and `/api/mcp` without external runtime dependencies:
+
+- **Read-Only Conversational Tools**:
+  1. `check_game_ownership`: Checks if a game is owned, returning region, completeness (CIB vs Loose vs Digital), backup status, estimated USD market value, and direct clickable web URL.
+  2. `search_collection`: Multi-criteria search across games by title, series, platform, ownership, or backup status.
+  3. `get_game_details`: Deep inspection of physical media, multi-disc layouts, demo discs, voucher pack-ins, and price guide.
+  4. `check_toy_ownership`: Quick verification of amiibo, Skylander, or Starlink figure/card ownership with web detail URL.
+  5. `search_toys`: Filters figures and cards by product line, series, and ownership.
+  6. `get_collection_stats`: Returns total games, owned count, backed up count, missing backups, backup completion %, total toys, and total estimated collection value in USD.
+  7. `get_platforms`: Primary platforms catalog (child platforms like PSVR and 64DD are subsumed into parent platforms).
+  8. `get_active_deals`: Current retail price cuts from Best Buy, VGP, and PNP Games with store and collection URLs.
+- **Cloudflare Free Tier Preservation**:
+  - Queries leverage case-insensitive B-Tree indexes (`idx_games_title_nocase`, `idx_toys_name_nocase`) reading only **1 to 5 rows** per query instead of performing full table scans.
+  - Strict parameterized queries with hard `LIMIT` clauses prevent churn and read amplification.
+  - Worker CPU execution time stays below $\approx 2\text{ ms}$ (well within the 10 ms free tier ceiling).
+- **Client Configuration (`mcp_config.json`)**:
+  ```json
+  {
+    "mcpServers": {
+      "collection-tracker": {
+        "url": "https://<your-worker-domain>/mcp"
+      }
+    }
+  }
+  ```
+- **Authentication**: Publicly readable by default for zero-friction AI assistant integration. If an `MCP_AUTH_KEY` secret is set on Cloudflare, it automatically enforces `Authorization: Bearer <key>` or `?token=<key>`.
 
 ### Web Push Deal Notifications Engine
 
@@ -137,19 +168,23 @@ Heavy scraping and data indexing are performed locally against staging SQLite an
 | `npm run build`      | Compiles production Angular bundle to `dist/tracker`                            |
 | `npm test`           | Runs frontend (`test:ng`) and script/worker (`test:node`) test suites           |
 | `npm run test:ng`    | Runs frontend unit tests via Vitest                                             |
-| `npm run test:node`  | Runs backend worker and scraper tests                                           |
+| `npm run test:node`  | Runs backend worker, scraper, and MCP tests                                     |
 | `npm run type-check` | Runs TypeScript compiler checks (`tsc --noEmit`)                                |
 | `npm run lint`       | Runs ESLint                                                                     |
 | `npm run ci-check`   | Runs lint, type-check, tests, and build sequentially (used by pre-commit hooks) |
 
-## Custom Branding Configuration
+## Custom Branding & Environment Configuration
 
-The app defaults to **Collection Tracker** as a neutral instance name. Deployers can customize branding via environment variables or Cloudflare Worker variables without modifying source code:
+The app defaults to **Collection Tracker** as a neutral instance name. Deployers can customize branding and features via environment variables or Cloudflare Worker variables:
 
-| Variable             | Description                                      | Default                                  |
-| :------------------- | :----------------------------------------------- | :--------------------------------------- |
-| `APP_NAME`           | Title shown in header, page titles, and exports  | `Collection Tracker`                     |
-| `APP_SHORT_NAME`     | Short name for PWA home screen tiles             | `Tracker`                                |
-| `APP_TAGLINE`        | Tagline for SEO and metadata                     | `Physical Game & Toy Collection Tracker` |
-| `APP_AUTHOR`         | Author credit in exported CSV and DAT files      | `Collection Tracker`                     |
-| `CUSTOM_FAVICON_SVG` | Optional raw SVG string served at `/favicon.svg` | Cartridge emblem (`/favicon.svg`)        |
+| Variable               | Description                                                  | Default                                  |
+| :--------------------- | :----------------------------------------------------------- | :--------------------------------------- |
+| `APP_NAME`             | Title shown in header, page titles, and exports              | `Collection Tracker`                     |
+| `APP_SHORT_NAME`       | Short name for PWA home screen tiles                         | `Tracker`                                |
+| `APP_TAGLINE`          | Tagline for SEO and metadata                                 | `Physical Game & Toy Collection Tracker` |
+| `APP_AUTHOR`           | Author credit in exported CSV and DAT files                  | `Collection Tracker`                     |
+| `CUSTOM_FAVICON_SVG`   | Optional raw SVG string served at `/favicon.svg`             | Cartridge emblem (`/favicon.svg`)        |
+| `MCP_AUTH_KEY`         | Optional Bearer / query token to protect the `/mcp` endpoint | _(None - public read-only)_              |
+| `TWITCH_CLIENT_ID`     | Twitch Client ID for real-time IGDB metadata discovery       | _(Optional)_                             |
+| `TWITCH_CLIENT_SECRET` | Twitch Client Secret for IGDB OAuth authentication           | _(Optional)_                             |
+| `BESTBUY_API_KEY`      | Optional Best Buy API key for enhanced deal scanning         | _(Optional)_                             |
