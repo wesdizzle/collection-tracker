@@ -364,6 +364,7 @@ export async function performScheduledBackup(
     'toys',
     'toy_game_compatibility',
     'game_releases',
+    'sync_state',
   ];
 
   const backupData: Record<string, unknown[]> = {};
@@ -3093,10 +3094,17 @@ export async function dispatchDealPushNotifications(
 /**
  * Refreshes a rolling window of up to 500 IGDB games per day (1 IGDB batch query)
  * and reconciles `canonical_series` across all games in D1 using diff-only updates.
+ *
+ * Uses a persistent cursor in the `sync_state` table ('igdb_sync_offset') so that:
+ * 1. If an update fails, crashes, or is quota-limited, the cursor is not advanced and
+ *    the following run retries the exact same batch.
+ * 2. It burns only 1 row write per day to advance the cursor, plus diff-only row writes
+ *    for games with actual metadata changes.
  */
 export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
   refreshedIgdbCount: number;
   updatedGamesCount: number;
+  cursorOffset?: number;
 }> {
   const { results } = await env.DB.prepare(
     `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series
@@ -3130,17 +3138,36 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
     { collections: string | null; franchises: string | null }
   >();
 
+  let nextOffset: number | null = null;
+
   if (
     uniqueIgdbIds.length > 0 &&
     env.TWITCH_CLIENT_ID &&
     env.TWITCH_CLIENT_SECRET
   ) {
-    const totalBatches = Math.ceil(uniqueIgdbIds.length / BATCH_SIZE);
-    const dayIndex = Math.floor(Date.now() / 86_400_000);
-    const batchIndex = dayIndex % totalBatches;
+    // 1. Read persistent sync bookmark cursor from sync_state
+    let currentOffset = 0;
+    try {
+      const cursorRow = await env.DB.prepare(
+        `SELECT value FROM sync_state WHERE key = 'igdb_sync_offset'`,
+      ).first<{ value: string }>();
+      if (cursorRow && cursorRow.value) {
+        const parsed = parseInt(cursorRow.value, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          currentOffset = parsed;
+        }
+      }
+    } catch {
+      // sync_state table may not exist yet in unmigrated environments
+    }
+
+    if (currentOffset >= uniqueIgdbIds.length) {
+      currentOffset = 0;
+    }
+
     const batchIds = uniqueIgdbIds.slice(
-      batchIndex * BATCH_SIZE,
-      (batchIndex + 1) * BATCH_SIZE,
+      currentOffset,
+      currentOffset + BATCH_SIZE,
     );
 
     if (batchIds.length > 0) {
@@ -3162,6 +3189,8 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
             : null;
         igdbFreshMap.set(item.id, { collections, franchises });
       }
+
+      nextOffset = (currentOffset + batchIds.length) % uniqueIgdbIds.length;
     }
   }
 
@@ -3204,6 +3233,17 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
     }
   }
 
+  // If a batch was queried successfully from IGDB, advance the persistent cursor
+  if (nextOffset !== null) {
+    statements.push(
+      env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES ('igdb_sync_offset', ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      ).bind(String(nextOffset)),
+    );
+  }
+
   if (statements.length > 0) {
     const CHUNK_SIZE = 100;
     for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
@@ -3215,5 +3255,6 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
   return {
     refreshedIgdbCount: igdbFreshMap.size,
     updatedGamesCount: statements.length,
+    cursorOffset: nextOffset ?? undefined,
   };
 }

@@ -180,6 +180,11 @@ describe('Worker API Logic', () => {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS sync_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
 
       INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (1, 'NES', 'NES', 'Nintendo', '1985-10-18');
       INSERT INTO games (stable_id, id, title, series, platform_id, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 1, 0);
@@ -1015,6 +1020,12 @@ describe('Worker API Logic', () => {
         .prepare('SELECT canonical_series FROM games WHERE stable_id = 11')
         .get() as { canonical_series: string };
       expect(game11.canonical_series).toBe('PopCap Arcade');
+
+      expect(res.cursorOffset).toBe(0);
+      const cursor = db
+        .prepare("SELECT value FROM sync_state WHERE key = 'igdb_sync_offset'")
+        .get() as { value: string };
+      expect(cursor?.value).toBe('0');
     } finally {
       globalThis.fetch = originalFetch;
     }
