@@ -6,7 +6,7 @@ import {
   provideHttpClientTesting,
   HttpTestingController,
 } from '@angular/common/http/testing';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { of } from 'rxjs';
 import { CollectionListComponent } from './collection-list.component';
 import { CollectionService } from '../../../../core/services/collection.service';
@@ -1740,5 +1740,27 @@ describe('CollectionListComponent', () => {
     component.onViewModeChange('compact');
     expect(component.viewMode()).toBe('compact');
     expect(localStorage.getItem('app_preferred_view_mode')).toBe('compact');
+  });
+
+  it('should apply inbound query parameters and clear them from URL via replaceUrl: true', () => {
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    (
+      component as unknown as {
+        applyQueryParams: (qp: Record<string, unknown>) => void;
+      }
+    ).applyQueryParams({
+      backup_status: '0',
+      ownership: '1',
+    });
+
+    expect(component.filters().backup_status).toBe(0);
+    expect(component.filters().ownership).toBe(1);
+    expect(navigateSpy).toHaveBeenCalledWith([], {
+      relativeTo: expect.anything(),
+      queryParams: {},
+      replaceUrl: true,
+    });
   });
 });

@@ -843,6 +843,11 @@ export class CollectionListComponent
     }
     if (Object.keys(qpFilters).length > 0) {
       this.filters.update((f) => ({ ...f, ...qpFilters }));
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: {},
+        replaceUrl: true,
+      });
     }
   }
 
@@ -2501,6 +2506,16 @@ export class CollectionListComponent
   onFiltersChange(newFilters: FilterState) {
     this.filters.set({ ...newFilters });
     this.displayLimit.set(100);
+    if (
+      this.route?.snapshot?.queryParams &&
+      Object.keys(this.route.snapshot.queryParams).length > 0
+    ) {
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: {},
+        replaceUrl: true,
+      });
+    }
   }
 
   /**
