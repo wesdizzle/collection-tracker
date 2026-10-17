@@ -8,6 +8,7 @@ import {
   ViewChild,
   ElementRef,
   DestroyRef,
+  AfterViewInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
@@ -77,18 +78,28 @@ export interface CommandPaletteGroup {
   templateUrl: './command-palette.component.html',
   styleUrl: './command-palette.component.css',
 })
-export class CommandPaletteComponent {
+export class CommandPaletteComponent implements AfterViewInit {
   public paletteService = inject(CommandPaletteService);
   private collectionService = inject(CollectionService);
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
 
+  @ViewChild('dialogEl') dialogRef?: ElementRef<HTMLDialogElement>;
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
   @ViewChild('resultsContainer') resultsContainer?: ElementRef<HTMLDivElement>;
 
   public query = signal('');
   public selectedIndex = signal(0);
   private wasOpen = false;
+
+  public readonly activeOptionId = computed<string | null>(() => {
+    const flat = this.flatResults();
+    const idx = this.selectedIndex();
+    if (flat.length === 0 || idx < 0 || idx >= flat.length) {
+      return null;
+    }
+    return `palette-opt-${flat[idx].id}`;
+  });
 
   constructor() {
     effect(() => {
@@ -103,6 +114,7 @@ export class CommandPaletteComponent {
         if (typeof document !== 'undefined') {
           document.body.style.overflow = 'hidden';
         }
+        this.openDialog();
         setTimeout(() => {
           this.searchInput?.nativeElement.focus();
         }, 50);
@@ -111,6 +123,7 @@ export class CommandPaletteComponent {
         if (typeof document !== 'undefined') {
           document.body.style.overflow = '';
         }
+        this.closeDialog();
       }
     });
 
@@ -119,6 +132,63 @@ export class CommandPaletteComponent {
         document.body.style.overflow = '';
       }
     });
+  }
+
+  public ngAfterViewInit(): void {
+    if (this.paletteService.isOpen()) {
+      this.openDialog();
+    }
+  }
+
+  private openDialog(): void {
+    const dialog = this.dialogRef?.nativeElement;
+    if (!dialog) return;
+    if (!dialog.open) {
+      if (typeof dialog.showModal === 'function') {
+        try {
+          dialog.showModal();
+        } catch {
+          dialog.setAttribute('open', '');
+        }
+      } else {
+        dialog.setAttribute('open', '');
+      }
+    }
+  }
+
+  private closeDialog(): void {
+    const dialog = this.dialogRef?.nativeElement;
+    if (!dialog) return;
+    if (dialog.open) {
+      if (typeof dialog.close === 'function') {
+        try {
+          dialog.close();
+        } catch {
+          dialog.removeAttribute('open');
+        }
+      } else {
+        dialog.removeAttribute('open');
+      }
+    }
+  }
+
+  public onDialogClick(event: MouseEvent): void {
+    const dialog = this.dialogRef?.nativeElement;
+    if (!dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    const isInDialog =
+      rect.top <= event.clientY &&
+      event.clientY <= rect.top + rect.height &&
+      rect.left <= event.clientX &&
+      event.clientX <= rect.left + rect.width;
+    if (!isInDialog) {
+      this.paletteService.close();
+    }
+  }
+
+  public onDialogCancel(event: Event): void {
+    event.preventDefault();
+    this.paletteService.close();
   }
 
   private navigationActions: CommandPaletteItem[] = [

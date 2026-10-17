@@ -89,6 +89,21 @@ describe('CommandPaletteComponent', () => {
   };
 
   beforeEach(async () => {
+    if (typeof HTMLDialogElement !== 'undefined') {
+      if (!HTMLDialogElement.prototype.showModal) {
+        HTMLDialogElement.prototype.showModal = function (
+          this: HTMLDialogElement,
+        ) {
+          this.setAttribute('open', '');
+        };
+      }
+      if (!HTMLDialogElement.prototype.close) {
+        HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) {
+          this.removeAttribute('open');
+        };
+      }
+    }
+
     router = {
       navigate: vi.fn(),
     };
@@ -108,19 +123,25 @@ describe('CommandPaletteComponent', () => {
     fixture.detectChanges();
   });
 
-  it('should create and initially be closed', () => {
+  it('should create and initially have dialog closed', () => {
     expect(component).toBeTruthy();
     expect(paletteService.isOpen()).toBe(false);
-    const overlay = fixture.nativeElement.querySelector('.palette-overlay');
-    expect(overlay).toBeNull();
+    const dialog = fixture.nativeElement.querySelector(
+      '.palette-dialog',
+    ) as HTMLDialogElement;
+    expect(dialog).not.toBeNull();
+    expect(dialog.open).toBe(false);
   });
 
-  it('should display overlay when paletteService is open', () => {
+  it('should open dialog when paletteService is open', () => {
     paletteService.open();
     fixture.detectChanges();
 
-    const overlay = fixture.nativeElement.querySelector('.palette-overlay');
-    expect(overlay).not.toBeNull();
+    const dialog = fixture.nativeElement.querySelector(
+      '.palette-dialog',
+    ) as HTMLDialogElement;
+    expect(dialog).not.toBeNull();
+    expect(dialog.open).toBe(true);
   });
 
   it('should list default actions and top platforms when query is empty', () => {
@@ -324,6 +345,93 @@ describe('CommandPaletteComponent', () => {
 
     component.onDragHandleTouchEnd();
     expect(component.isDraggingSheet()).toBe(false);
+    expect(paletteService.isOpen()).toBe(false);
+  });
+
+  it('should conform to WAI-ARIA 1.2 combobox pattern with listbox and active descendant', () => {
+    paletteService.open();
+    fixture.detectChanges();
+
+    const input = fixture.nativeElement.querySelector('.palette-input');
+    expect(input.getAttribute('role')).toBe('combobox');
+    expect(input.getAttribute('aria-expanded')).toBe('true');
+    expect(input.getAttribute('aria-autocomplete')).toBe('list');
+    expect(input.getAttribute('aria-controls')).toBe('palette-results-list');
+    expect(input.getAttribute('inputmode')).toBe('search');
+    expect(input.getAttribute('enterkeyhint')).toBe('go');
+
+    const listbox = fixture.nativeElement.querySelector(
+      '#palette-results-list',
+    );
+    expect(listbox).not.toBeNull();
+    expect(listbox.getAttribute('role')).toBe('listbox');
+
+    const options = fixture.nativeElement.querySelectorAll(
+      '.palette-item[role="option"]',
+    );
+    expect(options.length).toBeGreaterThan(0);
+    expect(options[0].getAttribute('aria-selected')).toBe('true');
+
+    const activeId = input.getAttribute('aria-activedescendant');
+    expect(activeId).toBe(options[0].id);
+
+    component.moveSelection(1);
+    fixture.detectChanges();
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[1].id);
+  });
+
+  it('should render screen reader live region for result count', () => {
+    paletteService.open();
+    fixture.detectChanges();
+
+    const liveRegion = fixture.nativeElement.querySelector(
+      '[role="status"].sr-only',
+    );
+    expect(liveRegion).not.toBeNull();
+    expect(liveRegion.textContent).toContain('results available');
+  });
+
+  it('should close on dialog cancel event', () => {
+    paletteService.open();
+    fixture.detectChanges();
+    expect(paletteService.isOpen()).toBe(true);
+
+    const dialog = fixture.nativeElement.querySelector('.palette-dialog');
+    const cancelEvent = new Event('cancel', { cancelable: true });
+    dialog.dispatchEvent(cancelEvent);
+    fixture.detectChanges();
+
+    expect(paletteService.isOpen()).toBe(false);
+  });
+
+  it('should close on backdrop click outside dialog bounding rect', () => {
+    paletteService.open();
+    fixture.detectChanges();
+    expect(paletteService.isOpen()).toBe(true);
+
+    const dialog = fixture.nativeElement.querySelector(
+      '.palette-dialog',
+    ) as HTMLDialogElement;
+    vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue({
+      top: 50,
+      bottom: 400,
+      left: 100,
+      right: 500,
+      width: 400,
+      height: 350,
+      x: 100,
+      y: 50,
+      toJSON: () => {},
+    });
+
+    const clickEvent = new MouseEvent('click', {
+      clientX: 10,
+      clientY: 10,
+      bubbles: true,
+    });
+    dialog.dispatchEvent(clickEvent);
+    fixture.detectChanges();
+
     expect(paletteService.isOpen()).toBe(false);
   });
 });

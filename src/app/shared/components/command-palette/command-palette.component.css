@@ -1,24 +1,9 @@
-.palette-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(16px) contrast(95%) brightness(85%);
-  -webkit-backdrop-filter: blur(16px) contrast(95%) brightness(85%);
-  z-index: 99999;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: var(--spacing-48, 48px) var(--spacing-16, 16px)
-    var(--spacing-24, 24px);
-  overscroll-behavior: contain;
-}
-
 .palette-dialog {
-  width: 100%;
+  margin: var(--spacing-48, 48px) auto auto auto;
+  padding: 0;
+  width: calc(100% - var(--spacing-32, 32px));
   max-width: 640px;
   max-height: calc(85vh - 48px);
-  display: flex;
-  flex-direction: column;
   background: var(--m3-surface-container-high);
   border: 1px solid var(--m3-outline-variant);
   border-radius: var(--radius-md, 16px);
@@ -27,6 +12,22 @@
     0 0 0 1px rgba(255, 255, 255, 0.05);
   overflow: hidden;
   color: var(--m3-on-surface);
+}
+
+.palette-dialog:not([open]) {
+  display: none;
+}
+
+.palette-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.palette-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(16px) contrast(95%) brightness(85%);
+  -webkit-backdrop-filter: blur(16px) contrast(95%) brightness(85%);
+  overscroll-behavior: contain;
 }
 
 .palette-header {
@@ -89,9 +90,27 @@
   font-family: inherit;
 }
 
+.palette-input::-webkit-search-cancel-button,
+.palette-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .palette-input::placeholder {
   color: var(--m3-on-surface-variant);
   opacity: 0.7;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 
 .palette-kbd {
@@ -282,12 +301,9 @@
 }
 
 @media (max-width: 768px) {
-  .palette-overlay {
-    align-items: flex-end;
-    padding: 0;
-  }
-
   .palette-dialog {
+    margin: auto 0 0 0;
+    width: 100%;
     max-width: 100%;
     max-height: calc(88dvh - env(safe-area-inset-top, 0px));
     border-radius: 20px 20px 0 0;

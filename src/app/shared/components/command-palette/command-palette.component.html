@@ -1,119 +1,146 @@
-@if (paletteService.isOpen()) {
-  <div class="palette-overlay" (click)="paletteService.close()">
-    <div
-      class="palette-dialog m3-surface-container-high animate-expressive"
-      [class.dragging]="isDraggingSheet()"
-      [style.transform]="
-        sheetTransformY() > 0 ? 'translateY(' + sheetTransformY() + 'px)' : null
-      "
-      (click)="$event.stopPropagation()"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Command palette"
+<dialog
+  #dialogEl
+  class="palette-dialog m3-surface-container-high animate-expressive"
+  [class.dragging]="isDraggingSheet()"
+  [style.transform]="
+    sheetTransformY() > 0 ? 'translateY(' + sheetTransformY() + 'px)' : null
+  "
+  (click)="onDialogClick($event)"
+  (cancel)="onDialogCancel($event)"
+  aria-label="Command palette"
+>
+  <!-- Mobile Bottom Sheet Drag Handle -->
+  <div
+    class="palette-drag-handle-bar"
+    (touchstart)="onDragHandleTouchStart($event)"
+    (touchmove)="onDragHandleTouchMove($event)"
+    (touchend)="onDragHandleTouchEnd()"
+  >
+    <div class="palette-drag-handle"></div>
+  </div>
+
+  <header class="palette-header">
+    <div class="palette-title-group">
+      <app-icon name="gamepad" [size]="15" />
+      <h2 class="palette-title">Command Palette</h2>
+    </div>
+    <span class="palette-shortcut-badge">Ctrl + K</span>
+  </header>
+
+  <div class="palette-search-wrapper">
+    <app-icon name="search" [size]="20" className="search-icon" />
+    <input
+      #searchInput
+      type="search"
+      role="combobox"
+      aria-expanded="true"
+      aria-autocomplete="list"
+      aria-haspopup="listbox"
+      aria-controls="palette-results-list"
+      [attr.aria-activedescendant]="activeOptionId()"
+      inputmode="search"
+      enterkeyhint="go"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="none"
+      spellcheck="false"
+      class="palette-input"
+      [value]="query()"
+      (input)="onInputChange($event)"
+      placeholder="Search games, toys, platforms, commands..."
+    />
+    <kbd class="palette-kbd esc-badge" (click)="paletteService.close()"
+      >ESC</kbd
     >
-      <!-- Mobile Bottom Sheet Drag Handle -->
-      <div
-        class="palette-drag-handle-bar"
-        (touchstart)="onDragHandleTouchStart($event)"
-        (touchmove)="onDragHandleTouchMove($event)"
-        (touchend)="onDragHandleTouchEnd()"
-      >
-        <div class="palette-drag-handle"></div>
+  </div>
+
+  <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    @if (flatResults().length === 0) {
+      No results found for "{{ query() }}"
+    } @else {
+      {{ flatResults().length }} results available
+    }
+  </div>
+
+  <div
+    id="palette-results-list"
+    role="listbox"
+    aria-label="Search suggestions"
+    class="palette-results"
+    #resultsContainer
+  >
+    @if (flatResults().length === 0) {
+      <div class="palette-empty-state">
+        <app-icon name="inbox-empty" [size]="32" />
+        <p>No results found for "{{ query() }}"</p>
       </div>
-
-      <header class="palette-header">
-        <div class="palette-title-group">
-          <app-icon name="gamepad" [size]="15" />
-          <h2 class="palette-title">Command Palette</h2>
-        </div>
-        <span class="palette-shortcut-badge">Ctrl + K</span>
-      </header>
-
-      <div class="palette-search-wrapper">
-        <app-icon name="search" [size]="20" className="search-icon" />
-        <input
-          #searchInput
-          type="text"
-          class="palette-input"
-          [value]="query()"
-          (input)="onInputChange($event)"
-          placeholder="Search games, toys, platforms, commands..."
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <kbd class="palette-kbd esc-badge" (click)="paletteService.close()"
-          >ESC</kbd
+    } @else {
+      @for (group of groupedResults(); track group.category) {
+        <div
+          class="palette-group"
+          role="group"
+          [attr.aria-label]="group.category"
         >
-      </div>
-
-      <div class="palette-results" #resultsContainer>
-        @if (flatResults().length === 0) {
-          <div class="palette-empty-state">
-            <app-icon name="inbox-empty" [size]="32" />
-            <p>No results found for "{{ query() }}"</p>
+          <div class="palette-group-title" aria-hidden="true">
+            {{ group.category }}
           </div>
-        } @else {
-          @for (group of groupedResults(); track group.category) {
-            <div class="palette-group">
-              <div class="palette-group-title">{{ group.category }}</div>
-              @for (entry of group.items; track entry.item.id) {
-                <div
-                  class="palette-item"
-                  [class.selected]="selectedIndex() === entry.flatIndex"
-                  (click)="onSelect(entry.item)"
-                  (mouseenter)="onHover(entry.flatIndex)"
-                >
-                  <div class="palette-item-icon">
-                    <app-icon [name]="entry.item.icon" [size]="18" />
-                  </div>
-                  <div class="palette-item-info">
-                    <div class="palette-title-row">
-                      <span class="palette-item-title">{{
-                        entry.item.title
-                      }}</span>
-                      @if (entry.item.region) {
-                        <span class="palette-region-badge">{{
-                          entry.item.region
-                        }}</span>
-                      }
-                    </div>
-                    @if (entry.item.subtitle) {
-                      <span class="palette-item-subtitle">{{
-                        entry.item.subtitle
-                      }}</span>
-                    }
-                  </div>
-                  @if (entry.item.badge) {
-                    <span
-                      class="palette-item-badge"
-                      [class.badge-owned]="entry.item.badge === 'Owned'"
-                      [class.badge-seeking]="entry.item.badge === 'Seeking'"
-                    >
-                      {{ entry.item.badge }}
-                    </span>
+          @for (entry of group.items; track entry.item.id) {
+            <div
+              [id]="'palette-opt-' + entry.item.id"
+              role="option"
+              [attr.aria-selected]="selectedIndex() === entry.flatIndex"
+              class="palette-item"
+              [class.selected]="selectedIndex() === entry.flatIndex"
+              (click)="onSelect(entry.item)"
+              (mouseenter)="onHover(entry.flatIndex)"
+            >
+              <div class="palette-item-icon">
+                <app-icon [name]="entry.item.icon" [size]="18" />
+              </div>
+              <div class="palette-item-info">
+                <div class="palette-title-row">
+                  <span class="palette-item-title">{{ entry.item.title }}</span>
+                  @if (entry.item.region) {
+                    <span class="palette-region-badge">{{
+                      entry.item.region
+                    }}</span>
                   }
                 </div>
+                @if (entry.item.subtitle) {
+                  <span class="palette-item-subtitle">{{
+                    entry.item.subtitle
+                  }}</span>
+                }
+              </div>
+              @if (entry.item.badge) {
+                <span
+                  class="palette-item-badge"
+                  [class.badge-owned]="entry.item.badge === 'Owned'"
+                  [class.badge-seeking]="entry.item.badge === 'Seeking'"
+                >
+                  {{ entry.item.badge }}
+                </span>
               }
             </div>
           }
-        }
-      </div>
-
-      <footer class="palette-footer">
-        <div class="palette-hint">
-          <kbd class="palette-kbd mini">↑</kbd>
-          <kbd class="palette-kbd mini">↓</kbd>
-          <span>Navigate</span>
         </div>
-        <div class="palette-hint">
-          <kbd class="palette-kbd mini">↵</kbd>
-          <span>Select</span>
-        </div>
-        <div class="palette-hint">
-          <kbd class="palette-kbd mini">esc</kbd>
-          <span>Close</span>
-        </div>
-      </footer>
-    </div>
+      }
+    }
   </div>
-}
+
+  <footer class="palette-footer">
+    <div class="palette-hint">
+      <kbd class="palette-kbd mini">↑</kbd>
+      <kbd class="palette-kbd mini">↓</kbd>
+      <span>Navigate</span>
+    </div>
+    <div class="palette-hint">
+      <kbd class="palette-kbd mini">↵</kbd>
+      <span>Select</span>
+    </div>
+    <div class="palette-hint">
+      <kbd class="palette-kbd mini">esc</kbd>
+      <span>Close</span>
+    </div>
+  </footer>
+</dialog>
