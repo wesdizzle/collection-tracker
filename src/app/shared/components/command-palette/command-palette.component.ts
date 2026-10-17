@@ -465,6 +465,46 @@ export class CommandPaletteComponent {
     this.selectedIndex.set(index);
   }
 
+  // --- Mobile Bottom Sheet Drag-to-Dismiss Gesture ---
+  private sheetDragStartY = 0;
+  public sheetTransformY = signal(0);
+  public isDraggingSheet = signal(false);
+
+  public onDragHandleTouchStart(event: TouchEvent): void {
+    if (event.touches.length !== 1) return;
+    this.sheetDragStartY = event.touches[0].clientY;
+    this.isDraggingSheet.set(true);
+    this.sheetTransformY.set(0);
+  }
+
+  public onDragHandleTouchMove(event: TouchEvent): void {
+    if (!this.isDraggingSheet() || event.touches.length !== 1) return;
+    const deltaY = event.touches[0].clientY - this.sheetDragStartY;
+    if (deltaY > 0) {
+      this.sheetTransformY.set(deltaY);
+    } else {
+      this.sheetTransformY.set(0);
+    }
+  }
+
+  public onDragHandleTouchEnd(): void {
+    if (!this.isDraggingSheet()) return;
+    const currentDelta = this.sheetTransformY();
+    this.isDraggingSheet.set(false);
+
+    if (currentDelta >= 60) {
+      this.paletteService.close();
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate(10);
+        } catch {
+          // Ignore vibration limitations
+        }
+      }
+    }
+    this.sheetTransformY.set(0);
+  }
+
   private scrollActiveItemIntoView() {
     if (typeof document === 'undefined') return;
     setTimeout(() => {

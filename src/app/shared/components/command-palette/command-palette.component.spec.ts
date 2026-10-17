@@ -291,4 +291,39 @@ describe('CommandPaletteComponent', () => {
     fixture.detectChanges();
     expect(paletteService.isOpen()).toBe(false);
   });
+
+  it('should dismiss palette when bottom sheet drag handle is pulled down by >= 60px', () => {
+    paletteService.open();
+    fixture.detectChanges();
+
+    // 1. Partial drag < 60px does not dismiss
+    component.onDragHandleTouchStart({
+      touches: [{ clientY: 100 }],
+    } as unknown as TouchEvent);
+    expect(component.isDraggingSheet()).toBe(true);
+
+    component.onDragHandleTouchMove({
+      touches: [{ clientY: 140 }],
+    } as unknown as TouchEvent);
+    expect(component.sheetTransformY()).toBe(40);
+
+    component.onDragHandleTouchEnd();
+    expect(component.isDraggingSheet()).toBe(false);
+    expect(component.sheetTransformY()).toBe(0);
+    expect(paletteService.isOpen()).toBe(true);
+
+    // 2. Drag >= 60px dismisses the palette
+    component.onDragHandleTouchStart({
+      touches: [{ clientY: 100 }],
+    } as unknown as TouchEvent);
+
+    component.onDragHandleTouchMove({
+      touches: [{ clientY: 170 }],
+    } as unknown as TouchEvent);
+    expect(component.sheetTransformY()).toBe(70);
+
+    component.onDragHandleTouchEnd();
+    expect(component.isDraggingSheet()).toBe(false);
+    expect(paletteService.isOpen()).toBe(false);
+  });
 });

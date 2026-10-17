@@ -18,7 +18,12 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
   standalone: true,
   imports: [RouterModule, IconComponent, NotificationSettingsModalComponent],
   template: `
-    <header class="main-header">
+    <header
+      class="main-header"
+      (touchstart)="onHeaderTouchStart($event)"
+      (touchmove)="onHeaderTouchMove($event)"
+      (touchend)="onHeaderTouchEnd($event)"
+    >
       <div class="header-inner">
         <div class="header-left">
           <a
@@ -543,5 +548,50 @@ export class CollectionLayoutComponent implements OnDestroy {
         }
       }
     });
+  }
+
+  // --- Mobile Pull-to-Search Gesture ---
+  private touchStartY = 0;
+  private touchStartX = 0;
+  private isSwipingDown = false;
+
+  public onHeaderTouchStart(event: TouchEvent): void {
+    if (event.touches.length !== 1) return;
+    this.touchStartY = event.touches[0].clientY;
+    this.touchStartX = event.touches[0].clientX;
+    this.isSwipingDown = false;
+  }
+
+  public onHeaderTouchMove(event: TouchEvent): void {
+    if (event.touches.length !== 1) return;
+    const currentY = event.touches[0].clientY;
+    const currentX = event.touches[0].clientX;
+    const deltaY = currentY - this.touchStartY;
+    const deltaX = currentX - this.touchStartX;
+
+    // Must be downward swipe and predominantly vertical
+    if (deltaY > 15 && deltaY > Math.abs(deltaX) * 1.5) {
+      this.isSwipingDown = true;
+    }
+  }
+
+  public onHeaderTouchEnd(event: TouchEvent): void {
+    if (!this.isSwipingDown) return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    const deltaY = touch.clientY - this.touchStartY;
+    const deltaX = touch.clientX - this.touchStartX;
+
+    if (deltaY >= 40 && deltaY > Math.abs(deltaX) * 1.5) {
+      this.commandPalette.open();
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate(10);
+        } catch {
+          // Ignore vibration permission limitations
+        }
+      }
+    }
+    this.isSwipingDown = false;
   }
 }

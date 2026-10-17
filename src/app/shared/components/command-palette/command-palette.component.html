@@ -2,11 +2,25 @@
   <div class="palette-overlay" (click)="paletteService.close()">
     <div
       class="palette-dialog m3-surface-container-high animate-expressive"
+      [class.dragging]="isDraggingSheet()"
+      [style.transform]="
+        sheetTransformY() > 0 ? 'translateY(' + sheetTransformY() + 'px)' : null
+      "
       (click)="$event.stopPropagation()"
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
     >
+      <!-- Mobile Bottom Sheet Drag Handle -->
+      <div
+        class="palette-drag-handle-bar"
+        (touchstart)="onDragHandleTouchStart($event)"
+        (touchmove)="onDragHandleTouchMove($event)"
+        (touchend)="onDragHandleTouchEnd()"
+      >
+        <div class="palette-drag-handle"></div>
+      </div>
+
       <header class="palette-header">
         <div class="palette-title-group">
           <app-icon name="gamepad" [size]="15" />

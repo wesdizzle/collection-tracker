@@ -252,5 +252,46 @@ describe('CollectionLayoutComponent', () => {
       button.click();
       expect(openSpy).toHaveBeenCalled();
     });
+
+    it('should open command palette on downward swipe on header and ignore horizontal/upward swipes', () => {
+      const paletteService = TestBed.inject(CommandPaletteService);
+      const openSpy = vi.spyOn(paletteService, 'open');
+
+      // 1. Horizontal swipe -> should not open
+      component.onHeaderTouchStart({
+        touches: [{ clientX: 100, clientY: 50 }],
+      } as unknown as TouchEvent);
+      component.onHeaderTouchMove({
+        touches: [{ clientX: 200, clientY: 55 }],
+      } as unknown as TouchEvent);
+      component.onHeaderTouchEnd({
+        changedTouches: [{ clientX: 200, clientY: 55 }],
+      } as unknown as TouchEvent);
+      expect(openSpy).not.toHaveBeenCalled();
+
+      // 2. Upward swipe -> should not open
+      component.onHeaderTouchStart({
+        touches: [{ clientX: 100, clientY: 100 }],
+      } as unknown as TouchEvent);
+      component.onHeaderTouchMove({
+        touches: [{ clientX: 100, clientY: 40 }],
+      } as unknown as TouchEvent);
+      component.onHeaderTouchEnd({
+        changedTouches: [{ clientX: 100, clientY: 40 }],
+      } as unknown as TouchEvent);
+      expect(openSpy).not.toHaveBeenCalled();
+
+      // 3. Sufficient downward swipe (deltaY >= 40) -> should open
+      component.onHeaderTouchStart({
+        touches: [{ clientX: 100, clientY: 50 }],
+      } as unknown as TouchEvent);
+      component.onHeaderTouchMove({
+        touches: [{ clientX: 105, clientY: 110 }],
+      } as unknown as TouchEvent);
+      component.onHeaderTouchEnd({
+        changedTouches: [{ clientX: 105, clientY: 110 }],
+      } as unknown as TouchEvent);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
   });
 });
