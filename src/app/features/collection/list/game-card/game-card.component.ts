@@ -121,7 +121,7 @@ export class GameCardComponent {
     game: Game,
     backedUp: boolean | number,
   ): 'disc' | 'rom-archive' | 'missing-dump' {
-    return getMediaIconName(game.platform, backedUp);
+    return getMediaIconName(game.display_name || game.platform, backedUp);
   }
 
   private normalizeBudgetToken(token: string): string | null {

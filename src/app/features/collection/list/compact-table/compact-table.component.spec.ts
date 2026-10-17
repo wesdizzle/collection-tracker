@@ -115,14 +115,16 @@ describe('CompactTableComponent', () => {
       expect(manualEmitted).toBe(true);
     });
 
-    it('should render backup chip for single-disc owned games, omit igdb ribbon, and emit toggleDiscBackup on click', () => {
+    it('should render backup chip for single-disc owned games with icon only, omit igdb ribbon, and emit toggleDiscBackup on click', () => {
       expect(fixture.nativeElement.querySelector('.igdb-icon')).toBeNull();
 
       const discBtn = fixture.nativeElement.querySelector(
         '.col-completeness .compact-disc-chip',
       ) as HTMLButtonElement;
       expect(discBtn).toBeTruthy();
-      expect(discBtn.textContent).toContain('ROM');
+      // Should have no text when single disc
+      expect(discBtn.textContent?.trim()).toBe('');
+      expect(discBtn.querySelector('app-icon')).toBeTruthy();
 
       let emittedIndex = -1;
       component.toggleDiscBackup.subscribe((evt) => {
@@ -131,6 +133,20 @@ describe('CompactTableComponent', () => {
 
       discBtn.click();
       expect(emittedIndex).toBe(0);
+    });
+
+    it('should determine media icon based on platform (disc for optical, rom-archive for carts)', () => {
+      const opticalGame: Game = {
+        ...mockGames[0],
+        platform: 'PlayStation 4',
+      };
+      const cartGame: Game = {
+        ...mockGames[0],
+        platform: 'Nintendo Switch',
+      };
+      expect(component.getMediaIcon(opticalGame, 1)).toBe('disc');
+      expect(component.getMediaIcon(cartGame, 1)).toBe('rom-archive');
+      expect(component.getMediaIcon(opticalGame, 0)).toBe('missing-dump');
     });
   });
 

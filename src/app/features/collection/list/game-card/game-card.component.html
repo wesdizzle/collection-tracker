@@ -89,9 +89,6 @@
               [name]="getMediaIcon(game(), game().backup_status)"
               [size]="13"
             />
-            <span class="backup-text">{{
-              game().backup_status ? 'Backed Up' : 'No Backup'
-            }}</span>
           </button>
         }
         @if (
@@ -111,9 +108,7 @@
               (click)="onToggleDiscBackupClick($event, 0)"
             >
               <app-icon [name]="getMediaIcon(game(), 1)" [size]="13" />
-              <span class="backup-text"
-                >{{ game().discIds!.length }} Backed Up</span
-              >
+              <span class="backup-text">{{ game().discIds!.length }}</span>
             </button>
           } @else if (getBackedUpDiscCount(game()) === 0) {
             <button
@@ -126,9 +121,7 @@
               (click)="onToggleDiscBackupClick($event, 0)"
             >
               <app-icon name="missing-dump" [size]="13" />
-              <span class="backup-text"
-                >{{ game().discIds!.length }} No Backup</span
-              >
+              <span class="backup-text">{{ game().discIds!.length }}</span>
             </button>
           } @else {
             <div

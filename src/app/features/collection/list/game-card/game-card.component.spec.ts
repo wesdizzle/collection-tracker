@@ -131,7 +131,7 @@ describe('GameCardComponent', () => {
     expect(component.getDealArbitrageSavings(dealGame)).toBe(1500);
   });
 
-  it('should render backup-badge for single-disc physical games and emit toggleDiscBackup on click', () => {
+  it('should render backup-badge for single-disc physical games with icon only and emit toggleDiscBackup on click', () => {
     const singleDiscGame: Game = {
       ...mockGame,
       id: 'single-disc-game',
@@ -150,7 +150,9 @@ describe('GameCardComponent', () => {
       '.backup-badge',
     ) as HTMLButtonElement;
     expect(backupBadge).toBeTruthy();
-    expect(backupBadge.textContent).toContain('Backed Up');
+    // Should have no text when single disc
+    expect(backupBadge.textContent?.trim()).toBe('');
+    expect(backupBadge.querySelector('app-icon')).toBeTruthy();
 
     let emittedIndex = -1;
     component.toggleDiscBackup.subscribe((evt) => {
@@ -159,5 +161,19 @@ describe('GameCardComponent', () => {
 
     backupBadge.click();
     expect(emittedIndex).toBe(0);
+  });
+
+  it('should determine media icon based on platform (disc for optical, rom-archive for carts)', () => {
+    const opticalGame: Game = {
+      ...mockGame,
+      platform: 'PlayStation 5',
+    };
+    const cartGame: Game = {
+      ...mockGame,
+      platform: 'Game Boy Advance',
+    };
+    expect(component.getMediaIcon(opticalGame, 1)).toBe('disc');
+    expect(component.getMediaIcon(cartGame, 1)).toBe('rom-archive');
+    expect(component.getMediaIcon(opticalGame, 0)).toBe('missing-dump');
   });
 });

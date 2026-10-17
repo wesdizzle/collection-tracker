@@ -329,7 +329,10 @@ export class CommandPaletteComponent {
         subtitle: `${g.platform || ''}${g.series ? ' • ' + g.series : ''}`,
         region: g.region || undefined,
         category: 'Games',
-        icon: getMediaIconName(g.platform, g.backup_status) as IconName,
+        icon: getMediaIconName(
+          g.display_name || g.platform,
+          g.backup_status,
+        ) as IconName,
         badge:
           g.ownership_status === 1
             ? 'Owned'

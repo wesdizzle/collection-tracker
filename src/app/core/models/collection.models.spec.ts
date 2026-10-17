@@ -1,0 +1,123 @@
+import { describe, it, expect } from 'vitest';
+import { isOpticalPlatform, getMediaIconName } from './collection.models';
+
+describe('Collection Models Platform and Media Detection', () => {
+  describe('isOpticalPlatform', () => {
+    it('identifies optical disc platforms correctly', () => {
+      // Sony PlayStation (excluding Vita/PSV)
+      expect(isOpticalPlatform('PlayStation')).toBe(true);
+      expect(isOpticalPlatform('PlayStation 2')).toBe(true);
+      expect(isOpticalPlatform('PlayStation 3')).toBe(true);
+      expect(isOpticalPlatform('PlayStation 4')).toBe(true);
+      expect(isOpticalPlatform('PlayStation 5')).toBe(true);
+      expect(isOpticalPlatform('PlayStation Portable')).toBe(true);
+      expect(isOpticalPlatform('PS1')).toBe(true);
+      expect(isOpticalPlatform('PS2')).toBe(true);
+      expect(isOpticalPlatform('PS3')).toBe(true);
+      expect(isOpticalPlatform('PS4')).toBe(true);
+      expect(isOpticalPlatform('PS5')).toBe(true);
+      expect(isOpticalPlatform('PSX')).toBe(true);
+      expect(isOpticalPlatform('PSP')).toBe(true);
+
+      // Nintendo Optical
+      expect(isOpticalPlatform('Nintendo GameCube')).toBe(true);
+      expect(isOpticalPlatform('GameCube')).toBe(true);
+      expect(isOpticalPlatform('Wii')).toBe(true);
+      expect(isOpticalPlatform('Wii U')).toBe(true);
+
+      // Microsoft Xbox
+      expect(isOpticalPlatform('Xbox')).toBe(true);
+      expect(isOpticalPlatform('Xbox 360')).toBe(true);
+      expect(isOpticalPlatform('Xbox One')).toBe(true);
+      expect(isOpticalPlatform('Xbox Series X')).toBe(true);
+
+      // Sega Optical
+      expect(isOpticalPlatform('Sega CD')).toBe(true);
+      expect(isOpticalPlatform('Sega Saturn')).toBe(true);
+      expect(isOpticalPlatform('Dreamcast')).toBe(true);
+
+      // Other Optical
+      expect(isOpticalPlatform('3DO Interactive Multiplayer')).toBe(true);
+      expect(isOpticalPlatform('Philips CD-i')).toBe(true);
+      expect(isOpticalPlatform('TurboGrafx CD')).toBe(true);
+      expect(isOpticalPlatform('PC Engine CD')).toBe(true);
+      expect(isOpticalPlatform('Neo Geo CD')).toBe(true);
+    });
+
+    it('identifies cartridge, card, and handheld chip platforms as non-optical', () => {
+      // PS Vita is explicitly a card/cartridge platform
+      expect(isOpticalPlatform('PlayStation Vita')).toBe(false);
+      expect(isOpticalPlatform('PS Vita')).toBe(false);
+      expect(isOpticalPlatform('PSV')).toBe(false);
+
+      // Nintendo Cartridges & Cards
+      expect(isOpticalPlatform('Nintendo Entertainment System')).toBe(false);
+      expect(isOpticalPlatform('NES')).toBe(false);
+      expect(isOpticalPlatform('Super Nintendo Entertainment System')).toBe(
+        false,
+      );
+      expect(isOpticalPlatform('SNES')).toBe(false);
+      expect(isOpticalPlatform('Nintendo 64')).toBe(false);
+      expect(isOpticalPlatform('Game Boy')).toBe(false);
+      expect(isOpticalPlatform('Game Boy Color')).toBe(false);
+      expect(isOpticalPlatform('Game Boy Advance')).toBe(false);
+      expect(isOpticalPlatform('Nintendo DS')).toBe(false);
+      expect(isOpticalPlatform('Nintendo 3DS')).toBe(false);
+      expect(isOpticalPlatform('Nintendo Switch')).toBe(false);
+      expect(isOpticalPlatform('Switch')).toBe(false);
+      expect(isOpticalPlatform('Nintendo Switch 2')).toBe(false);
+      expect(isOpticalPlatform('Virtual Boy')).toBe(false);
+
+      // Sega Cartridges
+      expect(isOpticalPlatform('Sega Master System')).toBe(false);
+      expect(isOpticalPlatform('Sega Genesis')).toBe(false);
+      expect(isOpticalPlatform('Sega Game Gear')).toBe(false);
+      expect(isOpticalPlatform('Sega 32X')).toBe(false);
+
+      // Atari, Coleco, Intellivision, Neo Geo AES
+      expect(isOpticalPlatform('Atari 2600')).toBe(false);
+      expect(isOpticalPlatform('Atari 7800')).toBe(false);
+      expect(isOpticalPlatform('ColecoVision')).toBe(false);
+      expect(isOpticalPlatform('Intellivision')).toBe(false);
+      expect(isOpticalPlatform('Neo Geo AES')).toBe(false);
+      expect(isOpticalPlatform('TurboGrafx-16')).toBe(false);
+
+      // Null, undefined, empty
+      expect(isOpticalPlatform(null)).toBe(false);
+      expect(isOpticalPlatform(undefined)).toBe(false);
+      expect(isOpticalPlatform('')).toBe(false);
+    });
+  });
+
+  describe('getMediaIconName', () => {
+    it('returns missing-dump when backup_status is 0 or false', () => {
+      expect(getMediaIconName('PlayStation 4', 0)).toBe('missing-dump');
+      expect(getMediaIconName('Nintendo Switch', 0)).toBe('missing-dump');
+      expect(getMediaIconName('Nintendo GameCube', false)).toBe('missing-dump');
+      expect(getMediaIconName(null, 0)).toBe('missing-dump');
+    });
+
+    it('returns disc for backed-up optical platforms', () => {
+      expect(getMediaIconName('PlayStation 4', 1)).toBe('disc');
+      expect(getMediaIconName('PlayStation 5', true)).toBe('disc');
+      expect(getMediaIconName('Nintendo GameCube', 1)).toBe('disc');
+      expect(getMediaIconName('Wii', 1)).toBe('disc');
+      expect(getMediaIconName('Xbox 360', 1)).toBe('disc');
+      expect(getMediaIconName('Dreamcast', 1)).toBe('disc');
+      expect(getMediaIconName('Sega CD', 1)).toBe('disc');
+    });
+
+    it('returns rom-archive for backed-up cartridge and card platforms', () => {
+      expect(getMediaIconName('Nintendo Switch', 1)).toBe('rom-archive');
+      expect(getMediaIconName('PlayStation Vita', 1)).toBe('rom-archive');
+      expect(getMediaIconName('Nintendo 64', 1)).toBe('rom-archive');
+      expect(getMediaIconName('Game Boy Advance', 1)).toBe('rom-archive');
+      expect(getMediaIconName('Nintendo DS', 1)).toBe('rom-archive');
+      expect(getMediaIconName('Sega Genesis', 1)).toBe('rom-archive');
+      expect(getMediaIconName('Super Nintendo Entertainment System', 1)).toBe(
+        'rom-archive',
+      );
+      expect(getMediaIconName('Atari 2600', 1)).toBe('rom-archive');
+    });
+  });
+});

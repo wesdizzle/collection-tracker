@@ -74,6 +74,7 @@ export const GAMES_LIST_QUERY = `
             g.retail_url,
             g.retail_updated_at,
             COALESCE(pp.display_name, p.display_name) as display_name, 
+            COALESCE(pp.display_name, p.display_name) as platform, 
             COALESCE(pp.brand, p.brand) as brand, 
             COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
             COALESCE(pp.image_url, p.image_url) as platform_logo,
@@ -143,6 +144,7 @@ export const GAME_DETAIL_QUERY = `
             g.retail_url,
             g.retail_updated_at,
             COALESCE(pp.display_name, p.display_name) as display_name, 
+            COALESCE(pp.display_name, p.display_name) as platform, 
             COALESCE(pp.brand, p.brand) as brand, 
             COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
             COALESCE(pp.image_url, p.image_url) as platform_logo,
@@ -186,7 +188,8 @@ export const BUNDLED_GAMES_BY_PARENT_QUERY = `
            g.origin_metadata,
            COALESCE(r.rom_name, g.title) as rom_name,
            COALESCE(r.backup_status, g.backup_status, 0) as backup_status,
-           COALESCE(pp.display_name, p.display_name) as platform_name
+           COALESCE(pp.display_name, p.display_name) as platform_name,
+           COALESCE(pp.display_name, p.display_name) as platform
     FROM games g
     LEFT JOIN game_releases r ON g.stable_id = r.game_id
     LEFT JOIN platforms p ON g.platform_id = p.id

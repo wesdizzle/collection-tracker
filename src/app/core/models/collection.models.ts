@@ -390,6 +390,7 @@ export function isOpticalPlatform(
     p.includes('ps3') ||
     p.includes('ps4') ||
     p.includes('ps5') ||
+    p.includes('psx') ||
     p.includes('psp') ||
     p.includes('saturn') ||
     p.includes('sega cd') ||
@@ -397,12 +398,20 @@ export function isOpticalPlatform(
     p.includes('mega cd') ||
     p.includes('dreamcast') ||
     p.includes('gamecube') ||
+    p.includes('gcn') ||
+    p.includes('ngc') ||
     p.includes('wii') ||
     p.includes('xbox') ||
+    p.includes('x360') ||
+    p.includes('xb1') ||
+    p.includes('xbsx') ||
     p.includes('3do') ||
     p.includes('cd-rom') ||
+    p.includes('cd-i') ||
     p.includes('turbografx-cd') ||
+    p.includes('turbografx cd') ||
     p.includes('pc engine cd') ||
+    p.includes('pc-engine cd') ||
     p.includes('neo geo cd') ||
     p.includes('laseractive')
   );
