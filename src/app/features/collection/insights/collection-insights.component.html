@@ -102,6 +102,137 @@
   <div class="insights-content-grid">
     <!-- Left Column: Preservation, Condition & Backlog -->
     <div class="insights-column">
+      <!-- Acquisition Cost Basis & Provenance Panel -->
+      <section
+        class="insight-panel journal-insight-panel"
+        data-testid="insights-journal-panel"
+      >
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Acquisition Cost Basis & Provenance</h2>
+            <p class="panel-subtitle">
+              Private purchase ledger, total spend, and collection appreciation
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn-eye-toggle"
+            [class.revealed]="collectionService.journalRevealed()"
+            (click)="onToggleJournalVisibility()"
+            [attr.aria-label]="
+              collectionService.journalRevealed()
+                ? 'Mask private acquisition cost basis'
+                : 'Reveal private acquisition cost basis'
+            "
+            data-testid="insights-toggle-journal-eye"
+          >
+            <app-icon
+              [name]="collectionService.journalRevealed() ? 'eye-off' : 'eye'"
+              [size]="16"
+            />
+            <span>{{
+              collectionService.journalRevealed()
+                ? 'Hide Cost Basis'
+                : 'Reveal Cost Basis'
+            }}</span>
+          </button>
+        </div>
+
+        @if (!collectionService.journalRevealed()) {
+          <div
+            class="backup-stats-row journal-cost-grid"
+            data-testid="insights-journal-masked"
+          >
+            <div class="backup-stat-item">
+              <span class="backup-stat-number masked-dots">$••••••</span>
+              <span class="backup-stat-desc">Total Tracked Spend</span>
+            </div>
+            <div class="backup-stat-item">
+              <span class="backup-stat-number masked-dots">+$••••••</span>
+              <span class="backup-stat-desc">Net Appreciation</span>
+            </div>
+            <div class="backup-stat-item">
+              <span class="backup-stat-number masked-dots">••• / •••</span>
+              <span class="backup-stat-desc">Provenance Coverage</span>
+            </div>
+          </div>
+          <div class="journal-privacy-note">
+            <app-icon name="lock" [size]="12" />
+            <span>
+              {{
+                collectionService.isAdmin()
+                  ? 'Acquisition figures are masked by default. Click the eye icon to reveal your cost basis.'
+                  : 'Protected acquisition ledger — sign in via the eye icon to view cost basis and ROI.'
+              }}
+            </span>
+          </div>
+        } @else {
+          @if (journalSummary(); as js) {
+            <div
+              class="backup-stats-row journal-cost-grid"
+              data-testid="insights-journal-revealed"
+            >
+              <div class="backup-stat-item">
+                <span class="backup-stat-number">{{
+                  formatDollars(js.totalTrackedSpendDollars)
+                }}</span>
+                <span class="backup-stat-desc">Total Tracked Spend</span>
+              </div>
+              <div class="backup-stat-item">
+                <span
+                  class="backup-stat-number"
+                  [class.roi-positive]="js.netAppreciationDollars >= 0"
+                  [class.roi-negative]="js.netAppreciationDollars < 0"
+                >
+                  {{
+                    (js.netAppreciationDollars >= 0 ? '+' : '-') +
+                      formatDollars(Math.abs(js.netAppreciationDollars))
+                  }}
+                </span>
+                <span class="backup-stat-desc">
+                  Net Appreciation
+                  @if (js.totalTrackedSpendDollars > 0) {
+                    ({{
+                      (js.netAppreciationPct >= 0 ? '+' : '') +
+                        js.netAppreciationPct
+                    }}%)
+                  }
+                </span>
+              </div>
+              <div class="backup-stat-item">
+                <span class="backup-stat-number"
+                  >{{ js.recordedCount }} / {{ js.totalOwnedCount }}</span
+                >
+                <span class="backup-stat-desc"
+                  >Provenance Coverage ({{ js.coveragePct }}%)</span
+                >
+              </div>
+            </div>
+
+            @if (js.topMerchants.length > 0) {
+              <div class="merchant-breakdown-section">
+                <div class="backlog-subgroup-title">
+                  Top Acquisition Sources
+                </div>
+                <div class="series-list">
+                  @for (m of js.topMerchants; track m.name) {
+                    <div class="series-row">
+                      <span class="series-name">{{ m.name }}</span>
+                      <div class="series-meta">
+                        <span class="series-badge">{{ m.count }} items</span>
+                        <span class="series-value">{{
+                          formatDollars(m.totalSpendDollars)
+                        }}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+          }
+        }
+      </section>
+
       <!-- Physical Preservation & Backup Rate Card -->
       <section class="insight-panel">
         <div class="panel-header">

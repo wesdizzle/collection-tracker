@@ -185,6 +185,21 @@ describe('Worker API Logic', () => {
         value TEXT NOT NULL,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
+      CREATE TABLE IF NOT EXISTS journal_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_type TEXT NOT NULL CHECK(item_type IN ('game', 'toy')),
+        item_id TEXT NOT NULL,
+        purchase_date TEXT,
+        is_approximate_date INTEGER NOT NULL DEFAULT 0,
+        price_paid REAL,
+        merchant TEXT,
+        gifted_by TEXT,
+        receipt_url TEXT,
+        notes TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(item_type, item_id)
+      );
 
       INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (1, 'NES', 'NES', 'Nintendo', '1985-10-18');
       INSERT INTO games (stable_id, id, title, series, platform_id, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 1, 0);
@@ -1428,6 +1443,178 @@ describe('Worker API Logic', () => {
       expect(res.headers.get('Content-Type')).toContain('image/svg+xml');
       const text = await res.text();
       expect(text).toBe(customSvg);
+    });
+  });
+
+  describe('Collection Journal & Acquisition Provenance Endpoints', () => {
+    it('blocks unauthenticated public requests from reading or writing journal entries', async () => {
+      const lockedEnv: Env = {
+        ...mockEnv,
+        ADMIN_EMAIL: 'admin@example.com',
+      };
+
+      const getRes = await worker.fetch(
+        new Request(
+          'https://tracker.example.com/api/journal?item_type=game&item_id=mario',
+        ),
+        lockedEnv,
+      );
+      expect(getRes.status).toBe(200);
+      const getBody = (await getRes.json()) as {
+        authorized: boolean;
+        entry: unknown;
+      };
+      expect(getBody.authorized).toBe(false);
+      expect(getBody.entry).toBeNull();
+
+      const listRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/journal/entries'),
+        lockedEnv,
+      );
+      expect(listRes.status).toBe(200);
+      const listBody = (await listRes.json()) as {
+        authorized: boolean;
+        entries: unknown[];
+      };
+      expect(listBody.authorized).toBe(false);
+      expect(listBody.entries).toEqual([]);
+
+      const postRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/journal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_type: 'game',
+            item_id: 'mario',
+            price_paid: 19.99,
+          }),
+        }),
+        lockedEnv,
+      );
+      expect(postRes.status).toBe(403);
+    });
+
+    it('normalizes merchant names, approximate dates, receipt URLs, and canonical game IDs on save, read, and delete', async () => {
+      // Request from localhost is authorized in dev/test mode
+      const postRes = await worker.fetch(
+        new Request('http://localhost/api/journal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_type: 'game',
+            item_id: 'gb-mario', // Release ID that resolves to canonical game ID 'mario'
+            purchase_date: '~2009-06',
+            price_paid: 4.1,
+            merchant: 'eBay (hrlcksgames)',
+            gifted_by: null,
+            receipt_url: '16867f8a6f04196d', // Bare Gmail ID auto-expands to full URL
+            notes: 'Purchased standalone for $4.10',
+          }),
+        }),
+        mockEnv,
+      );
+
+      expect(postRes.status).toBe(200);
+      const savedData = (await postRes.json()) as {
+        success: boolean;
+        entry: {
+          item_type: string;
+          item_id: string;
+          purchase_date: string;
+          is_approximate_date: number;
+          price_paid: number;
+          merchant: string;
+          receipt_url: string;
+          notes: string;
+        };
+      };
+      expect(savedData.success).toBe(true);
+      expect(savedData.entry.item_id).toBe('mario');
+      expect(savedData.entry.purchase_date).toBe('2009-06');
+      expect(savedData.entry.is_approximate_date).toBe(1);
+      expect(savedData.entry.price_paid).toBe(4.1);
+      expect(savedData.entry.merchant).toBe('eBay');
+      expect(savedData.entry.receipt_url).toBe(
+        'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+      );
+
+      // Querying via release ID 'gb-mario' resolves to canonical 'mario' entry
+      const getRes = await worker.fetch(
+        new Request(
+          'http://localhost/api/journal?item_type=game&item_id=gb-mario',
+        ),
+        mockEnv,
+      );
+      expect(getRes.status).toBe(200);
+      const getData = (await getRes.json()) as {
+        authorized: boolean;
+        entry: { item_id: string; merchant: string; receipt_url: string };
+      };
+      expect(getData.authorized).toBe(true);
+      expect(getData.entry.item_id).toBe('mario');
+      expect(getData.entry.merchant).toBe('eBay');
+
+      // Update with a non-Gmail external receipt link
+      const updateRes = await worker.fetch(
+        new Request('http://localhost/api/journal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_type: 'game',
+            item_id: 'mario',
+            purchase_date: 'Around 2013',
+            price_paid: 0,
+            merchant: 'Best Buy',
+            receipt_url: 'https://www.bestbuy.com/orders/12345',
+            notes: 'Free promotion bundle',
+          }),
+        }),
+        mockEnv,
+      );
+      expect(updateRes.status).toBe(200);
+      const updated = (await updateRes.json()) as {
+        entry: {
+          purchase_date: string;
+          is_approximate_date: number;
+          receipt_url: string;
+        };
+      };
+      expect(updated.entry.purchase_date).toBe('2013');
+      expect(updated.entry.is_approximate_date).toBe(1);
+      expect(updated.entry.receipt_url).toBe(
+        'https://www.bestbuy.com/orders/12345',
+      );
+
+      // List all entries
+      const listRes = await worker.fetch(
+        new Request('http://localhost/api/journal/entries'),
+        mockEnv,
+      );
+      const listData = (await listRes.json()) as {
+        authorized: boolean;
+        entries: unknown[];
+      };
+      expect(listData.authorized).toBe(true);
+      expect(listData.entries).toHaveLength(1);
+
+      // Delete entry
+      const delRes = await worker.fetch(
+        new Request(
+          'http://localhost/api/journal?item_type=game&item_id=gb-mario',
+          { method: 'DELETE' },
+        ),
+        mockEnv,
+      );
+      expect(delRes.status).toBe(200);
+
+      const afterDelRes = await worker.fetch(
+        new Request('http://localhost/api/journal/entries'),
+        mockEnv,
+      );
+      const afterDelData = (await afterDelRes.json()) as {
+        entries: unknown[];
+      };
+      expect(afterDelData.entries).toHaveLength(0);
     });
   });
 });

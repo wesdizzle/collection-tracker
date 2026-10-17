@@ -211,6 +211,21 @@ describe('Local Server API Logic', () => {
                 price_new INTEGER,
                 price_updated_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS journal_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_type TEXT NOT NULL CHECK(item_type IN ('game', 'toy')),
+                item_id TEXT NOT NULL,
+                purchase_date TEXT,
+                is_approximate_date INTEGER NOT NULL DEFAULT 0,
+                price_paid REAL,
+                merchant TEXT,
+                gifted_by TEXT,
+                receipt_url TEXT,
+                notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(item_type, item_id)
+            );
         `);
 
     // Seed data
@@ -804,6 +819,61 @@ describe('Local Server API Logic', () => {
       const gow3 = JSON.parse(res3.end.mock.calls[0][0]);
       expect(gow3.shared_backup_releases).toBeDefined();
       expect(gow3.shared_backup_releases[0].title).toBe('God of War Saga');
+    });
+
+    it('should save, retrieve, list, and delete journal entries via /api/journal', async () => {
+      const handler = handleRequest(mockDb);
+
+      // 1. POST /api/journal
+      const { req: postReq, res: postRes } = createDiscoveryMocks(
+        '/api/journal',
+        'POST',
+        {
+          item_type: 'game',
+          item_id: 'game-1',
+          purchase_date: '~2015-03',
+          price_paid: 59.99,
+          merchant: 'eBay (some_seller)',
+          receipt_url: 'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+          notes: 'Launch copy',
+        },
+      );
+      await handler(postReq, postRes);
+      const saved = JSON.parse(postRes.end.mock.calls[0][0]);
+      expect(saved.success).toBe(true);
+      expect(saved.entry.purchase_date).toBe('2015-03');
+      expect(saved.entry.is_approximate_date).toBe(1);
+      expect(saved.entry.merchant).toBe('eBay');
+      expect(saved.entry.receipt_url).toBe(
+        'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+      );
+
+      // 2. GET /api/journal
+      const { req: getReq, res: getRes } = createMocks(
+        '/api/journal?item_type=game&item_id=game-1',
+      );
+      await handler(getReq, getRes);
+      const fetched = JSON.parse(getRes.end.mock.calls[0][0]);
+      expect(fetched.authorized).toBe(true);
+      expect(fetched.entry.price_paid).toBe(59.99);
+
+      // 3. GET /api/journal/entries
+      const { req: listReq, res: listRes } = createMocks(
+        '/api/journal/entries',
+      );
+      await handler(listReq, listRes);
+      const listed = JSON.parse(listRes.end.mock.calls[0][0]);
+      expect(listed.authorized).toBe(true);
+      expect(listed.entries).toHaveLength(1);
+
+      // 4. DELETE /api/journal
+      const { req: delReq, res: delRes } = createMocks(
+        '/api/journal?item_type=game&item_id=game-1',
+        'DELETE',
+      );
+      await handler(delReq, delRes);
+      const deleted = JSON.parse(delRes.end.mock.calls[0][0]);
+      expect(deleted.success).toBe(true);
     });
   });
 });

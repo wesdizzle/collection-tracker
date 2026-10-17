@@ -39,6 +39,12 @@ export interface DecadeStat {
   totalValue: number;
 }
 
+export interface MerchantStat {
+  name: string;
+  count: number;
+  totalSpendDollars: number;
+}
+
 @Component({
   selector: 'app-collection-insights',
   standalone: true,
@@ -49,6 +55,7 @@ export interface DecadeStat {
 })
 export class CollectionInsightsComponent implements OnInit {
   public readonly collectionService = inject(CollectionService);
+  public readonly Math = Math;
   public isRefreshing = signal(false);
 
   async ngOnInit(): Promise<void> {
@@ -58,14 +65,34 @@ export class CollectionInsightsComponent implements OnInit {
     ) {
       await this.refresh();
     }
+    if (
+      this.collectionService.isAdmin() &&
+      !this.collectionService.journalLoaded()
+    ) {
+      this.collectionService.loadAllJournalEntries().subscribe();
+    }
   }
 
   async refresh(): Promise<void> {
     this.isRefreshing.set(true);
     try {
       await this.collectionService.refreshAll();
+      if (this.collectionService.isAdmin()) {
+        this.collectionService.loadAllJournalEntries().subscribe();
+      }
     } finally {
       this.isRefreshing.set(false);
+    }
+  }
+
+  public onToggleJournalVisibility(): void {
+    this.collectionService.toggleJournalVisibility();
+    if (
+      this.collectionService.isAdmin() &&
+      this.collectionService.journalRevealed() &&
+      !this.collectionService.journalLoaded()
+    ) {
+      this.collectionService.loadAllJournalEntries().subscribe();
     }
   }
 
@@ -437,5 +464,121 @@ export class CollectionInsightsComponent implements OnInit {
         totalValue: item.totalValue,
       };
     });
+  });
+
+  public formatDollars(dollars: number | null | undefined): string {
+    if (dollars === null || dollars === undefined) return '$0.00';
+    return dollars.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  /** --- Acquisition Cost Basis & Provenance Summary (Admin-Only) --- */
+  public readonly journalSummary = computed(() => {
+    const map = this.collectionService.journalEntriesMap();
+    const games = this.ownedGames();
+    const toys = this.ownedToys();
+    const totalOwnedCount = games.length + toys.length;
+
+    let recordedCount = 0;
+    let totalTrackedSpendDollars = 0;
+    let matchedMarketValueDollars = 0;
+    const merchantCounts = new Map<
+      string,
+      { count: number; totalSpendDollars: number }
+    >();
+
+    for (const g of games) {
+      const entry =
+        map.get(`game:${g.game_id || g.id}`) || map.get(`game:${g.id}`);
+      if (!entry) continue;
+      recordedCount++;
+
+      if (entry.price_paid !== null && entry.price_paid !== undefined) {
+        const paid = Number(entry.price_paid);
+        totalTrackedSpendDollars += paid;
+        const marketCents = this.getEffectiveGamePrice(g) || 0;
+        matchedMarketValueDollars += marketCents / 100;
+      }
+
+      const merchantName =
+        entry.merchant ||
+        (entry.gifted_by ? `Gift (${entry.gifted_by})` : null);
+      if (merchantName) {
+        const cur = merchantCounts.get(merchantName) || {
+          count: 0,
+          totalSpendDollars: 0,
+        };
+        cur.count += 1;
+        cur.totalSpendDollars += Number(entry.price_paid || 0);
+        merchantCounts.set(merchantName, cur);
+      }
+    }
+
+    for (const t of toys) {
+      const entry = map.get(`toy:${t.id}`);
+      if (!entry) continue;
+      recordedCount++;
+
+      if (entry.price_paid !== null && entry.price_paid !== undefined) {
+        const paid = Number(entry.price_paid);
+        totalTrackedSpendDollars += paid;
+        const marketCents = this.getEffectiveToyPrice(t) || 0;
+        matchedMarketValueDollars += marketCents / 100;
+      }
+
+      const merchantName =
+        entry.merchant ||
+        (entry.gifted_by ? `Gift (${entry.gifted_by})` : null);
+      if (merchantName) {
+        const cur = merchantCounts.get(merchantName) || {
+          count: 0,
+          totalSpendDollars: 0,
+        };
+        cur.count += 1;
+        cur.totalSpendDollars += Number(entry.price_paid || 0);
+        merchantCounts.set(merchantName, cur);
+      }
+    }
+
+    const coveragePct =
+      totalOwnedCount > 0
+        ? Math.round((recordedCount / totalOwnedCount) * 100)
+        : 0;
+    const netAppreciationDollars =
+      Math.round((matchedMarketValueDollars - totalTrackedSpendDollars) * 100) /
+      100;
+    const netAppreciationPct =
+      totalTrackedSpendDollars > 0
+        ? Math.round((netAppreciationDollars / totalTrackedSpendDollars) * 100)
+        : 0;
+
+    const topMerchants: MerchantStat[] = Array.from(merchantCounts.entries())
+      .map(([name, data]) => ({
+        name,
+        count: data.count,
+        totalSpendDollars: Math.round(data.totalSpendDollars * 100) / 100,
+      }))
+      .sort(
+        (a, b) =>
+          b.count - a.count || b.totalSpendDollars - a.totalSpendDollars,
+      )
+      .slice(0, 6);
+
+    return {
+      totalOwnedCount,
+      recordedCount,
+      coveragePct,
+      totalTrackedSpendDollars:
+        Math.round(totalTrackedSpendDollars * 100) / 100,
+      matchedMarketValueDollars:
+        Math.round(matchedMarketValueDollars * 100) / 100,
+      netAppreciationDollars,
+      netAppreciationPct,
+      topMerchants,
+    };
   });
 }

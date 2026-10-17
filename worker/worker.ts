@@ -38,6 +38,15 @@ import {
   enrichGameDetailWithCompanionsAndVouchers,
   resolveRegionalCoverUrl,
   isOfficialIGDBGame,
+  JournalEntryRow,
+  RESOLVE_CANONICAL_GAME_ID_QUERY,
+  JOURNAL_ENTRY_BY_ITEM_QUERY,
+  JOURNAL_ENTRIES_ALL_QUERY,
+  UPSERT_JOURNAL_ENTRY_QUERY,
+  DELETE_JOURNAL_ENTRY_QUERY,
+  normalizeJournalDatePayload,
+  normalizeMerchantName,
+  normalizeReceiptUrl,
 } from '../scripts/lib/queries';
 import {
   detectPhysicalReleaseStatus,
@@ -365,6 +374,7 @@ export async function performScheduledBackup(
     'toy_game_compatibility',
     'game_releases',
     'sync_state',
+    'journal_entries',
   ];
 
   const backupData: Record<string, unknown[]> = {};
@@ -2482,6 +2492,209 @@ Disallow: /
         const result = await syncWorkerRetailDeals(env);
         await invalidateEdgeApiCache(request.url);
         return Response.json({ success: true, ...result });
+      }
+
+      // Endpoint: GET /api/journal?item_type=game|toy&item_id=:id
+      else if (request.method === 'GET' && path === '/api/journal') {
+        const privateHeaders = {
+          'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+        };
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { authorized: false, entry: null },
+            { headers: privateHeaders },
+          );
+        }
+
+        const itemType = url.searchParams.get('item_type') || 'game';
+        const itemId = (url.searchParams.get('item_id') || '').trim();
+        if ((itemType !== 'game' && itemType !== 'toy') || !itemId) {
+          return Response.json(
+            { error: 'Valid item_type (game|toy) and item_id are required.' },
+            { status: 400, headers: privateHeaders },
+          );
+        }
+
+        let canonicalId = itemId;
+        if (itemType === 'game') {
+          const resolved = (await env.DB.prepare(
+            RESOLVE_CANONICAL_GAME_ID_QUERY,
+          )
+            .bind(itemId, itemId)
+            .first()) as { game_id?: string } | null;
+          if (resolved?.game_id) {
+            canonicalId = resolved.game_id;
+          }
+        }
+
+        const entry = (await env.DB.prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
+          .bind(itemType, itemId, canonicalId)
+          .first()) as JournalEntryRow | null;
+
+        return Response.json(
+          { authorized: true, entry: entry || null },
+          { headers: privateHeaders },
+        );
+      }
+
+      // Endpoint: GET /api/journal/entries
+      else if (request.method === 'GET' && path === '/api/journal/entries') {
+        const privateHeaders = {
+          'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+        };
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { authorized: false, entries: [] },
+            { headers: privateHeaders },
+          );
+        }
+
+        const { results } = await env.DB.prepare(
+          JOURNAL_ENTRIES_ALL_QUERY,
+        ).all();
+        return Response.json(
+          { authorized: true, entries: results || [] },
+          { headers: privateHeaders },
+        );
+      }
+
+      // Endpoint: POST /api/journal
+      else if (request.method === 'POST' && path === '/api/journal') {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
+        const body = (await request.json()) as {
+          item_type?: string;
+          item_id?: string;
+          purchase_date?: string | null;
+          is_approximate_date?: number | boolean | null;
+          price_paid?: number | string | null;
+          merchant?: string | null;
+          gifted_by?: string | null;
+          receipt_url?: string | null;
+          notes?: string | null;
+        };
+
+        const itemType = (body?.item_type || '').trim();
+        const rawItemId = (body?.item_id || '').trim();
+        if ((itemType !== 'game' && itemType !== 'toy') || !rawItemId) {
+          return Response.json(
+            { error: 'Valid item_type (game|toy) and item_id are required.' },
+            { status: 400 },
+          );
+        }
+
+        let canonicalId = rawItemId;
+        if (itemType === 'game') {
+          const resolved = (await env.DB.prepare(
+            RESOLVE_CANONICAL_GAME_ID_QUERY,
+          )
+            .bind(rawItemId, rawItemId)
+            .first()) as { game_id?: string } | null;
+          if (resolved?.game_id) {
+            canonicalId = resolved.game_id;
+          }
+        }
+
+        const { purchaseDate, isApproximateDate } = normalizeJournalDatePayload(
+          body.purchase_date,
+          body.is_approximate_date,
+        );
+
+        let pricePaid: number | null = null;
+        if (
+          body.price_paid !== null &&
+          body.price_paid !== undefined &&
+          String(body.price_paid).trim() !== ''
+        ) {
+          const parsed = Number(body.price_paid);
+          if (Number.isNaN(parsed) || parsed < 0) {
+            return Response.json(
+              { error: 'price_paid must be a non-negative number.' },
+              { status: 400 },
+            );
+          }
+          pricePaid = Math.round(parsed * 100) / 100;
+        }
+
+        const merchant = normalizeMerchantName(body.merchant);
+        const giftedBy = body.gifted_by
+          ? String(body.gifted_by).trim() || null
+          : null;
+        const receiptUrl = normalizeReceiptUrl(body.receipt_url);
+        const notes = body.notes ? String(body.notes).trim() || null : null;
+
+        await env.DB.prepare(UPSERT_JOURNAL_ENTRY_QUERY)
+          .bind(
+            itemType,
+            canonicalId,
+            purchaseDate,
+            isApproximateDate,
+            pricePaid,
+            merchant,
+            giftedBy,
+            receiptUrl,
+            notes,
+          )
+          .run();
+
+        if (canonicalId !== rawItemId) {
+          await env.DB.prepare(DELETE_JOURNAL_ENTRY_QUERY)
+            .bind(itemType, rawItemId)
+            .run();
+        }
+
+        const savedEntry = (await env.DB.prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
+          .bind(itemType, canonicalId, canonicalId)
+          .first()) as JournalEntryRow | null;
+
+        return Response.json({ success: true, entry: savedEntry });
+      }
+
+      // Endpoint: DELETE /api/journal?item_type=game|toy&item_id=:id
+      else if (request.method === 'DELETE' && path === '/api/journal') {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
+        const itemType = (url.searchParams.get('item_type') || 'game').trim();
+        const rawItemId = (url.searchParams.get('item_id') || '').trim();
+        if ((itemType !== 'game' && itemType !== 'toy') || !rawItemId) {
+          return Response.json(
+            { error: 'Valid item_type (game|toy) and item_id are required.' },
+            { status: 400 },
+          );
+        }
+
+        let canonicalId = rawItemId;
+        if (itemType === 'game') {
+          const resolved = (await env.DB.prepare(
+            RESOLVE_CANONICAL_GAME_ID_QUERY,
+          )
+            .bind(rawItemId, rawItemId)
+            .first()) as { game_id?: string } | null;
+          if (resolved?.game_id) {
+            canonicalId = resolved.game_id;
+          }
+        }
+
+        await env.DB.prepare(DELETE_JOURNAL_ENTRY_QUERY)
+          .bind(itemType, canonicalId)
+          .run();
+        if (canonicalId !== rawItemId) {
+          await env.DB.prepare(DELETE_JOURNAL_ENTRY_QUERY)
+            .bind(itemType, rawItemId)
+            .run();
+        }
+
+        return Response.json({ success: true });
       }
 
       // Endpoint: GET /api/notifications/vapid-public-key

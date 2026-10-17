@@ -415,3 +415,124 @@ export function getMediaIconName(
   if (!backedUp) return 'missing-dump';
   return isOpticalPlatform(platform) ? 'disc' : 'rom-archive';
 }
+
+export interface JournalEntry {
+  id: number;
+  item_type: 'game' | 'toy';
+  item_id: string;
+  purchase_date?: string | null;
+  is_approximate_date?: number | boolean | null;
+  price_paid?: number | null;
+  merchant?: string | null;
+  gifted_by?: string | null;
+  receipt_url?: string | null;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const STANDARD_MERCHANTS: readonly string[] = [
+  'Amazon',
+  'eBay',
+  'Best Buy',
+  'GameStop',
+  'Target',
+  'Walmart',
+  'Toys "R" Us',
+  'Limited Run Games',
+  'Play-Asia',
+  'Video Games Plus',
+  'PNP Games',
+  'Fangamer',
+  'iam8bit',
+  'Super Rare Games',
+  'Strictly Limited Games',
+  'Special Reserve Games',
+  'Square Enix Store',
+  'Nintendo Store',
+  'Club Nintendo',
+  'My Nintendo',
+  'Sony Rewards',
+  'NIS America',
+  'Atlus Shop',
+  'NewEgg',
+  'Groupon',
+  'Kickstarter',
+  'BackerKit',
+];
+
+const FULL_MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+const SHORT_MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/**
+ * Formats an acquisition date with support for approximate ("Around ...") dates:
+ * - "2013" -> "Around 2013"
+ * - "2009-06" -> "Around June 2009"
+ * - "2021-02-10" (exact) -> "Feb 10, 2021"
+ * - "2021-02-10" (isApproximate=true) -> "Around Feb 10, 2021"
+ */
+export function formatJournalDate(
+  dateStr?: string | null,
+  isApproximate?: number | boolean | null,
+): string {
+  if (!dateStr) return 'Unrecorded';
+  let cleaned = dateStr.trim();
+  if (!cleaned) return 'Unrecorded';
+
+  let approx = Boolean(isApproximate);
+  if (/^(~|around\s+|circa\s+)/i.test(cleaned)) {
+    approx = true;
+    cleaned = cleaned.replace(/^(~|around\s+|circa\s+)/i, '').trim();
+  }
+
+  if (/^\d{4}$/.test(cleaned)) {
+    return `Around ${cleaned}`;
+  }
+
+  const ymMatch = cleaned.match(/^(\d{4})-(\d{2})$/);
+  if (ymMatch) {
+    const year = ymMatch[1];
+    const monthIndex = parseInt(ymMatch[2], 10) - 1;
+    const monthName = FULL_MONTH_NAMES[monthIndex] || ymMatch[2];
+    return `Around ${monthName} ${year}`;
+  }
+
+  const ymdMatch = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const monthIndex = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    const shortMonth = SHORT_MONTH_NAMES[monthIndex] || ymdMatch[2];
+    const formatted = `${shortMonth} ${day}, ${year}`;
+    return approx ? `Around ${formatted}` : formatted;
+  }
+
+  return approx ? `Around ${cleaned}` : cleaned;
+}

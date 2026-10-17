@@ -793,3 +793,58 @@
   transform: translateY(-2px);
   filter: brightness(1.08);
 }
+
+/* Acquisition Cost Basis & Provenance Panel */
+.btn-eye-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius-full);
+  background: var(--m3-surface-container-high);
+  border: 1px solid var(--m3-outline-variant);
+  color: var(--m3-on-surface);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.btn-eye-toggle:hover {
+  border-color: var(--m3-primary);
+  background: var(--m3-surface-container-highest);
+}
+
+.btn-eye-toggle.revealed {
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+  border-color: transparent;
+}
+
+.masked-dots {
+  letter-spacing: 0.12em;
+  color: var(--m3-on-surface-variant);
+  user-select: none;
+}
+
+.journal-privacy-note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--m3-on-surface-variant);
+}
+
+.roi-positive {
+  color: #34d399 !important;
+}
+
+.roi-negative {
+  color: #f87171 !important;
+}
+
+.merchant-breakdown-section {
+  margin-top: var(--spacing-16);
+}

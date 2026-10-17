@@ -50,6 +50,15 @@ import {
   CompanionDiscCandidateRow,
   enrichGameDetailWithCompanionsAndVouchers,
   resolveRegionalCoverUrl,
+  JournalEntryRow,
+  RESOLVE_CANONICAL_GAME_ID_QUERY,
+  JOURNAL_ENTRY_BY_ITEM_QUERY,
+  JOURNAL_ENTRIES_ALL_QUERY,
+  UPSERT_JOURNAL_ENTRY_QUERY,
+  DELETE_JOURNAL_ENTRY_QUERY,
+  normalizeJournalDatePayload,
+  normalizeMerchantName,
+  normalizeReceiptUrl,
 } from './lib/queries.js';
 import {
   fetchAllRetailDeals,
@@ -79,7 +88,7 @@ export const handleRequest =
     // Enable cross-origin requests for the frontend (running on Port 4200)
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     // Handle Pre-flight options
@@ -2049,6 +2058,184 @@ export const handleRequest =
           res.statusCode = 500;
           res.end(JSON.stringify({ error: msg }));
         }
+      }
+
+      // GET /api/journal?item_type=game|toy&item_id=:id
+      else if (req.method === 'GET' && pathname === '/api/journal') {
+        const itemType = (url.searchParams.get('item_type') || 'game').trim();
+        const itemId = (url.searchParams.get('item_id') || '').trim();
+        if ((itemType !== 'game' && itemType !== 'toy') || !itemId) {
+          res.statusCode = 400;
+          res.end(
+            JSON.stringify({
+              error: 'Valid item_type (game|toy) and item_id are required.',
+            }),
+          );
+          return;
+        }
+
+        let canonicalId = itemId;
+        if (itemType === 'game') {
+          const resolved = db
+            .prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
+            .get(itemId, itemId) as { game_id?: string } | undefined;
+          if (resolved?.game_id) {
+            canonicalId = resolved.game_id;
+          }
+        }
+
+        const entry = db
+          .prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
+          .get(itemType, itemId, canonicalId) as JournalEntryRow | undefined;
+
+        res.end(
+          JSON.stringify({
+            authorized: true,
+            entry: entry || null,
+          }),
+        );
+      }
+
+      // GET /api/journal/entries
+      else if (req.method === 'GET' && pathname === '/api/journal/entries') {
+        const entries = db.prepare(JOURNAL_ENTRIES_ALL_QUERY).all();
+        res.end(
+          JSON.stringify({
+            authorized: true,
+            entries: entries || [],
+          }),
+        );
+      }
+
+      // POST /api/journal
+      else if (req.method === 'POST' && pathname === '/api/journal') {
+        const bodyStr = await new Promise<string>((resolve, reject) => {
+          let data = '';
+          req.on('data', (chunk) => (data += chunk));
+          req.on('end', () => resolve(data));
+          req.on('error', (err) => reject(err));
+        });
+
+        const body = JSON.parse(bodyStr || '{}') as {
+          item_type?: string;
+          item_id?: string;
+          purchase_date?: string | null;
+          is_approximate_date?: number | boolean | null;
+          price_paid?: number | string | null;
+          merchant?: string | null;
+          gifted_by?: string | null;
+          receipt_url?: string | null;
+          notes?: string | null;
+        };
+
+        const itemType = (body?.item_type || '').trim();
+        const rawItemId = (body?.item_id || '').trim();
+        if ((itemType !== 'game' && itemType !== 'toy') || !rawItemId) {
+          res.statusCode = 400;
+          res.end(
+            JSON.stringify({
+              error: 'Valid item_type (game|toy) and item_id are required.',
+            }),
+          );
+          return;
+        }
+
+        let canonicalId = rawItemId;
+        if (itemType === 'game') {
+          const resolved = db
+            .prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
+            .get(rawItemId, rawItemId) as { game_id?: string } | undefined;
+          if (resolved?.game_id) {
+            canonicalId = resolved.game_id;
+          }
+        }
+
+        const { purchaseDate, isApproximateDate } = normalizeJournalDatePayload(
+          body.purchase_date,
+          body.is_approximate_date,
+        );
+
+        let pricePaid: number | null = null;
+        if (
+          body.price_paid !== null &&
+          body.price_paid !== undefined &&
+          String(body.price_paid).trim() !== ''
+        ) {
+          const parsed = Number(body.price_paid);
+          if (Number.isNaN(parsed) || parsed < 0) {
+            res.statusCode = 400;
+            res.end(
+              JSON.stringify({
+                error: 'price_paid must be a non-negative number.',
+              }),
+            );
+            return;
+          }
+          pricePaid = Math.round(parsed * 100) / 100;
+        }
+
+        const merchant = normalizeMerchantName(body.merchant);
+        const giftedBy = body.gifted_by
+          ? String(body.gifted_by).trim() || null
+          : null;
+        const receiptUrl = normalizeReceiptUrl(body.receipt_url);
+        const notes = body.notes ? String(body.notes).trim() || null : null;
+
+        db.prepare(UPSERT_JOURNAL_ENTRY_QUERY).run(
+          itemType,
+          canonicalId,
+          purchaseDate,
+          isApproximateDate,
+          pricePaid,
+          merchant,
+          giftedBy,
+          receiptUrl,
+          notes,
+        );
+
+        if (canonicalId !== rawItemId) {
+          db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(itemType, rawItemId);
+        }
+
+        const savedEntry = db
+          .prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
+          .get(itemType, canonicalId, canonicalId) as
+          | JournalEntryRow
+          | undefined;
+
+        res.end(JSON.stringify({ success: true, entry: savedEntry || null }));
+      }
+
+      // DELETE /api/journal?item_type=game|toy&item_id=:id
+      else if (req.method === 'DELETE' && pathname === '/api/journal') {
+        const itemType = (url.searchParams.get('item_type') || 'game').trim();
+        const rawItemId = (url.searchParams.get('item_id') || '').trim();
+        if ((itemType !== 'game' && itemType !== 'toy') || !rawItemId) {
+          res.statusCode = 400;
+          res.end(
+            JSON.stringify({
+              error: 'Valid item_type (game|toy) and item_id are required.',
+            }),
+          );
+          return;
+        }
+
+        let canonicalId = rawItemId;
+        if (itemType === 'game') {
+          const resolved = db
+            .prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
+            .get(rawItemId, rawItemId) as { game_id?: string } | undefined;
+          if (resolved?.game_id) {
+            canonicalId = resolved.game_id;
+          }
+        }
+
+        db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(itemType, canonicalId);
+        if (canonicalId !== rawItemId) {
+          db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(itemType, rawItemId);
+        }
+
+        res.end(JSON.stringify({ success: true }));
       }
 
       // Default fallback

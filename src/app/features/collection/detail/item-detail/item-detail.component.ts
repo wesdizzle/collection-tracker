@@ -18,6 +18,7 @@
 
 import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import {
   ActivatedRoute,
   RouterModule,
@@ -33,6 +34,9 @@ import {
   PlayStatus,
   GameRelease,
   getMediaIconName,
+  JournalEntry,
+  STANDARD_MERCHANTS,
+  formatJournalDate,
 } from '../../../../core/models/collection.models';
 import { combineLatest, of, Observable } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
@@ -44,7 +48,7 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
 @Component({
   selector: 'app-item-detail',
   standalone: true,
-  imports: [CommonModule, RouterModule, IconComponent],
+  imports: [CommonModule, FormsModule, RouterModule, IconComponent],
   template: `
     @if (item(); as i) {
       <div class="container animate-expressive pb-xl" data-version="final-v12">
@@ -812,7 +816,449 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
               </a>
             </div>
           </section>
+        }
 
+        @if (type() === 'game' || type() === 'toy') {
+          <section
+            class="journal-section animate-slide-up mb-xl"
+            data-testid="journal-section"
+          >
+            <div class="market-header flex justify-between items-center mb-md">
+              <h2 class="text-xl font-bold flex items-center gap-xs m-0">
+                <span class="flex items-center gap-xs">
+                  <app-icon name="book-open" [size]="20" /> Acquisition Journal
+                  & Provenance
+                </span>
+              </h2>
+              <div class="flex items-center gap-sm">
+                @if (
+                  collectionService.isAdmin() &&
+                  collectionService.journalRevealed() &&
+                  !isEditingJournal()
+                ) {
+                  <button
+                    type="button"
+                    class="btn-journal-action"
+                    (click)="openJournalEditor()"
+                    data-testid="btn-edit-journal"
+                  >
+                    <app-icon name="edit" [size]="14" />
+                    <span>{{
+                      journalEntry() ? 'Edit Provenance' : 'Record Provenance'
+                    }}</span>
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="btn-eye-toggle"
+                  [class.revealed]="collectionService.journalRevealed()"
+                  (click)="onToggleJournalVisibility()"
+                  [attr.aria-label]="
+                    collectionService.journalRevealed()
+                      ? 'Mask private acquisition provenance'
+                      : 'Reveal private acquisition provenance'
+                  "
+                  data-testid="btn-toggle-journal-eye"
+                >
+                  <app-icon
+                    [name]="
+                      collectionService.journalRevealed() ? 'eye-off' : 'eye'
+                    "
+                    [size]="16"
+                  />
+                  <span>{{
+                    collectionService.journalRevealed()
+                      ? 'Hide Provenance'
+                      : 'Reveal Provenance'
+                  }}</span>
+                </button>
+              </div>
+            </div>
+
+            @if (!collectionService.journalRevealed()) {
+              <div
+                class="pricing-grid journal-masked-grid"
+                data-testid="journal-masked-state"
+              >
+                <div class="price-tier-card masked-card">
+                  <span class="tier-label">Acquired Date</span>
+                  <span class="tier-price masked-dots">••••••</span>
+                  <span class="tier-sub">Private Ledger</span>
+                </div>
+                <div class="price-tier-card masked-card">
+                  <span class="tier-label">Price Paid</span>
+                  <span class="tier-price masked-dots">$••.••</span>
+                  <span class="tier-sub">Cost Basis Hidden</span>
+                </div>
+                <div class="price-tier-card masked-card">
+                  <span class="tier-label">Merchant / Source</span>
+                  <span class="tier-price masked-dots">••••••••</span>
+                  <span class="tier-sub">Provenance Hidden</span>
+                </div>
+                <div class="price-tier-card masked-card">
+                  <span class="tier-label">Cost vs. Market ROI</span>
+                  <span class="tier-price masked-dots">••••••</span>
+                  <span class="tier-sub">Appreciation Hidden</span>
+                </div>
+              </div>
+              <div class="journal-privacy-caption mt-xs text-xs text-secondary">
+                <app-icon name="lock" [size]="12" />
+                <span>
+                  {{
+                    collectionService.isAdmin()
+                      ? 'Acquisition cost basis and provenance are masked for privacy. Click the eye icon to reveal.'
+                      : 'Protected provenance record — sign in via the eye icon to view acquisition details.'
+                  }}
+                </span>
+              </div>
+            } @else if (isEditingJournal()) {
+              <div
+                class="journal-editor-card p-md rounded-lg border border-outline-variant bg-surface-container-high"
+                data-testid="journal-editor-form"
+              >
+                <div class="journal-form-grid">
+                  <div class="form-field">
+                    <label class="field-label" for="journal-date-precision"
+                      >Date Precision</label
+                    >
+                    <select
+                      id="journal-date-precision"
+                      class="field-input"
+                      [(ngModel)]="journalForm.datePrecision"
+                      (ngModelChange)="onDatePrecisionChange($event)"
+                    >
+                      <option value="exact">Exact Date (YYYY-MM-DD)</option>
+                      <option value="month">
+                        Month & Year (Around Month YYYY)
+                      </option>
+                      <option value="year">Year Only (Around YYYY)</option>
+                      <option value="unknown">Unrecorded / Unknown</option>
+                    </select>
+                  </div>
+
+                  @if (journalForm.datePrecision === 'exact') {
+                    <div class="form-field">
+                      <label class="field-label" for="journal-exact-date"
+                        >Purchase Date</label
+                      >
+                      <input
+                        id="journal-exact-date"
+                        type="date"
+                        class="field-input"
+                        [(ngModel)]="journalForm.purchaseDate"
+                      />
+                      <label class="approx-checkbox-label mt-2xs">
+                        <input
+                          type="checkbox"
+                          [(ngModel)]="journalForm.isApproximateDate"
+                        />
+                        <span>Approximate date (display as "Around ...")</span>
+                      </label>
+                    </div>
+                  } @else if (journalForm.datePrecision === 'month') {
+                    <div class="form-field">
+                      <label class="field-label" for="journal-month-date"
+                        >Approximate Month & Year</label
+                      >
+                      <input
+                        id="journal-month-date"
+                        type="month"
+                        class="field-input"
+                        [(ngModel)]="journalForm.purchaseDate"
+                      />
+                      <span class="field-hint"
+                        >Displays as "Around Month YYYY"</span
+                      >
+                    </div>
+                  } @else if (journalForm.datePrecision === 'year') {
+                    <div class="form-field">
+                      <label class="field-label" for="journal-year-date"
+                        >Approximate Year</label
+                      >
+                      <input
+                        id="journal-year-date"
+                        type="number"
+                        min="1970"
+                        max="2035"
+                        placeholder="e.g. 2013"
+                        class="field-input"
+                        [(ngModel)]="journalForm.purchaseDate"
+                      />
+                      <span class="field-hint">Displays as "Around YYYY"</span>
+                    </div>
+                  }
+
+                  <div class="form-field">
+                    <label class="field-label" for="journal-price-paid"
+                      >Price Paid (USD)</label
+                    >
+                    <input
+                      id="journal-price-paid"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="e.g. 29.99 or 0.00"
+                      class="field-input"
+                      [(ngModel)]="journalForm.pricePaid"
+                    />
+                    <span class="field-hint"
+                      >Use 0.00 for gifts, free pack-ins, or point
+                      redemptions</span
+                    >
+                  </div>
+
+                  <div class="form-field">
+                    <label class="field-label" for="journal-merchant"
+                      >Merchant / Store</label
+                    >
+                    <input
+                      id="journal-merchant"
+                      type="text"
+                      list="standard-merchants-datalist"
+                      placeholder="e.g. eBay, Best Buy, Amazon..."
+                      class="field-input"
+                      [(ngModel)]="journalForm.merchant"
+                    />
+                    <datalist id="standard-merchants-datalist">
+                      @for (m of standardMerchants; track m) {
+                        <option [value]="m"></option>
+                      }
+                    </datalist>
+                  </div>
+
+                  <div class="form-field">
+                    <label class="field-label" for="journal-gifted-by"
+                      >Gifted By (Optional)</label
+                    >
+                    <input
+                      id="journal-gifted-by"
+                      type="text"
+                      placeholder="e.g. Parents, Friend..."
+                      class="field-input"
+                      [(ngModel)]="journalForm.giftedBy"
+                    />
+                  </div>
+
+                  <div class="form-field">
+                    <label class="field-label" for="journal-receipt-url"
+                      >Source Receipt Link (Optional)</label
+                    >
+                    <input
+                      id="journal-receipt-url"
+                      type="url"
+                      placeholder="https://mail.google.com/mail/u/0/#all/... or order URL"
+                      class="field-input"
+                      [(ngModel)]="journalForm.receiptUrl"
+                    />
+                  </div>
+
+                  <div class="form-field full-width-field">
+                    <label class="field-label" for="journal-notes"
+                      >Provenance & Currency Notes (Optional)</label
+                    >
+                    <textarea
+                      id="journal-notes"
+                      rows="2"
+                      placeholder="e.g. Purchased in CAD ($44.99 CAD), pack-in bundle details, or multi-item lot split..."
+                      class="field-input"
+                      [(ngModel)]="journalForm.notes"
+                    ></textarea>
+                  </div>
+                </div>
+
+                @if (journalSaveError()) {
+                  <div class="journal-error-banner mt-sm text-xs">
+                    {{ journalSaveError() }}
+                  </div>
+                }
+
+                <div
+                  class="journal-editor-actions flex justify-between items-center mt-md"
+                >
+                  <div>
+                    @if (journalEntry()) {
+                      <button
+                        type="button"
+                        class="btn-journal-delete"
+                        [disabled]="journalSaving()"
+                        (click)="onDeleteJournalEntry()"
+                      >
+                        Delete Record
+                      </button>
+                    }
+                  </div>
+                  <div class="flex gap-sm">
+                    <button
+                      type="button"
+                      class="btn-journal-cancel"
+                      [disabled]="journalSaving()"
+                      (click)="cancelJournalEdit()"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-journal-save"
+                      [disabled]="journalSaving()"
+                      (click)="onSaveJournalEntry()"
+                      data-testid="btn-save-journal"
+                    >
+                      {{ journalSaving() ? 'Saving...' : 'Save Provenance' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            } @else if (journalEntry(); as entry) {
+              <div
+                class="pricing-grid journal-revealed-grid"
+                data-testid="journal-revealed-state"
+              >
+                <div class="price-tier-card has-price">
+                  <span class="tier-label">Acquired Date</span>
+                  <span
+                    class="tier-price text-lg"
+                    data-testid="journal-date-display"
+                  >
+                    {{
+                      formatAcquisitionDate(
+                        entry.purchase_date,
+                        entry.is_approximate_date
+                      )
+                    }}
+                  </span>
+                  <span class="tier-sub">
+                    {{
+                      isApproximateEntry(entry)
+                        ? 'Approximate Date'
+                        : entry.purchase_date
+                          ? 'Verified Purchase Date'
+                          : 'Date Unrecorded'
+                    }}
+                  </span>
+                </div>
+
+                <div class="price-tier-card has-price">
+                  <span class="tier-label">Price Paid</span>
+                  <span class="tier-price" data-testid="journal-price-display">
+                    {{
+                      entry.price_paid !== null &&
+                      entry.price_paid !== undefined
+                        ? '$' + entry.price_paid.toFixed(2)
+                        : 'Unrecorded'
+                    }}
+                  </span>
+                  <span class="tier-sub flex items-center gap-2xs">
+                    @if (entry.gifted_by) {
+                      <app-icon name="gift" [size]="12" />
+                      <span>Gifted by {{ entry.gifted_by }}</span>
+                    } @else if (entry.price_paid === 0) {
+                      <span>Free / Pack-in / Redeemed</span>
+                    } @else {
+                      <span>Actual Cost Basis (USD)</span>
+                    }
+                  </span>
+                </div>
+
+                <div class="price-tier-card has-price">
+                  <span class="tier-label">Merchant / Source</span>
+                  <span
+                    class="tier-price text-lg"
+                    data-testid="journal-merchant-display"
+                  >
+                    {{
+                      entry.merchant ||
+                        (entry.gifted_by
+                          ? 'Gift (' + entry.gifted_by + ')'
+                          : 'Unrecorded')
+                    }}
+                  </span>
+                  <span class="tier-sub">
+                    @if (entry.receipt_url) {
+                      <a
+                        [href]="entry.receipt_url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="receipt-deeplink"
+                        data-testid="journal-receipt-link"
+                      >
+                        <app-icon name="mail" [size]="12" />
+                        <span>View Source Receipt ↗</span>
+                      </a>
+                    } @else {
+                      <span>Acquisition Channel</span>
+                    }
+                  </span>
+                </div>
+
+                <div class="price-tier-card has-price">
+                  <span class="tier-label">Cost vs. Market ROI</span>
+                  @if (journalRoi(); as roi) {
+                    <span
+                      class="tier-price"
+                      [class.roi-positive]="roi.deltaDollars >= 0"
+                      [class.roi-negative]="roi.deltaDollars < 0"
+                      data-testid="journal-roi-display"
+                    >
+                      {{
+                        (roi.deltaDollars >= 0 ? '+$' : '-$') +
+                          Math.abs(roi.deltaDollars).toFixed(2)
+                      }}
+                    </span>
+                    <span class="tier-sub">
+                      {{ roi.label }}
+                    </span>
+                  } @else {
+                    <span class="tier-price">—</span>
+                    <span class="tier-sub">Market comparison unavailable</span>
+                  }
+                </div>
+              </div>
+
+              @if (entry.notes) {
+                <div
+                  class="journal-notes-callout mt-md p-sm rounded-md"
+                  data-testid="journal-notes-display"
+                >
+                  <div
+                    class="text-xs font-bold uppercase tracking-wider text-secondary mb-2xs"
+                  >
+                    Provenance & Acquisition Notes
+                  </div>
+                  <div class="text-sm text-on-surface leading-normal">
+                    {{ entry.notes }}
+                  </div>
+                </div>
+              }
+            } @else {
+              <div
+                class="journal-empty-card p-md rounded-lg border border-outline-variant bg-surface-container-low flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+                data-testid="journal-empty-state"
+              >
+                <div>
+                  <div class="font-semibold text-sm">
+                    No acquisition provenance recorded for this item yet.
+                  </div>
+                  <div class="text-xs text-secondary mt-2xs">
+                    Record the purchase date, price paid, merchant, and source
+                    receipt link to track cost basis and appreciation.
+                  </div>
+                </div>
+                @if (collectionService.isAdmin()) {
+                  <button
+                    type="button"
+                    class="btn-journal-action"
+                    (click)="openJournalEditor()"
+                  >
+                    <app-icon name="edit" [size]="14" />
+                    <span>Record Provenance</span>
+                  </button>
+                }
+              </div>
+            }
+          </section>
+        }
+
+        @if (game(); as g) {
           @if (g.summary) {
             <section class="narrative-section animate-slide-up">
               <div class="summary-text-airy">
@@ -1426,21 +1872,200 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         border-color: #facc15;
         color: #fde047;
       }
+
+      /* Acquisition Journal & Provenance Styles */
+      .journal-masked-grid,
+      .journal-revealed-grid {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      }
+      .masked-card {
+        opacity: 0.85;
+      }
+      .masked-dots {
+        letter-spacing: 0.14em;
+        color: var(--m3-on-surface-variant);
+        user-select: none;
+      }
+      .btn-eye-toggle,
+      .btn-journal-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.85rem;
+        border-radius: var(--radius-full);
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline-variant);
+        color: var(--m3-on-surface);
+        font-family: var(--font-body);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .btn-eye-toggle:hover,
+      .btn-journal-action:hover {
+        border-color: var(--m3-primary);
+        background: var(--m3-surface-container-highest);
+      }
+      .btn-eye-toggle.revealed {
+        background: var(--m3-secondary-container);
+        color: var(--m3-on-secondary-container);
+        border-color: transparent;
+      }
+      .journal-privacy-caption {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-top: 0.5rem;
+      }
+      .roi-positive {
+        color: #34d399 !important;
+      }
+      .roi-negative {
+        color: #f87171 !important;
+      }
+      .receipt-deeplink {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        color: var(--m3-primary);
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .receipt-deeplink:hover {
+        text-decoration: underline;
+      }
+      .journal-notes-callout {
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline-variant);
+        border-left: 3px solid var(--m3-primary);
+      }
+      .journal-form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--spacing-16);
+      }
+      .form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      .form-field.full-width-field {
+        grid-column: 1 / -1;
+      }
+      .field-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--m3-on-surface-variant);
+      }
+      .field-input {
+        padding: 0.55rem 0.75rem;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--m3-outline-variant);
+        background: var(--m3-surface-container-lowest, #0e0e11);
+        color: var(--m3-on-surface);
+        font-family: var(--font-body);
+        font-size: 0.875rem;
+      }
+      .field-input:focus {
+        outline: none;
+        border-color: var(--m3-primary);
+      }
+      .field-hint {
+        font-size: 0.7rem;
+        color: var(--m3-on-surface-variant);
+      }
+      .approx-checkbox-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        color: var(--m3-on-surface-variant);
+        cursor: pointer;
+      }
+      .journal-error-banner {
+        padding: 0.5rem 0.75rem;
+        border-radius: var(--radius-sm);
+        background: rgba(239, 68, 68, 0.15);
+        color: #fca5a5;
+        border: 1px solid rgba(239, 68, 68, 0.35);
+      }
+      .btn-journal-save {
+        padding: 0.5rem 1rem;
+        border-radius: var(--radius-full);
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
+        border: none;
+        font-weight: 700;
+        font-size: 0.8125rem;
+        cursor: pointer;
+      }
+      .btn-journal-cancel {
+        padding: 0.5rem 1rem;
+        border-radius: var(--radius-full);
+        background: transparent;
+        color: var(--m3-on-surface-variant);
+        border: 1px solid var(--m3-outline-variant);
+        font-weight: 600;
+        font-size: 0.8125rem;
+        cursor: pointer;
+      }
+      .btn-journal-delete {
+        padding: 0.5rem 0.85rem;
+        border-radius: var(--radius-full);
+        background: rgba(239, 68, 68, 0.12);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        font-weight: 600;
+        font-size: 0.8125rem;
+        cursor: pointer;
+      }
     `,
   ],
 })
 export class ItemDetailComponent {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
-  private collectionService = inject(CollectionService);
+  public collectionService = inject(CollectionService);
   private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
   public navigationHistory = inject(NavigationHistoryService);
+  public readonly Math = Math;
+  public readonly standardMerchants = STANDARD_MERCHANTS;
+
+  public journalRefreshTrigger = signal<number>(0);
+  public isEditingJournal = signal<boolean>(false);
+  public journalSaving = signal<boolean>(false);
+  public journalSaveError = signal<string | null>(null);
+
+  public journalForm: {
+    datePrecision: 'exact' | 'month' | 'year' | 'unknown';
+    purchaseDate: string;
+    isApproximateDate: boolean;
+    pricePaid: string | number;
+    merchant: string;
+    giftedBy: string;
+    receiptUrl: string;
+    notes: string;
+  } = {
+    datePrecision: 'exact',
+    purchaseDate: '',
+    isApproximateDate: false,
+    pricePaid: '',
+    merchant: '',
+    giftedBy: '',
+    receiptUrl: '',
+    notes: '',
+  };
 
   constructor() {
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }
     this.route.paramMap.subscribe(() => {
+      this.isEditingJournal.set(false);
+      this.journalSaveError.set(null);
       if (typeof window !== 'undefined') {
         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       }
@@ -1526,6 +2151,268 @@ export class ItemDetailComponent {
   public platform = computed(() =>
     this.type() === 'platform' ? (this.item() as Platform) : null,
   );
+
+  /**
+   * Reactive signal fetching the acquisition journal entry for the current game or toy.
+   */
+  public journalEntry = toSignal(
+    combineLatest([
+      this.route.paramMap,
+      toObservable(this.collectionService.isAdmin),
+      toObservable(this.journalRefreshTrigger),
+    ]).pipe(
+      switchMap(([params, isAdmin]) => {
+        const type = params.get('type') || '';
+        const id = params.get('id');
+        if (!isAdmin || !id || (type !== 'game' && type !== 'toy')) {
+          return of(null);
+        }
+        return this.collectionService
+          .getJournalEntry(type as 'game' | 'toy', id)
+          .pipe(
+            switchMap((res) => of(res.entry)),
+            catchError(() => of(null)),
+          );
+      }),
+    ),
+    { initialValue: null },
+  );
+
+  /**
+   * Computes Cost vs. Market ROI when an item has both a recorded price_paid and market valuation.
+   */
+  public journalRoi = computed(() => {
+    const entry = this.journalEntry();
+    if (!entry || entry.price_paid === null || entry.price_paid === undefined) {
+      return null;
+    }
+
+    const g = this.game();
+    const t = this.toy();
+    const marketCents =
+      g?.price_cib ||
+      g?.price_loose ||
+      g?.price_new ||
+      t?.price_cib ||
+      t?.price_loose ||
+      t?.price_new ||
+      null;
+
+    if (!marketCents || marketCents <= 0) {
+      return null;
+    }
+
+    const marketDollars = marketCents / 100;
+    const paidDollars = Number(entry.price_paid);
+    const deltaDollars = Math.round((marketDollars - paidDollars) * 100) / 100;
+
+    let label: string;
+    if (paidDollars === 0) {
+      label = `vs. $${marketDollars.toFixed(2)} market value (Free acquisition)`;
+    } else {
+      const pct = Math.round(
+        ((marketDollars - paidDollars) / paidDollars) * 100,
+      );
+      const sign = pct >= 0 ? '+' : '';
+      label = `${sign}${pct}% vs. $${marketDollars.toFixed(2)} market value`;
+    }
+
+    return {
+      deltaDollars,
+      marketDollars,
+      paidDollars,
+      label,
+    };
+  });
+
+  formatAcquisitionDate(
+    dateStr?: string | null,
+    isApproximate?: number | boolean | null,
+  ): string {
+    return formatJournalDate(dateStr, isApproximate);
+  }
+
+  isApproximateEntry(entry: JournalEntry): boolean {
+    if (entry.is_approximate_date) return true;
+    const d = (entry.purchase_date || '').trim();
+    return /^\d{4}(-\d{2})?$/.test(d);
+  }
+
+  onToggleJournalVisibility(): void {
+    this.collectionService.toggleJournalVisibility();
+  }
+
+  openJournalEditor(): void {
+    const entry = this.journalEntry();
+    this.journalSaveError.set(null);
+
+    if (entry) {
+      const rawDate = (entry.purchase_date || '').trim();
+      let precision: 'exact' | 'month' | 'year' | 'unknown';
+      if (!rawDate) {
+        precision = 'unknown';
+      } else if (/^\d{4}$/.test(rawDate)) {
+        precision = 'year';
+      } else if (/^\d{4}-\d{2}$/.test(rawDate)) {
+        precision = 'month';
+      } else {
+        precision = 'exact';
+      }
+
+      this.journalForm = {
+        datePrecision: precision,
+        purchaseDate: rawDate,
+        isApproximateDate: Boolean(entry.is_approximate_date),
+        pricePaid:
+          entry.price_paid !== null && entry.price_paid !== undefined
+            ? entry.price_paid
+            : '',
+        merchant: entry.merchant || '',
+        giftedBy: entry.gifted_by || '',
+        receiptUrl: entry.receipt_url || '',
+        notes: entry.notes || '',
+      };
+    } else {
+      this.journalForm = {
+        datePrecision: 'exact',
+        purchaseDate: '',
+        isApproximateDate: false,
+        pricePaid: '',
+        merchant: '',
+        giftedBy: '',
+        receiptUrl: '',
+        notes: '',
+      };
+    }
+
+    this.isEditingJournal.set(true);
+  }
+
+  onDatePrecisionChange(
+    precision: 'exact' | 'month' | 'year' | 'unknown',
+  ): void {
+    if (precision === 'unknown') {
+      this.journalForm.purchaseDate = '';
+      this.journalForm.isApproximateDate = false;
+    } else if (precision === 'year') {
+      const match = String(this.journalForm.purchaseDate || '').match(/^\d{4}/);
+      this.journalForm.purchaseDate = match ? match[0] : '';
+      this.journalForm.isApproximateDate = true;
+    } else if (precision === 'month') {
+      const match = String(this.journalForm.purchaseDate || '').match(
+        /^\d{4}-\d{2}/,
+      );
+      this.journalForm.purchaseDate = match ? match[0] : '';
+      this.journalForm.isApproximateDate = true;
+    }
+  }
+
+  cancelJournalEdit(): void {
+    this.isEditingJournal.set(false);
+    this.journalSaveError.set(null);
+  }
+
+  onSaveJournalEntry(): void {
+    const itemType = this.type();
+    const currentItem = this.item();
+    if ((itemType !== 'game' && itemType !== 'toy') || !currentItem) {
+      return;
+    }
+
+    const canonicalItemId =
+      itemType === 'game'
+        ? this.game()?.game_id || currentItem.id
+        : currentItem.id;
+
+    let purchaseDate: string | null = String(
+      this.journalForm.purchaseDate || '',
+    ).trim();
+    let isApprox = this.journalForm.isApproximateDate;
+
+    if (this.journalForm.datePrecision === 'unknown' || !purchaseDate) {
+      purchaseDate = null;
+      isApprox = false;
+    } else if (
+      this.journalForm.datePrecision === 'year' ||
+      this.journalForm.datePrecision === 'month'
+    ) {
+      isApprox = true;
+    }
+
+    const rawPrice = this.journalForm.pricePaid;
+    let pricePaid: number | null = null;
+    if (
+      rawPrice !== null &&
+      rawPrice !== undefined &&
+      String(rawPrice).trim() !== ''
+    ) {
+      const parsed = Number(rawPrice);
+      if (Number.isNaN(parsed) || parsed < 0) {
+        this.journalSaveError.set('Price paid must be a non-negative number.');
+        return;
+      }
+      pricePaid = Math.round(parsed * 100) / 100;
+    }
+
+    this.journalSaving.set(true);
+    this.journalSaveError.set(null);
+
+    this.collectionService
+      .saveJournalEntry({
+        item_type: itemType,
+        item_id: String(canonicalItemId),
+        purchase_date: purchaseDate,
+        is_approximate_date: isApprox ? 1 : 0,
+        price_paid: pricePaid,
+        merchant: this.journalForm.merchant.trim() || null,
+        gifted_by: this.journalForm.giftedBy.trim() || null,
+        receipt_url: this.journalForm.receiptUrl.trim() || null,
+        notes: this.journalForm.notes.trim() || null,
+      })
+      .subscribe({
+        next: () => {
+          this.journalSaving.set(false);
+          this.isEditingJournal.set(false);
+          this.journalRefreshTrigger.update((v) => v + 1);
+        },
+        error: (err) => {
+          this.journalSaving.set(false);
+          this.journalSaveError.set(
+            err?.error?.error || 'Failed to save provenance record.',
+          );
+        },
+      });
+  }
+
+  onDeleteJournalEntry(): void {
+    const itemType = this.type();
+    const currentItem = this.item();
+    if ((itemType !== 'game' && itemType !== 'toy') || !currentItem) {
+      return;
+    }
+
+    const canonicalItemId =
+      itemType === 'game'
+        ? this.game()?.game_id || currentItem.id
+        : currentItem.id;
+
+    this.journalSaving.set(true);
+    this.journalSaveError.set(null);
+
+    this.collectionService
+      .deleteJournalEntry(itemType, String(canonicalItemId))
+      .subscribe({
+        next: () => {
+          this.journalSaving.set(false);
+          this.isEditingJournal.set(false);
+          this.journalRefreshTrigger.update((v) => v + 1);
+        },
+        error: () => {
+          this.journalSaving.set(false);
+          this.journalSaveError.set('Failed to delete provenance record.');
+        },
+      });
+  }
 
   /**
    * Computes parsed archival origin provenance metadata for digital extracted ROMs.

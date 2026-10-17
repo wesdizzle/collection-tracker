@@ -469,4 +469,102 @@ describe('ItemDetailComponent', () => {
       'https://www.dekudeals.com/search?q=Hollow%20Knight',
     );
   });
+
+  it('renders Acquisition Journal masked by default and reveals approximate "Around" dates, receipt URL, and ROI when toggled by admin', async () => {
+    const internalService = collectionService as unknown as {
+      _isAdmin: { set: (val: boolean) => void };
+      _journalRevealed: { set: (val: boolean) => void };
+    };
+    internalService._isAdmin.set(true);
+    internalService._journalRevealed.set(false);
+
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        id: 'wii-sports-nintendo-wii',
+        title: 'Wii Sports',
+        price_cib: 3500,
+      }),
+    );
+
+    vi.spyOn(collectionService, 'getJournalEntry').mockReturnValue(
+      of({
+        authorized: true,
+        entry: {
+          id: 42,
+          item_type: 'game',
+          item_id: 'wii-sports-nintendo-wii',
+          purchase_date: '2009-06',
+          is_approximate_date: 1,
+          price_paid: 0,
+          merchant: 'Best Buy',
+          gifted_by: null,
+          receipt_url: 'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+          notes:
+            'Free pack-in with Nintendo Wii console, purchased around June 2009 as part of a Best Buy promotion bundling it with an HP Pavilion dv6-1245dx laptop',
+        },
+      }),
+    );
+
+    paramMapSubject.next(
+      convertToParamMap({ id: 'wii-sports-nintendo-wii', type: 'game' }),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    // 1. Default state is masked
+    const maskedGrid = compiled.querySelector(
+      '[data-testid="journal-masked-state"]',
+    );
+    expect(maskedGrid).toBeTruthy();
+    expect(maskedGrid?.textContent).toContain('••••••');
+    expect(
+      compiled.querySelector('[data-testid="journal-revealed-state"]'),
+    ).toBeNull();
+
+    // 2. Click eye icon button to reveal
+    const eyeBtn = compiled.querySelector(
+      '[data-testid="btn-toggle-journal-eye"]',
+    ) as HTMLButtonElement;
+    expect(eyeBtn).toBeTruthy();
+    eyeBtn.click();
+    fixture.detectChanges();
+
+    const revealedGrid = compiled.querySelector(
+      '[data-testid="journal-revealed-state"]',
+    );
+    expect(revealedGrid).toBeTruthy();
+    expect(
+      compiled.querySelector('[data-testid="journal-date-display"]')
+        ?.textContent,
+    ).toContain('Around June 2009');
+    expect(
+      compiled.querySelector('[data-testid="journal-price-display"]')
+        ?.textContent,
+    ).toContain('$0.00');
+    expect(
+      compiled.querySelector('[data-testid="journal-merchant-display"]')
+        ?.textContent,
+    ).toContain('Best Buy');
+    expect(
+      compiled.querySelector('[data-testid="journal-roi-display"]')
+        ?.textContent,
+    ).toContain('+$35.00');
+
+    const receiptLink = compiled.querySelector(
+      '[data-testid="journal-receipt-link"]',
+    ) as HTMLAnchorElement;
+    expect(receiptLink).toBeTruthy();
+    expect(receiptLink.getAttribute('href')).toBe(
+      'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+    );
+
+    const notesCallout = compiled.querySelector(
+      '[data-testid="journal-notes-display"]',
+    );
+    expect(notesCallout?.textContent).toContain('HP Pavilion dv6-1245dx');
+  });
 });

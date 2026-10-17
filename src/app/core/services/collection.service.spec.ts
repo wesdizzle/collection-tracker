@@ -7,7 +7,7 @@ import {
   HttpTestingController,
 } from '@angular/common/http/testing';
 import { CollectionService } from './collection.service';
-import { Game } from '../models/collection.models';
+import { Game, formatJournalDate } from '../models/collection.models';
 
 /**
  * UNIT TEST: CollectionService
@@ -375,6 +375,102 @@ describe('CollectionService', () => {
         totalSeries: 100,
         hasMore: true,
       });
+    });
+  });
+
+  describe('Collection Journal & Provenance', () => {
+    it('formats exact and approximate acquisition dates using "Around"', () => {
+      expect(formatJournalDate(null)).toBe('Unrecorded');
+      expect(formatJournalDate('2013')).toBe('Around 2013');
+      expect(formatJournalDate('~2013')).toBe('Around 2013');
+      expect(formatJournalDate('2009-06')).toBe('Around June 2009');
+      expect(formatJournalDate('~2009-06')).toBe('Around June 2009');
+      expect(formatJournalDate('2021-02-10', 0)).toBe('Feb 10, 2021');
+      expect(formatJournalDate('2021-02-10', 1)).toBe('Around Feb 10, 2021');
+    });
+
+    it('toggles journal visibility when authorized admin', () => {
+      const internal = service as unknown as {
+        _isAdmin: { set: (val: boolean) => void };
+      };
+      internal._isAdmin.set(true);
+
+      expect(service.journalRevealed()).toBe(false);
+      service.toggleJournalVisibility();
+      expect(service.journalRevealed()).toBe(true);
+      expect(sessionStorage.getItem('app_journal_revealed')).toBe('true');
+
+      service.toggleJournalVisibility();
+      expect(service.journalRevealed()).toBe(false);
+      expect(sessionStorage.getItem('app_journal_revealed')).toBe('false');
+    });
+
+    it('fetches, saves, and deletes journal entries and updates in-memory map', () => {
+      const mockEntry = {
+        id: 1,
+        item_type: 'game' as const,
+        item_id: 'combat-atari-2600',
+        purchase_date: '2019-02-18',
+        is_approximate_date: 0,
+        price_paid: 4.1,
+        merchant: 'eBay',
+        gifted_by: null,
+        receipt_url: 'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+        notes: 'Purchased standalone for $4.10',
+      };
+
+      service.getJournalEntry('game', 'combat-atari-2600').subscribe((res) => {
+        expect(res.authorized).toBe(true);
+        expect(res.entry).toEqual(mockEntry);
+      });
+
+      const getReq = httpMock.expectOne(
+        '/api/journal?item_type=game&item_id=combat-atari-2600',
+      );
+      expect(getReq.request.method).toBe('GET');
+      getReq.flush({ authorized: true, entry: mockEntry });
+
+      expect(service.journalEntriesMap().get('game:combat-atari-2600')).toEqual(
+        mockEntry,
+      );
+
+      // Save updated entry
+      const updatedEntry = { ...mockEntry, price_paid: 5.0 };
+      service
+        .saveJournalEntry({
+          item_type: 'game',
+          item_id: 'combat-atari-2600',
+          price_paid: 5.0,
+        })
+        .subscribe((res) => {
+          expect(res.success).toBe(true);
+          expect(res.entry?.price_paid).toBe(5.0);
+        });
+
+      const postReq = httpMock.expectOne('/api/journal');
+      expect(postReq.request.method).toBe('POST');
+      postReq.flush({ success: true, entry: updatedEntry });
+
+      expect(
+        service.journalEntriesMap().get('game:combat-atari-2600')?.price_paid,
+      ).toBe(5.0);
+
+      // Delete entry
+      service
+        .deleteJournalEntry('game', 'combat-atari-2600')
+        .subscribe((res) => {
+          expect(res.success).toBe(true);
+        });
+
+      const delReq = httpMock.expectOne(
+        '/api/journal?item_type=game&item_id=combat-atari-2600',
+      );
+      expect(delReq.request.method).toBe('DELETE');
+      delReq.flush({ success: true });
+
+      expect(service.journalEntriesMap().has('game:combat-atari-2600')).toBe(
+        false,
+      );
     });
   });
 });

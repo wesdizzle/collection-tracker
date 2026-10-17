@@ -38,6 +38,7 @@ import {
   ScanSuggestion,
   AmiiboDiscoveryItem,
   PagedScanSeriesResult,
+  JournalEntry,
 } from '../models/collection.models';
 
 @Injectable({
@@ -60,6 +61,15 @@ export class CollectionService {
   private _isAdmin = signal<boolean>(false);
   public readonly isAdmin = this._isAdmin.asReadonly();
 
+  private _journalRevealed = signal<boolean>(false);
+  public readonly journalRevealed = this._journalRevealed.asReadonly();
+
+  private _journalEntriesMap = signal<Map<string, JournalEntry>>(new Map());
+  public readonly journalEntriesMap = this._journalEntriesMap.asReadonly();
+
+  private _journalLoaded = signal<boolean>(false);
+  public readonly journalLoaded = this._journalLoaded.asReadonly();
+
   /**
    * Initializes the service and restores any saved navigation state from sessionStorage.
    * This ensures that when a user returns from a detail page, their context is restored.
@@ -80,7 +90,17 @@ export class CollectionService {
       .get<{ authenticated: boolean; authorized: boolean }>('/api/admin/me')
       .pipe(catchError(() => of({ authenticated: false, authorized: false })))
       .subscribe((res) => {
-        this._isAdmin.set(!!res.authorized);
+        const authorized = !!res.authorized;
+        this._isAdmin.set(authorized);
+        if (
+          authorized &&
+          typeof sessionStorage !== 'undefined' &&
+          sessionStorage.getItem('app_journal_revealed') === 'true'
+        ) {
+          this._journalRevealed.set(true);
+        } else if (!authorized) {
+          this._journalRevealed.set(false);
+        }
       });
   }
 
@@ -807,6 +827,133 @@ export class CollectionService {
    */
   public closeDialog() {
     this._dialogState.set({ ...this._dialogState(), visible: false });
+  }
+
+  /**
+   * Toggles the visibility of private acquisition journal data.
+   * If the user is not an authorized admin, redirects to /api/admin/login (Cloudflare Access).
+   */
+  public toggleJournalVisibility(): void {
+    if (!this._isAdmin()) {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/api/admin/login';
+      }
+      return;
+    }
+
+    const next = !this._journalRevealed();
+    this._journalRevealed.set(next);
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('app_journal_revealed', String(next));
+    }
+  }
+
+  /**
+   * Fetches the acquisition journal entry for a single item (admin-only).
+   */
+  public getJournalEntry(
+    itemType: 'game' | 'toy',
+    itemId: string,
+  ): Observable<{ authorized: boolean; entry: JournalEntry | null }> {
+    return this.http
+      .get<{
+        authorized: boolean;
+        entry: JournalEntry | null;
+      }>(
+        `/api/journal?item_type=${encodeURIComponent(itemType)}&item_id=${encodeURIComponent(itemId)}`,
+      )
+      .pipe(
+        tap((res) => {
+          if (res.authorized && res.entry) {
+            const nextMap = new Map(this._journalEntriesMap());
+            nextMap.set(
+              `${res.entry.item_type}:${res.entry.item_id}`,
+              res.entry,
+            );
+            nextMap.set(`${itemType}:${itemId}`, res.entry);
+            this._journalEntriesMap.set(nextMap);
+          }
+        }),
+        catchError(() => of({ authorized: false, entry: null })),
+      );
+  }
+
+  /**
+   * Fetches all acquisition journal entries for the Collection Insights cost-basis view (admin-only).
+   */
+  public loadAllJournalEntries(): Observable<JournalEntry[]> {
+    return this.http
+      .get<{
+        authorized: boolean;
+        entries: JournalEntry[];
+      }>('/api/journal/entries')
+      .pipe(
+        tap((res) => {
+          if (res.authorized) {
+            const nextMap = new Map<string, JournalEntry>();
+            for (const entry of res.entries || []) {
+              nextMap.set(`${entry.item_type}:${entry.item_id}`, entry);
+            }
+            this._journalEntriesMap.set(nextMap);
+            this._journalLoaded.set(true);
+          }
+        }),
+        map((res) => (res.authorized ? res.entries || [] : [])),
+        catchError(() => of([])),
+      );
+  }
+
+  /**
+   * Saves or updates an acquisition journal entry (admin-only).
+   */
+  public saveJournalEntry(
+    payload: Partial<JournalEntry> & {
+      item_type: 'game' | 'toy';
+      item_id: string;
+    },
+  ): Observable<{ success: boolean; entry: JournalEntry | null }> {
+    return this.http
+      .post<{
+        success: boolean;
+        entry: JournalEntry | null;
+      }>('/api/journal', payload)
+      .pipe(
+        tap((res) => {
+          if (res.success && res.entry) {
+            const nextMap = new Map(this._journalEntriesMap());
+            nextMap.set(
+              `${res.entry.item_type}:${res.entry.item_id}`,
+              res.entry,
+            );
+            nextMap.set(`${payload.item_type}:${payload.item_id}`, res.entry);
+            this._journalEntriesMap.set(nextMap);
+          }
+        }),
+      );
+  }
+
+  /**
+   * Deletes an acquisition journal entry (admin-only).
+   */
+  public deleteJournalEntry(
+    itemType: 'game' | 'toy',
+    itemId: string,
+  ): Observable<{ success: boolean }> {
+    return this.http
+      .delete<{
+        success: boolean;
+      }>(
+        `/api/journal?item_type=${encodeURIComponent(itemType)}&item_id=${encodeURIComponent(itemId)}`,
+      )
+      .pipe(
+        tap((res) => {
+          if (res.success) {
+            const nextMap = new Map(this._journalEntriesMap());
+            nextMap.delete(`${itemType}:${itemId}`);
+            this._journalEntriesMap.set(nextMap);
+          }
+        }),
+      );
   }
 
   /**

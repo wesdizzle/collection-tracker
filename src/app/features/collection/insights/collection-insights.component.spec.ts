@@ -5,9 +5,15 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
+import { of } from 'rxjs';
 import { CollectionInsightsComponent } from './collection-insights.component';
 import { CollectionService } from '../../../core/services/collection.service';
-import { Game, Toy, Platform } from '../../../core/models/collection.models';
+import {
+  Game,
+  Toy,
+  Platform,
+  JournalEntry,
+} from '../../../core/models/collection.models';
 
 describe('CollectionInsightsComponent', () => {
   let component: CollectionInsightsComponent;
@@ -16,18 +22,34 @@ describe('CollectionInsightsComponent', () => {
   const mockGames = signal<Game[]>([]);
   const mockToys = signal<Toy[]>([]);
   const mockPlatforms = signal<Platform[]>([]);
+  const mockIsAdmin = signal<boolean>(false);
+  const mockJournalRevealed = signal<boolean>(false);
+  const mockJournalLoaded = signal<boolean>(false);
+  const mockJournalEntriesMap = signal<Map<string, JournalEntry>>(new Map());
 
   const mockCollectionService = {
     games: mockGames.asReadonly(),
     toys: mockToys.asReadonly(),
     platforms: mockPlatforms.asReadonly(),
+    isAdmin: mockIsAdmin.asReadonly(),
+    journalRevealed: mockJournalRevealed.asReadonly(),
+    journalLoaded: mockJournalLoaded.asReadonly(),
+    journalEntriesMap: mockJournalEntriesMap.asReadonly(),
     refreshAll: async () => {},
+    loadAllJournalEntries: () => of([]),
+    toggleJournalVisibility: () => {
+      mockJournalRevealed.set(!mockJournalRevealed());
+    },
   };
 
   beforeEach(async () => {
     mockGames.set([]);
     mockToys.set([]);
     mockPlatforms.set([]);
+    mockIsAdmin.set(false);
+    mockJournalRevealed.set(false);
+    mockJournalLoaded.set(false);
+    mockJournalEntriesMap.set(new Map());
 
     await TestBed.configureTestingModule({
       imports: [CollectionInsightsComponent],
@@ -467,5 +489,71 @@ describe('CollectionInsightsComponent', () => {
     // Verify boxed condition label rendered in HTML
     const html = fixture.nativeElement.innerHTML;
     expect(html).toContain('Game + Box / Case (No Manual)');
+  });
+
+  it('should mask acquisition cost basis by default and compute spend, appreciation, and top merchants when revealed', () => {
+    mockIsAdmin.set(true);
+    mockJournalRevealed.set(false);
+
+    mockGames.set([
+      {
+        stable_id: 1,
+        id: 'chrono-trigger-snes',
+        title: 'Chrono Trigger',
+        series: 'Chrono',
+        canonical_series: 'Chrono',
+        release_date: '1995-03-11',
+        platform: 'SNES',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        price_cib: 60000, // $600.00
+      },
+    ]);
+
+    const entries = new Map<string, JournalEntry>();
+    entries.set('game:chrono-trigger-snes', {
+      id: 1,
+      item_type: 'game',
+      item_id: 'chrono-trigger-snes',
+      purchase_date: '2018-05-10',
+      is_approximate_date: 0,
+      price_paid: 120.0,
+      merchant: 'eBay',
+      gifted_by: null,
+      receipt_url: 'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+      notes: null,
+    });
+    mockJournalEntriesMap.set(entries);
+
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    // Masked by default
+    expect(
+      compiled.querySelector('[data-testid="insights-journal-masked"]'),
+    ).toBeTruthy();
+    expect(
+      compiled.querySelector('[data-testid="insights-journal-revealed"]'),
+    ).toBeNull();
+
+    // Reveal via eye button
+    const eyeBtn = compiled.querySelector(
+      '[data-testid="insights-toggle-journal-eye"]',
+    ) as HTMLButtonElement;
+    eyeBtn.click();
+    fixture.detectChanges();
+
+    const revealed = compiled.querySelector(
+      '[data-testid="insights-journal-revealed"]',
+    );
+    expect(revealed).toBeTruthy();
+    expect(revealed?.textContent).toContain('$120.00');
+    expect(revealed?.textContent).toContain('+$480.00');
+    expect(revealed?.textContent).toContain('1 / 1');
+    expect(compiled.innerHTML).toContain('eBay');
   });
 });

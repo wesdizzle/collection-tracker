@@ -1256,3 +1256,143 @@ export function isOfficialIGDBGame(game: {
 
   return true;
 }
+
+/**
+ * COLLECTION JOURNAL & PROVENANCE QUERIES AND HELPERS
+ */
+
+export interface JournalEntryRow {
+  id: number;
+  item_type: 'game' | 'toy';
+  item_id: string;
+  purchase_date: string | null;
+  is_approximate_date: number;
+  price_paid: number | null;
+  merchant: string | null;
+  gifted_by: string | null;
+  receipt_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const RESOLVE_CANONICAL_GAME_ID_QUERY = `
+  SELECT id as game_id FROM games WHERE id = ?
+  UNION ALL
+  SELECT g.id as game_id FROM games g JOIN game_releases r ON r.game_id = g.stable_id WHERE r.id = ?
+  LIMIT 1
+`;
+
+export const JOURNAL_ENTRY_BY_ITEM_QUERY = `
+  SELECT id, item_type, item_id, purchase_date, is_approximate_date, price_paid,
+         merchant, gifted_by, receipt_url, notes, created_at, updated_at
+  FROM journal_entries
+  WHERE item_type = ? AND item_id IN (?, ?)
+  ORDER BY id DESC
+  LIMIT 1
+`;
+
+export const JOURNAL_ENTRIES_ALL_QUERY = `
+  SELECT id, item_type, item_id, purchase_date, is_approximate_date, price_paid,
+         merchant, gifted_by, receipt_url, notes, created_at, updated_at
+  FROM journal_entries
+  ORDER BY COALESCE(purchase_date, '') DESC, id DESC
+`;
+
+export const UPSERT_JOURNAL_ENTRY_QUERY = `
+  INSERT INTO journal_entries (
+    item_type, item_id, purchase_date, is_approximate_date, price_paid,
+    merchant, gifted_by, receipt_url, notes, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ON CONFLICT(item_type, item_id) DO UPDATE SET
+    purchase_date = excluded.purchase_date,
+    is_approximate_date = excluded.is_approximate_date,
+    price_paid = excluded.price_paid,
+    merchant = excluded.merchant,
+    gifted_by = excluded.gifted_by,
+    receipt_url = excluded.receipt_url,
+    notes = excluded.notes,
+    updated_at = CURRENT_TIMESTAMP
+`;
+
+export const DELETE_JOURNAL_ENTRY_QUERY = `
+  DELETE FROM journal_entries
+  WHERE item_type = ? AND item_id = ?
+`;
+
+/**
+ * Normalizes a journal date string (`YYYY-MM-DD`, `YYYY-MM`, `YYYY`, or prefixed with `~` / `around`)
+ * into a clean ISO date prefix and an explicit `is_approximate_date` integer flag (0 or 1).
+ */
+export function normalizeJournalDatePayload(
+  rawDate: string | null | undefined,
+  explicitIsApprox?: boolean | number | null,
+): { purchaseDate: string | null; isApproximateDate: number } {
+  if (!rawDate || !rawDate.trim()) {
+    return {
+      purchaseDate: null,
+      isApproximateDate: explicitIsApprox ? 1 : 0,
+    };
+  }
+
+  let cleaned = rawDate.trim();
+  let autoApprox = Boolean(explicitIsApprox);
+
+  if (/^(?:~|around\b|circa\b)/i.test(cleaned)) {
+    autoApprox = true;
+    cleaned = cleaned.replace(/^(?:~|around\b|circa\b)\s*/i, '').trim();
+  }
+
+  // Match YYYY, YYYY-MM, or YYYY-MM-DD
+  if (/^\d{4}$/.test(cleaned) || /^\d{4}-\d{2}$/.test(cleaned)) {
+    return {
+      purchaseDate: cleaned,
+      isApproximateDate: 1,
+    };
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
+    return {
+      purchaseDate: cleaned,
+      isApproximateDate: autoApprox ? 1 : 0,
+    };
+  }
+
+  return {
+    purchaseDate: cleaned,
+    isApproximateDate: autoApprox ? 1 : 0,
+  };
+}
+
+/**
+ * Normalizes a merchant name, stripping eBay seller parentheticals (e.g. `eBay (hrlcksgames)` -> `eBay`).
+ */
+export function normalizeMerchantName(
+  merchant: string | null | undefined,
+): string | null {
+  if (!merchant || !merchant.trim()) return null;
+  const trimmed = merchant.trim();
+  if (/^ebay\s*\(/i.test(trimmed) || /^ebay$/i.test(trimmed)) {
+    return 'eBay';
+  }
+  return trimmed;
+}
+
+/**
+ * Normalizes a receipt or order verification URL.
+ * Accepts full http/https URLs directly; also expands bare 15-16 char hex Gmail IDs
+ * into complete Gmail deep-links so the database always stores a full URL.
+ */
+export function normalizeReceiptUrl(
+  urlOrId: string | null | undefined,
+): string | null {
+  if (!urlOrId || !urlOrId.trim()) return null;
+  const trimmed = urlOrId.trim();
+  if (/^https?:\/\/\S+$/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^[0-9a-f]{15,16}$/i.test(trimmed)) {
+    return `https://mail.google.com/mail/u/0/#all/${trimmed}`;
+  }
+  return null;
+}
