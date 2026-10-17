@@ -82,6 +82,28 @@ describe('CompactTableComponent', () => {
       ).toContain('2017');
     });
 
+    it('should render artwork thumbnail when image_url is present, and placeholder when absent', () => {
+      const img = fixture.nativeElement.querySelector(
+        '.col-art .compact-thumbnail',
+      ) as HTMLImageElement;
+      expect(img).toBeTruthy();
+      expect(img.src).toContain('example.com/botw.jpg');
+
+      // Test placeholder when image_url is missing
+      fixture.componentRef.setInput('games', [
+        { ...mockGames[0], id: 'no-art-game', image_url: undefined },
+      ]);
+      fixture.detectChanges();
+
+      const placeholder = fixture.nativeElement.querySelector(
+        '.col-art .compact-art-placeholder',
+      );
+      expect(placeholder).toBeTruthy();
+      expect(
+        placeholder.querySelector('app-icon[name="gamepad"]'),
+      ).toBeTruthy();
+    });
+
     it('should emit toggleGameStatus when game status button is clicked', () => {
       let emitted = false;
       component.toggleGameStatus.subscribe((evt) => {
@@ -169,6 +191,28 @@ describe('CompactTableComponent', () => {
       expect(el.querySelector('.valuation-badge')?.textContent).toContain(
         '$22.00',
       );
+    });
+
+    it('should render toy thumbnail when image_url is present, and placeholder when absent', () => {
+      const img = fixture.nativeElement.querySelector(
+        '.col-art .compact-thumbnail.toy-thumbnail',
+      ) as HTMLImageElement;
+      expect(img).toBeTruthy();
+      expect(img.src).toContain('example.com/link-archer.png');
+
+      // Test placeholder when image_url is missing
+      fixture.componentRef.setInput('toys', [
+        { ...mockToys[0], id: 'no-art-toy', image_url: undefined },
+      ]);
+      fixture.detectChanges();
+
+      const placeholder = fixture.nativeElement.querySelector(
+        '.col-art .compact-art-placeholder',
+      );
+      expect(placeholder).toBeTruthy();
+      expect(
+        placeholder.querySelector('app-icon[name="figure-toy"]'),
+      ).toBeTruthy();
     });
 
     it('should emit toggleToyStatus when toy status button is clicked', () => {

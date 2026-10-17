@@ -132,11 +132,14 @@
 }
 
 .compact-thumbnail {
-  width: 32px;
   height: 32px;
-  object-fit: cover;
+  width: auto;
+  max-width: 32px;
+  aspect-ratio: auto 3 / 4;
+  object-fit: contain;
   border-radius: var(--radius-tag);
   background: var(--m3-surface-container-highest);
+  display: block;
 }
 
 .compact-thumbnail.toy-thumbnail {
@@ -144,8 +147,9 @@
 }
 
 .compact-art-placeholder {
-  width: 32px;
+  width: 24px;
   height: 32px;
+  aspect-ratio: 3 / 4;
   border-radius: var(--radius-tag);
   background: var(--m3-surface-container-highest);
   display: flex;
