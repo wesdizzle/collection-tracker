@@ -81,8 +81,20 @@
           role="group"
           [attr.aria-label]="group.category"
         >
-          <div class="palette-group-title" aria-hidden="true">
-            {{ group.category }}
+          <div class="palette-group-header">
+            <span class="palette-group-title" aria-hidden="true">{{
+              group.category
+            }}</span>
+            @if (group.category === 'Recent Searches') {
+              <button
+                type="button"
+                class="palette-clear-btn"
+                (click)="onClearRecents($event)"
+                aria-label="Clear recent searches"
+              >
+                Clear
+              </button>
+            }
           </div>
           @for (entry of group.items; track entry.item.id) {
             <div
@@ -99,7 +111,18 @@
               </div>
               <div class="palette-item-info">
                 <div class="palette-title-row">
-                  <span class="palette-item-title">{{ entry.item.title }}</span>
+                  <span class="palette-item-title">
+                    @for (
+                      chunk of entry.item.title | highlightTokens: query();
+                      track $index
+                    ) {
+                      @if (chunk.match) {
+                        <mark class="palette-mark">{{ chunk.text }}</mark>
+                      } @else {
+                        {{ chunk.text }}
+                      }
+                    }
+                  </span>
                   @if (entry.item.region) {
                     <span class="palette-region-badge">{{
                       entry.item.region
@@ -107,9 +130,18 @@
                   }
                 </div>
                 @if (entry.item.subtitle) {
-                  <span class="palette-item-subtitle">{{
-                    entry.item.subtitle
-                  }}</span>
+                  <span class="palette-item-subtitle">
+                    @for (
+                      chunk of entry.item.subtitle | highlightTokens: query();
+                      track $index
+                    ) {
+                      @if (chunk.match) {
+                        <mark class="palette-mark">{{ chunk.text }}</mark>
+                      } @else {
+                        {{ chunk.text }}
+                      }
+                    }
+                  </span>
                 }
               </div>
               @if (entry.item.badge) {
@@ -120,6 +152,17 @@
                 >
                   {{ entry.item.badge }}
                 </span>
+              }
+              @if (group.category === 'Recent Searches') {
+                <button
+                  type="button"
+                  class="palette-item-remove-btn"
+                  (click)="onRemoveRecent(entry.item.id, $event)"
+                  aria-label="Remove recent item"
+                  title="Remove"
+                >
+                  <app-icon name="close" [size]="12" />
+                </button>
               }
             </div>
           }

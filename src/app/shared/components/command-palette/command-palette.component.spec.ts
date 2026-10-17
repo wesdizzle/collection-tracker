@@ -434,4 +434,75 @@ describe('CommandPaletteComponent', () => {
 
     expect(paletteService.isOpen()).toBe(false);
   });
+
+  it('should render Recent Searches at the top when recents exist and query is empty', () => {
+    paletteService.addRecentItem({
+      id: 'game-super-mario-64-n64',
+      title: 'Super Mario 64',
+      subtitle: 'Nintendo 64',
+      category: 'Games',
+      icon: 'gamepad',
+      url: '/collection/game/super-mario-64-n64',
+    });
+
+    paletteService.open();
+    fixture.detectChanges();
+
+    const groups = component.groupedResults();
+    expect(groups[0].category).toBe('Recent Searches');
+    expect(groups[0].items[0].item.title).toBe('Super Mario 64');
+
+    const recentHeader = fixture.nativeElement.querySelector(
+      '.palette-group-header .palette-clear-btn',
+    );
+    expect(recentHeader).not.toBeNull();
+  });
+
+  it('should record an item to recents on selection', () => {
+    paletteService.clearRecentItems();
+    paletteService.open();
+    fixture.detectChanges();
+
+    const firstItem = component.flatResults()[0];
+    component.onSelect(firstItem);
+
+    const recents = paletteService.recentItems();
+    expect(recents.length).toBe(1);
+    expect(recents[0].title).toBe(firstItem.title);
+  });
+
+  it('should clear recent items when Clear button is clicked', () => {
+    paletteService.addRecentItem({
+      id: 'game-1',
+      title: 'Super Mario 64',
+      category: 'Games',
+      icon: 'gamepad',
+    });
+    paletteService.open();
+    fixture.detectChanges();
+
+    const clearBtn = fixture.nativeElement.querySelector('.palette-clear-btn');
+    expect(clearBtn).not.toBeNull();
+    clearBtn.click();
+    fixture.detectChanges();
+
+    expect(paletteService.recentItems().length).toBe(0);
+    const recentGroup = component
+      .groupedResults()
+      .find((g) => g.category === 'Recent Searches');
+    expect(recentGroup).toBeUndefined();
+  });
+
+  it('should highlight matching query substrings with <mark class="palette-mark">', () => {
+    paletteService.open();
+    fixture.detectChanges();
+    component.query.set('mario');
+    fixture.detectChanges();
+
+    const markEl = fixture.nativeElement.querySelector(
+      '.palette-item-title mark.palette-mark',
+    );
+    expect(markEl).not.toBeNull();
+    expect(markEl?.textContent?.toLowerCase()).toBe('mario');
+  });
 });

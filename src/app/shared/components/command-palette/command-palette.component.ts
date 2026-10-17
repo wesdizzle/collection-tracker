@@ -17,16 +17,26 @@ import { CollectionService } from '../../../core/services/collection.service';
 import { getMediaIconName } from '../../../core/models/collection.models';
 import { IconComponent } from '../icon/icon.component';
 import { IconName } from '../icon/icon.catalog';
+import { HighlightTokensPipe } from '../../pipes/highlight-tokens.pipe';
 
 export interface CommandPaletteItem {
   id: string;
   title: string;
   subtitle?: string;
   region?: string;
-  category: 'Navigation' | 'Quick Filters' | 'Platforms' | 'Games' | 'Toys';
+  category:
+    | 'Recent Searches'
+    | 'Navigation'
+    | 'Quick Filters'
+    | 'Platforms'
+    | 'Games'
+    | 'Toys';
   icon: IconName;
   badge?: string;
   action: () => void;
+  url?: string;
+  queryParams?: Record<string, string | number>;
+  isResetAction?: boolean;
 }
 
 export const PLATFORM_NAME_TO_ALIASES: Record<string, string[]> = {
@@ -74,7 +84,7 @@ export interface CommandPaletteGroup {
 @Component({
   selector: 'app-command-palette',
   standalone: true,
-  imports: [CommonModule, IconComponent],
+  imports: [CommonModule, IconComponent, HighlightTokensPipe],
   templateUrl: './command-palette.component.html',
   styleUrl: './command-palette.component.css',
 })
@@ -198,6 +208,7 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Browse all video games',
       category: 'Navigation',
       icon: 'gamepad',
+      url: '/collection/games',
       action: () => this.navigate('/collection/games'),
     },
     {
@@ -206,6 +217,7 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Browse Amiibo and collectibles',
       category: 'Navigation',
       icon: 'figure-toy',
+      url: '/collection/toys',
       action: () => this.navigate('/collection/toys'),
     },
     {
@@ -214,6 +226,7 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Stats, era decade breakdown, & completion graphs',
       category: 'Navigation',
       icon: 'flame',
+      url: '/collection/insights',
       action: () => this.navigate('/collection/insights'),
     },
     {
@@ -222,6 +235,7 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Track missing releases and scan candidates',
       category: 'Navigation',
       icon: 'compass',
+      url: '/collection/discovery',
       action: () => this.navigate('/collection/discovery'),
     },
   ];
@@ -233,6 +247,7 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Clear all active filters and return to default owned view',
       category: 'Quick Filters',
       icon: 'refresh',
+      isResetAction: true,
       action: () => this.resetAllFilters(),
     },
     {
@@ -241,6 +256,11 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Games currently on sale or below retail price',
       category: 'Quick Filters',
       icon: 'coins',
+      url: '/collection/games',
+      queryParams: {
+        deals_only: 'true',
+        ownership: '0',
+      },
       action: () =>
         this.navigate('/collection/games', {
           deals_only: 'true',
@@ -253,6 +273,8 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Games queued up to play next',
       category: 'Quick Filters',
       icon: 'list-queued',
+      url: '/collection/games',
+      queryParams: { play_status: '3' },
       action: () => this.navigate('/collection/games', { play_status: '3' }),
     },
     {
@@ -261,6 +283,8 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Active playthroughs',
       category: 'Quick Filters',
       icon: 'play',
+      url: '/collection/games',
+      queryParams: { play_status: '2' },
       action: () => this.navigate('/collection/games', { play_status: '2' }),
     },
     {
@@ -269,6 +293,8 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Games marked as actively seeking',
       category: 'Quick Filters',
       icon: 'seeking',
+      url: '/collection/games',
+      queryParams: { ownership: '2' },
       action: () => this.navigate('/collection/games', { ownership: '2' }),
     },
     {
@@ -277,6 +303,8 @@ export class CommandPaletteComponent implements AfterViewInit {
       subtitle: 'Physical items missing verified digital backup',
       category: 'Quick Filters',
       icon: 'missing-dump',
+      url: '/collection/games',
+      queryParams: { backup_status: '0' },
       action: () => this.navigate('/collection/games', { backup_status: '0' }),
     },
   ];
@@ -297,6 +325,28 @@ export class CommandPaletteComponent implements AfterViewInit {
     }
 
     if (!rawQuery) {
+      const recentItems: CommandPaletteItem[] = this.paletteService
+        .recentItems()
+        .map((r) => ({
+          id: `recent-${r.id}`,
+          title: r.title,
+          subtitle: r.subtitle,
+          region: r.region,
+          category: 'Recent Searches' as const,
+          icon: r.icon,
+          badge: r.badge,
+          url: r.url,
+          queryParams: r.queryParams,
+          isResetAction: r.isResetAction,
+          action: () => {
+            if (r.isResetAction) {
+              this.resetAllFilters();
+            } else if (r.url) {
+              this.navigate(r.url, r.queryParams);
+            }
+          },
+        }));
+
       const sortedPlatforms = [...platforms].sort((a, b) => {
         const countA = ownedCountsByPlatform.get(a.id) || 0;
         const countB = ownedCountsByPlatform.get(b.id) || 0;
@@ -316,12 +366,15 @@ export class CommandPaletteComponent implements AfterViewInit {
             subtitle: `${p.brand} platform${count > 0 ? ` • ${count} owned` : ''}`,
             category: 'Platforms',
             icon: 'gamepad' as IconName,
+            url: '/collection/games',
+            queryParams: { platform_id: p.id },
             action: () =>
               this.navigate('/collection/games', { platform_id: p.id }),
           };
         });
 
       return [
+        ...recentItems,
         ...this.navigationActions,
         ...this.filterActions,
         ...topPlatforms,
@@ -371,6 +424,8 @@ export class CommandPaletteComponent implements AfterViewInit {
           subtitle: `${p.brand} platform${count > 0 ? ` • ${count} owned` : ''}`,
           category: 'Platforms',
           icon: 'gamepad' as IconName,
+          url: '/collection/games',
+          queryParams: { platform_id: p.id },
           action: () =>
             this.navigate('/collection/games', { platform_id: p.id }),
         };
@@ -411,6 +466,7 @@ export class CommandPaletteComponent implements AfterViewInit {
               : g.ownership_status === 3
                 ? 'Ordered'
                 : undefined,
+        url: `/collection/game/${g.id || g.stable_id}`,
         action: () => this.navigate(`/collection/game/${g.id || g.stable_id}`),
       }));
 
@@ -437,6 +493,7 @@ export class CommandPaletteComponent implements AfterViewInit {
               : t.ownership_status === 3
                 ? 'Ordered'
                 : undefined,
+        url: `/collection/toy/${t.id || t.stable_id}`,
         action: () => this.navigate(`/collection/toy/${t.id || t.stable_id}`),
       }));
 
@@ -457,6 +514,7 @@ export class CommandPaletteComponent implements AfterViewInit {
     >();
 
     const order: Array<CommandPaletteItem['category']> = [
+      'Recent Searches',
       'Navigation',
       'Quick Filters',
       'Platforms',
@@ -523,12 +581,48 @@ export class CommandPaletteComponent implements AfterViewInit {
     const flat = this.flatResults();
     const idx = this.selectedIndex();
     if (flat[idx]) {
+      this.recordRecentItem(flat[idx]);
       flat[idx].action();
     }
   }
 
   public onSelect(item: CommandPaletteItem) {
+    this.recordRecentItem(item);
     item.action();
+  }
+
+  public onClearRecents(event: MouseEvent): void {
+    event.stopPropagation();
+    this.paletteService.clearRecentItems();
+  }
+
+  public onRemoveRecent(id: string, event: MouseEvent): void {
+    event.stopPropagation();
+    const rawId = id.startsWith('recent-') ? id.replace('recent-', '') : id;
+    this.paletteService.removeRecentItem(rawId);
+  }
+
+  private recordRecentItem(item: CommandPaletteItem): void {
+    const rawId = item.id.startsWith('recent-')
+      ? item.id.replace('recent-', '')
+      : item.id;
+    const category =
+      item.category === 'Recent Searches'
+        ? ('Navigation' as const)
+        : item.category;
+
+    this.paletteService.addRecentItem({
+      id: rawId,
+      title: item.title,
+      subtitle: item.subtitle,
+      region: item.region,
+      category,
+      icon: item.icon,
+      badge: item.badge,
+      url: item.url,
+      queryParams: item.queryParams,
+      isResetAction: item.isResetAction,
+    });
   }
 
   public onHover(index: number) {
