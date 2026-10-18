@@ -666,12 +666,35 @@ describe('Worker API Logic', () => {
     }
   });
 
-  it('GET /admin/login returns HTML with refresh redirect', async () => {
+  it('GET /admin/login returns HTML with refresh redirect and persistent session cookies', async () => {
     const req = new Request('https://tracker.example.com/admin/login');
     const res = await worker.fetch(req, mockEnv);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain('/collection/games');
+
+    const cookies = res.headers.getSetCookie();
+    expect(
+      cookies.some(
+        (c) =>
+          c.includes('CF_AppSession=dev-admin-session') &&
+          c.includes('Max-Age=2592000'),
+      ),
+    ).toBe(true);
+    expect(
+      cookies.some(
+        (c) =>
+          c.includes('app_admin_session=active') &&
+          c.includes('Max-Age=2592000'),
+      ),
+    ).toBe(true);
+
+    // Test custom ADMIN_SESSION_DAYS
+    const customDaysEnv = { ...mockEnv, ADMIN_SESSION_DAYS: '10' };
+    const customRes = await worker.fetch(req, customDaysEnv);
+    const customCookies = customRes.headers.getSetCookie();
+    // 10 days = 864000 seconds
+    expect(customCookies.some((c) => c.includes('Max-Age=864000'))).toBe(true);
   });
 
   it('GET /admin/logout revokes cookies and redirects to Cloudflare logout', async () => {
@@ -680,8 +703,22 @@ describe('Worker API Logic', () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain('/cdn-cgi/access/logout');
-    const setCookie = res.headers.get('Set-Cookie') || '';
-    expect(setCookie).toContain('Max-Age=0');
+    const cookies = res.headers.getSetCookie();
+    expect(
+      cookies.some(
+        (c) => c.includes('CF_AppSession=') && c.includes('Max-Age=0'),
+      ),
+    ).toBe(true);
+    expect(
+      cookies.some(
+        (c) => c.includes('app_admin_session=') && c.includes('Max-Age=0'),
+      ),
+    ).toBe(true);
+    expect(
+      cookies.some(
+        (c) => c.includes('CF_Authorization=') && c.includes('Max-Age=0'),
+      ),
+    ).toBe(true);
   });
 
   it('GET /api/admin/me returns authentication status', async () => {
@@ -700,6 +737,23 @@ describe('Worker API Logic', () => {
     };
     expect(authData.authenticated).toBe(true);
     expect(authData.email).toBe('admin@example.com');
+
+    // Test app_admin_session cookie
+    const sessionCookieReq = new Request(
+      'https://tracker.example.com/api/admin/me',
+      {
+        headers: { Cookie: 'app_admin_session=active' },
+      },
+    );
+    const sessionRes = await worker.fetch(sessionCookieReq, mockEnv);
+    const sessionData = (await sessionRes.json()) as {
+      authenticated: boolean;
+      authorized: boolean;
+      hasCookie: boolean;
+    };
+    expect(sessionData.authenticated).toBe(true);
+    expect(sessionData.authorized).toBe(true);
+    expect(sessionData.hasCookie).toBe(true);
   });
 
   it('isAuthorizedAdmin correctly identifies authorized identities', () => {
@@ -747,6 +801,12 @@ describe('Worker API Logic', () => {
       headers: { Cookie: 'CF_AppSession=valid-session-token-12345' },
     });
     expect(isAuthorizedAdmin(appSessionReq, mockEnv)).toBe(true);
+
+    // Test app_admin_session cookie authentication
+    const persistentSessionReq = new Request('https://tracker.com/api/test', {
+      headers: { Cookie: 'app_admin_session=active' },
+    });
+    expect(isAuthorizedAdmin(persistentSessionReq, mockEnv)).toBe(true);
   });
 
   it('GET /api/discovery/search annotates physical release status and filters digital fluff', async () => {

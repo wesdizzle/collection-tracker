@@ -93,7 +93,10 @@ export interface Env {
   APP_TAGLINE?: string;
   APP_AUTHOR?: string;
   CUSTOM_FAVICON_SVG?: string;
+  ADMIN_SESSION_DAYS?: string;
 }
+
+export const DEFAULT_ADMIN_SESSION_DAYS = 30; // 30 days
 
 interface DbGame {
   stable_id: number;
@@ -257,6 +260,7 @@ export function isAuthorizedAdmin(request: Request, env: Env): boolean {
   const cookieHeader = request.headers.get('Cookie') || '';
   if (
     cookieHeader.includes('CF_AppSession=dev-admin-session') ||
+    cookieHeader.includes('app_admin_session=active') ||
     cookieHeader.includes('CF_Authorization=local-admin-dev-token')
   ) {
     return true;
@@ -333,8 +337,11 @@ export function isAuthorizedAdmin(request: Request, env: Env): boolean {
       return true;
     }
 
-    // 3. Fallback: Active Cloudflare Access session cookie on the domain
-    if (cookies['CF_AppSession'] && cookies['CF_AppSession'].length > 0) {
+    // 3. Fallback: Active Cloudflare Access or persistent app session cookie on the domain
+    if (
+      (cookies['CF_AppSession'] && cookies['CF_AppSession'].length > 0) ||
+      (cookies['app_admin_session'] && cookies['app_admin_session'].length > 0)
+    ) {
       return true;
     }
   }
@@ -1823,6 +1830,20 @@ Disallow: /
         path === '/admin/login' ||
         path.startsWith('/cdn-cgi/access/authorized')
       ) {
+        const sessionDays = env.ADMIN_SESSION_DAYS
+          ? parseInt(env.ADMIN_SESSION_DAYS, 10)
+          : DEFAULT_ADMIN_SESSION_DAYS;
+        const maxAge =
+          (isNaN(sessionDays) || sessionDays <= 0
+            ? DEFAULT_ADMIN_SESSION_DAYS
+            : sessionDays) *
+          24 *
+          60 *
+          60;
+        const expiresDate = new Date(Date.now() + maxAge * 1000).toUTCString();
+        const isSecure = url.protocol === 'https:';
+        const secureAttr = isSecure ? '; Secure' : '';
+
         const res = new Response(
           `<!doctype html>
 <html>
@@ -1847,7 +1868,11 @@ Disallow: /
 
         res.headers.append(
           'Set-Cookie',
-          'CF_AppSession=dev-admin-session; Path=/; SameSite=Lax',
+          `CF_AppSession=dev-admin-session; Path=/; Max-Age=${maxAge}; Expires=${expiresDate}; SameSite=Lax${secureAttr}`,
+        );
+        res.headers.append(
+          'Set-Cookie',
+          `app_admin_session=active; Path=/; Max-Age=${maxAge}; Expires=${expiresDate}; SameSite=Lax${secureAttr}`,
         );
 
         return res;
@@ -1897,6 +1922,14 @@ Disallow: /
         );
         res.headers.append(
           'Set-Cookie',
+          `app_admin_session=; Path=/; Domain=${url.hostname}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; SameSite=Lax`,
+        );
+        res.headers.append(
+          'Set-Cookie',
+          'app_admin_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; SameSite=Lax',
+        );
+        res.headers.append(
+          'Set-Cookie',
           `CF_Authorization=; Path=/; Domain=${url.hostname}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
         );
         res.headers.append(
@@ -1914,7 +1947,8 @@ Disallow: /
         const cookieHeader = request.headers.get('Cookie') || '';
         const hasCookie =
           cookieHeader.includes('CF_Authorization') ||
-          cookieHeader.includes('CF_AppSession');
+          cookieHeader.includes('CF_AppSession') ||
+          cookieHeader.includes('app_admin_session');
         const authorized = isAuthorizedAdmin(request, env);
         return Response.json({
           authenticated: authorized,
