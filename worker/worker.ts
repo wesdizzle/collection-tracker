@@ -398,6 +398,7 @@ export async function logCronExecution(
  */
 export async function performScheduledBackup(
   env: Env,
+  isDaily: boolean = false,
 ): Promise<{ key: string; rowCount: number }> {
   if (!env.BACKUP_BUCKET) {
     console.warn(
@@ -414,6 +415,7 @@ export async function performScheduledBackup(
     'toys',
     'toy_game_compatibility',
     'game_releases',
+    'push_subscriptions',
     'sync_state',
     'journal_entries',
   ];
@@ -453,59 +455,82 @@ export async function performScheduledBackup(
     2,
   );
 
-  const snapshotKey = `snapshots/backup-${dateStr}-${now.getTime()}.json`;
   const latestKey = 'snapshots/latest.json';
-
-  await env.BACKUP_BUCKET.put(snapshotKey, payload, {
-    httpMetadata: { contentType: 'application/json' },
-  });
-
   await env.BACKUP_BUCKET.put(latestKey, payload, {
     httpMetadata: { contentType: 'application/json' },
   });
 
-  console.log(
-    `[WorkerBackup] Successfully saved daily snapshot ${snapshotKey} (${totalRows} rows)`,
-  );
+  let snapshotKey = latestKey;
 
-  // 30-day rolling snapshot retention policy: purge snapshots older than 30 days
-  try {
-    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    if (typeof env.BACKUP_BUCKET.list === 'function') {
-      const listed = await env.BACKUP_BUCKET.list({
-        prefix: 'snapshots/backup-',
-      });
-      if (listed && Array.isArray(listed.objects)) {
-        let prunedCount = 0;
-        for (const obj of listed.objects) {
-          const uploadTime = obj.uploaded ? obj.uploaded.getTime() : null;
-          let isExpired = false;
-          if (uploadTime !== null) {
-            isExpired = uploadTime < thirtyDaysAgo;
-          } else {
-            const match = obj.key.match(/-(\d+)\.json$/);
-            if (match) {
-              const epoch = parseInt(match[1], 10);
-              isExpired = epoch < thirtyDaysAgo;
+  // On daily window, also save immutable dated snapshot and run 30-day retention prune
+  if (isDaily) {
+    snapshotKey = `snapshots/backup-${dateStr}-${now.getTime()}.json`;
+    await env.BACKUP_BUCKET.put(snapshotKey, payload, {
+      httpMetadata: { contentType: 'application/json' },
+    });
+
+    console.log(
+      `[WorkerBackup] Successfully saved daily snapshot ${snapshotKey} (${totalRows} rows)`,
+    );
+
+    // 30-day rolling snapshot retention policy: purge snapshots older than 30 days
+    try {
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      if (typeof env.BACKUP_BUCKET.list === 'function') {
+        const listed = await env.BACKUP_BUCKET.list({
+          prefix: 'snapshots/backup-',
+        });
+        if (listed && Array.isArray(listed.objects)) {
+          let prunedCount = 0;
+          for (const obj of listed.objects) {
+            const uploadTime = obj.uploaded ? obj.uploaded.getTime() : null;
+            let isExpired = false;
+            if (uploadTime !== null) {
+              isExpired = uploadTime < thirtyDaysAgo;
+            } else {
+              const match = obj.key.match(/-(\d+)\.json$/);
+              if (match) {
+                const epoch = parseInt(match[1], 10);
+                isExpired = epoch < thirtyDaysAgo;
+              }
+            }
+            if (isExpired && typeof env.BACKUP_BUCKET.delete === 'function') {
+              await env.BACKUP_BUCKET.delete(obj.key);
+              prunedCount++;
             }
           }
-          if (isExpired && typeof env.BACKUP_BUCKET.delete === 'function') {
-            await env.BACKUP_BUCKET.delete(obj.key);
-            prunedCount++;
+          if (prunedCount > 0) {
+            console.log(
+              `[WorkerBackup] Pruned ${prunedCount} snapshot(s) older than 30 days.`,
+            );
           }
         }
-        if (prunedCount > 0) {
-          console.log(
-            `[WorkerBackup] Pruned ${prunedCount} snapshot(s) older than 30 days.`,
-          );
-        }
       }
+    } catch (pruneErr) {
+      console.warn('[WorkerBackup] Failed to prune aged snapshots:', pruneErr);
     }
-  } catch (pruneErr) {
-    console.warn('[WorkerBackup] Failed to prune aged snapshots:', pruneErr);
+  } else {
+    console.log(
+      `[WorkerBackup] Successfully updated latest snapshot ${latestKey} (${totalRows} rows)`,
+    );
   }
 
   return { key: snapshotKey, rowCount: totalRows };
+}
+
+/**
+ * Flags the database as dirty in sync_state so the scheduled cron creates a fresh snapshot.
+ */
+export async function markDbDirty(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('db_dirty', '1', datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = datetime('now')`,
+    ).run();
+  } catch (err) {
+    console.warn('[WorkerBackup] Failed to mark db dirty:', err);
+  }
 }
 
 export default {
@@ -2218,6 +2243,7 @@ Disallow: /
         }
 
         await invalidateEdgeApiCache(request.url);
+        await markDbDirty(env);
         return Response.json({ success: true });
       }
 
@@ -2274,6 +2300,7 @@ Disallow: /
         }
 
         await invalidateEdgeApiCache(request.url);
+        await markDbDirty(env);
         return Response.json({ success: true });
       }
 
@@ -2482,6 +2509,7 @@ Disallow: /
 
         invalidateSeriesScanCache();
         await invalidateEdgeApiCache(request.url);
+        await markDbDirty(env);
         return Response.json({ success: true, gameId: candidateGameId });
       }
 
@@ -2595,6 +2623,7 @@ Disallow: /
           .run();
 
         await invalidateEdgeApiCache(request.url);
+        await markDbDirty(env);
         return Response.json({ success: true, id: candidateId });
       }
 
@@ -2787,6 +2816,7 @@ Disallow: /
           .bind(itemType, canonicalId, canonicalId)
           .first()) as JournalEntryRow | null;
 
+        await markDbDirty(env);
         return Response.json({ success: true, entry: savedEntry });
       }
 
@@ -2829,6 +2859,7 @@ Disallow: /
             .run();
         }
 
+        await markDbDirty(env);
         return Response.json({ success: true });
       }
 
@@ -3189,32 +3220,55 @@ Disallow: /
       event.cron === '30 23 * * *' ||
       (now.getUTCHours() === 23 && now.getUTCMinutes() >= 30);
 
-    if (isDailyWindow) {
-      console.log('[WorkerCron] Executing scheduled daily snapshot backup...');
+    let isDirty: boolean;
+    try {
+      const dirtyRow = (await env.DB.prepare(
+        "SELECT value FROM sync_state WHERE key = 'db_dirty'",
+      ).first()) as { value: string } | null;
+      isDirty = dirtyRow?.value === '1';
+    } catch {
+      isDirty = true;
+    }
+
+    if (isDirty || isDailyWindow) {
+      console.log(
+        `[WorkerCron] Executing scheduled backup (reason: ${isDailyWindow ? 'daily_window' : 'data_modified'})...`,
+      );
       const backupStart = Date.now();
       try {
-        const res = await performScheduledBackup(env);
+        const res = await performScheduledBackup(env, isDailyWindow);
+        await env.DB.prepare(
+          `INSERT INTO sync_state (key, value, updated_at)
+           VALUES ('db_dirty', '0', datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')`,
+        ).run();
         await logCronExecution(
           env,
-          'daily_backup',
+          'scheduled_backup',
           'SUCCESS',
           Date.now() - backupStart,
-          `Backup completed (${res.rowCount} rows)`,
+          `Backup completed (${res.rowCount} rows, reason: ${isDailyWindow ? 'daily' : 'dirty'})`,
           res,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Daily snapshot backup failed:', err);
+        console.error('[WorkerCron] Scheduled backup failed:', err);
         await logCronExecution(
           env,
-          'daily_backup',
+          'scheduled_backup',
           'ERROR',
           Date.now() - backupStart,
           `Failed: ${msg}`,
           { error: msg },
         );
       }
+    } else {
+      console.log(
+        '[WorkerCron] Database unchanged since last backup. Skipping snapshot.',
+      );
+    }
 
+    if (isDailyWindow) {
       console.log(
         '[WorkerCron] Executing scheduled retail deal scan (VGP, PNP Games, Best Buy)...',
       );
@@ -3755,6 +3809,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
       const chunk = statements.slice(i, i + CHUNK_SIZE);
       await env.DB.batch(chunk);
     }
+    await markDbDirty(env);
   }
 
   let notificationsResult = { dispatchedCount: 0, purgedCount: 0 };
@@ -3952,6 +4007,7 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
       ).bind(g.stable_id),
     );
     await env.DB.batch(updateStmts);
+    await markDbDirty(env);
 
     const subRows = await env.DB.prepare(
       `SELECT endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
@@ -4192,6 +4248,10 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
     for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
       const chunk = statements.slice(i, i + CHUNK_SIZE);
       await env.DB.batch(chunk);
+    }
+    const actualGameUpdates = statements.length - (nextOffset !== null ? 1 : 0);
+    if (actualGameUpdates > 0) {
+      await markDbDirty(env);
     }
   }
 

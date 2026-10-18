@@ -4,6 +4,7 @@ import * as webPush from './web_push';
 import worker, {
   Env,
   isAuthorizedAdmin,
+  markDbDirty,
   performScheduledBackup,
   syncWorkerBoutiquePreOrders,
   syncWorkerLaunchDayNotifications,
@@ -214,7 +215,7 @@ describe('Worker API Logic', () => {
       );
 
       INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (1, 'NES', 'NES', 'Nintendo', '1985-10-18');
-      INSERT INTO games (stable_id, id, title, series, platform_id, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 1, 0);
+      INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 'Super Mario', 1, 0);
       INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES ('gb-mario', 1, 'USA', null, null, null, 0, 1, '1985-10-18');
       INSERT INTO toy_series (id, name, line, sort_index) VALUES ('smash', 'Smash', 'amiibo', 0);
       INSERT INTO toys (stable_id, id, name, line, series_id, sort_index, ownership_status) VALUES (1, 'link-amiibo', 'Link', 'amiibo', 'smash', 0, 0);
@@ -461,14 +462,21 @@ describe('Worker API Logic', () => {
   });
 
   it('performScheduledBackup dumps tables and saves snapshot to R2', async () => {
-    const result = await performScheduledBackup(mockEnv);
-    expect(result.rowCount).toBeGreaterThan(0);
-    expect(mockBucket.storage.size).toBe(2); // snapshot + latest.json
+    // Non-daily call updates latest.json
+    const nonDailyRes = await performScheduledBackup(mockEnv, false);
+    expect(nonDailyRes.rowCount).toBeGreaterThan(0);
+    expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
+    expect(mockBucket.storage.size).toBe(1);
+
+    // Daily call saves both dated snapshot and latest.json
+    const dailyRes = await performScheduledBackup(mockEnv, true);
+    expect(dailyRes.rowCount).toBeGreaterThan(0);
+    expect(mockBucket.storage.size).toBe(2); // dated snapshot + latest.json
 
     const latest = mockBucket.storage.get('snapshots/latest.json');
     expect(latest).toBeDefined();
     const parsed = JSON.parse(latest!);
-    expect(parsed.metadata.totalRows).toBe(result.rowCount);
+    expect(parsed.metadata.totalRows).toBe(dailyRes.rowCount);
     expect(parsed.tables.games.length).toBe(1);
     expect(parsed.tables.platforms.length).toBe(1);
   });
@@ -480,11 +488,76 @@ describe('Worker API Logic', () => {
 
     expect(mockBucket.storage.has(oldKey)).toBe(true);
 
-    await performScheduledBackup(mockEnv);
+    await performScheduledBackup(mockEnv, true);
 
     // Old snapshot should be pruned, while recent snapshot and latest.json exist
     expect(mockBucket.storage.has(oldKey)).toBe(false);
     expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
+  });
+
+  it('scheduled cron skips backup when clean and executes when dirty', async () => {
+    // Clean state
+    db.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('db_dirty', '0', datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = '0'`,
+    ).run();
+
+    mockBucket.storage.clear();
+
+    const scheduledEvent = {
+      cron: '*/30 * * * *',
+      type: 'scheduled',
+      scheduledTime: Date.now(),
+    } as unknown as ScheduledEvent;
+
+    // Outside daily window (e.g. 12:00 UTC)
+    const originalDate = globalThis.Date;
+    const mockNow = new Date('2026-10-18T12:00:00Z');
+    globalThis.Date = class extends originalDate {
+      constructor() {
+        super();
+        return mockNow;
+      }
+      static override now() {
+        return mockNow.getTime();
+      }
+    } as unknown as typeof Date;
+
+    // Mock fetch to avoid hitting live boutique stores during scheduled cron tests
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({ products: [] }),
+          text: async () => '',
+        } as unknown as Response;
+      });
+
+    try {
+      // 1. Clean run -> backup should be skipped
+      await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+      expect(mockBucket.storage.size).toBe(0);
+
+      // 2. Mark dirty
+      await markDbDirty(mockEnv);
+      const dirtyRow = db
+        .prepare("SELECT value FROM sync_state WHERE key = 'db_dirty'")
+        .get() as { value: string };
+      expect(dirtyRow.value).toBe('1');
+
+      // 3. Dirty run -> backup should execute and reset db_dirty to 0
+      await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+      expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
+      const afterRow = db
+        .prepare("SELECT value FROM sync_state WHERE key = 'db_dirty'")
+        .get() as { value: string };
+      expect(afterRow.value).toBe('0');
+    } finally {
+      globalThis.Date = originalDate;
+      fetchSpy.mockRestore();
+    }
   });
 
   it('GET /api/games uses Edge Cache and mutation invalidates it', async () => {
