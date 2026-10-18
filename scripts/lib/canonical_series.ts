@@ -36,6 +36,11 @@ export const EXPLICIT_SPINOFF_REDIRECTS: Record<string, string | null> = {
   'Kid Dracula': 'Castlevania',
   'Itadaki Street': 'Fortune Street',
 
+  // Anton franchise (Summitsphere)
+  Antonball: 'Anton',
+  'Antonball Deluxe': 'Anton',
+  Antonblast: 'Anton',
+
   // Red Dead Redemption umbrella
   'Red Dead': 'Red Dead Redemption',
   'Red Dead Revolver': 'Red Dead Redemption',

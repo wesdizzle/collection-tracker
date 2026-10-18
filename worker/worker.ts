@@ -362,6 +362,35 @@ export function isAuthorizedAdmin(request: Request, env: Env): boolean {
 }
 
 /**
+ * Records a background job execution entry in cron_execution_logs table.
+ */
+export async function logCronExecution(
+  env: Env,
+  jobName: string,
+  status: 'SUCCESS' | 'ERROR',
+  durationMs: number,
+  summary?: string,
+  details?: unknown,
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO cron_execution_logs (job_name, status, duration_ms, summary, details_json)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        jobName,
+        status,
+        durationMs,
+        summary || null,
+        details ? JSON.stringify(details) : null,
+      )
+      .run();
+  } catch (err) {
+    console.warn(`[WorkerCron] Failed to log execution for ${jobName}:`, err);
+  }
+}
+
+/**
  * Dumps all tables from D1 and writes an immutable snapshot to Cloudflare R2.
  *
  * @param env Cloudflare worker environment bindings
@@ -1959,6 +1988,46 @@ Disallow: /
         });
       }
 
+      // Endpoint: GET /api/admin/diagnostics/jobs
+      else if (path === '/api/admin/diagnostics/jobs') {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
+        const limit = Math.min(
+          parseInt(url.searchParams.get('limit') || '50', 10),
+          200,
+        );
+        const { results } = await env.DB.prepare(
+          `SELECT id, job_name, status, duration_ms, summary, details_json, created_at
+           FROM cron_execution_logs
+           ORDER BY id DESC
+           LIMIT ?`,
+        )
+          .bind(limit)
+          .all<{
+            id: number;
+            job_name: string;
+            status: string;
+            duration_ms: number;
+            summary: string | null;
+            details_json: string | null;
+            created_at: string;
+          }>();
+
+        return Response.json({
+          logs: (results || []).map((row) => ({
+            ...row,
+            details: row.details_json
+              ? JSON.parse(String(row.details_json))
+              : null,
+          })),
+        });
+      }
+
       /**
        * AUTHENTICATED MUTATION ENDPOINTS
        */
@@ -1975,7 +2044,7 @@ Disallow: /
         const body = (await request.json()) as {
           id: string;
           type: 'game' | 'toy';
-          status: number;
+          status: number | string;
           field?: string;
         };
         const { id, type, status, field = 'ownership_status' } = body;
@@ -1986,6 +2055,7 @@ Disallow: /
           'backup_status',
           'has_case',
           'has_manual',
+          'physical_status',
         ];
         if (!allowedFields.includes(field)) {
           return Response.json(
@@ -1995,7 +2065,7 @@ Disallow: /
         }
 
         if (type === 'game') {
-          if (field === 'play_status') {
+          if (field === 'play_status' || field === 'physical_status') {
             let stableId: number | null = null;
             const release = (await env.DB.prepare(
               'SELECT game_id FROM game_releases WHERE id = ?',
@@ -2021,7 +2091,7 @@ Disallow: /
             }
 
             await env.DB.prepare(
-              'UPDATE games SET play_status = ? WHERE stable_id = ?',
+              `UPDATE games SET ${field} = ? WHERE stable_id = ?`,
             )
               .bind(status, stableId)
               .run();
@@ -3042,7 +3112,7 @@ Disallow: /
 
   /**
    * Scheduled cron event handler invoked by Cloudflare.
-   * Runs every 30 minutes (crons = ["* /30 * * * *"]):
+   * Runs every 30 minutes (cron: every half hour):
    * 1. Ingests boutique physical publisher pre-order feeds (LRG, SRG, iam8bit, Fangamer, Strictly Limited, VGP, PNP Games).
    * 2. Advances the rolling 500-game IGDB batch query and checks tracked upcoming games.
    *
@@ -3050,6 +3120,7 @@ Disallow: /
    * 1. Generates daily structured R2 database snapshot backup.
    * 2. Scans active retail deals (Best Buy, VGP, PNP Games).
    * 3. Dispatches launch-day push notifications for tracked games releasing today.
+   * 4. Prunes cron execution logs older than 7 days.
    */
   async scheduled(
     event: ScheduledEvent,
@@ -3059,21 +3130,57 @@ Disallow: /
     console.log(
       '[WorkerCron] Executing scheduled boutique physical pre-order sync...',
     );
+    const boutiqueStart = Date.now();
     try {
-      await syncWorkerBoutiquePreOrders(env);
+      const res = await syncWorkerBoutiquePreOrders(env);
+      await logCronExecution(
+        env,
+        'boutique_preorders',
+        'SUCCESS',
+        Date.now() - boutiqueStart,
+        `Matched ${res.matchedCount} pre-orders, sent ${res.notifications.dispatchedCount} alerts`,
+        res,
+      );
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error('[WorkerCron] Boutique pre-order sync failed:', err);
+      await logCronExecution(
+        env,
+        'boutique_preorders',
+        'ERROR',
+        Date.now() - boutiqueStart,
+        `Failed: ${msg}`,
+        { error: msg },
+      );
     }
 
     console.log(
       '[WorkerCron] Executing scheduled IGDB series/franchise refresh and canonical_series reconciliation...',
     );
+    const igdbStart = Date.now();
     try {
-      await syncWorkerIgdbSeriesAndCanonical(env);
+      const res = await syncWorkerIgdbSeriesAndCanonical(env);
+      await logCronExecution(
+        env,
+        'igdb_batch',
+        'SUCCESS',
+        Date.now() - igdbStart,
+        `Processed ${res.refreshedIgdbCount} IGDB games, updated ${res.updatedGamesCount} (offset ${res.cursorOffset ?? 0})`,
+        res,
+      );
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error(
         '[WorkerCron] IGDB series refresh and canonical_series sync failed:',
         err,
+      );
+      await logCronExecution(
+        env,
+        'igdb_batch',
+        'ERROR',
+        Date.now() - igdbStart,
+        `Failed: ${msg}`,
+        { error: msg },
       );
     }
 
@@ -3084,28 +3191,94 @@ Disallow: /
 
     if (isDailyWindow) {
       console.log('[WorkerCron] Executing scheduled daily snapshot backup...');
+      const backupStart = Date.now();
       try {
-        await performScheduledBackup(env);
+        const res = await performScheduledBackup(env);
+        await logCronExecution(
+          env,
+          'daily_backup',
+          'SUCCESS',
+          Date.now() - backupStart,
+          `Backup completed (${res.rowCount} rows)`,
+          res,
+        );
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Daily snapshot backup failed:', err);
+        await logCronExecution(
+          env,
+          'daily_backup',
+          'ERROR',
+          Date.now() - backupStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
       }
 
       console.log(
         '[WorkerCron] Executing scheduled retail deal scan (VGP, PNP Games, Best Buy)...',
       );
+      const dealsStart = Date.now();
       try {
-        await syncWorkerRetailDeals(env);
+        const res = await syncWorkerRetailDeals(env);
+        await logCronExecution(
+          env,
+          'retail_deals',
+          'SUCCESS',
+          Date.now() - dealsStart,
+          `Matched ${res.matchedCount} deals from ${res.totalDeals} items`,
+          res,
+        );
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Retail deal sync failed:', err);
+        await logCronExecution(
+          env,
+          'retail_deals',
+          'ERROR',
+          Date.now() - dealsStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
       }
 
       console.log(
         '[WorkerCron] Checking for launch-day game releases and notifications...',
       );
+      const launchStart = Date.now();
       try {
-        await syncWorkerLaunchDayNotifications(env);
+        const res = await syncWorkerLaunchDayNotifications(env);
+        await logCronExecution(
+          env,
+          'launch_day',
+          'SUCCESS',
+          Date.now() - launchStart,
+          `Dispatched ${res.dispatchedCount} launch day alerts`,
+          res,
+        );
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Launch-day release scan failed:', err);
+        await logCronExecution(
+          env,
+          'launch_day',
+          'ERROR',
+          Date.now() - launchStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
+
+      // Prune cron execution logs older than 7 days (zero-churn retention)
+      try {
+        await env.DB.prepare(
+          `DELETE FROM cron_execution_logs WHERE created_at < datetime('now', '-7 days')`,
+        ).run();
+        console.log(
+          '[WorkerCron] Pruned cron execution logs older than 7 days.',
+        );
+      } catch (pruneErr) {
+        console.warn('[WorkerCron] Failed to prune aged cron logs:', pruneErr);
       }
     }
   },
@@ -3370,7 +3543,7 @@ export async function dispatchDealPushNotifications(
         icon: '/icons/icon-192.png',
         badge: '/icons/badge-96.png',
         data: {
-          url: `/item/${top.slug}`,
+          url: `/collection/game/${top.slug}`,
         },
       };
 
@@ -3412,18 +3585,25 @@ export async function dispatchDealPushNotifications(
 export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
   matchedCount: number;
   totalPreOrders: number;
-  notifications?: { dispatchedCount: number; purgedCount: number };
+  notifications: { dispatchedCount: number; purgedCount: number };
 }> {
   const preOrders = await fetchBoutiquePreOrders(fetch);
   if (preOrders.length === 0) {
-    return { matchedCount: 0, totalPreOrders: 0 };
+    return {
+      matchedCount: 0,
+      totalPreOrders: 0,
+      notifications: { dispatchedCount: 0, purgedCount: 0 },
+    };
   }
 
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
-            COALESCE(r.ownership_status, 0) as ownership_status
+            MAX(COALESCE(r.ownership_status, 0)) AS ownership_status,
+            MAX(CASE WHEN r.ownership_status = 1 AND r.is_physical = 1 THEN 1 ELSE 0 END) AS has_owned_physical,
+            GROUP_CONCAT(COALESCE(r.variants, '')) AS owned_variants
      FROM games g
-     LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
+     LEFT JOIN game_releases r ON r.game_id = g.stable_id
+     GROUP BY g.stable_id`,
   ).all<{
     stable_id: number;
     id: string;
@@ -3432,17 +3612,30 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     physical_status: string;
     retail_url: string | null;
     ownership_status: number;
+    has_owned_physical: number;
+    owned_variants: string | null;
   }>();
 
   const games = candidateRows.results || [];
-  if (games.length === 0) {
-    return { matchedCount: 0, totalPreOrders: preOrders.length };
-  }
-
   const gamesWithNorm = games.map((g) => ({
     ...g,
     normTitle: normalizeTitleForMatching(g.title),
   }));
+
+  // Read previously announced URLs from sync_state to avoid repeating uncataloged notifications
+  let announcedUrls = new Set<string>();
+  try {
+    const seenRows = await env.DB.prepare(
+      `SELECT key FROM sync_state WHERE key LIKE 'boutique_announced:%'`,
+    ).all<{ key: string }>();
+    announcedUrls = new Set(
+      (seenRows.results || []).map((r) =>
+        r.key.slice('boutique_announced:'.length),
+      ),
+    );
+  } catch {
+    // sync_state table may not exist yet in unmigrated environments
+  }
 
   const newlyAnnouncedGames: Array<{
     game: {
@@ -3450,8 +3643,11 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
       title: string;
       ownership_status: number;
       platform_id: number;
+      physical_status?: string;
     };
     preOrder: BoutiquePreOrder;
+    isSpecialEdition?: boolean;
+    isUncataloged?: boolean;
   }> = [];
 
   const statements: D1PreparedStatement[] = [];
@@ -3468,6 +3664,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
           g.title.toLowerCase() === po.cleanTitle.toLowerCase()),
     );
 
+    const priceCents =
+      po.priceCents ?? (po.priceUsd ? Math.round(po.priceUsd * 100) : null);
+
     if (match) {
       const shouldUpdatePhysicalStatus =
         match.physical_status === 'physical_pending' ||
@@ -3478,7 +3677,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         ? 'likely_physical'
         : match.physical_status;
 
-      if (shouldUpdatePhysicalStatus || match.retail_url !== po.productUrl) {
+      const isUrlDifferent = match.retail_url !== po.productUrl;
+
+      if (shouldUpdatePhysicalStatus || isUrlDifferent) {
         statements.push(
           env.DB.prepare(
             `UPDATE games
@@ -3490,18 +3691,60 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
           ).bind(
             nextPhysicalStatus,
             po.productUrl,
-            po.priceUsd ?? null,
+            priceCents,
             po.store,
             match.stable_id,
           ),
         );
 
-        if (shouldUpdatePhysicalStatus) {
+        // Evaluate owned-exclusion & edition gating for announcement:
+        const isSpecialEdition = Boolean(po.edition);
+        const variantAlreadyOwned = Boolean(
+          isSpecialEdition &&
+          match.owned_variants &&
+          match.owned_variants
+            .toLowerCase()
+            .includes(po.edition!.toLowerCase()),
+        );
+
+        // If standard physical copy is already owned on this platform, ONLY notify if this is an unowned special edition
+        const isStandardPhysicalOwned = match.has_owned_physical === 1;
+        const shouldSuppressOwned =
+          isStandardPhysicalOwned && (!isSpecialEdition || variantAlreadyOwned);
+
+        if (
+          !shouldSuppressOwned &&
+          (shouldUpdatePhysicalStatus || isUrlDifferent)
+        ) {
           newlyAnnouncedGames.push({
             game: match,
             preOrder: po,
+            isSpecialEdition,
           });
         }
+      }
+    } else {
+      // Uncataloged game drop
+      if (!announcedUrls.has(po.productUrl)) {
+        newlyAnnouncedGames.push({
+          game: {
+            id: `boutique-${po.store.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${encodeURIComponent(po.cleanTitle)}`,
+            title: po.cleanTitle,
+            ownership_status: 0,
+            platform_id: po.platformId,
+            physical_status: 'likely_physical',
+          },
+          preOrder: po,
+          isUncataloged: true,
+        });
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO sync_state (key, value, updated_at)
+             VALUES (?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(key) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+          ).bind(`boutique_announced:${po.productUrl}`, po.cleanTitle),
+        );
+        announcedUrls.add(po.productUrl);
       }
     }
   }
@@ -3536,8 +3779,11 @@ async function dispatchPhysicalAnnouncementNotifications(
       title: string;
       ownership_status: number;
       platform_id: number;
+      physical_status?: string;
     };
     preOrder: BoutiquePreOrder;
+    isSpecialEdition?: boolean;
+    isUncataloged?: boolean;
   }>,
   env: Env,
 ): Promise<{ dispatchedCount: number; purgedCount: number }> {
@@ -3576,52 +3822,85 @@ async function dispatchPhysicalAnnouncementNotifications(
           ? new Set(prefs.platformIds)
           : null;
 
-      const matchedForSub = items.filter(({ game }) => {
-        if (prefs.scope === 'seeking_only' && game.ownership_status !== 2) {
-          return false;
-        }
-        if (userPlatforms && !userPlatforms.has(game.platform_id)) {
-          return false;
-        }
-        return true;
-      });
+      const pas = prefs.physical_announcement_scope;
+      const scopeSeeking = pas?.seeking ?? true;
+      const scopeWatchPhysical = pas?.watch_physical ?? true;
+      const scopeUncataloged = pas?.uncataloged ?? true;
+      const scopeSpecialEditions = pas?.special_editions ?? true;
+      const scopeUnowned =
+        pas?.unowned ??
+        (prefs.scope === 'all' || prefs.scope === 'seeking_and_unowned');
 
-      if (matchedForSub.length === 0) continue;
+      const matchedForSub = items.filter(
+        ({ game, isSpecialEdition, isUncataloged }) => {
+          if (
+            userPlatforms &&
+            game.platform_id &&
+            !userPlatforms.has(game.platform_id)
+          ) {
+            return false;
+          }
 
-      const top = matchedForSub[0];
-      const title = `📦 Physical Edition Announced: ${top.game.title}`;
-      const body = `Pre-order now available at ${top.preOrder.store}!`;
-
-      const payload: WebPushNotificationPayload = {
-        title,
-        body,
-        icon: '/icons/icon-192.png',
-        badge: '/icons/badge-96.png',
-        data: {
-          url: `/item/${top.game.id}`,
-        },
-      };
-
-      const result = await sendWebPushNotification(
-        { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
-        payload,
-        {
-          publicKey: env.VAPID_PUBLIC_KEY,
-          privateKey: env.VAPID_PRIVATE_KEY,
-          subject: resolveVapidSubject(undefined, undefined, env.ADMIN_EMAIL),
-          fetchFn: fetch,
+          if (isUncataloged) {
+            return scopeUncataloged;
+          }
+          if (isSpecialEdition) {
+            return scopeSpecialEditions;
+          }
+          if (game.ownership_status === 2) {
+            return scopeSeeking;
+          }
+          if (game.physical_status === 'physical_pending') {
+            return scopeWatchPhysical;
+          }
+          return scopeUnowned;
         },
       );
 
-      if (result.success) {
-        dispatchedCount++;
-      } else if (result.shouldDelete) {
-        await env.DB.prepare(
-          'DELETE FROM push_subscriptions WHERE endpoint = ?',
-        )
-          .bind(sub.endpoint)
-          .run();
-        purgedCount++;
+      if (matchedForSub.length === 0) continue;
+
+      for (const top of matchedForSub) {
+        const titleEdition = top.preOrder.edition
+          ? ` (${top.preOrder.edition})`
+          : '';
+        const title = `📦 Physical Edition Announced: ${top.game.title}${titleEdition}`;
+        const body = `Pre-order now available at ${top.preOrder.store}!`;
+
+        const url = top.isUncataloged
+          ? `/collection/games?search=${encodeURIComponent(top.preOrder.cleanTitle)}`
+          : `/collection/game/${top.game.id}`;
+
+        const payload: WebPushNotificationPayload = {
+          title,
+          body,
+          icon: '/icons/icon-192.png',
+          badge: '/icons/badge-96.png',
+          data: {
+            url,
+          },
+        };
+
+        const result = await sendWebPushNotification(
+          { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+          payload,
+          {
+            publicKey: env.VAPID_PUBLIC_KEY,
+            privateKey: env.VAPID_PRIVATE_KEY,
+            subject: resolveVapidSubject(undefined, undefined, env.ADMIN_EMAIL),
+            fetchFn: fetch,
+          },
+        );
+
+        if (result.success) {
+          dispatchedCount++;
+        } else if (result.shouldDelete) {
+          await env.DB.prepare(
+            'DELETE FROM push_subscriptions WHERE endpoint = ?',
+          )
+            .bind(sub.endpoint)
+            .run();
+          purgedCount++;
+        }
       }
     }
   } catch (err) {
@@ -3707,7 +3986,7 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
           icon: '/icons/icon-192.png',
           badge: '/icons/badge-96.png',
           data: {
-            url: `/item/${game.id}`,
+            url: `/collection/game/${game.id}`,
           },
         };
 

@@ -273,7 +273,7 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     expect(parsed.notification.badge).toBe('/icons/badge-96.png');
     expect(parsed.notification.data.url).toBe('/item/chrono-trigger-ds');
     expect(parsed.notification.data.onActionClick.default).toEqual({
-      operation: 'openWindow',
+      operation: 'navigateLastFocusedOrOpen',
       url: '/item/chrono-trigger-ds',
     });
 

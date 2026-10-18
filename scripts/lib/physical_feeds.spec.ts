@@ -38,18 +38,27 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(colonPre.isPreOrder).toBe(true);
     });
 
-    it('should strip common edition fluff while keeping base title intact', () => {
+    it('should strip common edition fluff while keeping base title intact and extracting edition name', () => {
       const res1 = cleanBoutiqueTitle(
         "Sea of Stars Collector's Edition (Switch)",
       );
       expect(res1.cleanTitle).toBe('Sea of Stars');
       expect(res1.platformId).toBe(26);
+      expect(res1.edition).toBe("Collector's Edition");
 
       const res2 = cleanBoutiqueTitle(
         'Metaphor: ReFantazio Standard Edition - PS5',
       );
       expect(res2.cleanTitle).toBe('Metaphor: ReFantazio');
       expect(res2.platformId).toBe(35);
+      expect(res2.edition).toBeNull();
+
+      const res3 = cleanBoutiqueTitle(
+        'Celeste Deluxe Edition (Nintendo Switch)',
+      );
+      expect(res3.cleanTitle).toBe('Celeste');
+      expect(res3.platformId).toBe(26);
+      expect(res3.edition).toBe('Deluxe Edition');
     });
 
     it('should filter out non-game merchandise like vinyl, soundtracks, and apparel', () => {
@@ -127,6 +136,7 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(results[0].platformId).toBe(26);
       expect(results[0].isPreOrder).toBe(true);
       expect(results[0].priceUsd).toBe(34.99);
+      expect(results[0].priceCents).toBe(3499);
       expect(results[0].productUrl).toBe(
         'https://limitedrungames.com/products/persona-4-golden-switch',
       );
@@ -171,6 +181,7 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(results[0].isPreOrder).toBe(true);
       // 79.99 CAD * 0.73 ~= 58.39 USD
       expect(results[0].priceUsd).toBe(58.39);
+      expect(results[0].priceCents).toBe(5839);
     });
 
     it('should handle network failures gracefully without throwing', async () => {

@@ -216,7 +216,10 @@
               game().release_date || 'Upcoming'
             }}</span>
           </span>
-        } @else if (game().physical_status === 'physical_pending') {
+        } @else if (
+          game().physical_status === 'physical_pending' &&
+          game().ownership_status !== 1
+        ) {
           <span
             class="pending-badge"
             title="Awaiting Physical Edition / Pre-Order"

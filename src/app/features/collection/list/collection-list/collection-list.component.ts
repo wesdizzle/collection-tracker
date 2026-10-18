@@ -841,6 +841,12 @@ export class CollectionListComponent
       qpFilters.deals_only =
         String(qp['deals_only']) === 'true' || String(qp['deals_only']) === '1';
     }
+    if (qp['search'] || qp['name'] || qp['q']) {
+      qpFilters.name = String(qp['search'] || qp['name'] || qp['q']);
+      if (qpFilters.ownership === undefined && qp['ownership'] === undefined) {
+        qpFilters.ownership = 'all';
+      }
+    }
     if (Object.keys(qpFilters).length > 0) {
       this.filters.update((f) => ({ ...f, ...qpFilters }));
       this.router.navigate([], {
@@ -1328,7 +1334,8 @@ export class CollectionListComponent
       } else if (f.ownership === 'upcoming') {
         const isUpcoming =
           g.physical_status === 'announced_unreleased' ||
-          g.physical_status === 'physical_pending' ||
+          (g.physical_status === 'physical_pending' &&
+            status !== OwnershipStatus.Owned) ||
           status === OwnershipStatus.Ordered;
         if (!isUpcoming) return false;
       } else if (f.ownership !== 'all' && f.ownership !== status) {

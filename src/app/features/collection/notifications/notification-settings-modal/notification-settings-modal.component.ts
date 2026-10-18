@@ -45,7 +45,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             <span class="header-icon"
               ><app-icon name="bell" [size]="20"
             /></span>
-            <h2 id="modal-title" class="modal-title">Deal Alert Settings</h2>
+            <h2 id="modal-title" class="modal-title">Notifications & Alerts</h2>
           </div>
           <button
             type="button"
@@ -95,7 +95,8 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             <div>
               <div class="font-semibold text-sm">Push Notifications</div>
               <div class="text-xs text-muted">
-                Receive native OS alerts when matching deals are found
+                Receive native OS alerts when new physical editions or deals
+                drop
               </div>
             </div>
             <div class="flex items-center gap-xs">
@@ -129,191 +130,328 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             </div>
           </div>
 
-          <!-- Dimension 1: Collection Scope -->
+          <!-- Section 1: Physical Pre-Orders & Announcements -->
           <div class="setting-section">
-            <label class="section-label">Collection Scope</label>
-            <div class="segmented-group">
-              <button
-                type="button"
-                class="segmented-btn"
-                [class.active]="localPrefs.scope === 'seeking_only'"
-                (click)="setScope('seeking_only')"
-              >
-                Seeking Only
-              </button>
-              <button
-                type="button"
-                class="segmented-btn"
-                [class.active]="localPrefs.scope === 'seeking_and_unowned'"
-                (click)="setScope('seeking_and_unowned')"
-              >
-                Seeking & Unowned
-              </button>
-              <button
-                type="button"
-                class="segmented-btn"
-                [class.active]="localPrefs.scope === 'all'"
-                (click)="setScope('all')"
-              >
-                All Games
-              </button>
-            </div>
-            <span class="text-2xs text-muted mt-3xs">
-              {{ scopeDescription() }}
-            </span>
-          </div>
-
-          <!-- Dimension 2: Minimum Discount -->
-          <div class="setting-section">
-            <label class="section-label">Minimum Discount</label>
-            <div class="chip-group">
-              @for (disc of discountOptions; track disc) {
-                <button
-                  type="button"
-                  class="filter-chip"
-                  [class.active]="localPrefs.minDiscountPct === disc"
-                  (click)="setMinDiscount(disc)"
-                >
-                  {{ disc === 0 ? 'Any Deal' : disc + '%+ Off' }}
-                </button>
-              }
-            </div>
-          </div>
-
-          <!-- Dimension 3: Stores / Retailers -->
-          <div class="setting-section">
-            <label class="section-label">Retail Stores</label>
-            <div class="chip-group">
-              @for (store of storeOptions; track store) {
-                <button
-                  type="button"
-                  class="filter-chip"
-                  [class.active]="isStoreSelected(store)"
-                  (click)="toggleStore(store)"
-                >
-                  {{ isStoreSelected(store) ? '✓ ' : '+ ' }}{{ store }}
-                </button>
-              }
-            </div>
-          </div>
-
-          <!-- Dimension 4: Price Ceiling -->
-          <div class="setting-section">
-            <label class="section-label">Maximum Price Cap (Optional)</label>
-            <div class="flex items-center gap-xs">
-              <div class="price-input-wrapper">
-                <span class="currency-symbol">$</span>
-                <input
-                  type="number"
-                  class="price-input"
-                  placeholder="No limit"
-                  min="0"
-                  step="5"
-                  [ngModel]="maxPriceDollars()"
-                  (ngModelChange)="onPriceChange($event)"
-                />
+            <div class="section-header-row flex items-center justify-between">
+              <div>
+                <div class="font-bold text-sm flex items-center gap-xs">
+                  <app-icon name="physical-box" [size]="16" />
+                  <span>Physical Pre-Orders & Announcements</span>
+                </div>
+                <div class="text-2xs text-muted mt-3xs">
+                  Monitors Limited Run, Super Rare, iam8bit, Fangamer, Strictly
+                  Limited, VGP, & PNP Games
+                </div>
               </div>
-              @if (localPrefs.maxPriceCents !== null) {
-                <button
-                  type="button"
-                  class="btn-text text-xs"
-                  (click)="clearMaxPrice()"
-                >
-                  Clear Cap
-                </button>
-              }
-            </div>
-          </div>
-
-          <!-- Dimension 5: Platforms Filter -->
-          <div class="setting-section">
-            <div class="flex items-center justify-between">
-              <label class="section-label">Platforms</label>
               <button
                 type="button"
-                class="btn-text text-2xs"
-                (click)="toggleAllPlatforms()"
+                class="btn-toggle"
+                [class.active]="
+                  localPrefs.notify_physical_announcements !== false
+                "
+                [class.inactive]="
+                  localPrefs.notify_physical_announcements === false
+                "
+                (click)="toggleNotifyPhysicalAnnouncements()"
+                aria-label="Toggle physical announcement notifications"
               >
-                {{
-                  localPrefs.platformIds.length === 0
-                    ? 'Restrict Platforms'
-                    : 'All Platforms'
-                }}
+                <span class="toggle-knob"></span>
               </button>
             </div>
-            @if (localPrefs.platformIds.length === 0) {
-              <div class="text-xs text-muted">
-                Currently tracking deals across all platforms.
-              </div>
-            } @else {
-              <div class="chip-group mt-3xs">
-                @for (plat of platforms; track plat.id) {
-                  <button
-                    type="button"
-                    class="filter-chip"
-                    [class.active]="isPlatformSelected(plat.id)"
-                    (click)="togglePlatform(plat.id)"
-                  >
-                    {{ isPlatformSelected(plat.id) ? '✓ ' : '+ '
-                    }}{{ plat.name }}
-                  </button>
-                }
+
+            @if (localPrefs.notify_physical_announcements !== false) {
+              <div class="scope-checkbox-card">
+                <div
+                  class="scope-checkbox-row"
+                  (click)="togglePhysicalScope('seeking')"
+                >
+                  <input
+                    type="checkbox"
+                    id="scope-seeking"
+                    [checked]="getPhysicalScope('seeking')"
+                    (click)="
+                      $event.stopPropagation(); togglePhysicalScope('seeking')
+                    "
+                  />
+                  <label for="scope-seeking" class="scope-checkbox-label">
+                    <span class="font-semibold text-xs"
+                      >Games on Seeking wishlist</span
+                    >
+                    <span class="text-2xs text-muted block"
+                      >Alert when any game you are seeking receives a physical
+                      pre-order</span
+                    >
+                  </label>
+                </div>
+
+                <div
+                  class="scope-checkbox-row"
+                  (click)="togglePhysicalScope('watch_physical')"
+                >
+                  <input
+                    type="checkbox"
+                    id="scope-watch"
+                    [checked]="getPhysicalScope('watch_physical')"
+                    (click)="
+                      $event.stopPropagation();
+                      togglePhysicalScope('watch_physical')
+                    "
+                  />
+                  <label for="scope-watch" class="scope-checkbox-label">
+                    <span class="font-semibold text-xs"
+                      >Digital games marked "Watch for Physical"</span
+                    >
+                    <span class="text-2xs text-muted block"
+                      >Alert for digital-only or backlog games flagged to
+                      watch</span
+                    >
+                  </label>
+                </div>
+
+                <div
+                  class="scope-checkbox-row"
+                  (click)="togglePhysicalScope('uncataloged')"
+                >
+                  <input
+                    type="checkbox"
+                    id="scope-uncataloged"
+                    [checked]="getPhysicalScope('uncataloged')"
+                    (click)="
+                      $event.stopPropagation();
+                      togglePhysicalScope('uncataloged')
+                    "
+                  />
+                  <label for="scope-uncataloged" class="scope-checkbox-label">
+                    <span class="font-semibold text-xs"
+                      >New boutique releases not yet in tracker</span
+                    >
+                    <span class="text-2xs text-muted block"
+                      >Discover newly dropped surprise physical
+                      announcements</span
+                    >
+                  </label>
+                </div>
+
+                <div
+                  class="scope-checkbox-row"
+                  (click)="togglePhysicalScope('special_editions')"
+                >
+                  <input
+                    type="checkbox"
+                    id="scope-special"
+                    [checked]="getPhysicalScope('special_editions')"
+                    (click)="
+                      $event.stopPropagation();
+                      togglePhysicalScope('special_editions')
+                    "
+                  />
+                  <label for="scope-special" class="scope-checkbox-label">
+                    <span class="font-semibold text-xs"
+                      >Collector's, Deluxe, & Limited Editions</span
+                    >
+                    <span class="text-2xs text-muted block"
+                      >Notify for special editions even if you own a standard
+                      physical copy</span
+                    >
+                  </label>
+                </div>
+
+                <div
+                  class="scope-checkbox-row"
+                  (click)="togglePhysicalScope('unowned')"
+                >
+                  <input
+                    type="checkbox"
+                    id="scope-unowned"
+                    [checked]="getPhysicalScope('unowned')"
+                    (click)="
+                      $event.stopPropagation(); togglePhysicalScope('unowned')
+                    "
+                  />
+                  <label for="scope-unowned" class="scope-checkbox-label">
+                    <span class="font-semibold text-xs"
+                      >All unowned games in catalog</span
+                    >
+                    <span class="text-2xs text-muted block"
+                      >Alert on physical release pre-orders for any unowned
+                      game</span
+                    >
+                  </label>
+                </div>
               </div>
             }
           </div>
 
-          <!-- Dimension: Upcoming & Physical Alerts -->
+          <!-- Section 2: Launch Day Alerts -->
           <div class="setting-section">
-            <label class="section-label">Upcoming & Physical Alerts</label>
-            <div class="setting-card-group">
-              <div class="setting-toggle-row">
-                <div class="setting-text">
-                  <div class="font-semibold text-xs flex items-center gap-2xs">
-                    <app-icon name="calendar" [size]="14" />
-                    <span>Game Launch Alerts</span>
-                  </div>
-                  <div class="text-2xs text-muted">
-                    Notify when tracked upcoming games officially release
-                  </div>
+            <div class="section-header-row flex items-center justify-between">
+              <div>
+                <div class="font-bold text-sm flex items-center gap-xs">
+                  <app-icon name="calendar" [size]="16" />
+                  <span>Game Launch Day Alerts</span>
                 </div>
-                <button
-                  type="button"
-                  class="btn-toggle"
-                  [class.active]="localPrefs.notify_game_releases !== false"
-                  [class.inactive]="localPrefs.notify_game_releases === false"
-                  (click)="toggleNotifyGameReleases()"
-                  aria-label="Toggle game release notifications"
-                >
-                  <span class="toggle-knob"></span>
-                </button>
+                <div class="text-2xs text-muted mt-3xs">
+                  Dispatches push alert on the calendar release date for
+                  upcoming games in your list
+                </div>
               </div>
+              <button
+                type="button"
+                class="btn-toggle"
+                [class.active]="localPrefs.notify_game_releases !== false"
+                [class.inactive]="localPrefs.notify_game_releases === false"
+                (click)="toggleNotifyGameReleases()"
+                aria-label="Toggle game release notifications"
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </div>
+          </div>
 
-              <div class="setting-toggle-row">
-                <div class="setting-text">
-                  <div class="font-semibold text-xs flex items-center gap-2xs">
-                    <app-icon name="physical-box" [size]="14" />
-                    <span>Physical Edition & Pre-Order Alerts</span>
-                  </div>
-                  <div class="text-2xs text-muted">
-                    Notify when a physical edition is announced by boutique
-                    publishers
-                  </div>
-                </div>
+          <!-- Section 3: Retail Deals & Price Drops -->
+          <div class="setting-section">
+            <div class="section-header-row">
+              <div class="font-bold text-sm flex items-center gap-xs">
+                <app-icon name="coins" [size]="16" />
+                <span>Retail Deals & Price Drops</span>
+              </div>
+              <div class="text-2xs text-muted mt-3xs">
+                Scans physical retail sales at Best Buy, Video Games Plus, and
+                PNP Games
+              </div>
+            </div>
+
+            <!-- Dimension 1: Collection Scope -->
+            <div class="setting-section mt-xs">
+              <label class="section-label">Deals Collection Scope</label>
+              <div class="segmented-group">
                 <button
                   type="button"
-                  class="btn-toggle"
-                  [class.active]="
-                    localPrefs.notify_physical_announcements !== false
-                  "
-                  [class.inactive]="
-                    localPrefs.notify_physical_announcements === false
-                  "
-                  (click)="toggleNotifyPhysicalAnnouncements()"
-                  aria-label="Toggle physical announcement notifications"
+                  class="segmented-btn"
+                  [class.active]="localPrefs.scope === 'seeking_only'"
+                  (click)="setScope('seeking_only')"
                 >
-                  <span class="toggle-knob"></span>
+                  Seeking Only
+                </button>
+                <button
+                  type="button"
+                  class="segmented-btn"
+                  [class.active]="localPrefs.scope === 'seeking_and_unowned'"
+                  (click)="setScope('seeking_and_unowned')"
+                >
+                  Seeking & Unowned
+                </button>
+                <button
+                  type="button"
+                  class="segmented-btn"
+                  [class.active]="localPrefs.scope === 'all'"
+                  (click)="setScope('all')"
+                >
+                  All Games
                 </button>
               </div>
+              <span class="text-2xs text-muted mt-3xs">
+                {{ scopeDescription() }}
+              </span>
+            </div>
+
+            <!-- Dimension 2: Minimum Discount -->
+            <div class="setting-section">
+              <label class="section-label">Minimum Discount</label>
+              <div class="chip-group">
+                @for (disc of discountOptions; track disc) {
+                  <button
+                    type="button"
+                    class="filter-chip"
+                    [class.active]="localPrefs.minDiscountPct === disc"
+                    (click)="setMinDiscount(disc)"
+                  >
+                    {{ disc === 0 ? 'Any Deal' : disc + '%+ Off' }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- Dimension 3: Stores / Retailers -->
+            <div class="setting-section">
+              <label class="section-label">Retail Stores</label>
+              <div class="chip-group">
+                @for (store of storeOptions; track store) {
+                  <button
+                    type="button"
+                    class="filter-chip"
+                    [class.active]="isStoreSelected(store)"
+                    (click)="toggleStore(store)"
+                  >
+                    {{ isStoreSelected(store) ? '✓ ' : '+ ' }}{{ store }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- Dimension 4: Price Ceiling -->
+            <div class="setting-section">
+              <label class="section-label">Maximum Price Cap (Optional)</label>
+              <div class="flex items-center gap-xs">
+                <div class="price-input-wrapper">
+                  <span class="currency-symbol">$</span>
+                  <input
+                    type="number"
+                    class="price-input"
+                    placeholder="No limit"
+                    min="0"
+                    step="5"
+                    [ngModel]="maxPriceDollars()"
+                    (ngModelChange)="onPriceChange($event)"
+                  />
+                </div>
+                @if (localPrefs.maxPriceCents !== null) {
+                  <button
+                    type="button"
+                    class="btn-text text-xs"
+                    (click)="clearMaxPrice()"
+                  >
+                    Clear Cap
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- Dimension 5: Platforms Filter -->
+            <div class="setting-section">
+              <div class="flex items-center justify-between">
+                <label class="section-label">Platforms</label>
+                <button
+                  type="button"
+                  class="btn-text text-2xs"
+                  (click)="toggleAllPlatforms()"
+                >
+                  {{
+                    localPrefs.platformIds.length === 0
+                      ? 'Restrict Platforms'
+                      : 'All Platforms'
+                  }}
+                </button>
+              </div>
+              @if (localPrefs.platformIds.length === 0) {
+                <div class="text-xs text-muted">
+                  Currently tracking deals across all platforms.
+                </div>
+              } @else {
+                <div class="chip-group mt-3xs">
+                  @for (plat of platforms; track plat.id) {
+                    <button
+                      type="button"
+                      class="filter-chip"
+                      [class.active]="isPlatformSelected(plat.id)"
+                      (click)="togglePlatform(plat.id)"
+                    >
+                      {{ isPlatformSelected(plat.id) ? '✓ ' : '+ '
+                      }}{{ plat.name }}
+                    </button>
+                  }
+                </div>
+              }
             </div>
           </div>
 
@@ -573,6 +711,43 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         display: flex;
         flex-direction: column;
         gap: 0.4rem;
+      }
+
+      .section-header-row {
+        background: var(--m3-surface-container-low);
+        padding: 0.75rem 1rem;
+        border-radius: 14px;
+        border: 1px solid var(--m3-outline-variant);
+      }
+
+      .scope-checkbox-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        background: var(--m3-surface-container-low);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: 14px;
+        padding: 0.85rem 1rem;
+      }
+
+      .scope-checkbox-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.65rem;
+        cursor: pointer;
+      }
+
+      .scope-checkbox-row input[type='checkbox'] {
+        margin-top: 0.15rem;
+        cursor: pointer;
+        accent-color: var(--m3-primary);
+        width: 16px;
+        height: 16px;
+      }
+
+      .scope-checkbox-label {
+        cursor: pointer;
+        flex: 1;
       }
 
       .setting-card-group {
@@ -924,6 +1099,48 @@ export class NotificationSettingsModalComponent {
     } finally {
       this.isTestingAlert.set(false);
     }
+  }
+
+  public getPhysicalScope(
+    key:
+      | 'seeking'
+      | 'watch_physical'
+      | 'uncataloged'
+      | 'special_editions'
+      | 'unowned',
+  ): boolean {
+    if (!this.localPrefs.physical_announcement_scope) {
+      this.localPrefs.physical_announcement_scope = {
+        seeking: true,
+        watch_physical: true,
+        uncataloged: true,
+        special_editions: true,
+        unowned: false,
+      };
+    }
+    const val = this.localPrefs.physical_announcement_scope[key];
+    return val !== undefined ? val : key !== 'unowned';
+  }
+
+  public togglePhysicalScope(
+    key:
+      | 'seeking'
+      | 'watch_physical'
+      | 'uncataloged'
+      | 'special_editions'
+      | 'unowned',
+  ): void {
+    if (!this.localPrefs.physical_announcement_scope) {
+      this.localPrefs.physical_announcement_scope = {
+        seeking: true,
+        watch_physical: true,
+        uncataloged: true,
+        special_editions: true,
+        unowned: false,
+      };
+    }
+    this.localPrefs.physical_announcement_scope[key] =
+      !this.getPhysicalScope(key);
   }
 
   public toggleNotifyGameReleases(): void {

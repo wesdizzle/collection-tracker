@@ -362,6 +362,14 @@ export interface PagedScanSeriesResult {
   hasMore: boolean;
 }
 
+export interface PhysicalAnnouncementScope {
+  seeking?: boolean;
+  watch_physical?: boolean;
+  uncataloged?: boolean;
+  special_editions?: boolean;
+  unowned?: boolean;
+}
+
 export interface DealNotificationPreferences {
   enabled: boolean;
   scope: 'seeking_only' | 'seeking_and_unowned' | 'all';
@@ -371,6 +379,7 @@ export interface DealNotificationPreferences {
   stores: string[];
   notify_game_releases?: boolean;
   notify_physical_announcements?: boolean;
+  physical_announcement_scope?: PhysicalAnnouncementScope;
 }
 
 export interface PushSubscriptionPayload {

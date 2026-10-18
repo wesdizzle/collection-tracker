@@ -68,6 +68,8 @@ export interface BoutiquePreOrder {
   productUrl: string;
   imageUrl?: string;
   priceUsd?: number;
+  priceCents?: number;
+  edition?: string | null;
   isPreOrder: boolean;
   publishedAt?: string;
 }
@@ -161,6 +163,7 @@ const NON_GAME_KEYWORDS = [
 export function cleanBoutiqueTitle(rawTitle: string): {
   cleanTitle: string;
   platformId: number | null;
+  edition?: string | null;
   isPreOrder: boolean;
   isGame: boolean;
 } {
@@ -168,6 +171,7 @@ export function cleanBoutiqueTitle(rawTitle: string): {
     return {
       cleanTitle: '',
       platformId: null,
+      edition: null,
       isPreOrder: false,
       isGame: false,
     };
@@ -180,6 +184,7 @@ export function cleanBoutiqueTitle(rawTitle: string): {
     return {
       cleanTitle: rawTitle,
       platformId: null,
+      edition: null,
       isPreOrder: false,
       isGame: false,
     };
@@ -248,27 +253,38 @@ export function cleanBoutiqueTitle(rawTitle: string): {
     }
   }
 
-  // 3. Strip Edition markers
-  const editionPatterns = [
-    /\bCollector'?s?\s+Edition\b/gi,
-    /\bDeluxe\s+Edition\b/gi,
-    /\bStandard\s+Edition\b/gi,
-    /\bLimited\s+Edition\b/gi,
-    /\bSpecial\s+Edition\b/gi,
-    /\bSteelbook\s+Edition\b/gi,
-    /\bAnniversary\s+Edition\b/gi,
-    /\bClassic\s+Edition\b/gi,
-    /\bRetro\s+Edition\b/gi,
-    /\bDefinitive\s+Edition\b/gi,
-    /\bExclusive\s+Variant\b/gi,
-    /\bPhysical\s+Edition\b/gi,
-    /\[\s*Pre-?Order\s*\]/gi,
-    /\(\s*Pre-?Order\s*\)/gi,
+  // 3. Detect and strip Edition markers
+  let matchedEdition: string | null = null;
+  const editionPatterns: Array<{ regex: RegExp; name: string }> = [
+    { regex: /\bCollector'?s?\s+Edition\b/i, name: "Collector's Edition" },
+    { regex: /\bDeluxe\s+Edition\b/i, name: 'Deluxe Edition' },
+    { regex: /\bSpecial\s+Edition\b/i, name: 'Special Edition' },
+    { regex: /\bLimited\s+Edition\b/i, name: 'Limited Edition' },
+    { regex: /\bSteelbook(?:\s+Edition)?\b/i, name: 'Steelbook Edition' },
+    { regex: /\bAnniversary\s+Edition\b/i, name: 'Anniversary Edition' },
+    { regex: /\bClassic\s+Edition\b/i, name: 'Classic Edition' },
+    { regex: /\bRetro\s+Edition\b/i, name: 'Retro Edition' },
+    { regex: /\bDefinitive\s+Edition\b/i, name: 'Definitive Edition' },
+    { regex: /\bExclusive\s+Variant\b/i, name: 'Exclusive Variant' },
+    {
+      regex: /\b(?:Expansion\s+(?:Pack|Pass)|DLC(?:\s+Bundle)?)\b/i,
+      name: 'Expansion Edition',
+    },
   ];
 
   for (const ep of editionPatterns) {
-    title = title.replace(ep, ' ').trim();
+    if (ep.regex.test(title)) {
+      if (!matchedEdition) matchedEdition = ep.name;
+      title = title.replace(ep.regex, ' ').trim();
+    }
   }
+
+  // Also strip generic edition tags that don't constitute a special edition variant
+  title = title
+    .replace(/\b(?:Standard|Physical)\s+Edition\b/gi, ' ')
+    .replace(/\[\s*Pre-?Order\s*\]/gi, ' ')
+    .replace(/\(\s*Pre-?Order\s*\)/gi, ' ')
+    .trim();
 
   // 4. Clean brackets, trailing punctuation, and whitespace
   title = title
@@ -292,6 +308,7 @@ export function cleanBoutiqueTitle(rawTitle: string): {
   return {
     cleanTitle: title,
     platformId,
+    edition: matchedEdition,
     isPreOrder,
     isGame,
   };
@@ -346,12 +363,14 @@ export async function fetchBoutiquePreOrders(
           }
 
           let priceUsd: number | undefined;
+          let priceCents: number | undefined;
           if (Array.isArray(item.variants) && item.variants.length > 0) {
             const rawPrice = parseFloat(String(item.variants[0].price || ''));
             if (!isNaN(rawPrice)) {
               priceUsd = config.isCad
                 ? Math.round(rawPrice * DEFAULT_CAD_TO_USD_RATE * 100) / 100
                 : rawPrice;
+              priceCents = Math.round(priceUsd * 100);
             }
           }
 
@@ -370,6 +389,8 @@ export async function fetchBoutiquePreOrders(
             productUrl,
             imageUrl,
             priceUsd,
+            priceCents,
+            edition: cleaned.edition,
             isPreOrder: isPre,
             publishedAt: item.published_at || item.created_at,
           });
@@ -385,12 +406,14 @@ export async function fetchBoutiquePreOrders(
 
           const isPre = cleaned.isPreOrder;
           let priceUsd: number | undefined;
+          let priceCents: number | undefined;
           if (item.prices && item.prices.price) {
             const cents = parseInt(item.prices.price, 10);
             if (!isNaN(cents)) {
               const rawCad = cents / 100;
               priceUsd =
                 Math.round(rawCad * DEFAULT_CAD_TO_USD_RATE * 100) / 100;
+              priceCents = Math.round(priceUsd * 100);
             }
           }
 
@@ -410,6 +433,8 @@ export async function fetchBoutiquePreOrders(
             productUrl,
             imageUrl,
             priceUsd,
+            priceCents,
+            edition: cleaned.edition,
             isPreOrder: isPre,
             publishedAt: item.date_created,
           });

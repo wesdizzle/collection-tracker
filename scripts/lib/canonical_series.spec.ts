@@ -37,6 +37,19 @@ describe('Canonical Series Logic Integrity Suite', () => {
       'Story of Seasons',
     );
     assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Antonblast',
+        collections: 'Antonball',
+      }),
+      'Anton',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Antonball Deluxe',
+      }),
+      'Anton',
+    );
+    assert.equal(
       computeGameCanonicalSeries({ title: "Snake's Revenge" }),
       'Metal Gear',
     );

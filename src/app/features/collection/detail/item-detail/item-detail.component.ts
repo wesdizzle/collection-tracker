@@ -129,12 +129,33 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   /></span>
                   <span>Upcoming Launch (Pre-Release)</span>
                 </div>
-              } @else if (g.physical_status === 'physical_pending') {
-                <div class="stat-pill active pending">
+              } @else if (
+                g.physical_status === 'physical_pending' && !hasOwnedPhysical(g)
+              ) {
+                <div
+                  class="stat-pill active pending interactive"
+                  (click)="toggleWatchPhysical(g)"
+                  title="Click to remove from Physical Watch list"
+                >
                   <span class="icon"
                     ><app-icon name="clock" [size]="14"
                   /></span>
-                  <span>Awaiting Physical Edition</span>
+                  <span>Awaiting Physical Edition (Watching)</span>
+                </div>
+              } @else if (
+                (g.physical_status === 'digital_only' ||
+                  g.physical_status === 'unverified') &&
+                !hasOwnedPhysical(g)
+              ) {
+                <div
+                  class="stat-pill interactive"
+                  (click)="toggleWatchPhysical(g)"
+                  title="Click to watch for physical release announcements and boutique pre-orders"
+                >
+                  <span class="icon"
+                    ><app-icon name="clock" [size]="14"
+                  /></span>
+                  <span>+ Watch for Physical</span>
                 </div>
               } @else if (
                 g.physical_status === 'digital_extracted_rom' ||
@@ -154,7 +175,6 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   <span>Catalog Signature Matched</span>
                 </div>
               } @else if (
-                g.physical_status !== 'digital_only' &&
                 g.release_medium !== 'digital_native' &&
                 g.release_medium !== 'unreleased_prototype'
               ) {
@@ -675,7 +695,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                     }
                     @if (info.hasStoreLink) {
                       <span class="text-sm font-semibold text-secondary">
-                        available at {{ info.storeName }}
+                        available at {{ info.storeName }} ({{
+                          storeRegionLabel(info.storeName)
+                        }})
                       </span>
                     }
                   </div>
@@ -696,7 +718,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                     rel="noopener noreferrer"
                     class="btn-preorder-link"
                   >
-                    Pre-Order at {{ info.storeName }} ↗
+                    Pre-Order at {{ info.storeName }} ({{
+                      storeRegionLabel(info.storeName)
+                    }}) ↗
                   </a>
                 }
               </div>
@@ -783,7 +807,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                       </span>
                     }
                     <span class="text-sm font-semibold text-secondary">
-                      Available at {{ g.retail_store || 'Retailer' }}
+                      Available at {{ g.retail_store || 'Retailer' }} ({{
+                        storeRegionLabel(g.retail_store)
+                      }})
                     </span>
                   </div>
                 </div>
@@ -793,7 +819,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   rel="noopener noreferrer"
                   class="btn-retail-buy"
                 >
-                  View on {{ g.retail_store || 'Store' }} ↗
+                  View on {{ g.retail_store || 'Store' }} ({{
+                    storeRegionLabel(g.retail_store)
+                  }}) ↗
                 </a>
               </div>
             }
@@ -2630,6 +2658,7 @@ export class ItemDetailComponent {
     const isAnnounced = g.physical_status === 'announced_unreleased';
     const isPending = g.physical_status === 'physical_pending';
     if (!isAnnounced && !isPending) return null;
+    if (isPending && this.hasOwnedPhysical(g)) return null;
 
     let countdownText: string | null = null;
     let isReleased = false;
@@ -2686,6 +2715,65 @@ export class ItemDetailComponent {
     if (!g?.platform_launch_date) return 'Unknown';
     return g.platform_launch_date;
   });
+
+  /**
+   * Identifies the regional physical release edition represented by a retailer or boutique publisher.
+   */
+  public storeRegionLabel(store: string | null | undefined): string {
+    if (!store) return 'Physical Edition';
+    const s = store.toLowerCase();
+    if (s.includes('super rare') || s.includes('strictly limited')) {
+      return 'European Physical Edition';
+    }
+    if (
+      s.includes('fangamer') ||
+      s.includes('limited run') ||
+      s.includes('iam8bit') ||
+      s.includes('vgp') ||
+      s.includes('pnp')
+    ) {
+      return 'USA / NA Physical Edition';
+    }
+    if (s.includes('best buy')) {
+      return 'USA Retail Edition';
+    }
+    return 'Physical Edition';
+  }
+
+  /**
+   * Returns true if the game has at least one owned physical release copy.
+   */
+  public hasOwnedPhysical(game?: Game | null): boolean {
+    if (!game) return false;
+    if (game.ownership_status === 1) {
+      if (game.releases && game.releases.length > 0) {
+        return game.releases.some(
+          (r) => r.ownership_status === 1 && r.is_physical !== 0,
+        );
+      }
+      return game.physical_status !== 'digital_only';
+    }
+    return false;
+  }
+
+  /**
+   * Toggles the physical watch status ('physical_pending' vs 'digital_only') for digital games.
+   */
+  public toggleWatchPhysical(game: Game): void {
+    const nextStatus =
+      game.physical_status === 'physical_pending'
+        ? 'digital_only'
+        : 'physical_pending';
+
+    this.collectionService.updatePhysicalStatus(game.id, nextStatus).subscribe({
+      next: () => {
+        this.collectionService.refreshAll();
+      },
+      error: (err) => {
+        console.error('Failed to toggle physical watch status:', err);
+      },
+    });
+  }
 
   /**
    * Applies an exact series filter and navigates back to the collection list.

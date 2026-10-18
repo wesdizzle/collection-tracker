@@ -58,7 +58,17 @@ describe('NotificationSettingsModalComponent', () => {
   it('should create and render settings modal', () => {
     expect(component).toBeTruthy();
     const titleEl = fixture.nativeElement.querySelector('.modal-title');
-    expect(titleEl?.textContent).toContain('Deal Alert Settings');
+    expect(titleEl?.textContent).toContain('Notifications & Alerts');
+  });
+
+  it('should toggle physical scope options', () => {
+    expect(component.getPhysicalScope('seeking')).toBe(true);
+    component.togglePhysicalScope('seeking');
+    expect(component.getPhysicalScope('seeking')).toBe(false);
+
+    expect(component.getPhysicalScope('unowned')).toBe(false);
+    component.togglePhysicalScope('unowned');
+    expect(component.getPhysicalScope('unowned')).toBe(true);
   });
 
   it('should update local dimension choices', () => {

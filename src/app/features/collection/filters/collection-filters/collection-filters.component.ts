@@ -242,8 +242,8 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
               [class.active]="isNotificationSubscribed()"
               (click)="openNotificationSettings()"
               id="filter-deal-alerts"
-              title="Configure deal notifications"
-              aria-label="Configure deal notifications"
+              title="Configure notifications & alerts"
+              aria-label="Configure notifications & alerts"
             >
               <span class="alerts-icon"
                 ><app-icon name="bell" [size]="16"

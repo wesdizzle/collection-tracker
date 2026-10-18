@@ -720,6 +720,23 @@ export class CollectionService {
   }
 
   /**
+   * Updates the 'physical_status' of a game (e.g. 'physical_pending' for physical watch).
+   */
+  updatePhysicalStatus(id: string, status: string): Observable<unknown> {
+    return this.http
+      .post('/api/collection/toggle', {
+        id,
+        type: 'game',
+        status,
+        field: 'physical_status',
+      })
+      .pipe(
+        tap(() => this._isAdmin.set(true)),
+        catchError(this.handleMutationError),
+      );
+  }
+
+  /**
    * Updates the sort_index for a collection item.
    */
   updateSortIndex(

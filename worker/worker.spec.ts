@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import * as webPush from './web_push';
 import worker, {
   Env,
   isAuthorizedAdmin,
@@ -201,6 +202,15 @@ describe('Worker API Logic', () => {
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(item_type, item_id)
+      );
+      CREATE TABLE IF NOT EXISTS cron_execution_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        duration_ms INTEGER NOT NULL,
+        summary TEXT,
+        details_json TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (1, 'NES', 'NES', 'Nintendo', '1985-10-18');
@@ -1763,6 +1773,268 @@ describe('Worker API Logic', () => {
         .prepare('SELECT physical_status FROM games WHERE id = ?')
         .get('metroid-prime-4') as { physical_status: string };
       expect(updated.physical_status).toBe('likely_physical');
+    });
+
+    it('syncWorkerBoutiquePreOrders suppresses standard announcement if physical copy is already owned on same platform', async () => {
+      // User owns USA physical copy of Antonblast on Switch
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (901, 'antonblast-switch', 'Antonblast', 26, 'verified_physical')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
+         VALUES ('anton-usa-rel', 901, 'USA', 1, 1)`,
+      ).run();
+
+      // Another release row for Europe unowned (mimicking real catalog)
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
+         VALUES ('anton-eur-rel', 901, 'EUR', 0, 1)`,
+      ).run();
+
+      // Standard Fangamer pre-order drops
+      const mockShopify = {
+        products: [
+          {
+            id: 112233,
+            title: 'Antonblast - Nintendo Switch',
+            handle: 'antonblast-switch',
+            tags: ['game', 'pre-order'],
+            variants: [{ price: '35.00' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async () => {
+          return {
+            ok: true,
+            json: async () => mockShopify,
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        // Matched statement updated URL, but notification was suppressed because standard physical is owned
+        expect(result.notifications.dispatchedCount).toBe(0);
+        expect(webPushSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders allows announcement for a special edition even if standard copy is owned', async () => {
+      // User owns Standard physical copy
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (902, 'hollow-knight-switch', 'Hollow Knight', 26, 'verified_physical')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, variants, ownership_status, is_physical)
+         VALUES ('hk-std-rel', 902, 'USA', 'Standard', 1, 1)`,
+      ).run();
+
+      // Push subscription listening for announcements
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-1', 'https://push.example.com/sub1', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      // Collector's Edition pre-order drops
+      const mockShopify = {
+        products: [
+          {
+            id: 223344,
+            title: "Hollow Knight Collector's Edition - Nintendo Switch",
+            handle: 'hollow-knight-collectors-edition',
+            tags: ['game', 'pre-order'],
+            variants: [{ price: '69.99' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (
+            typeof input === 'string' &&
+            input.includes('limitedrungames.com')
+          ) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.notifications.dispatchedCount).toBe(1);
+        expect(webPushSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            title:
+              "📦 Physical Edition Announced: Hollow Knight (Collector's Edition)",
+          }),
+          expect.anything(),
+        );
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders allows announcement across different platforms', async () => {
+      // User owns Antonblast on Switch (stable_id 903), but PS5 (stable_id 904) is unowned
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (903, 'antonblast-switch', 'Antonblast', 26, 'verified_physical')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
+         VALUES ('anton-sw-rel', 903, 'USA', 1, 1)`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (904, 'antonblast-ps5', 'Antonblast', 34, 'unverified')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
+         VALUES ('anton-ps5-rel', 904, 'USA', 0, 1)`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-ps5', 'https://push.example.com/sub-ps5', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 334455,
+            title: 'Antonblast - PS5',
+            handle: 'antonblast-ps5',
+            tags: ['game', 'pre-order'],
+            variants: [{ price: '35.00' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (typeof input === 'string' && input.includes('fangamer.com')) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.notifications.dispatchedCount).toBe(1);
+        expect(webPushSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            title: '📦 Physical Edition Announced: Antonblast',
+          }),
+          expect.anything(),
+        );
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('GET /api/admin/diagnostics/jobs returns logged cron executions when authorized', async () => {
+      // Insert execution log
+      db.prepare(
+        `INSERT INTO cron_execution_logs (job_name, status, duration_ms, summary, details_json)
+         VALUES ('boutique_preorders', 'SUCCESS', 1234, 'Matched 5 pre-orders', '{"matched": 5}')`,
+      ).run();
+
+      const authEnv = { ...mockEnv, ADMIN_KEY: 'test-secret-key' };
+
+      const unauthReq = new Request(
+        'https://collection-tracker.example.com/api/admin/diagnostics/jobs',
+      );
+      const unauthRes = await worker.fetch(unauthReq, authEnv);
+      expect(unauthRes.status).toBe(403);
+
+      const authReq = new Request(
+        'https://collection-tracker.example.com/api/admin/diagnostics/jobs',
+        {
+          headers: { 'x-admin-key': 'test-secret-key' },
+        },
+      );
+      const authRes = await worker.fetch(authReq, authEnv);
+      expect(authRes.status).toBe(200);
+
+      const data = (await authRes.json()) as {
+        logs: Array<{ job_name: string; summary: string }>;
+      };
+      expect(data.logs.length).toBeGreaterThan(0);
+      expect(data.logs[0].job_name).toBe('boutique_preorders');
+      expect(data.logs[0].summary).toBe('Matched 5 pre-orders');
+    });
+
+    it('POST /api/collection/toggle updates physical_status on a game', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (905, 'digital-game', 'Digital Indie Game', 26, 'digital_only')`,
+      ).run();
+
+      const req = new Request('http://localhost/api/collection/toggle', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': 'test-secret-key',
+        },
+        body: JSON.stringify({
+          id: 'digital-game',
+          type: 'game',
+          field: 'physical_status',
+          status: 'physical_pending',
+        }),
+      });
+
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+
+      const row = db
+        .prepare('SELECT physical_status FROM games WHERE id = ?')
+        .get('digital-game') as {
+        physical_status: string;
+      };
+      expect(row.physical_status).toBe('physical_pending');
     });
   });
 });

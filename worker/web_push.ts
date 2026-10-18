@@ -398,7 +398,7 @@ export function buildPushNotificationBody(
     url,
     onActionClick: payload.data?.onActionClick || {
       default: {
-        operation: 'openWindow',
+        operation: 'navigateLastFocusedOrOpen',
         url,
       },
     },
