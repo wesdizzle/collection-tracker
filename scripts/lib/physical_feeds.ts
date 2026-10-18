@@ -1,14 +1,12 @@
 /**
  * BOUTIQUE PHYSICAL PUBLISHER & PRE-ORDER FEEDS ENGINE
  *
- * Ingests public storefront product feeds from boutique physical publishers and retailers:
+ * Ingests public storefront product feeds from boutique physical limited-print publishers:
  * 1. Limited Run Games (Shopify JSON)
  * 2. Super Rare Games (Shopify JSON)
  * 3. iam8bit (Shopify JSON)
  * 4. Fangamer (Shopify JSON)
  * 5. Strictly Limited Games (Shopify JSON)
- * 6. Video Games Plus / VGP (Shopify JSON)
- * 7. PNP Games (WooCommerce Store API JSON)
  *
  * Normalizes pre-order game titles, extracts target platforms, and identifies physical releases.
  */
@@ -55,9 +53,7 @@ export type BoutiqueStoreName =
   | 'Super Rare Games'
   | 'iam8bit'
   | 'Fangamer'
-  | 'Strictly Limited Games'
-  | 'VGP'
-  | 'PNP Games';
+  | 'Strictly Limited Games';
 
 export interface BoutiquePreOrder {
   store: BoutiqueStoreName;
@@ -112,20 +108,6 @@ export const BOUTIQUE_FEED_CONFIGS: BoutiqueFeedConfig[] = [
     url: 'https://strictlylimitedgames.com/collections/all/products.json?limit=250',
     baseUrl: 'https://strictlylimitedgames.com',
     type: 'shopify',
-  },
-  {
-    store: 'VGP',
-    url: 'https://videogamesplus.ca/collections/pre-orders/products.json?limit=250',
-    baseUrl: 'https://videogamesplus.ca',
-    type: 'shopify',
-    isCad: true,
-  },
-  {
-    store: 'PNP Games',
-    url: 'https://pnpgamesonline.com/wp-json/wc/store/v1/products?category=38368&per_page=100',
-    baseUrl: 'https://pnpgamesonline.com',
-    type: 'woocommerce',
-    isCad: true,
   },
 ];
 

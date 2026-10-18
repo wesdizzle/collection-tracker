@@ -3792,7 +3792,15 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
   // Read previously announced URLs from sync_state to avoid repeating uncataloged notifications
   let announcedUrls = new Set<string>();
+  let isColdStartSeed = false;
   try {
+    const seedRow = await env.DB.prepare(
+      `SELECT value FROM sync_state WHERE key = 'boutique_seed_completed'`,
+    ).first<{ value: string }>();
+    if (!seedRow || seedRow.value !== '1') {
+      isColdStartSeed = true;
+    }
+
     const seenRows = await env.DB.prepare(
       `SELECT key FROM sync_state WHERE key LIKE 'boutique_announced:%'`,
     ).all<{ key: string }>();
@@ -3864,36 +3872,72 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
             match.stable_id,
           ),
         );
+      }
 
-        // Evaluate owned-exclusion & edition gating for announcement:
-        const isSpecialEdition = Boolean(po.edition);
-        const variantAlreadyOwned = Boolean(
-          isSpecialEdition &&
-          match.owned_variants &&
-          match.owned_variants
-            .toLowerCase()
-            .includes(po.edition!.toLowerCase()),
-        );
+      // Evaluate announcement notification criteria (Proposal 3):
+      // - Standard games already physical MUST NOT alert on mere retail_url change!
+      // - Alert ONLY if transitioning from digital/unverified/pending to likely_physical, OR
+      // - An unowned special edition announced for the first time.
+      const isSpecialEdition = Boolean(po.edition);
+      const variantAlreadyOwned = Boolean(
+        isSpecialEdition &&
+        match.owned_variants &&
+        match.owned_variants.toLowerCase().includes(po.edition!.toLowerCase()),
+      );
 
-        // If standard physical copy is already owned on this platform, ONLY notify if this is an unowned special edition
-        const isStandardPhysicalOwned = match.has_owned_physical === 1;
-        const shouldSuppressOwned =
-          isStandardPhysicalOwned && (!isSpecialEdition || variantAlreadyOwned);
+      const isStandardPhysicalOwned = match.has_owned_physical === 1;
+      const shouldSuppressOwned =
+        isStandardPhysicalOwned && (!isSpecialEdition || variantAlreadyOwned);
 
-        if (
-          !shouldSuppressOwned &&
-          (shouldUpdatePhysicalStatus || isUrlDifferent)
-        ) {
-          newlyAnnouncedGames.push({
-            game: match,
-            preOrder: po,
-            isSpecialEdition,
-          });
+      const isUnannouncedSpecialEdition =
+        isSpecialEdition &&
+        !variantAlreadyOwned &&
+        !announcedUrls.has(po.productUrl);
+
+      const shouldNotify =
+        !shouldSuppressOwned &&
+        !isColdStartSeed &&
+        (shouldUpdatePhysicalStatus || isUnannouncedSpecialEdition);
+
+      if (shouldNotify) {
+        newlyAnnouncedGames.push({
+          game: match,
+          preOrder: po,
+          isSpecialEdition,
+        });
+
+        if (isUnannouncedSpecialEdition) {
+          statements.push(
+            env.DB.prepare(
+              `INSERT INTO sync_state (key, value, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(key) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+            ).bind(
+              `boutique_announced:${po.productUrl}`,
+              `${match.title} (${po.edition})`,
+            ),
+          );
+          announcedUrls.add(po.productUrl);
         }
       }
     } else {
-      // Uncataloged game drop
-      if (!announcedUrls.has(po.productUrl)) {
+      // Uncataloged game drop (Proposal 2):
+      // 1. Must be a genuine pre-order (not in-stock older inventory)
+      // 2. Must be published within the last 72 hours
+      // 3. Must not have been announced previously
+      const isRecent = (() => {
+        if (!po.publishedAt) return false;
+        const pubMs = new Date(po.publishedAt).getTime();
+        if (isNaN(pubMs)) return false;
+        return Date.now() - pubMs <= 72 * 60 * 60 * 1000;
+      })();
+
+      if (
+        po.isPreOrder &&
+        isRecent &&
+        !announcedUrls.has(po.productUrl) &&
+        !isColdStartSeed
+      ) {
         newlyAnnouncedGames.push({
           game: {
             id: `boutique-${po.store.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${encodeURIComponent(po.cleanTitle)}`,
@@ -3905,6 +3949,10 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
           preOrder: po,
           isUncataloged: true,
         });
+      }
+
+      // Always record into sync_state so it is never treated as new again
+      if (!announcedUrls.has(po.productUrl)) {
         statements.push(
           env.DB.prepare(
             `INSERT INTO sync_state (key, value, updated_at)
@@ -3915,6 +3963,17 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         announcedUrls.add(po.productUrl);
       }
     }
+  }
+
+  // If this was a cold-start seed, mark seed completed so subsequent runs alert on new items
+  if (isColdStartSeed) {
+    statements.push(
+      env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES ('boutique_seed_completed', '1', CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = CURRENT_TIMESTAMP`,
+      ),
+    );
   }
 
   if (statements.length > 0) {

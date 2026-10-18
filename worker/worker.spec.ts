@@ -220,6 +220,7 @@ describe('Worker API Logic', () => {
       INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES ('gb-mario', 1, 'USA', null, null, null, 0, 1, '1985-10-18');
       INSERT INTO toy_series (id, name, line, sort_index) VALUES ('smash', 'Smash', 'amiibo', 0);
       INSERT INTO toys (stable_id, id, name, line, series_id, sort_index, ownership_status) VALUES (1, 'link-amiibo', 'Link', 'amiibo', 'smash', 0, 0);
+      INSERT INTO sync_state (key, value) VALUES ('boutique_seed_completed', '1');
     `);
 
     // Mock the Cloudflare D1 interface
@@ -1988,7 +1989,7 @@ describe('Worker API Logic', () => {
 
       db.prepare(
         `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (904, 'antonblast-ps5', 'Antonblast', 34, 'unverified')`,
+         VALUES (904, 'antonblast-ps5', 'Antonblast', 35, 'unverified')`,
       ).run();
 
       db.prepare(
@@ -1998,7 +1999,7 @@ describe('Worker API Logic', () => {
 
       db.prepare(
         `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-ps5', 'https://push.example.com/sub-ps5', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
+         VALUES ('sub-ps5', 'https://push.example.com/sub-ps5', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const mockShopify = {
@@ -2039,6 +2040,357 @@ describe('Worker API Logic', () => {
           expect.anything(),
           expect.objectContaining({
             title: '📦 Physical Edition Announced: Antonblast',
+          }),
+          expect.anything(),
+        );
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders cold-start suppresses all notifications on initial baseline run and completes seeding', async () => {
+      // Clear boutique_seed_completed from sync_state
+      db.prepare(
+        `DELETE FROM sync_state WHERE key = 'boutique_seed_completed'`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (910, 'celeste-switch', 'Celeste', 26, 'digital_only')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-cold', 'https://push.example.com/sub-cold', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true, "uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 889900,
+            title: 'Celeste - Nintendo Switch',
+            handle: 'celeste-switch',
+            tags: ['game', 'pre-order'],
+            created_at: new Date().toISOString(),
+            variants: [{ price: '34.99' }],
+          },
+          {
+            id: 889901,
+            title: 'Uncataloged Indie Quest - Nintendo Switch',
+            handle: 'uncataloged-indie-quest',
+            tags: ['game', 'pre-order'],
+            created_at: new Date().toISOString(),
+            variants: [{ price: '29.99' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (
+            typeof input === 'string' &&
+            input.includes('limitedrungames.com')
+          ) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        // Notifications are completely suppressed during cold start seed
+        expect(result.notifications.dispatchedCount).toBe(0);
+        expect(webPushSpy).not.toHaveBeenCalled();
+
+        // Seed flag is recorded in sync_state
+        const seedRow = db
+          .prepare(
+            `SELECT value FROM sync_state WHERE key = 'boutique_seed_completed'`,
+          )
+          .get() as { value: string };
+        expect(seedRow).toBeDefined();
+        expect(seedRow.value).toBe('1');
+
+        // Uncataloged URL was recorded so it won't alert later either
+        const uncatalogedSeen = db
+          .prepare(
+            `SELECT value FROM sync_state WHERE key LIKE '%uncataloged-indie-quest%'`,
+          )
+          .get();
+        expect(uncatalogedSeen).toBeDefined();
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders silently updates retail_url for games already physical without dispatching notifications', async () => {
+      // Game is verified_physical with an old retail_url
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status, retail_url)
+         VALUES (911, 'hollow-knight-switch-2', 'Hollow Knight', 26, 'verified_physical', 'https://old-retailer.com/hk')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-silent', 'https://push.example.com/sub-silent', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 771122,
+            title: 'Hollow Knight - Nintendo Switch',
+            handle: 'hollow-knight-switch-new',
+            tags: ['game', 'pre-order'],
+            variants: [{ price: '34.99' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (typeof input === 'string' && input.includes('fangamer.com')) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        // Zero notifications dispatched because game is already physical and not a special edition
+        expect(result.notifications.dispatchedCount).toBe(0);
+        expect(webPushSpy).not.toHaveBeenCalled();
+
+        // But retail_url was updated in the database
+        const updatedGame = db
+          .prepare(
+            'SELECT retail_url, retail_store FROM games WHERE stable_id = 911',
+          )
+          .get() as { retail_url: string; retail_store: string };
+        expect(updatedGame.retail_url).toContain('hollow-knight-switch-new');
+        expect(updatedGame.retail_store).toBe('Fangamer');
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders dispatches announcement notification when digital_only game transitions to likely_physical', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (912, 'crow-country-switch', 'Crow Country', 26, 'digital_only')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-transition', 'https://push.example.com/sub-transition', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 665544,
+            title: 'Crow Country - Nintendo Switch',
+            handle: 'crow-country-switch',
+            tags: ['game', 'pre-order'],
+            variants: [{ price: '34.99' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (typeof input === 'string' && input.includes('fangamer.com')) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.notifications.dispatchedCount).toBe(1);
+        expect(webPushSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            title: '📦 Physical Edition Announced: Crow Country',
+          }),
+          expect.anything(),
+        );
+
+        const updated = db
+          .prepare('SELECT physical_status FROM games WHERE stable_id = 912')
+          .get() as { physical_status: string };
+        expect(updated.physical_status).toBe('likely_physical');
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders suppresses uncataloged announcements for items older than 72 hours or non-preorders', async () => {
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-uncat-old', 'https://push.example.com/sub-uncat-old', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const fourDaysAgo = new Date(
+        Date.now() - 4 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 112299,
+            title: 'Ancient Indie Title - Nintendo Switch',
+            handle: 'ancient-indie-title-switch',
+            tags: ['game', 'pre-order'],
+            created_at: fourDaysAgo,
+            published_at: fourDaysAgo,
+            variants: [{ price: '39.99' }],
+          },
+          {
+            id: 112298,
+            title: 'In-Stock Catalog Title - Nintendo Switch',
+            handle: 'in-stock-title-switch',
+            tags: ['game'], // No pre-order tag
+            created_at: new Date().toISOString(),
+            published_at: new Date().toISOString(),
+            variants: [{ price: '39.99' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (
+            typeof input === 'string' &&
+            input.includes('limitedrungames.com')
+          ) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        // Suppressed because:
+        // 1) First item published 4 days ago (>72h)
+        // 2) Second item is not a pre-order
+        expect(result.notifications.dispatchedCount).toBe(0);
+        expect(webPushSpy).not.toHaveBeenCalled();
+
+        // But both are recorded into sync_state
+        const row1 = db
+          .prepare(
+            `SELECT value FROM sync_state WHERE key LIKE '%ancient-indie-title-switch%'`,
+          )
+          .get();
+        expect(row1).toBeDefined();
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders dispatches uncataloged announcement for fresh pre-order items within 72 hours', async () => {
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-uncat-fresh', 'https://push.example.com/sub-uncat-fresh', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const twoHoursAgo = new Date(
+        Date.now() - 2 * 60 * 60 * 1000,
+      ).toISOString();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 991122,
+            title: 'Brand New Indie Pre-Order - Nintendo Switch',
+            handle: 'brand-new-indie-switch',
+            tags: ['game', 'pre-order'],
+            created_at: twoHoursAgo,
+            published_at: twoHoursAgo,
+            variants: [{ price: '34.99' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (
+            typeof input === 'string' &&
+            input.includes('limitedrungames.com')
+          ) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.notifications.dispatchedCount).toBe(1);
+        expect(webPushSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            title: '📦 Physical Edition Announced: Brand New Indie Pre-Order',
           }),
           expect.anything(),
         );

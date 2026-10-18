@@ -3,6 +3,7 @@ import {
   cleanBoutiqueTitle,
   fetchBoutiquePreOrders,
   BoutiqueFeedConfig,
+  BOUTIQUE_FEED_CONFIGS,
 } from './physical_feeds.js';
 
 describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
@@ -143,14 +144,27 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(results[0].imageUrl).toBe('https://cdn.shopify.com/p4g.jpg');
     });
 
+    it('should strictly contain only the 5 boutique limited-print publishers', () => {
+      const storeNames = BOUTIQUE_FEED_CONFIGS.map((c) => c.store);
+      expect(storeNames).toEqual([
+        'Limited Run Games',
+        'Super Rare Games',
+        'iam8bit',
+        'Fangamer',
+        'Strictly Limited Games',
+      ]);
+      expect(storeNames).not.toContain('VGP');
+      expect(storeNames).not.toContain('PNP Games');
+    });
+
     it('should fetch and parse WooCommerce product catalogs with CAD conversion', async () => {
       const mockWc = [
         {
           id: 33333,
           name: 'Super Mario Party Jamboree (NSW) [Pre-Order]',
           permalink:
-            'https://pnpgamesonline.com/product/super-mario-party-jamboree-nsw/',
-          images: [{ src: 'https://pnpgames.com/jamboree.jpg' }],
+            'https://boutique.example.com/product/super-mario-party-jamboree-nsw/',
+          images: [{ src: 'https://boutique.example.com/jamboree.jpg' }],
           prices: { price: '7999' },
           date_created: '2026-09-15T12:00:00',
         },
@@ -163,9 +177,9 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
 
       const singleStore: BoutiqueFeedConfig[] = [
         {
-          store: 'PNP Games',
-          url: 'https://pnpgamesonline.com/wp-json/wc/store/v1/products?category=38368&per_page=100',
-          baseUrl: 'https://pnpgamesonline.com',
+          store: 'Super Rare Games',
+          url: 'https://boutique.example.com/wp-json/wc/store/v1/products?per_page=100',
+          baseUrl: 'https://boutique.example.com',
           type: 'woocommerce',
           isCad: true,
         },
