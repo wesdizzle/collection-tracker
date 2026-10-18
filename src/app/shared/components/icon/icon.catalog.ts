@@ -52,7 +52,8 @@ export type IconName =
   | 'edit'
   | 'calendar'
   | 'clock'
-  | 'gift';
+  | 'gift'
+  | 'chart';
 
 export interface IconDef {
   viewBox: string;
@@ -275,5 +276,9 @@ export const ICON_CATALOG: Record<IconName, IconDef> = {
   gift: {
     viewBox: '0 0 24 24',
     svgInner: `<polyline points="20 12 20 22 4 22 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="2" y="7" width="20" height="5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="22" x2="12" y2="7" stroke="currentColor" stroke-width="2"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>`,
+  },
+  chart: {
+    viewBox: '0 0 24 24',
+    svgInner: `<line x1="18" y1="20" x2="18" y2="10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="20" x2="12" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="20" x2="6" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
   },
 };

@@ -567,4 +567,87 @@ describe('ItemDetailComponent', () => {
     );
     expect(notesCallout?.textContent).toContain('HP Pavilion dv6-1245dx');
   });
+
+  describe('PriceCharting & Market Pricing Integration', () => {
+    it('should generate valid PriceCharting search URLs for games and toys', () => {
+      const gameUrl = component.getGamePriceChartingUrl(mockGame);
+      expect(gameUrl).toBe(
+        'https://www.pricecharting.com/search-products?q=Super%20Mario%20World%20SNES&type=prices',
+      );
+
+      const skylanderToy: Toy = {
+        ...mockToy,
+        name: 'Camo',
+        line: 'Skylanders',
+        series_name: "Spyro's Adventure",
+      };
+      const toyUrl = component.getToyPriceChartingUrl(skylanderToy);
+      expect(toyUrl).toBe(
+        "https://www.pricecharting.com/search-products?q=Camo%20Spyro's%20Adventure&type=prices",
+      );
+
+      const amiiboToy: Toy = {
+        ...mockToy,
+        name: 'K.K.',
+        line: 'amiibo',
+      };
+      const amiiboUrl = component.getToyPriceChartingUrl(amiiboToy);
+      expect(amiiboUrl).toBe(
+        'https://www.pricecharting.com/search-products?q=K.K.%20amiibo&type=prices',
+      );
+    });
+
+    it('should generate targeted eBay search URLs for toys', () => {
+      const skylanderToy: Toy = {
+        ...mockToy,
+        name: 'Camo',
+        line: 'Skylanders',
+      };
+      expect(component.getSmartEbayToyUrl(skylanderToy, 'all')).toBe(
+        'https://www.ebay.com/sch/i.html?_nkw=Camo%20Skylanders',
+      );
+      expect(component.getSmartEbayToyUrl(skylanderToy, 'loose')).toBe(
+        'https://www.ebay.com/sch/i.html?_nkw=Camo%20Skylanders%20loose',
+      );
+      expect(component.getSmartEbayToyUrl(skylanderToy, 'new')).toBe(
+        'https://www.ebay.com/sch/i.html?_nkw=Camo%20Skylanders%20nib%20sealed',
+      );
+    });
+
+    it('should render toy market pricing cards and research links when toy prices are present', async () => {
+      const pricedToy: Toy = {
+        ...mockToy,
+        name: 'Camo',
+        line: 'Skylanders',
+        series_name: "Spyro's Adventure",
+        price_loose: 916,
+        price_cib: 916,
+        price_new: 1499,
+        price_updated_at: '2026-10-18',
+      };
+
+      vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(pricedToy));
+      paramMapSubject.next(convertToParamMap({ id: 'toy-camo', type: 'toy' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const marketSection = compiled.querySelector('.market-section');
+      expect(marketSection).toBeTruthy();
+      expect(marketSection?.textContent).toContain(
+        'Market Valuation & Pricing',
+      );
+      expect(marketSection?.textContent).toContain('$9.16');
+      expect(marketSection?.textContent).toContain('$14.99');
+
+      const pricechartingLinks = compiled.querySelectorAll(
+        'a[href*="pricecharting.com"]',
+      );
+      expect(pricechartingLinks.length).toBeGreaterThan(0);
+      expect(pricechartingLinks[0].getAttribute('href')).toContain(
+        'pricecharting.com/search-products',
+      );
+    });
+  });
 });

@@ -509,6 +509,139 @@ describe('GAMEYE Reconciliation Module', () => {
       expect(result?.price_loose).toBe(1135);
     });
 
+    it('should penalize rare chase variants and match standard retail Skylanders figures', async () => {
+      const mockClient = {
+        get: vi.fn().mockResolvedValue({
+          data: {
+            records: [
+              {
+                id: 99901,
+                category_id: 3,
+                platform_id: 119,
+                country_id: 1,
+                title: 'Camo [Fruit Punch]',
+                has_vgpc: true,
+                price: { Loose: 45000, CIB: 45000, New: 55000 },
+              },
+              {
+                id: 99902,
+                category_id: 3,
+                platform_id: 119,
+                country_id: 1,
+                title: "Camo - Spyro's Adventure",
+                has_vgpc: true,
+                price: { Loose: 916, CIB: 916, New: 1499 },
+              },
+            ],
+          },
+        }),
+      };
+
+      const result = await searchGameyeToy(
+        'Camo',
+        'Skylanders',
+        mockClient as unknown as { get: typeof axios.get },
+        { seriesId: 'series-1' },
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.gameye_id).toBe(99902);
+      expect(result?.title).toBe("Camo - Spyro's Adventure");
+      expect(result?.price_loose).toBe(916);
+    });
+
+    it('should distinguish between different Skylanders release series', async () => {
+      const mockClient = {
+        get: vi.fn().mockResolvedValue({
+          data: {
+            records: [
+              {
+                id: 88801,
+                category_id: 3,
+                platform_id: 119,
+                country_id: 1,
+                title: 'Prism Break - Giants',
+                has_vgpc: true,
+                price: { Loose: 350, CIB: 350, New: 700 },
+              },
+              {
+                id: 88802,
+                category_id: 3,
+                platform_id: 119,
+                country_id: 1,
+                title: "Prism Break - Spyro's Adventure",
+                has_vgpc: true,
+                price: { Loose: 200, CIB: 200, New: 500 },
+              },
+              {
+                id: 88803,
+                category_id: 3,
+                platform_id: 119,
+                country_id: 1,
+                title: 'Hyper Beam Prism Break - Swap Force',
+                has_vgpc: true,
+                price: { Loose: 500, CIB: 500, New: 1000 },
+              },
+            ],
+          },
+        }),
+      };
+
+      const s1Result = await searchGameyeToy(
+        'Prism Break',
+        'Skylanders',
+        mockClient as unknown as { get: typeof axios.get },
+        { seriesId: 'series-1' },
+      );
+      expect(s1Result?.gameye_id).toBe(88802);
+      expect(s1Result?.title).toBe("Prism Break - Spyro's Adventure");
+
+      const s2Result = await searchGameyeToy(
+        'Prism Break',
+        'Skylanders',
+        mockClient as unknown as { get: typeof axios.get },
+        { seriesId: 'series-2' },
+      );
+      expect(s2Result?.gameye_id).toBe(88801);
+      expect(s2Result?.title).toBe('Prism Break - Giants');
+    });
+
+    it('should match K. K. Slider to K.K. via canonical alias', async () => {
+      const mockClient = {
+        get: vi.fn().mockImplementation((url: string) => {
+          if (url.includes('title=K.K.')) {
+            return Promise.resolve({
+              data: {
+                records: [
+                  {
+                    id: 81571,
+                    category_id: 3,
+                    platform_id: 118,
+                    country_id: 1,
+                    title: 'K.K.',
+                    has_vgpc: true,
+                    price: { Loose: 1075, CIB: 1075, New: 1000 },
+                  },
+                ],
+              },
+            });
+          }
+          return Promise.resolve({ data: { records: [] } });
+        }),
+      };
+
+      const result = await searchGameyeToy(
+        'K. K. Slider',
+        'amiibo',
+        mockClient as unknown as { get: typeof axios.get },
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.gameye_id).toBe(81571);
+      expect(result?.title).toBe('K.K.');
+      expect(result?.price_loose).toBe(1075);
+    });
+
     it('should resolve Starlink pack-in items from component benchmarks', async () => {
       const arwing = await searchGameyeToy('Arwing', 'Starlink');
       expect(arwing).not.toBeNull();

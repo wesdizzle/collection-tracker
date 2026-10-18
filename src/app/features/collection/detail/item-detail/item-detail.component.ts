@@ -830,11 +830,22 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
               g.retail_price || g.price_cib || g.price_loose || g.price_new
             ) {
               <div class="pricing-grid">
-                <div
-                  class="price-tier-card"
-                  [class.has-price]="!!g.retail_price"
+                <a
+                  [href]="g.retail_url || getGamePriceChartingUrl(g)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="price-tier-card interactive"
+                  [class.has-price]="!!g.retail_price || !!g.price_new"
+                  [title]="
+                    g.retail_url
+                      ? 'View on ' + (g.retail_store || 'Retailer')
+                      : 'View on PriceCharting'
+                  "
                 >
-                  <span class="tier-label">Retail (New)</span>
+                  <div class="flex items-center justify-between">
+                    <span class="tier-label">Retail (New)</span>
+                    <app-icon name="chart" [size]="12" class="opacity-70" />
+                  </div>
                   <span class="tier-price">
                     {{
                       g.retail_price
@@ -847,29 +858,46 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   <span class="tier-sub">
                     {{
                       g.retail_store
-                        ? g.retail_store
+                        ? g.retail_store + ' ↗'
                         : g.price_new
-                          ? 'PriceCharting New'
+                          ? 'PriceCharting New ↗'
                           : 'Not tracked'
                     }}
                   </span>
-                </div>
+                </a>
 
-                <div class="price-tier-card" [class.has-price]="!!g.price_cib">
-                  <span class="tier-label">Complete in Box (CIB)</span>
+                <a
+                  [href]="getGamePriceChartingUrl(g)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="price-tier-card interactive"
+                  [class.has-price]="!!g.price_cib"
+                  title="View Complete in Box (CIB) on PriceCharting"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="tier-label">Complete in Box (CIB)</span>
+                    <app-icon name="chart" [size]="12" class="opacity-70" />
+                  </div>
                   <span class="tier-price">
                     {{
                       g.price_cib ? '$' + (g.price_cib / 100).toFixed(2) : '—'
                     }}
                   </span>
-                  <span class="tier-sub">PriceCharting Used</span>
-                </div>
+                  <span class="tier-sub">PriceCharting Used ↗</span>
+                </a>
 
-                <div
-                  class="price-tier-card"
+                <a
+                  [href]="getGamePriceChartingUrl(g)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="price-tier-card interactive"
                   [class.has-price]="!!g.price_loose"
+                  title="View Loose Price on PriceCharting"
                 >
-                  <span class="tier-label">Loose Cartridge/Disc</span>
+                  <div class="flex items-center justify-between">
+                    <span class="tier-label">Loose Cartridge/Disc</span>
+                    <app-icon name="chart" [size]="12" class="opacity-70" />
+                  </div>
                   <span class="tier-price">
                     {{
                       g.price_loose
@@ -877,8 +905,8 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                         : '—'
                     }}
                   </span>
-                  <span class="tier-sub">PriceCharting Loose</span>
-                </div>
+                  <span class="tier-sub">PriceCharting Loose ↗</span>
+                </a>
               </div>
             }
 
@@ -889,6 +917,15 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                 class="text-xs font-bold text-secondary uppercase tracking-wider"
                 >Research & Buy:</span
               >
+              <a
+                [href]="getGamePriceChartingUrl(g)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill pricecharting"
+                title="View market valuations and sales history on PriceCharting"
+              >
+                <app-icon name="chart" [size]="14" /> PriceCharting
+              </a>
               <a
                 [href]="getSmartEbayUrl(g, 'cib')"
                 target="_blank"
@@ -942,6 +979,135 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                 title="Search PNP Games"
               >
                 <app-icon name="storefront" [size]="14" /> PNP Games
+              </a>
+            </div>
+          </section>
+        }
+
+        @if (toy(); as t) {
+          <section class="market-section animate-slide-up mb-xl">
+            <div class="market-header flex justify-between items-center mb-md">
+              <h2 class="text-xl font-bold flex items-center gap-xs m-0">
+                <span class="flex items-center gap-xs"
+                  ><app-icon name="coins" [size]="20" /> Market Valuation &
+                  Pricing</span
+                >
+              </h2>
+              @if (t.price_updated_at) {
+                <span class="text-xs text-secondary">
+                  Updated: {{ t.price_updated_at }}
+                </span>
+              }
+            </div>
+
+            @if (t.price_loose || t.price_cib || t.price_new) {
+              <div class="pricing-grid">
+                <a
+                  [href]="getToyPriceChartingUrl(t)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="price-tier-card interactive"
+                  [class.has-price]="!!t.price_loose"
+                  title="View Loose Price on PriceCharting"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="tier-label">Loose Figure</span>
+                    <app-icon name="chart" [size]="12" class="opacity-70" />
+                  </div>
+                  <span class="tier-price">
+                    {{
+                      t.price_loose
+                        ? '$' + (t.price_loose / 100).toFixed(2)
+                        : '—'
+                    }}
+                  </span>
+                  <span class="tier-sub">PriceCharting Loose ↗</span>
+                </a>
+
+                <a
+                  [href]="getToyPriceChartingUrl(t)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="price-tier-card interactive"
+                  [class.has-price]="!!t.price_cib"
+                  title="View Boxed Price on PriceCharting"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="tier-label">In Box (CIB)</span>
+                    <app-icon name="chart" [size]="12" class="opacity-70" />
+                  </div>
+                  <span class="tier-price">
+                    {{
+                      t.price_cib ? '$' + (t.price_cib / 100).toFixed(2) : '—'
+                    }}
+                  </span>
+                  <span class="tier-sub">PriceCharting Boxed ↗</span>
+                </a>
+
+                <a
+                  [href]="getToyPriceChartingUrl(t)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="price-tier-card interactive"
+                  [class.has-price]="!!t.price_new"
+                  title="View New / Sealed Price on PriceCharting"
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="tier-label">New / Sealed</span>
+                    <app-icon name="chart" [size]="12" class="opacity-70" />
+                  </div>
+                  <span class="tier-price">
+                    {{
+                      t.price_new ? '$' + (t.price_new / 100).toFixed(2) : '—'
+                    }}
+                  </span>
+                  <span class="tier-sub">PriceCharting New ↗</span>
+                </a>
+              </div>
+            }
+
+            <div
+              class="retail-links-bar mt-md flex flex-wrap items-center gap-sm"
+            >
+              <span
+                class="text-xs font-bold text-secondary uppercase tracking-wider"
+                >Research & Buy:</span
+              >
+              <a
+                [href]="getToyPriceChartingUrl(t)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill pricecharting"
+                title="View on PriceCharting"
+              >
+                <app-icon name="chart" [size]="14" /> PriceCharting
+              </a>
+              <a
+                [href]="getSmartEbayToyUrl(t, 'all')"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill ebay"
+                title="Search eBay for this figure"
+              >
+                <app-icon name="seeking" [size]="14" /> eBay (All)
+              </a>
+              <a
+                [href]="getSmartEbayToyUrl(t, 'loose')"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill ebay"
+                title="Search eBay for authentic loose figure"
+              >
+                <app-icon name="seeking" [size]="14" /> eBay (Loose)
+              </a>
+              <a
+                [href]="getSmartEbayToyUrl(t, 'new')"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="jump-link-pill ebay"
+                title="Search eBay for sealed in box figure"
+              >
+                <app-icon name="seeking" [size]="14" /> eBay (Sealed/NIB)
               </a>
             </div>
           </section>
@@ -2001,6 +2167,20 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         display: flex;
         flex-direction: column;
         gap: var(--spacing-4);
+        text-decoration: none;
+        color: inherit;
+        transition:
+          transform 0.2s,
+          border-color 0.2s,
+          background 0.2s;
+      }
+      .price-tier-card.interactive {
+        cursor: pointer;
+      }
+      .price-tier-card.interactive:hover {
+        background: var(--m3-surface-container-highest);
+        border-color: var(--m3-primary);
+        transform: translateY(-2px);
       }
       .price-tier-card.has-price {
         border-color: var(--m3-outline);
@@ -2049,6 +2229,10 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         background: var(--m3-surface-container-highest);
         border-color: var(--m3-primary);
         transform: translateY(-1px);
+      }
+      .jump-link-pill.pricecharting:hover {
+        border-color: #3b82f6;
+        color: #60a5fa;
       }
       .jump-link-pill.ebay:hover {
         border-color: #0064d2;
@@ -3102,5 +3286,48 @@ export class ItemDetailComponent {
     }
     const platformName = game.display_name || game.platform || '';
     return `https://pnpgamesonline.com/?s=${encodeURIComponent(game.title + ' ' + platformName)}&post_type=product`;
+  }
+
+  /**
+   * Generates a direct search link to PriceCharting for the specified game.
+   */
+  getGamePriceChartingUrl(game: Game): string {
+    const platformName = game.display_name || game.platform || '';
+    const query = `${game.title} ${platformName}`.trim();
+    return `https://www.pricecharting.com/search-products?q=${encodeURIComponent(query)}&type=prices`;
+  }
+
+  /**
+   * Generates a direct search link to PriceCharting for the specified toy figure.
+   */
+  getToyPriceChartingUrl(toy: Toy): string {
+    let query = toy.name;
+    if (toy.line === 'Skylanders') {
+      const series = toy.series_name || toy.series;
+      if (series) {
+        query += ` ${series}`;
+      } else {
+        query += ` Skylanders`;
+      }
+    } else if (toy.line) {
+      query += ` ${toy.line}`;
+    }
+    return `https://www.pricecharting.com/search-products?q=${encodeURIComponent(query.trim())}&type=prices`;
+  }
+
+  /**
+   * Constructs a pre-filtered clean eBay search URL for a toy/figure.
+   */
+  getSmartEbayToyUrl(
+    toy: Toy,
+    condition: 'all' | 'loose' | 'new' = 'all',
+  ): string {
+    let query = `${toy.name} ${toy.line || ''}`;
+    if (condition === 'new') {
+      query += ' nib sealed';
+    } else if (condition === 'loose') {
+      query += ' loose';
+    }
+    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query.trim())}`;
   }
 }

@@ -138,8 +138,71 @@ export const TOY_SEARCH_ALIASES: Record<string, string> = {
   'Legendary Undead Orb Trap': 'Undead Trap Legendary Undead Orb',
   'Legendary Undead Skull Trap': 'Undead Trap Legendary Undead Skull',
   'Earth Hourglass (Dust of Time)': 'Earth Hourglass',
-  'Easter Bunny Earth Trap': 'Earth Trap Easter Bunny',
-  'Life Snake (Seed Serpent)': 'Life Trap',
+  // Animal Crossing amiibo
+  'K. K. Slider': 'K.K.',
+  'K.K. Slider': 'K.K.',
+};
+
+export const CHASE_VARIANT_KEYWORDS = [
+  'fruit punch',
+  'employee',
+  'holiday',
+  'flocked',
+  'crystal',
+  'clear',
+  'metallic',
+  'metal',
+  'gold',
+  'silver',
+  'bronze',
+  'chrome',
+  'glow in the dark',
+  'glow',
+  'gitd',
+  'sparkle',
+  'glitter',
+  'e3',
+  'toy fair',
+  'comic con',
+  'nycc',
+  'sdcc',
+  'frito-lay',
+  'frito lay',
+  'triple pack',
+  'starter pack',
+  'combo pack',
+  'battle pack',
+  'adventure pack',
+  'not for resale',
+];
+
+export const SKYLANDERS_SERIES_MAP: Record<string, string> = {
+  'skylanders-spyro-s-adventure': "spyro's adventure",
+  'skylanders-giants': 'giants',
+  'skylanders-swap-force': 'swap force',
+  'skylanders-trap-team': 'trap team',
+  'skylanders-superchargers': 'superchargers',
+  'skylanders-imaginators': 'imaginators',
+  'series-1': "spyro's adventure",
+  'series-2': 'giants',
+  'series-3': 'swap force',
+  'series-4': 'trap team',
+  'series 1': "spyro's adventure",
+  'series 2': 'giants',
+  'series 3': 'swap force',
+  'series 4': 'trap team',
+  ssa: "spyro's adventure",
+  sg: 'giants',
+  ssf: 'swap force',
+  stt: 'trap team',
+  ssc: 'superchargers',
+  si: 'imaginators',
+  "spyro's adventure": "spyro's adventure",
+  giants: 'giants',
+  'swap force': 'swap force',
+  'trap team': 'trap team',
+  superchargers: 'superchargers',
+  imaginators: 'imaginators',
 };
 
 export const STARLINK_BENCHMARKS: Record<
@@ -556,7 +619,7 @@ export async function searchGameyeToy(
   name: string,
   line: string,
   optionsOrClient?: ToySearchOptions | { get: typeof axios.get },
-  fallbackClient?: { get: typeof axios.get },
+  clientOrOptions?: { get: typeof axios.get } | ToySearchOptions,
 ): Promise<GameyeSearchResult | null> {
   let options: ToySearchOptions = {};
   let client: { get: typeof axios.get } = axios;
@@ -564,10 +627,20 @@ export async function searchGameyeToy(
   if (optionsOrClient) {
     if ('get' in optionsOrClient && typeof optionsOrClient.get === 'function') {
       client = optionsOrClient as { get: typeof axios.get };
+      if (clientOrOptions && !('get' in clientOrOptions)) {
+        options = clientOrOptions as ToySearchOptions;
+      }
     } else {
       options = optionsOrClient as ToySearchOptions;
-      if (options.client) client = options.client;
-      else if (fallbackClient) client = fallbackClient;
+      if (options.client) {
+        client = options.client;
+      } else if (
+        clientOrOptions &&
+        'get' in clientOrOptions &&
+        typeof clientOrOptions.get === 'function'
+      ) {
+        client = clientOrOptions as { get: typeof axios.get };
+      }
     }
   }
 
@@ -689,6 +762,10 @@ function pickBestToyRecord(
   const tNorm = norm(toyName);
   const tWords = tNorm.split(' ').filter(Boolean);
 
+  const targetWantsChase = CHASE_VARIANT_KEYWORDS.some((kw) =>
+    tNorm.includes(kw),
+  );
+
   for (const record of records) {
     if (preferredPlatformId && record.platform_id !== preferredPlatformId) {
       continue;
@@ -699,32 +776,64 @@ function pickBestToyRecord(
 
     let score = 0;
 
+    // Check if candidate contains chase / exclusive tags in brackets or chase keywords
+    const isChaseCandidate =
+      CHASE_VARIANT_KEYWORDS.some(
+        (kw) => record.title.toLowerCase().includes(kw) || cNorm.includes(kw),
+      ) ||
+      /\[[^\]]*(fruit|punch|employee|holiday|flocked|crystal|clear|metallic|metal|gold|silver|bronze|chrome|glow|gitd|sparkle|glitter|e3|fair|con|frito|pack)/i.test(
+        record.title,
+      );
+
+    if (isChaseCandidate && !targetWantsChase) {
+      score -= 60; // Heavy penalty for unrequested chase variant
+    }
+
     // Exact string match
     if (tNorm === cNorm) {
-      score = 100;
+      score += 100;
     } else if (
       tWords.length === cWords.length &&
       tWords.every((w) => cWords.includes(w))
     ) {
       // Same words in different order (e.g. 'legendary bash' vs 'bash legendary')
-      score = 95;
+      score += 95;
     } else {
       const allInCand = tWords.every((w) => cWords.includes(w));
       if (allInCand) {
         const extraWords = cWords.filter((w) => !tWords.includes(w));
-        score = Math.max(10, 85 - extraWords.length * 5);
+        score += Math.max(10, 80 - extraWords.length * 3);
       } else {
         // Partial overlap
         const commonWords = tWords.filter((w) => cWords.includes(w));
         if (commonWords.length > 0) {
           const ratio = commonWords.length / tWords.length;
-          score = Math.round(ratio * 60);
+          score += Math.round(ratio * 50);
+        }
+      }
+    }
+
+    // Boost / penalty for Skylanders series matching
+    if (preferredPlatformId === 119 && seriesId) {
+      const sKey = seriesId.toLowerCase().trim();
+      const rawExpected = SKYLANDERS_SERIES_MAP[sKey];
+      if (rawExpected) {
+        const expectedSeries = norm(rawExpected);
+        if (cNorm.includes(expectedSeries)) {
+          score += 35; // Strong boost for matching the exact Skylanders game
+        } else {
+          const otherSeries = Object.values(SKYLANDERS_SERIES_MAP)
+            .filter((v) => norm(v) !== expectedSeries)
+            .map((v) => norm(v));
+          if (otherSeries.some((s) => cNorm.includes(s))) {
+            score -= 40; // Penalty for matching a different Skylanders game
+          }
         }
       }
     }
 
     // Boost for series matching (for amiibo)
-    if (seriesId && score > 0) {
+    if (preferredPlatformId === 118 && seriesId && score > 0) {
       const sLower = seriesId.toLowerCase();
       if (sLower.includes('smash') && cNorm.includes('smash')) score += 15;
       else if (
@@ -749,7 +858,7 @@ function pickBestToyRecord(
 
     // Boost records that have real price data over unpriced placeholders / promos
     if ((record.price?.Loose ?? 0) > 0) {
-      score += 20;
+      score += 15;
     }
 
     if (score > highestScore) {
