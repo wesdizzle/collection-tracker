@@ -11,6 +11,46 @@ import { extractBaseCharacterName } from './toys.js';
 export const GAMEYE_API_BASE = 'https://www.gameye.app/api';
 
 /**
+ * Minimal HTTP client interface matching axios.get or fetch adapters.
+ */
+export interface GameyeHttpClient {
+  get: (
+    url: string,
+    config?: { timeout?: number },
+  ) => Promise<{ data?: { records?: GameyeRecord[] }; status?: number }>;
+}
+
+/**
+ * Cloudflare Worker / Edge runtime native fetch client for GAMEYE deep_search.
+ */
+export const edgeGameyeClient: GameyeHttpClient = {
+  get: async (url: string, config?: { timeout?: number }) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      config?.timeout ?? 8000,
+    );
+    try {
+      const resp = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'CollectionTracker/1.0 (CloudflareWorker; +https://github.com)',
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+      if (!resp.ok) {
+        throw new Error(`GAMEYE API HTTP ${resp.status}`);
+      }
+      const data = (await resp.json()) as { records?: GameyeRecord[] };
+      return { data, status: resp.status };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  },
+};
+
+/**
  * Gagglog Platform ID -> GAMEYE Platform ID mapping.
  */
 export const GAGGLOG_TO_GAMEYE_PLATFORM: Record<number, number> = {
@@ -324,7 +364,7 @@ export const STARLINK_BENCHMARKS: Record<
 
 export interface GameyeRecord {
   id: number;
-  category_id: number;
+  category_id?: number;
   platform_id: number;
   country_id: number;
   release_type?: number;
@@ -566,7 +606,7 @@ export async function searchGameyeGame(
   title: string,
   gagglogPlatformId: number,
   region?: string | null,
-  client: { get: typeof axios.get } = axios,
+  client: GameyeHttpClient | { get: typeof axios.get } = axios,
 ): Promise<GameyeSearchResult | null> {
   const gameyePlatformId = GAGGLOG_TO_GAMEYE_PLATFORM[gagglogPlatformId];
   if (!gameyePlatformId) {
@@ -609,7 +649,7 @@ export async function searchGameyeGame(
 export interface ToySearchOptions {
   seriesId?: string | null;
   toyType?: string | null;
-  client?: { get: typeof axios.get };
+  client?: GameyeHttpClient | { get: typeof axios.get };
 }
 
 /**
@@ -618,15 +658,21 @@ export interface ToySearchOptions {
 export async function searchGameyeToy(
   name: string,
   line: string,
-  optionsOrClient?: ToySearchOptions | { get: typeof axios.get },
-  clientOrOptions?: { get: typeof axios.get } | ToySearchOptions,
+  optionsOrClient?:
+    | ToySearchOptions
+    | GameyeHttpClient
+    | { get: typeof axios.get },
+  clientOrOptions?:
+    | GameyeHttpClient
+    | { get: typeof axios.get }
+    | ToySearchOptions,
 ): Promise<GameyeSearchResult | null> {
   let options: ToySearchOptions = {};
-  let client: { get: typeof axios.get } = axios;
+  let client: GameyeHttpClient | { get: typeof axios.get } = axios;
 
   if (optionsOrClient) {
     if ('get' in optionsOrClient && typeof optionsOrClient.get === 'function') {
-      client = optionsOrClient as { get: typeof axios.get };
+      client = optionsOrClient as GameyeHttpClient;
       if (clientOrOptions && !('get' in clientOrOptions)) {
         options = clientOrOptions as ToySearchOptions;
       }
@@ -639,7 +685,7 @@ export async function searchGameyeToy(
         'get' in clientOrOptions &&
         typeof clientOrOptions.get === 'function'
       ) {
-        client = clientOrOptions as { get: typeof axios.get };
+        client = clientOrOptions as GameyeHttpClient;
       }
     }
   }

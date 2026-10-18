@@ -8,6 +8,7 @@ import worker, {
   performScheduledBackup,
   syncWorkerBoutiquePreOrders,
   syncWorkerLaunchDayNotifications,
+  syncWorkerGameyePricing,
 } from './worker';
 
 /**
@@ -2108,6 +2109,232 @@ describe('Worker API Logic', () => {
         physical_status: string;
       };
       expect(row.physical_status).toBe('physical_pending');
+    });
+  });
+
+  describe('Rolling GAMEYE / PriceCharting Valuation Sync', () => {
+    it('syncWorkerGameyePricing prioritizes unpriced items (NULLS FIRST) and updates round-robin queue', async () => {
+      db.prepare(
+        `INSERT INTO toys (stable_id, id, name, line, ownership_status, price_loose, price_updated_at)
+         VALUES (101, 'toy-unpriced', 'Unpriced Toy', 'amiibo', 1, NULL, NULL),
+                (102, 'toy-priced', 'Priced Toy', 'amiibo', 1, 1500, '2026-09-01T00:00:00Z')`,
+      ).run();
+
+      const mockClient = {
+        get: vi.fn(async () => {
+          return {
+            data: {
+              records: [
+                {
+                  id: 8881,
+                  title: 'Unpriced Toy',
+                  platform_id: 118,
+                  country_id: 1,
+                  release_type: 0,
+                  price: {
+                    Loose: 2500,
+                    CIB: 3500,
+                    New: 5000,
+                  },
+                },
+              ],
+            },
+            status: 200,
+          };
+        }),
+      };
+
+      const result = await syncWorkerGameyePricing(mockEnv, {
+        toyLimit: 1,
+        gameLimit: 0,
+        client: mockClient,
+      });
+
+      expect(result.toysChecked).toBe(1);
+      expect(result.toysUpdated).toBe(1);
+      expect(result.details[0].stableId).toBe(101);
+      expect(result.details[0].newPrice).toBe(2500);
+
+      const updatedRow = db
+        .prepare(
+          'SELECT gameye_id, price_loose, price_updated_at FROM toys WHERE stable_id = 101',
+        )
+        .get() as {
+        gameye_id: number;
+        price_loose: number;
+        price_updated_at: string;
+      };
+      expect(updatedRow.gameye_id).toBe(8881);
+      expect(updatedRow.price_loose).toBe(2500);
+      expect(updatedRow.price_updated_at).toBeTruthy();
+    });
+
+    it('syncWorkerGameyePricing re-prices Camo from $450 chase mismatch to $9.16 base figure', async () => {
+      db.prepare(
+        `INSERT INTO toys (stable_id, id, name, line, series_id, type, ownership_status, gameye_id, price_loose, price_updated_at)
+         VALUES (256, 'camo-spyro', 'Camo', 'Skylanders', 'skylanders-spyro-s-adventure', 'Series 1', 1, 99903, 45000, '2026-09-23T00:00:00Z')`,
+      ).run();
+
+      const mockClient = {
+        get: vi.fn(async () => {
+          return {
+            data: {
+              records: [
+                {
+                  id: 99903,
+                  title: 'Camo [Fruit Punch]',
+                  platform_id: 119,
+                  country_id: 1,
+                  release_type: 0,
+                  price: {
+                    Loose: 45000,
+                    CIB: 55000,
+                    New: 65000,
+                  },
+                },
+                {
+                  id: 99902,
+                  title: 'Camo',
+                  platform_id: 119,
+                  country_id: 1,
+                  release_type: 0,
+                  price: {
+                    Loose: 916,
+                    CIB: 1500,
+                    New: 2500,
+                  },
+                },
+              ],
+            },
+            status: 200,
+          };
+        }),
+      };
+
+      const res = await syncWorkerGameyePricing(mockEnv, {
+        specificToyStableId: 256,
+        gameLimit: 0,
+        client: mockClient,
+      });
+
+      expect(res.toysChecked).toBe(1);
+      expect(res.toysUpdated).toBe(1);
+      expect(res.details[0].oldPrice).toBe(45000);
+      expect(res.details[0].newPrice).toBe(916);
+      expect(res.details[0].gameyeId).toBe(99902);
+
+      const camoRow = db
+        .prepare(
+          'SELECT gameye_id, price_loose, price_updated_at FROM toys WHERE stable_id = 256',
+        )
+        .get() as {
+        gameye_id: number;
+        price_loose: number;
+        price_updated_at: string;
+      };
+      expect(camoRow.gameye_id).toBe(99902);
+      expect(camoRow.price_loose).toBe(916);
+    });
+
+    it('syncWorkerGameyePricing touches price_updated_at for unmatched items so the queue advances', async () => {
+      db.prepare(
+        `INSERT INTO toys (stable_id, id, name, line, ownership_status, price_loose, price_updated_at)
+         VALUES (201, 'obscure-toy', 'Obscure Toy', 'amiibo', 1, 1000, '2026-08-01T00:00:00Z')`,
+      ).run();
+
+      const mockEmptyClient = {
+        get: vi.fn(async () => ({
+          data: { records: [] },
+          status: 200,
+        })),
+      };
+
+      const res = await syncWorkerGameyePricing(mockEnv, {
+        specificToyStableId: 201,
+        gameLimit: 0,
+        client: mockEmptyClient,
+      });
+
+      expect(res.toysChecked).toBe(1);
+      expect(res.toysUpdated).toBe(0);
+
+      const row = db
+        .prepare(
+          'SELECT price_loose, price_updated_at FROM toys WHERE stable_id = 201',
+        )
+        .get() as { price_loose: number; price_updated_at: string };
+      expect(row.price_loose).toBe(1000);
+      expect(row.price_updated_at).not.toBe('2026-08-01T00:00:00Z');
+    });
+
+    it('POST /api/admin/sync/gameye-pricing requires admin auth on production domain and executes sync', async () => {
+      const unauthReq = new Request(
+        'https://collection-tracker.example.com/api/admin/sync/gameye-pricing',
+        {
+          method: 'POST',
+        },
+      );
+      const unauthRes = await worker.fetch(unauthReq, mockEnv);
+      expect(unauthRes.status).toBe(403);
+
+      const authReq = new Request(
+        'https://collection-tracker.example.com/api/admin/sync/gameye-pricing',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cf-Access-Authenticated-User-Email': 'admin@example.com',
+          },
+          body: JSON.stringify({
+            toyLimit: 0,
+            gameLimit: 0,
+          }),
+        },
+      );
+      const authRes = await worker.fetch(authReq, mockEnv);
+      expect(authRes.status).toBe(200);
+      const json = await authRes.json();
+      expect(json).toEqual({
+        toysChecked: 0,
+        toysUpdated: 0,
+        gamesChecked: 0,
+        gamesUpdated: 0,
+        details: [],
+      });
+    });
+
+    it('scheduled cron executes syncWorkerGameyePricing and logs SUCCESS', async () => {
+      const scheduledEvent = {
+        cron: '*/5 * * * *',
+        type: 'scheduled',
+        scheduledTime: Date.now(),
+      } as unknown as ScheduledEvent;
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async () => {
+          return {
+            ok: true,
+            json: async () => ({ records: [], products: [] }),
+            text: async () => '',
+          } as unknown as Response;
+        });
+
+      try {
+        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+
+        const logRow = db
+          .prepare(
+            `SELECT job_name, status FROM cron_execution_logs WHERE job_name = 'gameye_pricing' ORDER BY id DESC LIMIT 1`,
+          )
+          .get() as { job_name: string; status: string };
+
+        expect(logRow).toBeTruthy();
+        expect(logRow.job_name).toBe('gameye_pricing');
+        expect(logRow.status).toBe('SUCCESS');
+      } finally {
+        fetchSpy.mockRestore();
+      }
     });
   });
 });

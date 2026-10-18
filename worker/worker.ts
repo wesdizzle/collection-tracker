@@ -54,7 +54,13 @@ import {
   CanonicalRelease,
 } from '../scripts/lib/canonical_releases';
 import { normalizeTitleForMatching } from '../scripts/lib/title_matching';
-import { findVerifiedRegionalPhysicalReleases } from '../scripts/lib/gameye';
+import {
+  findVerifiedRegionalPhysicalReleases,
+  searchGameyeToy,
+  searchGameyeGame,
+  edgeGameyeClient,
+  GameyeHttpClient,
+} from '../scripts/lib/gameye';
 import { computeGameCanonicalSeries } from '../scripts/lib/canonical_series';
 import {
   fetchAllRetailDeals,
@@ -2053,6 +2059,28 @@ Disallow: /
         });
       }
 
+      // Endpoint: POST /api/admin/sync/gameye-pricing
+      else if (
+        request.method === 'POST' &&
+        path === '/api/admin/sync/gameye-pricing'
+      ) {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
+        const body = (await request.json().catch(() => ({}))) as {
+          toyLimit?: number;
+          gameLimit?: number;
+          specificToyStableId?: number;
+          specificGameStableId?: number;
+        };
+        const result = await syncWorkerGameyePricing(env, body);
+        return Response.json(result);
+      }
+
       /**
        * AUTHENTICATED MUTATION ENDPOINTS
        */
@@ -3143,7 +3171,10 @@ Disallow: /
 
   /**
    * Scheduled cron event handler invoked by Cloudflare.
-   * Runs every 30 minutes (cron: every half hour):
+   * Runs every 5 minutes:
+   * 1. Rolling round-robin PriceCharting / GAMEYE price refresh for owned toys and games.
+   *
+   * Runs every 30 minutes (gated by persistent sync_state cadence >= 25 mins):
    * 1. Ingests boutique physical publisher pre-order feeds (LRG, SRG, iam8bit, Fangamer, Strictly Limited, VGP, PNP Games).
    * 2. Advances the rolling 500-game IGDB batch query and checks tracked upcoming games.
    *
@@ -3158,67 +3189,134 @@ Disallow: /
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
+    // 1. Rolling 5-minute PriceCharting / GAMEYE valuation refresh
     console.log(
-      '[WorkerCron] Executing scheduled boutique physical pre-order sync...',
+      '[WorkerCron] Executing scheduled rolling GAMEYE price refresh...',
     );
-    const boutiqueStart = Date.now();
+    const gameyeStart = Date.now();
     try {
-      const res = await syncWorkerBoutiquePreOrders(env);
+      const res = await syncWorkerGameyePricing(env);
       await logCronExecution(
         env,
-        'boutique_preorders',
+        'gameye_pricing',
         'SUCCESS',
-        Date.now() - boutiqueStart,
-        `Matched ${res.matchedCount} pre-orders, sent ${res.notifications.dispatchedCount} alerts`,
+        Date.now() - gameyeStart,
+        `Checked ${res.toysChecked} toys (${res.toysUpdated} updated), ${res.gamesChecked} games (${res.gamesUpdated} updated)`,
         res,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[WorkerCron] Boutique pre-order sync failed:', err);
+      console.error('[WorkerCron] GAMEYE price refresh failed:', err);
       await logCronExecution(
         env,
-        'boutique_preorders',
+        'gameye_pricing',
         'ERROR',
-        Date.now() - boutiqueStart,
+        Date.now() - gameyeStart,
         `Failed: ${msg}`,
         { error: msg },
       );
     }
 
-    console.log(
-      '[WorkerCron] Executing scheduled IGDB series/franchise refresh and canonical_series reconciliation...',
-    );
-    const igdbStart = Date.now();
+    // 2. Check 30-minute interval tasks (Boutique Pre-Orders & IGDB Series Refresh)
+    const nowMs = Date.now();
+    let last30MinRun = 0;
     try {
-      const res = await syncWorkerIgdbSeriesAndCanonical(env);
-      await logCronExecution(
-        env,
-        'igdb_batch',
-        'SUCCESS',
-        Date.now() - igdbStart,
-        `Processed ${res.refreshedIgdbCount} IGDB games, updated ${res.updatedGamesCount} (offset ${res.cursorOffset ?? 0})`,
-        res,
+      const row = await env.DB.prepare(
+        "SELECT updated_at FROM sync_state WHERE key = 'boutique_sync_last_run'",
+      ).first<{ updated_at: string }>();
+      if (row?.updated_at) {
+        last30MinRun = new Date(row.updated_at).getTime();
+      }
+    } catch {
+      // unmigrated sync_state table fallback
+    }
+
+    const shouldRun30MinTasks =
+      event.cron === '*/30 * * * *' || nowMs - last30MinRun >= 25 * 60 * 1000;
+
+    if (shouldRun30MinTasks) {
+      console.log(
+        '[WorkerCron] Executing scheduled boutique physical pre-order sync...',
       );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(
-        '[WorkerCron] IGDB series refresh and canonical_series sync failed:',
-        err,
+      const boutiqueStart = Date.now();
+      try {
+        const res = await syncWorkerBoutiquePreOrders(env);
+        await env.DB.prepare(
+          `INSERT INTO sync_state (key, value, updated_at)
+           VALUES ('boutique_sync_last_run', datetime('now'), datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
+        ).run();
+        await logCronExecution(
+          env,
+          'boutique_preorders',
+          'SUCCESS',
+          Date.now() - boutiqueStart,
+          `Matched ${res.matchedCount} pre-orders, sent ${res.notifications.dispatchedCount} alerts`,
+          res,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[WorkerCron] Boutique pre-order sync failed:', err);
+        await logCronExecution(
+          env,
+          'boutique_preorders',
+          'ERROR',
+          Date.now() - boutiqueStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
+
+      console.log(
+        '[WorkerCron] Executing scheduled IGDB series/franchise refresh and canonical_series reconciliation...',
       );
-      await logCronExecution(
-        env,
-        'igdb_batch',
-        'ERROR',
-        Date.now() - igdbStart,
-        `Failed: ${msg}`,
-        { error: msg },
-      );
+      const igdbStart = Date.now();
+      try {
+        const res = await syncWorkerIgdbSeriesAndCanonical(env);
+        await logCronExecution(
+          env,
+          'igdb_batch',
+          'SUCCESS',
+          Date.now() - igdbStart,
+          `Processed ${res.refreshedIgdbCount} IGDB games, updated ${res.updatedGamesCount} (offset ${res.cursorOffset ?? 0})`,
+          res,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          '[WorkerCron] IGDB series refresh and canonical_series sync failed:',
+          err,
+        );
+        await logCronExecution(
+          env,
+          'igdb_batch',
+          'ERROR',
+          Date.now() - igdbStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
     }
 
     const now = new Date();
+    const todayDateStr = now.toISOString().slice(0, 10);
+    let lastDailyRunDate = '';
+    try {
+      const row = await env.DB.prepare(
+        "SELECT value FROM sync_state WHERE key = 'daily_window_last_run'",
+      ).first<{ value: string }>();
+      if (row?.value) {
+        lastDailyRunDate = row.value;
+      }
+    } catch {
+      // unmigrated sync_state table fallback
+    }
+
     const isDailyWindow =
       event.cron === '30 23 * * *' ||
-      (now.getUTCHours() === 23 && now.getUTCMinutes() >= 30);
+      (now.getUTCHours() === 23 &&
+        now.getUTCMinutes() >= 30 &&
+        lastDailyRunDate !== todayDateStr);
 
     let isDirty: boolean;
     try {
@@ -3333,6 +3431,22 @@ Disallow: /
         );
       } catch (pruneErr) {
         console.warn('[WorkerCron] Failed to prune aged cron logs:', pruneErr);
+      }
+
+      // Record daily execution completion in sync_state
+      try {
+        await env.DB.prepare(
+          `INSERT INTO sync_state (key, value, updated_at)
+           VALUES ('daily_window_last_run', ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')`,
+        )
+          .bind(todayDateStr, todayDateStr)
+          .run();
+      } catch (dateErr) {
+        console.warn(
+          '[WorkerCron] Failed to record daily_window_last_run:',
+          dateErr,
+        );
       }
     }
   },
@@ -4259,5 +4373,261 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
     refreshedIgdbCount: igdbFreshMap.size,
     updatedGamesCount: statements.length,
     cursorOffset: nextOffset ?? undefined,
+  };
+}
+
+export interface GameyePriceSyncOptions {
+  toyLimit?: number;
+  gameLimit?: number;
+  specificToyStableId?: number;
+  specificGameStableId?: number;
+  client?: GameyeHttpClient;
+}
+
+export interface GameyePriceSyncResult {
+  toysChecked: number;
+  toysUpdated: number;
+  gamesChecked: number;
+  gamesUpdated: number;
+  details: Array<{
+    type: 'toy' | 'game';
+    stableId: number;
+    name: string;
+    oldPrice: number | null;
+    newPrice: number | null;
+    gameyeId: number | null;
+  }>;
+}
+
+/**
+ * Synchronizes PriceCharting valuations and GAMEYE IDs in rolling batches
+ * using a round-robin least-recently-updated queue (ORDER BY price_updated_at ASC NULLS FIRST).
+ * Runs every 5 minutes within Cloudflare Workers Free Tier subrequest and CPU limits.
+ */
+export async function syncWorkerGameyePricing(
+  env: Env,
+  options?: GameyePriceSyncOptions,
+): Promise<GameyePriceSyncResult> {
+  const toyLimit = options?.toyLimit ?? (options?.specificToyStableId ? 1 : 3);
+  const gameLimit =
+    options?.gameLimit ?? (options?.specificGameStableId ? 1 : 7);
+  const client = options?.client ?? edgeGameyeClient;
+
+  let toysChecked = 0;
+  let toysUpdated = 0;
+  let gamesChecked = 0;
+  let gamesUpdated = 0;
+  const details: GameyePriceSyncResult['details'] = [];
+
+  // 1. Process Toys
+  if (toyLimit > 0 || options?.specificToyStableId) {
+    let toyQuery = `
+      SELECT stable_id, id, name, line, series_id, type, gameye_id, price_loose, price_cib, price_new, price_updated_at
+      FROM toys
+    `;
+    const toyArgs: (number | string)[] = [];
+    if (options?.specificToyStableId) {
+      toyQuery += ' WHERE stable_id = ?';
+      toyArgs.push(options.specificToyStableId);
+    } else {
+      toyQuery += `
+        WHERE ownership_status > 0
+        ORDER BY price_updated_at ASC NULLS FIRST
+        LIMIT ?
+      `;
+      toyArgs.push(toyLimit);
+    }
+
+    const { results: toyRows } = await env.DB.prepare(toyQuery)
+      .bind(...toyArgs)
+      .all<{
+        stable_id: number;
+        id: string;
+        name: string;
+        line: string;
+        series_id: string | null;
+        type: string | null;
+        gameye_id: number | null;
+        price_loose: number | null;
+        price_cib: number | null;
+        price_new: number | null;
+        price_updated_at: string | null;
+      }>();
+
+    for (const toy of toyRows || []) {
+      toysChecked++;
+      try {
+        const match = await searchGameyeToy(toy.name, toy.line, {
+          seriesId: toy.series_id,
+          toyType: toy.type,
+          client,
+        });
+
+        if (match) {
+          const changed =
+            toy.gameye_id !== match.gameye_id ||
+            toy.price_loose !== match.price_loose ||
+            toy.price_cib !== match.price_cib ||
+            toy.price_new !== match.price_new;
+
+          await env.DB.prepare(
+            `UPDATE toys
+             SET gameye_id = ?,
+                 price_loose = ?,
+                 price_cib = ?,
+                 price_new = ?,
+                 price_updated_at = datetime('now')
+             WHERE stable_id = ?`,
+          )
+            .bind(
+              match.gameye_id,
+              match.price_loose ?? null,
+              match.price_cib ?? null,
+              match.price_new ?? null,
+              toy.stable_id,
+            )
+            .run();
+
+          if (changed) {
+            toysUpdated++;
+            details.push({
+              type: 'toy',
+              stableId: toy.stable_id,
+              name: toy.name,
+              oldPrice: toy.price_loose,
+              newPrice: match.price_loose,
+              gameyeId: match.gameye_id,
+            });
+          }
+        } else {
+          // Unmatched toy: touch price_updated_at so it advances in the round-robin queue
+          await env.DB.prepare(
+            `UPDATE toys
+             SET price_updated_at = datetime('now')
+             WHERE stable_id = ?`,
+          )
+            .bind(toy.stable_id)
+            .run();
+        }
+      } catch (err) {
+        console.warn(
+          `[WorkerGameyePricing] Failed pricing lookup for toy ${toy.name} (${toy.stable_id}):`,
+          err,
+        );
+      }
+    }
+  }
+
+  // 2. Process Games
+  if (gameLimit > 0 || options?.specificGameStableId) {
+    let gameQuery = `
+      SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
+             g.price_loose, g.price_cib, g.price_new, g.price_updated_at
+      FROM games g
+    `;
+    const gameArgs: (number | string)[] = [];
+    if (options?.specificGameStableId) {
+      gameQuery += ' WHERE g.stable_id = ?';
+      gameArgs.push(options.specificGameStableId);
+    } else {
+      gameQuery += `
+        WHERE (EXISTS (SELECT 1 FROM game_releases r WHERE r.game_id = g.stable_id AND r.ownership_status > 0)
+               OR g.play_status > 0 OR g.backup_status > 0)
+        ORDER BY g.price_updated_at ASC NULLS FIRST
+        LIMIT ?
+      `;
+      gameArgs.push(gameLimit);
+    }
+
+    const { results: gameRows } = await env.DB.prepare(gameQuery)
+      .bind(...gameArgs)
+      .all<{
+        stable_id: number;
+        id: string;
+        title: string;
+        platform_id: number;
+        region: string | null;
+        gameye_id: number | null;
+        gameye_platform_id: number | null;
+        price_loose: number | null;
+        price_cib: number | null;
+        price_new: number | null;
+        price_updated_at: string | null;
+      }>();
+
+    for (const game of gameRows || []) {
+      gamesChecked++;
+      try {
+        const match = await searchGameyeGame(
+          game.title,
+          game.platform_id,
+          game.region,
+          client,
+        );
+
+        if (match) {
+          const changed =
+            game.gameye_id !== match.gameye_id ||
+            game.gameye_platform_id !== match.gameye_platform_id ||
+            game.price_loose !== match.price_loose ||
+            game.price_cib !== match.price_cib ||
+            game.price_new !== match.price_new;
+
+          await env.DB.prepare(
+            `UPDATE games
+             SET gameye_id = ?,
+                 gameye_platform_id = ?,
+                 price_loose = ?,
+                 price_cib = ?,
+                 price_new = ?,
+                 price_updated_at = datetime('now')
+             WHERE stable_id = ?`,
+          )
+            .bind(
+              match.gameye_id,
+              match.gameye_platform_id,
+              match.price_loose ?? null,
+              match.price_cib ?? null,
+              match.price_new ?? null,
+              game.stable_id,
+            )
+            .run();
+
+          if (changed) {
+            gamesUpdated++;
+            details.push({
+              type: 'game',
+              stableId: game.stable_id,
+              name: game.title,
+              oldPrice: game.price_loose,
+              newPrice: match.price_loose,
+              gameyeId: match.gameye_id,
+            });
+          }
+        } else {
+          // Unmatched game: touch price_updated_at so it advances in the round-robin queue
+          await env.DB.prepare(
+            `UPDATE games
+             SET price_updated_at = datetime('now')
+             WHERE stable_id = ?`,
+          )
+            .bind(game.stable_id)
+            .run();
+        }
+      } catch (err) {
+        console.warn(
+          `[WorkerGameyePricing] Failed pricing lookup for game ${game.title} (${game.stable_id}):`,
+          err,
+        );
+      }
+    }
+  }
+
+  return {
+    toysChecked,
+    toysUpdated,
+    gamesChecked,
+    gamesUpdated,
+    details,
   };
 }
