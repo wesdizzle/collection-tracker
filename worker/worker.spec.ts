@@ -4,6 +4,8 @@ import worker, {
   Env,
   isAuthorizedAdmin,
   performScheduledBackup,
+  syncWorkerBoutiquePreOrders,
+  syncWorkerLaunchDayNotifications,
 } from './worker';
 
 /**
@@ -1615,6 +1617,92 @@ describe('Worker API Logic', () => {
         entries: unknown[];
       };
       expect(afterDelData.entries).toHaveLength(0);
+    });
+
+    it('syncWorkerBoutiquePreOrders updates physical_status and stores retail url on pre-order match', async () => {
+      db.prepare(
+        `
+        INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+        VALUES (777, 'switch-sea-of-stars', 'Sea of Stars', 26, 'physical_pending')
+      `,
+      ).run();
+
+      db.prepare(
+        `
+        INSERT INTO game_releases (id, game_id, ownership_status)
+        VALUES ('sos-rel', 777, 2)
+      `,
+      ).run();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 998877,
+            title: 'Sea of Stars - Physical Edition (Switch)',
+            handle: 'sea-of-stars-switch',
+            tags: ['game', 'pre-order'],
+            images: [{ src: 'https://cdn.iam8bit.com/sea.jpg' }],
+            variants: [{ price: '39.99' }],
+          },
+        ],
+      };
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async () => {
+          return {
+            ok: true,
+            json: async () => mockShopify,
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.matchedCount).toBeGreaterThan(0);
+
+        const updated = db
+          .prepare(
+            'SELECT physical_status, retail_url, retail_store FROM games WHERE id = ?',
+          )
+          .get('switch-sea-of-stars') as {
+          physical_status: string;
+          retail_url: string;
+          retail_store: string;
+        };
+        expect(updated.physical_status).toBe('likely_physical');
+        expect(updated.retail_url).toContain('sea-of-stars-switch');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerLaunchDayNotifications transitions announced_unreleased games launching today', async () => {
+      db.prepare(
+        `
+        INSERT OR IGNORE INTO platforms (id, name, display_name)
+        VALUES (26, 'Nintendo Switch', 'Switch')
+      `,
+      ).run();
+
+      db.prepare(
+        `
+        INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+        VALUES (888, 'metroid-prime-4', 'Metroid Prime 4: Beyond', 26, 'announced_unreleased')
+      `,
+      ).run();
+
+      db.prepare(
+        `
+        INSERT INTO game_releases (id, game_id, release_date)
+        VALUES ('mp4-rel', 888, DATE('now'))
+      `,
+      ).run();
+
+      await syncWorkerLaunchDayNotifications(mockEnv);
+      const updated = db
+        .prepare('SELECT physical_status FROM games WHERE id = ?')
+        .get('metroid-prime-4') as { physical_status: string };
+      expect(updated.physical_status).toBe('likely_physical');
     });
   });
 });

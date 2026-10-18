@@ -21,6 +21,23 @@ export enum PlayStatus {
   Dropped = 5,
 }
 
+export type PhysicalStatus =
+  | 'verified_physical'
+  | 'likely_physical'
+  | 'announced_unreleased'
+  | 'physical_pending'
+  | 'digital_extracted_rom'
+  | 'digital_only'
+  | 'unreleased_prototype'
+  | 'unverified';
+
+export type ReleaseMedium =
+  | 'physical_retail'
+  | 'physical_limited'
+  | 'digital_extracted_rom'
+  | 'digital_native'
+  | 'unreleased_prototype';
+
 export interface GameRelease {
   id: string;
   game_id: number;
@@ -61,7 +78,7 @@ export interface Game {
   title: string;
   series: string;
   canonical_series: string;
-  release_date: string;
+  release_date?: string | null;
   platform: string;
   platform_id: number;
   igdb_id?: number | null;
@@ -100,19 +117,8 @@ export interface Game {
   also_released_as?: string | null;
   rom_name?: string | null;
   rom_crc?: string | null;
-  physical_status?:
-    | 'verified_physical'
-    | 'likely_physical'
-    | 'digital_extracted_rom'
-    | 'digital_only'
-    | 'unreleased_prototype'
-    | 'unverified';
-  release_medium?:
-    | 'physical_retail'
-    | 'physical_limited'
-    | 'digital_extracted_rom'
-    | 'digital_native'
-    | 'unreleased_prototype';
+  physical_status?: PhysicalStatus;
+  release_medium?: ReleaseMedium;
   origin_metadata?: string | null;
   bundle_parent_id?: number | null;
   bundle_disc_number?: number | null;
@@ -227,7 +233,7 @@ export interface DiscoveryPayload {
 }
 
 export interface FilterState {
-  ownership: 'all' | 'seeking_or_unowned' | OwnershipStatus;
+  ownership: 'all' | 'seeking_or_unowned' | 'upcoming' | OwnershipStatus;
   play_status?: 'all' | PlayStatus;
   backup_status?: 'all' | 0 | 1;
   physical_verified?: 'all' | 0 | 1;
@@ -302,16 +308,13 @@ export interface IGDBSearchResult {
   ownership_status?: number;
   play_status?: number;
   backup_status?: number;
-  physical_status?:
-    | 'verified_physical'
-    | 'likely_physical'
-    | 'digital_only'
-    | 'unverified';
+  physical_status?: PhysicalStatus;
   verification_tier?: number;
   is_physical?: boolean;
   physical_regions?: string[];
   matched_releases?: DiscoveryRelease[];
   verification_reasons?: string[];
+  first_release_date?: string | null;
 }
 
 export interface ScanSuggestion {
@@ -366,6 +369,8 @@ export interface DealNotificationPreferences {
   maxPriceCents?: number | null;
   platformIds: number[];
   stores: string[];
+  notify_game_releases?: boolean;
+  notify_physical_announcements?: boolean;
 }
 
 export interface PushSubscriptionPayload {

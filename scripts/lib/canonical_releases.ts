@@ -65,6 +65,8 @@ export type ReleaseMedium =
 export type PhysicalStatus =
   | 'verified_physical'
   | 'likely_physical'
+  | 'announced_unreleased'
+  | 'physical_pending'
   | 'digital_extracted_rom'
   | 'digital_only'
   | 'unreleased_prototype'
@@ -707,6 +709,49 @@ export function detectPhysicalReleaseStatus(options: {
       reasons,
       matched_releases: [],
       physical_regions: [],
+    };
+  }
+
+  // Check if upcoming / announced (release date in future or current/future year)
+  let isUpcoming = false;
+  const currentYear = new Date().getUTCFullYear();
+  if (typeof firstReleaseDate === 'number') {
+    isUpcoming = firstReleaseDate * 1000 > Date.now();
+  } else if (typeof firstReleaseDate === 'string' && firstReleaseDate.trim()) {
+    const parsed = new Date(firstReleaseDate).getTime();
+    if (!isNaN(parsed)) {
+      isUpcoming = parsed > Date.now();
+    } else if (firstYear && firstYear >= currentYear) {
+      isUpcoming = true;
+    }
+  } else if (firstYear && firstYear > currentYear) {
+    isUpcoming = true;
+  }
+
+  if (isUpcoming) {
+    const pubClean = (publisher || '').toLowerCase().trim();
+    const isAllowlistedPublisher = Array.from(
+      PHYSICAL_PUBLISHERS_ALLOWLIST,
+    ).some((p) => pubClean.includes(p));
+    const hasPhysicalSignal = Boolean(
+      isAllowlistedPublisher ||
+      barcode ||
+      serialCode ||
+      igdbPackaging ||
+      (igdbGameFormat && igdbGameFormat.toLowerCase().includes('physical')),
+    );
+    reasons.push(
+      hasPhysicalSignal
+        ? 'Upcoming game with confirmed or likely physical distribution signals'
+        : 'Upcoming/announced title awaiting commercial release',
+    );
+    return {
+      physical_status: 'announced_unreleased',
+      verification_tier: hasPhysicalSignal ? 2 : 0,
+      is_physical: hasPhysicalSignal,
+      reasons,
+      matched_releases: [],
+      physical_regions: hasPhysicalSignal ? ['USA', 'World'] : [],
     };
   }
 

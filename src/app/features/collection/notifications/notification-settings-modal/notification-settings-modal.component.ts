@@ -262,6 +262,61 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             }
           </div>
 
+          <!-- Dimension: Upcoming & Physical Alerts -->
+          <div class="setting-section">
+            <label class="section-label">Upcoming & Physical Alerts</label>
+            <div class="setting-card-group">
+              <div class="setting-toggle-row">
+                <div class="setting-text">
+                  <div class="font-semibold text-xs flex items-center gap-2xs">
+                    <app-icon name="calendar" [size]="14" />
+                    <span>Game Launch Alerts</span>
+                  </div>
+                  <div class="text-2xs text-muted">
+                    Notify when tracked upcoming games officially release
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="btn-toggle"
+                  [class.active]="localPrefs.notify_game_releases !== false"
+                  [class.inactive]="localPrefs.notify_game_releases === false"
+                  (click)="toggleNotifyGameReleases()"
+                  aria-label="Toggle game release notifications"
+                >
+                  <span class="toggle-knob"></span>
+                </button>
+              </div>
+
+              <div class="setting-toggle-row">
+                <div class="setting-text">
+                  <div class="font-semibold text-xs flex items-center gap-2xs">
+                    <app-icon name="physical-box" [size]="14" />
+                    <span>Physical Edition & Pre-Order Alerts</span>
+                  </div>
+                  <div class="text-2xs text-muted">
+                    Notify when a physical edition is announced by boutique
+                    publishers
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="btn-toggle"
+                  [class.active]="
+                    localPrefs.notify_physical_announcements !== false
+                  "
+                  [class.inactive]="
+                    localPrefs.notify_physical_announcements === false
+                  "
+                  (click)="toggleNotifyPhysicalAnnouncements()"
+                  aria-label="Toggle physical announcement notifications"
+                >
+                  <span class="toggle-knob"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Test Alert Section -->
           @if (notificationService.isSubscribed() || testMessage()) {
             <div class="test-alert-box">
@@ -518,6 +573,28 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         display: flex;
         flex-direction: column;
         gap: 0.4rem;
+      }
+
+      .setting-card-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        background: var(--m3-surface-container-low);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: 14px;
+        padding: 0.85rem 1rem;
+      }
+
+      .setting-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+      }
+
+      .setting-text {
+        flex: 1;
+        min-width: 0;
       }
 
       .section-label {
@@ -847,6 +924,16 @@ export class NotificationSettingsModalComponent {
     } finally {
       this.isTestingAlert.set(false);
     }
+  }
+
+  public toggleNotifyGameReleases(): void {
+    this.localPrefs.notify_game_releases =
+      this.localPrefs.notify_game_releases === false ? true : false;
+  }
+
+  public toggleNotifyPhysicalAnnouncements(): void {
+    this.localPrefs.notify_physical_announcements =
+      this.localPrefs.notify_physical_announcements === false ? true : false;
   }
 
   public async onSavePreferences(): Promise<void> {

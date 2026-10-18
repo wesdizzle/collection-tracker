@@ -69,6 +69,11 @@ import {
   WebPushNotificationPayload,
 } from './web_push';
 import { handleMcpRequest } from './mcp';
+import {
+  fetchBoutiquePreOrders,
+  BoutiquePreOrder,
+} from '../scripts/lib/physical_feeds';
+import { DealNotificationPreferences } from '../src/app/core/models/collection.models';
 
 export interface Env {
   DB: D1Database;
@@ -1058,6 +1063,11 @@ Disallow: /
                     : 'USA',
                 matched_releases: matchedReleasesFormatted,
                 verification_reasons: verification.reasons,
+                first_release_date: g.first_release_date
+                  ? new Date(g.first_release_date * 1000)
+                      .toISOString()
+                      .split('T')[0]
+                  : null,
               };
             })
             .filter((item): item is NonNullable<typeof item> => item !== null);
@@ -2190,6 +2200,7 @@ Disallow: /
             physical_status?: string;
             verification_tier?: number;
             barcode?: string | null;
+            release_date?: string | null;
           };
           releases?: Array<{
             region?: string | null;
@@ -2350,13 +2361,16 @@ Disallow: /
             `
             INSERT INTO game_releases (
               id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date, is_physical
-            ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, NULL, ?)
+            ) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)
           `,
           )
             .bind(
               defaultRelId,
               finalStableId,
               gameRegion,
+              game.ownership_status || 0,
+              game.backup_status || 0,
+              game.release_date || null,
               game.physical_status === 'digital_only' ? 0 : 1,
             )
             .run();
@@ -2490,6 +2504,23 @@ Disallow: /
         }
 
         const result = await syncWorkerRetailDeals(env);
+        await invalidateEdgeApiCache(request.url);
+        return Response.json({ success: true, ...result });
+      }
+
+      // Endpoint: POST /api/retail/sync-boutique
+      else if (
+        request.method === 'POST' &&
+        path === '/api/retail/sync-boutique'
+      ) {
+        if (!isAuthorizedAdmin(request, env)) {
+          return Response.json(
+            { error: 'Unauthorized: Admin authentication required.' },
+            { status: 403 },
+          );
+        }
+
+        const result = await syncWorkerBoutiquePreOrders(env);
         await invalidateEdgeApiCache(request.url);
         return Response.json({ success: true, ...result });
       }
@@ -2976,25 +3007,28 @@ Disallow: /
   },
 
   /**
-   * Scheduled cron event handler invoked by Cloudflare to generate daily R2 backups,
-   * scan for active retail deals (VGP, PNP Games, Best Buy), and refresh a rolling
-   * batch of IGDB series/franchise tags while reconciling canonical_series.
+   * Scheduled cron event handler invoked by Cloudflare.
+   * Runs every 30 minutes (crons = ["* /30 * * * *"]):
+   * 1. Ingests boutique physical publisher pre-order feeds (LRG, SRG, iam8bit, Fangamer, Strictly Limited, VGP, PNP Games).
+   * 2. Advances the rolling 500-game IGDB batch query and checks tracked upcoming games.
+   *
+   * Runs during daily window (23:30 UTC or cron "30 23 * * *"):
+   * 1. Generates daily structured R2 database snapshot backup.
+   * 2. Scans active retail deals (Best Buy, VGP, PNP Games).
+   * 3. Dispatches launch-day push notifications for tracked games releasing today.
    */
   async scheduled(
-    _event: ScheduledEvent,
+    event: ScheduledEvent,
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
-    console.log('[WorkerCron] Executing scheduled daily snapshot backup...');
-    await performScheduledBackup(env);
-
     console.log(
-      '[WorkerCron] Executing scheduled retail deal scan (VGP, PNP Games, Best Buy)...',
+      '[WorkerCron] Executing scheduled boutique physical pre-order sync...',
     );
     try {
-      await syncWorkerRetailDeals(env);
+      await syncWorkerBoutiquePreOrders(env);
     } catch (err) {
-      console.error('[WorkerCron] Retail deal sync failed:', err);
+      console.error('[WorkerCron] Boutique pre-order sync failed:', err);
     }
 
     console.log(
@@ -3007,6 +3041,38 @@ Disallow: /
         '[WorkerCron] IGDB series refresh and canonical_series sync failed:',
         err,
       );
+    }
+
+    const now = new Date();
+    const isDailyWindow =
+      event.cron === '30 23 * * *' ||
+      (now.getUTCHours() === 23 && now.getUTCMinutes() >= 30);
+
+    if (isDailyWindow) {
+      console.log('[WorkerCron] Executing scheduled daily snapshot backup...');
+      try {
+        await performScheduledBackup(env);
+      } catch (err) {
+        console.error('[WorkerCron] Daily snapshot backup failed:', err);
+      }
+
+      console.log(
+        '[WorkerCron] Executing scheduled retail deal scan (VGP, PNP Games, Best Buy)...',
+      );
+      try {
+        await syncWorkerRetailDeals(env);
+      } catch (err) {
+        console.error('[WorkerCron] Retail deal sync failed:', err);
+      }
+
+      console.log(
+        '[WorkerCron] Checking for launch-day game releases and notifications...',
+      );
+      try {
+        await syncWorkerLaunchDayNotifications(env);
+      } catch (err) {
+        console.error('[WorkerCron] Launch-day release scan failed:', err);
+      }
     }
   },
 };
@@ -3305,6 +3371,343 @@ export async function dispatchDealPushNotifications(
 }
 
 /**
+ * Synchronizes boutique physical publisher pre-orders and storefront catalogs
+ * (Limited Run Games, Super Rare Games, iam8bit, Fangamer, Strictly Limited Games, VGP, PNP Games)
+ * into Cloudflare D1 and dispatches push notifications when physical editions are detected.
+ */
+export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
+  matchedCount: number;
+  totalPreOrders: number;
+  notifications?: { dispatchedCount: number; purgedCount: number };
+}> {
+  const preOrders = await fetchBoutiquePreOrders(fetch);
+  if (preOrders.length === 0) {
+    return { matchedCount: 0, totalPreOrders: 0 };
+  }
+
+  const candidateRows = await env.DB.prepare(
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
+            COALESCE(r.ownership_status, 0) as ownership_status
+     FROM games g
+     LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
+  ).all<{
+    stable_id: number;
+    id: string;
+    title: string;
+    platform_id: number;
+    physical_status: string;
+    retail_url: string | null;
+    ownership_status: number;
+  }>();
+
+  const games = candidateRows.results || [];
+  if (games.length === 0) {
+    return { matchedCount: 0, totalPreOrders: preOrders.length };
+  }
+
+  const gamesWithNorm = games.map((g) => ({
+    ...g,
+    normTitle: normalizeTitleForMatching(g.title),
+  }));
+
+  const newlyAnnouncedGames: Array<{
+    game: {
+      id: string;
+      title: string;
+      ownership_status: number;
+      platform_id: number;
+    };
+    preOrder: BoutiquePreOrder;
+  }> = [];
+
+  const statements: D1PreparedStatement[] = [];
+
+  for (const po of preOrders) {
+    if (!po.platformId) continue;
+    const poNorm = normalizeTitleForMatching(po.cleanTitle);
+    if (!poNorm) continue;
+
+    const match = gamesWithNorm.find(
+      (g) =>
+        g.platform_id === po.platformId &&
+        (g.normTitle === poNorm ||
+          g.title.toLowerCase() === po.cleanTitle.toLowerCase()),
+    );
+
+    if (match) {
+      const shouldUpdatePhysicalStatus =
+        match.physical_status === 'physical_pending' ||
+        match.physical_status === 'unverified' ||
+        match.physical_status === 'digital_only';
+
+      const nextPhysicalStatus = shouldUpdatePhysicalStatus
+        ? 'likely_physical'
+        : match.physical_status;
+
+      if (shouldUpdatePhysicalStatus || match.retail_url !== po.productUrl) {
+        statements.push(
+          env.DB.prepare(
+            `UPDATE games
+             SET physical_status = ?,
+                 retail_url = ?,
+                 retail_price = COALESCE(?, retail_price),
+                 retail_store = ?
+             WHERE stable_id = ?`,
+          ).bind(
+            nextPhysicalStatus,
+            po.productUrl,
+            po.priceUsd ?? null,
+            po.store,
+            match.stable_id,
+          ),
+        );
+
+        if (shouldUpdatePhysicalStatus) {
+          newlyAnnouncedGames.push({
+            game: match,
+            preOrder: po,
+          });
+        }
+      }
+    }
+  }
+
+  if (statements.length > 0) {
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
+      const chunk = statements.slice(i, i + CHUNK_SIZE);
+      await env.DB.batch(chunk);
+    }
+  }
+
+  let notificationsResult = { dispatchedCount: 0, purgedCount: 0 };
+  if (newlyAnnouncedGames.length > 0) {
+    notificationsResult = await dispatchPhysicalAnnouncementNotifications(
+      newlyAnnouncedGames,
+      env,
+    );
+  }
+
+  return {
+    matchedCount: statements.length,
+    totalPreOrders: preOrders.length,
+    notifications: notificationsResult,
+  };
+}
+
+async function dispatchPhysicalAnnouncementNotifications(
+  items: Array<{
+    game: {
+      id: string;
+      title: string;
+      ownership_status: number;
+      platform_id: number;
+    };
+    preOrder: BoutiquePreOrder;
+  }>,
+  env: Env,
+): Promise<{ dispatchedCount: number; purgedCount: number }> {
+  let dispatchedCount = 0;
+  let purgedCount = 0;
+
+  try {
+    const subRows = await env.DB.prepare(
+      `SELECT endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
+    ).all<{
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      preferences_json: string | null;
+    }>();
+
+    for (const sub of subRows.results || []) {
+      let prefs: Partial<DealNotificationPreferences> = {};
+      try {
+        if (sub.preferences_json) {
+          prefs = JSON.parse(sub.preferences_json);
+        }
+      } catch (err) {
+        console.warn('Failed to parse subscription preferences:', err);
+      }
+
+      if (
+        prefs.enabled === false ||
+        prefs.notify_physical_announcements === false
+      ) {
+        continue;
+      }
+
+      const userPlatforms =
+        prefs.platformIds && prefs.platformIds.length > 0
+          ? new Set(prefs.platformIds)
+          : null;
+
+      const matchedForSub = items.filter(({ game }) => {
+        if (prefs.scope === 'seeking_only' && game.ownership_status !== 2) {
+          return false;
+        }
+        if (userPlatforms && !userPlatforms.has(game.platform_id)) {
+          return false;
+        }
+        return true;
+      });
+
+      if (matchedForSub.length === 0) continue;
+
+      const top = matchedForSub[0];
+      const title = `📦 Physical Edition Announced: ${top.game.title}`;
+      const body = `Pre-order now available at ${top.preOrder.store}!`;
+
+      const payload: WebPushNotificationPayload = {
+        title,
+        body,
+        icon: '/icons/icon-192.png',
+        badge: '/icons/badge-96.png',
+        data: {
+          url: `/item/${top.game.id}`,
+        },
+      };
+
+      const result = await sendWebPushNotification(
+        { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+        payload,
+        {
+          publicKey: env.VAPID_PUBLIC_KEY,
+          privateKey: env.VAPID_PRIVATE_KEY,
+          subject: resolveVapidSubject(undefined, undefined, env.ADMIN_EMAIL),
+          fetchFn: fetch,
+        },
+      );
+
+      if (result.success) {
+        dispatchedCount++;
+      } else if (result.shouldDelete) {
+        await env.DB.prepare(
+          'DELETE FROM push_subscriptions WHERE endpoint = ?',
+        )
+          .bind(sub.endpoint)
+          .run();
+        purgedCount++;
+      }
+    }
+  } catch (err) {
+    console.error(
+      '[WebPush] Error dispatching physical announcement notifications:',
+      err,
+    );
+  }
+
+  return { dispatchedCount, purgedCount };
+}
+
+/**
+ * Checks for tracked games releasing on today's calendar date, transitions their status
+ * from 'announced_unreleased' to 'likely_physical', and dispatches launch-day push notifications.
+ */
+export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
+  dispatchedCount: number;
+  purgedCount: number;
+}> {
+  let dispatchedCount = 0;
+  let purgedCount = 0;
+
+  try {
+    const launchRows = await env.DB.prepare(
+      `SELECT g.stable_id, g.id, g.title, g.platform_id, p.display_name as platform_name, r.release_date
+       FROM games g
+       JOIN platforms p ON p.id = g.platform_id
+       JOIN game_releases r ON r.game_id = g.stable_id
+       WHERE r.release_date = DATE('now')
+         AND g.physical_status = 'announced_unreleased'`,
+    ).all<{
+      stable_id: number;
+      id: string;
+      title: string;
+      platform_id: number;
+      platform_name: string;
+      release_date: string;
+    }>();
+
+    const gamesLaunchingToday = launchRows.results || [];
+    if (gamesLaunchingToday.length === 0) {
+      return { dispatchedCount: 0, purgedCount: 0 };
+    }
+
+    const updateStmts = gamesLaunchingToday.map((g) =>
+      env.DB.prepare(
+        `UPDATE games SET physical_status = 'likely_physical' WHERE stable_id = ?`,
+      ).bind(g.stable_id),
+    );
+    await env.DB.batch(updateStmts);
+
+    const subRows = await env.DB.prepare(
+      `SELECT endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
+    ).all<{
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      preferences_json: string | null;
+    }>();
+
+    for (const sub of subRows.results || []) {
+      let prefs: Partial<DealNotificationPreferences> = {};
+      try {
+        if (sub.preferences_json) {
+          prefs = JSON.parse(sub.preferences_json);
+        }
+      } catch (err) {
+        console.warn('Failed to parse subscription preferences:', err);
+      }
+
+      if (prefs.enabled === false || prefs.notify_game_releases === false) {
+        continue;
+      }
+
+      for (const game of gamesLaunchingToday) {
+        const title = `🎉 Game Launch Day: ${game.title}`;
+        const body = `${game.title} officially releases today on ${game.platform_name}!`;
+
+        const payload: WebPushNotificationPayload = {
+          title,
+          body,
+          icon: '/icons/icon-192.png',
+          badge: '/icons/badge-96.png',
+          data: {
+            url: `/item/${game.id}`,
+          },
+        };
+
+        const result = await sendWebPushNotification(
+          { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+          payload,
+          {
+            publicKey: env.VAPID_PUBLIC_KEY,
+            privateKey: env.VAPID_PRIVATE_KEY,
+            subject: resolveVapidSubject(undefined, undefined, env.ADMIN_EMAIL),
+            fetchFn: fetch,
+          },
+        );
+
+        if (result.success) {
+          dispatchedCount++;
+        } else if (result.shouldDelete) {
+          await env.DB.prepare(
+            'DELETE FROM push_subscriptions WHERE endpoint = ?',
+          )
+            .bind(sub.endpoint)
+            .run();
+          purgedCount++;
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[WebPush] Error dispatching launch day notifications:', err);
+  }
+
+  return { dispatchedCount, purgedCount };
+}
+
+/**
  * Refreshes a rolling window of up to 500 IGDB games per day (1 IGDB batch query)
  * and reconciles `canonical_series` across all games in D1 using diff-only updates.
  *
@@ -3320,7 +3723,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
   cursorOffset?: number;
 }> {
   const { results } = await env.DB.prepare(
-    `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series
+    `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series, physical_status
      FROM games
      ORDER BY stable_id ASC`,
   ).all<{
@@ -3330,6 +3733,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
     collections: string | null;
     franchises: string | null;
     canonical_series: string | null;
+    physical_status?: string | null;
   }>();
 
   const games = results || [];
@@ -3344,6 +3748,15 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
         .filter((id) => Number.isFinite(id) && id > 0),
     ),
   ).sort((a, b) => a - b);
+
+  const trackedUpcomingIds = games
+    .filter(
+      (g) =>
+        g.physical_status === 'announced_unreleased' ||
+        g.physical_status === 'physical_pending',
+    )
+    .map((g) => Number(g.igdb_id))
+    .filter((id) => Number.isFinite(id) && id > 0);
 
   const BATCH_SIZE = 500;
   const igdbFreshMap = new Map<
@@ -3378,9 +3791,13 @@ export async function syncWorkerIgdbSeriesAndCanonical(env: Env): Promise<{
       currentOffset = 0;
     }
 
-    const batchIds = uniqueIgdbIds.slice(
+    const batchSlice = uniqueIgdbIds.slice(
       currentOffset,
       currentOffset + BATCH_SIZE,
+    );
+
+    const batchIds = Array.from(
+      new Set([...batchSlice, ...trackedUpcomingIds]),
     );
 
     if (batchIds.length > 0) {

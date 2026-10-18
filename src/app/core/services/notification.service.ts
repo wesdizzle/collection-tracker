@@ -15,6 +15,8 @@ export const DEFAULT_DEAL_PREFERENCES: DealNotificationPreferences = {
   maxPriceCents: null,
   platformIds: [],
   stores: ['Best Buy', 'VGP', 'PNP Games'],
+  notify_game_releases: true,
+  notify_physical_announcements: true,
 };
 
 const STORAGE_KEY_PREFS = 'app_deal_notification_prefs';

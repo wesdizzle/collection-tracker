@@ -278,11 +278,36 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                             />
                             Likely Physical</span
                           >
+                        } @else if (
+                          game.physical_status === 'announced_unreleased'
+                        ) {
+                          <span
+                            class="physical-badge upcoming flex items-center gap-2xs"
+                            title="Announced Game / Upcoming Release"
+                            ><app-icon
+                              name="calendar"
+                              [size]="12"
+                              class="text-blue-400"
+                            />
+                            Upcoming</span
+                          >
+                        } @else if (
+                          game.physical_status === 'physical_pending'
+                        ) {
+                          <span
+                            class="physical-badge pending flex items-center gap-2xs"
+                            title="Digital Release Awaiting Physical Edition"
+                            ><app-icon
+                              name="clock"
+                              [size]="12"
+                              class="text-purple-400"
+                            />
+                            Physical Pending</span
+                          >
                         } @else if (game.physical_status === 'digital_only') {
                           <span
-                            class="physical-badge digital"
+                            class="physical-badge digital flex items-center gap-2xs"
                             title="Digital-Only / Virtual Console Re-release"
-                            class="flex items-center gap-2xs"
                             ><app-icon
                               name="circle-empty"
                               [size]="12"
@@ -948,8 +973,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                       >
                     } @else if (game.physical_status === 'likely_physical') {
                       <span
-                        class="physical-badge likely"
-                        class="flex items-center gap-2xs"
+                        class="physical-badge likely flex items-center gap-2xs"
                         ><app-icon
                           name="circle-half"
                           [size]="12"
@@ -957,10 +981,31 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                         />
                         Likely Physical</span
                       >
+                    } @else if (
+                      game.physical_status === 'announced_unreleased'
+                    ) {
+                      <span
+                        class="physical-badge upcoming flex items-center gap-2xs"
+                        ><app-icon
+                          name="calendar"
+                          [size]="12"
+                          class="text-blue-400"
+                        />
+                        Upcoming</span
+                      >
+                    } @else if (game.physical_status === 'physical_pending') {
+                      <span
+                        class="physical-badge pending flex items-center gap-2xs"
+                        ><app-icon
+                          name="clock"
+                          [size]="12"
+                          class="text-purple-400"
+                        />
+                        Physical Pending</span
+                      >
                     } @else if (game.physical_status === 'digital_only') {
                       <span
-                        class="physical-badge digital"
-                        class="flex items-center gap-2xs"
+                        class="physical-badge digital flex items-center gap-2xs"
                         ><app-icon
                           name="circle-empty"
                           [size]="12"
@@ -1039,6 +1084,43 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                     }
                   </div>
                 </div>
+              } @else if (game.physical_status === 'announced_unreleased') {
+                <div
+                  class="upcoming-info-banner p-md mb-lg rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-200 text-sm flex items-start gap-sm"
+                >
+                  <app-icon
+                    name="calendar"
+                    [size]="18"
+                    class="text-blue-400 shrink-0 mt-2xs"
+                  />
+                  <div>
+                    <span class="font-bold">Upcoming Release:</span> This title
+                    has been announced and is awaiting commercial launch. It
+                    will be tracked as an upcoming release on your wishlist.
+                    @if (game.first_release_date) {
+                      <div class="mt-2xs text-xs text-blue-300 font-medium">
+                        Expected Date: {{ game.first_release_date }}
+                      </div>
+                    }
+                  </div>
+                </div>
+              } @else if (game.physical_status === 'physical_pending') {
+                <div
+                  class="upcoming-info-banner p-md mb-lg rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-200 text-sm flex items-start gap-sm"
+                >
+                  <app-icon
+                    name="clock"
+                    [size]="18"
+                    class="text-purple-400 shrink-0 mt-2xs"
+                  />
+                  <div>
+                    <span class="font-bold">Physical Edition Watch:</span>
+                    Currently released digitally or awaiting physical edition
+                    confirmation. When boutique publishers (LRG, SRG, iam8bit,
+                    etc.) launch pre-orders, your collection will automatically
+                    detect it.
+                  </div>
+                </div>
               }
 
               <!-- Ingestion status parameters -->
@@ -1048,9 +1130,10 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                   <select
                     id="ownership-select"
                     class="m3-select"
+                    [value]="ownershipStatus()"
                     (change)="onOwnershipChange($event)"
                   >
-                    <option value="1" selected>Owned</option>
+                    <option value="1">Owned</option>
                     <option value="2">Seeking</option>
                     <option value="3">Ordered</option>
                     <option value="0">Unowned</option>
@@ -1801,6 +1884,16 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         color: #facc15;
         border: 1px solid rgba(234, 179, 8, 0.35);
       }
+      .physical-badge.upcoming {
+        background: rgba(59, 130, 246, 0.18);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.35);
+      }
+      .physical-badge.pending {
+        background: rgba(168, 85, 247, 0.18);
+        color: #c084fc;
+        border: 1px solid rgba(168, 85, 247, 0.35);
+      }
       .physical-badge.digital {
         background: rgba(148, 163, 184, 0.15);
         color: #cbd5e1;
@@ -2202,8 +2295,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     this.matchedReleases.set([]);
     this.selectedReleaseIds.set(new Set());
 
-    // Reset forms to defaults (Owned, Unplayed, Not Backed Up)
-    this.ownershipStatus.set(1);
+    // Reset forms to defaults (Seeking for upcoming/pending, else Owned)
+    const isUpcomingOrPending =
+      game.physical_status === 'announced_unreleased' ||
+      game.physical_status === 'physical_pending';
+    this.ownershipStatus.set(isUpcomingOrPending ? 2 : 1);
     this.playStatus.set(0);
     this.backupStatus.set(0);
 
@@ -2353,6 +2449,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         backup_status: this.backupStatus(),
         physical_status: game.physical_status || 'unverified',
         verification_tier: game.verification_tier || 0,
+        release_date: game.first_release_date || null,
       },
       releases: selectedReleases.map((r) => ({
         region: r.region || null,

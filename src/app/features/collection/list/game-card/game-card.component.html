@@ -202,8 +202,33 @@
             }}
           </span>
         }
+        @if (game().physical_status === 'announced_unreleased') {
+          <span
+            class="upcoming-badge"
+            [title]="
+              game().release_date
+                ? 'Announced: ' + game().release_date
+                : 'Upcoming Release'
+            "
+          >
+            <app-icon name="calendar" [size]="12" />
+            <span class="upcoming-badge-text">{{
+              game().release_date || 'Upcoming'
+            }}</span>
+          </span>
+        } @else if (game().physical_status === 'physical_pending') {
+          <span
+            class="pending-badge"
+            title="Awaiting Physical Edition / Pre-Order"
+          >
+            <app-icon name="clock" [size]="12" />
+            <span class="pending-badge-text">Physical Watch</span>
+          </span>
+        }
       </div>
-      @if (game().release_date) {
+      @if (
+        game().release_date && game().physical_status !== 'announced_unreleased'
+      ) {
         <span class="release-year">{{
           game().release_date!.substring(0, 4)
         }}</span>
@@ -289,6 +314,26 @@
             {{ '$' + (savings / 100).toFixed(2) }} vs Used
           </span>
         }
+      </div>
+    } @else if (
+      !game().retail_on_sale && game().retail_url && game().retail_store
+    ) {
+      <div class="mt-2xs">
+        <span
+          class="preorder-store-badge"
+          [title]="'Pre-order available at ' + game().retail_store"
+        >
+          <app-icon name="physical-box" [size]="12" />
+          Pre-Order at {{ game().retail_store }}
+          @if (game().retail_price) {
+            • ${{
+              (game().retail_price! > 1000
+                ? game().retail_price! / 100
+                : game().retail_price!
+              ).toFixed(2)
+            }}
+          }
+        </span>
       </div>
     } @else if (getGamePriceBadge(game()); as badge) {
       <div class="mt-2xs">

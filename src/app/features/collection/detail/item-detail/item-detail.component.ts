@@ -122,7 +122,21 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   <span>IGDB Verified</span>
                 </a>
               }
-              @if (
+              @if (g.physical_status === 'announced_unreleased') {
+                <div class="stat-pill active upcoming">
+                  <span class="icon"
+                    ><app-icon name="calendar" [size]="14"
+                  /></span>
+                  <span>Upcoming Launch (Pre-Release)</span>
+                </div>
+              } @else if (g.physical_status === 'physical_pending') {
+                <div class="stat-pill active pending">
+                  <span class="icon"
+                    ><app-icon name="clock" [size]="14"
+                  /></span>
+                  <span>Awaiting Physical Edition</span>
+                </div>
+              } @else if (
                 g.physical_status === 'digital_extracted_rom' ||
                 g.release_medium === 'digital_extracted_rom'
               ) {
@@ -630,6 +644,65 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         </div>
 
         @if (game(); as g) {
+          @if (upcomingReleaseInfo(); as info) {
+            <section class="upcoming-watch-section animate-slide-up mb-xl">
+              <div
+                class="upcoming-card p-md rounded-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+              >
+                <div class="upcoming-info">
+                  <div class="flex items-center gap-sm flex-wrap">
+                    <span
+                      class="upcoming-badge-pill font-bold"
+                      [class.pending-pill]="info.isPending"
+                    >
+                      <app-icon
+                        [name]="info.isPending ? 'clock' : 'calendar'"
+                        [size]="14"
+                      />
+                      {{
+                        info.isPending ? 'PHYSICAL WATCH' : 'UPCOMING RELEASE'
+                      }}
+                    </span>
+                    @if (info.countdownText) {
+                      <span class="text-base font-bold text-on-surface">
+                        {{ info.countdownText }}
+                      </span>
+                    }
+                    @if (info.price) {
+                      <span class="text-base font-semibold text-secondary">
+                        {{ info.price }}
+                      </span>
+                    }
+                    @if (info.hasStoreLink) {
+                      <span class="text-sm font-semibold text-secondary">
+                        available at {{ info.storeName }}
+                      </span>
+                    }
+                  </div>
+                  <p class="text-sm text-secondary m-0 mt-xs">
+                    @if (info.isPending) {
+                      Tracking boutique physical feeds (Limited Run Games, Super
+                      Rare, iam8bit, etc.) for physical announcements.
+                    } @else {
+                      Tracked for release day updates and physical pre-order
+                      availability.
+                    }
+                  </p>
+                </div>
+                @if (info.hasStoreLink) {
+                  <a
+                    [href]="info.retailUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-preorder-link"
+                  >
+                    Pre-Order at {{ info.storeName }} ↗
+                  </a>
+                }
+              </div>
+            </section>
+          }
+
           <section class="market-section animate-slide-up mb-xl">
             <div class="market-header flex justify-between items-center mb-md">
               <h2 class="text-xl font-bold flex items-center gap-xs m-0">
@@ -694,6 +767,34 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                     View on {{ g.retail_store || 'Best Buy' }} ↗
                   </a>
                 }
+              </div>
+            } @else if (
+              !g.retail_on_sale && g.retail_url && !upcomingReleaseInfo()
+            ) {
+              <div
+                class="deal-banner p-md rounded-lg mb-md flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+                style="background: var(--m3-surface-container-high); border-color: var(--m3-outline-variant);"
+              >
+                <div class="deal-info">
+                  <div class="flex items-center gap-sm flex-wrap">
+                    @if (g.retail_price) {
+                      <span class="text-xl font-extrabold text-on-surface">
+                        {{ '$' + (g.retail_price / 100).toFixed(2) }}
+                      </span>
+                    }
+                    <span class="text-sm font-semibold text-secondary">
+                      Available at {{ g.retail_store || 'Retailer' }}
+                    </span>
+                  </div>
+                </div>
+                <a
+                  [href]="g.retail_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn-retail-buy"
+                >
+                  View on {{ g.retail_store || 'Store' }} ↗
+                </a>
               </div>
             }
 
@@ -1414,6 +1515,18 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         border: 1px solid var(--m3-outline-variant);
       }
 
+      .stat-pill.active.upcoming {
+        background: rgba(59, 130, 246, 0.15);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.4);
+      }
+
+      .stat-pill.active.pending {
+        background: rgba(168, 85, 247, 0.15);
+        color: #c084fc;
+        border: 1px solid rgba(168, 85, 247, 0.4);
+      }
+
       .stat-pill.interactive {
         cursor: pointer;
       }
@@ -1750,6 +1863,55 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         border: 1px solid var(--m3-outline-variant);
         border-radius: var(--radius-sm);
         padding: var(--spacing-12) var(--spacing-16);
+      }
+      .upcoming-watch-section {
+        margin-top: var(--spacing-32);
+      }
+      .upcoming-card {
+        background: linear-gradient(
+          135deg,
+          rgba(59, 130, 246, 0.12) 0%,
+          rgba(168, 85, 247, 0.08) 100%
+        );
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        border-radius: var(--radius-md);
+        padding: var(--spacing-16);
+      }
+      .upcoming-badge-pill {
+        font-family: var(--font-body);
+        background: #2563eb;
+        color: #ffffff;
+        padding: 0.2rem 0.6rem;
+        border-radius: var(--radius-tag, 6px);
+        font-size: 0.8125rem;
+        letter-spacing: 0.02em;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+      }
+      .upcoming-badge-pill.pending-pill {
+        background: #9333ea;
+      }
+      .btn-preorder-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.5rem 1.25rem;
+        background: #2563eb;
+        color: #ffffff;
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 0.875rem;
+        border-radius: var(--radius-full);
+        text-decoration: none;
+        white-space: nowrap;
+        transition:
+          opacity 0.2s,
+          transform 0.2s;
+      }
+      .btn-preorder-link:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
       }
       .market-section {
         margin-top: var(--spacing-32);
@@ -2457,6 +2619,63 @@ export class ItemDetailComponent {
     } catch {
       return releaseDate;
     }
+  });
+
+  /**
+   * Computes upcoming status, launch countdown, and boutique pre-order storefront link.
+   */
+  public upcomingReleaseInfo = computed(() => {
+    const g = this.game();
+    if (!g) return null;
+    const isAnnounced = g.physical_status === 'announced_unreleased';
+    const isPending = g.physical_status === 'physical_pending';
+    if (!isAnnounced && !isPending) return null;
+
+    let countdownText: string | null = null;
+    let isReleased = false;
+
+    if (g.release_date) {
+      const parts = g.release_date.split('-');
+      if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const target = new Date(year, month, day);
+        const now = new Date();
+        const nowMidnight = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+        );
+        const diffMs = target.getTime() - nowMidnight.getTime();
+        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffDays > 1) {
+          countdownText = `Releases in ${diffDays} days (${g.release_date})`;
+        } else if (diffDays === 1) {
+          countdownText = `Releases tomorrow (${g.release_date})`;
+        } else if (diffDays === 0) {
+          countdownText = 'Releases today!';
+          isReleased = true;
+        } else {
+          countdownText = `Released on ${g.release_date}`;
+          isReleased = true;
+        }
+      } else if (g.release_date) {
+        countdownText = `Target: ${g.release_date}`;
+      }
+    }
+
+    return {
+      isAnnounced,
+      isPending,
+      countdownText,
+      isReleased,
+      hasStoreLink: !!g.retail_url,
+      storeName: g.retail_store || 'Publisher Store',
+      retailUrl: g.retail_url,
+      price: g.retail_price ? `$${(g.retail_price / 100).toFixed(2)}` : null,
+    };
   });
 
   /**

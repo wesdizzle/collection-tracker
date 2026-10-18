@@ -116,6 +116,14 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             @if (currentTab() === 'games') {
               <button
                 type="button"
+                class="status-pill-btn state-layer"
+                [class.active]="isUpcomingActive()"
+                (click)="selectQuickStatus('upcoming')"
+              >
+                Upcoming
+              </button>
+              <button
+                type="button"
                 class="status-pill-btn deals-pill state-layer"
                 [class.active]="isDealsActive()"
                 (click)="selectQuickStatus('deals')"
@@ -2382,12 +2390,24 @@ export class CollectionFiltersComponent {
     );
   });
 
-  public selectQuickStatus(status: 'owned' | 'all' | 'seeking' | 'deals') {
+  public readonly isUpcomingActive = computed(() => {
+    return this.filters().ownership === 'upcoming';
+  });
+
+  public selectQuickStatus(
+    status: 'owned' | 'all' | 'seeking' | 'deals' | 'upcoming',
+  ) {
     if (status === 'deals') {
       this.filtersChange.emit({
         ...this.filters(),
         ownership: 'seeking_or_unowned',
         deals_only: true,
+      });
+    } else if (status === 'upcoming') {
+      this.filtersChange.emit({
+        ...this.filters(),
+        ownership: 'upcoming',
+        deals_only: false,
       });
     } else if (status === 'owned') {
       this.filtersChange.emit({

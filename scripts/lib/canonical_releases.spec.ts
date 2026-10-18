@@ -238,6 +238,32 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(animalCrossingRes.physical_regions).toEqual(['Japan']);
     });
 
+    it('should detect upcoming games with future release dates as announced_unreleased', () => {
+      const futureTimestamp = Math.floor(Date.now() / 1000) + 86400 * 180; // 180 days in future
+
+      // Upcoming game with physical publisher signal
+      const upcomingPhysical = detectPhysicalReleaseStatus({
+        platformId: 26, // Switch
+        gameTitle: 'Shantae Advance: Risky Revolution',
+        firstReleaseDate: futureTimestamp,
+        publisher: 'Limited Run Games',
+      });
+      expect(upcomingPhysical.physical_status).toBe('announced_unreleased');
+      expect(upcomingPhysical.is_physical).toBe(true);
+      expect(upcomingPhysical.verification_tier).toBe(2);
+
+      // Upcoming game with no physical signals yet
+      const upcomingDigital = detectPhysicalReleaseStatus({
+        platformId: 35, // PS5
+        gameTitle: 'Indie Dream Project',
+        firstReleaseDate: '2028-06-15',
+        publisher: 'Unknown Solo Dev',
+      });
+      expect(upcomingDigital.physical_status).toBe('announced_unreleased');
+      expect(upcomingDigital.is_physical).toBe(false);
+      expect(upcomingDigital.verification_tier).toBe(0);
+    });
+
     it('should verify child platforms like PSVR using parent platform canonical releases', () => {
       const ps4Canonical = [
         {

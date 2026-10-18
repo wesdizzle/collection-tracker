@@ -1289,14 +1289,22 @@ export class CollectionListComponent
       // Media Type Filter (Defaults to Physical Only)
       const mediaType = f.media_type || 'physical_only';
       if (mediaType === 'physical_only') {
-        if (
-          g.physical_status === 'digital_extracted_rom' ||
-          g.physical_status === 'digital_only' ||
-          g.release_medium === 'digital_extracted_rom' ||
-          g.release_medium === 'digital_native' ||
-          g.release_medium === 'unreleased_prototype'
-        ) {
-          return false;
+        const isAwaitingPhysical =
+          (g.ownership_status === OwnershipStatus.Seeking ||
+            g.ownership_status === OwnershipStatus.Ordered) &&
+          (g.physical_status === 'physical_pending' ||
+            g.physical_status === 'announced_unreleased');
+
+        if (!isAwaitingPhysical) {
+          if (
+            g.physical_status === 'digital_extracted_rom' ||
+            g.physical_status === 'digital_only' ||
+            g.release_medium === 'digital_extracted_rom' ||
+            g.release_medium === 'digital_native' ||
+            g.release_medium === 'unreleased_prototype'
+          ) {
+            return false;
+          }
         }
       } else if (mediaType === 'digital_extracted') {
         const isDigitalOrExtracted =
@@ -1317,6 +1325,12 @@ export class CollectionListComponent
           status === OwnershipStatus.Seeking ||
           status === OwnershipStatus.Unowned;
         if (!isSeekingOrUnowned) return false;
+      } else if (f.ownership === 'upcoming') {
+        const isUpcoming =
+          g.physical_status === 'announced_unreleased' ||
+          g.physical_status === 'physical_pending' ||
+          status === OwnershipStatus.Ordered;
+        if (!isUpcoming) return false;
       } else if (f.ownership !== 'all' && f.ownership !== status) {
         return false;
       }

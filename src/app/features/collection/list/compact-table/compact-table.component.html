@@ -345,7 +345,21 @@
                 game.ownership_status !== 1 &&
                 (!game.discIds || game.discIds.length <= 1)
               ) {
-                <span class="empty-cell-dash">-</span>
+                @if (game.physical_status === 'announced_unreleased') {
+                  <span class="upcoming-chip" title="Announced / Pre-order">
+                    <app-icon name="calendar" [size]="11" /> Upcoming
+                  </span>
+                } @else if (game.physical_status === 'physical_pending') {
+                  <span class="pending-chip" title="Awaiting Physical Edition">
+                    <app-icon name="clock" [size]="11" /> Watch
+                  </span>
+                } @else if (game.ownership_status === 3) {
+                  <span class="ordered-chip" title="Ordered / Pre-ordered">
+                    Ordered
+                  </span>
+                } @else {
+                  <span class="empty-cell-dash">-</span>
+                }
               }
             </div>
 
