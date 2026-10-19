@@ -573,7 +573,7 @@ export function isIgnoredFormatRelease(
         return true;
       }
       if (
-        /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|namco museum archives|capcom town|famicombox|pokemon box|ds broadcast|manual|super mario 3d all-stars|digital)\b/i.test(
+        /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|namco museum archives|capcom town|famicombox|pokemon box|ds broadcast|manual|super mario 3d all-stars|digital|atari anthology|atari flashback|capcom classics mini mix|sega smash pack|midway arcade|activision anthology)\b/i.test(
           inner,
         ) ||
         inner.includes('game & watch') ||

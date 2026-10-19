@@ -191,7 +191,33 @@ describe('DAT Cache', () => {
         ),
       ).toBe(true);
 
+      // Legacy compilation extracts
+      expect(
+        isIgnoredFormatRelease(
+          'Combat (USA, Europe) (Atari Anthology)',
+          'Combat (USA, Europe) (Atari Anthology).a26',
+          2,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Mighty Final Fight (USA)',
+          'Mighty Final Fight (USA) (Capcom Classics Mini Mix).nes',
+          13,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Golden Axe (USA) (Rev B)',
+          'Golden Axe (USA) (Rev B) (Sega Smash Pack).md',
+          37,
+        ),
+      ).toBe(true);
+
       // Preserves authentic physical releases
+      expect(
+        isIgnoredFormatRelease('Asteroids (USA)', 'Asteroids (USA).a26', 2),
+      ).toBe(false);
       expect(
         isIgnoredFormatRelease(
           'Super Mario Sunshine (USA, Canada)',

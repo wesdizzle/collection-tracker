@@ -144,6 +144,14 @@ describe('Title Matching Strategies', () => {
         "Super Mario Advance 3 - Yoshi's Island",
       ),
     ).toBe(true);
+
+    // NieR: Automata Switch edition alias matching
+    expect(
+      titlesMatch(
+        'NieR: Automata',
+        'NieR - Automata - The End of YoRHa Edition',
+      ),
+    ).toBe(true);
   });
 
   it('should prevent edition games from matching base releases without that edition', () => {

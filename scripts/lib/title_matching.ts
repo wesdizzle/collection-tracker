@@ -117,6 +117,7 @@ export function normalizeTitleForMatching(
     littlebigplanetplaystationvita: 'littlebigplanetpsvita',
     homeuniquehorroradventure: 'home',
     fireemblemthreehopes: 'fireemblemwarriorsthreehopes',
+    nierautomataendyorha: 'nierautomata',
   };
 
   if (
