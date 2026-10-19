@@ -71,6 +71,22 @@ describe('NotificationSettingsModalComponent', () => {
     expect(component.getPhysicalScope('unowned')).toBe(true);
   });
 
+  it('should render toggle buttons for physical announcement scopes', () => {
+    const scopeRows = fixture.nativeElement.querySelectorAll(
+      '.setting-card-group .setting-toggle-row',
+    );
+    expect(scopeRows.length).toBe(5);
+
+    const firstToggleBtn = scopeRows[0].querySelector('button.btn-toggle');
+    expect(firstToggleBtn?.classList.contains('active')).toBe(true);
+
+    firstToggleBtn?.click();
+    fixture.detectChanges();
+
+    expect(component.getPhysicalScope('seeking')).toBe(false);
+    expect(firstToggleBtn?.classList.contains('inactive')).toBe(true);
+  });
+
   it('should update local dimension choices', () => {
     component.setScope('seeking_and_unowned');
     expect(component.localPrefs.scope).toBe('seeking_and_unowned');

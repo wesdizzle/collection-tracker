@@ -94,7 +94,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
           <div class="setting-row master-switch-row">
             <div>
               <div class="font-semibold text-sm">Push Notifications</div>
-              <div class="text-xs text-muted">
+              <div class="text-xs text-muted mt-3xs">
                 Receive native OS alerts when new physical editions or deals
                 drop
               </div>
@@ -160,123 +160,140 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             </div>
 
             @if (localPrefs.notify_physical_announcements !== false) {
-              <div class="scope-checkbox-card">
+              <div class="setting-card-group">
                 <div
-                  class="scope-checkbox-row"
+                  class="setting-toggle-row"
                   (click)="togglePhysicalScope('seeking')"
                 >
-                  <input
-                    type="checkbox"
-                    id="scope-seeking"
-                    [checked]="getPhysicalScope('seeking')"
+                  <div class="setting-text">
+                    <div class="font-semibold text-xs">
+                      Games on Seeking wishlist
+                    </div>
+                    <div class="text-2xs text-muted mt-3xs">
+                      Alert when any game you are seeking receives a physical
+                      pre-order
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-toggle"
+                    [class.active]="getPhysicalScope('seeking')"
+                    [class.inactive]="!getPhysicalScope('seeking')"
                     (click)="
                       $event.stopPropagation(); togglePhysicalScope('seeking')
                     "
-                  />
-                  <label for="scope-seeking" class="scope-checkbox-label">
-                    <span class="font-semibold text-xs"
-                      >Games on Seeking wishlist</span
-                    >
-                    <span class="text-2xs text-muted block"
-                      >Alert when any game you are seeking receives a physical
-                      pre-order</span
-                    >
-                  </label>
+                    aria-label="Toggle alert for seeking wishlist games"
+                  >
+                    <span class="toggle-knob"></span>
+                  </button>
                 </div>
 
                 <div
-                  class="scope-checkbox-row"
+                  class="setting-toggle-row"
                   (click)="togglePhysicalScope('watch_physical')"
                 >
-                  <input
-                    type="checkbox"
-                    id="scope-watch"
-                    [checked]="getPhysicalScope('watch_physical')"
+                  <div class="setting-text">
+                    <div class="font-semibold text-xs">
+                      Digital games marked "Watch for Physical"
+                    </div>
+                    <div class="text-2xs text-muted mt-3xs">
+                      Alert for digital-only or backlog games flagged to watch
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-toggle"
+                    [class.active]="getPhysicalScope('watch_physical')"
+                    [class.inactive]="!getPhysicalScope('watch_physical')"
                     (click)="
                       $event.stopPropagation();
                       togglePhysicalScope('watch_physical')
                     "
-                  />
-                  <label for="scope-watch" class="scope-checkbox-label">
-                    <span class="font-semibold text-xs"
-                      >Digital games marked "Watch for Physical"</span
-                    >
-                    <span class="text-2xs text-muted block"
-                      >Alert for digital-only or backlog games flagged to
-                      watch</span
-                    >
-                  </label>
+                    aria-label="Toggle alert for watch for physical games"
+                  >
+                    <span class="toggle-knob"></span>
+                  </button>
                 </div>
 
                 <div
-                  class="scope-checkbox-row"
+                  class="setting-toggle-row"
                   (click)="togglePhysicalScope('uncataloged')"
                 >
-                  <input
-                    type="checkbox"
-                    id="scope-uncataloged"
-                    [checked]="getPhysicalScope('uncataloged')"
+                  <div class="setting-text">
+                    <div class="font-semibold text-xs">
+                      New boutique releases not yet in tracker
+                    </div>
+                    <div class="text-2xs text-muted mt-3xs">
+                      Discover newly dropped surprise physical announcements
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-toggle"
+                    [class.active]="getPhysicalScope('uncataloged')"
+                    [class.inactive]="!getPhysicalScope('uncataloged')"
                     (click)="
                       $event.stopPropagation();
                       togglePhysicalScope('uncataloged')
                     "
-                  />
-                  <label for="scope-uncataloged" class="scope-checkbox-label">
-                    <span class="font-semibold text-xs"
-                      >New boutique releases not yet in tracker</span
-                    >
-                    <span class="text-2xs text-muted block"
-                      >Discover newly dropped surprise physical
-                      announcements</span
-                    >
-                  </label>
+                    aria-label="Toggle alert for uncataloged boutique releases"
+                  >
+                    <span class="toggle-knob"></span>
+                  </button>
                 </div>
 
                 <div
-                  class="scope-checkbox-row"
+                  class="setting-toggle-row"
                   (click)="togglePhysicalScope('special_editions')"
                 >
-                  <input
-                    type="checkbox"
-                    id="scope-special"
-                    [checked]="getPhysicalScope('special_editions')"
+                  <div class="setting-text">
+                    <div class="font-semibold text-xs">
+                      Collector's, Deluxe, & Limited Editions
+                    </div>
+                    <div class="text-2xs text-muted mt-3xs">
+                      Notify for special editions even if you own a standard
+                      physical copy
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-toggle"
+                    [class.active]="getPhysicalScope('special_editions')"
+                    [class.inactive]="!getPhysicalScope('special_editions')"
                     (click)="
                       $event.stopPropagation();
                       togglePhysicalScope('special_editions')
                     "
-                  />
-                  <label for="scope-special" class="scope-checkbox-label">
-                    <span class="font-semibold text-xs"
-                      >Collector's, Deluxe, & Limited Editions</span
-                    >
-                    <span class="text-2xs text-muted block"
-                      >Notify for special editions even if you own a standard
-                      physical copy</span
-                    >
-                  </label>
+                    aria-label="Toggle alert for special editions"
+                  >
+                    <span class="toggle-knob"></span>
+                  </button>
                 </div>
 
                 <div
-                  class="scope-checkbox-row"
+                  class="setting-toggle-row"
                   (click)="togglePhysicalScope('unowned')"
                 >
-                  <input
-                    type="checkbox"
-                    id="scope-unowned"
-                    [checked]="getPhysicalScope('unowned')"
+                  <div class="setting-text">
+                    <div class="font-semibold text-xs">
+                      All unowned games in catalog
+                    </div>
+                    <div class="text-2xs text-muted mt-3xs">
+                      Alert on physical release pre-orders for any unowned game
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-toggle"
+                    [class.active]="getPhysicalScope('unowned')"
+                    [class.inactive]="!getPhysicalScope('unowned')"
                     (click)="
                       $event.stopPropagation(); togglePhysicalScope('unowned')
                     "
-                  />
-                  <label for="scope-unowned" class="scope-checkbox-label">
-                    <span class="font-semibold text-xs"
-                      >All unowned games in catalog</span
-                    >
-                    <span class="text-2xs text-muted block"
-                      >Alert on physical release pre-orders for any unowned
-                      game</span
-                    >
-                  </label>
+                    aria-label="Toggle alert for all unowned games"
+                  >
+                    <span class="toggle-knob"></span>
+                  </button>
                 </div>
               </div>
             }
@@ -670,7 +687,9 @@ const COMMON_PLATFORMS: PlatformOption[] = [
 
       .btn-toggle {
         width: 44px;
+        min-width: 44px;
         height: 24px;
+        flex-shrink: 0;
         border-radius: 12px;
         border: 1px solid transparent;
         cursor: pointer;
@@ -720,36 +739,6 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         border: 1px solid var(--m3-outline-variant);
       }
 
-      .scope-checkbox-card {
-        display: flex;
-        flex-direction: column;
-        gap: 0.65rem;
-        background: var(--m3-surface-container-low);
-        border: 1px solid var(--m3-outline-variant);
-        border-radius: 14px;
-        padding: 0.85rem 1rem;
-      }
-
-      .scope-checkbox-row {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.65rem;
-        cursor: pointer;
-      }
-
-      .scope-checkbox-row input[type='checkbox'] {
-        margin-top: 0.15rem;
-        cursor: pointer;
-        accent-color: var(--m3-primary);
-        width: 16px;
-        height: 16px;
-      }
-
-      .scope-checkbox-label {
-        cursor: pointer;
-        flex: 1;
-      }
-
       .setting-card-group {
         display: flex;
         flex-direction: column;
@@ -765,11 +754,15 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         align-items: center;
         justify-content: space-between;
         gap: 0.75rem;
+        cursor: pointer;
       }
 
       .setting-text {
         flex: 1;
         min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
       }
 
       .section-label {
