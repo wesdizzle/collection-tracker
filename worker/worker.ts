@@ -3303,9 +3303,6 @@ Disallow: /
         `Checked ${res.toysChecked} toys (${res.toysUpdated} updated), ${res.gamesChecked} games (${res.gamesUpdated} updated)`,
         res,
       );
-      if (res.toysUpdated > 0 || res.gamesUpdated > 0) {
-        await invalidateEdgeApiCache();
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[WorkerCron] GAMEYE price refresh failed:', err);
@@ -3449,42 +3446,44 @@ Disallow: /
       isDirty = true;
     }
 
-    if (isDirty || isDailyWindow) {
-      console.log(
-        `[WorkerCron] Executing scheduled backup (reason: ${isDailyWindow ? 'daily_window' : 'data_modified'})...`,
-      );
-      const backupStart = Date.now();
-      try {
-        const res = await performScheduledBackup(env, isDailyWindow);
-        await env.DB.prepare(
-          `INSERT INTO sync_state (key, value, updated_at)
-           VALUES ('db_dirty', '0', datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')`,
-        ).run();
-        await logCronExecution(
-          env,
-          'scheduled_backup',
-          'SUCCESS',
-          Date.now() - backupStart,
-          `Backup completed (${res.rowCount} rows, reason: ${isDailyWindow ? 'daily' : 'dirty'})`,
-          res,
+    if (isDailyWindow) {
+      if (isDirty || !lastDailyRunDate) {
+        console.log(
+          `[WorkerCron] Executing scheduled daily backup (reason: ${isDirty ? 'data_modified' : 'daily_window'})...`,
         );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Scheduled backup failed:', err);
-        await logCronExecution(
-          env,
-          'scheduled_backup',
-          'ERROR',
-          Date.now() - backupStart,
-          `Failed: ${msg}`,
-          { error: msg },
+        const backupStart = Date.now();
+        try {
+          const res = await performScheduledBackup(env, true);
+          await env.DB.prepare(
+            `INSERT INTO sync_state (key, value, updated_at)
+             VALUES ('db_dirty', '0', datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')`,
+          ).run();
+          await logCronExecution(
+            env,
+            'scheduled_backup',
+            'SUCCESS',
+            Date.now() - backupStart,
+            `Backup completed (${res.rowCount} rows, reason: daily_window)`,
+            res,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[WorkerCron] Scheduled backup failed:', err);
+          await logCronExecution(
+            env,
+            'scheduled_backup',
+            'ERROR',
+            Date.now() - backupStart,
+            `Failed: ${msg}`,
+            { error: msg },
+          );
+        }
+      } else {
+        console.log(
+          '[WorkerCron] Database unchanged since last daily backup. Skipping snapshot.',
         );
       }
-    } else {
-      console.log(
-        '[WorkerCron] Database unchanged since last backup. Skipping snapshot.',
-      );
     }
 
     if (isDailyWindow) {

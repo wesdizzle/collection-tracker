@@ -541,7 +541,7 @@ describe('Worker API Logic', () => {
       });
 
     try {
-      // 1. Clean run -> backup should be skipped
+      // 1. Clean run outside daily window -> backup should be skipped
       await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
       expect(mockBucket.storage.size).toBe(0);
 
@@ -552,8 +552,17 @@ describe('Worker API Logic', () => {
         .get() as { value: string };
       expect(dirtyRow.value).toBe('1');
 
-      // 3. Dirty run -> backup should execute and reset db_dirty to 0
+      // 3. Dirty run outside daily window -> backup should still be skipped to protect daytime D1 quota
       await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+      expect(mockBucket.storage.size).toBe(0);
+
+      // 4. Daily window cron event -> backup should execute and reset db_dirty to 0
+      const dailyEvent = {
+        cron: '30 23 * * *',
+        type: 'scheduled',
+        scheduledTime: Date.now(),
+      } as unknown as ScheduledEvent;
+      await worker.scheduled(dailyEvent, mockEnv, {} as ExecutionContext);
       expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
       const afterRow = db
         .prepare("SELECT value FROM sync_state WHERE key = 'db_dirty'")
