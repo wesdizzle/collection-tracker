@@ -215,6 +215,9 @@ describe('Worker API Logic', () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE INDEX IF NOT EXISTS idx_toys_price_updated ON toys(price_updated_at);
+      CREATE INDEX IF NOT EXISTS idx_games_price_updated ON games(price_updated_at);
+
       INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (1, 'NES', 'NES', 'Nintendo', '1985-10-18');
       INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 'Super Mario', 1, 0);
       INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES ('gb-mario', 1, 'USA', null, null, null, 0, 1, '1985-10-18');

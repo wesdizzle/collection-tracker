@@ -3266,6 +3266,44 @@ Disallow: /
           { error: msg },
         );
       }
+    }
+
+    const now = new Date();
+    const todayDateStr = now.toISOString().slice(0, 10);
+    let lastDailyRunDate = '';
+    try {
+      const row = await env.DB.prepare(
+        "SELECT value FROM sync_state WHERE key = 'daily_window_last_run'",
+      ).first<{ value: string }>();
+      if (row?.value) {
+        lastDailyRunDate = row.value;
+      }
+    } catch {
+      // unmigrated sync_state table fallback
+    }
+
+    const isDailyWindow =
+      event.cron === '30 23 * * *' ||
+      (now.getUTCHours() === 23 &&
+        now.getUTCMinutes() >= 30 &&
+        lastDailyRunDate !== todayDateStr);
+
+    if (isDailyWindow) {
+      // Immediately record daily run in sync_state to prevent re-entrant cascade on task failure
+      try {
+        await env.DB.prepare(
+          `INSERT INTO sync_state (key, value, updated_at)
+           VALUES ('daily_window_last_run', ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')`,
+        )
+          .bind(todayDateStr, todayDateStr)
+          .run();
+      } catch (dateErr) {
+        console.warn(
+          '[WorkerCron] Failed to record daily_window_last_run:',
+          dateErr,
+        );
+      }
 
       console.log(
         '[WorkerCron] Executing scheduled IGDB series/franchise refresh and canonical_series reconciliation...',
@@ -3297,26 +3335,6 @@ Disallow: /
         );
       }
     }
-
-    const now = new Date();
-    const todayDateStr = now.toISOString().slice(0, 10);
-    let lastDailyRunDate = '';
-    try {
-      const row = await env.DB.prepare(
-        "SELECT value FROM sync_state WHERE key = 'daily_window_last_run'",
-      ).first<{ value: string }>();
-      if (row?.value) {
-        lastDailyRunDate = row.value;
-      }
-    } catch {
-      // unmigrated sync_state table fallback
-    }
-
-    const isDailyWindow =
-      event.cron === '30 23 * * *' ||
-      (now.getUTCHours() === 23 &&
-        now.getUTCMinutes() >= 30 &&
-        lastDailyRunDate !== todayDateStr);
 
     let isDirty: boolean;
     try {
@@ -3432,22 +3450,6 @@ Disallow: /
       } catch (pruneErr) {
         console.warn('[WorkerCron] Failed to prune aged cron logs:', pruneErr);
       }
-
-      // Record daily execution completion in sync_state
-      try {
-        await env.DB.prepare(
-          `INSERT INTO sync_state (key, value, updated_at)
-           VALUES ('daily_window_last_run', ?, datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')`,
-        )
-          .bind(todayDateStr, todayDateStr)
-          .run();
-      } catch (dateErr) {
-        console.warn(
-          '[WorkerCron] Failed to record daily_window_last_run:',
-          dateErr,
-        );
-      }
     }
   },
 };
@@ -3475,7 +3477,7 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
   }
 
   const candidateRows = await env.DB.prepare(
-    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.ownership_status, COALESCE(r.barcode, g.barcode) as barcode
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, COALESCE(r.ownership_status, 0) as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
      FROM games g
      LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
   ).all<{
@@ -3764,6 +3766,23 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     };
   }
 
+  const targetPlatforms = Array.from(
+    new Set(
+      preOrders
+        .map((po) => po.platformId)
+        .filter((id): id is number => typeof id === 'number' && id > 0),
+    ),
+  );
+
+  if (targetPlatforms.length === 0) {
+    return {
+      matchedCount: 0,
+      totalPreOrders: preOrders.length,
+      notifications: { dispatchedCount: 0, purgedCount: 0 },
+    };
+  }
+
+  const placeholders = targetPlatforms.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
             MAX(COALESCE(r.ownership_status, 0)) AS ownership_status,
@@ -3771,18 +3790,21 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
             GROUP_CONCAT(COALESCE(r.variants, '')) AS owned_variants
      FROM games g
      LEFT JOIN game_releases r ON r.game_id = g.stable_id
+     WHERE g.platform_id IN (${placeholders})
      GROUP BY g.stable_id`,
-  ).all<{
-    stable_id: number;
-    id: string;
-    title: string;
-    platform_id: number;
-    physical_status: string;
-    retail_url: string | null;
-    ownership_status: number;
-    has_owned_physical: number;
-    owned_variants: string | null;
-  }>();
+  )
+    .bind(...targetPlatforms)
+    .all<{
+      stable_id: number;
+      id: string;
+      title: string;
+      platform_id: number;
+      physical_status: string;
+      retail_url: string | null;
+      ownership_status: number;
+      has_owned_physical: number;
+      owned_variants: string | null;
+    }>();
 
   const games = candidateRows.results || [];
   const gamesWithNorm = games.map((g) => ({
