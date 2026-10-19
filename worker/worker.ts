@@ -148,15 +148,21 @@ export async function getEdgeCache(): Promise<Cache | null> {
   return null;
 }
 
+let lastKnownOrigin: string | null = null;
+
 /**
  * Invalidates Cloudflare Edge Cache entries for public collection endpoints
- * whenever a mutation occurs.
+ * whenever a mutation occurs or prices are refreshed.
  */
-export async function invalidateEdgeApiCache(originUrl: string): Promise<void> {
+export async function invalidateEdgeApiCache(
+  originUrl?: string,
+): Promise<void> {
   const edgeCache = await getEdgeCache();
   if (!edgeCache) return;
   try {
-    const origin = new URL(originUrl).origin;
+    const rawOrigin = originUrl || lastKnownOrigin;
+    if (!rawOrigin) return;
+    const origin = new URL(rawOrigin).origin;
     const paths = ['/api/games', '/api/toys', '/api/platforms'];
     for (const p of paths) {
       await edgeCache.delete(new Request(`${origin}${p}`));
@@ -546,6 +552,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+    lastKnownOrigin = url.origin;
 
     // Direct /robots.txt handler for search engines and crawlers
     if (path === '/robots.txt') {
@@ -626,9 +633,17 @@ Disallow: /
           path === '/api/toys' ||
           path === '/api/platforms');
 
+      const isNoCache =
+        request.headers
+          .get('cache-control')
+          ?.toLowerCase()
+          .includes('no-cache') ||
+        request.headers.get('pragma')?.toLowerCase().includes('no-cache');
+
       const edgeCache = await getEdgeCache();
-      if (isPublicCacheable && edgeCache) {
-        const cached = await edgeCache.match(request);
+      const cacheKey = new Request(request.url);
+      if (isPublicCacheable && !isNoCache && edgeCache) {
+        const cached = await edgeCache.match(cacheKey);
         if (cached) {
           return cached;
         }
@@ -677,7 +692,10 @@ Disallow: /
           headers: publicCacheHeaders,
         });
         if (isPublicCacheable && edgeCache) {
-          await edgeCache.put(request, res.clone()).catch(() => {});
+          if (isNoCache) {
+            await edgeCache.delete(cacheKey).catch(() => {});
+          }
+          await edgeCache.put(cacheKey, res.clone()).catch(() => {});
         }
         return res;
       }
@@ -807,7 +825,10 @@ Disallow: /
           headers: publicCacheHeaders,
         });
         if (isPublicCacheable && edgeCache) {
-          await edgeCache.put(request, res.clone()).catch(() => {});
+          if (isNoCache) {
+            await edgeCache.delete(cacheKey).catch(() => {});
+          }
+          await edgeCache.put(cacheKey, res.clone()).catch(() => {});
         }
         return res;
       }
@@ -831,7 +852,10 @@ Disallow: /
           headers: platformsCacheHeaders,
         });
         if (isPublicCacheable && edgeCache) {
-          await edgeCache.put(request, res.clone()).catch(() => {});
+          if (isNoCache) {
+            await edgeCache.delete(cacheKey).catch(() => {});
+          }
+          await edgeCache.put(cacheKey, res.clone()).catch(() => {});
         }
         return res;
       }
@@ -3204,6 +3228,9 @@ Disallow: /
         `Checked ${res.toysChecked} toys (${res.toysUpdated} updated), ${res.gamesChecked} games (${res.gamesUpdated} updated)`,
         res,
       );
+      if (res.toysUpdated > 0 || res.gamesUpdated > 0) {
+        await invalidateEdgeApiCache();
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[WorkerCron] GAMEYE price refresh failed:', err);

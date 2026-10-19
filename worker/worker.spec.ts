@@ -633,6 +633,70 @@ describe('Worker API Logic', () => {
     }
   });
 
+  it('GET /api/games with Cache-Control: no-cache bypasses edge cache and updates it', async () => {
+    const cachedMap = new Map<string, Response>();
+    const mockCache = {
+      match: vi.fn(async (req: RequestInfo | URL) => {
+        const key =
+          typeof req === 'string'
+            ? req
+            : req instanceof Request
+              ? req.url
+              : req.toString();
+        return cachedMap.get(key)?.clone() || undefined;
+      }),
+      put: vi.fn(async (req: RequestInfo | URL, res: Response) => {
+        const key =
+          typeof req === 'string'
+            ? req
+            : req instanceof Request
+              ? req.url
+              : req.toString();
+        cachedMap.set(key, res.clone());
+      }),
+      delete: vi.fn(async (req: RequestInfo | URL) => {
+        const key =
+          typeof req === 'string'
+            ? req
+            : req instanceof Request
+              ? req.url
+              : req.toString();
+        return cachedMap.delete(key);
+      }),
+    };
+
+    vi.stubGlobal('caches', { default: mockCache });
+
+    try {
+      // 1. Prime cache with stale response
+      cachedMap.set(
+        'http://example.com/api/games',
+        new Response(JSON.stringify([{ id: 'stale-game' }]), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      // 2. Normal request returns stale response
+      const normalReq = new Request('http://example.com/api/games');
+      const normalRes = await worker.fetch(normalReq, mockEnv);
+      const normalData = await normalRes.json();
+      expect(normalData).toEqual([{ id: 'stale-game' }]);
+
+      // 3. Request with Cache-Control: no-cache bypasses cache and updates it
+      const noCacheReq = new Request('http://example.com/api/games', {
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      const freshRes = await worker.fetch(noCacheReq, mockEnv);
+      expect(freshRes.status).toBe(200);
+      const freshData = (await freshRes.json()) as Array<{ id: string }>;
+      expect(freshData[0]?.id).not.toBe('stale-game');
+      expect(mockCache.delete).toHaveBeenCalled();
+      expect(mockCache.put).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('POST /api/discovery/add inserts game and releases transactionally', async () => {
     const req = new Request('http://localhost/api/discovery/add', {
       method: 'POST',
