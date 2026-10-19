@@ -447,6 +447,8 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
   const isException =
     lower === 'king pen' ||
     lower === 'golden queen' ||
+    lower === 'turbo charge donkey kong' ||
+    lower === 'gold rusher' ||
     lower.startsWith('dark reactor') ||
     lower.startsWith('dark rune') ||
     lower.startsWith('dark pyramid');
@@ -464,6 +466,8 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
     'sidekick',
     'eggscellent',
     'eggsellent',
+    'egg bomber',
+    'egg-bomber',
     'power punch',
     'power-punch',
     'power blue',
@@ -535,6 +539,7 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
     'event-exclusive',
     'e3 exclusive',
     'e3-exclusive',
+    'golden',
     'gold',
     'silver',
     'bronze',
@@ -548,6 +553,8 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
     'rock candy',
     'rock-candy',
     'heartbreaker',
+    'hard-boiled',
+    'hard boiled',
     'dec-ember',
     'december',
     'pink',
@@ -566,6 +573,7 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
     'sparkle',
     'glow',
     'patina',
+    'spring ahead',
     'spring-ahead',
     'sea-trophy',
     'sky-trophy',
@@ -585,6 +593,13 @@ export function extractBaseCharacterName(name: string): CleanedToyName {
   if (!isException) {
     // Strip modifiers globally from anywhere in the string while preserving original casing
     for (const mod of modifiers) {
+      if (
+        (mod === 'gold' && cleanName.toLowerCase() === 'gold rusher') ||
+        (mod === 'turbo' &&
+          cleanName.toLowerCase() === 'turbo charge donkey kong')
+      ) {
+        continue;
+      }
       const regex = new RegExp(`\\b${mod}\\b`, 'gi');
       const match = cleanName.match(regex);
       if (match) {
@@ -1568,15 +1583,15 @@ export function reindexSkylanders(db: Database.Database): void {
 
   const elementOrder: Record<string, number> = {
     air: 1,
-    dark: 2,
-    earth: 3,
-    fire: 4,
-    life: 5,
-    light: 6,
+    life: 2,
+    undead: 3,
+    earth: 4,
+    fire: 5,
+    water: 6,
     magic: 7,
     tech: 8,
-    undead: 9,
-    water: 10,
+    light: 9,
+    dark: 10,
   };
 
   const getElement = (t: Toy): string => {
@@ -1584,7 +1599,34 @@ export function reindexSkylanders(db: Database.Database): void {
       if (t.metadata_json) {
         const meta = JSON.parse(t.metadata_json);
         if (meta.element) {
-          return meta.element.toLowerCase().trim();
+          const rawElem = meta.element.toLowerCase().trim();
+          // Defensive fallback if Creation Crystal or Trap has element name prefix
+          const nameLower = (t.name || '').toLowerCase();
+          const validElements = [
+            'air',
+            'life',
+            'undead',
+            'earth',
+            'fire',
+            'water',
+            'magic',
+            'tech',
+            'light',
+            'dark',
+          ];
+          for (const ve of validElements) {
+            if (nameLower.startsWith(`${ve} `) && rawElem !== ve) {
+              if (
+                t.type === 'Creation Crystal' ||
+                t.type === 'Trap' ||
+                nameLower.includes('crystal') ||
+                nameLower.includes('trap')
+              ) {
+                return ve;
+              }
+            }
+          }
+          return rawElem;
         }
       }
     } catch {
@@ -1634,7 +1676,7 @@ export function reindexSkylanders(db: Database.Database): void {
             nameLower.includes('armor')))
       ) {
         categoryOrder = 3;
-      } else if (typeLower === 'trap' || nameLower.includes('trap')) {
+      } else if (typeLower === 'trap') {
         categoryOrder = 4;
       } else if (
         typeLower === 'magic item' ||

@@ -250,6 +250,40 @@ describe('Toys Metadata Ingestion Helpers', () => {
       expect(res.baseName).toBe('Cobra Cadabra');
       expect(res.variantName).toBe('King');
     });
+
+    it('should correctly parse seasonal, chase, and compound vehicle/character names', () => {
+      const egg = extractBaseCharacterName('Egg Bomber Air Strike');
+      expect(egg.baseName).toBe('Air Strike');
+      expect(egg.variantName).toBe('Egg Bomber');
+
+      const spring = extractBaseCharacterName('Spring Ahead Dive Bomber');
+      expect(spring.baseName).toBe('Dive Bomber');
+      expect(spring.variantName).toBe('Spring Ahead');
+
+      const hardBoiled = extractBaseCharacterName('Hard-Boiled Flarewolf');
+      expect(hardBoiled.baseName).toBe('Flarewolf');
+      expect(hardBoiled.variantName).toBe('Hard-Boiled');
+
+      const golden = extractBaseCharacterName('Golden Hot Streak');
+      expect(golden.baseName).toBe('Hot Streak');
+      expect(golden.variantName).toBe('Golden');
+
+      const dkBase = extractBaseCharacterName('Turbo Charge Donkey Kong');
+      expect(dkBase.baseName).toBe('Turbo Charge Donkey Kong');
+      expect(dkBase.variantName).toBe('');
+
+      const dkDark = extractBaseCharacterName('Dark Turbo Charge Donkey Kong');
+      expect(dkDark.baseName).toBe('Turbo Charge Donkey Kong');
+      expect(dkDark.variantName).toBe('Dark');
+
+      const grBase = extractBaseCharacterName('Gold Rusher');
+      expect(grBase.baseName).toBe('Gold Rusher');
+      expect(grBase.variantName).toBe('');
+
+      const grVariant = extractBaseCharacterName('Power Blue Gold Rusher');
+      expect(grVariant.baseName).toBe('Gold Rusher');
+      expect(grVariant.variantName).toBe('Power Blue');
+    });
   });
 
   describe('scrapeSkylandersDetail', () => {
@@ -728,6 +762,254 @@ describe('Toys Metadata Ingestion Helpers', () => {
       expect(results[0].name).toBe('Jet-Vac');
       expect(results[1].name).toBe('Jet-Vac LightCore');
       expect(results[2].name).toBe('Warnado');
+    });
+
+    it('should place Trap Shadow in category 1 SWAP Force character group rather than Traps category', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+        CREATE TABLE toy_series (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          line TEXT,
+          sort_index INTEGER
+        );
+      `);
+
+      db.prepare(
+        'INSERT INTO toy_series (id, name, line, sort_index) VALUES (?, ?, ?, ?)',
+      ).run('swap-force', 'SWAP Force', 'Skylanders', 3);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, metadata_json, sort_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      insertToy.run(
+        1,
+        'hoot-loop',
+        'Hoot Loop',
+        'Skylanders',
+        'swap-force',
+        'SWAP Force',
+        JSON.stringify({ element: 'Magic' }),
+        null,
+      );
+      insertToy.run(
+        2,
+        'trap-shadow',
+        'Trap Shadow',
+        'Skylanders',
+        'swap-force',
+        'SWAP Force',
+        JSON.stringify({ element: 'Magic' }),
+        null,
+      );
+      insertToy.run(
+        3,
+        'wash-buckler',
+        'Wash Buckler',
+        'Skylanders',
+        'swap-force',
+        'SWAP Force',
+        JSON.stringify({ element: 'Water' }),
+        null,
+      );
+      insertToy.run(
+        4,
+        'tower-of-time',
+        'Tower of Time',
+        'Skylanders',
+        'swap-force',
+        'Magic Item',
+        null,
+        null,
+      );
+
+      reindexSkylanders(db);
+
+      const results = db
+        .prepare(
+          'SELECT stable_id, name, sort_index FROM toys ORDER BY sort_index ASC',
+        )
+        .all() as { stable_id: number; name: string; sort_index: number }[];
+
+      // In canonical order:
+      // Water (6) -> Magic (7) -> Magic Items (Category 5)
+      // So Wash Buckler (Water SWAP Force) comes first, then Hoot Loop (Magic SWAP Force),
+      // then Trap Shadow (Magic SWAP Force), and Tower of Time (Category 5 Magic Item) last.
+      expect(results.map((r) => r.name)).toEqual([
+        'Wash Buckler',
+        'Hoot Loop',
+        'Trap Shadow',
+        'Tower of Time',
+      ]);
+    });
+
+    it('should sort elements in canonical in-game wheel order: Air, Life, Undead, Earth, Fire, Water, Magic, Tech, Light, Dark', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+        CREATE TABLE toy_series (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          line TEXT,
+          sort_index INTEGER
+        );
+      `);
+
+      db.prepare(
+        'INSERT INTO toy_series (id, name, line, sort_index) VALUES (?, ?, ?, ?)',
+      ).run('series-1', 'Series 1', 'Skylanders', 1);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, metadata_json, sort_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const testFigures = [
+        { name: 'Air Figure', element: 'Air' },
+        { name: 'Dark Figure', element: 'Dark' },
+        { name: 'Earth Figure', element: 'Earth' },
+        { name: 'Fire Figure', element: 'Fire' },
+        { name: 'Life Figure', element: 'Life' },
+        { name: 'Light Figure', element: 'Light' },
+        { name: 'Magic Figure', element: 'Magic' },
+        { name: 'Tech Figure', element: 'Tech' },
+        { name: 'Undead Figure', element: 'Undead' },
+        { name: 'Water Figure', element: 'Water' },
+      ];
+
+      testFigures.forEach((f, idx) => {
+        insertToy.run(
+          idx + 1,
+          `fig-${idx}`,
+          f.name,
+          'Skylanders',
+          'series-1',
+          'Figure',
+          JSON.stringify({ element: f.element }),
+          null,
+        );
+      });
+
+      reindexSkylanders(db);
+
+      const results = db
+        .prepare('SELECT name, sort_index FROM toys ORDER BY sort_index ASC')
+        .all() as { name: string; sort_index: number }[];
+
+      expect(results.map((r) => r.name)).toEqual([
+        'Air Figure',
+        'Life Figure',
+        'Undead Figure',
+        'Earth Figure',
+        'Fire Figure',
+        'Water Figure',
+        'Magic Figure',
+        'Tech Figure',
+        'Light Figure',
+        'Dark Figure',
+      ]);
+    });
+
+    it('should defensively correct Creation Crystal elements if metadata contains mismatched element', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE toys (
+          stable_id INTEGER PRIMARY KEY,
+          id TEXT,
+          name TEXT,
+          line TEXT,
+          series_id TEXT,
+          release_date TEXT,
+          sort_index INTEGER,
+          type TEXT,
+          metadata_json TEXT,
+          verified INTEGER
+        );
+        CREATE TABLE toy_series (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          line TEXT,
+          sort_index INTEGER
+        );
+      `);
+
+      db.prepare(
+        'INSERT INTO toy_series (id, name, line, sort_index) VALUES (?, ?, ?, ?)',
+      ).run('series-6', 'Imaginators', 'Skylanders', 6);
+
+      const insertToy = db.prepare(`
+        INSERT INTO toys (stable_id, id, name, line, series_id, type, metadata_json, sort_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      insertToy.run(
+        1,
+        'air-crystal',
+        'Air Angel',
+        'Skylanders',
+        'series-6',
+        'Creation Crystal',
+        JSON.stringify({ element: 'Air' }),
+        null,
+      );
+      // Fire Acorn with corrupted metadata element "Air"
+      insertToy.run(
+        2,
+        'fire-acorn',
+        'Fire Acorn',
+        'Skylanders',
+        'series-6',
+        'Creation Crystal',
+        JSON.stringify({ element: 'Air' }),
+        null,
+      );
+      insertToy.run(
+        3,
+        'fire-reactor',
+        'Fire Reactor',
+        'Skylanders',
+        'series-6',
+        'Creation Crystal',
+        JSON.stringify({ element: 'Fire' }),
+        null,
+      );
+
+      reindexSkylanders(db);
+
+      const results = db
+        .prepare('SELECT name, sort_index FROM toys ORDER BY sort_index ASC')
+        .all() as { name: string; sort_index: number }[];
+
+      expect(results.map((r) => r.name)).toEqual([
+        'Air Angel',
+        'Fire Acorn',
+        'Fire Reactor',
+      ]);
     });
   });
 
