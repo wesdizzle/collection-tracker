@@ -35,12 +35,7 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
           </a>
         </div>
 
-        <nav
-          class="main-nav"
-          (touchstart)="onNavTouchStart($event)"
-          (touchmove)="onNavTouchMove($event)"
-          (touchend)="onNavTouchEnd($event)"
-        >
+        <nav class="main-nav">
           <a
             routerLink="/collection/games"
             (click)="onNavClick('games')"
@@ -546,71 +541,5 @@ export class CollectionLayoutComponent implements OnDestroy {
         }
       }
     });
-  }
-
-  // --- Mobile Bottom Nav Swipe-Up Gesture to Open Palette ---
-  private navTouchStartY = 0;
-  private navTouchStartX = 0;
-  private isSwipingUp = false;
-  private hasStartedPaletteDrag = false;
-
-  public onNavTouchStart(event: TouchEvent): void {
-    if (event.touches.length !== 1 || this.commandPalette.isOpen()) return;
-    this.navTouchStartY = event.touches[0].clientY;
-    this.navTouchStartX = event.touches[0].clientX;
-    this.isSwipingUp = false;
-    this.hasStartedPaletteDrag = false;
-  }
-
-  public onNavTouchMove(event: TouchEvent): void {
-    if (event.touches.length !== 1 || this.navTouchStartY === 0) return;
-    const currentY = event.touches[0].clientY;
-    const currentX = event.touches[0].clientX;
-    const deltaY = this.navTouchStartY - currentY; // Positive when swiping up
-    const deltaX = currentX - this.navTouchStartX;
-
-    if (!this.isSwipingUp) {
-      if (deltaY > 10 && deltaY > Math.abs(deltaX) * 1.2) {
-        this.isSwipingUp = true;
-        this.hasStartedPaletteDrag = true;
-        this.commandPalette.startDragOpen();
-      }
-    }
-
-    if (this.hasStartedPaletteDrag) {
-      const windowH = typeof window !== 'undefined' ? window.innerHeight : 800;
-      const sheetHeight = Math.min(windowH * 0.88, windowH);
-      const translateY = Math.max(0, sheetHeight - deltaY);
-      this.commandPalette.updateDragProgress(translateY);
-    }
-  }
-
-  public onNavTouchEnd(event: TouchEvent): void {
-    if (!this.hasStartedPaletteDrag) {
-      this.navTouchStartY = 0;
-      this.isSwipingUp = false;
-      return;
-    }
-
-    const touch = event.changedTouches[0];
-    const endY = touch ? touch.clientY : this.navTouchStartY;
-    const deltaY = this.navTouchStartY - endY;
-
-    if (deltaY >= 60) {
-      this.commandPalette.commitDragOpen();
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        try {
-          navigator.vibrate(10);
-        } catch {
-          // Ignore
-        }
-      }
-    } else {
-      this.commandPalette.cancelDragOpen();
-    }
-
-    this.isSwipingUp = false;
-    this.hasStartedPaletteDrag = false;
-    this.navTouchStartY = 0;
   }
 }
