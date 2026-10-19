@@ -45,6 +45,7 @@ export interface WooProductItem {
   categories?: Array<{ name?: string }>;
   tags?: Array<{ name?: string }>;
   images?: Array<{ src?: string }>;
+  is_in_stock?: boolean;
   date_created?: string;
 }
 
@@ -66,9 +67,19 @@ export interface BoutiquePreOrder {
   priceUsd?: number;
   priceCents?: number;
   edition?: string | null;
+  region?: string | null;
+  isAvailable: boolean;
   isPreOrder: boolean;
   publishedAt?: string;
 }
+
+export const STORE_DEFAULT_REGIONS: Record<BoutiqueStoreName, string> = {
+  'Limited Run Games': 'USA',
+  'Super Rare Games': 'Europe',
+  iam8bit: 'USA',
+  Fangamer: 'USA',
+  'Strictly Limited Games': 'Europe',
+};
 
 export interface BoutiqueFeedConfig {
   store: BoutiqueStoreName;
@@ -140,12 +151,13 @@ const NON_GAME_KEYWORDS = [
 ];
 
 /**
- * Extracts platform ID and sanitizes the title from boutique store listing formats.
+ * Extracts platform ID, region, edition, and sanitizes the title from boutique store listing formats.
  */
 export function cleanBoutiqueTitle(rawTitle: string): {
   cleanTitle: string;
   platformId: number | null;
   edition?: string | null;
+  region?: string | null;
   isPreOrder: boolean;
   isGame: boolean;
 } {
@@ -154,6 +166,7 @@ export function cleanBoutiqueTitle(rawTitle: string): {
       cleanTitle: '',
       platformId: null,
       edition: null,
+      region: null,
       isPreOrder: false,
       isGame: false,
     };
@@ -167,6 +180,7 @@ export function cleanBoutiqueTitle(rawTitle: string): {
       cleanTitle: rawTitle,
       platformId: null,
       edition: null,
+      region: null,
       isPreOrder: false,
       isGame: false,
     };
@@ -186,7 +200,58 @@ export function cleanBoutiqueTitle(rawTitle: string): {
     .replace(/^(?:LRG|SRG|SLG|Strictly Limited)\s*#?\s*\d+\s*[:-]?\s*/i, '')
     .trim();
 
-  // 2. Identify platform
+  // 2. Identify region from parentheticals/brackets or trailing delimiters
+  let matchedRegion: string | null = null;
+  const regionDefs: Array<{ regex: RegExp; region: string }> = [
+    { regex: /^(?:USA|US|NA|North\s+America)$/i, region: 'USA' },
+    { regex: /^(?:Europe|EU|PAL)$/i, region: 'Europe' },
+    { regex: /^(?:Japan|JP)$/i, region: 'Japan' },
+    { regex: /^(?:Asia)$/i, region: 'Asia' },
+    { regex: /^(?:Australia|AUS)$/i, region: 'Australia' },
+  ];
+
+  title = title.replace(/[([][^)\]]*[)\]]/g, (bracketContent) => {
+    const inner = bracketContent.slice(1, -1).trim();
+    for (const rd of regionDefs) {
+      if (rd.regex.test(inner)) {
+        if (!matchedRegion) matchedRegion = rd.region;
+        return '';
+      }
+    }
+    const compMatch = inner.match(
+      /\b(EU|Europe|PAL|JP|Japan|USA|US|NA|Asia|Australia|AUS)\b/i,
+    );
+    if (compMatch && /\b(version|import|edition|release)\b/i.test(inner)) {
+      for (const rd of regionDefs) {
+        if (rd.regex.test(compMatch[1])) {
+          if (!matchedRegion) matchedRegion = rd.region;
+          return '';
+        }
+      }
+    }
+    return bracketContent;
+  });
+
+  // End of title region check (e.g. " - EU", " - JP", " - USA")
+  title = title
+    .replace(/\s*-\s*(?:EU|Europe|PAL)\s*$/i, () => {
+      if (!matchedRegion) matchedRegion = 'Europe';
+      return '';
+    })
+    .replace(/\s*-\s*(?:JP|Japan)\s*$/i, () => {
+      if (!matchedRegion) matchedRegion = 'Japan';
+      return '';
+    })
+    .replace(/\s*-\s*(?:USA|US|NA)\s*$/i, () => {
+      if (!matchedRegion) matchedRegion = 'USA';
+      return '';
+    })
+    .replace(/\s*-\s*(?:Asia)\s*$/i, () => {
+      if (!matchedRegion) matchedRegion = 'Asia';
+      return '';
+    });
+
+  // 3. Identify platform
   let platformId: number | null = null;
 
   // Platform regex checks in order of specificity
@@ -235,7 +300,7 @@ export function cleanBoutiqueTitle(rawTitle: string): {
     }
   }
 
-  // 3. Detect and strip Edition markers
+  // 4. Detect and strip Edition markers
   let matchedEdition: string | null = null;
   const editionPatterns: Array<{ regex: RegExp; name: string }> = [
     { regex: /\bCollector'?s?\s+Edition\b/i, name: "Collector's Edition" },
@@ -268,21 +333,33 @@ export function cleanBoutiqueTitle(rawTitle: string): {
     .replace(/\(\s*Pre-?Order\s*\)/gi, ' ')
     .trim();
 
-  // 4. Clean brackets, trailing punctuation, and whitespace
+  // 5. Clean trademarks, brackets, connectors, and trailing whitespace
+  title = title.replace(/[™®]/g, '');
+
   title = title
     .replace(/[([][^)\]]*[)\]]/g, (match) => {
       if (/pre-?order/i.test(match)) return '';
       return match;
     })
-    .replace(/\s*-\s*$/, '')
-    .replace(/^\s*-\s*/, '')
-    .replace(/\s*:\s*$/, '')
-    .replace(/\s*\/\s*$/, '')
-    .replace(/\s+/g, ' ')
     .trim();
 
   // Remove empty trailing parens like () or []
   title = title.replace(/\(\s*\)|\[\s*\]/g, '').trim();
+
+  // Strip trailing/leading connectors and punctuation
+  let prev: string;
+  do {
+    prev = title;
+    title = title
+      .replace(/\s*-\s*$/, '')
+      .replace(/^\s*-\s*/, '')
+      .replace(/\s*:\s*$/, '')
+      .replace(/\s*\/\s*$/, '')
+      .replace(/\s+\b(?:for|on|at)\b\s*$/i, '')
+      .replace(/^\s*\b(?:for|on|at)\b\s+/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  } while (title !== prev);
 
   // If title was reduced to empty or is not identified as a console game, mark isGame
   const isGame = Boolean(platformId && title.length > 1);
@@ -291,6 +368,7 @@ export function cleanBoutiqueTitle(rawTitle: string): {
     cleanTitle: title,
     platformId,
     edition: matchedEdition,
+    region: matchedRegion,
     isPreOrder,
     isGame,
   };
@@ -344,6 +422,14 @@ export async function fetchBoutiquePreOrders(
             );
           }
 
+          const isAvailable =
+            Array.isArray(item.variants) &&
+            item.variants.length > 0 &&
+            item.variants.some((v) => v.available !== false);
+
+          const region =
+            cleaned.region || STORE_DEFAULT_REGIONS[config.store] || null;
+
           let priceUsd: number | undefined;
           let priceCents: number | undefined;
           if (Array.isArray(item.variants) && item.variants.length > 0) {
@@ -373,6 +459,8 @@ export async function fetchBoutiquePreOrders(
             priceUsd,
             priceCents,
             edition: cleaned.edition,
+            region,
+            isAvailable,
             isPreOrder: isPre,
             publishedAt: item.published_at || item.created_at,
           });
@@ -387,6 +475,10 @@ export async function fetchBoutiquePreOrders(
           }
 
           const isPre = cleaned.isPreOrder;
+          const isAvailable = item.is_in_stock !== false;
+          const region =
+            cleaned.region || STORE_DEFAULT_REGIONS[config.store] || null;
+
           let priceUsd: number | undefined;
           let priceCents: number | undefined;
           if (item.prices && item.prices.price) {
@@ -417,6 +509,8 @@ export async function fetchBoutiquePreOrders(
             priceUsd,
             priceCents,
             edition: cleaned.edition,
+            region,
+            isAvailable,
             isPreOrder: isPre,
             publishedAt: item.date_created,
           });

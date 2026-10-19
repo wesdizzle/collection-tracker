@@ -88,6 +88,52 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(snes.platformId).toBe(15);
       expect(snes.isGame).toBe(true);
     });
+
+    it('should strip connective prepositions (for, on) and trademark symbols', () => {
+      const ps4 = cleanBoutiqueTitle('UNDERTALE for PlayStation 4');
+      expect(ps4.cleanTitle).toBe('UNDERTALE');
+      expect(ps4.platformId).toBe(34);
+      expect(ps4.isGame).toBe(true);
+
+      const switchTm = cleanBoutiqueTitle('UNDERTALE for Nintendo Switch™');
+      expect(switchTm.cleanTitle).toBe('UNDERTALE');
+      expect(switchTm.platformId).toBe(26);
+
+      const pizzaTower = cleanBoutiqueTitle(
+        "Pizza Tower for Nintendo Switch™ Collector's Edition",
+      );
+      expect(pizzaTower.cleanTitle).toBe('Pizza Tower');
+      expect(pizzaTower.edition).toBe("Collector's Edition");
+      expect(pizzaTower.platformId).toBe(26);
+    });
+
+    it('should extract region from parentheticals and trailing delimiters', () => {
+      const jp = cleanBoutiqueTitle(
+        'Castlevania Dominus Collection - Switch (JP)',
+      );
+      expect(jp.cleanTitle).toBe('Castlevania Dominus Collection');
+      expect(jp.region).toBe('Japan');
+      expect(jp.platformId).toBe(26);
+
+      const eu = cleanBoutiqueTitle(
+        'Shantae Advance: Risky Revolution (Switch) (EU)',
+      );
+      expect(eu.cleanTitle).toBe('Shantae Advance: Risky Revolution');
+      expect(eu.region).toBe('Europe');
+      expect(eu.platformId).toBe(26);
+
+      const euVersion = cleanBoutiqueTitle('Sea of Stars (PS5) (EU Version)');
+      expect(euVersion.cleanTitle).toBe('Sea of Stars');
+      expect(euVersion.region).toBe('Europe');
+      expect(euVersion.platformId).toBe(35);
+
+      const jpDash = cleanBoutiqueTitle(
+        'Metaphor: ReFantazio Standard Edition - PS5 - JP',
+      );
+      expect(jpDash.cleanTitle).toBe('Metaphor: ReFantazio');
+      expect(jpDash.region).toBe('Japan');
+      expect(jpDash.platformId).toBe(35);
+    });
   });
 
   describe('fetchBoutiquePreOrders', () => {
@@ -196,6 +242,55 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       // 79.99 CAD * 0.73 ~= 58.39 USD
       expect(results[0].priceUsd).toBe(58.39);
       expect(results[0].priceCents).toBe(5839);
+    });
+
+    it('should correctly flag stock availability based on Shopify variants', async () => {
+      const mockShopify = {
+        products: [
+          {
+            id: 301,
+            title: 'Limited Game In Stock (Switch)',
+            handle: 'game-in-stock',
+            variants: [
+              { price: '34.99', available: false },
+              { price: '34.99', available: true },
+            ],
+          },
+          {
+            id: 302,
+            title: 'Limited Game Sold Out (PS5)',
+            handle: 'game-sold-out',
+            variants: [{ price: '34.99', available: false }],
+          },
+        ],
+      };
+
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockShopify,
+      });
+
+      const singleStore: BoutiqueFeedConfig[] = [
+        {
+          store: 'Limited Run Games',
+          url: 'https://limitedrungames.com/collections/all/products.json?limit=250',
+          baseUrl: 'https://limitedrungames.com',
+          type: 'shopify',
+        },
+      ];
+
+      const results = await fetchBoutiquePreOrders(
+        mockFetch as unknown as typeof fetch,
+        singleStore,
+      );
+      expect(results).toHaveLength(2);
+      expect(results[0].cleanTitle).toBe('Limited Game In Stock');
+      expect(results[0].isAvailable).toBe(true);
+      expect(results[0].region).toBe('USA');
+
+      expect(results[1].cleanTitle).toBe('Limited Game Sold Out');
+      expect(results[1].isAvailable).toBe(false);
+      expect(results[1].region).toBe('USA');
     });
 
     it('should handle network failures gracefully without throwing', async () => {

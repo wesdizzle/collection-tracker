@@ -3853,8 +3853,20 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
   for (const po of preOrders) {
     if (!po.platformId) continue;
+    // Sold-out boutique items must never update retail status or trigger announcement notifications
+    if (po.isAvailable === false) continue;
+
     const poNorm = normalizeTitleForMatching(po.cleanTitle);
     if (!poNorm) continue;
+
+    const isRecent = (() => {
+      if (!po.publishedAt) return false;
+      const pubMs = new Date(po.publishedAt).getTime();
+      if (isNaN(pubMs)) return false;
+      return Date.now() - pubMs <= 7 * 24 * 60 * 60 * 1000;
+    })();
+
+    const isActionableAnnouncement = po.isPreOrder || isRecent;
 
     const match = gamesWithNorm.find(
       (g) =>
@@ -3910,17 +3922,20 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
       const isStandardPhysicalOwned = match.has_owned_physical === 1;
       const shouldSuppressOwned =
-        isStandardPhysicalOwned && (!isSpecialEdition || variantAlreadyOwned);
+        isStandardPhysicalOwned &&
+        (!isSpecialEdition || variantAlreadyOwned || !isActionableAnnouncement);
 
       const isUnannouncedSpecialEdition =
         isSpecialEdition &&
         !variantAlreadyOwned &&
+        isActionableAnnouncement &&
         !announcedUrls.has(po.productUrl);
 
       const shouldNotify =
         !shouldSuppressOwned &&
         !isColdStartSeed &&
-        (shouldUpdatePhysicalStatus || isUnannouncedSpecialEdition);
+        ((shouldUpdatePhysicalStatus && isActionableAnnouncement) ||
+          isUnannouncedSpecialEdition);
 
       if (shouldNotify) {
         newlyAnnouncedGames.push({

@@ -151,9 +151,13 @@ export const GAME_DETAIL_QUERY = `
             p.parent_platform_id
      FROM games g 
      LEFT JOIN game_releases r ON r.id = (
-         SELECT id FROM game_releases WHERE id = ?
-         UNION ALL
-         SELECT id FROM game_releases WHERE game_id = g.stable_id
+         SELECT id FROM (
+             SELECT id, 1 as priority, 0 as is_owned, 1 as region_match FROM game_releases WHERE id = ?
+             UNION ALL
+             SELECT id, 2 as priority, ownership_status as is_owned, (CASE WHEN region = g.region THEN 0 ELSE 1 END) as region_match
+             FROM game_releases WHERE game_id = g.stable_id
+         )
+         ORDER BY priority ASC, is_owned DESC, region_match ASC, id ASC
          LIMIT 1
      )
      LEFT JOIN platforms p ON g.platform_id = p.id 

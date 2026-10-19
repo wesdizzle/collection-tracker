@@ -2465,6 +2465,151 @@ describe('Worker API Logic', () => {
       }
     });
 
+    it('syncWorkerBoutiquePreOrders suppresses announcements when listing is sold out (available: false)', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (920, 'pizza-tower-switch', 'Pizza Tower', 26, 'digital_only')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-sold-out', 'https://push.example.com/sub-sold-out', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 991122,
+            title: "Pizza Tower for Nintendo Switch™ Collector's Edition",
+            handle: 'pizza-tower-switch-ce',
+            tags: ['game', 'pre-order'],
+            variants: [{ price: '79.99', available: false }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (typeof input === 'string' && input.includes('fangamer.com')) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.notifications.dispatchedCount).toBe(0);
+        expect(webPushSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders suppresses announcements for ancient special editions (> 7 days old and not pre-orders)', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (921, 'celeste-switch', 'Celeste', 26, 'likely_physical')`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, variants, ownership_status, is_physical)
+         VALUES ('celeste-std-rel', 921, 'USA', 'Standard', 1, 1)`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-ancient', 'https://push.example.com/sub-ancient', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      // Ancient listing from 2023, not a pre-order, in stock
+      const mockShopify = {
+        products: [
+          {
+            id: 991133,
+            title: 'Celeste Deluxe Edition for Nintendo Switch™',
+            handle: 'celeste-deluxe-switch',
+            tags: ['game'],
+            published_at: '2023-01-25T10:37:20-07:00',
+            variants: [{ price: '34.99', available: true }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (typeof input === 'string' && input.includes('fangamer.com')) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.notifications.dispatchedCount).toBe(0);
+        expect(webPushSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('GET /api/games/:id prioritizes owned release matching game region over unowned foreign releases', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, region, physical_status)
+         VALUES (930, 'castlevania-dominus-test', 'Castlevania Dominus Collection', 35, 'USA', 'verified_physical')`,
+      ).run();
+
+      // First release inserted is Japan and unowned
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
+         VALUES ('castlevania-jp', 930, 'Japan', 0, 1)`,
+      ).run();
+
+      // Second release inserted is USA and owned
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
+         VALUES ('castlevania-usa', 930, 'USA', 1, 1)`,
+      ).run();
+
+      const req = new Request(
+        'https://collection-tracker.example.com/api/games/castlevania-dominus-test',
+      );
+      const res = await worker.fetch(req, mockEnv);
+      expect(res.status).toBe(200);
+
+      const data = (await res.json()) as {
+        id: string;
+        region: string;
+        ownership_status: number;
+      };
+      expect(data.id).toBe('castlevania-usa');
+      expect(data.region).toBe('USA');
+      expect(data.ownership_status).toBe(1);
+    });
+
     it('GET /api/admin/diagnostics/jobs returns logged cron executions when authorized', async () => {
       // Insert execution log
       db.prepare(
