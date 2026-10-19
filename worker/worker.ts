@@ -3248,26 +3248,26 @@ Disallow: /
       );
     }
 
-    // 3. Check 30-minute interval tasks (Boutique Pre-Orders)
+    // 3. Check 1-hour interval tasks (Boutique Pre-Orders)
     const nowMs = Date.now();
-    let last30MinRun = 0;
+    let lastBoutiqueRun = 0;
     try {
       const row = await env.DB.prepare(
         "SELECT updated_at FROM sync_state WHERE key = 'boutique_sync_last_run'",
       ).first<{ updated_at: string }>();
       if (row?.updated_at) {
-        last30MinRun = new Date(row.updated_at).getTime();
+        lastBoutiqueRun = new Date(row.updated_at).getTime();
       }
     } catch {
       // unmigrated sync_state table fallback
     }
 
-    const shouldRun30MinTasks =
-      event.cron === '*/30 * * * *' || nowMs - last30MinRun >= 25 * 60 * 1000;
+    const shouldRunBoutiqueTasks =
+      lastBoutiqueRun === 0 || nowMs - lastBoutiqueRun >= 55 * 60 * 1000;
 
-    if (shouldRun30MinTasks) {
+    if (shouldRunBoutiqueTasks) {
       console.log(
-        '[WorkerCron] Executing scheduled boutique physical pre-order sync...',
+        '[WorkerCron] Executing scheduled boutique physical pre-order sync (1-hour window)...',
       );
       const boutiqueStart = Date.now();
       try {
@@ -4319,7 +4319,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   updatedGamesCount: number;
   cursorOffset?: number;
 }> {
-  const batchSize = options?.batchSize ?? 16;
+  const batchSize = options?.batchSize ?? 100;
 
   // 1. Read persistent sync bookmark cursor from sync_state
   let lastStableId = 0;
@@ -4543,6 +4543,8 @@ export interface GameyePriceSyncResult {
   toysUpdated: number;
   gamesChecked: number;
   gamesUpdated: number;
+  nextToyCursor?: number;
+  nextGameCursor?: number;
   details: Array<{
     type: 'toy' | 'game';
     stableId: number;
@@ -4562,51 +4564,143 @@ export async function syncWorkerGameyePricing(
   env: Env,
   options?: GameyePriceSyncOptions,
 ): Promise<GameyePriceSyncResult> {
-  const toyLimit = options?.toyLimit ?? (options?.specificToyStableId ? 1 : 3);
+  const toyLimit = options?.toyLimit ?? (options?.specificToyStableId ? 1 : 11);
   const gameLimit =
-    options?.gameLimit ?? (options?.specificGameStableId ? 1 : 7);
+    options?.gameLimit ?? (options?.specificGameStableId ? 1 : 25);
   const client = options?.client ?? edgeGameyeClient;
 
   let toysChecked = 0;
   let toysUpdated = 0;
   let gamesChecked = 0;
   let gamesUpdated = 0;
+  let nextToyCursor: number | undefined;
+  let nextGameCursor: number | undefined;
   const details: GameyePriceSyncResult['details'] = [];
 
   // 1. Process Toys
   if (toyLimit > 0 || options?.specificToyStableId) {
-    let toyQuery = `
-      SELECT stable_id, id, name, line, series_id, type, gameye_id, price_loose, price_cib, price_new, price_updated_at
-      FROM toys
-    `;
-    const toyArgs: (number | string)[] = [];
-    if (options?.specificToyStableId) {
-      toyQuery += ' WHERE stable_id = ?';
-      toyArgs.push(options.specificToyStableId);
-    } else {
-      toyQuery += `
-        WHERE ownership_status > 0
-        ORDER BY price_updated_at ASC NULLS FIRST
-        LIMIT ?
-      `;
-      toyArgs.push(toyLimit);
+    let lastToyStableId = 0;
+    if (!options?.specificToyStableId) {
+      try {
+        const cursorRow = await env.DB.prepare(
+          `SELECT value FROM sync_state WHERE key = 'gameye_toy_cursor'`,
+        ).first<{ value: string }>();
+        if (cursorRow && cursorRow.value) {
+          const parsed = parseInt(cursorRow.value, 10);
+          if (Number.isFinite(parsed) && parsed >= 0) {
+            lastToyStableId = parsed;
+          }
+        }
+      } catch {
+        // unmigrated sync_state table fallback
+      }
     }
 
-    const { results: toyRows } = await env.DB.prepare(toyQuery)
-      .bind(...toyArgs)
-      .all<{
-        stable_id: number;
-        id: string;
-        name: string;
-        line: string;
-        series_id: string | null;
-        type: string | null;
-        gameye_id: number | null;
-        price_loose: number | null;
-        price_cib: number | null;
-        price_new: number | null;
-        price_updated_at: string | null;
-      }>();
+    let toyRows: Array<{
+      stable_id: number;
+      id: string;
+      name: string;
+      line: string;
+      series_id: string | null;
+      type: string | null;
+      gameye_id: number | null;
+      price_loose: number | null;
+      price_cib: number | null;
+      price_new: number | null;
+      price_updated_at: string | null;
+    }>;
+
+    if (options?.specificToyStableId) {
+      const res = await env.DB.prepare(
+        `SELECT stable_id, id, name, line, series_id, type, gameye_id, price_loose, price_cib, price_new, price_updated_at
+         FROM toys
+         WHERE stable_id = ?`,
+      )
+        .bind(options.specificToyStableId)
+        .all<{
+          stable_id: number;
+          id: string;
+          name: string;
+          line: string;
+          series_id: string | null;
+          type: string | null;
+          gameye_id: number | null;
+          price_loose: number | null;
+          price_cib: number | null;
+          price_new: number | null;
+          price_updated_at: string | null;
+        }>();
+      toyRows = res.results || [];
+    } else {
+      const res = await env.DB.prepare(
+        `SELECT stable_id, id, name, line, series_id, type, gameye_id, price_loose, price_cib, price_new, price_updated_at
+         FROM toys
+         WHERE ownership_status > 0 AND stable_id > ?
+         ORDER BY stable_id ASC
+         LIMIT ?`,
+      )
+        .bind(lastToyStableId, toyLimit)
+        .all<{
+          stable_id: number;
+          id: string;
+          name: string;
+          line: string;
+          series_id: string | null;
+          type: string | null;
+          gameye_id: number | null;
+          price_loose: number | null;
+          price_cib: number | null;
+          price_new: number | null;
+          price_updated_at: string | null;
+        }>();
+      toyRows = res.results || [];
+
+      if (toyRows.length === 0) {
+        // Reached end of collection; wrap around to 0
+        const wrapRes = await env.DB.prepare(
+          `SELECT stable_id, id, name, line, series_id, type, gameye_id, price_loose, price_cib, price_new, price_updated_at
+           FROM toys
+           WHERE ownership_status > 0 AND stable_id > 0
+           ORDER BY stable_id ASC
+           LIMIT ?`,
+        )
+          .bind(toyLimit)
+          .all<{
+            stable_id: number;
+            id: string;
+            name: string;
+            line: string;
+            series_id: string | null;
+            type: string | null;
+            gameye_id: number | null;
+            price_loose: number | null;
+            price_cib: number | null;
+            price_new: number | null;
+            price_updated_at: string | null;
+          }>();
+        toyRows = wrapRes.results || [];
+        nextToyCursor =
+          toyRows.length < toyLimit || toyRows.length === 0
+            ? 0
+            : toyRows[toyRows.length - 1].stable_id;
+      } else if (toyRows.length < toyLimit) {
+        nextToyCursor = 0;
+      } else {
+        nextToyCursor = toyRows[toyRows.length - 1].stable_id;
+      }
+
+      try {
+        await env.DB.prepare(
+          `INSERT INTO sync_state (key, value, updated_at)
+           VALUES ('gameye_toy_cursor', ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+          .bind(String(nextToyCursor))
+          .run();
+      } catch {
+        // unmigrated sync_state table fallback
+      }
+    }
 
     for (const toy of toyRows || []) {
       toysChecked++;
@@ -4674,40 +4768,135 @@ export async function syncWorkerGameyePricing(
 
   // 2. Process Games
   if (gameLimit > 0 || options?.specificGameStableId) {
-    let gameQuery = `
-      SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
-             g.price_loose, g.price_cib, g.price_new, g.price_updated_at
-      FROM games g
-    `;
-    const gameArgs: (number | string)[] = [];
-    if (options?.specificGameStableId) {
-      gameQuery += ' WHERE g.stable_id = ?';
-      gameArgs.push(options.specificGameStableId);
-    } else {
-      gameQuery += `
-        WHERE (EXISTS (SELECT 1 FROM game_releases r WHERE r.game_id = g.stable_id AND r.ownership_status > 0)
-               OR g.play_status > 0 OR g.backup_status > 0)
-        ORDER BY g.price_updated_at ASC NULLS FIRST
-        LIMIT ?
-      `;
-      gameArgs.push(gameLimit);
+    let lastGameStableId = 0;
+    if (!options?.specificGameStableId) {
+      try {
+        const cursorRow = await env.DB.prepare(
+          `SELECT value FROM sync_state WHERE key = 'gameye_game_cursor'`,
+        ).first<{ value: string }>();
+        if (cursorRow && cursorRow.value) {
+          const parsed = parseInt(cursorRow.value, 10);
+          if (Number.isFinite(parsed) && parsed >= 0) {
+            lastGameStableId = parsed;
+          }
+        }
+      } catch {
+        // unmigrated sync_state table fallback
+      }
     }
 
-    const { results: gameRows } = await env.DB.prepare(gameQuery)
-      .bind(...gameArgs)
-      .all<{
-        stable_id: number;
-        id: string;
-        title: string;
-        platform_id: number;
-        region: string | null;
-        gameye_id: number | null;
-        gameye_platform_id: number | null;
-        price_loose: number | null;
-        price_cib: number | null;
-        price_new: number | null;
-        price_updated_at: string | null;
-      }>();
+    let gameRows: Array<{
+      stable_id: number;
+      id: string;
+      title: string;
+      platform_id: number;
+      region: string | null;
+      gameye_id: number | null;
+      gameye_platform_id: number | null;
+      price_loose: number | null;
+      price_cib: number | null;
+      price_new: number | null;
+      price_updated_at: string | null;
+    }>;
+
+    if (options?.specificGameStableId) {
+      const res = await env.DB.prepare(
+        `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
+                g.price_loose, g.price_cib, g.price_new, g.price_updated_at
+         FROM games g
+         WHERE g.stable_id = ?`,
+      )
+        .bind(options.specificGameStableId)
+        .all<{
+          stable_id: number;
+          id: string;
+          title: string;
+          platform_id: number;
+          region: string | null;
+          gameye_id: number | null;
+          gameye_platform_id: number | null;
+          price_loose: number | null;
+          price_cib: number | null;
+          price_new: number | null;
+          price_updated_at: string | null;
+        }>();
+      gameRows = res.results || [];
+    } else {
+      const res = await env.DB.prepare(
+        `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
+                g.price_loose, g.price_cib, g.price_new, g.price_updated_at
+         FROM games g
+         JOIN game_releases r ON r.game_id = g.stable_id AND r.ownership_status > 0
+         WHERE g.stable_id > ?
+         GROUP BY g.stable_id
+         ORDER BY g.stable_id ASC
+         LIMIT ?`,
+      )
+        .bind(lastGameStableId, gameLimit)
+        .all<{
+          stable_id: number;
+          id: string;
+          title: string;
+          platform_id: number;
+          region: string | null;
+          gameye_id: number | null;
+          gameye_platform_id: number | null;
+          price_loose: number | null;
+          price_cib: number | null;
+          price_new: number | null;
+          price_updated_at: string | null;
+        }>();
+      gameRows = res.results || [];
+
+      if (gameRows.length === 0) {
+        // Reached the end of the collection; wrap around to beginning
+        const wrapRes = await env.DB.prepare(
+          `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
+                  g.price_loose, g.price_cib, g.price_new, g.price_updated_at
+           FROM games g
+           JOIN game_releases r ON r.game_id = g.stable_id AND r.ownership_status > 0
+           WHERE g.stable_id > 0
+           GROUP BY g.stable_id
+           ORDER BY g.stable_id ASC
+           LIMIT ?`,
+        )
+          .bind(gameLimit)
+          .all<{
+            stable_id: number;
+            id: string;
+            title: string;
+            platform_id: number;
+            region: string | null;
+            gameye_id: number | null;
+            gameye_platform_id: number | null;
+            price_loose: number | null;
+            price_cib: number | null;
+            price_new: number | null;
+            price_updated_at: string | null;
+          }>();
+        gameRows = wrapRes.results || [];
+        nextGameCursor =
+          gameRows.length < gameLimit || gameRows.length === 0
+            ? 0
+            : gameRows[gameRows.length - 1].stable_id;
+      } else if (gameRows.length < gameLimit) {
+        nextGameCursor = 0;
+      } else {
+        nextGameCursor = gameRows[gameRows.length - 1].stable_id;
+      }
+
+      try {
+        await env.DB.prepare(
+          `INSERT INTO sync_state (key, value, updated_at)
+           VALUES ('gameye_game_cursor', ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+          .bind(String(nextGameCursor))
+          .run();
+      } catch {
+        // unmigrated sync_state table fallback
+      }
+    }
 
     for (const game of gameRows || []) {
       gamesChecked++;
@@ -4782,6 +4971,8 @@ export async function syncWorkerGameyePricing(
     toysUpdated,
     gamesChecked,
     gamesUpdated,
+    nextToyCursor,
+    nextGameCursor,
     details,
   };
 }

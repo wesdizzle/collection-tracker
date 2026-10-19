@@ -2898,5 +2898,191 @@ describe('Worker API Logic', () => {
         fetchSpy.mockRestore();
       }
     });
+
+    it('syncWorkerGameyePricing paginates owned games with persistent primary-key cursor and wraps around', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (501, 'g-cursor-1', 'Cursor Game 1', 1),
+                (502, 'g-cursor-2', 'Cursor Game 2', 1),
+                (503, 'g-cursor-3', 'Cursor Game 3', 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, ownership_status)
+         VALUES ('rel-501', 501, 1),
+                ('rel-502', 502, 1),
+                ('rel-503', 503, 1)`,
+      ).run();
+
+      // Set initial cursor to 500 so test runs specifically over games 501, 502, 503
+      db.prepare(
+        `INSERT INTO sync_state (key, value) VALUES ('gameye_game_cursor', '500')
+         ON CONFLICT(key) DO UPDATE SET value = '500'`,
+      ).run();
+
+      const mockClient = {
+        get: vi.fn(async () => ({
+          data: { records: [] },
+          status: 200,
+        })),
+      };
+
+      // Batch 1: gameLimit = 2 -> picks 501 and 502, cursor advances to 502
+      const res1 = await syncWorkerGameyePricing(mockEnv, {
+        gameLimit: 2,
+        toyLimit: 0,
+        client: mockClient,
+      });
+
+      expect(res1.gamesChecked).toBe(2);
+      expect(res1.nextGameCursor).toBe(502);
+
+      const cursorRow1 = db
+        .prepare(
+          `SELECT value FROM sync_state WHERE key = 'gameye_game_cursor'`,
+        )
+        .get() as { value: string };
+      expect(cursorRow1?.value).toBe('502');
+
+      // Batch 2: gameLimit = 2 -> picks 503 (< 2 games left), wraps cursor to 0
+      const res2 = await syncWorkerGameyePricing(mockEnv, {
+        gameLimit: 2,
+        toyLimit: 0,
+        client: mockClient,
+      });
+
+      expect(res2.gamesChecked).toBe(1);
+      expect(res2.nextGameCursor).toBe(0);
+
+      const cursorRow2 = db
+        .prepare(
+          `SELECT value FROM sync_state WHERE key = 'gameye_game_cursor'`,
+        )
+        .get() as { value: string };
+      expect(cursorRow2?.value).toBe('0');
+    });
+
+    it('syncWorkerGameyePricing paginates toys with persistent primary-key cursor and wraps around', async () => {
+      db.prepare(
+        `INSERT INTO toys (stable_id, id, name, line, ownership_status)
+         VALUES (601, 'toy-cursor-1', 'Cursor Toy 1', 'amiibo', 1),
+                (602, 'toy-cursor-2', 'Cursor Toy 2', 'amiibo', 1),
+                (603, 'toy-cursor-3', 'Cursor Toy 3', 'amiibo', 1)`,
+      ).run();
+
+      // Set initial cursor to 600 so test runs specifically over toys 601, 602, 603
+      db.prepare(
+        `INSERT INTO sync_state (key, value) VALUES ('gameye_toy_cursor', '600')
+         ON CONFLICT(key) DO UPDATE SET value = '600'`,
+      ).run();
+
+      const mockClient = {
+        get: vi.fn(async () => ({
+          data: { records: [] },
+          status: 200,
+        })),
+      };
+
+      // Batch 1: toyLimit = 2 -> picks 601 and 602, cursor advances to 602
+      const res1 = await syncWorkerGameyePricing(mockEnv, {
+        toyLimit: 2,
+        gameLimit: 0,
+        client: mockClient,
+      });
+
+      expect(res1.toysChecked).toBe(2);
+      expect(res1.nextToyCursor).toBe(602);
+
+      const cursorRow1 = db
+        .prepare(`SELECT value FROM sync_state WHERE key = 'gameye_toy_cursor'`)
+        .get() as { value: string };
+      expect(cursorRow1?.value).toBe('602');
+
+      // Batch 2: toyLimit = 2 -> picks 603 (< 2 toys left), wraps cursor to 0
+      const res2 = await syncWorkerGameyePricing(mockEnv, {
+        toyLimit: 2,
+        gameLimit: 0,
+        client: mockClient,
+      });
+
+      expect(res2.toysChecked).toBe(1);
+      expect(res2.nextToyCursor).toBe(0);
+
+      const cursorRow2 = db
+        .prepare(`SELECT value FROM sync_state WHERE key = 'gameye_toy_cursor'`)
+        .get() as { value: string };
+      expect(cursorRow2?.value).toBe('0');
+    });
+
+    it('scheduled cron gates boutique pre-order sync to 1-hour interval', async () => {
+      const scheduledEvent = {
+        cron: '*/30 * * * *',
+        type: 'scheduled',
+        scheduledTime: Date.now(),
+      } as unknown as ScheduledEvent;
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async () => {
+          return {
+            ok: true,
+            json: async () => ({ records: [], products: [] }),
+            text: async () => '',
+          } as unknown as Response;
+        });
+
+      try {
+        // 1. Initial run: boutique_sync_last_run does not exist -> runs boutique sync
+        db.prepare(
+          `DELETE FROM sync_state WHERE key = 'boutique_sync_last_run'`,
+        ).run();
+        db.prepare(
+          `DELETE FROM cron_execution_logs WHERE job_name = 'boutique_preorders'`,
+        ).run();
+
+        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+
+        const initialLogCount = (
+          db
+            .prepare(
+              `SELECT COUNT(*) as c FROM cron_execution_logs WHERE job_name = 'boutique_preorders'`,
+            )
+            .get() as { c: number }
+        ).c;
+        expect(initialLogCount).toBe(1);
+
+        // 2. Second run immediately (simulating 30 min run within 55 min window) -> skips boutique sync
+        db.prepare(
+          `INSERT OR REPLACE INTO sync_state (key, value, updated_at) VALUES ('boutique_sync_last_run', datetime('now'), datetime('now'))`,
+        ).run();
+        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+
+        const skippedLogCount = (
+          db
+            .prepare(
+              `SELECT COUNT(*) as c FROM cron_execution_logs WHERE job_name = 'boutique_preorders'`,
+            )
+            .get() as { c: number }
+        ).c;
+        expect(skippedLogCount).toBe(1); // Still 1, did not re-run!
+
+        // 3. Third run after 60 minutes -> executes boutique sync
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        db.prepare(
+          `INSERT OR REPLACE INTO sync_state (key, value, updated_at) VALUES ('boutique_sync_last_run', ?, ?)`,
+        ).run(oneHourAgo, oneHourAgo);
+        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+
+        const afterHourLogCount = (
+          db
+            .prepare(
+              `SELECT COUNT(*) as c FROM cron_execution_logs WHERE job_name = 'boutique_preorders'`,
+            )
+            .get() as { c: number }
+        ).c;
+        expect(afterHourLogCount).toBe(2); // Ran again!
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
   });
 });
