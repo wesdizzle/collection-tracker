@@ -343,9 +343,30 @@ describe('CommandPaletteComponent', () => {
     } as unknown as TouchEvent);
     expect(component.sheetTransformY()).toBe(70);
 
+    vi.useFakeTimers();
     component.onDragHandleTouchEnd();
     expect(component.isDraggingSheet()).toBe(false);
+    expect(component.isClosing()).toBe(true);
+    vi.advanceTimersByTime(250);
     expect(paletteService.isOpen()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('should track interactive swipe up drag progress from service', () => {
+    paletteService.startDragOpen();
+    fixture.detectChanges();
+
+    expect(paletteService.isOpen()).toBe(true);
+    expect(paletteService.isDragging()).toBe(true);
+
+    paletteService.updateDragProgress(320);
+    fixture.detectChanges();
+    expect(component.effectiveTransformY()).toBe(320);
+
+    paletteService.commitDragOpen();
+    fixture.detectChanges();
+    expect(paletteService.isDragging()).toBe(false);
+    expect(component.effectiveTransformY()).toBeNull();
   });
 
   it('should conform to WAI-ARIA 1.2 combobox pattern with listbox and active descendant', () => {

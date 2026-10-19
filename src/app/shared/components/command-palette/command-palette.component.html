@@ -1,31 +1,37 @@
 <dialog
   #dialogEl
-  class="palette-dialog m3-surface-container-high animate-expressive"
-  [class.dragging]="isDraggingSheet()"
+  class="palette-dialog m3-surface-container-high"
+  [class.dragging]="isDraggingSheet() || paletteService.isDragging()"
+  [class.slide-up-enter]="isEntering()"
+  [class.closing]="isClosing()"
   [style.transform]="
-    sheetTransformY() > 0 ? 'translateY(' + sheetTransformY() + 'px)' : null
+    effectiveTransformY() !== null
+      ? 'translateY(' + effectiveTransformY() + 'px)'
+      : null
   "
   (click)="onDialogClick($event)"
   (cancel)="onDialogCancel($event)"
   aria-label="Command palette"
 >
-  <!-- Mobile Bottom Sheet Drag Handle -->
   <div
-    class="palette-drag-handle-bar"
+    class="palette-drag-area"
     (touchstart)="onDragHandleTouchStart($event)"
     (touchmove)="onDragHandleTouchMove($event)"
     (touchend)="onDragHandleTouchEnd()"
   >
-    <div class="palette-drag-handle"></div>
-  </div>
-
-  <header class="palette-header">
-    <div class="palette-title-group">
-      <app-icon name="gamepad" [size]="15" />
-      <h2 class="palette-title">Command Palette</h2>
+    <!-- Mobile Bottom Sheet Drag Handle -->
+    <div class="palette-drag-handle-bar">
+      <div class="palette-drag-handle"></div>
     </div>
-    <span class="palette-shortcut-badge">Ctrl + K</span>
-  </header>
+
+    <header class="palette-header">
+      <div class="palette-title-group">
+        <app-icon name="gamepad" [size]="15" />
+        <h2 class="palette-title">Command Palette</h2>
+      </div>
+      <span class="palette-shortcut-badge">Ctrl + K</span>
+    </header>
+  </div>
 
   <div class="palette-search-wrapper">
     <app-icon name="search" [size]="20" className="search-icon" />

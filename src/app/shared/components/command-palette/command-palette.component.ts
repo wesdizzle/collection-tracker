@@ -102,6 +102,28 @@ export class CommandPaletteComponent implements AfterViewInit {
   public selectedIndex = signal(0);
   private wasOpen = false;
 
+  public isEntering = signal(false);
+  public isClosing = signal(false);
+  public sheetTransformY = signal(0);
+  public isDraggingSheet = signal(false);
+  private sheetDragStartY = 0;
+
+  public readonly effectiveTransformY = computed<number | null>(() => {
+    if (this.isClosing()) {
+      return null;
+    }
+    if (this.isDraggingSheet()) {
+      return this.sheetTransformY();
+    }
+    if (
+      this.paletteService.isDragging() &&
+      this.paletteService.dragTranslateY() !== null
+    ) {
+      return this.paletteService.dragTranslateY();
+    }
+    return null;
+  });
+
   public readonly activeOptionId = computed<string | null>(() => {
     const flat = this.flatResults();
     const idx = this.selectedIndex();
@@ -114,10 +136,12 @@ export class CommandPaletteComponent implements AfterViewInit {
   constructor() {
     effect(() => {
       const open = this.paletteService.isOpen();
+      const dragging = this.paletteService.isDragging();
       if (open && !this.wasOpen) {
         this.wasOpen = true;
         this.query.set('');
         this.selectedIndex.set(0);
+        this.isClosing.set(false);
         if (this.collectionService.games().length === 0) {
           this.collectionService.refreshAll();
         }
@@ -125,11 +149,24 @@ export class CommandPaletteComponent implements AfterViewInit {
           document.body.style.overflow = 'hidden';
         }
         this.openDialog();
+
+        if (!dragging) {
+          this.isEntering.set(true);
+          setTimeout(() => {
+            this.isEntering.set(false);
+          }, 280);
+          setTimeout(() => {
+            this.searchInput?.nativeElement.focus();
+          }, 50);
+        }
+      } else if (open && this.wasOpen && !dragging) {
         setTimeout(() => {
           this.searchInput?.nativeElement.focus();
         }, 50);
       } else if (!open && this.wasOpen) {
         this.wasOpen = false;
+        this.isClosing.set(false);
+        this.isEntering.set(false);
         if (typeof document !== 'undefined') {
           document.body.style.overflow = '';
         }
@@ -630,9 +667,6 @@ export class CommandPaletteComponent implements AfterViewInit {
   }
 
   // --- Mobile Bottom Sheet Drag-to-Dismiss Gesture ---
-  private sheetDragStartY = 0;
-  public sheetTransformY = signal(0);
-  public isDraggingSheet = signal(false);
 
   public onDragHandleTouchStart(event: TouchEvent): void {
     if (event.touches.length !== 1) return;
@@ -657,7 +691,7 @@ export class CommandPaletteComponent implements AfterViewInit {
     this.isDraggingSheet.set(false);
 
     if (currentDelta >= 60) {
-      this.paletteService.close();
+      this.isClosing.set(true);
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
         try {
           navigator.vibrate(10);
@@ -665,8 +699,14 @@ export class CommandPaletteComponent implements AfterViewInit {
           // Ignore vibration limitations
         }
       }
+      setTimeout(() => {
+        this.paletteService.close();
+        this.isClosing.set(false);
+        this.sheetTransformY.set(0);
+      }, 220);
+    } else {
+      this.sheetTransformY.set(0);
     }
-    this.sheetTransformY.set(0);
   }
 
   private scrollActiveItemIntoView() {

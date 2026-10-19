@@ -253,45 +253,62 @@ describe('CollectionLayoutComponent', () => {
       expect(openSpy).toHaveBeenCalled();
     });
 
-    it('should open command palette on downward swipe on header and ignore horizontal/upward swipes', () => {
+    it('should open command palette on upward swipe on bottom nav and ignore horizontal/downward swipes', () => {
       const paletteService = TestBed.inject(CommandPaletteService);
-      const openSpy = vi.spyOn(paletteService, 'open');
+      const startSpy = vi.spyOn(paletteService, 'startDragOpen');
+      const commitSpy = vi.spyOn(paletteService, 'commitDragOpen');
+      const cancelSpy = vi.spyOn(paletteService, 'cancelDragOpen');
 
-      // 1. Horizontal swipe -> should not open
-      component.onHeaderTouchStart({
-        touches: [{ clientX: 100, clientY: 50 }],
+      // 1. Horizontal swipe -> should not start drag
+      component.onNavTouchStart({
+        touches: [{ clientX: 100, clientY: 700 }],
       } as unknown as TouchEvent);
-      component.onHeaderTouchMove({
-        touches: [{ clientX: 200, clientY: 55 }],
+      component.onNavTouchMove({
+        touches: [{ clientX: 200, clientY: 695 }],
       } as unknown as TouchEvent);
-      component.onHeaderTouchEnd({
-        changedTouches: [{ clientX: 200, clientY: 55 }],
+      component.onNavTouchEnd({
+        changedTouches: [{ clientX: 200, clientY: 695 }],
       } as unknown as TouchEvent);
-      expect(openSpy).not.toHaveBeenCalled();
+      expect(startSpy).not.toHaveBeenCalled();
 
-      // 2. Upward swipe -> should not open
-      component.onHeaderTouchStart({
-        touches: [{ clientX: 100, clientY: 100 }],
+      // 2. Downward swipe -> should not start drag
+      component.onNavTouchStart({
+        touches: [{ clientX: 100, clientY: 700 }],
       } as unknown as TouchEvent);
-      component.onHeaderTouchMove({
-        touches: [{ clientX: 100, clientY: 40 }],
+      component.onNavTouchMove({
+        touches: [{ clientX: 100, clientY: 750 }],
       } as unknown as TouchEvent);
-      component.onHeaderTouchEnd({
-        changedTouches: [{ clientX: 100, clientY: 40 }],
+      component.onNavTouchEnd({
+        changedTouches: [{ clientX: 100, clientY: 750 }],
       } as unknown as TouchEvent);
-      expect(openSpy).not.toHaveBeenCalled();
+      expect(startSpy).not.toHaveBeenCalled();
 
-      // 3. Sufficient downward swipe (deltaY >= 40) -> should open
-      component.onHeaderTouchStart({
-        touches: [{ clientX: 100, clientY: 50 }],
+      // 3. Small upward swipe (< 60px) -> cancels drag
+      component.onNavTouchStart({
+        touches: [{ clientX: 100, clientY: 700 }],
       } as unknown as TouchEvent);
-      component.onHeaderTouchMove({
-        touches: [{ clientX: 105, clientY: 110 }],
+      component.onNavTouchMove({
+        touches: [{ clientX: 102, clientY: 670 }],
       } as unknown as TouchEvent);
-      component.onHeaderTouchEnd({
-        changedTouches: [{ clientX: 105, clientY: 110 }],
+      expect(startSpy).toHaveBeenCalledTimes(1);
+      component.onNavTouchEnd({
+        changedTouches: [{ clientX: 102, clientY: 670 }],
       } as unknown as TouchEvent);
-      expect(openSpy).toHaveBeenCalledTimes(1);
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(commitSpy).not.toHaveBeenCalled();
+
+      // 4. Sufficient upward swipe (deltaY >= 60) -> commits drag open
+      component.onNavTouchStart({
+        touches: [{ clientX: 100, clientY: 700 }],
+      } as unknown as TouchEvent);
+      component.onNavTouchMove({
+        touches: [{ clientX: 102, clientY: 620 }],
+      } as unknown as TouchEvent);
+      expect(startSpy).toHaveBeenCalledTimes(2);
+      component.onNavTouchEnd({
+        changedTouches: [{ clientX: 102, clientY: 620 }],
+      } as unknown as TouchEvent);
+      expect(commitSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

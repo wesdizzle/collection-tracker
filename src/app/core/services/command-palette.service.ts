@@ -25,21 +25,57 @@ export class CommandPaletteService {
   private _isOpen = signal(false);
   public readonly isOpen = this._isOpen.asReadonly();
 
+  private _isDragging = signal(false);
+  public readonly isDragging = this._isDragging.asReadonly();
+
+  private _dragTranslateY = signal<number | null>(null);
+  public readonly dragTranslateY = this._dragTranslateY.asReadonly();
+
   private _recentItems = signal<CommandPaletteRecentRecord[]>(
     this.loadRecents(),
   );
   public readonly recentItems = this._recentItems.asReadonly();
 
   public open(): void {
+    this._isDragging.set(false);
+    this._dragTranslateY.set(null);
     this._isOpen.set(true);
   }
 
   public close(): void {
+    this._isDragging.set(false);
+    this._dragTranslateY.set(null);
     this._isOpen.set(false);
   }
 
   public toggle(): void {
-    this._isOpen.update((v) => !v);
+    if (this._isOpen()) {
+      this.close();
+    } else {
+      this.open();
+    }
+  }
+
+  public startDragOpen(): void {
+    this._isDragging.set(true);
+    this._isOpen.set(true);
+  }
+
+  public updateDragProgress(translateY: number): void {
+    if (this._isDragging()) {
+      this._dragTranslateY.set(translateY);
+    }
+  }
+
+  public commitDragOpen(): void {
+    this._isDragging.set(false);
+    this._dragTranslateY.set(null);
+  }
+
+  public cancelDragOpen(): void {
+    this._isDragging.set(false);
+    this._dragTranslateY.set(null);
+    this._isOpen.set(false);
   }
 
   private loadRecents(): CommandPaletteRecentRecord[] {

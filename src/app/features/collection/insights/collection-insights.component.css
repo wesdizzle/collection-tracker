@@ -1,9 +1,13 @@
 :host {
   display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .insights-container {
+  max-width: 100%;
+  overflow-x: hidden;
   padding-bottom: var(--spacing-64);
 }
 
@@ -469,11 +473,15 @@
   background: var(--m3-surface-container-high);
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
+  min-width: 0;
 }
 
 .series-name {
   font-weight: 600;
   color: var(--m3-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .series-meta {
@@ -847,4 +855,28 @@
 
 .merchant-breakdown-section {
   margin-top: var(--spacing-16);
+}
+
+@media (max-width: 640px) {
+  .insight-panel {
+    padding: var(--spacing-16);
+  }
+
+  .panel-header {
+    flex-wrap: wrap;
+    gap: var(--spacing-8);
+  }
+
+  .btn-eye-toggle {
+    align-self: flex-start;
+  }
+
+  .backup-stats-row.journal-cost-grid {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: var(--spacing-8);
+  }
+
+  .series-name {
+    max-width: 140px;
+  }
 }

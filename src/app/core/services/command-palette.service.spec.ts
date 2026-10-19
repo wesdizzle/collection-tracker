@@ -139,4 +139,45 @@ describe('CommandPaletteService', () => {
       ).toBeNull();
     });
   });
+
+  describe('Interactive drag open lifecycle', () => {
+    it('should start drag open with isOpen true and isDragging true', () => {
+      expect(service.isOpen()).toBe(false);
+      expect(service.isDragging()).toBe(false);
+
+      service.startDragOpen();
+      expect(service.isOpen()).toBe(true);
+      expect(service.isDragging()).toBe(true);
+      expect(service.dragTranslateY()).toBeNull();
+    });
+
+    it('should update drag progress translateY while dragging', () => {
+      service.startDragOpen();
+      service.updateDragProgress(250);
+      expect(service.dragTranslateY()).toBe(250);
+
+      service.updateDragProgress(100);
+      expect(service.dragTranslateY()).toBe(100);
+    });
+
+    it('should commit drag open and clear drag flags while keeping palette open', () => {
+      service.startDragOpen();
+      service.updateDragProgress(50);
+      service.commitDragOpen();
+
+      expect(service.isOpen()).toBe(true);
+      expect(service.isDragging()).toBe(false);
+      expect(service.dragTranslateY()).toBeNull();
+    });
+
+    it('should cancel drag open and close palette', () => {
+      service.startDragOpen();
+      service.updateDragProgress(350);
+      service.cancelDragOpen();
+
+      expect(service.isOpen()).toBe(false);
+      expect(service.isDragging()).toBe(false);
+      expect(service.dragTranslateY()).toBeNull();
+    });
+  });
 });

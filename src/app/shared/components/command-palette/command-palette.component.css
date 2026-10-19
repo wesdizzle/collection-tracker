@@ -369,8 +369,36 @@
   gap: var(--spacing-4, 4px);
 }
 
+.palette-drag-area {
+  cursor: grab;
+  touch-action: none;
+}
+
 .palette-drag-handle-bar {
   display: none;
+}
+
+.palette-dialog.slide-up-enter {
+  animation: desktopPaletteIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes desktopPaletteIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.palette-dialog.closing {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 @media (max-width: 768px) {
@@ -387,11 +415,36 @@
       var(--spacing-16, 16px),
       env(safe-area-inset-bottom, 16px)
     );
-    transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+    transform: translateY(0);
+    transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1);
   }
 
   .palette-dialog.dragging {
     transition: none !important;
+  }
+
+  .palette-dialog.slide-up-enter {
+    animation: sheetSlideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @keyframes sheetSlideUp {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  .palette-dialog.closing {
+    transform: translateY(100%) !important;
+    opacity: 1 !important;
+    transition: transform 0.22s cubic-bezier(0.4, 0, 1, 1) !important;
+  }
+
+  .palette-dialog.closing::backdrop {
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
   }
 
   .palette-drag-handle-bar {

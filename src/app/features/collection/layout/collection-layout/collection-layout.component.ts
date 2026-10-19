@@ -18,12 +18,7 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
   standalone: true,
   imports: [RouterModule, IconComponent, NotificationSettingsModalComponent],
   template: `
-    <header
-      class="main-header"
-      (touchstart)="onHeaderTouchStart($event)"
-      (touchmove)="onHeaderTouchMove($event)"
-      (touchend)="onHeaderTouchEnd($event)"
-    >
+    <header class="main-header">
       <div class="header-inner">
         <div class="header-left">
           <a
@@ -40,7 +35,12 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
           </a>
         </div>
 
-        <nav class="main-nav">
+        <nav
+          class="main-nav"
+          (touchstart)="onNavTouchStart($event)"
+          (touchmove)="onNavTouchMove($event)"
+          (touchend)="onNavTouchEnd($event)"
+        >
           <a
             routerLink="/collection/games"
             (click)="onNavClick('games')"
@@ -344,29 +344,27 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
         .nav-item {
           flex: 1;
           padding: 0;
-          gap: var(--spacing-4);
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .nav-item .indicator {
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          width: 64px;
-          height: 32px;
-          transform: translate(-50%, -50%) scaleX(0.5);
-          border-radius: 16px;
-          background: var(--m3-secondary-container);
-          z-index: 0;
-          transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
-          opacity: 0;
+          display: none;
+        }
+
+        .nav-item .label {
+          padding: 6px 14px;
+          border-radius: var(--radius-full);
+          transition:
+            background-color 0.25s cubic-bezier(0.2, 0, 0, 1),
+            color 0.2s ease;
+          white-space: nowrap;
         }
 
         .nav-item.active .label {
+          background: var(--m3-secondary-container);
           color: var(--m3-on-secondary-container);
-        }
-        .nav-item.active .indicator {
-          transform: translate(-50%, -50%) scaleX(1);
-          opacity: 1;
         }
       }
     `,
@@ -550,48 +548,69 @@ export class CollectionLayoutComponent implements OnDestroy {
     });
   }
 
-  // --- Mobile Pull-to-Search Gesture ---
-  private touchStartY = 0;
-  private touchStartX = 0;
-  private isSwipingDown = false;
+  // --- Mobile Bottom Nav Swipe-Up Gesture to Open Palette ---
+  private navTouchStartY = 0;
+  private navTouchStartX = 0;
+  private isSwipingUp = false;
+  private hasStartedPaletteDrag = false;
 
-  public onHeaderTouchStart(event: TouchEvent): void {
-    if (event.touches.length !== 1) return;
-    this.touchStartY = event.touches[0].clientY;
-    this.touchStartX = event.touches[0].clientX;
-    this.isSwipingDown = false;
+  public onNavTouchStart(event: TouchEvent): void {
+    if (event.touches.length !== 1 || this.commandPalette.isOpen()) return;
+    this.navTouchStartY = event.touches[0].clientY;
+    this.navTouchStartX = event.touches[0].clientX;
+    this.isSwipingUp = false;
+    this.hasStartedPaletteDrag = false;
   }
 
-  public onHeaderTouchMove(event: TouchEvent): void {
-    if (event.touches.length !== 1) return;
+  public onNavTouchMove(event: TouchEvent): void {
+    if (event.touches.length !== 1 || this.navTouchStartY === 0) return;
     const currentY = event.touches[0].clientY;
     const currentX = event.touches[0].clientX;
-    const deltaY = currentY - this.touchStartY;
-    const deltaX = currentX - this.touchStartX;
+    const deltaY = this.navTouchStartY - currentY; // Positive when swiping up
+    const deltaX = currentX - this.navTouchStartX;
 
-    // Must be downward swipe and predominantly vertical
-    if (deltaY > 15 && deltaY > Math.abs(deltaX) * 1.5) {
-      this.isSwipingDown = true;
+    if (!this.isSwipingUp) {
+      if (deltaY > 10 && deltaY > Math.abs(deltaX) * 1.2) {
+        this.isSwipingUp = true;
+        this.hasStartedPaletteDrag = true;
+        this.commandPalette.startDragOpen();
+      }
+    }
+
+    if (this.hasStartedPaletteDrag) {
+      const windowH = typeof window !== 'undefined' ? window.innerHeight : 800;
+      const sheetHeight = Math.min(windowH * 0.88, windowH);
+      const translateY = Math.max(0, sheetHeight - deltaY);
+      this.commandPalette.updateDragProgress(translateY);
     }
   }
 
-  public onHeaderTouchEnd(event: TouchEvent): void {
-    if (!this.isSwipingDown) return;
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-    const deltaY = touch.clientY - this.touchStartY;
-    const deltaX = touch.clientX - this.touchStartX;
+  public onNavTouchEnd(event: TouchEvent): void {
+    if (!this.hasStartedPaletteDrag) {
+      this.navTouchStartY = 0;
+      this.isSwipingUp = false;
+      return;
+    }
 
-    if (deltaY >= 40 && deltaY > Math.abs(deltaX) * 1.5) {
-      this.commandPalette.open();
+    const touch = event.changedTouches[0];
+    const endY = touch ? touch.clientY : this.navTouchStartY;
+    const deltaY = this.navTouchStartY - endY;
+
+    if (deltaY >= 60) {
+      this.commandPalette.commitDragOpen();
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
         try {
           navigator.vibrate(10);
         } catch {
-          // Ignore vibration permission limitations
+          // Ignore
         }
       }
+    } else {
+      this.commandPalette.cancelDragOpen();
     }
-    this.isSwipingDown = false;
+
+    this.isSwipingUp = false;
+    this.hasStartedPaletteDrag = false;
+    this.navTouchStartY = 0;
   }
 }
