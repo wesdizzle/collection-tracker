@@ -1196,6 +1196,68 @@ describe('Worker API Logic', () => {
     }
   });
 
+  it('syncWorkerIgdbSeriesAndCanonical paginates across batches and wraps cursor around', async () => {
+    const { syncWorkerIgdbSeriesAndCanonical } = await import('./worker');
+    const envWithIgdb: Env = {
+      ...mockEnv,
+      TWITCH_CLIENT_ID: 'test-client-id',
+      TWITCH_CLIENT_SECRET: 'test-client-secret',
+    };
+
+    // Seed games with stable_id 100, 101, 102
+    db.prepare(
+      `INSERT INTO games (stable_id, id, title, series, platform_id, igdb_id)
+       VALUES (100, 'g100', 'Game 100', 'Series', 1, 1000)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO games (stable_id, id, title, series, platform_id, igdb_id)
+       VALUES (101, 'g101', 'Game 101', 'Series', 1, 1001)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO games (stable_id, id, title, series, platform_id, igdb_id)
+       VALUES (102, 'g102', 'Game 102', 'Series', 1, 1002)`,
+    ).run();
+
+    // Set cursor to 99
+    db.prepare(
+      `INSERT INTO sync_state (key, value)
+       VALUES ('igdb_sync_offset', '99')
+       ON CONFLICT(key) DO UPDATE SET value = '99'`,
+    ).run();
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (url: string | URL | Request) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+          return new Response(
+            JSON.stringify({ access_token: 'tok', expires_in: 3600 }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      });
+
+    try {
+      // Run with batchSize = 2. It should pick games 100 and 101, advancing cursor to 101
+      const res1 = await syncWorkerIgdbSeriesAndCanonical(envWithIgdb, {
+        batchSize: 2,
+      });
+      expect(res1.cursorOffset).toBe(101);
+
+      // Next run picks game 102. Since only 1 game returned (< batchSize 2), wraps cursor to 0
+      const res2 = await syncWorkerIgdbSeriesAndCanonical(envWithIgdb, {
+        batchSize: 2,
+      });
+      expect(res2.cursorOffset).toBe(0);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('GET /api/discovery/scan-series separates Switch 1 (130) from Switch 2 (508) and surfaces FDS (54) & 64DD (55) titles via alternative_names', async () => {
     db.prepare(
       'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
