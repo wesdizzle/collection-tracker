@@ -105,6 +105,13 @@ export class CollectionService {
   }
 
   /**
+   * Helper method for testing to set administrative status.
+   */
+  public setAdminForTesting(authorized: boolean): void {
+    this._isAdmin.set(authorized);
+  }
+
+  /**
    * Hydrates the lastUpdated signal from localStorage.
    */
   private loadLastUpdated() {
@@ -456,6 +463,12 @@ export class CollectionService {
    * @returns Observable denoting success status of the ingestion.
    */
   addToy(toy: Partial<Toy>): Observable<{ success: boolean; id: string }> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post<{ success: boolean; id: string }>('/api/discovery/add-toy', toy)
       .pipe(catchError(this.handleMutationError));
@@ -517,6 +530,12 @@ export class CollectionService {
     };
     releases: Partial<DiscoveryRelease>[];
   }): Observable<{ success: boolean; gameId: string }> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post<{ success: boolean; gameId: string }>('/api/discovery/add', payload)
       .pipe(catchError(this.handleMutationError));
@@ -638,6 +657,12 @@ export class CollectionService {
     type: 'game' | 'toy',
     status: number,
   ): Observable<unknown> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post('/api/collection/toggle', {
         id,
@@ -655,6 +680,12 @@ export class CollectionService {
    * Updates the 'play_status' of a game.
    */
   updatePlayStatus(id: string, status: PlayStatus): Observable<unknown> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post('/api/collection/toggle', {
         id,
@@ -672,6 +703,12 @@ export class CollectionService {
    * Updates the 'backup_status' of a game.
    */
   updateBackupStatus(id: string, status: number): Observable<unknown> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post('/api/collection/toggle', {
         id,
@@ -689,6 +726,12 @@ export class CollectionService {
    * Updates the 'has_case' flag of a game release.
    */
   updateHasCase(id: string, status: number): Observable<unknown> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post('/api/collection/toggle', {
         id,
@@ -706,6 +749,12 @@ export class CollectionService {
    * Updates the 'has_manual' flag of a game release.
    */
   updateHasManual(id: string, status: number): Observable<unknown> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post('/api/collection/toggle', {
         id,
@@ -723,6 +772,12 @@ export class CollectionService {
    * Updates the 'physical_status' of a game (e.g. 'physical_pending' for physical watch).
    */
   updatePhysicalStatus(id: string, status: string): Observable<unknown> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post('/api/collection/toggle', {
         id,
@@ -744,6 +799,12 @@ export class CollectionService {
     type: 'game' | 'toy',
     sortIndex: number,
   ): Observable<unknown> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post('/api/collection/sort', {
         id,
@@ -929,6 +990,12 @@ export class CollectionService {
       item_id: string;
     },
   ): Observable<{ success: boolean; entry: JournalEntry | null }> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .post<{
         success: boolean;
@@ -956,6 +1023,12 @@ export class CollectionService {
     itemType: 'game' | 'toy',
     itemId: string,
   ): Observable<{ success: boolean }> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
     return this.http
       .delete<{
         success: boolean;

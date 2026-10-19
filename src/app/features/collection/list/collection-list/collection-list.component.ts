@@ -2554,7 +2554,13 @@ export class CollectionListComponent
     event.preventDefault();
     event.stopPropagation();
 
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+
     const name = (item as Game).title || (item as Toy).name;
+    const prevStatus = item.ownership_status;
 
     this.collectionService.showOptions(
       `Change Status`,
@@ -2570,11 +2576,15 @@ export class CollectionListComponent
           typeof newValue === 'string' ? parseInt(newValue, 10) : newValue;
         if (isNaN(numValue) || numValue < 0 || numValue > 3) return;
 
+        item.ownership_status = numValue;
         this.collectionService
           .toggleOwnership(item.id, type, numValue)
           .subscribe({
             next: () => this.collectionService.refreshAll(),
-            error: (err) => console.error('Failed to set status:', err),
+            error: (err) => {
+              item.ownership_status = prevStatus;
+              console.error('Failed to set status:', err);
+            },
           });
       },
     );
@@ -2584,8 +2594,14 @@ export class CollectionListComponent
     event.preventDefault();
     event.stopPropagation();
 
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+
     const name = (item as Game).title || (item as Toy).name;
     const currentSort = item.sort_index ?? 0;
+    const prevSort = item.sort_index;
 
     this.collectionService.showInput(
       `Edit Sort Index`,
@@ -2600,11 +2616,15 @@ export class CollectionListComponent
               : newValue;
         if (isNaN(numValue)) return;
 
+        item.sort_index = numValue;
         this.collectionService
           .updateSortIndex(item.id, type, numValue)
           .subscribe({
             next: () => this.collectionService.refreshAll(),
-            error: (err) => console.error('Failed to update sort index:', err),
+            error: (err) => {
+              item.sort_index = prevSort;
+              console.error('Failed to update sort index:', err);
+            },
           });
       },
     );
@@ -2648,24 +2668,40 @@ export class CollectionListComponent
   onToggleCase(event: MouseEvent, game: Game) {
     event.preventDefault();
     event.stopPropagation();
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    const prevStatus = game.has_case;
     const current = Boolean(game.has_case);
     const newStatus = current ? 0 : 1;
     game.has_case = newStatus;
     this.collectionService.updateHasCase(game.id, newStatus).subscribe({
       next: () => this.collectionService.refreshAll(),
-      error: (err) => console.error('Failed to toggle case:', err),
+      error: (err) => {
+        game.has_case = prevStatus;
+        console.error('Failed to toggle case:', err);
+      },
     });
   }
 
   onToggleManual(event: MouseEvent, game: Game) {
     event.preventDefault();
     event.stopPropagation();
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    const prevStatus = game.has_manual;
     const current = Boolean(game.has_manual);
     const newStatus = current ? 0 : 1;
     game.has_manual = newStatus;
     this.collectionService.updateHasManual(game.id, newStatus).subscribe({
       next: () => this.collectionService.refreshAll(),
-      error: (err) => console.error('Failed to toggle manual:', err),
+      error: (err) => {
+        game.has_manual = prevStatus;
+        console.error('Failed to toggle manual:', err);
+      },
     });
   }
 
@@ -2680,8 +2716,16 @@ export class CollectionListComponent
   ): void {
     event.preventDefault();
     event.stopPropagation();
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
     const discId = game.discIds?.[discIndex];
     if (!discId) return;
+    const prevDiscBackups = game.discBackups
+      ? [...game.discBackups]
+      : undefined;
+    const prevBackupStatus = game.backup_status;
     const current = game.discBackups?.[discIndex] === 1;
     const newStatus = current ? 0 : 1;
     if (game.discBackups) {
@@ -2690,7 +2734,13 @@ export class CollectionListComponent
     }
     this.collectionService.updateBackupStatus(discId, newStatus).subscribe({
       next: () => this.collectionService.refreshAll(),
-      error: (err) => console.error('Failed to toggle disc backup:', err),
+      error: (err) => {
+        if (game.discBackups && prevDiscBackups) {
+          game.discBackups = prevDiscBackups;
+          game.backup_status = prevBackupStatus;
+        }
+        console.error('Failed to toggle disc backup:', err);
+      },
     });
   }
 }

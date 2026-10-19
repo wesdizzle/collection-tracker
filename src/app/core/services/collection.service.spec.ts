@@ -1,5 +1,5 @@
 import '../../../test-setup';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import {
@@ -406,6 +406,7 @@ describe('CollectionService', () => {
     });
 
     it('fetches, saves, and deletes journal entries and updates in-memory map', () => {
+      service.setAdminForTesting(true);
       const mockEntry = {
         id: 1,
         item_type: 'game' as const,
@@ -471,6 +472,40 @@ describe('CollectionService', () => {
       expect(service.journalEntriesMap().has('game:combat-atari-2600')).toBe(
         false,
       );
+    });
+
+    it('rejects mutation methods when not authorized admin and prompts login', () => {
+      service.setAdminForTesting(false);
+      const promptSpy = vi
+        .spyOn(service, 'promptAdminLogin')
+        .mockImplementation(() => {});
+
+      let errResult: unknown;
+      service.toggleOwnership('g1', 'game', 1).subscribe({
+        error: (err) => (errResult = err),
+      });
+      expect(promptSpy).toHaveBeenCalledTimes(1);
+      expect(errResult).toBeTruthy();
+
+      service.updateBackupStatus('g1', 1).subscribe({
+        error: (err) => (errResult = err),
+      });
+      expect(promptSpy).toHaveBeenCalledTimes(2);
+
+      service.updateHasCase('g1', 1).subscribe({
+        error: (err) => (errResult = err),
+      });
+      expect(promptSpy).toHaveBeenCalledTimes(3);
+
+      service.updateHasManual('g1', 1).subscribe({
+        error: (err) => (errResult = err),
+      });
+      expect(promptSpy).toHaveBeenCalledTimes(4);
+
+      service.saveJournalEntry({ item_type: 'game', item_id: 'g1' }).subscribe({
+        error: (err) => (errResult = err),
+      });
+      expect(promptSpy).toHaveBeenCalledTimes(5);
     });
   });
 });

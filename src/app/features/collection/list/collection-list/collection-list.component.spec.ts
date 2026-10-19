@@ -7,7 +7,7 @@ import {
   HttpTestingController,
 } from '@angular/common/http/testing';
 import { ActivatedRoute, Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, Observable, throwError } from 'rxjs';
 import { CollectionListComponent } from './collection-list.component';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { ListState, Game } from '../../../../core/models/collection.models';
@@ -1146,8 +1146,9 @@ describe('CollectionListComponent', () => {
     expect(games[2].id).toBe('g-cheap');
   });
 
-  it('should toggle has_case and has_manual via collectionService', async () => {
+  it('should toggle has_case and has_manual via collectionService when admin', async () => {
     const service = TestBed.inject(CollectionService);
+    service.setAdminForTesting(true);
     const updateCaseSpy = vi
       .spyOn(service, 'updateHasCase')
       .mockReturnValue(of({ success: true }));
@@ -1176,6 +1177,72 @@ describe('CollectionListComponent', () => {
     component.onToggleManual(mockEvent, mockGame);
     expect(mockEvent.stopPropagation).toHaveBeenCalled();
     expect(updateManualSpy).toHaveBeenCalledWith('g-test', 1);
+  });
+
+  it('should not toggle case or manual and prompt admin login when not admin', () => {
+    const service = TestBed.inject(CollectionService);
+    service.setAdminForTesting(false);
+    const promptSpy = vi
+      .spyOn(service, 'promptAdminLogin')
+      .mockImplementation(() => {});
+    const updateCaseSpy = vi.spyOn(service, 'updateHasCase');
+    const updateManualSpy = vi.spyOn(service, 'updateHasManual');
+
+    const mockGame = {
+      id: 'g-test',
+      has_case: 0,
+      has_manual: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleCase(mockEvent, mockGame);
+    expect(promptSpy).toHaveBeenCalled();
+    expect(mockGame.has_case).toBe(0);
+    expect(updateCaseSpy).not.toHaveBeenCalled();
+
+    component.onToggleManual(mockEvent, mockGame);
+    expect(promptSpy).toHaveBeenCalledTimes(2);
+    expect(mockGame.has_manual).toBe(0);
+    expect(updateManualSpy).not.toHaveBeenCalled();
+  });
+
+  it('should roll back case and manual on server failure', () => {
+    const service = TestBed.inject(CollectionService);
+    service.setAdminForTesting(true);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(service, 'updateHasCase').mockReturnValue(
+      new Observable((subscriber) =>
+        subscriber.error(new Error('Network error')),
+      ),
+    );
+    vi.spyOn(service, 'updateHasManual').mockReturnValue(
+      new Observable((subscriber) =>
+        subscriber.error(new Error('Network error')),
+      ),
+    );
+
+    const mockGame = {
+      id: 'g-test',
+      has_case: 0,
+      has_manual: 1,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleCase(mockEvent, mockGame);
+    expect(mockGame.has_case).toBe(0); // Rolled back
+
+    component.onToggleManual(mockEvent, mockGame);
+    expect(mockGame.has_manual).toBe(1); // Rolled back
+
+    errorSpy.mockRestore();
   });
 
   it('should compute totalGamesValue and render total value in platform header', async () => {
@@ -1639,8 +1706,9 @@ describe('CollectionListComponent', () => {
     ]);
   });
 
-  it('should toggle individual disc backup status in multi-disc sets', async () => {
+  it('should toggle individual disc backup status in multi-disc sets when admin', async () => {
     const collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(true);
     const updateSpy = vi
       .spyOn(collectionService, 'updateBackupStatus')
       .mockReturnValue(of({ success: true }));
@@ -1667,6 +1735,92 @@ describe('CollectionListComponent', () => {
     expect(multiDiscGame.discBackups?.[1]).toBe(1);
     expect(multiDiscGame.backup_status).toBe(1);
     expect(component.getBackedUpDiscCount(multiDiscGame)).toBe(2);
+  });
+
+  it('should not toggle disc backup and prompt admin login when not admin', () => {
+    const collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(false);
+    const promptSpy = vi
+      .spyOn(collectionService, 'promptAdminLogin')
+      .mockImplementation(() => {});
+    const updateSpy = vi.spyOn(collectionService, 'updateBackupStatus');
+
+    const multiDiscGame = {
+      id: 'mgs-ps1',
+      discIds: ['mgs-disc1', 'mgs-disc2'],
+      discBackups: [1, 0],
+      backup_status: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
+
+    expect(promptSpy).toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(multiDiscGame.discBackups?.[1]).toBe(0);
+    expect(multiDiscGame.backup_status).toBe(0);
+  });
+
+  it('should roll back disc backup on server error', () => {
+    const collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(true);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(collectionService, 'updateBackupStatus').mockReturnValue(
+      throwError(() => new Error('Server error')),
+    );
+
+    const multiDiscGame = {
+      id: 'mgs-ps1',
+      discIds: ['mgs-disc1', 'mgs-disc2'],
+      discBackups: [1, 0],
+      backup_status: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
+
+    expect(multiDiscGame.discBackups?.[1]).toBe(0);
+    expect(multiDiscGame.backup_status).toBe(0);
+
+    errorSpy.mockRestore();
+  });
+
+  it('should prompt admin login and not open dialog on onToggleStatus or onEditSortIndex when not admin', () => {
+    const collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(false);
+    const promptSpy = vi
+      .spyOn(collectionService, 'promptAdminLogin')
+      .mockImplementation(() => {});
+    const optionsSpy = vi.spyOn(collectionService, 'showOptions');
+    const inputSpy = vi.spyOn(collectionService, 'showInput');
+
+    const mockGame = {
+      id: 'g1',
+      title: 'Game 1',
+      ownership_status: 1,
+      sort_index: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleStatus(mockEvent, mockGame, 'game');
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+    expect(optionsSpy).not.toHaveBeenCalled();
+
+    component.onEditSortIndex(mockEvent, mockGame, 'game');
+    expect(promptSpy).toHaveBeenCalledTimes(2);
+    expect(inputSpy).not.toHaveBeenCalled();
   });
 
   it('should render compact table rows and columns when viewMode is compact', async () => {
