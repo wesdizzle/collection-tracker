@@ -179,8 +179,79 @@ export async function invalidateEdgeApiCache(
   }
 }
 
+let cachedPlatformMetadata: {
+  parentMap: Map<number, number>;
+  igdbToPlatformId: Map<
+    number,
+    { id: number; displayName: string; launchDate: string | null }
+  >;
+  expiresAt: number;
+} | null = null;
+
 export function invalidateSeriesScanCache() {
   cachedSeriesScanMetadata = null;
+  cachedPlatformMetadata = null;
+}
+
+export async function getCachedPlatformMetadata(env: Env): Promise<{
+  parentMap: Map<number, number>;
+  igdbToPlatformId: Map<
+    number,
+    { id: number; displayName: string; launchDate: string | null }
+  >;
+}> {
+  if (cachedPlatformMetadata && cachedPlatformMetadata.expiresAt > Date.now()) {
+    return cachedPlatformMetadata;
+  }
+
+  const { results: allPlatformRows } = await env.DB.prepare(
+    `SELECT id, display_name, name, launch_date, parent_platform_id FROM platforms`,
+  ).all();
+
+  const parentMap = new Map<number, number>();
+  const igdbToPlatformId = new Map<
+    number,
+    { id: number; displayName: string; launchDate: string | null }
+  >();
+
+  (allPlatformRows || []).forEach((p) => {
+    const row = p as {
+      id: number;
+      display_name: string;
+      name: string;
+      launch_date: string | null;
+      parent_platform_id?: number | null;
+    };
+    if (row.parent_platform_id) {
+      parentMap.set(row.id, row.parent_platform_id);
+      return;
+    }
+    const igdbId = PLATFORM_MAP[row.display_name] || PLATFORM_MAP[row.name];
+    if (igdbId) {
+      igdbToPlatformId.set(igdbId, {
+        id: row.id,
+        displayName: row.display_name || row.name,
+        launchDate: row.launch_date,
+      });
+    }
+  });
+
+  // Map regional/VR IGDB platform IDs to unified parent local platforms
+  const nesEntry = igdbToPlatformId.get(18);
+  if (nesEntry) igdbToPlatformId.set(99, nesEntry);
+  const snesEntry = igdbToPlatformId.get(19);
+  if (snesEntry) igdbToPlatformId.set(58, snesEntry);
+  const ps4Entry = igdbToPlatformId.get(48);
+  if (ps4Entry) igdbToPlatformId.set(165, ps4Entry);
+  const ps5Entry = igdbToPlatformId.get(167);
+  if (ps5Entry) igdbToPlatformId.set(390, ps5Entry);
+
+  cachedPlatformMetadata = {
+    parentMap,
+    igdbToPlatformId,
+    expiresAt: Date.now() + 60 * 60 * 1000,
+  };
+  return cachedPlatformMetadata;
 }
 
 /**
@@ -1439,106 +1510,110 @@ Disallow: /
 
           let canonicalSeriesList: string[] = [];
           let totalSeriesCount = 0;
+          let ownedKeys: Set<string>;
 
-          if (
-            !cachedSeriesScanMetadata ||
-            cachedSeriesScanMetadata.expiresAt <= Date.now()
-          ) {
-            const { results: allSeriesRows } = await env.DB.prepare(
-              `SELECT canonical_series, COUNT(*) as c FROM games
-               WHERE canonical_series IS NOT NULL AND canonical_series != ''
-               GROUP BY canonical_series
-               ORDER BY c DESC, canonical_series ASC`,
-            ).all();
-
-            const allSeries = (allSeriesRows || [])
-              .map((r) => (r as { canonical_series: string }).canonical_series)
-              .filter(Boolean);
-
-            const { results: allPlatformRows } = await env.DB.prepare(
-              `SELECT id, display_name, name, launch_date, parent_platform_id FROM platforms`,
-            ).all();
-
-            const parentMap = new Map<number, number>();
-            const igdbToPlatformId = new Map<
-              number,
-              { id: number; displayName: string; launchDate: string | null }
-            >();
-
-            (allPlatformRows || []).forEach((p) => {
-              const row = p as {
-                id: number;
-                display_name: string;
-                name: string;
-                launch_date: string | null;
-                parent_platform_id?: number | null;
-              };
-              if (row.parent_platform_id) {
-                parentMap.set(row.id, row.parent_platform_id);
-                return;
-              }
-              const igdbId =
-                PLATFORM_MAP[row.display_name] || PLATFORM_MAP[row.name];
-              if (igdbId) {
-                igdbToPlatformId.set(igdbId, {
-                  id: row.id,
-                  displayName: row.display_name || row.name,
-                  launchDate: row.launch_date,
-                });
-              }
-            });
-
-            // Map regional/VR IGDB platform IDs to unified parent local platforms
-            const nesEntry = igdbToPlatformId.get(18);
-            if (nesEntry) igdbToPlatformId.set(99, nesEntry);
-            const snesEntry = igdbToPlatformId.get(19);
-            if (snesEntry) igdbToPlatformId.set(58, snesEntry);
-            const ps4Entry = igdbToPlatformId.get(48);
-            if (ps4Entry) igdbToPlatformId.set(165, ps4Entry);
-            const ps5Entry = igdbToPlatformId.get(167);
-            if (ps5Entry) igdbToPlatformId.set(390, ps5Entry);
-
-            const { results: existingGames } = await env.DB.prepare(
-              `SELECT g.igdb_id, g.platform_id, g.title FROM games g`,
-            ).all();
-
-            const ownedKeys = new Set<string>();
-            (existingGames || []).forEach((g) => {
-              const row = g as {
-                igdb_id: number | null;
-                platform_id: number;
-                title: string | null;
-              };
-              const effPid = parentMap.get(row.platform_id) || row.platform_id;
-              if (row.igdb_id) {
-                ownedKeys.add(`igdb:${row.igdb_id}:${effPid}`);
-              }
-              if (row.title) {
-                ownedKeys.add(
-                  `raw:${row.title.toLowerCase().replace(/[^a-z0-9]/g, '')}:${effPid}`,
-                );
-                ownedKeys.add(
-                  `norm:${normalizeTitleForMatching(row.title)}:${effPid}`,
-                );
-              }
-            });
-
-            cachedSeriesScanMetadata = {
-              allSeries,
-              parentMap,
-              igdbToPlatformId,
-              ownedKeys,
-              expiresAt: Date.now() + 5 * 60 * 1000,
-            };
-          }
-
-          const { allSeries, igdbToPlatformId, ownedKeys } =
-            cachedSeriesScanMetadata;
+          const platformMeta = await getCachedPlatformMetadata(env);
+          const igdbToPlatformId = platformMeta.igdbToPlatformId;
 
           if (specificSeries && specificSeries.trim()) {
-            canonicalSeriesList = [specificSeries.trim()];
+            const trimmed = specificSeries.trim();
+            canonicalSeriesList = [trimmed];
             totalSeriesCount = 1;
+
+            if (
+              cachedSeriesScanMetadata &&
+              cachedSeriesScanMetadata.expiresAt > Date.now()
+            ) {
+              ownedKeys = cachedSeriesScanMetadata.ownedKeys;
+            } else {
+              // Targeted franchise scan: query only matching or related series records
+              const { results: scopedGames } = await env.DB.prepare(
+                `SELECT g.igdb_id, g.platform_id, g.title FROM games g
+                 WHERE g.canonical_series = ? OR g.series = ? OR LOWER(g.title) LIKE ?`,
+              )
+                .bind(trimmed, trimmed, `%${trimmed.toLowerCase()}%`)
+                .all();
+
+              ownedKeys = new Set<string>();
+              (scopedGames || []).forEach((g) => {
+                const row = g as {
+                  igdb_id: number | null;
+                  platform_id: number;
+                  title: string | null;
+                };
+                const effPid =
+                  platformMeta.parentMap.get(row.platform_id) ||
+                  row.platform_id;
+                if (row.igdb_id) {
+                  ownedKeys.add(`igdb:${row.igdb_id}:${effPid}`);
+                }
+                if (row.title) {
+                  ownedKeys.add(
+                    `raw:${row.title.toLowerCase().replace(/[^a-z0-9]/g, '')}:${effPid}`,
+                  );
+                  ownedKeys.add(
+                    `norm:${normalizeTitleForMatching(row.title)}:${effPid}`,
+                  );
+                }
+              });
+            }
           } else {
+            // Full or progressive series scan
+            if (
+              !cachedSeriesScanMetadata ||
+              cachedSeriesScanMetadata.expiresAt <= Date.now()
+            ) {
+              const { results: allSeriesRows } = await env.DB.prepare(
+                `SELECT canonical_series, COUNT(*) as c FROM games
+                 WHERE canonical_series IS NOT NULL AND canonical_series != ''
+                 GROUP BY canonical_series
+                 ORDER BY c DESC, canonical_series ASC`,
+              ).all();
+
+              const allSeries = (allSeriesRows || [])
+                .map(
+                  (r) => (r as { canonical_series: string }).canonical_series,
+                )
+                .filter(Boolean);
+
+              const { results: existingGames } = await env.DB.prepare(
+                `SELECT g.igdb_id, g.platform_id, g.title FROM games g`,
+              ).all();
+
+              const fullOwnedKeys = new Set<string>();
+              (existingGames || []).forEach((g) => {
+                const row = g as {
+                  igdb_id: number | null;
+                  platform_id: number;
+                  title: string | null;
+                };
+                const effPid =
+                  platformMeta.parentMap.get(row.platform_id) ||
+                  row.platform_id;
+                if (row.igdb_id) {
+                  fullOwnedKeys.add(`igdb:${row.igdb_id}:${effPid}`);
+                }
+                if (row.title) {
+                  fullOwnedKeys.add(
+                    `raw:${row.title.toLowerCase().replace(/[^a-z0-9]/g, '')}:${effPid}`,
+                  );
+                  fullOwnedKeys.add(
+                    `norm:${normalizeTitleForMatching(row.title)}:${effPid}`,
+                  );
+                }
+              });
+
+              cachedSeriesScanMetadata = {
+                allSeries,
+                parentMap: platformMeta.parentMap,
+                igdbToPlatformId: platformMeta.igdbToPlatformId,
+                ownedKeys: fullOwnedKeys,
+                expiresAt: Date.now() + 60 * 60 * 1000,
+              };
+            }
+
+            const { allSeries } = cachedSeriesScanMetadata;
+            ownedKeys = cachedSeriesScanMetadata.ownedKeys;
             totalSeriesCount = allSeries.length;
             if (isPaged) {
               canonicalSeriesList = allSeries.slice(offset, offset + limit);

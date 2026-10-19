@@ -2529,7 +2529,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
           filterDigital: this.filterDigital(),
         }),
       );
-      this.scanResults.set(results || []);
+      this.scanResults.set(this.filterOwnedSuggestions(results || []));
       this.scanPerformed.set(true);
     } catch (err: unknown) {
       this.scanError.set(
@@ -2541,6 +2541,39 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     } finally {
       this.scanLoading.set(false);
     }
+  }
+
+  /**
+   * Filters candidate franchise suggestions against games already owned in local collection state.
+   */
+  private filterOwnedSuggestions(
+    suggestions: ScanSuggestion[],
+  ): ScanSuggestion[] {
+    const games =
+      this.collectionService && this.collectionService.games
+        ? this.collectionService.games()
+        : [];
+    if (!games || games.length === 0) return suggestions;
+
+    const ownedIgdbKeys = new Set<string>();
+    const ownedTitleKeys = new Set<string>();
+
+    for (const g of games) {
+      if (g.igdb_id && g.platform_id) {
+        ownedIgdbKeys.add(`${g.igdb_id}-${g.platform_id}`);
+      }
+      if (g.title && g.platform_id) {
+        ownedTitleKeys.add(
+          `${g.title.toLowerCase().replace(/[^a-z0-9]/g, '')}-${g.platform_id}`,
+        );
+      }
+    }
+
+    return suggestions.filter((s) => {
+      const igdbKey = `${s.id}-${s.platform_id}`;
+      const titleKey = `${(s.title || '').toLowerCase().replace(/[^a-z0-9]/g, '')}-${s.platform_id}`;
+      return !ownedIgdbKeys.has(igdbKey) && !ownedTitleKeys.has(titleKey);
+    });
   }
 
   /**
@@ -2564,7 +2597,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
             filterDigital: this.filterDigital(),
           }),
         );
-        this.scanResults.set(results || []);
+        this.scanResults.set(this.filterOwnedSuggestions(results || []));
         this.scanPerformed.set(true);
       } catch (err: unknown) {
         this.scanError.set(
@@ -2600,7 +2633,9 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         );
 
         const totalSeries = paged.totalSeries;
-        const newSuggestions = paged.suggestions || [];
+        const newSuggestions = this.filterOwnedSuggestions(
+          paged.suggestions || [],
+        );
 
         if (newSuggestions.length > 0) {
           this.scanResults.update((current) => {
