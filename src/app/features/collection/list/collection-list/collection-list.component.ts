@@ -2890,7 +2890,6 @@ export class CollectionListComponent
         this.collectionService
           .toggleOwnership(item.id, type, numValue)
           .subscribe({
-            next: () => this.collectionService.refreshAll(),
             error: (err) => {
               item.ownership_status = prevStatus;
               console.error('Failed to set status:', err);
@@ -2930,7 +2929,6 @@ export class CollectionListComponent
         this.collectionService
           .updateSortIndex(item.id, type, numValue)
           .subscribe({
-            next: () => this.collectionService.refreshAll(),
             error: (err) => {
               item.sort_index = prevSort;
               console.error('Failed to update sort index:', err);
@@ -2987,7 +2985,6 @@ export class CollectionListComponent
     const newStatus = current ? 0 : 1;
     game.has_case = newStatus;
     this.collectionService.updateHasCase(game.id, newStatus).subscribe({
-      next: () => this.collectionService.refreshAll(),
       error: (err) => {
         game.has_case = prevStatus;
         console.error('Failed to toggle case:', err);
@@ -3007,7 +3004,6 @@ export class CollectionListComponent
     const newStatus = current ? 0 : 1;
     game.has_manual = newStatus;
     this.collectionService.updateHasManual(game.id, newStatus).subscribe({
-      next: () => this.collectionService.refreshAll(),
       error: (err) => {
         game.has_manual = prevStatus;
         console.error('Failed to toggle manual:', err);
@@ -3043,7 +3039,6 @@ export class CollectionListComponent
       game.backup_status = game.discBackups.every((b) => b === 1) ? 1 : 0;
     }
     this.collectionService.updateBackupStatus(discId, newStatus).subscribe({
-      next: () => this.collectionService.refreshAll(),
       error: (err) => {
         if (game.discBackups && prevDiscBackups) {
           game.discBackups = prevDiscBackups;

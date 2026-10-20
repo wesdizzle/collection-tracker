@@ -2950,7 +2950,7 @@ export class ItemDetailComponent {
 
     this.collectionService.updatePhysicalStatus(game.id, nextStatus).subscribe({
       next: () => {
-        this.collectionService.refreshAll();
+        game.physical_status = nextStatus;
       },
       error: (err) => {
         console.error('Failed to toggle physical watch status:', err);
@@ -3061,10 +3061,11 @@ export class ItemDetailComponent {
         { value: 0, label: 'Unowned' },
       ],
       (value: string | number) => {
+        const numVal = Number(value);
         this.collectionService
-          .toggleOwnership(item.id, type, Number(value))
+          .toggleOwnership(item.id, type, numVal)
           .subscribe(() => {
-            this.collectionService.refreshAll();
+            item.ownership_status = numVal;
           });
       },
     );
@@ -3083,10 +3084,11 @@ export class ItemDetailComponent {
         { value: PlayStatus.Unplayed, label: 'Unplayed' },
       ],
       (value: string | number) => {
+        const playVal = Number(value) as PlayStatus;
         this.collectionService
-          .updatePlayStatus(game.id, Number(value) as PlayStatus)
+          .updatePlayStatus(game.id, playVal)
           .subscribe(() => {
-            this.collectionService.refreshAll();
+            game.play_status = playVal;
           });
       },
     );
@@ -3101,10 +3103,11 @@ export class ItemDetailComponent {
         { value: 0, label: 'No Backup' },
       ],
       (value: string | number) => {
+        const backupVal = Number(value);
         this.collectionService
-          .updateBackupStatus(game.id, Number(value))
+          .updateBackupStatus(game.id, backupVal)
           .subscribe(() => {
-            this.collectionService.refreshAll();
+            game.backup_status = backupVal;
           });
       },
     );
@@ -3126,10 +3129,19 @@ export class ItemDetailComponent {
         { value: 0, label: 'No Backup' },
       ],
       (value: string | number) => {
+        const backupVal = Number(value);
         this.collectionService
-          .updateBackupStatus(release.id, Number(value))
+          .updateBackupStatus(release.id, backupVal)
           .subscribe(() => {
-            this.collectionService.refreshAll();
+            release.backup_status = backupVal;
+            const g = this.game();
+            if (g && g.releases) {
+              const targetRel = g.releases.find((r) => r.id === release.id);
+              if (targetRel) targetRel.backup_status = backupVal;
+              g.backup_status = g.releases.every((r) => r.backup_status === 1)
+                ? 1
+                : 0;
+            }
           });
       },
     );

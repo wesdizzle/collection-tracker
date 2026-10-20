@@ -642,7 +642,7 @@ describe('Worker API Logic', () => {
     }
   });
 
-  it('GET /api/games with Cache-Control: no-cache bypasses edge cache and updates it', async () => {
+  it('GET /api/games with ?bust=1 bypasses edge cache and updates it', async () => {
     const cachedMap = new Map<string, Response>();
     const mockCache = {
       match: vi.fn(async (req: RequestInfo | URL) => {
@@ -691,10 +691,8 @@ describe('Worker API Logic', () => {
       const normalData = await normalRes.json();
       expect(normalData).toEqual([{ id: 'stale-game' }]);
 
-      // 3. Request with Cache-Control: no-cache bypasses cache and updates it
-      const noCacheReq = new Request('http://example.com/api/games', {
-        headers: { 'Cache-Control': 'no-cache' },
-      });
+      // 3. Request with ?bust=1 bypasses cache and updates it
+      const noCacheReq = new Request('http://example.com/api/games?bust=1');
       const freshRes = await worker.fetch(noCacheReq, mockEnv);
       expect(freshRes.status).toBe(200);
       const freshData = (await freshRes.json()) as Array<{ id: string }>;

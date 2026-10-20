@@ -33,6 +33,7 @@ import {
   ListState,
   ViewMode,
   PlayStatus,
+  PhysicalStatus,
   IGDBSearchResult,
   DiscoveryRelease,
   ScanSuggestion,
@@ -671,7 +672,24 @@ export class CollectionService {
         field: 'ownership_status',
       })
       .pipe(
-        tap(() => this._isAdmin.set(true)),
+        tap(() => {
+          this._isAdmin.set(true);
+          if (type === 'game') {
+            this._games.update((games) =>
+              games.map((g) =>
+                g.id === id || g.game_id === id
+                  ? { ...g, ownership_status: status }
+                  : g,
+              ),
+            );
+          } else {
+            this._toys.update((toys) =>
+              toys.map((t) =>
+                t.id === id ? { ...t, ownership_status: status } : t,
+              ),
+            );
+          }
+        }),
         catchError(this.handleMutationError),
       );
   }
@@ -694,7 +712,16 @@ export class CollectionService {
         field: 'play_status',
       })
       .pipe(
-        tap(() => this._isAdmin.set(true)),
+        tap(() => {
+          this._isAdmin.set(true);
+          this._games.update((games) =>
+            games.map((g) =>
+              g.id === id || g.game_id === id
+                ? { ...g, play_status: status }
+                : g,
+            ),
+          );
+        }),
         catchError(this.handleMutationError),
       );
   }
@@ -717,7 +744,37 @@ export class CollectionService {
         field: 'backup_status',
       })
       .pipe(
-        tap(() => this._isAdmin.set(true)),
+        tap(() => {
+          this._isAdmin.set(true);
+          this._games.update((games) =>
+            games.map((g) => {
+              if (g.id === id || g.game_id === id) {
+                return { ...g, backup_status: status };
+              }
+              if (g.releases) {
+                const rIdx = g.releases.findIndex((r) => r.id === id);
+                if (rIdx !== -1) {
+                  const updatedReleases = [...g.releases];
+                  updatedReleases[rIdx] = {
+                    ...updatedReleases[rIdx],
+                    backup_status: status,
+                  };
+                  const allBackedUp = updatedReleases.every(
+                    (r) => r.backup_status === 1,
+                  )
+                    ? 1
+                    : 0;
+                  return {
+                    ...g,
+                    releases: updatedReleases,
+                    backup_status: allBackedUp,
+                  };
+                }
+              }
+              return g;
+            }),
+          );
+        }),
         catchError(this.handleMutationError),
       );
   }
@@ -740,7 +797,14 @@ export class CollectionService {
         field: 'has_case',
       })
       .pipe(
-        tap(() => this._isAdmin.set(true)),
+        tap(() => {
+          this._isAdmin.set(true);
+          this._games.update((games) =>
+            games.map((g) =>
+              g.id === id || g.game_id === id ? { ...g, has_case: status } : g,
+            ),
+          );
+        }),
         catchError(this.handleMutationError),
       );
   }
@@ -763,7 +827,16 @@ export class CollectionService {
         field: 'has_manual',
       })
       .pipe(
-        tap(() => this._isAdmin.set(true)),
+        tap(() => {
+          this._isAdmin.set(true);
+          this._games.update((games) =>
+            games.map((g) =>
+              g.id === id || g.game_id === id
+                ? { ...g, has_manual: status }
+                : g,
+            ),
+          );
+        }),
         catchError(this.handleMutationError),
       );
   }
@@ -771,7 +844,10 @@ export class CollectionService {
   /**
    * Updates the 'physical_status' of a game (e.g. 'physical_pending' for physical watch).
    */
-  updatePhysicalStatus(id: string, status: string): Observable<unknown> {
+  updatePhysicalStatus(
+    id: string,
+    status: PhysicalStatus | string,
+  ): Observable<unknown> {
     if (!this._isAdmin()) {
       this.promptAdminLogin();
       return throwError(
@@ -786,7 +862,16 @@ export class CollectionService {
         field: 'physical_status',
       })
       .pipe(
-        tap(() => this._isAdmin.set(true)),
+        tap(() => {
+          this._isAdmin.set(true);
+          this._games.update((games) =>
+            games.map((g) =>
+              g.id === id || g.game_id === id
+                ? { ...g, physical_status: status as PhysicalStatus }
+                : g,
+            ),
+          );
+        }),
         catchError(this.handleMutationError),
       );
   }
@@ -811,7 +896,26 @@ export class CollectionService {
         type,
         sort_index: sortIndex,
       })
-      .pipe(catchError(this.handleMutationError));
+      .pipe(
+        tap(() => {
+          if (type === 'game') {
+            this._games.update((games) =>
+              games.map((g) =>
+                g.id === id || g.game_id === id
+                  ? { ...g, sort_index: sortIndex }
+                  : g,
+              ),
+            );
+          } else {
+            this._toys.update((toys) =>
+              toys.map((t) =>
+                t.id === id ? { ...t, sort_index: sortIndex } : t,
+              ),
+            );
+          }
+        }),
+        catchError(this.handleMutationError),
+      );
   }
 
   /** --- Global Confirmation Dialog State --- */

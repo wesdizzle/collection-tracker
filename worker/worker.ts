@@ -697,20 +697,17 @@ Disallow: /
       /**
        * PUBLIC READ-ONLY API ENDPOINTS
        */
-      const isAdmin = isAuthorizedAdmin(request, env);
       const isPublicCacheable =
-        !isAdmin &&
         request.method === 'GET' &&
         (path === '/api/games' ||
           path === '/api/toys' ||
           path === '/api/platforms');
 
       const isNoCache =
-        request.headers
-          .get('cache-control')
-          ?.toLowerCase()
-          .includes('no-cache') ||
-        request.headers.get('pragma')?.toLowerCase().includes('no-cache');
+        url.searchParams.has('bust') ||
+        url.searchParams.has('purge') ||
+        url.searchParams.has('refresh') ||
+        request.headers.get('x-cache-purge') === 'true';
 
       const edgeCache = await getEdgeCache();
       const cacheKey = new Request(request.url);
@@ -721,26 +718,16 @@ Disallow: /
         }
       }
 
-      const publicCacheHeaders = isAdmin
-        ? {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-          }
-        : {
-            'Content-Type': 'application/json',
-            'Cache-Control':
-              'public, max-age=60, s-maxage=3600, stale-while-revalidate=86400',
-          };
-      const platformsCacheHeaders = isAdmin
-        ? {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-          }
-        : {
-            'Content-Type': 'application/json',
-            'Cache-Control':
-              'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
-          };
+      const publicCacheHeaders = {
+        'Content-Type': 'application/json',
+        'Cache-Control':
+          'public, max-age=60, s-maxage=3600, stale-while-revalidate=86400',
+      };
+      const platformsCacheHeaders = {
+        'Content-Type': 'application/json',
+        'Cache-Control':
+          'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+      };
 
       // Endpoint: GET /api/games
       if (path === '/api/games') {
