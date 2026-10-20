@@ -55,6 +55,8 @@ d1_export_temp.sql
 *.sqlite-shm
 collection.sqlite
 collection_SAFETY_COPY.sqlite
+*.db
+local.db
 backup_full_dump.sql
 backup_collection.json
 *.ged
