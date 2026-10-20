@@ -47,17 +47,23 @@ describe('reconcile_releases', () => {
 
     it('should match exact region', () => {
       const match = selectBestRegionalCandidate(candidates, 'Europe');
-      expect(match.id).toBe(3);
+      expect(match?.id).toBe(3);
     });
 
     it('should fall back to World for USA if USA not present', () => {
       const match = selectBestRegionalCandidate(candidates, 'USA');
-      expect(match.id).toBe(2);
+      expect(match?.id).toBe(2);
     });
 
     it('should fall back to first candidate if no region specified', () => {
       const match = selectBestRegionalCandidate(candidates, null);
-      expect(match.id).toBe(1);
+      expect(match?.id).toBe(1);
+    });
+
+    it('should return null when targetRegion has no compatible regional overlap or World fallback', () => {
+      const jpOnly = [{ id: 1, region: 'Japan', rom_name: 'Game (Japan).xci' }];
+      expect(selectBestRegionalCandidate(jpOnly, 'USA')).toBeNull();
+      expect(selectBestRegionalCandidate(jpOnly, 'Europe')).toBeNull();
     });
   });
 
@@ -69,7 +75,7 @@ describe('reconcile_releases', () => {
       db = new Database(':memory:');
       db.exec(`
         CREATE TABLE platforms (id INTEGER PRIMARY KEY, name TEXT, parent_platform_id INTEGER);
-        CREATE TABLE games (stable_id INTEGER PRIMARY KEY, title TEXT, platform_id INTEGER);
+        CREATE TABLE games (stable_id INTEGER PRIMARY KEY, id TEXT, title TEXT, platform_id INTEGER);
         CREATE TABLE game_releases (
           id TEXT PRIMARY KEY,
           game_id INTEGER,
@@ -77,7 +83,9 @@ describe('reconcile_releases', () => {
           variants TEXT,
           rom_name TEXT,
           rom_crc TEXT,
-          canonical_release_id INTEGER
+          canonical_release_id INTEGER,
+          ownership_status INTEGER DEFAULT 0,
+          backup_status INTEGER DEFAULT 0
         );
         CREATE TABLE canonical_releases (
           id INTEGER PRIMARY KEY,

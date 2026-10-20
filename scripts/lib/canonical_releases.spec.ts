@@ -301,7 +301,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
   });
 
   describe('deduplicateDatReleases', () => {
-    it('should consolidate multi-disc sets and remove non-physical dumps', () => {
+    it('should preserve distinct discs of multi-disc sets and remove non-physical dumps', () => {
       const rawReleases = [
         {
           name: 'Final Fantasy VII (USA) (Disc 1)',
@@ -322,10 +322,16 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       ];
 
       const deduplicated = deduplicateDatReleases(29, rawReleases); // PS1
-      expect(deduplicated).toHaveLength(1);
+      expect(deduplicated).toHaveLength(2);
       expect(deduplicated[0].raw_title).toBe('Final Fantasy VII');
       expect(deduplicated[0].normalized_title).toBe('finalfantasyvii');
       expect(deduplicated[0].region).toBe('USA');
+      expect(deduplicated[0].rom_name).toBe(
+        'Final Fantasy VII (USA) (Disc 1).bin',
+      );
+      expect(deduplicated[1].rom_name).toBe(
+        'Final Fantasy VII (USA) (Disc 2).bin',
+      );
     });
 
     it('should support .psv cartridge dumps with authentic CRCs and .zip archives for Vita (Platform 33)', () => {
@@ -842,6 +848,228 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(res.physical_status).toBe('likely_physical');
       expect(res.verification_tier).toBe(2);
       expect(res.is_physical).toBe(true);
+    });
+  });
+
+  describe('Scoped Compilation Disc Subtitles, Multi-Disc Deduplication & Bonus Disc Enrichment', () => {
+    it('should scope compilation disc subtitles (Batman: Return to Arkham, BioShock: The Collection) without affecting standalone releases', () => {
+      const arkham1 =
+        'Batman - Return to Arkham (USA) (En,Fr,Es) (Arkham Asylum).iso';
+      const arkham2 =
+        'Batman - Return to Arkham (USA) (En,Fr,Es) (Arkham City).iso';
+      expect(extractVariants(arkham1, 34)).toBeNull();
+      expect(extractVariants(arkham2, 34)).toBeNull();
+      expect(getRomGroupingKey(arkham1)).toBe(getRomGroupingKey(arkham2));
+      expect(extractDiscLabel(arkham1)).toBe('Arkham Asylum');
+      expect(extractDiscLabel(arkham2)).toBe('Arkham City');
+
+      // Standalone releases or unrelated parentheticals are never treated as compilation disc roles
+      expect(
+        extractVariants('Some Other Game (USA) (Arkham Asylum).iso', 34),
+      ).toBe('Arkham Asylum');
+      expect(
+        extractVariants('Some Other Game (USA) (Heavy Rain).iso', 34),
+      ).toBe('Heavy Rain');
+    });
+
+    it('should preserve all discs of multi-disc games in deduplicateDatReleases()', () => {
+      const raw = [
+        {
+          name: 'Final Fantasy VII Remake (USA) (Data Disc)',
+          roms: [
+            {
+              name: 'Final Fantasy VII Remake (USA) (Data Disc).iso',
+              crc: '11111111',
+            },
+          ],
+        },
+        {
+          name: 'Final Fantasy VII Remake (USA) (Play Disc)',
+          roms: [
+            {
+              name: 'Final Fantasy VII Remake (USA) (Play Disc).iso',
+              crc: '22222222',
+            },
+          ],
+        },
+      ];
+      const deduped = deduplicateDatReleases(34, raw);
+      expect(deduped).toHaveLength(2);
+      expect(deduped.map((d) => d.rom_name)).toEqual([
+        'Final Fantasy VII Remake (USA) (Data Disc).iso',
+        'Final Fantasy VII Remake (USA) (Play Disc).iso',
+      ]);
+    });
+
+    it('should attach retail pack-in discs to their host game in detectPhysicalReleaseStatus() while blocking standalone demo matching', () => {
+      const canonical = [
+        {
+          platform_id: 30,
+          raw_title: 'Zone of the Enders',
+          normalized_title: 'zoneenders',
+          region: 'USA',
+          variants: null,
+          rom_name: 'Zone of the Enders (USA).iso',
+          rom_crc: 'AAAAAAAA',
+          source: 'dat' as const,
+          is_verified_physical: 1,
+        },
+        {
+          platform_id: 30,
+          raw_title: 'Metal Gear Solid 2 - Sons of Liberty - Trial Edition',
+          normalized_title: 'metalgearsolid2sonslibertytrial',
+          region: 'USA',
+          variants: 'Demo',
+          rom_name:
+            'Metal Gear Solid 2 - Sons of Liberty - Trial Edition (USA) (Demo).cue',
+          rom_crc: 'BBBBBBBB',
+          source: 'dat' as const,
+          is_verified_physical: 1,
+        },
+      ];
+
+      const zoeRes = detectPhysicalReleaseStatus({
+        platformId: 30,
+        gameTitle: 'Zone of the Enders',
+        canonicalReleases: canonical,
+      });
+      expect(zoeRes.matched_releases).toHaveLength(2);
+
+      const mgs2Res = detectPhysicalReleaseStatus({
+        platformId: 30,
+        gameTitle: 'Metal Gear Solid 2: Sons of Liberty',
+        canonicalReleases: canonical,
+      });
+      expect(mgs2Res.matched_releases).toHaveLength(0);
+    });
+
+    it('should enrich 2-disc Bonus Editions (isBonusEdition: true) with companion Base Game disc(s) without marking standard release as Superseded', () => {
+      // Standard 1-disc Alan Wake must NOT be tagged 'Superseded'
+      expect(
+        extractVariants(
+          'Alan Wake (World) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru).iso',
+          48,
+        ),
+      ).toBeNull();
+
+      const platformReleases: CompanionDiscCandidateRow[] = [
+        {
+          id: 'alan-wake-std',
+          game_id: 3712,
+          game_title: 'Alan Wake',
+          platform_id: 48,
+          region: 'World',
+          variants: null,
+          rom_name: 'Alan Wake (World) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru).iso',
+          rom_crc: '12345678',
+          backup_status: 1,
+          ownership_status: 1,
+          release_date: '2010-05-18',
+        },
+        {
+          id: 'alan-wake-bonus',
+          game_id: 3712,
+          game_title: 'Alan Wake',
+          platform_id: 48,
+          region: 'USA, Europe',
+          variants: 'Bonus Disc',
+          rom_name:
+            'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
+          rom_crc: '87654321',
+          backup_status: 0,
+          ownership_status: 0,
+          release_date: '2010-05-18',
+        },
+      ];
+
+      const bonusDetail: Parameters<
+        typeof enrichGameDetailWithCompanionsAndVouchers
+      >[0] = {
+        id: 'alan-wake-bonus',
+        stable_id: 3712,
+        title: 'Alan Wake',
+        platform_id: 48,
+        region: 'USA, Europe',
+        variants: 'Bonus Disc',
+        rom_name:
+          'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
+        releases: [
+          {
+            id: 'alan-wake-bonus',
+            game_id: 3712,
+            region: 'USA, Europe',
+            variants: 'Bonus Disc',
+            rom_name:
+              'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
+            rom_crc: '87654321',
+            backup_status: 0,
+            ownership_status: 0,
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(bonusDetail, platformReleases);
+      expect(bonusDetail.releases).toHaveLength(2);
+      expect(bonusDetail.releases![0]['disc_label']).toBe('Disc 1 (Base Game)');
+      expect(bonusDetail.releases![0]['is_companion_base_disc']).toBe(true);
+      expect(bonusDetail.releases![1]['disc_label']).toBe(
+        'Disc 2 (Bonus Disc)',
+      );
+    });
+
+    it('should cross-link standalone-case bonus discs (Pokémon Colosseum Bonus Disc <-> Pokémon Colosseum)', () => {
+      const gcReleases: CompanionDiscCandidateRow[] = [
+        {
+          id: 'pokemon-colosseum-usa',
+          game_id: 734,
+          game_title: 'Pokémon Colosseum',
+          platform_id: 20,
+          region: 'USA',
+          variants: null,
+          rom_name: 'Pokemon Colosseum (USA).iso',
+          rom_crc: 'AAAA1111',
+          backup_status: 1,
+          ownership_status: 1,
+          release_date: '2004-03-22',
+        },
+        {
+          id: 'pokemon-colosseum-bonus-usa',
+          game_id: 735,
+          game_title: 'Pokémon Colosseum Bonus Disc',
+          platform_id: 20,
+          region: 'USA',
+          variants: null,
+          rom_name: 'Pokemon Colosseum Bonus Disc (USA).iso',
+          rom_crc: 'BBBB2222',
+          backup_status: 1,
+          ownership_status: 1,
+          release_date: '2004-02-09',
+        },
+      ];
+
+      const colosseumDetail: Parameters<
+        typeof enrichGameDetailWithCompanionsAndVouchers
+      >[0] = {
+        id: 'pokemon-colosseum-usa',
+        stable_id: 734,
+        title: 'Pokémon Colosseum',
+        platform_id: 20,
+        region: 'USA',
+        releases: [
+          {
+            id: 'pokemon-colosseum-usa',
+            rom_name: 'Pokemon Colosseum (USA).iso',
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(colosseumDetail, gcReleases);
+      expect(colosseumDetail.shared_backup_releases).toBeDefined();
+      expect(
+        colosseumDetail.shared_backup_releases!.some(
+          (s) => s.id === 'pokemon-colosseum-bonus-usa',
+        ),
+      ).toBe(true);
     });
   });
 });

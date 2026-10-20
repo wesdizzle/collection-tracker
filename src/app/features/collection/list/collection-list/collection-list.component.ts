@@ -1016,11 +1016,174 @@ export class CollectionListComponent
     },
     {
       platformId: 48,
-      originalStableId: 3742,
+      originalStableId: 3748,
       supersetNormalizedTitle: 'callofdutymodernwarfare2',
       originalNormalizedTitle: 'callofdutymodernwarfare2',
       supersetRomMarker: 'stimulus package',
       originalExcludeMarker: 'stimulus package',
+    },
+    {
+      platformId: 20,
+      supersetStableId: 692,
+      originalStableId: 692,
+      supersetNormalizedTitle: 'mariokartdoubledash',
+      originalNormalizedTitle: 'mariokartdoubledash',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 20,
+      supersetStableId: 718,
+      originalStableId: 718,
+      supersetNormalizedTitle: 'metroidprime2echoes',
+      originalNormalizedTitle: 'metroidprime2echoes',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 20,
+      supersetStableId: 748,
+      originalStableId: 748,
+      supersetNormalizedTitle: 'residentevil4',
+      originalNormalizedTitle: 'residentevil4',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 29,
+      supersetStableId: 1983,
+      originalStableId: 1983,
+      supersetNormalizedTitle: 'persona2eternalpunishment',
+      originalNormalizedTitle: 'persona2eternalpunishment',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 29,
+      supersetStableId: 1938,
+      originalStableId: 1938,
+      supersetNormalizedTitle: 'granturismo2',
+      originalNormalizedTitle: 'granturismo2',
+      supersetRomMarker: 'un cd bonus',
+      originalExcludeMarker: 'un cd bonus',
+    },
+    {
+      platformId: 30,
+      supersetStableId: 2088,
+      originalStableId: 2088,
+      supersetNormalizedTitle: 'killzone',
+      originalNormalizedTitle: 'killzone',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 47,
+      supersetStableId: 3622,
+      originalStableId: 3622,
+      supersetNormalizedTitle: 'fable',
+      originalNormalizedTitle: 'fable',
+      supersetRomMarker: 'limited edition bonus dvd',
+      originalExcludeMarker: 'bonus dvd',
+    },
+    {
+      platformId: 47,
+      supersetStableId: 3705,
+      originalStableId: 3705,
+      supersetNormalizedTitle: 'tomclancyssplintercell',
+      originalNormalizedTitle: 'tomclancyssplintercell',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3712,
+      originalStableId: 3712,
+      supersetNormalizedTitle: 'alanwake',
+      originalNormalizedTitle: 'alanwake',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3728,
+      originalStableId: 3728,
+      supersetNormalizedTitle:
+        'bioshockinfinitethecompleteeditionbonuscontentdisc',
+      originalNormalizedTitle: 'bioshockinfinite',
+      supersetRomMarker: 'bonus content disc',
+      originalExcludeMarker: 'bonus content disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3772,
+      originalStableId: 3772,
+      supersetNormalizedTitle: 'deadrising2',
+      originalNormalizedTitle: 'deadrising2',
+      supersetRomMarker: 'zombrex edition bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3804,
+      originalStableId: 3804,
+      supersetNormalizedTitle: 'fableii',
+      originalNormalizedTitle: 'fableii',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3819,
+      originalStableId: 3819,
+      supersetNormalizedTitle: 'gearsofwar',
+      originalNormalizedTitle: 'gearsofwar',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3820,
+      originalStableId: 3820,
+      supersetNormalizedTitle: 'gearsofwar2',
+      originalNormalizedTitle: 'gearsofwar2',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3888,
+      originalStableId: 3888,
+      supersetNormalizedTitle: 'masseffect',
+      originalNormalizedTitle: 'masseffect',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3913,
+      originalStableId: 3913,
+      supersetNormalizedTitle: 'perfectdarkzero',
+      originalNormalizedTitle: 'perfectdarkzero',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3925,
+      originalStableId: 3925,
+      supersetNormalizedTitle: 'quake4',
+      originalNormalizedTitle: 'quake4',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
+    },
+    {
+      platformId: 48,
+      supersetStableId: 3981,
+      originalStableId: 3981,
+      supersetNormalizedTitle: 'vivapinata',
+      originalNormalizedTitle: 'vivapinata',
+      supersetRomMarker: 'bonus disc',
+      originalExcludeMarker: 'bonus disc',
     },
   ];
 
@@ -1222,10 +1385,10 @@ export class CollectionListComponent
         for (const pair of this.COMPANION_DISC1_PAIRS) {
           const isSupersetMatch =
             pair.platformId === g.platform_id &&
+            (!pair.supersetRomMarker ||
+              romLower.includes(pair.supersetRomMarker)) &&
             ((pair.supersetStableId !== undefined &&
-              pair.supersetStableId === g.stable_id &&
-              (!pair.supersetRomMarker ||
-                romLower.includes(pair.supersetRomMarker))) ||
+              pair.supersetStableId === g.stable_id) ||
               normRom === pair.supersetNormalizedTitle ||
               normTitle === pair.supersetNormalizedTitle) &&
             !pair.excludedRegions?.some((ex) => regTokens.includes(ex));
@@ -1263,6 +1426,9 @@ export class CollectionListComponent
                 .split(',')
                 .map((s) => s.trim())
                 .filter(Boolean);
+              if (regTokens.includes('world') || candRegs.includes('world')) {
+                return true;
+              }
               return regTokens.some((r) => candRegs.includes(r));
             });
             if (companionCandidates.length > 0) {
@@ -1644,6 +1810,42 @@ export class CollectionListComponent
     }
   }
 
+  private readonly COMPILATION_DISC_SUBTITLES: Record<
+    string,
+    ReadonlySet<string>
+  > = {
+    'batman - return to arkham': new Set(['arkham asylum', 'arkham city']),
+    'bioshock - the collection': new Set([
+      'bioshock-bioshock 2 disc',
+      'bioshock infinite disc',
+    ]),
+    'bioshock - ultimate rapture edition': new Set([
+      'bioshock - bonus content',
+      'bioshock 2 - bonus content',
+    ]),
+    'heavy rain & beyond - two souls collection': new Set([
+      'heavy rain',
+      'beyond - two souls',
+    ]),
+  };
+
+  private isCompilationDiscSubtitle(
+    content: string,
+    fullReleaseName?: string | null,
+  ): boolean {
+    if (!fullReleaseName) return false;
+    const normContent = content.toLowerCase().trim();
+    const normRelease = fullReleaseName.toLowerCase().trim();
+    for (const [prefix, subtitles] of Object.entries(
+      this.COMPILATION_DISC_SUBTITLES,
+    )) {
+      if (normRelease.startsWith(prefix) && subtitles.has(normContent)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Checks whether a ROM filename contains a multi-disc or disc-role indicator
    * (including localized Disco/Disque/Disk and Play/Data/Install disc roles).
@@ -1661,8 +1863,19 @@ export class CollectionListComponent
     if (bareDiscRegex.test(filename)) return true;
 
     const roleDiscRegex =
-      /\((?:play\s+disc|data\s+disc|data\s+installation\s+disc|installation\s+disc|install\s+disc|game\s+disc|key\s+disc|install|play|single\s+player|single-player|single\s+player\s+disc|multiplayer|multiplayer\s+disc|campaign|campaign\s+disc|campanha|cinematics\s+disc|movie\s+disc|bonus\s+disc| soundtrack\s+disc|add-on\s+disc|add-on\s+content\s+disc|additional\s+content\s+packs\s+install\s+disc|expansion\s+disk)\)/i;
-    return roleDiscRegex.test(filename);
+      /\((?:play\s+disc|data\s+disc|data\s+installation\s+disc|installation\s+disc|install\s+disc|game\s+disc|key\s+disc|install|play|single\s+player|single-player|single\s+player\s+disc|multiplayer|multiplayer\s+disc|campaign|campaign\s+disc|campanha|cinematics\s+disc|movie\s+disc|soundtrack\s+disc|add-on\s+disc|add-on\s+content\s+disc|additional\s+content\s+packs\s+install\s+disc|expansion\s+disk|expansion\s+disc|voice\s+over\s+pack|dlc\s+installer|tsuika\s+contents\s+disc)\)/i;
+    if (roleDiscRegex.test(filename)) return true;
+
+    const parentheticals = filename.match(/\(([^)]+)\)/g);
+    if (parentheticals) {
+      for (const m of parentheticals) {
+        const inner = m.slice(1, -1).trim();
+        if (this.isCompilationDiscSubtitle(inner, filename)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private stripDiscIndicator(filename: string | null | undefined): string {
@@ -1689,9 +1902,17 @@ export class CollectionListComponent
 
     // Strip role-based disc parentheticals
     base = base.replace(
-      /[-_\s]*\((?:play\s+disc|data\s+disc|data\s+installation\s+disc|installation\s+disc|install\s+disc|game\s+disc|key\s+disc|install|play|single\s+player|single-player|single\s+player\s+disc|multiplayer|multiplayer\s+disc|campaign|campaign\s+disc|campanha|cinematics\s+disc|movie\s+disc|bonus\s+disc|soundtrack\s+disc|add-on\s+disc|add-on\s+content\s+disc|additional\s+content\s+packs\s+install\s+disc|expansion\s+disk)\)/gi,
+      /[-_\s]*\((?:play\s+disc|data\s+disc|data\s+installation\s+disc|installation\s+disc|install\s+disc|game\s+disc|key\s+disc|install|play|single\s+player|single-player|single\s+player\s+disc|multiplayer|multiplayer\s+disc|campaign|campaign\s+disc|campanha|cinematics\s+disc|movie\s+disc|soundtrack\s+disc|add-on\s+disc|add-on\s+content\s+disc|additional\s+content\s+packs\s+install\s+disc|expansion\s+disk|expansion\s+disc|voice\s+over\s+pack|dlc\s+installer|tsuika\s+contents\s+disc)\)/gi,
       '',
     );
+
+    // Strip compilation-scoped disc subtitles
+    base = base.replace(/[-_\s]*\(([^)]+)\)/g, (full, inner: string) => {
+      if (this.isCompilationDiscSubtitle(inner, filename)) {
+        return '';
+      }
+      return full;
+    });
 
     // Strip Japanese parenthetical counting indicators (e.g. "Ichi", "Ni" etc.) when used alongside or as disc indicators
     base = base.replace(/[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/gi, '');
@@ -1780,6 +2001,14 @@ export class CollectionListComponent
       'multi:grand theft auto - the trilogy (europe)',
     'grand theft auto - san andreas (europe) (en,fr,de,es,it) (rev 1)':
       'multi:grand theft auto - the trilogy (europe)',
+    'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock - bonus content)':
+      'multi:bioshock - ultimate rapture edition (usa)',
+    'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock 2 - bonus content)':
+      'multi:bioshock - ultimate rapture edition (usa)',
+    'bioshock - ultimate rapture edition (usa, europe) (bioshock - bonus content)':
+      'multi:bioshock - ultimate rapture edition (usa, europe)',
+    'bioshock - ultimate rapture edition (usa, europe) (bioshock 2 - bonus content)':
+      'multi:bioshock - ultimate rapture edition (usa, europe)',
   };
 
   private getRomGroupingKey(filename: string | null | undefined): string {

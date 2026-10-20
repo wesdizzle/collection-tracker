@@ -13,6 +13,7 @@ import {
   gameMatchesReleaseWithAlternatives,
 } from './title_matching.js';
 import {
+  extractDiscLabel,
   extractRegions,
   extractVariants,
   isIgnoredFormatRelease,
@@ -28,10 +29,13 @@ export {
   KNOWN_PS4_PHYSICAL_DISC_SERIALS,
   KNOWN_PS5_PHYSICAL_DISC_SERIALS,
 };
-export {
+import {
   CANONICAL_VOUCHER_BUNDLES,
+  findRetailPackInDisc,
+  normalizeForLabelMatch,
   type VoucherBundleDefinition,
 } from './special_labels.js';
+export { CANONICAL_VOUCHER_BUNDLES, type VoucherBundleDefinition };
 
 export interface CanonicalRelease {
   id?: number;
@@ -619,6 +623,7 @@ export function detectPhysicalReleaseStatus(options: {
   }
 
   // Tier 1: Canonical Match (No-Intro / Redump in D1/SQLite)
+  const normTargetGameTitle = normalizeForLabelMatch(gameTitle);
   const matchedReleases = canonicalReleases.filter((r) => {
     if (
       r.platform_id !== platformId &&
@@ -626,10 +631,18 @@ export function detectPhysicalReleaseStatus(options: {
     ) {
       return false;
     }
+    const rawReleaseName = r.rom_name || r.raw_title;
+    const packIn = findRetailPackInDisc(rawReleaseName);
+    if (packIn) {
+      return (
+        packIn.hostPlatformId === r.platform_id &&
+        packIn.hostGameNormTitle === normTargetGameTitle
+      );
+    }
     return gameMatchesReleaseWithAlternatives(
       gameTitle,
       cleanTitleWithoutParentheticals(r.raw_title),
-      r.raw_title,
+      rawReleaseName,
       r.platform_id,
       alternativeNames,
       r.region,
@@ -906,8 +919,9 @@ export function deduplicateDatReleases(
       extractSerialCode(rel.name) ||
       extractSerialCode(primaryRom.name);
 
-    // Grouping key: platform + normalized title + primary region
-    const groupKey = `${platformId}::${normalized}::${region || 'World'}::${variants || 'Standard'}`;
+    // Grouping key: platform + normalized title + primary region + variants + disc label
+    const discLabel = extractDiscLabel(romName) || 'Single';
+    const groupKey = `${platformId}::${normalized}::${region || 'World'}::${variants || 'Standard'}::${discLabel}`;
 
     let isVerifiedPhysical = 1;
     if (platformId === 33) {

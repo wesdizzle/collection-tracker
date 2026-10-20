@@ -817,5 +817,67 @@ describe('Title Matching Strategies', () => {
         48,
       ),
     ).toBe(false);
+
+    // Same-game 2-disc Bonus Editions match their own parent game
+    expect(
+      titlesMatch(
+        "Tom Clancy's Splinter Cell",
+        "Tom Clancy's Splinter Cell",
+        "Tom Clancy's Splinter Cell (Europe) (Bonus Disc).iso",
+        47,
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Alan Wake',
+        'Alan Wake',
+        'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
+        48,
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'Mario Kart: Double Dash!!',
+        'Mario Kart - Double Dash!!',
+        'Mario Kart - Double Dash!! (USA) (Bonus Disc).iso',
+        20,
+      ),
+    ).toBe(true);
+    expect(
+      titlesMatch(
+        'BioShock Infinite',
+        'BioShock Infinite - The Complete Edition - Bonus Content Disc',
+        'BioShock Infinite - The Complete Edition - Bonus Content Disc (USA, Europe).iso',
+        48,
+      ),
+    ).toBe(true);
+
+    // Standalone-title bonus discs and pre-order promo discs remain blocked from matching base game
+    expect(
+      titlesMatch(
+        'Pokémon Colosseum',
+        'Pokemon Colosseum Bonus Disc',
+        'Pokemon Colosseum Bonus Disc (USA).iso',
+        20,
+      ),
+    ).toBe(false);
+    expect(
+      titlesMatch(
+        'Mass Effect',
+        'Mass Effect',
+        'Mass Effect (USA) (Pre-Order Bonus Disc).iso',
+        48,
+      ),
+    ).toBe(false);
+
+    // Zone of the Enders 1 must not match Anubis / The 2nd Runner
+    expect(
+      titlesMatch(
+        'Zone of the Enders',
+        'Anubis - Zone of the Enders',
+        'Anubis - Zone of the Enders (Japan).iso',
+        30,
+      ),
+    ).toBe(false);
   });
 });

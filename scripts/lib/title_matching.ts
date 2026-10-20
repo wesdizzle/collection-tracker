@@ -164,6 +164,8 @@ export function titlesMatch(
       'minecraft - story mode - a telltale games series - the complete adventure / minecraft - story mode - the complete adventure',
     'minecraft: story mode - season two':
       'minecraft - story mode - season two - the telltale series / minecraft - story mode - season two',
+    'bioshock infinite':
+      'bioshock infinite / bioshock infinite - the complete edition - bonus content disc',
   };
   const gLower = gameTitle.toLowerCase().trim();
   if (platformId === 14 && gLower === 'the amazing spider-man 2') {
@@ -343,14 +345,22 @@ function matchAlternative(
     }
   }
 
-  // 2. Enforce boundary check to prevent matching a Bonus Disc, Tutorial Disc, Standalone Add-on Pack,
-  // or Expansion Kit to a main game (or vice versa).
-  // We only bypass this check for Master Quest/Zelda bonus discs, or when the titles match
-  // via an explicit alias (where their un-aliased base titles differ).
-  if (!isZeldaMQ) {
-    const isSpecialDiscOrPack = (str: string): boolean =>
+  // 2. Enforce boundary check to prevent matching a standalone Bonus Disc, Tutorial Disc,
+  // Standalone Add-on Pack, or Expansion Kit to a main game (or vice versa).
+  // Parenthetical `(Bonus Disc)`, `(Bonus DVD)`, `(Bonus Content Disc)`, or `(Un CD Bonus)`
+  // on a matching base title ARE allowed (for 2-disc Limited/Collector's Editions), whereas
+  // standalone-title bonus discs (e.g. "Pokemon Colosseum Bonus Disc") and standalone
+  // add-on/pre-order/tutorial packs are blocked.
+  if (!isZeldaMQ && !matchedViaAlias) {
+    const rBaseLower = rAlt.toLowerCase();
+    const hasStandaloneBonusTitle = (str: string): boolean =>
       str.includes('bonus disc') ||
       (str.includes('bonus') && str.includes('disc')) ||
+      str.includes('tokusei disc') ||
+      str.includes('kakuchou disc');
+
+    const isAddOnOrPromoPack = (str: string): boolean =>
+      str.includes('pre-order bonus') ||
       str.includes('tokusei disc') ||
       str.includes('kakuchou disc') ||
       str.includes('tutorial disc') ||
@@ -362,11 +372,24 @@ function matchAlternative(
       str.includes('extension de jeu') ||
       str.includes('expansion kit');
 
-    const isReleaseSpecial = isSpecialDiscOrPack(rawLower);
-    const isGameSpecial = isSpecialDiscOrPack(gameLower);
+    const gameIsBonusEntry = hasStandaloneBonusTitle(gameLower);
+    const relFullLower = rawLower || rBaseLower;
 
-    if (isReleaseSpecial !== isGameSpecial) {
-      return false;
+    if (gameIsBonusEntry) {
+      // A standalone Bonus Disc game entry (e.g. "Pokémon Colosseum Bonus Disc") must only match a Bonus/Tokusei/Kakuchou disc release
+      if (!hasStandaloneBonusTitle(relFullLower)) {
+        return false;
+      }
+    } else {
+      // A standard game entry must not match standalone-title bonus discs (e.g. "Pokemon Colosseum Bonus Disc" or "Pokemon Colosseum (USA) (Bonus Disc)") or add-on/promo packs
+      if (
+        hasStandaloneBonusTitle(rBaseLower) ||
+        (relFullLower.includes('pokemon colosseum') &&
+          hasStandaloneBonusTitle(relFullLower)) ||
+        isAddOnOrPromoPack(relFullLower)
+      ) {
+        return false;
+      }
     }
   }
 
@@ -387,6 +410,15 @@ function matchAlternative(
       gNorm.replace(/ou/g, 'o') === rNorm.replace(/ou/g, 'o'))
   ) {
     return true;
+  }
+
+  // Do not allow parenthetical bonus discs to fuzzy-match a different base title via dash/colon splitting
+  if (
+    !isZeldaMQ &&
+    /\bbonus\s+(?:disc|dvd|cd)\b/i.test(rawLower) &&
+    !/\bbonus\b/i.test(gameLower)
+  ) {
+    return false;
   }
 
   // Exclude Metal Gear Solid - Special Missions or VR Missions from matching base Metal Gear Solid
@@ -413,7 +445,9 @@ function matchAlternative(
     hasExactAndSubstring('pokemonranger', 'batonnage') ||
     hasExactAndSubstring('pokemonranger', 'hikarinokiseki') ||
     hasExactAndSubstring('pokemonranger', 'shadowsalamia') ||
-    hasExactAndSubstring('pokemonranger', 'guardiansigns')
+    hasExactAndSubstring('pokemonranger', 'guardiansigns') ||
+    hasExactAndSubstring('zoneenders', 'anubis') ||
+    hasExactAndSubstring('zoneenders', '2ndrunner')
   ) {
     return false;
   }

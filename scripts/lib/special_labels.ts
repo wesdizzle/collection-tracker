@@ -64,6 +64,12 @@ export interface SupersededReleasePair {
   applicableRegions: string[];
   /** Regions (lowercase) explicitly excluded (e.g. 'japan' for Oblivion GOTY which was a single-disc build) */
   excludedRegions?: string[];
+  /**
+   * True when this pair represents a 2-disc Special/Limited/Collector's Edition that includes
+   * a physical Bonus Disc/DVD alongside the standard game disc(s). When true, the standard
+   * 1-disc release is linked as a companion base disc without being tagged as 'Superseded'.
+   */
+  isBonusEdition?: boolean;
 }
 
 /**
@@ -559,6 +565,269 @@ export const SUPERSEDED_RELEASE_PAIRS: SupersededReleasePair[] = [
     originalExcludeMarker: 'stimulus package',
     applicableRegions: ['australia', 'europe'],
   },
+  // ---------------------------------------------------------------------------
+  // Same-Game 2-Disc Special / Limited / Collector's Editions with Bonus Discs
+  // (isBonusEdition: true -> links Base Game disc(s) without marking 'Superseded')
+  // ---------------------------------------------------------------------------
+  {
+    platformId: 20, // GameCube
+    originalNormalizedTitle: 'mariokartdoubledash',
+    originalDisplayTitle: 'Mario Kart: Double Dash!!',
+    originalStableId: 692,
+    supersetNormalizedTitle: 'mariokartdoubledash',
+    supersetDisplayTitle:
+      'Mario Kart: Double Dash!! (Special Edition w/ Bonus Disc)',
+    supersetStableId: 692,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['usa'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 20, // GameCube
+    originalNormalizedTitle: 'metroidprime2echoes',
+    originalDisplayTitle: 'Metroid Prime 2: Echoes',
+    originalStableId: 718,
+    supersetNormalizedTitle: 'metroidprime2echoes',
+    supersetDisplayTitle: 'Metroid Prime 2: Echoes (Bonus Disc Edition)',
+    supersetStableId: 718,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['usa', 'canada'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 20, // GameCube
+    originalNormalizedTitle: 'residentevil4',
+    originalDisplayTitle: 'Resident Evil 4',
+    originalStableId: 748,
+    supersetNormalizedTitle: 'residentevil4',
+    supersetDisplayTitle: 'Resident Evil 4 (Special Edition w/ Bonus Disc)',
+    supersetStableId: 748,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['europe', 'germany', 'australia'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 29, // PlayStation
+    originalNormalizedTitle: 'persona2eternalpunishment',
+    originalDisplayTitle: 'Persona 2: Eternal Punishment',
+    originalStableId: 1983,
+    supersetNormalizedTitle: 'persona2eternalpunishment',
+    supersetDisplayTitle:
+      'Persona 2: Eternal Punishment (2-Disc Edition w/ Bonus Disc)',
+    supersetStableId: 1983,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['usa'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 29, // PlayStation
+    originalNormalizedTitle: 'granturismo2',
+    originalDisplayTitle: 'Gran Turismo 2',
+    originalStableId: 1938,
+    supersetNormalizedTitle: 'granturismo2',
+    supersetDisplayTitle: 'Gran Turismo 2 (Édition Collector CD Bonus)',
+    supersetStableId: 1938,
+    supersetRomMarker: 'un cd bonus',
+    originalExcludeMarker: 'un cd bonus',
+    applicableRegions: ['france'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 30, // PlayStation 2
+    originalNormalizedTitle: 'killzone',
+    originalDisplayTitle: 'Killzone',
+    originalStableId: 2088,
+    supersetNormalizedTitle: 'killzone',
+    supersetDisplayTitle: "Killzone (2-Disc Collector's Edition)",
+    supersetStableId: 2088,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['europe'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 47, // Xbox
+    originalNormalizedTitle: 'fable',
+    originalDisplayTitle: 'Fable',
+    originalStableId: 3622,
+    supersetNormalizedTitle: 'fable',
+    supersetDisplayTitle: 'Fable (Limited Edition w/ Bonus DVD)',
+    supersetStableId: 3622,
+    supersetRomMarker: 'limited edition bonus dvd',
+    originalExcludeMarker: 'bonus dvd',
+    applicableRegions: ['usa'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 47, // Xbox
+    originalNormalizedTitle: 'tomclancyssplintercell',
+    originalDisplayTitle: "Tom Clancy's Splinter Cell",
+    originalStableId: 3705,
+    supersetNormalizedTitle: 'tomclancyssplintercell',
+    supersetDisplayTitle:
+      "Tom Clancy's Splinter Cell (Xbox Classics 2-Disc Edition)",
+    supersetStableId: 3705,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['europe'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'alanwake',
+    originalDisplayTitle: 'Alan Wake',
+    originalStableId: 3712,
+    supersetNormalizedTitle: 'alanwake',
+    supersetDisplayTitle: "Alan Wake (Limited Collector's Edition)",
+    supersetStableId: 3712,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['world', 'usa', 'europe'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'bioshockinfinite',
+    originalDisplayTitle: 'BioShock Infinite',
+    originalStableId: 3728,
+    supersetNormalizedTitle:
+      'bioshockinfinitethecompleteeditionbonuscontentdisc',
+    supersetDisplayTitle: 'BioShock Infinite: The Complete Edition',
+    supersetStableId: 3728,
+    supersetRomMarker: 'bonus content disc',
+    originalExcludeMarker: 'bonus content disc',
+    applicableRegions: ['world', 'usa', 'europe'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'deadrising2',
+    originalDisplayTitle: 'Dead Rising 2',
+    originalStableId: 3772,
+    supersetNormalizedTitle: 'deadrising2',
+    supersetDisplayTitle: 'Dead Rising 2 (Zombrex Edition)',
+    supersetStableId: 3772,
+    supersetRomMarker: 'zombrex edition bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['world', 'usa', 'europe'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'fableii',
+    originalDisplayTitle: 'Fable II',
+    originalStableId: 3804,
+    supersetNormalizedTitle: 'fableii',
+    supersetDisplayTitle: "Fable II (Limited Collector's Edition)",
+    supersetStableId: 3804,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: [
+      'world',
+      'usa',
+      'europe',
+      'japan',
+      'france',
+      'germany',
+      'italy',
+      'spain',
+      'uk',
+      'australia',
+    ],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'gearsofwar',
+    originalDisplayTitle: 'Gears of War',
+    originalStableId: 3819,
+    supersetNormalizedTitle: 'gearsofwar',
+    supersetDisplayTitle: "Gears of War (Limited Collector's Edition)",
+    supersetStableId: 3819,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['world', 'usa', 'europe', 'asia'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'gearsofwar2',
+    originalDisplayTitle: 'Gears of War 2',
+    originalStableId: 3820,
+    supersetNormalizedTitle: 'gearsofwar2',
+    supersetDisplayTitle: 'Gears of War 2 (Limited Edition)',
+    supersetStableId: 3820,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['world', 'usa', 'europe', 'canada', 'japan'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'masseffect',
+    originalDisplayTitle: 'Mass Effect',
+    originalStableId: 3888,
+    supersetNormalizedTitle: 'masseffect',
+    supersetDisplayTitle:
+      "Mass Effect (Limited Collector's Edition / Platinum Hits 2-Disc)",
+    supersetStableId: 3888,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: [
+      'world',
+      'usa',
+      'europe',
+      'france',
+      'germany',
+      'italy',
+      'japan',
+      'australia',
+    ],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'perfectdarkzero',
+    originalDisplayTitle: 'Perfect Dark Zero',
+    originalStableId: 3913,
+    supersetNormalizedTitle: 'perfectdarkzero',
+    supersetDisplayTitle: "Perfect Dark Zero (Limited Collector's Edition)",
+    supersetStableId: 3913,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['world', 'usa', 'canada', 'europe'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'quake4',
+    originalDisplayTitle: 'Quake 4',
+    originalStableId: 3925,
+    supersetNormalizedTitle: 'quake4',
+    supersetDisplayTitle: 'Quake 4 (2-Disc Edition w/ Quake II Bonus Disc)',
+    supersetStableId: 3925,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['world', 'usa', 'europe'],
+    isBonusEdition: true,
+  },
+  {
+    platformId: 48, // Xbox 360
+    originalNormalizedTitle: 'vivapinata',
+    originalDisplayTitle: 'Viva Piñata',
+    originalStableId: 3981,
+    supersetNormalizedTitle: 'vivapinata',
+    supersetDisplayTitle: 'Viva Piñata (Special Edition)',
+    supersetStableId: 3981,
+    supersetRomMarker: 'bonus disc',
+    originalExcludeMarker: 'bonus disc',
+    applicableRegions: ['world', 'usa', 'europe'],
+    isBonusEdition: true,
+  },
 ];
 
 /**
@@ -784,6 +1053,16 @@ export const BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
     'multi:grand theft auto - the trilogy (europe)',
   'grand theft auto - san andreas (europe) (en,fr,de,es,it) (rev 1)':
     'multi:grand theft auto - the trilogy (europe)',
+
+  // 10. BioShock: Ultimate Rapture Edition (Xbox 360, USA / Europe)
+  'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock - bonus content)':
+    'multi:bioshock - ultimate rapture edition (usa)',
+  'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock 2 - bonus content)':
+    'multi:bioshock - ultimate rapture edition (usa)',
+  'bioshock - ultimate rapture edition (usa, europe) (bioshock - bonus content)':
+    'multi:bioshock - ultimate rapture edition (usa, europe)',
+  'bioshock - ultimate rapture edition (usa, europe) (bioshock 2 - bonus content)':
+    'multi:bioshock - ultimate rapture edition (usa, europe)',
 };
 
 /**
@@ -881,9 +1160,95 @@ export const BOX_SET_DISC_LABELS: Record<string, string> = {
   // Crash Bandicoot Action Pack (PS2)
   'crash twinsanity (usa) (v2.00)': 'Disc 2 — Crash Twinsanity (v2.00)',
 
+  // BioShock: Ultimate Rapture Edition (Xbox 360)
+  'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock - bonus content)':
+    'Disc 2 — BioShock (Bonus Content Disc)',
+  'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock 2 - bonus content)':
+    'Disc 4 — BioShock 2 (Bonus Content Disc)',
+  'bioshock - ultimate rapture edition (usa, europe) (bioshock - bonus content)':
+    'Disc 2 — BioShock (Bonus Content Disc)',
+  'bioshock - ultimate rapture edition (usa, europe) (bioshock 2 - bonus content)':
+    'Disc 4 — BioShock 2 (Bonus Content Disc)',
+
+  // Quake 4 Bonus Disc (Xbox 360)
+  'quake 4 (usa, europe) (en,fr,es,It) (bonus disc)':
+    'Disc 2 — Quake II Bonus Disc',
+  'quake 4 (usa, europe) (en,fr,es,it) (bonus disc)':
+    'Disc 2 — Quake II Bonus Disc',
+
   // Retail Pack-In Bonus Discs
   'mega man legends 2 (usa) (demo)': 'Bonus Disc — Mega Man Legends 2 Demo',
+  'metal gear solid 2 - sons of liberty - trial edition (usa) (demo)':
+    'Bonus Disc — Metal Gear Solid 2: Sons of Liberty (Trial Edition)',
+  'metal gear solid 2 - sons of liberty - trial edition (europe) (demo)':
+    'Bonus Disc — Metal Gear Solid 2: Sons of Liberty (Trial Edition)',
+  'final fantasy xii (usa) (demo)':
+    'Bonus Disc — Final Fantasy XII Playable Demo',
 };
+
+export interface StandaloneBonusDiscLink {
+  /** Platform ID (e.g. 20 = GameCube) */
+  platformId: number;
+  /** Known stable_id of the standalone bonus disc entry in games */
+  bonusDiscStableId: number;
+  /** Normalized title of the standalone bonus disc */
+  bonusDiscNormTitle: string;
+  /** Display title of the standalone bonus disc */
+  bonusDiscDisplayTitle: string;
+  /** Known stable_id of the parent/companion retail game in games */
+  parentGameStableId: number;
+  /** Normalized title of the parent/companion retail game */
+  parentGameNormTitle: string;
+  /** Display title of the parent/companion retail game */
+  parentGameDisplayTitle: string;
+  /** Descriptive label explaining the packaging relationship */
+  relationshipLabel: string;
+}
+
+export const STANDALONE_BONUS_DISC_LINKS: StandaloneBonusDiscLink[] = [
+  {
+    platformId: 20, // GameCube
+    bonusDiscStableId: 735,
+    bonusDiscNormTitle: 'pokemoncolosseumbonusdisc',
+    bonusDiscDisplayTitle: 'Pokémon Colosseum Bonus Disc',
+    parentGameStableId: 734,
+    parentGameNormTitle: 'pokemoncolosseum',
+    parentGameDisplayTitle: 'Pokémon Colosseum',
+    relationshipLabel: 'Pre-Order Companion Bonus Disc (Jirachi)',
+  },
+  {
+    platformId: 20, // GameCube
+    bonusDiscStableId: 679,
+    bonusDiscNormTitle:
+      'thelegendofzeldaocarinaoftimemasterquesttwogamebonusdisc',
+    bonusDiscDisplayTitle:
+      'The Legend of Zelda: Ocarina of Time / Master Quest: Two-game Bonus Disc!',
+    parentGameStableId: 680,
+    parentGameNormTitle: 'thelegendofzeldathewindwaker',
+    parentGameDisplayTitle: 'The Legend of Zelda: The Wind Waker',
+    relationshipLabel: 'Pre-Order / Bundle Companion Bonus Disc',
+  },
+  {
+    platformId: 20, // GameCube
+    bonusDiscStableId: 681,
+    bonusDiscNormTitle: 'thelegendofzeldacollectorsedition',
+    bonusDiscDisplayTitle: "The Legend of Zelda: Collector's Edition",
+    parentGameStableId: 680,
+    parentGameNormTitle: 'thelegendofzeldathewindwaker',
+    parentGameDisplayTitle: 'The Legend of Zelda: The Wind Waker',
+    relationshipLabel: 'Promotional / Bundle Companion Bonus Disc',
+  },
+  {
+    platformId: 20, // GameCube
+    bonusDiscStableId: 727,
+    bonusDiscNormTitle: 'pacmanvs',
+    bonusDiscDisplayTitle: 'Pac-Man Vs.',
+    parentGameStableId: 725,
+    parentGameNormTitle: 'pacmanworld2',
+    parentGameDisplayTitle: 'Pac-Man World 2',
+    relationshipLabel: "Player's Choice 2-Disc Bundle Companion",
+  },
+];
 
 export interface RetailPackInDiscSpec {
   /** Lowercase regex pattern matching the raw Redump/No-Intro ROM name (without extension) */
@@ -915,6 +1280,30 @@ export const RETAIL_PACKIN_DISCS: RetailPackInDiscSpec[] = [
     companionGameTitle: 'Mega Man Legends 2',
     rationale:
       'Included as a physical bonus demo CD-ROM inside the North American retail jewel case of The Misadventures of Tron Bonne (SLUS-90087).',
+  },
+  {
+    romPattern:
+      /^metal gear solid 2 - sons of liberty - trial edition.*\(demo\)/i,
+    hostGameNormTitle: 'zoneoftheenders',
+    hostGameDisplayTitle: 'Zone of the Enders',
+    hostPlatformId: 30, // PlayStation 2
+    discLabel:
+      'Bonus Disc — Metal Gear Solid 2: Sons of Liberty (Trial Edition)',
+    companionGameSlug: 'metal-gear-solid-2-sons-of-liberty-playstation-2',
+    companionGameTitle: 'Metal Gear Solid 2: Sons of Liberty',
+    rationale:
+      'Included as a second physical DVD-ROM inside retail copies of Zone of the Enders (SLUS-29012 / SLES-50196).',
+  },
+  {
+    romPattern: /^final fantasy xii\s*\(usa\)\s*\(demo\)/i,
+    hostGameNormTitle: 'dragonquestviiijourneyofthecursedking',
+    hostGameDisplayTitle: 'Dragon Quest VIII: Journey of the Cursed King',
+    hostPlatformId: 30, // PlayStation 2
+    discLabel: 'Bonus Disc — Final Fantasy XII Playable Demo',
+    companionGameSlug: 'final-fantasy-xii-playstation-2',
+    companionGameTitle: 'Final Fantasy XII',
+    rationale:
+      'Included as a second physical DVD-ROM inside North American retail copies of Dragon Quest VIII: Journey of the Cursed King (SLUS-29172).',
   },
 ];
 
@@ -1424,6 +1813,41 @@ export const BOX_SET_DEFINITIONS: BoxSetDefinition[] = [
       },
     ],
   },
+  {
+    platformId: 48, // Xbox 360
+    boxSetNormTitle: 'bioshockultimateraptureedition',
+    boxSetDisplayTitle: 'BioShock: Ultimate Rapture Edition',
+    rationale:
+      '4-disc compilation containing the standalone BioShock and BioShock 2 base game discs plus dedicated Bonus Content discs for each title.',
+    discs: [
+      {
+        discLabel: 'Disc 1 — BioShock (Base Game)',
+        standaloneNormTitle: 'bioshock',
+        standaloneDisplayTitle: 'BioShock',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 2 — BioShock (Bonus Content Disc)',
+        standaloneNormTitle: 'bioshock',
+        standaloneDisplayTitle: 'BioShock',
+        isVirtualCompanion: false,
+        companionRomFilter: 'bioshock - bonus content',
+      },
+      {
+        discLabel: 'Disc 3 — BioShock 2 (Base Game)',
+        standaloneNormTitle: 'bioshock2',
+        standaloneDisplayTitle: 'BioShock 2',
+        isVirtualCompanion: true,
+      },
+      {
+        discLabel: 'Disc 4 — BioShock 2 (Bonus Content Disc)',
+        standaloneNormTitle: 'bioshock2',
+        standaloneDisplayTitle: 'BioShock 2',
+        isVirtualCompanion: false,
+        companionRomFilter: 'bioshock 2 - bonus content',
+      },
+    ],
+  },
 ];
 
 export function getCuratedReleaseTags(
@@ -1495,6 +1919,9 @@ export function getCuratedReleaseTags(
 
   // 3. Superseded Original Releases (strict 1-disc subsets of later 2-disc GOTY/expanded sets)
   for (const pair of SUPERSEDED_RELEASE_PAIRS) {
+    if (pair.isBonusEdition) {
+      continue;
+    }
     if (platformId !== undefined && pair.platformId !== platformId) {
       continue;
     }

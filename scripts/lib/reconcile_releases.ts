@@ -15,11 +15,13 @@ import { fileURLToPath } from 'url';
 import { getDatabase } from './db.js';
 import { normalizeTitleForMatching, titlesMatch } from './title_matching.js';
 import { cleanTitleWithoutParentheticals } from './canonical_releases.js';
+import { getRomGroupingKey } from './queries.js';
 
 export interface ReconcileOptions {
   dryRun?: boolean;
   platformId?: number;
   sqlOutputPath?: string;
+  insertMissingVariants?: boolean;
 }
 
 export interface ReconcileResult {
@@ -63,55 +65,69 @@ export function stripEditionSuffix(title: string): string {
 }
 
 /**
- * Selects the best candidate canonical release based on regional compatibility.
+ * Selects the best candidate canonical release based on strict regional compatibility.
+ * Returns null when no candidate is regionally compatible with targetRegion (preventing
+ * cross-region fallback mismatches like assigning Japan or Germany ROMs to USA rows).
  */
 export function selectBestRegionalCandidate<
   T extends { region: string | null },
->(candidates: T[], targetRegion: string | null): T {
-  if (candidates.length <= 1 || !targetRegion) {
+>(candidates: T[], targetRegion: string | null): T | null {
+  if (candidates.length === 0) {
+    return null;
+  }
+  if (!targetRegion || !targetRegion.trim()) {
     return candidates[0];
   }
 
-  const regLower = targetRegion.toLowerCase();
+  const regLower = targetRegion.toLowerCase().trim();
+  const targetTokens = regLower
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   // 1. Exact match (case-insensitive)
   const exact = candidates.find(
-    (c) => c.region && c.region.toLowerCase() === regLower,
+    (c) => c.region && c.region.toLowerCase().trim() === regLower,
   );
   if (exact) return exact;
 
-  // 2. Region substring contains target region
-  const contains = candidates.find(
-    (c) => c.region && c.region.toLowerCase().includes(regLower),
-  );
-  if (contains) return contains;
+  // 2. Direct token overlap (e.g. target "USA" matches candidate "USA, Europe" or "USA, Canada")
+  const tokenMatch = candidates.find((c) => {
+    if (!c.region) return false;
+    const candTokens = c.region
+      .toLowerCase()
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return candTokens.some((t) => targetTokens.includes(t));
+  });
+  if (tokenMatch) return tokenMatch;
 
-  // 3. USA / North America fallback to World
-  if (regLower === 'usa' || regLower === 'north america') {
-    const world = candidates.find(
-      (c) =>
-        c.region &&
-        (c.region.toLowerCase() === 'world' ||
-          c.region.toLowerCase().includes('north america')),
-    );
-    if (world) return world;
+  // 3. World fallback (if candidate is World or target is World)
+  if (targetTokens.includes('world')) {
+    return candidates[0];
   }
-
-  // 4. Europe fallback to World
-  if (regLower === 'europe') {
-    const world = candidates.find(
-      (c) => c.region && c.region.toLowerCase() === 'world',
-    );
-    if (world) return world;
-  }
-
-  // 5. Any World release
-  const anyWorld = candidates.find(
-    (c) => c.region && c.region.toLowerCase() === 'world',
-  );
+  const anyWorld = candidates.find((c) => {
+    if (!c.region) return false;
+    const candTokens = c.region
+      .toLowerCase()
+      .split(',')
+      .map((s) => s.trim());
+    return candTokens.includes('world');
+  });
   if (anyWorld) return anyWorld;
 
-  return candidates[0];
+  // 4. North America -> USA / Canada compatibility
+  if (targetTokens.includes('north america') || targetTokens.includes('usa')) {
+    const naMatch = candidates.find((c) => {
+      if (!c.region) return false;
+      const candLower = c.region.toLowerCase();
+      return candLower.includes('usa') || candLower.includes('north america');
+    });
+    if (naMatch) return naMatch;
+  }
+
+  return null;
 }
 
 /**
@@ -131,18 +147,19 @@ export function reconcileGameReleasesWithCanonical(
 
   // Query releases that need ROM names
   const candidateQuery = `
-    SELECT gr.id, gr.game_id, g.platform_id, g.title, gr.region, gr.variants,
-           gr.rom_name, gr.rom_crc, gr.canonical_release_id
+    SELECT gr.id, gr.game_id, g.id as game_slug, g.platform_id, g.title, gr.region, gr.variants,
+           gr.rom_name, gr.rom_crc, gr.canonical_release_id, gr.ownership_status
     FROM game_releases gr
     JOIN games g ON gr.game_id = g.stable_id
     WHERE gr.rom_name IS NULL
     ${options.platformId ? 'AND g.platform_id = ' + Number(options.platformId) : ''}
-    ORDER BY g.platform_id ASC, g.title ASC
+    ORDER BY g.platform_id ASC, g.title ASC, gr.id ASC
   `;
 
   const candidateReleases = db.prepare(candidateQuery).all() as Array<{
     id: string;
     game_id: number;
+    game_slug: string;
     platform_id: number;
     title: string;
     region: string | null;
@@ -150,7 +167,35 @@ export function reconcileGameReleasesWithCanonical(
     rom_name: string | null;
     rom_crc: string | null;
     canonical_release_id: number | null;
+    ownership_status: number;
   }>;
+
+  // Track already-assigned ROM names per game_id and per platform_id to prevent duplicate overwrites
+  const usedRomsByGameId = new Map<number, Set<string>>();
+  const usedRomsByPlatformId = new Map<number, Set<string>>();
+  const existingRoms = db
+    .prepare(
+      `SELECT gr.game_id, g.platform_id, gr.rom_name
+       FROM game_releases gr
+       JOIN games g ON gr.game_id = g.stable_id
+       WHERE gr.rom_name IS NOT NULL`,
+    )
+    .all() as Array<{ game_id: number; platform_id: number; rom_name: string }>;
+  for (const row of existingRoms) {
+    let set = usedRomsByGameId.get(row.game_id);
+    if (!set) {
+      set = new Set();
+      usedRomsByGameId.set(row.game_id, set);
+    }
+    set.add(row.rom_name);
+
+    let pSet = usedRomsByPlatformId.get(row.platform_id);
+    if (!pSet) {
+      pSet = new Set();
+      usedRomsByPlatformId.set(row.platform_id, pSet);
+    }
+    pSet.add(row.rom_name);
+  }
 
   // Map parent platform relationships (e.g. PSVR 51 -> PS4 34, PSVR2 52 -> PS5 35)
   const parentPlatformMap = new Map<number, number>();
@@ -258,7 +303,12 @@ export function reconcileGameReleasesWithCanonical(
         const rawCands = map.get(normalizeTitleForMatching(prefix));
         if (rawCands && rawCands.length > 0) {
           cand = rawCands.filter((c) =>
-            titlesMatch(rel.title, c.raw_title, c.raw_title, rel.platform_id),
+            titlesMatch(
+              rel.title,
+              c.raw_title,
+              c.rom_name || c.raw_title,
+              rel.platform_id,
+            ),
           );
         }
       }
@@ -273,7 +323,47 @@ export function reconcileGameReleasesWithCanonical(
 
     if (!candidates || candidates.length === 0) continue;
 
-    const best = selectBestRegionalCandidate(candidates, rel.region);
+    const usedSet = usedRomsByGameId.get(rel.game_id) ?? new Set<string>();
+    const availableCandidates = candidates.filter(
+      (c) => !usedSet.has(c.rom_name),
+    );
+    if (availableCandidates.length === 0) continue;
+
+    // Prefer candidates matching rel.variants when present
+    let variantFiltered = availableCandidates;
+    if (rel.variants && rel.variants.trim()) {
+      const targetVarLower = rel.variants.toLowerCase().trim();
+      const exactVar = availableCandidates.filter(
+        (c) => (c.variants || '').toLowerCase().trim() === targetVarLower,
+      );
+      if (exactVar.length > 0) {
+        variantFiltered = exactVar;
+      } else {
+        const targetVarTokens = targetVarLower
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const partialVar = availableCandidates.filter((c) => {
+          const cVarLower = (c.variants || '').toLowerCase();
+          return targetVarTokens.some((t) => cVarLower.includes(t));
+        });
+        if (partialVar.length > 0) {
+          variantFiltered = partialVar;
+        }
+      }
+    } else {
+      // When rel.variants is null, prefer Standard (null variants) over special editions/demos if available
+      const standardOnly = availableCandidates.filter((c) => !c.variants);
+      if (standardOnly.length > 0) {
+        variantFiltered = standardOnly;
+      }
+    }
+
+    const best = selectBestRegionalCandidate(variantFiltered, rel.region);
+    if (!best) continue;
+
+    usedSet.add(best.rom_name);
+    usedRomsByGameId.set(rel.game_id, usedSet);
 
     updates.push({
       releaseId: rel.id,
@@ -294,6 +384,104 @@ export function reconcileGameReleasesWithCanonical(
     sqlStatements.push(
       `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)} WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
     );
+
+    // If best is Disc 1 of a multi-disc set, automatically ensure Disc 2+ exist for this game
+    const bestGroupKey = getRomGroupingKey(best.rom_name);
+    if (bestGroupKey.startsWith('multi:')) {
+      const siblingDiscs = availableCandidates
+        .filter(
+          (c) =>
+            c.id !== best.id &&
+            !usedSet.has(c.rom_name) &&
+            c.region === best.region &&
+            c.variants === best.variants &&
+            getRomGroupingKey(c.rom_name) === bestGroupKey,
+        )
+        .sort((a, b) => a.rom_name.localeCompare(b.rom_name));
+
+      for (const sibling of siblingDiscs) {
+        usedSet.add(sibling.rom_name);
+        const siblingId = `${rel.game_slug || rel.id.replace(/-default$/, '')}-disc-${sibling.id}`;
+        sqlStatements.push(
+          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, rom_name, rom_crc, ownership_status, backup_status) VALUES (${escapeSql(siblingId)}, ${rel.game_id}, ${sibling.id}, ${escapeSql(sibling.region || rel.region)}, ${escapeSql(sibling.variants || rel.variants)}, ${escapeSql(sibling.rom_name)}, ${escapeSql(sibling.rom_crc)}, ${rel.ownership_status ?? 0}, 0);`,
+        );
+        if (!isDryRun) {
+          db.prepare(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, rom_name, rom_crc, ownership_status, backup_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          ).run(
+            siblingId,
+            rel.game_id,
+            sibling.id,
+            sibling.region || rel.region,
+            sibling.variants || rel.variants,
+            sibling.rom_name,
+            sibling.rom_crc,
+            rel.ownership_status ?? 0,
+          );
+        }
+      }
+    }
+  }
+
+  if (options.insertMissingVariants) {
+    const escapeSql = (s: string | null) =>
+      s !== null ? `'${s.replace(/'/g, "''")}'` : 'NULL';
+    const catalogGames = db
+      .prepare(
+        `SELECT stable_id, id as slug, title, platform_id FROM games WHERE 1=1 ${options.platformId ? 'AND platform_id = ' + Number(options.platformId) : ''}`,
+      )
+      .all() as Array<{
+      stable_id: number;
+      slug: string;
+      title: string;
+      platform_id: number;
+    }>;
+
+    for (const g of catalogGames) {
+      const normMap = datByPlatformNorm.get(g.platform_id);
+      if (!normMap) continue;
+      const norm = normalizeTitleForMatching(g.title);
+      const cands = normMap.get(norm);
+      if (!cands || cands.length === 0) continue;
+
+      const usedSet = usedRomsByGameId.get(g.stable_id) ?? new Set<string>();
+      const platUsedSet =
+        usedRomsByPlatformId.get(g.platform_id) ?? new Set<string>();
+      for (const c of cands) {
+        if (usedSet.has(c.rom_name) || platUsedSet.has(c.rom_name)) continue;
+        if (
+          !titlesMatch(
+            g.title,
+            c.raw_title,
+            c.rom_name || c.raw_title,
+            g.platform_id,
+          )
+        ) {
+          continue;
+        }
+        usedSet.add(c.rom_name);
+        usedRomsByGameId.set(g.stable_id, usedSet);
+        platUsedSet.add(c.rom_name);
+        usedRomsByPlatformId.set(g.platform_id, platUsedSet);
+        const newId = `${g.slug}-dat-${c.id}`;
+        sqlStatements.push(
+          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, rom_name, rom_crc, ownership_status, backup_status) VALUES (${escapeSql(newId)}, ${g.stable_id}, ${c.id}, ${escapeSql(c.region)}, ${escapeSql(c.variants)}, ${escapeSql(c.rom_name)}, ${escapeSql(c.rom_crc)}, 0, 0);`,
+        );
+        if (!isDryRun) {
+          db.prepare(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, rom_name, rom_crc, ownership_status, backup_status) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+          ).run(
+            newId,
+            g.stable_id,
+            c.id,
+            c.region,
+            c.variants,
+            c.rom_name,
+            c.rom_crc,
+          );
+        }
+      }
+    }
   }
 
   sqlStatements.push('');
@@ -340,9 +528,13 @@ if (
     platformId = Number(platArg.split('=')[1]);
   }
   const isDryRun = process.argv.includes('--dry-run');
+  const insertMissingVariants = process.argv.includes(
+    '--insert-missing-variants',
+  );
   const res = reconcileGameReleasesWithCanonical(db, {
     platformId,
     dryRun: isDryRun,
+    insertMissingVariants,
   });
   console.log(
     `Evaluated: ${res.totalEvaluated}, Reconciled: ${res.reconciledCount}`,

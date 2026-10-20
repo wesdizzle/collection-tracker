@@ -63,20 +63,62 @@ export const DISC_ROLE_INDICATORS = new Set<string>([
   'dlc installer',
   'voice over pack',
   'game',
-  'bioshock-bioshock 2 disc',
-  'bioshock infinite disc',
-  'heavy rain',
-  'beyond - two souls',
 ]);
+
+/**
+ * Compilation-scoped per-disc game subtitles.
+ * Keyed by lowercase compilation release prefix so that standalone releases of those
+ * games (e.g., standalone Batman: Arkham Asylum or Heavy Rain) are never affected.
+ */
+export const COMPILATION_DISC_SUBTITLES: Record<string, ReadonlySet<string>> = {
+  'batman - return to arkham': new Set(['arkham asylum', 'arkham city']),
+  'bioshock - the collection': new Set([
+    'bioshock-bioshock 2 disc',
+    'bioshock infinite disc',
+  ]),
+  'bioshock - ultimate rapture edition': new Set([
+    'bioshock - bonus content',
+    'bioshock 2 - bonus content',
+  ]),
+  'heavy rain & beyond - two souls collection': new Set([
+    'heavy rain',
+    'beyond - two souls',
+  ]),
+};
+
+/**
+ * Checks if a parenthetical inner string is a compilation-scoped disc subtitle
+ * when evaluated against the full release/ROM name.
+ */
+export function isCompilationDiscSubtitle(
+  content: string,
+  fullReleaseName?: string | null,
+): boolean {
+  if (!fullReleaseName) return false;
+  const normContent = content.toLowerCase().trim();
+  const normRelease = fullReleaseName.toLowerCase().trim();
+  for (const [prefix, subtitles] of Object.entries(
+    COMPILATION_DISC_SUBTITLES,
+  )) {
+    if (normRelease.startsWith(prefix) && subtitles.has(normContent)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Checks if a parenthetical inner string is a disc/side or disc-role indicator.
  */
-export function isDiscOrRoleIndicator(content: string): boolean {
+export function isDiscOrRoleIndicator(
+  content: string,
+  fullReleaseName?: string | null,
+): boolean {
   const normalized = content.toLowerCase().trim();
   if (NUMBERED_DISC_REGEX.test(normalized)) return true;
   if (JP_DISC_REGEX.test(normalized)) return true;
   if (DISC_ROLE_INDICATORS.has(normalized)) return true;
+  if (isCompilationDiscSubtitle(normalized, fullReleaseName)) return true;
   return false;
 }
 
@@ -252,11 +294,14 @@ const RECOGNIZED_LANGUAGES = new Set<string>([
  * @param content Parenthetical inner content.
  * @returns True if it is a region, language, or disc, false otherwise.
  */
-export function isRegionOrLanguageOrDisc(content: string): boolean {
+export function isRegionOrLanguageOrDisc(
+  content: string,
+  fullReleaseName?: string | null,
+): boolean {
   const normalized = content.toLowerCase().trim();
   if (!normalized) return true;
 
-  if (isDiscOrRoleIndicator(normalized)) return true;
+  if (isDiscOrRoleIndicator(normalized, fullReleaseName)) return true;
   if (RECOGNIZED_REGIONS.has(normalized)) return true;
 
   // First split by comma, slash, or plus to keep multi-word regions (e.g., "United Kingdom", "Latin America")
@@ -414,7 +459,7 @@ export function extractVariants(
   if (parentheticalMatches) {
     for (const match of parentheticalMatches) {
       const rawContent = match.slice(1, -1).trim();
-      if (!isRegionOrLanguageOrDisc(rawContent)) {
+      if (!isRegionOrLanguageOrDisc(rawContent, name)) {
         // Ignore pure build dates and timestamps on Beta/Proto/Demo/Debug ROMs (e.g. "1998-07-16", "2006-12-14 17.05")
         if (isDateToken(rawContent)) {
           continue;
@@ -491,11 +536,14 @@ export function extractDiscLabel(
     const lower = content.toLowerCase();
     if (NUMBERED_DISC_REGEX.test(lower)) {
       discNumberPart = content;
-    } else if (DISC_ROLE_INDICATORS.has(lower)) {
+    } else if (
+      DISC_ROLE_INDICATORS.has(lower) ||
+      isCompilationDiscSubtitle(lower, romName)
+    ) {
       subtitlePart = content;
     } else if (
       discNumberPart &&
-      !isRegionOrLanguageOrDisc(content) &&
+      !isRegionOrLanguageOrDisc(content, romName) &&
       !isTrueEditionOrRevisionVariant(content)
     ) {
       subtitlePart = content;

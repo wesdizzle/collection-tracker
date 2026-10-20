@@ -9,6 +9,7 @@
 import {
   DISC_ROLE_INDICATORS,
   extractDiscLabel,
+  isCompilationDiscSubtitle,
   isRegionOrLanguageOrDisc,
   isTrueEditionOrRevisionVariant,
 } from './dat_format.js';
@@ -19,6 +20,7 @@ import {
   BoxSetCompanionSpec,
   CANONICAL_VOUCHER_BUNDLES,
   RETAIL_PACKIN_DISCS,
+  STANDALONE_BONUS_DISC_LINKS,
   SUPERSEDED_RELEASE_PAIRS,
   findRetailPackInDisc,
   normalizeForLabelMatch,
@@ -293,7 +295,10 @@ export function hasDiscIndicator(filename: string | null | undefined): boolean {
   if (parentheticals) {
     for (const m of parentheticals) {
       const inner = m.slice(1, -1).trim().toLowerCase();
-      if (DISC_ROLE_INDICATORS.has(inner)) {
+      if (
+        DISC_ROLE_INDICATORS.has(inner) ||
+        isCompilationDiscSubtitle(inner, filename)
+      ) {
         return true;
       }
     }
@@ -353,12 +358,15 @@ export function stripDiscIndicator(
   base = base.replace(/\s*\(([^)]+)\)/g, (match, innerRaw: string) => {
     const inner = innerRaw.trim();
     const innerLower = inner.toLowerCase();
-    if (DISC_ROLE_INDICATORS.has(innerLower)) {
+    if (
+      DISC_ROLE_INDICATORS.has(innerLower) ||
+      isCompilationDiscSubtitle(innerLower, filename)
+    ) {
       return '';
     }
     if (
       hasNumberedDisc &&
-      !isRegionOrLanguageOrDisc(inner) &&
+      !isRegionOrLanguageOrDisc(inner, filename) &&
       !isTrueEditionOrRevisionVariant(inner)
     ) {
       return '';
@@ -373,7 +381,7 @@ export function stripDiscIndicator(
     // Also strip pure language lists (e.g. "(En,Ja)") so companion discs with/without language tags match
     if (
       hasNumberedDisc &&
-      isRegionOrLanguageOrDisc(inner) &&
+      isRegionOrLanguageOrDisc(inner, filename) &&
       !/\b(usa|europe|japan|world|asia|france|germany|australia|uk|united kingdom|canada|korea|brazil|spain|italy|netherlands|sweden|russia|china|taiwan|portugal|denmark|norway|finland|hong kong|hongkong|latam|latin america|nz|new zealand|scandinavia|poland|austria|switzerland|ireland|turkey|united arab emirates|uae|greece|south africa|india)\b/i.test(
         innerLower,
       )
@@ -506,6 +514,32 @@ export function getRelatedGameTitlesForCompanion(game: {
     }
   }
 
+  for (const link of STANDALONE_BONUS_DISC_LINKS) {
+    if (link.platformId !== game.platform_id) continue;
+    if (
+      game.stable_id === link.bonusDiscStableId ||
+      normGameTitle === link.bonusDiscNormTitle
+    ) {
+      relatedTitles.add(link.parentGameDisplayTitle);
+    }
+    if (
+      game.stable_id === link.parentGameStableId ||
+      normGameTitle === link.parentGameNormTitle
+    ) {
+      relatedTitles.add(link.bonusDiscDisplayTitle);
+    }
+  }
+
+  for (const packIn of RETAIL_PACKIN_DISCS) {
+    if (packIn.hostPlatformId !== game.platform_id) continue;
+    if (normGameTitle === packIn.hostGameNormTitle) {
+      relatedTitles.add(packIn.companionGameTitle);
+    }
+    if (normGameTitle === normalizeForLabelMatch(packIn.companionGameTitle)) {
+      relatedTitles.add(packIn.hostGameDisplayTitle);
+    }
+  }
+
   return Array.from(relatedTitles);
 }
 
@@ -531,12 +565,11 @@ export function getRelatedGameIdsForCompanion(game: {
     if (pair.platformId !== game.platform_id) continue;
 
     const isSuperset =
-      (pair.supersetStableId !== undefined &&
-        pair.supersetStableId === game.stable_id &&
-        (!pair.supersetRomMarker ||
-          romLower.includes(pair.supersetRomMarker))) ||
-      normRomTitle === pair.supersetNormalizedTitle ||
-      normGameTitle === pair.supersetNormalizedTitle;
+      (!pair.supersetRomMarker || romLower.includes(pair.supersetRomMarker)) &&
+      ((pair.supersetStableId !== undefined &&
+        pair.supersetStableId === game.stable_id) ||
+        normRomTitle === pair.supersetNormalizedTitle ||
+        normGameTitle === pair.supersetNormalizedTitle);
 
     if (isSuperset && pair.originalStableId) {
       relatedStableIds.add(pair.originalStableId);
@@ -550,6 +583,22 @@ export function getRelatedGameIdsForCompanion(game: {
 
     if (isOriginal && pair.supersetStableId) {
       relatedStableIds.add(pair.supersetStableId);
+    }
+  }
+
+  for (const link of STANDALONE_BONUS_DISC_LINKS) {
+    if (link.platformId !== game.platform_id) continue;
+    if (
+      game.stable_id === link.bonusDiscStableId ||
+      normGameTitle === link.bonusDiscNormTitle
+    ) {
+      relatedStableIds.add(link.parentGameStableId);
+    }
+    if (
+      game.stable_id === link.parentGameStableId ||
+      normGameTitle === link.parentGameNormTitle
+    ) {
+      relatedStableIds.add(link.bonusDiscStableId);
     }
   }
 
@@ -713,17 +762,16 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     return score;
   };
 
-  // 2. Check if this release is the Superset (GOTY/Expanded) side of a SupersededReleasePair (Case 1)
+  // 2. Check if this release is the Superset (GOTY/Expanded or 2-Disc Bonus Edition) side of a SupersededReleasePair (Case 1)
   for (const pair of SUPERSEDED_RELEASE_PAIRS) {
     if (pair.platformId !== game.platform_id) continue;
 
     const isSupersetMatch =
-      (pair.supersetStableId !== undefined &&
-        pair.supersetStableId === game.stable_id &&
-        (!pair.supersetRomMarker ||
-          romLower.includes(pair.supersetRomMarker))) ||
-      normRomTitle === pair.supersetNormalizedTitle ||
-      normGameTitle === pair.supersetNormalizedTitle;
+      (!pair.supersetRomMarker || romLower.includes(pair.supersetRomMarker)) &&
+      ((pair.supersetStableId !== undefined &&
+        pair.supersetStableId === game.stable_id) ||
+        normRomTitle === pair.supersetNormalizedTitle ||
+        normGameTitle === pair.supersetNormalizedTitle);
 
     if (!isSupersetMatch) continue;
     if (
@@ -739,7 +787,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     );
     if (alreadyHasDisc1) continue;
 
-    // Find candidate original Disc 1 releases on the same platform
+    // Find candidate original base game releases on the same platform
     const candidates = platformReleases.filter((cand) => {
       const candRomLower = (cand.rom_name || '').toLowerCase();
       if (
@@ -770,23 +818,51 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     if (candidates.length > 0) {
       candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
       const bestBase = candidates[0];
+      const bestGroupKey = getRomGroupingKey(bestBase.rom_name);
+      const baseDiscs = bestGroupKey.startsWith('multi:')
+        ? candidates
+            .filter(
+              (c) =>
+                c.game_id === bestBase.game_id &&
+                c.region === bestBase.region &&
+                c.variants === bestBase.variants &&
+                getRomGroupingKey(c.rom_name) === bestGroupKey,
+            )
+            .sort((a, b) => (a.rom_name || '').localeCompare(b.rom_name || ''))
+        : [bestBase];
 
-      game.releases.unshift({
-        id: bestBase.id,
-        game_id: bestBase.game_id,
-        region: bestBase.region,
-        variants: bestBase.variants,
-        also_released_as: bestBase.also_released_as,
-        rom_name: bestBase.rom_name,
-        rom_crc: bestBase.rom_crc,
-        backup_status: bestBase.backup_status,
-        ownership_status: bestBase.ownership_status,
-        release_date: bestBase.release_date,
-        disc_label: 'Disc 1 (Base Game)',
-        is_companion_base_disc: true,
-        companion_game_id: bestBase.id,
-        companion_game_title: pair.originalDisplayTitle,
-      });
+      if (pair.isBonusEdition) {
+        const bonusDiscNum = baseDiscs.length + 1;
+        for (const rel of game.releases) {
+          if (!rel['disc_label']) {
+            rel['disc_label'] = `Disc ${bonusDiscNum} (Bonus Disc)`;
+          }
+        }
+      }
+
+      for (let i = baseDiscs.length - 1; i >= 0; i--) {
+        const d = baseDiscs[i];
+        const discLabel =
+          baseDiscs.length > 1
+            ? `Disc ${i + 1} (Base Game)`
+            : 'Disc 1 (Base Game)';
+        game.releases.unshift({
+          id: d.id,
+          game_id: d.game_id,
+          region: d.region,
+          variants: d.variants,
+          also_released_as: d.also_released_as,
+          rom_name: d.rom_name,
+          rom_crc: d.rom_crc,
+          backup_status: d.backup_status,
+          ownership_status: d.ownership_status,
+          release_date: d.release_date,
+          disc_label: discLabel,
+          is_companion_base_disc: true,
+          companion_game_id: d.id,
+          companion_game_title: pair.originalDisplayTitle,
+        });
+      }
     }
   }
 
@@ -1034,6 +1110,55 @@ export function enrichGameDetailWithCompanionsAndVouchers(
             backup_status: cand.backup_status,
           });
         }
+      }
+    }
+  }
+
+  // 5c. Check if this game is part of a Standalone Bonus Disc <-> Parent Game link
+  for (const link of STANDALONE_BONUS_DISC_LINKS) {
+    if (link.platformId !== game.platform_id) continue;
+
+    const isBonusDisc =
+      game.stable_id === link.bonusDiscStableId ||
+      normGameTitle === link.bonusDiscNormTitle;
+    const isParentGame =
+      game.stable_id === link.parentGameStableId ||
+      normGameTitle === link.parentGameNormTitle;
+
+    if (!isBonusDisc && !isParentGame) continue;
+
+    const targetStableId = isBonusDisc
+      ? link.parentGameStableId
+      : link.bonusDiscStableId;
+    const targetNormTitle = isBonusDisc
+      ? link.parentGameNormTitle
+      : link.bonusDiscNormTitle;
+    const targetDisplayTitle = isBonusDisc
+      ? `${link.parentGameDisplayTitle} (${link.relationshipLabel})`
+      : `${link.bonusDiscDisplayTitle} (${link.relationshipLabel})`;
+
+    const partnerCandidates = platformReleases.filter((cand) => {
+      if (cand.id === game.id) return false;
+      if (
+        cand.game_id !== targetStableId &&
+        normalizeForLabelMatch(cand.game_title) !== targetNormTitle
+      ) {
+        return false;
+      }
+      return regionsOverlap(game.region, cand.region);
+    });
+
+    for (const partCand of partnerCandidates) {
+      if (!sharedLinks.some((s) => s.id === partCand.id)) {
+        sharedLinks.push({
+          id: partCand.id,
+          title: targetDisplayTitle,
+          region: partCand.region,
+          variants: partCand.variants,
+          rom_name: partCand.rom_name,
+          ownership_status: partCand.ownership_status,
+          backup_status: partCand.backup_status,
+        });
       }
     }
   }
