@@ -689,56 +689,125 @@ export const handleRequest =
               }
             }
 
+            if (localPid) {
+              targetPlatformIds.clear();
+              targetPlatformIds.add(localPid);
+            }
+
             if (targetPlatformIds.size === 0) {
               const isOwnedGlobally = Array.from(existingSet).some((key) =>
                 key.startsWith(`igdb-${cleanIgdbId}-`),
               );
               if (isOwnedGlobally) return null;
-            } else {
-              const hasUnowned = Array.from(targetPlatformIds).some(
-                (localPid) => {
-                  const isOwned =
-                    existingSet.has(`igdb-${cleanIgdbId}-${localPid}`) ||
-                    existingSet.has(`title-${cleanTitle}-${localPid}`) ||
-                    existingSet.has(`norm-${normTitle}-${localPid}`);
-                  return !isOwned;
-                },
-              );
-              if (!hasUnowned) return null;
             }
 
-            const chosenLocalPid =
-              localPid || Array.from(targetPlatformIds)[0] || 0;
-            const chosenPlatformRow = chosenLocalPid
-              ? platformMapById.get(chosenLocalPid)
-              : undefined;
+            const physicalPlatformOptions: Array<{
+              platform_id: number;
+              platform_name: string;
+              physical_status: ReturnType<
+                typeof detectPhysicalReleaseStatus
+              >['physical_status'];
+              is_physical: boolean;
+              is_owned: boolean;
+              matched_releases_count: number;
+              matched_releases: Array<{
+                name: string;
+                romName: string;
+                romCrc: string | null;
+                region: string | null;
+                variants: string | null;
+                releaseDate: string | null;
+                canonical_release_id: number | null;
+                serial_code: string | null;
+                barcode: string | null;
+                is_physical: boolean | number;
+              }>;
+              verification: ReturnType<typeof detectPhysicalReleaseStatus>;
+            }> = [];
 
-            const verification = detectPhysicalReleaseStatus({
-              platformId: chosenLocalPid,
-              gameTitle: m.name,
-              alternativeNames: m.alternative_names,
-              firstReleaseDate: m.release_date || null,
-              platformLaunchDate: chosenPlatformRow?.launch_date || null,
-              igdbCategory:
-                m.game_type ?? (m as unknown as { category?: number }).category,
-              canonicalReleases: canonicalRows,
-            });
+            for (const candidatePid of targetPlatformIds) {
+              const chosenPlatformRow = platformMapById.get(candidatePid);
+              if (!chosenPlatformRow) continue;
 
-            if (
-              filterDigital &&
-              verification.physical_status === 'digital_only'
-            ) {
-              return null;
+              const isOwned =
+                existingSet.has(`igdb-${cleanIgdbId}-${candidatePid}`) ||
+                existingSet.has(`title-${cleanTitle}-${candidatePid}`) ||
+                existingSet.has(`norm-${normTitle}-${candidatePid}`);
+
+              const verification = detectPhysicalReleaseStatus({
+                platformId: candidatePid,
+                gameTitle: m.name,
+                alternativeNames: m.alternative_names,
+                firstReleaseDate: m.release_date || null,
+                platformLaunchDate: chosenPlatformRow?.launch_date || null,
+                igdbCategory:
+                  m.game_type ??
+                  (m as unknown as { category?: number }).category,
+                canonicalReleases: canonicalRows,
+              });
+
+              if (
+                filterDigital &&
+                verification.physical_status === 'digital_only'
+              ) {
+                continue;
+              }
+
+              const matchedReleasesFormatted =
+                verification.matched_releases.map((mr) => ({
+                  name: mr.raw_title,
+                  romName: mr.rom_name || mr.raw_title,
+                  romCrc: mr.rom_crc || null,
+                  region: mr.region || null,
+                  variants: mr.variants || null,
+                  releaseDate: null,
+                  canonical_release_id: mr.id || null,
+                  serial_code: mr.serial_code || null,
+                  barcode: mr.barcode || null,
+                  is_physical: mr.is_verified_physical,
+                }));
+
+              physicalPlatformOptions.push({
+                platform_id: candidatePid,
+                platform_name:
+                  chosenPlatformRow.display_name || chosenPlatformRow.name,
+                physical_status: verification.physical_status,
+                is_physical: verification.is_physical,
+                is_owned: isOwned,
+                matched_releases_count: matchedReleasesFormatted.length,
+                matched_releases: matchedReleasesFormatted,
+                verification,
+              });
             }
+
+            if (physicalPlatformOptions.length === 0) return null;
+
+            const unownedOptions = physicalPlatformOptions.filter(
+              (po) => !po.is_owned,
+            );
+            if (unownedOptions.length === 0) return null;
+
+            const primary = unownedOptions[0] || physicalPlatformOptions[0];
 
             return {
               ...m,
-              physical_status: verification.physical_status,
-              verification_tier: verification.verification_tier,
-              is_physical: verification.is_physical,
-              physical_regions: verification.physical_regions,
-              verification_reasons: verification.reasons,
-              matched_releases: verification.matched_releases,
+              platform: primary.platform_name,
+              platform_id: primary.platform_id,
+              physical_status: primary.physical_status,
+              verification_tier: primary.verification.verification_tier,
+              is_physical: primary.is_physical,
+              physical_regions: primary.verification.physical_regions,
+              verification_reasons: primary.verification.reasons,
+              matched_releases: primary.matched_releases,
+              physical_platforms: physicalPlatformOptions.map((po) => ({
+                platform_id: po.platform_id,
+                platform_name: po.platform_name,
+                physical_status: po.physical_status,
+                is_physical: po.is_physical,
+                is_owned: po.is_owned,
+                matched_releases_count: po.matched_releases_count,
+                matched_releases: po.matched_releases,
+              })),
             };
           })
           .filter(Boolean);

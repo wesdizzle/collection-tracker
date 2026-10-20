@@ -408,4 +408,249 @@ describe('DiscoveryListComponent', () => {
     );
     expect(component.amiiboPerformed()).toBe(false);
   });
+
+  it('should group physical platforms on search results and allow selective platform toggling', async () => {
+    const multiPlatformGame: IGDBSearchResult = {
+      id: 'igdb-2541',
+      name: 'Rockstar Games Presents Table Tennis',
+      platform: 'Xbox 360',
+      platform_id: 12,
+      image_url: 'https://images.igdb.com/co2lcq.jpg',
+      physical_platforms: [
+        {
+          platform_id: 12,
+          platform_name: 'Xbox 360',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: false,
+          matched_releases_count: 1,
+          matched_releases: [
+            {
+              name: 'Rockstar Games Presents Table Tennis (USA)',
+              romName: 'Rockstar Games Presents Table Tennis (USA).iso',
+              romCrc: '12345678',
+              region: 'USA',
+              variants: null,
+              releaseDate: '2006-05-23',
+            },
+          ],
+        },
+        {
+          platform_id: 5,
+          platform_name: 'Nintendo Wii',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: true,
+          matched_releases_count: 1,
+          matched_releases: [
+            {
+              name: 'Rockstar Games Presents Table Tennis (USA)',
+              romName: 'Rockstar Games Presents Table Tennis (USA).wbfs',
+              romCrc: '87654321',
+              region: 'USA',
+              variants: null,
+              releaseDate: '2007-10-16',
+            },
+          ],
+        },
+      ],
+    };
+
+    mockCollectionService.searchGames.mockReturnValueOnce(
+      of([multiPlatformGame]),
+    );
+
+    await component.triggerSearch('Table Tennis', '0');
+
+    expect(component.searchResults().length).toBe(1);
+    // Unowned platform (12) should be selected by default, owned platform (5) should not be selected
+    expect(component.isPlatformSelected('igdb-2541', 12)).toBe(true);
+    expect(component.isPlatformSelected('igdb-2541', 5)).toBe(false);
+    expect(component.getSelectedPlatformIds(multiPlatformGame)).toEqual([12]);
+    expect(component.getSelectedPlatformsCount(multiPlatformGame)).toBe(1);
+
+    // Toggle unowned platform off
+    component.togglePlatformSelection('igdb-2541', 12);
+    expect(component.isPlatformSelected('igdb-2541', 12)).toBe(false);
+    expect(component.getSelectedPlatformsCount(multiPlatformGame)).toBe(0);
+
+    // Toggle back on
+    component.togglePlatformSelection('igdb-2541', 12);
+    expect(component.isPlatformSelected('igdb-2541', 12)).toBe(true);
+  });
+
+  it('should ingest all selected platforms for a search candidate in one click', async () => {
+    const multiPlatformGame: IGDBSearchResult = {
+      id: 'igdb-2541',
+      name: 'Rockstar Games Presents Table Tennis',
+      platform: 'Xbox 360',
+      platform_id: 12,
+      image_url: 'https://images.igdb.com/co2lcq.jpg',
+      physical_platforms: [
+        {
+          platform_id: 12,
+          platform_name: 'Xbox 360',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: false,
+          matched_releases_count: 1,
+          matched_releases: [
+            {
+              name: 'Rockstar Games Presents Table Tennis (USA)',
+              romName: 'Rockstar Games Presents Table Tennis (USA).iso',
+              romCrc: '12345678',
+              region: 'USA',
+              variants: null,
+              releaseDate: '2006-05-23',
+            },
+          ],
+        },
+        {
+          platform_id: 5,
+          platform_name: 'Nintendo Wii',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: false,
+          matched_releases_count: 1,
+          matched_releases: [
+            {
+              name: 'Rockstar Games Presents Table Tennis (USA)',
+              romName: 'Rockstar Games Presents Table Tennis (USA).wbfs',
+              romCrc: '87654321',
+              region: 'USA',
+              variants: null,
+              releaseDate: '2007-10-16',
+            },
+          ],
+        },
+      ],
+    };
+
+    mockCollectionService.searchGames.mockReturnValueOnce(
+      of([multiPlatformGame]),
+    );
+    await component.triggerSearch('Table Tennis', '0');
+
+    // Both platforms unowned, both selected by default
+    expect(component.getSelectedPlatformIds(multiPlatformGame)).toEqual([
+      12, 5,
+    ]);
+
+    await component.ingestSelectedForGame(multiPlatformGame);
+
+    // addGame called twice (once for 360, once for Wii)
+    expect(mockCollectionService.addGame).toHaveBeenCalledTimes(2);
+    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        game: expect.objectContaining({
+          title: 'Rockstar Games Presents Table Tennis',
+          platform_id: 12,
+        }),
+      }),
+    );
+    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        game: expect.objectContaining({
+          title: 'Rockstar Games Presents Table Tennis',
+          platform_id: 5,
+        }),
+      }),
+    );
+
+    // All platforms ingested, card removed from search results
+    expect(component.searchResults().length).toBe(0);
+    expect(component.toastMessage()).toContain(
+      'Successfully ingested "Rockstar Games Presents Table Tennis" (2 editions)!',
+    );
+  });
+
+  it('should scope bulkActionBarVisible strictly to active tab with selections', () => {
+    // When on search tab, even if scan or amiibo items were previously selected, bar is hidden
+    component.activeTab.set('search');
+    component.selectedScanGameIds.set(new Set(['game-1', 'game-2']));
+    component.selectedAmiiboIds.set(new Set(['amiibo-1']));
+    expect(component.bulkActionBarVisible()).toBe(false);
+
+    // When on scan tab and items are selected, bar is visible
+    component.activeTab.set('scan');
+    expect(component.bulkActionBarVisible()).toBe(true);
+
+    component.selectedScanGameIds.set(new Set());
+    expect(component.bulkActionBarVisible()).toBe(false);
+
+    // When on amiibo tab and items are selected, bar is visible
+    component.activeTab.set('amiibo');
+    expect(component.bulkActionBarVisible()).toBe(true);
+
+    component.selectedAmiiboIds.set(new Set());
+    expect(component.bulkActionBarVisible()).toBe(false);
+  });
+
+  it('should pre-populate releases and respect custom platform when opening ingestion modal', async () => {
+    const multiPlatformGame: IGDBSearchResult = {
+      id: 'igdb-2541',
+      name: 'Rockstar Games Presents Table Tennis',
+      platform: 'Xbox 360',
+      platform_id: 12,
+      image_url: 'https://images.igdb.com/co2lcq.jpg',
+      physical_platforms: [
+        {
+          platform_id: 12,
+          platform_name: 'Xbox 360',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: false,
+          matched_releases_count: 1,
+          matched_releases: [
+            {
+              name: 'Table Tennis 360',
+              romName: 'TableTennis360.iso',
+              romCrc: 'AAAA1111',
+              region: 'USA',
+              variants: null,
+              releaseDate: '2006-05-23',
+            },
+          ],
+        },
+        {
+          platform_id: 5,
+          platform_name: 'Nintendo Wii',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: false,
+          matched_releases_count: 1,
+          matched_releases: [
+            {
+              name: 'Table Tennis Wii',
+              romName: 'TableTennisWii.wbfs',
+              romCrc: 'BBBB2222',
+              region: 'USA',
+              variants: null,
+              releaseDate: '2007-10-16',
+            },
+          ],
+        },
+      ],
+    };
+
+    mockCollectionService.getGameMatches.mockReturnValueOnce(
+      of({
+        game: multiPlatformGame,
+        matchedReleases:
+          multiPlatformGame.physical_platforms![1].matched_releases,
+      }),
+    );
+
+    // Open modal specifically for Wii (platform 5) even though game.platform_id is 12
+    await component.openIngestionModal(multiPlatformGame, '5');
+
+    expect(mockCollectionService.getGameMatches).toHaveBeenCalledWith(
+      '2541',
+      5,
+    );
+    expect(component.modalPlatformId()).toBe(5);
+    expect(component.matchedReleases().length).toBe(1);
+    expect(component.matchedReleases()[0].name).toBe('Table Tennis Wii');
+    expect(component.selectedReleaseIds().has('BBBB2222')).toBe(true);
+  });
 });

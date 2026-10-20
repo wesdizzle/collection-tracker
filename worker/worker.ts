@@ -1124,25 +1124,9 @@ Disallow: /
             .map((g) => {
               const cleanTitle = g.name.toLowerCase().replace(/[^a-z0-9]/g, '');
               const normTitle = normalizeTitleForMatching(g.name);
-              const unownedPlatforms = (g.platforms || []).filter((p) => {
-                const isTargetOrTracked = targetPlatformId
-                  ? p.id === targetPlatformId
-                  : trackedIgdbIds.includes(p.id);
-                if (!isTargetOrTracked) return false;
-
-                const localPlat = igdbToPlatform.get(p.id);
-                if (!localPlat) return false;
-
-                const isAlreadyOwned =
-                  existingSet.has(`igdb-${g.id}-${localPlat.id}`) ||
-                  existingSet.has(`title-${cleanTitle}-${localPlat.id}`) ||
-                  existingSet.has(`norm-${normTitle}-${localPlat.id}`);
-                return !isAlreadyOwned;
-              });
-
-              if (unownedPlatforms.length === 0) {
-                return null;
-              }
+              const publisherName =
+                g.involved_companies?.find((ic) => ic.publisher)?.company
+                  ?.name || null;
 
               let imageUrl: string | null = null;
               if (g.cover?.image_id) {
@@ -1154,59 +1138,117 @@ Disallow: /
                 imageUrl = imageUrl.replace('/t_thumb/', '/t_cover_big/');
               }
 
-              const primaryPlatform = unownedPlatforms[0];
-              const localPrimary = igdbToPlatform.get(primaryPlatform.id);
-              const platformName = localPrimary
-                ? localPrimary.displayName
-                : primaryPlatform.name;
-              const localPlatformId = localPrimary ? localPrimary.id : 0;
-
-              const publisherName =
-                g.involved_companies?.find((ic) => ic.publisher)?.company
-                  ?.name || null;
-
-              const verification = detectPhysicalReleaseStatus({
-                platformId: localPlatformId,
-                gameTitle: g.name,
-                alternativeNames: g.alternative_names,
-                firstReleaseDate: g.first_release_date,
-                platformLaunchDate: localPrimary?.launchDate,
-                publisher: publisherName,
-                igdbCategory: g.game_type ?? g.category,
-                canonicalReleases: canonicalReleasesList,
+              const candidatePlatforms = (g.platforms || []).filter((p) => {
+                return targetPlatformId
+                  ? p.id === targetPlatformId
+                  : trackedIgdbIds.includes(p.id);
               });
 
-              if (
-                filterDigital &&
-                verification.physical_status === 'digital_only'
-              ) {
+              if (candidatePlatforms.length === 0) {
                 return null;
               }
 
-              const matchedReleasesFormatted =
-                verification.matched_releases.map((mr) => ({
-                  name: mr.raw_title,
-                  romName: mr.rom_name || mr.raw_title,
-                  romCrc: mr.rom_crc || null,
-                  region: mr.region || null,
-                  variants: mr.variants || null,
-                  releaseDate: null,
-                  canonical_release_id: mr.id || null,
-                  serial_code: mr.serial_code || null,
-                  barcode: mr.barcode || null,
-                  is_physical: mr.is_verified_physical,
-                  image_url:
-                    resolveRegionalCoverUrl(
-                      { game_localizations: g.game_localizations },
-                      mr.region,
-                    ) || null,
-                }));
+              const physicalPlatformOptions: Array<{
+                platform_id: number;
+                platform_name: string;
+                physical_status: ReturnType<
+                  typeof detectPhysicalReleaseStatus
+                >['physical_status'];
+                is_physical: boolean;
+                is_owned: boolean;
+                matched_releases_count: number;
+                matched_releases: Array<{
+                  name: string;
+                  romName: string;
+                  romCrc: string | null;
+                  region: string | null;
+                  variants: string | null;
+                  releaseDate: string | null;
+                  canonical_release_id: number | null;
+                  serial_code: string | null;
+                  barcode: string | null;
+                  is_physical: boolean | number;
+                  image_url: string | null;
+                }>;
+                verification: ReturnType<typeof detectPhysicalReleaseStatus>;
+              }> = [];
+
+              for (const p of candidatePlatforms) {
+                const localPlat = igdbToPlatform.get(p.id);
+                if (!localPlat) continue;
+
+                const isAlreadyOwned =
+                  existingSet.has(`igdb-${g.id}-${localPlat.id}`) ||
+                  existingSet.has(`title-${cleanTitle}-${localPlat.id}`) ||
+                  existingSet.has(`norm-${normTitle}-${localPlat.id}`);
+
+                const verification = detectPhysicalReleaseStatus({
+                  platformId: localPlat.id,
+                  gameTitle: g.name,
+                  alternativeNames: g.alternative_names,
+                  firstReleaseDate: g.first_release_date,
+                  platformLaunchDate: localPlat.launchDate,
+                  publisher: publisherName,
+                  igdbCategory: g.game_type ?? g.category,
+                  canonicalReleases: canonicalReleasesList,
+                });
+
+                if (
+                  filterDigital &&
+                  verification.physical_status === 'digital_only'
+                ) {
+                  continue;
+                }
+
+                const matchedReleasesFormatted =
+                  verification.matched_releases.map((mr) => ({
+                    name: mr.raw_title,
+                    romName: mr.rom_name || mr.raw_title,
+                    romCrc: mr.rom_crc || null,
+                    region: mr.region || null,
+                    variants: mr.variants || null,
+                    releaseDate: null,
+                    canonical_release_id: mr.id || null,
+                    serial_code: mr.serial_code || null,
+                    barcode: mr.barcode || null,
+                    is_physical: mr.is_verified_physical,
+                    image_url:
+                      resolveRegionalCoverUrl(
+                        { game_localizations: g.game_localizations },
+                        mr.region,
+                      ) || null,
+                  }));
+
+                physicalPlatformOptions.push({
+                  platform_id: localPlat.id,
+                  platform_name: localPlat.displayName,
+                  physical_status: verification.physical_status,
+                  is_physical: verification.is_physical,
+                  is_owned: isAlreadyOwned,
+                  matched_releases_count: matchedReleasesFormatted.length,
+                  matched_releases: matchedReleasesFormatted,
+                  verification,
+                });
+              }
+
+              if (physicalPlatformOptions.length === 0) {
+                return null;
+              }
+
+              const unownedOptions = physicalPlatformOptions.filter(
+                (po) => !po.is_owned,
+              );
+              if (unownedOptions.length === 0) {
+                return null;
+              }
+
+              const primary = unownedOptions[0] || physicalPlatformOptions[0];
 
               return {
                 id: `igdb-${g.id}`,
                 name: g.name,
-                platform: platformName,
-                platform_id: localPlatformId,
+                platform: primary.platform_name,
+                platform_id: primary.platform_id,
                 image_url: imageUrl,
                 summary: g.summary || null,
                 genres: g.genres?.map((ge) => ge.name).join(', ') || null,
@@ -1214,22 +1256,31 @@ Disallow: /
                 collections:
                   g.collections?.map((c) => c.name).join(', ') || null,
                 franchises: g.franchises?.map((f) => f.name).join(', ') || null,
-                physical_status: verification.physical_status,
-                verification_tier: verification.verification_tier,
-                is_physical: verification.is_physical,
-                physical_regions: verification.physical_regions,
+                physical_status: primary.physical_status,
+                verification_tier: primary.verification.verification_tier,
+                is_physical: primary.is_physical,
+                physical_regions: primary.verification.physical_regions,
                 region:
-                  verification.physical_regions.length === 1 &&
-                  verification.physical_regions[0] === 'Japan'
+                  primary.verification.physical_regions.length === 1 &&
+                  primary.verification.physical_regions[0] === 'Japan'
                     ? 'Japan'
                     : 'USA',
-                matched_releases: matchedReleasesFormatted,
-                verification_reasons: verification.reasons,
+                matched_releases: primary.matched_releases,
+                verification_reasons: primary.verification.reasons,
                 first_release_date: g.first_release_date
                   ? new Date(g.first_release_date * 1000)
                       .toISOString()
                       .split('T')[0]
                   : null,
+                physical_platforms: physicalPlatformOptions.map((po) => ({
+                  platform_id: po.platform_id,
+                  platform_name: po.platform_name,
+                  physical_status: po.physical_status,
+                  is_physical: po.is_physical,
+                  is_owned: po.is_owned,
+                  matched_releases_count: po.matched_releases_count,
+                  matched_releases: po.matched_releases,
+                })),
               };
             })
             .filter((item): item is NonNullable<typeof item> => item !== null);

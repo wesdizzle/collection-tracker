@@ -246,91 +246,165 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                     }
                   </div>
                   <div class="result-details">
-                    <div>
+                    <div class="result-info">
                       <h4 class="result-title" [title]="game.name">
                         {{ game.name }}
                       </h4>
-                      <div class="flex gap-xs items-center flex-wrap mt-xs">
-                        <span class="platform-badge">{{ game.platform }}</span>
-                        @if (game.physical_status === 'verified_physical') {
-                          <span
-                            class="physical-badge verified"
-                            title="Canonical Physical Cartridge / Disc Match"
-                            class="flex items-center gap-2xs"
-                            ><app-icon
-                              name="circle-fill"
-                              [size]="12"
-                              class="text-emerald-500"
-                            />
-                            Verified Physical</span
-                          >
-                        } @else if (
-                          game.physical_status === 'likely_physical'
+                      @if (game.first_release_date) {
+                        <div class="release-year text-xs text-secondary mb-xs">
+                          {{ game.first_release_date.slice(0, 4) }}
+                          @if (game.genres) {
+                            • {{ game.genres }}
+                          }
+                        </div>
+                      }
+
+                      <!-- Platform Selection Group -->
+                      <div class="platform-selection-group">
+                        @if (
+                          game.physical_platforms &&
+                          game.physical_platforms.length > 0
                         ) {
-                          <span
-                            class="physical-badge likely"
-                            title="Modern Retail Publisher / Barcode Match"
-                            class="flex items-center gap-2xs"
-                            ><app-icon
-                              name="circle-half"
-                              [size]="12"
-                              class="text-amber-500"
-                            />
-                            Likely Physical</span
-                          >
-                        } @else if (
-                          game.physical_status === 'announced_unreleased'
-                        ) {
-                          <span
-                            class="physical-badge upcoming flex items-center gap-2xs"
-                            title="Announced Game / Upcoming Release"
-                            ><app-icon
-                              name="calendar"
-                              [size]="12"
-                              class="text-blue-400"
-                            />
-                            Upcoming</span
-                          >
-                        } @else if (
-                          game.physical_status === 'physical_pending'
-                        ) {
-                          <span
-                            class="physical-badge pending flex items-center gap-2xs"
-                            title="Digital Release Awaiting Physical Edition"
-                            ><app-icon
-                              name="clock"
-                              [size]="12"
-                              class="text-purple-400"
-                            />
-                            Physical Pending</span
-                          >
-                        } @else if (game.physical_status === 'digital_only') {
-                          <span
-                            class="physical-badge digital flex items-center gap-2xs"
-                            title="Digital-Only / Virtual Console Re-release"
-                            ><app-icon
-                              name="circle-empty"
-                              [size]="12"
-                              class="text-slate-400"
-                            />
-                            Digital Only</span
-                          >
+                          <div class="platform-chips">
+                            @for (
+                              p of game.physical_platforms;
+                              track p.platform_id
+                            ) {
+                              @if (p.is_owned) {
+                                <span
+                                  class="platform-chip owned"
+                                  title="Already in collection"
+                                >
+                                  <app-icon name="check" [size]="12" />
+                                  {{ p.platform_name }} (Owned)
+                                </span>
+                              } @else {
+                                <label
+                                  class="platform-chip unowned"
+                                  [class.active]="
+                                    isPlatformSelected(game.id, p.platform_id)
+                                  "
+                                >
+                                  <input
+                                    type="checkbox"
+                                    [checked]="
+                                      isPlatformSelected(game.id, p.platform_id)
+                                    "
+                                    (change)="
+                                      togglePlatformSelection(
+                                        game.id,
+                                        p.platform_id
+                                      )
+                                    "
+                                  />
+                                  <span>{{ p.platform_name }}</span>
+                                  @if (p.matched_releases_count > 0) {
+                                    <span class="rel-count"
+                                      >({{ p.matched_releases_count }})</span
+                                    >
+                                  }
+                                </label>
+                              }
+                            }
+                          </div>
+                        } @else {
+                          <div class="flex gap-xs items-center flex-wrap">
+                            <span class="platform-badge">{{
+                              game.platform
+                            }}</span>
+                            @if (game.physical_status === 'verified_physical') {
+                              <span
+                                class="physical-badge verified flex items-center gap-2xs"
+                                title="Canonical Physical Cartridge / Disc Match"
+                                ><app-icon
+                                  name="circle-fill"
+                                  [size]="12"
+                                  class="text-emerald-500"
+                                />
+                                Verified Physical</span
+                              >
+                            } @else if (
+                              game.physical_status === 'likely_physical'
+                            ) {
+                              <span
+                                class="physical-badge likely flex items-center gap-2xs"
+                                title="Modern Retail Publisher / Barcode Match"
+                                ><app-icon
+                                  name="circle-half"
+                                  [size]="12"
+                                  class="text-amber-500"
+                                />
+                                Likely Physical</span
+                              >
+                            } @else if (
+                              game.physical_status === 'announced_unreleased'
+                            ) {
+                              <span
+                                class="physical-badge upcoming flex items-center gap-2xs"
+                                title="Announced Game / Upcoming Release"
+                                ><app-icon
+                                  name="calendar"
+                                  [size]="12"
+                                  class="text-blue-400"
+                                />
+                                Upcoming</span
+                              >
+                            } @else if (
+                              game.physical_status === 'physical_pending'
+                            ) {
+                              <span
+                                class="physical-badge pending flex items-center gap-2xs"
+                                title="Digital Release Awaiting Physical Edition"
+                                ><app-icon
+                                  name="clock"
+                                  [size]="12"
+                                  class="text-purple-400"
+                                />
+                                Physical Pending</span
+                              >
+                            } @else if (
+                              game.physical_status === 'digital_only'
+                            ) {
+                              <span
+                                class="physical-badge digital flex items-center gap-2xs"
+                                title="Digital-Only / Virtual Console Re-release"
+                                ><app-icon
+                                  name="circle-empty"
+                                  [size]="12"
+                                  class="text-slate-400"
+                                />
+                                Digital Only</span
+                              >
+                            }
+                          </div>
                         }
                       </div>
                     </div>
-                    <button
-                      class="m3-btn m3-btn-secondary mt-md w-full"
-                      (click)="
-                        openIngestionModal(
-                          game,
-                          game.platform_id
-                            ? game.platform_id.toString()
-                            : platformSelect.value
-                        )
-                      "
-                    >
-                      Ingest Game
-                    </button>
+
+                    <div class="card-actions flex gap-xs items-center mt-sm">
+                      <button
+                        class="m3-btn m3-btn-primary flex-1 btn-sm"
+                        [disabled]="getSelectedPlatformsCount(game) === 0"
+                        (click)="ingestSelectedForGame(game)"
+                      >
+                        Ingest Selected ({{ getSelectedPlatformsCount(game) }})
+                      </button>
+                      <button
+                        class="m3-btn m3-btn-secondary btn-sm"
+                        title="Customize ingestion options and releases"
+                        (click)="
+                          openIngestionModal(
+                            game,
+                            getSelectedPlatformIds(game)[0]?.toString() ||
+                              (game.platform_id
+                                ? game.platform_id.toString()
+                                : '0')
+                          )
+                        "
+                      >
+                        Customize...
+                      </button>
+                    </div>
                   </div>
                 </div>
               }
@@ -1192,13 +1266,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
     }
 
     <!-- Sticky Floating Action Bar for Bulk operations -->
-    <div
-      class="bulk-action-bar"
-      [class.visible]="
-        selectedScanGameIds().size > 0 ||
-        (activeTab() === 'amiibo' && selectedAmiiboIds().size > 0)
-      "
-    >
+    <div class="bulk-action-bar" [class.visible]="bulkActionBarVisible()">
       @if (activeTab() === 'scan') {
         <span class="text-sm font-bold"
           >{{ selectedScanGameIds().size }} Games Selected</span
@@ -1519,7 +1587,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       }
       .results-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
         gap: var(--spacing-16);
       }
       .game-result-card {
@@ -1531,11 +1599,12 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         flex-direction: column;
       }
       .result-cover {
-        aspect-ratio: 3/4;
+        height: 180px;
         background: var(--m3-surface-container-highest);
         display: flex;
         align-items: center;
         justify-content: center;
+        overflow: hidden;
       }
       .result-cover img {
         width: 100%;
@@ -1551,13 +1620,67 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       }
       .result-title {
         font-size: 0.95rem;
-        margin: 0 0 var(--spacing-8) 0;
+        margin: 0 0 var(--spacing-4) 0;
         font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
+      }
+      .platform-selection-group {
+        margin-top: var(--spacing-6);
+      }
+      .platform-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--spacing-6);
+      }
+      .platform-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--spacing-4);
+        font-family: var(--font-body);
+        font-size: 0.72rem;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: var(--radius-tag, 6px);
+        user-select: none;
+        transition: all 0.15s ease;
+      }
+      .platform-chip.owned {
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface-variant);
+        border: 1px solid var(--m3-outline-variant);
+        opacity: 0.8;
+      }
+      .platform-chip.unowned {
+        background: var(--m3-secondary-container);
+        color: var(--m3-on-secondary-container);
+        border: 1px solid transparent;
+        cursor: pointer;
+      }
+      .platform-chip.unowned.active {
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
+        border-color: var(--m3-primary);
+      }
+      .platform-chip input[type='checkbox'] {
+        margin: 0;
+        cursor: pointer;
+        accent-color: var(--m3-primary);
+      }
+      .platform-chip .rel-count {
+        font-size: 0.68rem;
+        opacity: 0.8;
+      }
+      .card-actions {
+        display: flex;
+        gap: var(--spacing-8);
+        align-items: center;
+      }
+      .card-actions .m3-btn {
+        padding: 6px 12px;
       }
       .platform-badge {
         font-family: var(--font-body);
@@ -1658,12 +1781,14 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         background: var(--m3-surface-container);
         color: var(--m3-on-surface);
         border: 1px solid var(--m3-outline-variant);
-        border-radius: var(--radius-md);
+        border-radius: var(--radius-lg);
         width: 100%;
         max-width: 600px;
-        max-height: 90vh;
-        overflow-y: auto;
-        padding: var(--spacing-24);
+        max-height: calc(100dvh - 32px);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 0;
         box-sizing: border-box;
         box-shadow:
           0 20px 60px rgba(0, 0, 0, 0.8),
@@ -1681,12 +1806,13 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         }
       }
       .modal-header {
+        flex-shrink: 0;
         display: flex;
         justify-content: space-between;
         align-items: center;
         border-bottom: 1px solid var(--m3-outline-variant);
-        padding-bottom: var(--spacing-12);
-        margin-bottom: var(--spacing-16);
+        padding: var(--spacing-16) var(--spacing-20);
+        margin: 0;
       }
       .modal-header h3 {
         font-size: 1.25rem;
@@ -1705,6 +1831,13 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       }
       .close-btn:hover {
         color: var(--m3-on-surface);
+      }
+      .modal-body {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        padding: var(--spacing-16) var(--spacing-20);
       }
       .modal-game-cover {
         width: 80px;
@@ -1739,12 +1872,14 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         color: var(--m3-primary);
       }
       .modal-footer {
+        flex-shrink: 0;
         display: flex;
         justify-content: flex-end;
         gap: var(--spacing-12);
-        margin-top: var(--spacing-24);
+        margin: 0;
         border-top: 1px solid var(--m3-outline-variant);
-        padding-top: var(--spacing-16);
+        padding: var(--spacing-12) var(--spacing-20);
+        background: var(--m3-surface-container);
       }
       .bulk-action-bar {
         position: fixed;
@@ -1965,6 +2100,55 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         background: var(--m3-surface-container-highest);
         color: var(--m3-on-surface-variant);
       }
+      @media (max-width: 640px) {
+        .results-grid {
+          grid-template-columns: 1fr;
+          gap: var(--spacing-10);
+        }
+        .game-result-card {
+          flex-direction: row;
+          align-items: stretch;
+          padding: var(--spacing-10);
+          gap: var(--spacing-12);
+          border-radius: var(--radius-md);
+        }
+        .result-cover {
+          width: 72px;
+          height: 96px;
+          min-width: 72px;
+          aspect-ratio: auto;
+          border-radius: var(--radius-sm);
+          overflow: hidden;
+          flex-shrink: 0;
+        }
+        .result-details {
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          min-width: 0;
+        }
+        .result-title {
+          font-size: 0.88rem;
+          margin-bottom: var(--spacing-2);
+          line-height: 1.25;
+        }
+        .platform-chips {
+          gap: var(--spacing-4);
+          margin-top: var(--spacing-2);
+        }
+        .platform-chip {
+          font-size: 0.68rem;
+          padding: 2px 6px;
+        }
+        .card-actions {
+          margin-top: var(--spacing-6);
+        }
+        .card-actions .m3-btn {
+          padding: 4px 10px;
+          font-size: 0.75rem;
+        }
+      }
     `,
   ],
 })
@@ -1981,6 +2165,14 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   public searchPerformed = signal<boolean>(false);
   public lastQuery = signal<string>('');
   public filterDigital = signal<boolean>(true);
+  public selectedPlatformsByGame = signal<Map<string, Set<number>>>(new Map());
+
+  public bulkActionBarVisible = computed<boolean>(() => {
+    const tab = this.activeTab();
+    if (tab === 'scan') return this.selectedScanGameIds().size > 0;
+    if (tab === 'amiibo') return this.selectedAmiiboIds().size > 0;
+    return false;
+  });
 
   /** Series scan logic signals. */
   public scanResults = signal<ScanSuggestion[]>([]);
@@ -2097,7 +2289,14 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     if (!this.filterDigital()) {
       return results;
     }
-    return results.filter((g) => g.physical_status !== 'digital_only');
+    return results.filter((g) => {
+      if (g.physical_platforms && g.physical_platforms.length > 0) {
+        return g.physical_platforms.some(
+          (p) => p.physical_status !== 'digital_only' && !p.is_owned,
+        );
+      }
+      return g.physical_status !== 'digital_only';
+    });
   });
 
   /** Filtered franchise series scan results based on the Hide Digital-Only toggle. */
@@ -2211,6 +2410,22 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.searchResults.set(results || []);
       this.searchPerformed.set(true);
 
+      // Initialize default platform selections for multi-platform results
+      const initialMap = new Map<string, Set<number>>();
+      for (const g of results || []) {
+        const gKey = String(g.id);
+        const set = new Set<number>();
+        if (g.physical_platforms && g.physical_platforms.length > 0) {
+          for (const p of g.physical_platforms) {
+            if (!p.is_owned) set.add(p.platform_id);
+          }
+        } else if (g.platform_id && !g.ownership_status) {
+          set.add(g.platform_id);
+        }
+        initialMap.set(gKey, set);
+      }
+      this.selectedPlatformsByGame.set(initialMap);
+
       if (!results || results.length === 0) {
         if (this.collectionService.showConfirmation) {
           this.collectionService.showConfirmation(
@@ -2264,6 +2479,187 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     this.searchPerformed.set(false);
     this.lastQuery.set('');
     this.searchError.set(null);
+    this.selectedPlatformsByGame.set(new Map());
+  }
+
+  /**
+   * Toggles selection of a platform for a specific search result card.
+   */
+  togglePlatformSelection(gameId: string | number, platformId: number): void {
+    const gKey = String(gameId);
+    const map = new Map(this.selectedPlatformsByGame());
+    let currentSet = map.get(gKey);
+    if (!currentSet) {
+      const game = this.searchResults().find((g) => String(g.id) === gKey);
+      currentSet = new Set<number>();
+      if (game?.physical_platforms) {
+        for (const p of game.physical_platforms) {
+          if (!p.is_owned) currentSet.add(p.platform_id);
+        }
+      } else if (game?.platform_id) {
+        currentSet.add(game.platform_id);
+      }
+    } else {
+      currentSet = new Set(currentSet);
+    }
+
+    if (currentSet.has(platformId)) {
+      currentSet.delete(platformId);
+    } else {
+      currentSet.add(platformId);
+    }
+
+    map.set(gKey, currentSet);
+    this.selectedPlatformsByGame.set(map);
+  }
+
+  /**
+   * Checks whether a platform is currently selected for a search result card.
+   */
+  isPlatformSelected(gameId: string | number, platformId: number): boolean {
+    const gKey = String(gameId);
+    const set = this.selectedPlatformsByGame().get(gKey);
+    if (set) {
+      return set.has(platformId);
+    }
+    const game = this.searchResults().find((g) => String(g.id) === gKey);
+    const plat = game?.physical_platforms?.find(
+      (p) => p.platform_id === platformId,
+    );
+    return plat ? !plat.is_owned : true;
+  }
+
+  /**
+   * Returns the list of selected platform IDs for a search result card.
+   */
+  getSelectedPlatformIds(game: IGDBSearchResult): number[] {
+    const gKey = String(game.id);
+    const set = this.selectedPlatformsByGame().get(gKey);
+    if (set) {
+      return Array.from(set);
+    }
+    if (game.physical_platforms && game.physical_platforms.length > 0) {
+      return game.physical_platforms
+        .filter((p) => !p.is_owned)
+        .map((p) => p.platform_id);
+    }
+    return game.platform_id ? [game.platform_id] : [];
+  }
+
+  /**
+   * Returns the count of selected platforms for a search result card.
+   */
+  getSelectedPlatformsCount(game: IGDBSearchResult): number {
+    return this.getSelectedPlatformIds(game).length;
+  }
+
+  /**
+   * Ingests all selected platforms for a search candidate in one click.
+   */
+  async ingestSelectedForGame(game: IGDBSearchResult): Promise<void> {
+    if (!this.collectionService.addGame) {
+      console.warn('[DiscoveryList] addGame API is not available.');
+      return;
+    }
+
+    const selectedPids = this.getSelectedPlatformIds(game);
+    if (selectedPids.length === 0) {
+      this.showToast('Please select at least one platform to ingest.');
+      return;
+    }
+
+    const cleanIgdbId = Number(game.id.toString().replace('igdb-', ''));
+    let successCount = 0;
+
+    for (const pid of selectedPids) {
+      const platOption = game.physical_platforms?.find(
+        (p) => p.platform_id === pid,
+      );
+      const releases =
+        platOption?.matched_releases ||
+        (game.platform_id === pid ? game.matched_releases : []) ||
+        [];
+
+      const payload = {
+        game: {
+          title: game.name,
+          platform_id: pid,
+          igdb_id: cleanIgdbId,
+          igdb_url: game.igdb_url || null,
+          summary: game.summary || null,
+          genres: game.genres || null,
+          region: releases[0]?.region || game.region || 'USA',
+          image_url: game.image_url || null,
+          collections: game.collections || null,
+          franchises: game.franchises || null,
+          ownership_status: 1, // Default Owned when ingesting from search
+          play_status: 0,
+          backup_status: 0,
+          physical_status:
+            platOption?.physical_status || game.physical_status || 'unverified',
+          verification_tier: game.verification_tier || 0,
+          release_date: game.first_release_date || null,
+        },
+        releases: releases.map((r) => ({
+          region: r.region || null,
+          variants: r.variants || null,
+          rom_name: r.romName || r.name || null,
+          rom_crc: r.romCrc || null,
+          ownership_status: 1,
+          backup_status: 0,
+          release_date: r.releaseDate || null,
+          canonical_release_id: r.canonical_release_id || null,
+          serial_code: r.serial_code || null,
+          barcode: r.barcode || null,
+          is_physical: r.is_physical ?? 1,
+        })),
+      };
+
+      try {
+        await firstValueFrom(this.collectionService.addGame(payload));
+        successCount++;
+      } catch (err: unknown) {
+        console.error(`Failed to ingest ${game.name} on platform ${pid}:`, err);
+      }
+    }
+
+    if (successCount > 0) {
+      if (game.physical_platforms) {
+        const remainingUnowned = game.physical_platforms.filter(
+          (p) => !selectedPids.includes(p.platform_id) && !p.is_owned,
+        );
+        if (remainingUnowned.length === 0) {
+          this.searchResults.update((current) =>
+            current.filter((g) => g.id !== game.id),
+          );
+        } else {
+          this.searchResults.update((current) =>
+            current.map((g) => {
+              if (g.id !== game.id) return g;
+              return {
+                ...g,
+                physical_platforms: g.physical_platforms?.map((p) =>
+                  selectedPids.includes(p.platform_id)
+                    ? { ...p, is_owned: true }
+                    : p,
+                ),
+              };
+            }),
+          );
+          const map = new Map(this.selectedPlatformsByGame());
+          map.delete(String(game.id));
+          this.selectedPlatformsByGame.set(map);
+        }
+      } else {
+        this.searchResults.update((current) =>
+          current.filter((g) => g.id !== game.id),
+        );
+      }
+
+      this.showToast(
+        `Successfully ingested "${game.name}" (${successCount} edition${successCount > 1 ? 's' : ''})!`,
+      );
+    }
   }
 
   /**
@@ -2273,7 +2669,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
    * @param platformIdStr The selected platform ID.
    */
   async openIngestionModal(game: IGDBSearchResult, platformIdStr: string) {
-    let platformId = game.platform_id || Number(platformIdStr || 0);
+    let platformId = Number(platformIdStr || 0) || game.platform_id || 0;
     if (!platformId && game.platform) {
       const match = this.platformsList.find(
         (p) =>
@@ -2294,6 +2690,22 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     this.modalInitialPlatformId.set(platformId);
     this.matchedReleases.set([]);
     this.selectedReleaseIds.set(new Set());
+
+    // Pre-populate releases from physical_platforms if already matched
+    const platOption = game.physical_platforms?.find(
+      (p) => p.platform_id === platformId,
+    );
+    if (
+      platOption?.matched_releases &&
+      platOption.matched_releases.length > 0
+    ) {
+      this.matchedReleases.set(platOption.matched_releases);
+      const autoSelected = new Set<string>();
+      platOption.matched_releases.forEach((r) =>
+        autoSelected.add(r.romCrc || r.romName || r.name),
+      );
+      this.selectedReleaseIds.set(autoSelected);
+    }
 
     // Reset forms to defaults (Seeking for upcoming/pending, else Owned)
     const isUpcomingOrPending =

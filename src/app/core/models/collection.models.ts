@@ -293,6 +293,16 @@ export interface DiscoveryRelease {
   is_physical?: boolean | number;
 }
 
+export interface DiscoveryPlatformOption {
+  platform_id: number;
+  platform_name: string;
+  physical_status: PhysicalStatus;
+  is_physical: boolean;
+  is_owned: boolean;
+  matched_releases_count: number;
+  matched_releases?: DiscoveryRelease[];
+}
+
 export interface IGDBSearchResult {
   id: string | number;
   name: string;
@@ -315,6 +325,7 @@ export interface IGDBSearchResult {
   matched_releases?: DiscoveryRelease[];
   verification_reasons?: string[];
   first_release_date?: string | null;
+  physical_platforms?: DiscoveryPlatformOption[];
 }
 
 export interface ScanSuggestion {
