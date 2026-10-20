@@ -1266,45 +1266,47 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
     }
 
     <!-- Sticky Floating Action Bar for Bulk operations -->
-    <div class="bulk-action-bar" [class.visible]="bulkActionBarVisible()">
-      @if (activeTab() === 'scan') {
-        <span class="text-sm font-bold"
-          >{{ selectedScanGameIds().size }} Games Selected</span
-        >
-        <div class="flex gap-sm">
-          <button
-            class="m3-btn m3-btn-secondary btn-sm py-2"
-            (click)="clearScanSelection()"
+    @if (bulkActionBarVisible()) {
+      <div class="bulk-action-bar visible">
+        @if (activeTab() === 'scan') {
+          <span class="text-sm font-bold"
+            >{{ selectedScanGameIds().size }} Games Selected</span
           >
-            Cancel
-          </button>
-          <button
-            class="m3-btn m3-btn-primary btn-sm py-2"
-            (click)="bulkAddSeriesGames()"
+          <div class="flex gap-sm">
+            <button
+              class="m3-btn m3-btn-secondary btn-sm py-2"
+              (click)="clearScanSelection()"
+            >
+              Cancel
+            </button>
+            <button
+              class="m3-btn m3-btn-primary btn-sm py-2"
+              (click)="bulkAddSeriesGames()"
+            >
+              Ingest Bulk
+            </button>
+          </div>
+        } @else if (activeTab() === 'amiibo') {
+          <span class="text-sm font-bold"
+            >{{ selectedAmiiboIds().size }} Amiibo Selected</span
           >
-            Ingest Bulk
-          </button>
-        </div>
-      } @else if (activeTab() === 'amiibo') {
-        <span class="text-sm font-bold"
-          >{{ selectedAmiiboIds().size }} Amiibo Selected</span
-        >
-        <div class="flex gap-sm">
-          <button
-            class="m3-btn m3-btn-secondary btn-sm py-2"
-            (click)="clearAmiiboSelection()"
-          >
-            Cancel
-          </button>
-          <button
-            class="m3-btn m3-btn-primary btn-sm py-2"
-            (click)="bulkAddAmiibo()"
-          >
-            Ingest Bulk
-          </button>
-        </div>
-      }
-    </div>
+          <div class="flex gap-sm">
+            <button
+              class="m3-btn m3-btn-secondary btn-sm py-2"
+              (click)="clearAmiiboSelection()"
+            >
+              Cancel
+            </button>
+            <button
+              class="m3-btn m3-btn-primary btn-sm py-2"
+              (click)="bulkAddAmiibo()"
+            >
+              Ingest Bulk
+            </button>
+          </div>
+        }
+      </div>
+    }
 
     <!-- Toast Notification -->
     @if (toastMessage()) {
@@ -1761,12 +1763,14 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       }
       .modal-backdrop {
         position: fixed;
+        inset: 0;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
         width: 100vw;
         height: 100vh;
+        height: 100dvh;
         background: rgba(0, 0, 0, 0.75);
         display: flex;
         align-items: center;
@@ -1776,6 +1780,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         -webkit-backdrop-filter: blur(8px);
         padding: var(--spacing-16);
         box-sizing: border-box;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
       }
       .modal-content {
         background: var(--m3-surface-container);
@@ -1885,7 +1892,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         position: fixed;
         bottom: 24px;
         left: 50%;
-        transform: translateX(-50%) translateY(100px);
+        transform: translateX(-50%) translateY(0);
         background: var(--m3-surface-container-highest);
         border: 1px solid var(--m3-primary);
         padding: var(--spacing-12) var(--spacing-24);
@@ -1895,10 +1902,20 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         align-items: center;
         gap: var(--spacing-24);
         z-index: 900;
-        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        animation: slideUpBulkBar 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       }
       .bulk-action-bar.visible {
         transform: translateX(-50%) translateY(0);
+      }
+      @keyframes slideUpBulkBar {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
       }
       .m3-toast-container {
         position: fixed;
@@ -2246,6 +2263,9 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
 
   /** Reference to the active toast auto-dismiss timer. */
   private toastTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  /** Preserved window scroll coordinate before opening the ingestion modal. */
+  private savedScrollY = 0;
 
   /** Computes the platform list grouped by brand for platform selector optgroups. */
   public platformGroups = computed<PlatformGroup[]>(() => {
@@ -2718,6 +2738,10 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     if (typeof document !== 'undefined') {
       document.body.style.overflow = 'hidden';
     }
+    if (typeof window !== 'undefined') {
+      this.savedScrollY = window.scrollY || window.pageYOffset || 0;
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    }
 
     if (platformId && this.collectionService.getGameMatches) {
       this.modalLoading.set(true);
@@ -2810,6 +2834,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     this.selectedReleaseIds.set(new Set());
     if (typeof document !== 'undefined') {
       document.body.style.overflow = '';
+    }
+    if (typeof window !== 'undefined' && this.savedScrollY > 0) {
+      const targetY = this.savedScrollY;
+      this.savedScrollY = 0;
+      window.scrollTo({ top: targetY, behavior: 'instant' as ScrollBehavior });
     }
   }
 
