@@ -172,9 +172,10 @@ export async function deployBackupStatusToD1() {
   try {
     for (let i = 0; i < chunks.length; i++) {
       console.log(`[D1Deploy] Applying batch ${i + 1}/${chunks.length}...`);
-      fs.writeFileSync(tempChunkPath, chunks[i], 'utf8');
+      const chunkContent = `PRAGMA foreign_keys = OFF;\n${chunks[i]}\nPRAGMA foreign_keys = ON;`;
+      fs.writeFileSync(tempChunkPath, chunkContent, 'utf8');
       execSync(
-        `wrangler d1 execute collection-db --remote --file=scripts/temp/_temp_d1_chunk.sql`,
+        `npx wrangler d1 execute collection-db --remote --file=scripts/temp/_temp_d1_chunk.sql --yes`,
         {
           stdio: 'inherit',
           shell: true as unknown as string,

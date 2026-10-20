@@ -13,7 +13,20 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { runD1SmokeTest } from './d1_smoke_test.js';
 
-const sqlPath = path.resolve(process.cwd(), 'update_canonical_series.sql');
+const fileArg =
+  process.argv.find((a) => a.startsWith('--file='))?.split('=')[1] ||
+  (process.argv.indexOf('--file') !== -1
+    ? process.argv[process.argv.indexOf('--file') + 1]
+    : undefined);
+
+const sqlPath = fileArg
+  ? path.resolve(process.cwd(), fileArg)
+  : path.resolve(
+      process.cwd(),
+      'scripts',
+      'temp',
+      'update_canonical_series.sql',
+    );
 
 async function deployCanonicalSeriesToD1() {
   console.log('=== Cloudflare D1 Canonical Series Migration Pipeline ===\n');

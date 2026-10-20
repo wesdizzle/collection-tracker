@@ -15,6 +15,10 @@ import {
   GAME_EXTENSIONS,
   PlatformRow,
   ReleaseRow,
+  computeBackupNetDiffs,
+  generateBackupDiffMarkdown,
+  ReleaseDiffRow,
+  GameDiffRow,
 } from './scan_backups.js';
 import { stripDiscIndicator } from './lib/queries.js';
 
@@ -597,6 +601,126 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       );
       expect(matchSerialHyphen).not.toBeNull();
       expect(matchSerialHyphen?.id).toBe('p4g-vita-usa');
+    });
+  });
+
+  describe('computeBackupNetDiffs & Markdown Diff Generation', () => {
+    const priorReleases: ReleaseDiffRow[] = [
+      {
+        id: 'rel-1',
+        game_id: 101,
+        title: 'Super Mario World',
+        platform_name: 'Super Nintendo Entertainment System',
+        rom_name: 'Super Mario World (USA).sfc',
+        backup_status: 1, // Currently backed up
+      },
+      {
+        id: 'rel-2',
+        game_id: 102,
+        title: 'Chrono Trigger',
+        platform_name: 'Super Nintendo Entertainment System',
+        rom_name: 'Chrono Trigger (USA).sfc',
+        backup_status: 0, // Currently NOT backed up
+      },
+      {
+        id: 'rel-3',
+        game_id: 103,
+        title: 'Secret of Mana',
+        platform_name: 'Super Nintendo Entertainment System',
+        rom_name: 'Secret of Mana (USA).sfc',
+        backup_status: 1, // Currently backed up, but file lost!
+      },
+      {
+        id: 'rel-4',
+        game_id: 104,
+        title: 'EarthBound',
+        platform_name: 'Super Nintendo Entertainment System',
+        rom_name: 'EarthBound (USA).sfc',
+        backup_status: 0, // Currently NOT backed up and still no file
+      },
+    ];
+
+    const priorGames: GameDiffRow[] = [
+      {
+        stable_id: 101,
+        title: 'Super Mario World',
+        platform_id: 15,
+        platform_name: 'Super Nintendo Entertainment System',
+        backup_status: 1,
+      },
+      {
+        stable_id: 102,
+        title: 'Chrono Trigger',
+        platform_id: 15,
+        platform_name: 'Super Nintendo Entertainment System',
+        backup_status: 0,
+      },
+      {
+        stable_id: 103,
+        title: 'Secret of Mana',
+        platform_id: 15,
+        platform_name: 'Super Nintendo Entertainment System',
+        backup_status: 1,
+      },
+      {
+        stable_id: 104,
+        title: 'EarthBound',
+        platform_id: 15,
+        platform_name: 'Super Nintendo Entertainment System',
+        backup_status: 0,
+      },
+    ];
+
+    it('correctly calculates releases and games diff transitions', () => {
+      // Matched files: rel-1 (SMW) and rel-2 (Chrono Trigger)
+      const matched = new Set(['rel-1', 'rel-2']);
+
+      const diff = computeBackupNetDiffs(priorReleases, priorGames, matched);
+
+      // Releases:
+      // rel-2: 0 -> 1 (newly backed up)
+      expect(diff.releases.newlyBackedUp.map((r) => r.id)).toEqual(['rel-2']);
+      // rel-3: 1 -> 0 (lost backup)
+      expect(diff.releases.lostBackup.map((r) => r.id)).toEqual(['rel-3']);
+      // rel-1: 1 -> 1 (unchanged backed up)
+      expect(diff.releases.unchangedBackedUpCount).toBe(1);
+      // rel-4: 0 -> 0 (unchanged unbacked)
+      expect(diff.releases.unchangedUnbackedCount).toBe(1);
+      // Total target backed up: rel-1 + rel-2 = 2
+      expect(diff.releases.totalTargetBackedUp).toBe(2);
+
+      // Games:
+      // Game 102 (Chrono Trigger): 0 -> 1 (newly backed up)
+      expect(diff.games.newlyBackedUp.map((g) => g.stable_id)).toEqual([102]);
+      // Game 103 (Secret of Mana): 1 -> 0 (lost backup)
+      expect(diff.games.lostBackup.map((g) => g.stable_id)).toEqual([103]);
+      // Game 101 (SMW): 1 -> 1 (unchanged backed up)
+      expect(diff.games.unchangedBackedUpCount).toBe(1);
+      // Game 104 (EarthBound): 0 -> 0 (unchanged unbacked)
+      expect(diff.games.unchangedUnbackedCount).toBe(1);
+      // Total target backed up: 101 + 102 = 2
+      expect(diff.games.totalTargetBackedUp).toBe(2);
+    });
+
+    it('generates structured markdown with summary and diff tables', () => {
+      const matched = new Set(['rel-1', 'rel-2']);
+      const diff = computeBackupNetDiffs(priorReleases, priorGames, matched);
+      const stats = {
+        'Super Nintendo Entertainment System': { scanned: 10, matched: 2 },
+      };
+
+      const md = generateBackupDiffMarkdown(
+        diff,
+        stats,
+        '/test/backups',
+        'DRY RUN',
+      );
+
+      expect(md).toContain('# Backup Scan Net Diff Report');
+      expect(md).toContain('`DRY RUN`');
+      expect(md).toContain('Super Nintendo Entertainment System');
+      expect(md).toContain('Chrono Trigger');
+      expect(md).toContain('Secret of Mana');
     });
   });
 });
