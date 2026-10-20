@@ -235,7 +235,7 @@ export interface DiscoveryPayload {
 export interface FilterState {
   ownership: 'all' | 'seeking_or_unowned' | 'upcoming' | OwnershipStatus;
   play_status?: 'all' | PlayStatus;
-  backup_status?: 'all' | 0 | 1;
+  backup_status?: 'all' | 0 | 1 | 'uncataloged';
   physical_verified?: 'all' | 0 | 1;
   media_type?: 'physical_only' | 'all' | 'digital_extracted';
   budget_label?:

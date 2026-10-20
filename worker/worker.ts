@@ -2657,7 +2657,7 @@ Disallow: /
                 rel.rom_name || null,
                 rel.rom_crc || null,
                 rel.ownership_status ?? (game.ownership_status || 0),
-                rel.backup_status ?? (game.backup_status || 0),
+                rel.backup_status ?? 0,
                 rel.release_date || null,
                 rel.canonical_release_id || null,
                 rel.barcode || null,
@@ -2682,7 +2682,7 @@ Disallow: /
               finalStableId,
               gameRegion,
               game.ownership_status || 0,
-              game.backup_status || 0,
+              0,
               game.release_date || null,
               game.physical_status === 'digital_only' ? 0 : 1,
             )

@@ -32,6 +32,7 @@ export interface ReconcileResult {
   sqlPath: string;
   updates: Array<{
     releaseId: string;
+    newReleaseId?: string;
     gameId: number;
     gameTitle: string;
     platformId: number;
@@ -404,8 +405,14 @@ export function reconcileGameReleasesWithCanonical(
       usedCrcsByGameId.set(rel.game_id, usedCrcSet);
     }
 
+    const newId =
+      rel.id.endsWith('-default') && best.rom_crc
+        ? `${rel.game_slug || rel.id.replace(/-default$/, '')}-${best.rom_crc.toLowerCase()}`
+        : rel.id;
+
     updates.push({
       releaseId: rel.id,
+      newReleaseId: newId !== rel.id ? newId : undefined,
       gameId: rel.game_id,
       gameTitle: rel.title,
       platformId: rel.platform_id,
@@ -420,9 +427,15 @@ export function reconcileGameReleasesWithCanonical(
     const escapeSql = (s: string | null) =>
       s !== null ? `'${s.replace(/'/g, "''")}'` : 'NULL';
 
-    sqlStatements.push(
-      `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)} WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
-    );
+    if (newId !== rel.id) {
+      sqlStatements.push(
+        `UPDATE game_releases SET id = ${escapeSql(newId)}, canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)} WHERE id = ${escapeSql(rel.id)};`,
+      );
+    } else {
+      sqlStatements.push(
+        `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)} WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
+      );
+    }
 
     // If best is Disc 1 of a multi-disc set, automatically ensure Disc 2+ exist for this game
     const bestGroupKey = getRomGroupingKey(best.rom_name);
@@ -561,13 +574,19 @@ export function reconcileGameReleasesWithCanonical(
   if (!isDryRun && updates.length > 0) {
     const updateStmt = db.prepare(`
       UPDATE game_releases
-      SET canonical_release_id = ?, rom_name = ?, rom_crc = ?
+      SET id = ?, canonical_release_id = ?, rom_name = ?, rom_crc = ?
       WHERE id = ?
     `);
 
     const applyTx = db.transaction(() => {
       for (const u of updates) {
-        updateStmt.run(u.canonicalId, u.romName, u.romCrc, u.releaseId);
+        updateStmt.run(
+          u.newReleaseId || u.releaseId,
+          u.canonicalId,
+          u.romName,
+          u.romCrc,
+          u.releaseId,
+        );
       }
     });
 

@@ -1386,7 +1386,7 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
         (!isPlatformDatComplete(game.platform_id) && !hasMatchingRegion);
 
       if (needsVirtual) {
-        const virtualId = `${game.stable_id}-default`;
+        const virtualId = `${game.id}-default`;
         // Check if virtual release already exists to ensure idempotency
         const exists = dbInstance
           .prepare('SELECT 1 FROM game_releases WHERE id = ?')
@@ -1431,8 +1431,8 @@ export async function syncGameyeData(
     SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, p.display_name as platform_name
     FROM games g
     JOIN platforms p ON g.platform_id = p.id
-    WHERE EXISTS (SELECT 1 FROM game_releases r WHERE r.game_id = g.stable_id AND r.ownership_status > 0)
-       OR g.play_status > 0 OR g.backup_status > 0
+    WHERE EXISTS (SELECT 1 FROM game_releases r WHERE r.game_id = g.stable_id AND (r.ownership_status > 0 OR r.backup_status > 0))
+       OR g.play_status > 0
   `;
     if (!runRefresh) {
       gameQuery += ` AND (g.gameye_id IS NULL OR g.price_loose IS NULL)`;

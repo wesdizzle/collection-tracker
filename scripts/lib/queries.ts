@@ -199,7 +199,7 @@ export const BUNDLED_GAMES_BY_PARENT_QUERY = `
            g.release_medium,
            g.origin_metadata,
            COALESCE(r.rom_name, g.title) as rom_name,
-           COALESCE(r.backup_status, g.backup_status, 0) as backup_status,
+           COALESCE(r.backup_status, 0) as backup_status,
            COALESCE(pp.display_name, p.display_name) as platform_name,
            COALESCE(pp.display_name, p.display_name) as platform
     FROM games g

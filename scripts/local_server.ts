@@ -1093,7 +1093,7 @@ export const handleRequest =
                 );
               }
             } else {
-              const virtualId = `${stableId}-default`;
+              const virtualId = `${newGameId}-default`;
               db.prepare(
                 `
                 INSERT INTO game_releases (

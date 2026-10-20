@@ -2553,10 +2553,14 @@ export class CollectionFiltersComponent {
     { value: 'digital_extracted', label: 'Extracted Backups & Digital' },
   ];
 
-  readonly backupOptions: { value: 'all' | 1 | 0; label: string }[] = [
+  readonly backupOptions: {
+    value: 'all' | 1 | 0 | 'uncataloged';
+    label: string;
+  }[] = [
     { value: 'all', label: 'All' },
     { value: 1, label: 'Backed Up' },
     { value: 0, label: 'No Backup' },
+    { value: 'uncataloged', label: 'Uncataloged (No DAT CRC)' },
   ];
 
   readonly physicalVerifiedOptions: { value: 'all' | 1 | 0; label: string }[] =

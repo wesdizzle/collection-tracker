@@ -138,24 +138,28 @@ describe('reconcile_releases', () => {
       expect(result.updatesByPlatform[51]).toBe(1);
 
       const updated = db
-        .prepare('SELECT * FROM game_releases WHERE id = ?')
-        .get('1873-default') as {
+        .prepare('SELECT * FROM game_releases WHERE game_id = ?')
+        .get(1873) as {
+        id: string;
         canonical_release_id: number | null;
         rom_name: string | null;
         rom_crc: string | null;
       };
+      expect(updated.id).toBe('1873-a95adadb');
       expect(updated.canonical_release_id).toBe(762828);
       expect(updated.rom_name).toBe("Yoku's Island Express (World).xci");
       expect(updated.rom_crc).toBe('a95adadb');
 
-      // Verify child platform (PSVR -> PS4) reconciled
+      // Verify child platform (PSVR -> PS4) reconciled and upgraded ID
       const psvrUpdated = db
-        .prepare('SELECT * FROM game_releases WHERE id = ?')
-        .get('2739-default') as {
+        .prepare('SELECT * FROM game_releases WHERE game_id = ?')
+        .get(2739) as {
+        id: string;
         canonical_release_id: number | null;
         rom_name: string | null;
         rom_crc: string | null;
       };
+      expect(psvrUpdated.id).toBe('2739-0f563151');
       expect(psvrUpdated.canonical_release_id).toBe(889900);
       expect(psvrUpdated.rom_name).toBe('Astro Bot - Rescue Mission (USA).iso');
       expect(psvrUpdated.rom_crc).toBe('0f563151');
@@ -163,10 +167,10 @@ describe('reconcile_releases', () => {
       expect(fs.existsSync(testSqlPath)).toBe(true);
       const sqlContent = fs.readFileSync(testSqlPath, 'utf8');
       expect(sqlContent).toContain(
-        "UPDATE game_releases SET canonical_release_id = 762828, rom_name = 'Yoku''s Island Express (World).xci', rom_crc = 'a95adadb'",
+        "UPDATE game_releases SET id = '1873-a95adadb', canonical_release_id = 762828, rom_name = 'Yoku''s Island Express (World).xci', rom_crc = 'a95adadb'",
       );
       expect(sqlContent).toContain(
-        "UPDATE game_releases SET canonical_release_id = 889900, rom_name = 'Astro Bot - Rescue Mission (USA).iso', rom_crc = '0f563151'",
+        "UPDATE game_releases SET id = '2739-0f563151', canonical_release_id = 889900, rom_name = 'Astro Bot - Rescue Mission (USA).iso', rom_crc = '0f563151'",
       );
     });
 
@@ -233,13 +237,15 @@ describe('reconcile_releases', () => {
 
       const threeHopes = db
         .prepare(
-          'SELECT canonical_release_id, rom_name FROM game_releases WHERE id = ?',
+          'SELECT id, canonical_release_id, rom_name FROM game_releases WHERE game_id = ?',
         )
-        .get('1572-default') as {
+        .get(1572) as {
+        id: string;
         canonical_release_id: number | null;
         rom_name: string | null;
       };
 
+      expect(threeHopes.id).toBe('1572-b1765d12');
       expect(threeHopes.canonical_release_id).toBe(999002);
       expect(threeHopes.rom_name).toBe('Fire Emblem - Three Hopes (USA).xci');
     });

@@ -613,7 +613,7 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                         </div>
                       }
                     </div>
-                  } @else if (g.id && g.id.endsWith('-default')) {
+                  } @else if (!g.rom_name) {
                     <div class="meta-box full-width">
                       <span class="label">ROM Filename</span>
                       <span
@@ -2929,15 +2929,14 @@ export class ItemDetailComponent {
    */
   public hasOwnedPhysical(game?: Game | null): boolean {
     if (!game) return false;
-    if (game.ownership_status === 1) {
-      if (game.releases && game.releases.length > 0) {
-        return game.releases.some(
-          (r) => r.ownership_status === 1 && r.is_physical !== 0,
-        );
-      }
-      return game.physical_status !== 'digital_only';
+    if (game.releases && game.releases.length > 0) {
+      return game.releases.some(
+        (r) => r.ownership_status === 1 && r.is_physical !== 0,
+      );
     }
-    return false;
+    return (
+      game.ownership_status === 1 && game.physical_status !== 'digital_only'
+    );
   }
 
   /**

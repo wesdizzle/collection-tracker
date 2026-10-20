@@ -841,6 +841,7 @@ export interface ReleaseDiffRow {
   platform_name: string;
   rom_name: string;
   backup_status: number;
+  ownership_status?: number;
 }
 
 export interface GameDiffRow {
@@ -848,7 +849,7 @@ export interface GameDiffRow {
   title: string;
   platform_id: number;
   platform_name: string;
-  backup_status: number;
+  backup_status?: number;
 }
 
 export interface NetDiffResult {
@@ -878,12 +879,9 @@ export function computeBackupNetDiffs(
   let unchangedBackedUpReleasesCount = 0;
   let unchangedUnbackedReleasesCount = 0;
 
-  const targetBackedUpGameIds = new Set<number>();
-
   for (const r of priorReleases) {
     const isMatched = matchedReleaseIds.has(r.id);
     if (isMatched) {
-      targetBackedUpGameIds.add(r.game_id);
       if (r.backup_status === 0) {
         newlyBackedUpReleases.push(r);
       } else {
@@ -898,22 +896,45 @@ export function computeBackupNetDiffs(
     }
   }
 
+  const releasesByGame = new Map<number, ReleaseDiffRow[]>();
+  for (const r of priorReleases) {
+    if (!releasesByGame.has(r.game_id)) {
+      releasesByGame.set(r.game_id, []);
+    }
+    releasesByGame.get(r.game_id)!.push(r);
+  }
+
   const newlyBackedUpGames: GameDiffRow[] = [];
   const lostBackupGames: GameDiffRow[] = [];
   let unchangedBackedUpGamesCount = 0;
   let unchangedUnbackedGamesCount = 0;
 
   for (const g of priorGames) {
-    const isTargetBackedUp = targetBackedUpGameIds.has(g.stable_id);
+    const gRels = releasesByGame.get(g.stable_id) || [];
+    const owned = gRels.filter((r) => r.ownership_status === 1);
+    const targetRels = owned.length > 0 ? owned : gRels;
+
+    const priorBackedUp =
+      g.backup_status !== undefined
+        ? g.backup_status
+        : targetRels.length > 0 &&
+            targetRels.every((r) => r.backup_status === 1)
+          ? 1
+          : 0;
+
+    const isTargetBackedUp =
+      targetRels.length > 0 &&
+      targetRels.every((r) => matchedReleaseIds.has(r.id));
+
     if (isTargetBackedUp) {
-      if (g.backup_status === 0) {
-        newlyBackedUpGames.push(g);
+      if (priorBackedUp === 0) {
+        newlyBackedUpGames.push({ ...g, backup_status: 1 });
       } else {
         unchangedBackedUpGamesCount++;
       }
     } else {
-      if (g.backup_status === 1) {
-        lostBackupGames.push(g);
+      if (priorBackedUp === 1) {
+        lostBackupGames.push({ ...g, backup_status: 0 });
       } else {
         unchangedUnbackedGamesCount++;
       }
@@ -1115,7 +1136,7 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
       priorReleases = db
         .prepare(
           `
-        SELECT r.id, r.game_id, g.title, COALESCE(p.display_name, p.name) as platform_name, r.rom_name, COALESCE(r.backup_status, 0) as backup_status
+        SELECT r.id, r.game_id, g.title, COALESCE(p.display_name, p.name) as platform_name, r.rom_name, COALESCE(r.backup_status, 0) as backup_status, COALESCE(r.ownership_status, 0) as ownership_status
         FROM game_releases r
         JOIN games g ON r.game_id = g.stable_id
         JOIN platforms p ON g.platform_id = p.id
@@ -1124,16 +1145,44 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
         )
         .all(...allScannedPlatformIds) as ReleaseDiffRow[];
 
-      priorGames = db
+      const rawGames = db
         .prepare(
           `
-        SELECT g.stable_id, g.title, g.platform_id, COALESCE(p.display_name, p.name) as platform_name, COALESCE(g.backup_status, 0) as backup_status
+        SELECT g.stable_id, g.title, g.platform_id, COALESCE(p.display_name, p.name) as platform_name
         FROM games g
         JOIN platforms p ON g.platform_id = p.id
         WHERE g.platform_id IN (${platPlaceholders})
       `,
         )
-        .all(...allScannedPlatformIds) as GameDiffRow[];
+        .all(...allScannedPlatformIds) as Array<{
+        stable_id: number;
+        title: string;
+        platform_id: number;
+        platform_name: string;
+      }>;
+
+      const releasesByGame = new Map<number, ReleaseDiffRow[]>();
+      for (const r of priorReleases) {
+        if (!releasesByGame.has(r.game_id)) {
+          releasesByGame.set(r.game_id, []);
+        }
+        releasesByGame.get(r.game_id)!.push(r);
+      }
+
+      priorGames = rawGames.map((g) => {
+        const gRels = releasesByGame.get(g.stable_id) || [];
+        const owned = gRels.filter((r) => r.ownership_status === 1);
+        const targetRels = owned.length > 0 ? owned : gRels;
+        const isBackedUp =
+          targetRels.length > 0 &&
+          targetRels.every((r) => r.backup_status === 1)
+            ? 1
+            : 0;
+        return {
+          ...g,
+          backup_status: isBackedUp,
+        };
+      });
     }
 
     let totalScannedFiles = 0;
@@ -1201,16 +1250,40 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
         )
         .all(...platformIds) as ReleaseRow[];
 
+      // Load all game releases for fallback uncataloged/regional matching
+      const allPlatformReleases = db
+        .prepare(
+          `
+        SELECT r.id, r.game_id, r.region, r.rom_name, r.rom_crc, r.ownership_status, r.canonical_release_id
+        FROM game_releases r
+        JOIN games g ON r.game_id = g.stable_id
+        WHERE g.platform_id IN (${placeholders})
+      `,
+        )
+        .all(...platformIds) as Array<{
+        id: string;
+        game_id: number;
+        region: string | null;
+        rom_name: string | null;
+        rom_crc: string | null;
+        ownership_status: number;
+        canonical_release_id: number | null;
+      }>;
+
       // Load all games for fallback title-matching verification
       const platformGames = db
         .prepare(
           `
-        SELECT stable_id, title 
+        SELECT stable_id, id, title 
         FROM games 
         WHERE platform_id IN (${placeholders})
       `,
         )
-        .all(...platformIds) as { stable_id: number; title: string }[];
+        .all(...platformIds) as {
+        stable_id: number;
+        id: string;
+        title: string;
+      }[];
 
       for (const file of files) {
         const filename = path.basename(file);
@@ -1273,21 +1346,79 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
               .map((s) => normalizeTitleForMatching(s))
               .filter((s) => s.length >= 3);
 
-            let matchedGameDirect = false;
-            let matchedGameTitle = '';
+            let matchedGameDirect: {
+              stable_id: number;
+              id: string;
+              title: string;
+            } | null = null;
             for (const game of platformGames) {
               const gameNorm = normalizeTitleForMatching(game.title);
               if (gameNorm === normFile || fileSegments.includes(gameNorm)) {
-                matchedGameDirect = true;
-                matchedGameTitle = game.title;
+                matchedGameDirect = game;
                 break;
               }
             }
 
             if (matchedGameDirect) {
-              console.warn(
-                `  [Release Mismatch Warning] Backup file "${filename}" matched game "${matchedGameTitle}" but did not match any physical release in game_releases.`,
+              const fileRegion = extractRegions(filename);
+              const gameRels = allPlatformReleases.filter(
+                (r) => r.game_id === matchedGameDirect!.stable_id,
               );
+
+              // 1. Check if an unlinked/fallback release exists for this game
+              const unlinkedFallback = gameRels.find(
+                (r) => !r.rom_name || r.id.endsWith('-default'),
+              );
+
+              if (unlinkedFallback) {
+                if (!unlinkedFallback.rom_name) {
+                  unlinkedFallback.rom_name = filename;
+                  if (!isDryRun) {
+                    db.prepare(
+                      'UPDATE game_releases SET rom_name = ? WHERE id = ?',
+                    ).run(filename, unlinkedFallback.id);
+                  }
+                }
+                console.log(
+                  `  [Uncataloged Backup Matched] "${filename}" -> "${matchedGameDirect.title}" (${unlinkedFallback.id})`,
+                );
+                if (!allMatchedReleaseIds.has(unlinkedFallback.id)) {
+                  allMatchedReleaseIds.add(unlinkedFallback.id);
+                  platformStats[platformDisplayName].matched++;
+                  totalMatchedReleases++;
+                }
+              } else if (
+                fileRegion &&
+                !gameRels.some(
+                  (r) => r.region && regionsMatch(r.region, fileRegion),
+                )
+              ) {
+                // 2. Region mismatch: game only has releases for other regions (e.g. Japan in DATs, but backup is USA)
+                const regionalSlug = `${matchedGameDirect.id}-${fileRegion.toLowerCase()}-default`;
+                if (!isDryRun) {
+                  db.prepare(
+                    `INSERT OR IGNORE INTO game_releases (id, game_id, region, rom_name, rom_crc, backup_status, ownership_status)
+                     VALUES (?, ?, ?, ?, NULL, 1, 0)`,
+                  ).run(
+                    regionalSlug,
+                    matchedGameDirect.stable_id,
+                    fileRegion,
+                    filename,
+                  );
+                }
+                console.log(
+                  `  [New Regional Release from Backup] "${filename}" -> created "${regionalSlug}" for "${matchedGameDirect.title}"`,
+                );
+                if (!allMatchedReleaseIds.has(regionalSlug)) {
+                  allMatchedReleaseIds.add(regionalSlug);
+                  platformStats[platformDisplayName].matched++;
+                  totalMatchedReleases++;
+                }
+              } else {
+                console.warn(
+                  `  [Release Mismatch Warning] Backup file "${filename}" matched game "${matchedGameDirect.title}" but did not match any physical release in game_releases.`,
+                );
+              }
             } else {
               console.error(
                 `  [ALERT] Backup file "${filename}" on platform "${platformDisplayName}" does not correspond to any game in the database!`,
@@ -1330,16 +1461,6 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
             updateStmt.run(releaseId);
           }
         }
-
-        // 3. Synchronize games table backup_status
-        db.prepare(
-          `UPDATE games SET backup_status = 0 WHERE backup_status != 0 AND platform_id IN (${platPlaceholders})`,
-        ).run(...allScannedPlatformIds);
-        db.prepare(
-          `UPDATE games SET backup_status = 1 WHERE backup_status != 1 AND stable_id IN (
-            SELECT DISTINCT game_id FROM game_releases WHERE backup_status = 1 AND game_id IS NOT NULL
-          ) AND platform_id IN (${platPlaceholders})`,
-        ).run(...allScannedPlatformIds);
       });
       applyTx();
       console.log(
@@ -1427,13 +1548,6 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
         sqlContent += `UPDATE game_releases SET backup_status = 1 WHERE backup_status != 1 AND id IN (${escapedIds});\n`;
       }
       sqlContent += '\n';
-    }
-
-    if (allScannedPlatformIds.size > 0) {
-      const platList = Array.from(allScannedPlatformIds).join(', ');
-      sqlContent += `-- 3. Synchronize games table backup_status\n`;
-      sqlContent += `UPDATE games SET backup_status = 0 WHERE backup_status != 0 AND platform_id IN (${platList});\n`;
-      sqlContent += `UPDATE games SET backup_status = 1 WHERE backup_status != 1 AND stable_id IN (SELECT DISTINCT game_id FROM game_releases WHERE backup_status = 1 AND game_id IS NOT NULL) AND platform_id IN (${platList});\n\n`;
     }
 
     sqlContent += 'PRAGMA foreign_keys = ON;\n';

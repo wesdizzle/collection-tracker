@@ -799,6 +799,8 @@ export class CollectionListComponent
         qpFilters.backup_status = 0;
       } else if (val === '1' || val === 'backed_up') {
         qpFilters.backup_status = 1;
+      } else if (val === 'uncataloged') {
+        qpFilters.backup_status = 'uncataloged';
       } else if (val === 'all') {
         qpFilters.backup_status = 'all';
       }
@@ -1313,6 +1315,7 @@ export class CollectionListComponent
         discIds: string[];
         discBackups: number[];
         discRomNames: string[];
+        discRomCrcs: string[];
       }
     >();
     for (const g of allGames) {
@@ -1326,12 +1329,16 @@ export class CollectionListComponent
           discIds: [g.id],
           discBackups: [g.backup_status ? 1 : 0],
           discRomNames: [g.rom_name || ''],
+          discRomCrcs: [g.rom_crc || ''],
         });
       } else {
         const existing = groupedMap.get(baseKey)!;
         existing.discIds.push(g.id);
         existing.discBackups.push(g.backup_status ? 1 : 0);
         existing.discRomNames.push(g.rom_name || '');
+        if (g.rom_crc) {
+          existing.discRomCrcs.push(g.rom_crc);
+        }
         existing.ownership_status = Math.max(
           existing.ownership_status,
           g.ownership_status,
@@ -1524,8 +1531,16 @@ export class CollectionListComponent
 
       // Backup Status Filter
       if (f.backup_status !== undefined && f.backup_status !== 'all') {
-        const bStatus = g.backup_status ? 1 : 0;
-        if (f.backup_status !== bStatus) return false;
+        if (f.backup_status === 'uncataloged') {
+          const isBackedUp = (g.backup_status ? 1 : 0) === 1;
+          const hasNoCrc =
+            !g.rom_crc ||
+            (g.discRomCrcs && g.discRomCrcs.some((c: string) => !c));
+          if (!isBackedUp || !hasNoCrc) return false;
+        } else {
+          const bStatus = g.backup_status ? 1 : 0;
+          if (f.backup_status !== bStatus) return false;
+        }
       }
 
       // Physical Release Verified Filter
