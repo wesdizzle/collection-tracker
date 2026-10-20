@@ -184,6 +184,12 @@ export const GAME_RELEASES_BY_GAME_ID_QUERY = `
      WHERE game_id = ? AND region IS ? AND variants IS ?
  `;
 
+export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
+     SELECT id, game_id, region, variants, also_released_as, rom_name, rom_crc, backup_status, ownership_status, release_date, image_url, COALESCE(has_case, 0) as has_case, COALESCE(has_manual, 0) as has_manual
+     FROM game_releases
+     WHERE game_id = ? AND rom_name IS NOT NULL
+ `;
+
 export const BUNDLED_GAMES_BY_PARENT_QUERY = `
     SELECT g.stable_id,
            g.id,

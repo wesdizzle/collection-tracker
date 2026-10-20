@@ -16,6 +16,7 @@ import { getDatabase } from './db.js';
 import { normalizeTitleForMatching, titlesMatch } from './title_matching.js';
 import { cleanTitleWithoutParentheticals } from './canonical_releases.js';
 import { getRomGroupingKey } from './queries.js';
+import { BOX_SET_ROM_GROUPING_MAP } from './special_labels.js';
 
 export interface ReconcileOptions {
   dryRun?: boolean;
@@ -170,17 +171,24 @@ export function reconcileGameReleasesWithCanonical(
     ownership_status: number;
   }>;
 
-  // Track already-assigned ROM names per game_id and per platform_id to prevent duplicate overwrites
+  // Track already-assigned ROM names and CRCs per game_id and per platform_id to prevent duplicate overwrites
   const usedRomsByGameId = new Map<number, Set<string>>();
   const usedRomsByPlatformId = new Map<number, Set<string>>();
+  const usedCrcsByGameId = new Map<number, Set<string>>();
+  const usedCrcsByPlatformId = new Map<number, Set<string>>();
   const existingRoms = db
     .prepare(
-      `SELECT gr.game_id, g.platform_id, gr.rom_name
+      `SELECT gr.game_id, g.platform_id, gr.rom_name, gr.rom_crc
        FROM game_releases gr
        JOIN games g ON gr.game_id = g.stable_id
        WHERE gr.rom_name IS NOT NULL`,
     )
-    .all() as Array<{ game_id: number; platform_id: number; rom_name: string }>;
+    .all() as Array<{
+    game_id: number;
+    platform_id: number;
+    rom_name: string;
+    rom_crc: string | null;
+  }>;
   for (const row of existingRoms) {
     let set = usedRomsByGameId.get(row.game_id);
     if (!set) {
@@ -195,6 +203,23 @@ export function reconcileGameReleasesWithCanonical(
       usedRomsByPlatformId.set(row.platform_id, pSet);
     }
     pSet.add(row.rom_name);
+
+    if (row.rom_crc) {
+      const crcNorm = row.rom_crc.toLowerCase();
+      let cSet = usedCrcsByGameId.get(row.game_id);
+      if (!cSet) {
+        cSet = new Set();
+        usedCrcsByGameId.set(row.game_id, cSet);
+      }
+      cSet.add(crcNorm);
+
+      let pCrcSet = usedCrcsByPlatformId.get(row.platform_id);
+      if (!pCrcSet) {
+        pCrcSet = new Set();
+        usedCrcsByPlatformId.set(row.platform_id, pCrcSet);
+      }
+      pCrcSet.add(crcNorm);
+    }
   }
 
   // Map parent platform relationships (e.g. PSVR 51 -> PS4 34, PSVR2 52 -> PS5 35)
@@ -324,9 +349,19 @@ export function reconcileGameReleasesWithCanonical(
     if (!candidates || candidates.length === 0) continue;
 
     const usedSet = usedRomsByGameId.get(rel.game_id) ?? new Set<string>();
-    const availableCandidates = candidates.filter(
-      (c) => !usedSet.has(c.rom_name),
-    );
+    const usedCrcSet = usedCrcsByGameId.get(rel.game_id) ?? new Set<string>();
+    const availableCandidates = candidates.filter((c) => {
+      if (usedSet.has(c.rom_name)) return false;
+      if (c.rom_crc && usedCrcSet.has(c.rom_crc.toLowerCase())) {
+        if (
+          !rel.rom_crc ||
+          rel.rom_crc.toLowerCase() !== c.rom_crc.toLowerCase()
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
     if (availableCandidates.length === 0) continue;
 
     // Prefer candidates matching rel.variants when present
@@ -364,6 +399,10 @@ export function reconcileGameReleasesWithCanonical(
 
     usedSet.add(best.rom_name);
     usedRomsByGameId.set(rel.game_id, usedSet);
+    if (best.rom_crc) {
+      usedCrcSet.add(best.rom_crc.toLowerCase());
+      usedCrcsByGameId.set(rel.game_id, usedCrcSet);
+    }
 
     updates.push({
       releaseId: rel.id,
@@ -445,10 +484,31 @@ export function reconcileGameReleasesWithCanonical(
       if (!cands || cands.length === 0) continue;
 
       const usedSet = usedRomsByGameId.get(g.stable_id) ?? new Set<string>();
+      const usedCrcSet = usedCrcsByGameId.get(g.stable_id) ?? new Set<string>();
       const platUsedSet =
         usedRomsByPlatformId.get(g.platform_id) ?? new Set<string>();
+      const platUsedCrcSet =
+        usedCrcsByPlatformId.get(g.platform_id) ?? new Set<string>();
+
       for (const c of cands) {
         if (usedSet.has(c.rom_name) || platUsedSet.has(c.rom_name)) continue;
+        const crcNorm = c.rom_crc ? c.rom_crc.toLowerCase() : null;
+        if (
+          crcNorm &&
+          (usedCrcSet.has(crcNorm) || platUsedCrcSet.has(crcNorm))
+        ) {
+          continue;
+        }
+
+        // Exclude re-homed box set constituent ROMs from being added onto standalone base games
+        const baseNameWithoutExt = c.rom_name
+          .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
+          .trim()
+          .toLowerCase();
+        if (BOX_SET_ROM_GROUPING_MAP[baseNameWithoutExt]) {
+          continue;
+        }
+
         if (
           !titlesMatch(
             g.title,
@@ -463,6 +523,12 @@ export function reconcileGameReleasesWithCanonical(
         usedRomsByGameId.set(g.stable_id, usedSet);
         platUsedSet.add(c.rom_name);
         usedRomsByPlatformId.set(g.platform_id, platUsedSet);
+        if (crcNorm) {
+          usedCrcSet.add(crcNorm);
+          usedCrcsByGameId.set(g.stable_id, usedCrcSet);
+          platUsedCrcSet.add(crcNorm);
+          usedCrcsByPlatformId.set(g.platform_id, platUsedCrcSet);
+        }
         const newId = `${g.slug}-dat-${c.id}`;
         sqlStatements.push(
           `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, rom_name, rom_crc, ownership_status, backup_status) VALUES (${escapeSql(newId)}, ${g.stable_id}, ${c.id}, ${escapeSql(c.region)}, ${escapeSql(c.variants)}, ${escapeSql(c.rom_name)}, ${escapeSql(c.rom_crc)}, 0, 0);`,

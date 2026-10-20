@@ -962,11 +962,17 @@ export const SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES: Record<string, string[]> = {
 export const BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
   // 1. God of War Saga (PS3, USA)
   'god of war collection (usa) (v02.00)': 'multi:god of war saga (usa)',
+  'god of war collection (usa, canada) (v02.00)': 'multi:god of war saga (usa)',
   'god of war iii (usa) (v02.00)': 'multi:god of war saga (usa)',
+  'god of war iii (usa, canada) (v02.00)': 'multi:god of war saga (usa)',
 
   // 2. Infamous Collection (PS3, USA)
   'infamous (usa) (en,fr,es) (v02.00)': 'multi:infamous collection (usa)',
+  'infamous (usa, canada) (en,fr,es) (v02.00)':
+    'multi:infamous collection (usa)',
   'infamous 2 (usa) (en,fr,es,pt) (v02.00)': 'multi:infamous collection (usa)',
+  'infamous 2 (usa, canada) (en,fr,es,pt) (v02.00)':
+    'multi:infamous collection (usa)',
 
   // 3. Killzone Trilogy (PS3, USA)
   'killzone trilogy (usa) (killzone + killzone 2)':
@@ -1037,7 +1043,7 @@ export const BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
   'grand theft auto - vice city (usa, canada) (v3.00)':
     'multi:grand theft auto - the trilogy (usa)',
   'grand theft auto - vice city (usa) (v4.00)':
-    'multi:grand theft auto - the trilogy (usa)',
+    'multi:grand theft auto - the trilogy (usa) (v4.00)',
   'grand theft auto - san andreas (usa) (v3.00) (rev 1)':
     'multi:grand theft auto - the trilogy (usa)',
 
@@ -1073,15 +1079,23 @@ export const BOX_SET_DISC_LABELS: Record<string, string> = {
   // God of War Saga (PS3)
   'god of war collection (usa) (v02.00)':
     'Disc 1 — God of War Collection (v02.00)',
+  'god of war collection (usa, canada) (v02.00)':
+    'Disc 1 — God of War Collection (v02.00)',
   'god of war iii (usa) (v02.00)': 'Disc 2 — God of War III (v02.00)',
+  'god of war iii (usa, canada) (v02.00)': 'Disc 2 — God of War III (v02.00)',
 
   // Infamous Collection (PS3)
   'infamous (usa) (en,fr,es) (v02.00)': 'Disc 1 — Infamous (v02.00)',
+  'infamous (usa, canada) (en,fr,es) (v02.00)': 'Disc 1 — Infamous (v02.00)',
   'infamous 2 (usa) (en,fr,es,pt) (v02.00)': 'Disc 2 — Infamous 2 (v02.00)',
+  'infamous 2 (usa, canada) (en,fr,es,pt) (v02.00)':
+    'Disc 2 — Infamous 2 (v02.00)',
 
   // Killzone Trilogy (PS3)
   'killzone trilogy (usa) (killzone + killzone 2)':
     'Disc 1 — Killzone + Killzone 2',
+  'killzone 3 (usa, brazil) (en,ja,fr,de,es,it,nl,pt,sv,no,da,fi,zh,ko,pl,ru,tr)':
+    'Disc 2 — Killzone 3',
 
   // Metal Gear Solid: The Legacy Collection (PS3)
   'metal gear solid 4 - guns of the patriots (usa) (en,fr,de,es,it) (v02.00)':
@@ -1099,9 +1113,23 @@ export const BOX_SET_DISC_LABELS: Record<string, string> = {
 
   // Mass Effect Trilogy (PS3 & Xbox 360)
   'mass effect (usa, asia) (en,fr,es)': 'Disc 1 — Mass Effect',
+  'mass effect 2 (usa, asia) (en,fr,de,es,it,ru)': 'Disc 2 — Mass Effect 2',
+  'mass effect 3 (usa, asia) (en,ja,fr,de,es,it,pl,ru)':
+    'Disc 3 — Mass Effect 3',
   'mass effect (europe) (en,fr,de,es,it)': 'Disc 1 — Mass Effect',
+  'mass effect 2 (europe, australia) (en,fr,de,es,it,ru)':
+    'Disc 2 — Mass Effect 2',
+  'mass effect 3 (europe) (en,ja,fr,de,es,it,pl,ru)': 'Disc 3 — Mass Effect 3',
   'mass effect (usa, europe) (en,es,pl) (rev 1)':
     'Disc 1 — Mass Effect (Rev 1)',
+  'mass effect 2 (usa, europe) (en,es) (disc 1)':
+    'Disc 2 — Mass Effect 2 (Disc 1)',
+  'mass effect 2 (usa, europe) (en,es) (disc 2)':
+    'Disc 3 — Mass Effect 2 (Disc 2)',
+  'mass effect 3 (world) (en,ja,fr,de,es,it,pl,ru) (disc 1)':
+    'Disc 4 — Mass Effect 3 (Disc 1)',
+  'mass effect 3 (world) (en,ja,fr,de,es,it,pl,ru) (disc 2)':
+    'Disc 5 — Mass Effect 3 (Disc 2)',
   'mass effect (italy) (rev 1)': 'Disc 1 — Mass Effect (Rev 1)',
   'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 1) (rev 1)':
     'Disc 4 — Mass Effect 3 (Disc 1) (Rev 1)',

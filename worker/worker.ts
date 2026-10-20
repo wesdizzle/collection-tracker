@@ -21,6 +21,7 @@ import {
   GAMES_LIST_QUERY,
   GAME_DETAIL_QUERY,
   GAME_RELEASES_BY_GAME_ID_QUERY,
+  GAME_ALL_RELEASES_BY_GAME_ID_QUERY,
   BUNDLED_GAMES_BY_PARENT_QUERY,
   PLATFORMS_LIST_QUERY,
   TOYS_LIST_QUERY,
@@ -783,12 +784,15 @@ Disallow: /
           return Response.json({ error: 'Not found' }, { status: 404 });
 
         if (game.rom_name) {
-          const { results } = await env.DB.prepare(
-            GAME_RELEASES_BY_GAME_ID_QUERY,
-          )
-            .bind(game.stable_id, game.region, game.variants)
-            .all();
           const targetKey = getRomGroupingKey(game.rom_name);
+          const isMulti = targetKey.startsWith('multi:');
+          const { results } = isMulti
+            ? await env.DB.prepare(GAME_ALL_RELEASES_BY_GAME_ID_QUERY)
+                .bind(game.stable_id)
+                .all()
+            : await env.DB.prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
+                .bind(game.stable_id, game.region, game.variants)
+                .all();
           const typedResults = (results || []) as {
             rom_name?: string | null;
           }[];

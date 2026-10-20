@@ -1317,7 +1317,9 @@ export class CollectionListComponent
     >();
     for (const g of allGames) {
       const romKey = this.getRomGroupingKey(g.rom_name);
-      const baseKey = `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${romKey}`;
+      const baseKey = romKey.startsWith('multi:')
+        ? `${g.game_id || g.id}_${romKey}`
+        : `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${romKey}`;
       if (!groupedMap.has(baseKey)) {
         groupedMap.set(baseKey, {
           ...g,
@@ -1955,11 +1957,29 @@ export class CollectionListComponent
   }
 
   private readonly BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
+    // 1. God of War Saga (PS3, USA)
     'god of war collection (usa) (v02.00)': 'multi:god of war saga (usa)',
+    'god of war collection (usa, canada) (v02.00)':
+      'multi:god of war saga (usa)',
     'god of war iii (usa) (v02.00)': 'multi:god of war saga (usa)',
+    'god of war iii (usa, canada) (v02.00)': 'multi:god of war saga (usa)',
+
+    // 2. Infamous Collection (PS3, USA)
     'infamous (usa) (en,fr,es) (v02.00)': 'multi:infamous collection (usa)',
+    'infamous (usa, canada) (en,fr,es) (v02.00)':
+      'multi:infamous collection (usa)',
     'infamous 2 (usa) (en,fr,es,pt) (v02.00)':
       'multi:infamous collection (usa)',
+    'infamous 2 (usa, canada) (en,fr,es,pt) (v02.00)':
+      'multi:infamous collection (usa)',
+
+    // 3. Killzone Trilogy (PS3, USA)
+    'killzone trilogy (usa) (killzone + killzone 2)':
+      'multi:killzone trilogy (usa)',
+    'killzone 3 (usa, brazil) (en,ja,fr,de,es,it,nl,pt,sv,no,da,fi,zh,ko,pl,ru,tr)':
+      'multi:killzone trilogy (usa)',
+
+    // 4. Metal Gear Solid: The Legacy Collection (PS3, USA / Europe / Japan)
     'metal gear solid - the legacy collection 1987-2012 (usa) (en,fr,es) (disc 2)':
       'multi:metal gear solid - the legacy collection 1987-2012 (usa)',
     'metal gear solid 4 - guns of the patriots (usa) (en,fr,de,es,it) (v02.00)':
@@ -1972,11 +1992,44 @@ export class CollectionListComponent
       'multi:metal gear solid - the legacy collection 1987-2012 (japan)',
     'metal gear solid 4 - guns of the patriots (japan) (v02.01)':
       'multi:metal gear solid - the legacy collection 1987-2012 (japan)',
+
+    // 5. Mass Effect Trilogy (PS3, USA & Europe)
+    'mass effect (usa, asia) (en,fr,es)': 'multi:mass effect trilogy (usa)',
+    'mass effect 2 (usa, asia) (en,fr,de,es,it,ru)':
+      'multi:mass effect trilogy (usa)',
+    'mass effect 3 (usa, asia) (en,ja,fr,de,es,it,pl,ru)':
+      'multi:mass effect trilogy (usa)',
+    'mass effect (europe) (en,fr,de,es,it)':
+      'multi:mass effect trilogy (europe)',
+    'mass effect 2 (europe, australia) (en,fr,de,es,it,ru)':
+      'multi:mass effect trilogy (europe)',
+    'mass effect 3 (europe) (en,ja,fr,de,es,it,pl,ru)':
+      'multi:mass effect trilogy (europe)',
+
+    // 6. Mass Effect Trilogy (Xbox 360, USA & Italy)
+    'mass effect (usa, europe) (en,es,pl) (rev 1)':
+      'multi:mass effect trilogy (usa)',
+    'mass effect 2 (usa, europe) (en,es) (disc 1)':
+      'multi:mass effect trilogy (usa)',
+    'mass effect 2 (usa, europe) (en,es) (disc 2)':
+      'multi:mass effect trilogy (usa)',
+    'mass effect 3 (world) (en,ja,fr,de,es,it,pl,ru) (disc 1)':
+      'multi:mass effect trilogy (usa)',
+    'mass effect 3 (world) (en,ja,fr,de,es,it,pl,ru) (disc 2)':
+      'multi:mass effect trilogy (usa)',
     'mass effect (italy) (rev 1)': 'multi:mass effect trilogy (italy)',
     'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 1) (rev 1)':
       'multi:mass effect trilogy (italy)',
     'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 2) (rev 1)':
       'multi:mass effect trilogy (italy)',
+
+    // 7. Assassin's Creed: Heritage Collection (Xbox 360, Europe)
+    "assassin's creed (usa, europe) (en,fr,de,es,it) (rev 1)":
+      "multi:assassin's creed - heritage collection (europe)",
+    "assassin's creed - brotherhood (usa, europe) (en,fr,de,es,it,nl,pt,sv,no,da)":
+      "multi:assassin's creed - heritage collection (europe)",
+    "assassin's creed - revelations (usa, europe) (en,fr,de,es,it,nl,pt,sv,no,da)":
+      "multi:assassin's creed - heritage collection (europe)",
     "assassin's creed ii - game of the year edition (europe) (en,fr,de,es,it,nl,sv,no,da)":
       "multi:assassin's creed - heritage collection (europe)",
     "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 1) (rev 1)":
@@ -1989,18 +2042,31 @@ export class CollectionListComponent
       "multi:assassin's creed - heritage collection (europe) (pl,ru)",
     "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 2) (rev 1)":
       "multi:assassin's creed - heritage collection (europe) (pl,ru)",
-    'grand theft auto - vice city (usa) (v4.00)':
+
+    // 8. Grand Theft Auto: The Trilogy (PS2, USA)
+    'grand theft auto iii (usa, canada)':
       'multi:grand theft auto - the trilogy (usa)',
+    'grand theft auto - vice city (usa, canada) (v3.00)':
+      'multi:grand theft auto - the trilogy (usa)',
+    'grand theft auto - vice city (usa) (v4.00)':
+      'multi:grand theft auto - the trilogy (usa) (v4.00)',
     'grand theft auto - san andreas (usa) (v3.00) (rev 1)':
       'multi:grand theft auto - the trilogy (usa)',
+
+    // 9. Grand Theft Auto: The Trilogy (Xbox, USA / Europe)
+    'grand theft auto iii (usa)': 'multi:grand theft auto - the trilogy (usa)',
     'grand theft auto - vice city (usa) (rev 1)':
       'multi:grand theft auto - the trilogy (usa)',
     'grand theft auto - san andreas (usa) (en,es) (rev 1)':
       'multi:grand theft auto - the trilogy (usa)',
+    'grand theft auto iii (europe) (en,fr,de,es,it)':
+      'multi:grand theft auto - the trilogy (europe)',
     'grand theft auto - vice city (europe) (en,fr,es,it) (rev 1)':
       'multi:grand theft auto - the trilogy (europe)',
     'grand theft auto - san andreas (europe) (en,fr,de,es,it) (rev 1)':
       'multi:grand theft auto - the trilogy (europe)',
+
+    // 10. BioShock: Ultimate Rapture Edition (Xbox 360, USA / Europe)
     'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock - bonus content)':
       'multi:bioshock - ultimate rapture edition (usa)',
     'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock 2 - bonus content)':
