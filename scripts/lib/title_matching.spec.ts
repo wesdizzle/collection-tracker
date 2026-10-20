@@ -749,5 +749,73 @@ describe('Title Matching Strategies', () => {
         49,
       ),
     ).toBe(true);
+
+    // Standalone add-on packs, tutorial discs, expansion kits, and cross-leaked bonus discs must never match base games
+    expect(
+      titlesMatch(
+        'Fallout 3',
+        'Fallout 3 - Game Add-On Pack - The Pitt and Operation - Anchorage',
+        'Fallout 3 - Game Add-On Pack - The Pitt and Operation - Anchorage (USA, Europe).iso',
+        48,
+      ),
+    ).toBe(false);
+
+    expect(
+      titlesMatch(
+        'Borderlands 2',
+        'Borderlands 2 - Add-On Content Pack',
+        'Borderlands 2 - Add-On Content Pack (USA).iso',
+        48,
+      ),
+    ).toBe(false);
+
+    expect(
+      titlesMatch(
+        'Viva Piñata',
+        'Viva Pinata',
+        'Viva Pinata (USA) (Tutorial).iso',
+        48,
+      ),
+    ).toBe(false);
+
+    expect(
+      titlesMatch(
+        'F-Zero X',
+        'F-Zero X - Expansion Kit',
+        'F-Zero X - Expansion Kit (Japan).ndd',
+        4,
+      ),
+    ).toBe(false);
+
+    expect(
+      titlesMatch(
+        "Tom Clancy's Splinter Cell: Pandora Tomorrow",
+        "Tom Clancy's Splinter Cell",
+        "Tom Clancy's Splinter Cell (Europe) (Bonus Disc).iso",
+        47,
+      ),
+    ).toBe(false);
+
+    expect(
+      titlesMatch(
+        'Gears of War: Judgment',
+        'Gears of War',
+        'Gears of War (USA) (Bonus Disc).iso',
+        48,
+      ),
+    ).toBe(false);
+
+    expect(
+      titlesMatch('LEGO Rock Band', 'Rock Band', 'Rock Band (USA).iso', 48),
+    ).toBe(false);
+
+    expect(
+      titlesMatch(
+        'Far Cry 3',
+        'Far Cry 3 - Blood Dragon',
+        'Far Cry 3 - Blood Dragon (USA).iso',
+        48,
+      ),
+    ).toBe(false);
   });
 });

@@ -343,21 +343,27 @@ function matchAlternative(
     }
   }
 
-  // 2. Enforce boundary check to prevent matching a Bonus Disc to a main game (or vice versa).
+  // 2. Enforce boundary check to prevent matching a Bonus Disc, Tutorial Disc, Standalone Add-on Pack,
+  // or Expansion Kit to a main game (or vice versa).
   // We only bypass this check for Master Quest/Zelda bonus discs, or when the titles match
   // via an explicit alias (where their un-aliased base titles differ).
   if (!isZeldaMQ) {
-    const isReleaseSpecial =
-      rawLower.includes('bonus disc') ||
-      (rawLower.includes('bonus') && rawLower.includes('disc')) ||
-      rawLower.includes('tokusei disc') ||
-      rawLower.includes('kakuchou disc');
+    const isSpecialDiscOrPack = (str: string): boolean =>
+      str.includes('bonus disc') ||
+      (str.includes('bonus') && str.includes('disc')) ||
+      str.includes('tokusei disc') ||
+      str.includes('kakuchou disc') ||
+      str.includes('tutorial disc') ||
+      str.includes('(tutorial)') ||
+      str.includes('add-on pack') ||
+      str.includes('add-on content pack') ||
+      str.includes('add-on doppelpack') ||
+      str.includes('pack de expansion') ||
+      str.includes('extension de jeu') ||
+      str.includes('expansion kit');
 
-    const isGameSpecial =
-      gameLower.includes('bonus disc') ||
-      (gameLower.includes('bonus') && gameLower.includes('disc')) ||
-      gameLower.includes('tokusei disc') ||
-      gameLower.includes('kakuchou disc');
+    const isReleaseSpecial = isSpecialDiscOrPack(rawLower);
+    const isGameSpecial = isSpecialDiscOrPack(gameLower);
 
     if (isReleaseSpecial !== isGameSpecial) {
       return false;
@@ -463,6 +469,15 @@ function matchAlternative(
     const lower = segment.toLowerCase().trim();
     if (fullTitle && isAcronymOf(segment, fullTitle)) {
       return true;
+    }
+    if (
+      lower.includes('add-on') ||
+      lower.includes('addon') ||
+      lower.includes('expansion') ||
+      lower.includes('extension de jeu') ||
+      lower.includes('tutorial')
+    ) {
+      return false;
     }
     return (
       isTrueEditionOrRevisionVariant(lower) ||
