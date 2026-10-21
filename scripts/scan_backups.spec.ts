@@ -568,7 +568,7 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       ).toBe(false);
     });
 
-    it('should match Vita NoNpDrm .zip backups and Title IDs to canonical releases', () => {
+    it('should match Vita cartridge .zip backups and Title IDs to canonical releases', () => {
       const vitaReleases: ReleaseRow[] = [
         {
           id: 'p4g-vita-usa',

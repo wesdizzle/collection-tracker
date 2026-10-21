@@ -289,15 +289,7 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
     name: 'PlayStation Vita',
     remoteFileName: 'Unofficial - Sony - PlayStation Vita (PSVgameSD).xml',
     canonicalFileName: 'Sony - PlayStation Vita (PSVgameSD).dat',
-    pattern:
-      /^(?:Unofficial\s*-\s*)?Sony\s*-\s*PlayStation Vita(?!\s*\(NoNpDrm\))/i,
-  },
-  {
-    name: 'PlayStation Vita (NoNpDrm)',
-    remoteFileName: 'Unofficial - Sony - PlayStation Vita (NoNpDrm).xml',
-    canonicalFileName: 'Sony - PlayStation Vita (NoNpDrm).dat',
-    pattern:
-      /^(?:Unofficial\s*-\s*)?Sony\s*-\s*PlayStation Vita\s*\(NoNpDrm\)/i,
+    pattern: /^(?:Unofficial\s*-\s*)?Sony\s*-\s*PlayStation Vita/i,
   },
   {
     name: 'Sega Master System',
@@ -820,10 +812,7 @@ export async function downloadNoIntroDat(
     }
   }
 
-  if (
-    target.name === 'PlayStation Vita' ||
-    target.name === 'PlayStation Vita (NoNpDrm)'
-  ) {
+  if (target.name === 'PlayStation Vita') {
     const rawBaseName = target.remoteFileName.replace(/\.(?:xml|dat)$/i, '');
     const spludlowUrl = `https://data.spludlow.co.uk/no-intro/unofficial/${encodeURIComponent(rawBaseName)}.xml`;
 

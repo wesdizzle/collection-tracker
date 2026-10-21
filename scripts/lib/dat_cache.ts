@@ -92,6 +92,7 @@ export function findDatFileForPlatform(
   const ignoredPatterns = [
     /\(psn\)/i,
     /\(digital\)/i,
+    /\(nonpdrm\)/i,
     /\(updates\)/i,
     /\(title updates\)/i,
     /\(dlc\)/i,

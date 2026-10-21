@@ -290,36 +290,36 @@ describe('Canonical DAT Downloader', () => {
     expect(result.fileName).toBe('Nintendo - Wii U - Datfile (541).dat');
   });
 
-  it('should fetch and save canonical PlayStation Vita NoNpDrm releases directly from mirror', async () => {
-    const mockNonpdrmXml = `<?xml version="1.0"?>
+  it('should fetch and save canonical PlayStation Vita PSVgameSD releases directly from mirror', async () => {
+    const mockVitaXml = `<?xml version="1.0"?>
 <datafile>
   <header>
-    <name>Unofficial - Sony - PlayStation Vita (NoNpDrm)</name>
+    <name>Unofficial - Sony - PlayStation Vita (PSVgameSD)</name>
   </header>
-  <game name="Bloodstained - Curse of the Moon (USA)" id="z100">
-    <description>Bloodstained - Curse of the Moon (USA)</description>
-    <game_id>PCSE01270</game_id>
-    <rom name="PCSE01270\\\\eboot.bin" size="5000000" crc="aabbccdd" serial="PCSE-01270"/>
+  <game name="Persona 4 Golden (USA)" id="z100">
+    <description>Persona 4 Golden (USA)</description>
+    <game_id>PCSE00120</game_id>
+    <rom name="Persona 4 Golden (USA).psv" size="3300000000" crc="12345678" serial="PCSE-00120"/>
   </game>
 </datafile>`;
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      text: async () => mockNonpdrmXml,
+      text: async () => mockVitaXml,
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    const nonpdrmTarget = NO_INTRO_TARGETS.find(
-      (t) => t.name === 'PlayStation Vita (NoNpDrm)',
+    const vitaTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'PlayStation Vita',
     )!;
-    expect(nonpdrmTarget).toBeDefined();
+    expect(vitaTarget).toBeDefined();
 
-    const result = await downloadNoIntroDat(nonpdrmTarget, tempTestDir);
+    const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
     expect(result.success).toBe(true);
-    expect(result.fileName).toBe('Sony - PlayStation Vita (NoNpDrm).dat');
+    expect(result.fileName).toBe('Sony - PlayStation Vita (PSVgameSD).dat');
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://data.spludlow.co.uk/no-intro/unofficial/Unofficial%20-%20Sony%20-%20PlayStation%20Vita%20(NoNpDrm).xml',
+      'https://data.spludlow.co.uk/no-intro/unofficial/Unofficial%20-%20Sony%20-%20PlayStation%20Vita%20(PSVgameSD).xml',
       expect.any(Object),
     );
 
@@ -327,29 +327,29 @@ describe('Canonical DAT Downloader', () => {
     expect(fs.existsSync(savedPath)).toBe(true);
     const content = fs.readFileSync(savedPath, 'utf8');
     expect(content).toContain('<datafile>');
-    expect(content).toContain('Bloodstained - Curse of the Moon (USA)');
+    expect(content).toContain('Persona 4 Golden (USA)');
   });
 
-  it('should preserve existing PlayStation Vita NoNpDrm DAT if network request fails', async () => {
+  it('should preserve existing PlayStation Vita DAT if network request fails', async () => {
     const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
     vi.stubGlobal('fetch', mockFetch);
 
-    const nonpdrmTarget = NO_INTRO_TARGETS.find(
-      (t) => t.name === 'PlayStation Vita (NoNpDrm)',
+    const vitaTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'PlayStation Vita',
     )!;
     const preExistingPath = path.join(
       tempTestDir,
-      'Sony - PlayStation Vita (NoNpDrm).dat',
+      'Sony - PlayStation Vita (PSVgameSD).dat',
     );
     fs.writeFileSync(
       preExistingPath,
-      '<datafile><game name="Pre-existing NoNpDrm Game"/></datafile>',
+      '<datafile><game name="Pre-existing Vita Game"/></datafile>',
       'utf8',
     );
 
-    const result = await downloadNoIntroDat(nonpdrmTarget, tempTestDir);
+    const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
     expect(result.success).toBe(true);
-    expect(result.fileName).toBe('Sony - PlayStation Vita (NoNpDrm).dat');
+    expect(result.fileName).toBe('Sony - PlayStation Vita (PSVgameSD).dat');
     expect(fs.existsSync(preExistingPath)).toBe(true);
   });
 

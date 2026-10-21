@@ -463,7 +463,7 @@ function getFilesRecursive(dir: string): string[] {
       const fullPath = path.join(dir, file);
       const stat = fs.statSync(fullPath);
       if (stat && stat.isDirectory()) {
-        // Detect container directories (e.g. Vita NoNpDrm / PS3 / Xbox folder dumps)
+        // Detect container directories (e.g. Vita / PS3 / Xbox folder dumps)
         const isGameContainer =
           fs.existsSync(path.join(fullPath, 'eboot.bin')) ||
           fs.existsSync(path.join(fullPath, 'sce_sys', 'param.sfo')) ||
