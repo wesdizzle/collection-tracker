@@ -202,7 +202,7 @@
             }}
           </span>
         }
-        @if (game().physical_status === 'announced_unreleased') {
+        @if (game().release_date && isUpcomingDate(game().release_date)) {
           <span
             class="upcoming-badge"
             [title]="
@@ -217,7 +217,8 @@
             }}</span>
           </span>
         } @else if (
-          game().physical_status === 'physical_pending' &&
+          (game().physical_status === 'not_yet_physical' ||
+            game().physical_status === 'physical_pending') &&
           game().ownership_status !== 1
         ) {
           <span
@@ -229,9 +230,7 @@
           </span>
         }
       </div>
-      @if (
-        game().release_date && game().physical_status !== 'announced_unreleased'
-      ) {
+      @if (game().release_date && !isUpcomingDate(game().release_date)) {
         <span class="release-year">{{
           game().release_date!.substring(0, 4)
         }}</span>

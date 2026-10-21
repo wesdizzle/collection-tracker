@@ -337,19 +337,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                                 Likely Physical</span
                               >
                             } @else if (
-                              game.physical_status === 'announced_unreleased'
-                            ) {
-                              <span
-                                class="physical-badge upcoming flex items-center gap-2xs"
-                                title="Announced Game / Upcoming Release"
-                                ><app-icon
-                                  name="calendar"
-                                  [size]="12"
-                                  class="text-blue-400"
-                                />
-                                Upcoming</span
-                              >
-                            } @else if (
+                              game.physical_status === 'not_yet_physical' ||
                               game.physical_status === 'physical_pending'
                             ) {
                               <span
@@ -1056,18 +1044,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                         Likely Physical</span
                       >
                     } @else if (
-                      game.physical_status === 'announced_unreleased'
+                      game.physical_status === 'not_yet_physical' ||
+                      game.physical_status === 'physical_pending'
                     ) {
-                      <span
-                        class="physical-badge upcoming flex items-center gap-2xs"
-                        ><app-icon
-                          name="calendar"
-                          [size]="12"
-                          class="text-blue-400"
-                        />
-                        Upcoming</span
-                      >
-                    } @else if (game.physical_status === 'physical_pending') {
                       <span
                         class="physical-badge pending flex items-center gap-2xs"
                         ><app-icon
@@ -1158,7 +1137,11 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                     }
                   </div>
                 </div>
-              } @else if (game.physical_status === 'announced_unreleased') {
+              } @else if (
+                game.physical_status === 'not_yet_physical' ||
+                (game.first_release_date &&
+                  isUpcomingDate(game.first_release_date))
+              ) {
                 <div
                   class="upcoming-info-banner p-md mb-lg rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-200 text-sm flex items-start gap-sm"
                 >
@@ -1168,9 +1151,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                     class="text-blue-400 shrink-0 mt-2xs"
                   />
                   <div>
-                    <span class="font-bold">Upcoming Release:</span> This title
-                    has been announced and is awaiting commercial launch. It
-                    will be tracked as an upcoming release on your wishlist.
+                    <span class="font-bold">Wishlist Title:</span> This title is
+                    awaiting physical release confirmation or commercial launch.
+                    It will be tracked on your physical wishlist.
                     @if (game.first_release_date) {
                       <div class="mt-2xs text-xs text-blue-300 font-medium">
                         Expected Date: {{ game.first_release_date }}
@@ -2491,6 +2474,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     return fallback;
   }
 
+  public isUpcomingDate(dateStr?: string | null): boolean {
+    if (!dateStr) return false;
+    return new Date(dateStr) > new Date();
+  }
+
   /**
    * Resets the search state to initial view.
    */
@@ -2729,8 +2717,12 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
 
     // Reset forms to defaults (Seeking for upcoming/pending, else Owned)
     const isUpcomingOrPending =
-      game.physical_status === 'announced_unreleased' ||
-      game.physical_status === 'physical_pending';
+      game.physical_status === 'not_yet_physical' ||
+      game.physical_status === 'physical_pending' ||
+      Boolean(
+        game.first_release_date &&
+        new Date(game.first_release_date) > new Date(),
+      );
     this.ownershipStatus.set(isUpcomingOrPending ? 2 : 1);
     this.playStatus.set(0);
     this.backupStatus.set(0);

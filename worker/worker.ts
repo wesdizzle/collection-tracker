@@ -4021,7 +4021,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
             MAX(COALESCE(r.ownership_status, 0)) AS ownership_status,
-            MAX(CASE WHEN r.ownership_status = 1 AND r.is_physical = 1 THEN 1 ELSE 0 END) AS has_owned_physical,
+            MAX(CASE WHEN r.ownership_status = 1 THEN 1 ELSE 0 END) AS has_owned_physical,
             GROUP_CONCAT(COALESCE(r.variants, '')) AS owned_variants
      FROM games g
      LEFT JOIN game_releases r ON r.game_id = g.stable_id
@@ -4415,7 +4415,7 @@ async function dispatchPhysicalAnnouncementNotifications(
 
 /**
  * Checks for tracked games releasing on today's calendar date, transitions their status
- * from 'announced_unreleased' to 'likely_physical', and dispatches launch-day push notifications.
+ * to 'likely_physical', and dispatches launch-day push notifications.
  */
 export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
   dispatchedCount: number;
@@ -4431,7 +4431,7 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
        JOIN platforms p ON p.id = g.platform_id
        JOIN game_releases r ON r.game_id = g.stable_id
        WHERE r.release_date = DATE('now')
-         AND g.physical_status = 'announced_unreleased'`,
+         AND g.physical_status != 'verified_physical'`,
     ).all<{
       stable_id: number;
       id: string;
@@ -4627,7 +4627,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     const upcomingRes = await env.DB.prepare(
       `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series, physical_status
        FROM games
-       WHERE physical_status IN ('announced_unreleased', 'physical_pending')
+       WHERE physical_status IN ('not_yet_physical', 'physical_pending', 'likely_physical')
          AND igdb_id IS NOT NULL AND igdb_id > 0`,
     ).all<{
       stable_id: number;

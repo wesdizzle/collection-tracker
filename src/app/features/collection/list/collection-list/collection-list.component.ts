@@ -776,7 +776,6 @@ export class CollectionListComponent
         tagExact: false,
         sortBy: 'default',
         deals_only: false,
-        media_type: 'physical_only',
         budget_label: 'all',
       });
       this.displayLimit.set(100);
@@ -835,9 +834,6 @@ export class CollectionListComponent
         const own = parseInt(ownStr, 10);
         if (!isNaN(own)) qpFilters.ownership = own as OwnershipStatus;
       }
-    }
-    if (qp['media_type']) {
-      qpFilters.media_type = qp['media_type'] as FilterState['media_type'];
     }
     if (qp['deals_only'] !== undefined) {
       qpFilters.deals_only =
@@ -1467,38 +1463,6 @@ export class CollectionListComponent
         return false;
       }
 
-      // Media Type Filter (Defaults to Physical Only)
-      const mediaType = f.media_type || 'physical_only';
-      if (mediaType === 'physical_only') {
-        const isAwaitingPhysical =
-          (g.ownership_status === OwnershipStatus.Seeking ||
-            g.ownership_status === OwnershipStatus.Ordered) &&
-          (g.physical_status === 'physical_pending' ||
-            g.physical_status === 'announced_unreleased');
-
-        if (!isAwaitingPhysical) {
-          if (
-            g.physical_status === 'digital_extracted_rom' ||
-            g.physical_status === 'digital_only' ||
-            g.release_medium === 'digital_extracted_rom' ||
-            g.release_medium === 'digital_native' ||
-            g.release_medium === 'unreleased_prototype'
-          ) {
-            return false;
-          }
-        }
-      } else if (mediaType === 'digital_extracted') {
-        const isDigitalOrExtracted =
-          g.physical_status === 'digital_extracted_rom' ||
-          g.physical_status === 'digital_only' ||
-          g.release_medium === 'digital_extracted_rom' ||
-          g.release_medium === 'digital_native' ||
-          g.release_medium === 'unreleased_prototype';
-        if (!isDigitalOrExtracted) {
-          return false;
-        }
-      }
-
       // Basic Ownership Filter
       const status = g.ownership_status ?? 0;
       if (f.ownership === 'seeking_or_unowned') {
@@ -1508,7 +1472,8 @@ export class CollectionListComponent
         if (!isSeekingOrUnowned) return false;
       } else if (f.ownership === 'upcoming') {
         const isUpcoming =
-          g.physical_status === 'announced_unreleased' ||
+          (g.release_date && new Date(g.release_date) > new Date()) ||
+          g.physical_status === 'not_yet_physical' ||
           (g.physical_status === 'physical_pending' &&
             status !== OwnershipStatus.Owned) ||
           status === OwnershipStatus.Ordered;

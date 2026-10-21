@@ -101,28 +101,6 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters!.physical_verified).toBe('all');
   });
 
-  it('should render media type filter on games tab and emit correct values on change', () => {
-    fixture.componentRef.setInput('currentTab', 'games');
-    fixture.detectChanges();
-
-    const select = fixture.nativeElement.querySelector(
-      '#filter-media-type',
-    ) as HTMLSelectElement;
-    expect(select).toBeTruthy();
-
-    let emittedFilters: FilterState | null = null;
-    component.filtersChange.subscribe((f) => {
-      emittedFilters = f;
-    });
-
-    component.onPartialChange('media_type', 'all');
-    expect(emittedFilters).toBeTruthy();
-    expect(emittedFilters!.media_type).toBe('all');
-
-    component.onPartialChange('media_type', 'digital_extracted');
-    expect(emittedFilters!.media_type).toBe('digital_extracted');
-  });
-
   it('should not render physical verified filter on toys tab', () => {
     fixture.componentRef.setInput('currentTab', 'toys');
     fixture.detectChanges();
@@ -322,7 +300,7 @@ describe('CollectionFiltersComponent', () => {
     fixture.componentRef.setInput('filters', {
       ownership: 1,
       platform_id: 4,
-      media_type: 'digital_extracted',
+      play_status: 2,
     });
     fixture.detectChanges();
     expect(component.activeFilterCount()).toBe(2);
@@ -357,6 +335,5 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters?.deals_only).toBe(false);
     expect(emittedFilters?.name).toBe('');
     expect(emittedFilters?.regions).toEqual([]);
-    expect(emittedFilters?.media_type).toBe('physical_only');
   });
 });

@@ -472,84 +472,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                 </div>
               </div>
 
-              <!-- Media Type -->
-              <div class="filter-group">
-                <div class="filter-group-header">
-                  <label class="m3-label">Media Type</label>
-                </div>
-                <div
-                  class="input-wrapper dropdown-wrapper"
-                  [class.active-wrapper]="activeDropdown() === 'media_type'"
-                >
-                  <button
-                    type="button"
-                    class="m3-input dropdown-trigger"
-                    [class.open]="activeDropdown() === 'media_type'"
-                    (click)="toggleDropdown('media_type', $event)"
-                    id="filter-media-type"
-                    aria-haspopup="listbox"
-                    [attr.aria-expanded]="activeDropdown() === 'media_type'"
-                  >
-                    <span class="trigger-text">{{ getMediaTypeLabel() }}</span>
-                    <span class="dropdown-icon-wrapper" aria-hidden="true">
-                      <svg
-                        class="dropdown-chevron"
-                        [class.open]="activeDropdown() === 'media_type'"
-                        viewBox="0 0 24 24"
-                        width="18"
-                        height="18"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                        />
-                      </svg>
-                    </span>
-                  </button>
-                  @if (activeDropdown() === 'media_type') {
-                    <div
-                      class="dropdown-list animate-expressive"
-                      role="listbox"
-                    >
-                      @for (opt of mediaTypeOptions; track opt.value) {
-                        <button
-                          type="button"
-                          class="dropdown-item state-layer"
-                          [class.selected]="
-                            (filters().media_type || 'physical_only') ===
-                            opt.value
-                          "
-                          (click)="selectOption('media_type', opt.value)"
-                          role="option"
-                          [attr.aria-selected]="
-                            (filters().media_type || 'physical_only') ===
-                            opt.value
-                          "
-                        >
-                          <span class="item-label">{{ opt.label }}</span>
-                          @if (
-                            (filters().media_type || 'physical_only') ===
-                            opt.value
-                          ) {
-                            <svg
-                              class="selected-check"
-                              viewBox="0 0 24 24"
-                              width="16"
-                              height="16"
-                              fill="currentColor"
-                            >
-                              <path
-                                d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                              />
-                            </svg>
-                          }
-                        </button>
-                      }
-                    </div>
-                  }
-                </div>
-              </div>
-
               <!-- Backup -->
               <div class="filter-group">
                 <div class="filter-group-header">
@@ -2436,7 +2358,6 @@ export class CollectionFiltersComponent {
     if (f.platform_id !== undefined && f.platform_id !== null) count++;
     if (f.regions && f.regions.length > 0) count++;
     if (f.play_status && f.play_status !== 'all') count++;
-    if (f.media_type && f.media_type !== 'physical_only') count++;
     if (f.backup_status !== undefined && f.backup_status !== 'all') count++;
     if (f.physical_verified !== undefined && f.physical_verified !== 'all')
       count++;
@@ -2472,7 +2393,6 @@ export class CollectionFiltersComponent {
       tagExact: false,
       sortBy: 'default',
       deals_only: false,
-      media_type: 'physical_only',
       budget_label: 'all',
     });
   }
@@ -2545,12 +2465,6 @@ export class CollectionFiltersComponent {
     { value: 4, label: 'Paused' },
     { value: 5, label: 'Dropped' },
     { value: 0, label: 'Unplayed' },
-  ];
-
-  readonly mediaTypeOptions = [
-    { value: 'physical_only', label: 'Physical Media Only' },
-    { value: 'all', label: 'All Items (Physical + Digital)' },
-    { value: 'digital_extracted', label: 'Extracted Backups & Digital' },
   ];
 
   readonly backupOptions: {
@@ -2751,12 +2665,6 @@ export class CollectionFiltersComponent {
     const val = this.filters().play_status ?? 'all';
     const opt = this.playStatusOptions.find((o) => o.value === val);
     return opt ? opt.label : 'All';
-  }
-
-  getMediaTypeLabel(): string {
-    const val = this.filters().media_type || 'physical_only';
-    const opt = this.mediaTypeOptions.find((o) => o.value === val);
-    return opt ? opt.label : 'Physical Media Only';
   }
 
   getBackupLabel(): string {

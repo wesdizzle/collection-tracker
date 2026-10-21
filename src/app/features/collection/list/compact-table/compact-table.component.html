@@ -345,11 +345,14 @@
                 game.ownership_status !== 1 &&
                 (!game.discIds || game.discIds.length <= 1)
               ) {
-                @if (game.physical_status === 'announced_unreleased') {
+                @if (game.release_date && isUpcomingDate(game.release_date)) {
                   <span class="upcoming-chip" title="Announced / Pre-order">
                     <app-icon name="calendar" [size]="11" /> Upcoming
                   </span>
-                } @else if (game.physical_status === 'physical_pending') {
+                } @else if (
+                  game.physical_status === 'not_yet_physical' ||
+                  game.physical_status === 'physical_pending'
+                ) {
                   <span class="pending-chip" title="Awaiting Physical Edition">
                     <app-icon name="clock" [size]="11" /> Watch
                   </span>

@@ -122,7 +122,7 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   <span>IGDB Verified</span>
                 </a>
               }
-              @if (g.physical_status === 'announced_unreleased') {
+              @if (g.release_date && !hasOwnedPhysical(g)) {
                 <div class="stat-pill active upcoming">
                   <span class="icon"
                     ><app-icon name="calendar" [size]="14"
@@ -130,7 +130,7 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   <span>Upcoming Launch (Pre-Release)</span>
                 </div>
               } @else if (
-                g.physical_status === 'physical_pending' && !hasOwnedPhysical(g)
+                g.physical_status === 'not_yet_physical' && !hasOwnedPhysical(g)
               ) {
                 <div
                   class="stat-pill active pending interactive"
@@ -2961,10 +2961,14 @@ export class ItemDetailComponent {
   public upcomingReleaseInfo = computed(() => {
     const g = this.game();
     if (!g) return null;
-    const isAnnounced = g.physical_status === 'announced_unreleased';
-    const isPending = g.physical_status === 'physical_pending';
-    if (!isAnnounced && !isPending) return null;
-    if (isPending && this.hasOwnedPhysical(g)) return null;
+    const isUpcomingDate = Boolean(
+      g.release_date && new Date(g.release_date) > new Date(),
+    );
+    const isNotYetPhysical =
+      g.physical_status === 'not_yet_physical' ||
+      g.physical_status === 'physical_pending';
+    if (!isUpcomingDate && !isNotYetPhysical) return null;
+    if (isNotYetPhysical && this.hasOwnedPhysical(g)) return null;
 
     let countdownText: string | null = null;
     let isReleased = false;
@@ -3002,8 +3006,8 @@ export class ItemDetailComponent {
     }
 
     return {
-      isAnnounced,
-      isPending,
+      isAnnounced: isUpcomingDate,
+      isPending: isNotYetPhysical,
       countdownText,
       isReleased,
       hasStoreLink: !!g.retail_url,
@@ -3052,23 +3056,24 @@ export class ItemDetailComponent {
   public hasOwnedPhysical(game?: Game | null): boolean {
     if (!game) return false;
     if (game.releases && game.releases.length > 0) {
-      return game.releases.some(
-        (r) => r.ownership_status === 1 && r.is_physical !== 0,
-      );
+      return game.releases.some((r) => r.ownership_status === 1);
     }
     return (
-      game.ownership_status === 1 && game.physical_status !== 'digital_only'
+      game.ownership_status === 1 &&
+      game.physical_status !== 'not_yet_physical' &&
+      game.physical_status !== 'digital_only'
     );
   }
 
   /**
-   * Toggles the physical watch status ('physical_pending' vs 'digital_only') for digital games.
+   * Toggles the physical watch status ('not_yet_physical' vs 'likely_physical') for games.
    */
   public toggleWatchPhysical(game: Game): void {
     const nextStatus =
+      game.physical_status === 'not_yet_physical' ||
       game.physical_status === 'physical_pending'
-        ? 'digital_only'
-        : 'physical_pending';
+        ? 'unverified'
+        : 'not_yet_physical';
 
     this.collectionService.updatePhysicalStatus(game.id, nextStatus).subscribe({
       next: () => {

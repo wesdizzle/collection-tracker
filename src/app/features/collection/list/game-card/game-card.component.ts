@@ -124,6 +124,11 @@ export class GameCardComponent {
     return getMediaIconName(game.display_name || game.platform, backedUp);
   }
 
+  public isUpcomingDate(releaseDate: string | null | undefined): boolean {
+    if (!releaseDate) return false;
+    return new Date(releaseDate) > new Date();
+  }
+
   private normalizeBudgetToken(token: string): string | null {
     const trimmed = token.trim();
     if (!trimmed) return null;

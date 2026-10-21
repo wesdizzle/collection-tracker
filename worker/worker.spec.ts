@@ -1957,7 +1957,7 @@ describe('Worker API Logic', () => {
       }
     });
 
-    it('syncWorkerLaunchDayNotifications transitions announced_unreleased games launching today', async () => {
+    it('syncWorkerLaunchDayNotifications transitions games launching today', async () => {
       db.prepare(
         `
         INSERT OR IGNORE INTO platforms (id, name, display_name)
@@ -1968,7 +1968,7 @@ describe('Worker API Logic', () => {
       db.prepare(
         `
         INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-        VALUES (888, 'metroid-prime-4', 'Metroid Prime 4: Beyond', 26, 'announced_unreleased')
+        VALUES (888, 'metroid-prime-4', 'Metroid Prime 4: Beyond', 26, 'likely_physical')
       `,
       ).run();
 

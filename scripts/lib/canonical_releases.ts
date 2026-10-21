@@ -69,7 +69,7 @@ export type ReleaseMedium =
 export type PhysicalStatus =
   | 'verified_physical'
   | 'likely_physical'
-  | 'announced_unreleased'
+  | 'not_yet_physical'
   | 'physical_pending'
   | 'digital_extracted_rom'
   | 'digital_only'
@@ -756,10 +756,12 @@ export function detectPhysicalReleaseStatus(options: {
     reasons.push(
       hasPhysicalSignal
         ? 'Upcoming game with confirmed or likely physical distribution signals'
-        : 'Upcoming/announced title awaiting commercial release',
+        : 'Upcoming/announced title awaiting physical release confirmation',
     );
     return {
-      physical_status: 'announced_unreleased',
+      physical_status: hasPhysicalSignal
+        ? 'likely_physical'
+        : 'not_yet_physical',
       verification_tier: hasPhysicalSignal ? 2 : 0,
       is_physical: hasPhysicalSignal,
       reasons,
