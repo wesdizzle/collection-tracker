@@ -437,6 +437,11 @@ export function reconcileGameReleasesWithCanonical(
       );
     }
 
+    // Graduate game physical_status to 'verified_physical' upon matching canonical DAT signature
+    sqlStatements.push(
+      `UPDATE games SET physical_status = 'verified_physical' WHERE stable_id = ${rel.game_id} AND physical_status IN ('not_yet_physical', 'physical_pending', 'unverified');`,
+    );
+
     // If best is Disc 1 of a multi-disc set, automatically ensure Disc 2+ exist for this game
     const bestGroupKey = getRomGroupingKey(best.rom_name);
     if (bestGroupKey.startsWith('multi:')) {
@@ -578,6 +583,19 @@ export function reconcileGameReleasesWithCanonical(
       WHERE id = ?
     `);
 
+    // Check if physical_status column exists before running update
+    const tableInfo = db.pragma('table_info(games)') as Array<{ name: string }>;
+    const hasPhysicalStatus = tableInfo.some(
+      (c) => c.name === 'physical_status',
+    );
+    const graduateStmt = hasPhysicalStatus
+      ? db.prepare(`
+          UPDATE games
+          SET physical_status = 'verified_physical'
+          WHERE stable_id = ? AND physical_status IN ('not_yet_physical', 'physical_pending', 'unverified')
+        `)
+      : null;
+
     const applyTx = db.transaction(() => {
       for (const u of updates) {
         updateStmt.run(
@@ -587,6 +605,9 @@ export function reconcileGameReleasesWithCanonical(
           u.romCrc,
           u.releaseId,
         );
+        if (graduateStmt) {
+          graduateStmt.run(u.gameId);
+        }
       }
     });
 

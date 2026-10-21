@@ -4111,7 +4111,8 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     };
   }
 
-  const placeholders = targetPlatforms.map(() => '?').join(', ');
+  const platformsWithNoPlat = [...targetPlatforms, 0];
+  const placeholders = platformsWithNoPlat.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
             MAX(COALESCE(r.ownership_status, 0)) AS ownership_status,
@@ -4122,7 +4123,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
      WHERE g.platform_id IN (${placeholders})
      GROUP BY g.stable_id`,
   )
-    .bind(...targetPlatforms)
+    .bind(...platformsWithNoPlat)
     .all<{
       stable_id: number;
       id: string;
@@ -4198,7 +4199,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
     const match = gamesWithNorm.find(
       (g) =>
-        g.platform_id === po.platformId &&
+        (g.platform_id === po.platformId || g.platform_id === 0) &&
         (g.normTitle === poNorm ||
           g.title.toLowerCase() === po.cleanTitle.toLowerCase()),
     );
@@ -4207,7 +4208,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
       po.priceCents ?? (po.priceUsd ? Math.round(po.priceUsd * 100) : null);
 
     if (match) {
+      const isGraduatingFromNoPlatform = match.platform_id === 0;
       const shouldUpdatePhysicalStatus =
+        match.physical_status === 'not_yet_physical' ||
         match.physical_status === 'physical_pending' ||
         match.physical_status === 'unverified' ||
         match.physical_status === 'digital_only';
@@ -4218,23 +4221,72 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
       const isUrlDifferent = match.retail_url !== po.productUrl;
 
-      if (shouldUpdatePhysicalStatus || isUrlDifferent) {
-        statements.push(
-          env.DB.prepare(
-            `UPDATE games
-             SET physical_status = ?,
-                 retail_url = ?,
-                 retail_price = COALESCE(?, retail_price),
-                 retail_store = ?
-             WHERE stable_id = ?`,
-          ).bind(
-            nextPhysicalStatus,
-            po.productUrl,
-            priceCents,
-            po.store,
-            match.stable_id,
-          ),
-        );
+      if (
+        shouldUpdatePhysicalStatus ||
+        isUrlDifferent ||
+        isGraduatingFromNoPlatform
+      ) {
+        if (isGraduatingFromNoPlatform) {
+          // Graduate game to target console platform and update slug
+          const slugify = (s: string) =>
+            (s || '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '');
+          const newSlug = `${slugify(match.title)}-${po.platformId}`;
+
+          statements.push(
+            env.DB.prepare(
+              `UPDATE games
+               SET platform_id = ?,
+                   id = ?,
+                   physical_status = 'likely_physical',
+                   retail_url = ?,
+                   retail_price = COALESCE(?, retail_price),
+                   retail_store = ?
+               WHERE stable_id = ?`,
+            ).bind(
+              po.platformId,
+              newSlug,
+              po.productUrl,
+              priceCents,
+              po.store,
+              match.stable_id,
+            ),
+          );
+
+          // Insert the boutique pre-order edition release
+          const relId = `${newSlug}-boutique-${po.store.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+          statements.push(
+            env.DB.prepare(
+              `INSERT OR IGNORE INTO game_releases (
+                 id, game_id, region, variants, ownership_status, backup_status, release_date
+               ) VALUES (?, ?, 'USA', ?, ?, 0, NULL)`,
+            ).bind(
+              relId,
+              match.stable_id,
+              po.edition || 'Standard Physical',
+              match.ownership_status || 2, // Retain Seeking/Ordered
+            ),
+          );
+        } else {
+          statements.push(
+            env.DB.prepare(
+              `UPDATE games
+               SET physical_status = ?,
+                   retail_url = ?,
+                   retail_price = COALESCE(?, retail_price),
+                   retail_store = ?
+               WHERE stable_id = ?`,
+            ).bind(
+              nextPhysicalStatus,
+              po.productUrl,
+              priceCents,
+              po.store,
+              match.stable_id,
+            ),
+          );
+        }
       }
 
       // Evaluate announcement notification criteria (Proposal 3):
@@ -4267,7 +4319,12 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
       if (shouldNotify) {
         newlyAnnouncedGames.push({
-          game: match,
+          game: {
+            ...match,
+            platform_id: isGraduatingFromNoPlatform
+              ? po.platformId
+              : match.platform_id,
+          },
           preOrder: po,
           isSpecialEdition,
         });
@@ -4444,7 +4501,10 @@ async function dispatchPhysicalAnnouncementNotifications(
           if (game.ownership_status === 2) {
             return scopeSeeking;
           }
-          if (game.physical_status === 'physical_pending') {
+          if (
+            game.physical_status === 'not_yet_physical' ||
+            game.physical_status === 'physical_pending'
+          ) {
             return scopeWatchPhysical;
           }
           return scopeUnowned;

@@ -2366,6 +2366,86 @@ describe('Worker API Logic', () => {
       }
     });
 
+    it('syncWorkerBoutiquePreOrders graduates Platform 0 wishlist title to announced console platform', async () => {
+      // Game exists in Wishlist under Platform 0 ('No Platform')
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (995, 'mushroom-11-no-platform', 'Mushroom 11', 0, 'not_yet_physical')`,
+      ).run();
+
+      // Ensure boutique_seed_completed is present so notifications / updates fire normally
+      db.prepare(
+        `INSERT OR REPLACE INTO sync_state (key, value) VALUES ('boutique_seed_completed', '1')`,
+      ).run();
+
+      // Limited Run Games announces Mushroom 11 for Nintendo Switch (platform 26)
+      const mockShopify = {
+        products: [
+          {
+            id: 991122,
+            title: 'Mushroom 11 - Nintendo Switch',
+            handle: 'mushroom-11-switch',
+            tags: ['game', 'pre-order'],
+            created_at: new Date().toISOString(),
+            variants: [{ price: '34.99' }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (
+            typeof input === 'string' &&
+            input.includes('limitedrungames.com')
+          ) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.matchedCount).toBeGreaterThanOrEqual(1);
+
+        // Verify game graduated from platform 0 to platform 26 and status is likely_physical
+        const updatedGame = db
+          .prepare(
+            'SELECT platform_id, physical_status, retail_store FROM games WHERE stable_id = 995',
+          )
+          .get() as {
+          platform_id: number;
+          physical_status: string;
+          retail_store: string;
+        };
+        expect(updatedGame.platform_id).toBe(26);
+        expect(updatedGame.physical_status).toBe('likely_physical');
+        expect(updatedGame.retail_store).toBe('Limited Run Games');
+
+        // Verify a boutique pre-order edition release was inserted
+        const insertedReleases = db
+          .prepare(
+            'SELECT id, game_id, variants FROM game_releases WHERE game_id = 995',
+          )
+          .all() as Array<{ id: string; game_id: number; variants: string }>;
+        expect(insertedReleases.length).toBe(1);
+        expect(insertedReleases[0].variants).toBe('Standard Physical');
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
     it('syncWorkerBoutiquePreOrders silently updates retail_url for games already physical without dispatching notifications', async () => {
       // Game is verified_physical with an old retail_url
       db.prepare(
