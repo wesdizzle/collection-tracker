@@ -877,6 +877,53 @@ export class CollectionService {
   }
 
   /**
+   * Permanently deletes a game (and all of its releases and journal entry).
+   * Accepts either the game ID or any of its release IDs. Admin-only.
+   */
+  deleteGame(id: string): Observable<{ success: boolean }> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
+    return this.http
+      .delete<{
+        success: boolean;
+      }>(`/api/collection/game?id=${encodeURIComponent(id)}`)
+      .pipe(
+        tap(() => {
+          this._isAdmin.set(true);
+          this._games.update((games) =>
+            games.filter((g) => g.id !== id && g.game_id !== id),
+          );
+        }),
+        catchError(this.handleMutationError),
+      );
+  }
+
+  /**
+   * Permanently deletes a single release (edition/copy) of a game. Admin-only.
+   * The parent game remains, even if it ends up with no releases.
+   */
+  deleteRelease(releaseId: string): Observable<{ success: boolean }> {
+    if (!this._isAdmin()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Admin session required'),
+      );
+    }
+    return this.http
+      .delete<{
+        success: boolean;
+      }>(`/api/collection/release?id=${encodeURIComponent(releaseId)}`)
+      .pipe(
+        tap(() => this._isAdmin.set(true)),
+        catchError(this.handleMutationError),
+      );
+  }
+
+  /**
    * Updates the sort_index for a collection item.
    */
   updateSortIndex(

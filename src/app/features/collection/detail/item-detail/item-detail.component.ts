@@ -38,7 +38,7 @@ import {
   STANDARD_MERCHANTS,
   formatJournalDate,
 } from '../../../../core/models/collection.models';
-import { combineLatest, of, Observable } from 'rxjs';
+import { combineLatest, of, Observable, firstValueFrom } from 'rxjs';
 import { switchMap, catchError } from 'rxjs/operators';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { NavigationHistoryService } from '../../../../core/services/navigation-history.service';
@@ -544,6 +544,17 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                                     : 'No Backup'
                                 }}</span>
                               </button>
+                              @if (collectionService.isAdmin()) {
+                                <button
+                                  type="button"
+                                  class="btn-danger"
+                                  title="Remove this release"
+                                  (click)="requestDeleteRelease(release)"
+                                >
+                                  <app-icon name="close" [size]="14" />
+                                  <span>Remove</span>
+                                </button>
+                              }
                             </div>
                           </div>
                         }
@@ -1561,6 +1572,67 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
               </div>
             </section>
           }
+          @if (collectionService.isAdmin()) {
+            <section class="mt-lg flex justify-end">
+              <button
+                type="button"
+                class="btn-danger"
+                data-testid="delete-game-btn"
+                (click)="requestDeleteGame(g)"
+              >
+                <app-icon name="close" [size]="14" />
+                <span>Delete Game</span>
+              </button>
+            </section>
+          }
+        }
+
+        @if (pendingDelete(); as pd) {
+          <div
+            class="delete-modal-backdrop"
+            data-testid="delete-modal"
+            (click)="cancelDelete()"
+          >
+            <div class="delete-modal" (click)="$event.stopPropagation()">
+              <h3 class="font-bold mb-sm">
+                {{ pd.kind === 'game' ? 'Delete game?' : 'Remove release?' }}
+              </h3>
+              <p class="text-sm text-secondary mb-md">
+                @if (pd.kind === 'game') {
+                  Remove "{{ pd.label }}" and all of its releases and
+                  acquisition records from your collection? This cannot be
+                  undone.
+                } @else {
+                  Remove release "{{ pd.label }}"? The game itself will remain.
+                  This cannot be undone.
+                }
+              </p>
+              @if (deleteError(); as de) {
+                <p class="text-sm mb-sm" style="color: var(--m3-error)">
+                  {{ de }}
+                </p>
+              }
+              <div class="flex justify-end gap-sm">
+                <button
+                  type="button"
+                  class="btn-journal-action"
+                  [disabled]="deleting()"
+                  (click)="cancelDelete()"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  class="btn-danger"
+                  data-testid="confirm-delete-btn"
+                  [disabled]="deleting()"
+                  (click)="confirmDelete()"
+                >
+                  {{ deleting() ? 'Deleting…' : 'Delete' }}
+                </button>
+              </div>
+            </div>
+          </div>
         }
 
         @if (toy(); as t) {
@@ -2286,6 +2358,47 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         color: var(--m3-on-secondary-container);
         border-color: transparent;
       }
+      .btn-danger {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.85rem;
+        border-radius: var(--radius-full);
+        background: transparent;
+        border: 1px solid var(--m3-error);
+        color: var(--m3-error);
+        font-family: var(--font-body);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .btn-danger:hover:not(:disabled) {
+        background: var(--m3-error);
+        color: var(--m3-on-error);
+      }
+      .btn-danger:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .delete-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.55);
+      }
+      .delete-modal {
+        max-width: 26rem;
+        width: calc(100% - 2rem);
+        padding: 1.25rem;
+        border-radius: var(--radius-lg, 1rem);
+        background: var(--m3-surface-container-high);
+        border: 1px solid var(--m3-outline-variant);
+        color: var(--m3-on-surface);
+      }
       .journal-privacy-caption {
         display: flex;
         align-items: center;
@@ -2409,6 +2522,15 @@ export class ItemDetailComponent {
   public readonly standardMerchants = STANDARD_MERCHANTS;
 
   public journalRefreshTrigger = signal<number>(0);
+
+  /** Pending game/release deletion awaiting user confirmation. */
+  public pendingDelete = signal<{
+    kind: 'game' | 'release';
+    id: string;
+    label: string;
+  } | null>(null);
+  public deleting = signal<boolean>(false);
+  public deleteError = signal<string | null>(null);
   public isEditingJournal = signal<boolean>(false);
   public journalSaving = signal<boolean>(false);
   public journalSaveError = signal<string | null>(null);
@@ -2956,6 +3078,68 @@ export class ItemDetailComponent {
         console.error('Failed to toggle physical watch status:', err);
       },
     });
+  }
+
+  /**
+   * Opens the delete confirmation for an entire game.
+   */
+  public requestDeleteGame(game: Game): void {
+    this.deleteError.set(null);
+    this.pendingDelete.set({
+      kind: 'game',
+      id: game.game_id || game.id,
+      label: game.title,
+    });
+  }
+
+  /**
+   * Opens the delete confirmation for a single release.
+   */
+  public requestDeleteRelease(release: GameRelease): void {
+    this.deleteError.set(null);
+    this.pendingDelete.set({
+      kind: 'release',
+      id: release.id,
+      label: release.rom_name || release.region || release.id,
+    });
+  }
+
+  public cancelDelete(): void {
+    if (this.deleting()) return;
+    this.pendingDelete.set(null);
+    this.deleteError.set(null);
+  }
+
+  /**
+   * Executes the confirmed deletion. Deleting a game returns to the list;
+   * deleting a release reloads the collection so the detail view refreshes.
+   */
+  public async confirmDelete(): Promise<void> {
+    const pd = this.pendingDelete();
+    if (!pd || this.deleting()) return;
+    this.deleting.set(true);
+    this.deleteError.set(null);
+    try {
+      if (pd.kind === 'game') {
+        await firstValueFrom(this.collectionService.deleteGame(pd.id));
+        this.pendingDelete.set(null);
+        this.router.navigate(['/collection', 'games']);
+      } else {
+        await firstValueFrom(this.collectionService.deleteRelease(pd.id));
+        this.pendingDelete.set(null);
+        await this.collectionService.refreshAll();
+        const g = this.game();
+        if (g) {
+          g.releases = (g.releases || []).filter((r) => r.id !== pd.id);
+        }
+      }
+    } catch (err) {
+      this.deleteError.set(
+        err instanceof Error ? err.message : 'Deletion failed.',
+      );
+    } finally {
+      this.deleting.set(false);
+    }
   }
 
   /**

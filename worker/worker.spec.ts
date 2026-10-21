@@ -235,8 +235,8 @@ describe('Worker API Logic', () => {
           }),
           first: async () => db.prepare(query).get(...params) as unknown,
           run: async () => {
-            db.prepare(query).run(...params);
-            return { success: true };
+            const info = db.prepare(query).run(...params);
+            return { success: true, meta: { changes: info.changes } };
           },
         }),
         all: async () => ({ results: db.prepare(query).all() as unknown[] }),
@@ -2742,6 +2742,107 @@ describe('Worker API Logic', () => {
         physical_status: string;
       };
       expect(row.physical_status).toBe('physical_pending');
+    });
+
+    describe('Game & release deletion', () => {
+      const adminHeaders = { 'x-admin-key': 'test-secret-key' };
+
+      beforeEach(() => {
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+           VALUES (950, 'del-game', 'Deletable Game', 26, 'likely_physical')`,
+        ).run();
+        db.prepare(
+          `INSERT INTO game_releases (id, game_id, region, ownership_status)
+           VALUES ('del-game-usa', 950, 'USA', 1), ('del-game-eu', 950, 'Europe', 2)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO journal_entries (item_type, item_id, notes)
+           VALUES ('game', 'del-game', 'bought at a flea market')`,
+        ).run();
+      });
+
+      it('DELETE /api/collection/game requires admin authentication', async () => {
+        const req = new Request(
+          'https://collection-tracker.example.com/api/collection/game?id=del-game',
+          { method: 'DELETE' },
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(403);
+        expect(
+          db.prepare('SELECT 1 FROM games WHERE id = ?').get('del-game'),
+        ).toBeDefined();
+      });
+
+      it('DELETE /api/collection/game removes the game, its releases and journal entry', async () => {
+        const req = new Request(
+          'http://localhost/api/collection/game?id=del-game',
+          { method: 'DELETE', headers: adminHeaders },
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(200);
+
+        expect(
+          db.prepare('SELECT 1 FROM games WHERE id = ?').get('del-game'),
+        ).toBeUndefined();
+        expect(
+          db.prepare('SELECT 1 FROM game_releases WHERE game_id = 950').get(),
+        ).toBeUndefined();
+        expect(
+          db
+            .prepare(
+              `SELECT 1 FROM journal_entries WHERE item_type = 'game' AND item_id = 'del-game'`,
+            )
+            .get(),
+        ).toBeUndefined();
+      });
+
+      it('DELETE /api/collection/game resolves a release id to its parent game', async () => {
+        const req = new Request(
+          'http://localhost/api/collection/game?id=del-game-eu',
+          { method: 'DELETE', headers: adminHeaders },
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(200);
+        expect(
+          db.prepare('SELECT 1 FROM games WHERE id = ?').get('del-game'),
+        ).toBeUndefined();
+      });
+
+      it('DELETE /api/collection/game returns 404 for unknown ids', async () => {
+        const req = new Request(
+          'http://localhost/api/collection/game?id=nope',
+          { method: 'DELETE', headers: adminHeaders },
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(404);
+      });
+
+      it('DELETE /api/collection/release removes only the targeted release', async () => {
+        const req = new Request(
+          'http://localhost/api/collection/release?id=del-game-eu',
+          { method: 'DELETE', headers: adminHeaders },
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(200);
+
+        const remaining = db
+          .prepare('SELECT id FROM game_releases WHERE game_id = 950')
+          .all() as Array<{ id: string }>;
+        expect(remaining.map((r) => r.id)).toEqual(['del-game-usa']);
+        expect(
+          db.prepare('SELECT 1 FROM games WHERE id = ?').get('del-game'),
+        ).toBeDefined();
+      });
+
+      it('DELETE /api/collection/release returns 404 for unknown ids', async () => {
+        const req = new Request(
+          'http://localhost/api/collection/release?id=nope',
+          { method: 'DELETE', headers: adminHeaders },
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(404);
+      });
     });
   });
 

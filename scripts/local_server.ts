@@ -2307,6 +2307,76 @@ export const handleRequest =
         res.end(JSON.stringify({ success: true }));
       }
 
+      // DELETE /api/collection/game?id=<game id | release id>
+      else if (req.method === 'DELETE' && pathname === '/api/collection/game') {
+        const rawId = (url.searchParams.get('id') || '').trim();
+        if (!rawId) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: 'Game id is required.' }));
+          return;
+        }
+
+        const game = db
+          .prepare(
+            `SELECT stable_id, id FROM games WHERE id = ?
+             UNION ALL
+             SELECT g.stable_id, g.id FROM games g
+               JOIN game_releases r ON r.game_id = g.stable_id WHERE r.id = ?
+             LIMIT 1`,
+          )
+          .get(rawId, rawId) as { stable_id: number; id: string } | undefined;
+
+        if (!game) {
+          res.statusCode = 404;
+          res.end(
+            JSON.stringify({ error: `Could not find game with ID: ${rawId}` }),
+          );
+          return;
+        }
+
+        db.transaction(() => {
+          db.prepare(
+            `DELETE FROM journal_entries WHERE item_type = 'game' AND item_id = ?`,
+          ).run(game.id);
+          db.prepare('DELETE FROM game_releases WHERE game_id = ?').run(
+            game.stable_id,
+          );
+          db.prepare('DELETE FROM games WHERE stable_id = ?').run(
+            game.stable_id,
+          );
+        })();
+
+        res.end(JSON.stringify({ success: true, deletedGameId: game.id }));
+      }
+
+      // DELETE /api/collection/release?id=<release id>
+      else if (
+        req.method === 'DELETE' &&
+        pathname === '/api/collection/release'
+      ) {
+        const releaseId = (url.searchParams.get('id') || '').trim();
+        if (!releaseId) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: 'Release id is required.' }));
+          return;
+        }
+
+        const result = db
+          .prepare('DELETE FROM game_releases WHERE id = ?')
+          .run(releaseId);
+        if (result.changes === 0) {
+          res.statusCode = 404;
+          res.end(
+            JSON.stringify({
+              error: `Could not find release with ID: ${releaseId}`,
+            }),
+          );
+          return;
+        }
+
+        res.end(JSON.stringify({ success: true, deletedReleaseId: releaseId }));
+      }
+
       // Default fallback
       else {
         res.statusCode = 404;

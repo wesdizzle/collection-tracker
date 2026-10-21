@@ -47,6 +47,46 @@ describe('CollectionService', () => {
     expect(service).toBeTruthy();
   });
 
+  describe('Deletion', () => {
+    beforeEach(() => {
+      (
+        service as unknown as { _isAdmin: { set(v: boolean): void } }
+      )._isAdmin.set(true);
+    });
+
+    it('deleteGame issues DELETE and removes the game from local state', () => {
+      (
+        service as unknown as {
+          _games: { set(v: Partial<Game>[]): void };
+        }
+      )._games.set([
+        { id: 'rel-a', game_id: 'g1' },
+        { id: 'rel-b', game_id: 'g1' },
+        { id: 'other', game_id: 'g2' },
+      ]);
+
+      let result: { success: boolean } | undefined;
+      service.deleteGame('g1').subscribe((r) => (result = r));
+
+      const req = httpMock.expectOne('/api/collection/game?id=g1');
+      expect(req.request.method).toBe('DELETE');
+      req.flush({ success: true });
+
+      expect(result?.success).toBe(true);
+      expect(service.games().map((g) => g.id)).toEqual(['other']);
+    });
+
+    it('deleteRelease issues DELETE for the release id', () => {
+      let result: { success: boolean } | undefined;
+      service.deleteRelease('rel a/1').subscribe((r) => (result = r));
+
+      const req = httpMock.expectOne('/api/collection/release?id=rel%20a%2F1');
+      expect(req.request.method).toBe('DELETE');
+      req.flush({ success: true });
+      expect(result?.success).toBe(true);
+    });
+  });
+
   it('should fetch games list using relative path', () => {
     const mockGames = [{ stable_id: 1, title: 'Super Mario' }];
 

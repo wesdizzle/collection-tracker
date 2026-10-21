@@ -875,5 +875,60 @@ describe('Local Server API Logic', () => {
       const deleted = JSON.parse(delRes.end.mock.calls[0][0]);
       expect(deleted.success).toBe(true);
     });
+
+    it('should delete a single release and then the whole game via /api/collection/*', async () => {
+      const handler = handleRequest(mockDb);
+      mockDb
+        .prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id) VALUES (9100, 'del-local', 'Local Delete', 1)`,
+        )
+        .run();
+      mockDb
+        .prepare(
+          `INSERT INTO game_releases (id, game_id, region) VALUES ('del-local-a', 9100, 'USA'), ('del-local-b', 9100, 'Europe')`,
+        )
+        .run();
+      mockDb
+        .prepare(
+          `INSERT INTO journal_entries (item_type, item_id, notes) VALUES ('game', 'del-local', 'note')`,
+        )
+        .run();
+
+      const { req: relReq, res: relRes } = createMocks(
+        '/api/collection/release?id=del-local-b',
+        'DELETE',
+      );
+      await handler(relReq, relRes);
+      expect(JSON.parse(relRes.end.mock.calls[0][0]).success).toBe(true);
+      expect(
+        mockDb
+          .prepare(
+            'SELECT COUNT(*) as c FROM game_releases WHERE game_id = 9100',
+          )
+          .get(),
+      ).toEqual({ c: 1 });
+
+      const { req: gameReq, res: gameRes } = createMocks(
+        '/api/collection/game?id=del-local',
+        'DELETE',
+      );
+      await handler(gameReq, gameRes);
+      expect(JSON.parse(gameRes.end.mock.calls[0][0]).success).toBe(true);
+      expect(
+        mockDb.prepare('SELECT 1 FROM games WHERE stable_id = 9100').get(),
+      ).toBeUndefined();
+      expect(
+        mockDb
+          .prepare(`SELECT 1 FROM journal_entries WHERE item_id = 'del-local'`)
+          .get(),
+      ).toBeUndefined();
+
+      const { req: missReq, res: missRes } = createMocks(
+        '/api/collection/game?id=missing',
+        'DELETE',
+      );
+      await handler(missReq, missRes);
+      expect(missRes.statusCode).toBe(404);
+    });
   });
 });
