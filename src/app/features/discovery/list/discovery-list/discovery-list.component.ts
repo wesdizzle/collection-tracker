@@ -370,13 +370,24 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                     </div>
 
                     <div class="card-actions flex gap-xs items-center mt-sm">
-                      <button
-                        class="m3-btn m3-btn-primary flex-1 btn-sm"
-                        [disabled]="getSelectedPlatformsCount(game) === 0"
-                        (click)="ingestSelectedForGame(game)"
-                      >
-                        Ingest Selected ({{ getSelectedPlatformsCount(game) }})
-                      </button>
+                      @if (game.platform_id === 0) {
+                        <button
+                          class="m3-btn m3-btn-primary flex-1 btn-sm"
+                          (click)="ingestWishlistForGame(game)"
+                        >
+                          + Wishlist Physical
+                        </button>
+                      } @else {
+                        <button
+                          class="m3-btn m3-btn-primary flex-1 btn-sm"
+                          [disabled]="getSelectedPlatformsCount(game) === 0"
+                          (click)="ingestSelectedForGame(game)"
+                        >
+                          Ingest Selected ({{
+                            getSelectedPlatformsCount(game)
+                          }})
+                        </button>
+                      }
                       <button
                         class="m3-btn m3-btn-secondary btn-sm"
                         title="Customize ingestion options and releases"
@@ -2667,6 +2678,49 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.showToast(
         `Successfully ingested "${game.name}" (${successCount} edition${successCount > 1 ? 's' : ''})!`,
       );
+    }
+  }
+
+  /**
+   * 1-Click ingestion for Platform 0 ('No Platform') wishlist titles.
+   */
+  async ingestWishlistForGame(game: IGDBSearchResult): Promise<void> {
+    const cleanIgdbId =
+      typeof game.id === 'string'
+        ? parseInt(game.id.replace('igdb-', ''), 10)
+        : Number(game.id);
+
+    const payload = {
+      game: {
+        title: game.name,
+        platform_id: 0,
+        igdb_id: isNaN(cleanIgdbId) ? null : cleanIgdbId,
+        igdb_url: game.igdb_url || null,
+        summary: game.summary || null,
+        genres: game.genres || null,
+        region: 'USA',
+        image_url: game.image_url || null,
+        collections: game.collections || null,
+        franchises: game.franchises || null,
+        ownership_status: 2, // Seeking
+        play_status: 0,
+        backup_status: 0,
+        physical_status: 'not_yet_physical' as const,
+        verification_tier: 0,
+        release_date: game.first_release_date || null,
+      },
+      releases: [],
+    };
+
+    try {
+      await firstValueFrom(this.collectionService.addGame(payload));
+      this.searchResults.update((current) =>
+        current.filter((g) => g.id !== game.id),
+      );
+      this.showToast(`Added "${game.name}" to Physical Wishlist!`);
+    } catch (err: unknown) {
+      console.error(`Failed to wishlist ${game.name}:`, err);
+      this.showToast(`Failed to add "${game.name}" to wishlist.`);
     }
   }
 

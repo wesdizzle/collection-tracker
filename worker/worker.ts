@@ -1002,9 +1002,34 @@ Disallow: /
             }>;
           }>;
 
-          const officialResults = (rawResults || []).filter((g) =>
+          let officialResults = (rawResults || []).filter((g) =>
             isOfficialIGDBGame(g),
           );
+
+          // If searching with platformId == 0 or if search across tracked platforms produced 0 results,
+          // execute global IGDB fallback without platform filter
+          let isGlobalFallback = false;
+          if (
+            officialResults.length === 0 &&
+            (!targetPlatformId || targetPlatformId === 0)
+          ) {
+            const globalQuery = `
+              search "${sanitizedQuery}";
+              fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher;
+              where (game_type = null | (game_type != 5 & game_type != 12)) & (category = null | (category != 5 & category != 12));
+              limit 30;
+            `;
+            const rawGlobal = (await queryIGDBEdge(
+              'games',
+              globalQuery,
+              env,
+            )) as typeof rawResults;
+            officialResults = (rawGlobal || []).filter((g) =>
+              isOfficialIGDBGame(g),
+            );
+            isGlobalFallback = true;
+          }
+
           if (officialResults.length === 0) {
             return Response.json([]);
           }
@@ -1135,7 +1160,68 @@ Disallow: /
                   : trackedIgdbIds.includes(p.id);
               });
 
+              // Untracked platform detection for global fallback
+              const allPlatformNames = (g.platforms || [])
+                .map((p) => p.name)
+                .filter(Boolean);
+              const untrackedPlatforms =
+                isGlobalFallback && candidatePlatforms.length === 0
+                  ? allPlatformNames
+                  : undefined;
+
               if (candidatePlatforms.length === 0) {
+                if (isGlobalFallback) {
+                  // Check if already tracked under Platform 0 or elsewhere
+                  const isAlreadyOwned =
+                    existingSet.has(`igdb-${g.id}-0`) ||
+                    existingSet.has(`title-${cleanTitle}-0`) ||
+                    existingSet.has(`norm-${normTitle}-0`);
+
+                  if (isAlreadyOwned) {
+                    return null;
+                  }
+
+                  return {
+                    id: `igdb-${g.id}`,
+                    name: g.name,
+                    platform: 'No Platform',
+                    platform_id: 0,
+                    image_url: imageUrl,
+                    summary: g.summary || null,
+                    genres: g.genres?.map((ge) => ge.name).join(', ') || null,
+                    igdb_url: g.url || null,
+                    collections:
+                      g.collections?.map((c) => c.name).join(', ') || null,
+                    franchises:
+                      g.franchises?.map((f) => f.name).join(', ') || null,
+                    physical_status: 'not_yet_physical' as const,
+                    verification_tier: 0,
+                    is_physical: false,
+                    physical_regions: [],
+                    region: 'USA',
+                    matched_releases: [],
+                    verification_reasons: [
+                      'Game has not released on tracked physical consoles. Tracked on physical wishlist.',
+                    ],
+                    first_release_date: g.first_release_date
+                      ? new Date(g.first_release_date * 1000)
+                          .toISOString()
+                          .split('T')[0]
+                      : null,
+                    physical_platforms: [
+                      {
+                        platform_id: 0,
+                        platform_name: 'No Platform',
+                        physical_status: 'not_yet_physical' as const,
+                        is_physical: false,
+                        is_owned: false,
+                        matched_releases_count: 0,
+                        matched_releases: [],
+                      },
+                    ],
+                    untracked_platforms: untrackedPlatforms,
+                  };
+                }
                 return null;
               }
 
@@ -2608,7 +2694,12 @@ Disallow: /
         };
 
         const { game, releases } = body;
-        if (!game || !game.title || !game.platform_id) {
+        if (
+          !game ||
+          !game.title ||
+          game.platform_id === undefined ||
+          game.platform_id === null
+        ) {
           return Response.json(
             { error: 'Invalid game payload' },
             { status: 400 },
@@ -2714,7 +2805,10 @@ Disallow: /
 
         const finalStableId = insertedGame?.stable_id || 0;
 
-        if (releases && releases.length > 0) {
+        if (game.platform_id === 0) {
+          // Virtual Platform 0 represents untracked / wishlist games with 0 releases.
+          // Do not create default releases.
+        } else if (releases && releases.length > 0) {
           const statements = [];
           for (let i = 0; i < releases.length; i++) {
             const rel = releases[i];

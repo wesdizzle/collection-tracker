@@ -325,6 +325,7 @@ export interface IGDBSearchResult {
   verification_reasons?: string[];
   first_release_date?: string | null;
   physical_platforms?: DiscoveryPlatformOption[];
+  untracked_platforms?: string[];
 }
 
 export interface ScanSuggestion {

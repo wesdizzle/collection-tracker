@@ -750,6 +750,47 @@ describe('Worker API Logic', () => {
     expect(releases[0].rom_crc).toBe('D63ED5F8');
   });
 
+  it('POST /api/discovery/add inserts Platform 0 wishlist title with 0 releases', async () => {
+    const req = new Request('http://localhost/api/discovery/add', {
+      method: 'POST',
+      body: JSON.stringify({
+        game: {
+          title: 'Mushroom 11',
+          platform_id: 0,
+          igdb_id: 9999,
+          physical_status: 'not_yet_physical',
+          ownership_status: 2,
+        },
+        releases: [],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { success: boolean; gameId: string };
+    expect(data.success).toBe(true);
+
+    const insertedGame = db
+      .prepare(
+        'SELECT title, platform_id, physical_status, stable_id FROM games WHERE id = ?',
+      )
+      .get(data.gameId) as {
+      title: string;
+      platform_id: number;
+      physical_status: string;
+      stable_id: number;
+    };
+    expect(insertedGame.title).toBe('Mushroom 11');
+    expect(insertedGame.platform_id).toBe(0);
+    expect(insertedGame.physical_status).toBe('not_yet_physical');
+
+    const releases = db
+      .prepare('SELECT id FROM game_releases WHERE game_id = ?')
+      .all(insertedGame.stable_id);
+    expect(releases).toHaveLength(0);
+  });
+
   it('POST /api/discovery/add-toy inserts or updates amiibo toys', async () => {
     const req = new Request('http://localhost/api/discovery/add-toy', {
       method: 'POST',
@@ -1007,6 +1048,39 @@ describe('Worker API Logic', () => {
           );
         }
         if (urlStr.includes('api.igdb.com/v4/games')) {
+          const bodyStr = String(init?.body || '');
+          if (bodyStr.includes('Mushroom 11')) {
+            // First call with platforms = (...) returns []
+            if (bodyStr.includes('platforms = (')) {
+              return Promise.resolve(
+                new Response(JSON.stringify([]), {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                }),
+              );
+            }
+            return Promise.resolve(
+              new Response(
+                JSON.stringify([
+                  {
+                    id: 9999,
+                    name: 'Mushroom 11',
+                    platforms: [
+                      { id: 6, name: 'PC' },
+                      { id: 39, name: 'iOS' },
+                    ],
+                    cover: { image_id: 'm11_cover' },
+                    first_release_date: 1444867200,
+                  },
+                ]),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            );
+          }
+
           return Promise.resolve(
             new Response(
               JSON.stringify([
@@ -1070,6 +1144,26 @@ describe('Worker API Logic', () => {
       }>;
       expect(filteredResults).toHaveLength(1);
       expect(filteredResults[0].name).toBe('Metroid Fusion');
+
+      // 3. Search with Platform 0 fallback for untracked indie title
+      const indieReq = new Request(
+        'http://localhost/api/discovery/search?query=Mushroom+11&platformId=0',
+      );
+      const indieRes = await worker.fetch(indieReq, mockEnv);
+      expect(indieRes.status).toBe(200);
+      const indieResults = (await indieRes.json()) as Array<{
+        name: string;
+        platform: string;
+        platform_id: number;
+        physical_status: string;
+        untracked_platforms?: string[];
+      }>;
+      expect(indieResults).toHaveLength(1);
+      expect(indieResults[0].name).toBe('Mushroom 11');
+      expect(indieResults[0].platform_id).toBe(0);
+      expect(indieResults[0].platform).toBe('No Platform');
+      expect(indieResults[0].physical_status).toBe('not_yet_physical');
+      expect(indieResults[0].untracked_platforms).toContain('PC');
     } finally {
       globalThis.fetch = originalFetch;
     }

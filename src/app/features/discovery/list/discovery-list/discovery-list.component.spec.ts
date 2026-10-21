@@ -653,4 +653,36 @@ describe('DiscoveryListComponent', () => {
     expect(component.matchedReleases()[0].name).toBe('Table Tennis Wii');
     expect(component.selectedReleaseIds().has('BBBB2222')).toBe(true);
   });
+
+  it('should support 1-click wishlist ingestion for Platform 0 titles', async () => {
+    const untrackedGame: IGDBSearchResult = {
+      id: 'igdb-9999',
+      name: 'Mushroom 11',
+      platform: 'No Platform',
+      platform_id: 0,
+      image_url: 'https://images.igdb.com/cover.jpg',
+      physical_status: 'not_yet_physical',
+      untracked_platforms: ['PC', 'iOS', 'Android'],
+    };
+
+    mockCollectionService.addGame.mockReturnValueOnce(
+      of({ success: true, gameId: 'mushroom-11-no-platform' }),
+    );
+
+    component.searchResults.set([untrackedGame]);
+    await component.ingestWishlistForGame(untrackedGame);
+
+    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        game: expect.objectContaining({
+          title: 'Mushroom 11',
+          platform_id: 0,
+          ownership_status: 2,
+          physical_status: 'not_yet_physical',
+        }),
+        releases: [],
+      }),
+    );
+    expect(component.searchResults()).toHaveLength(0);
+  });
 });
