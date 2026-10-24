@@ -858,6 +858,27 @@
 }
 
 @media (max-width: 640px) {
+  .summary-cards-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--spacing-12);
+  }
+
+  .stat-card {
+    padding: var(--spacing-14, 14px);
+  }
+
+  .stat-main-value {
+    font-size: 1.5rem;
+  }
+
+  .condition-valuation-summary {
+    gap: var(--spacing-6, 6px);
+  }
+
+  .val-num {
+    font-size: 0.875rem;
+  }
+
   .insight-panel {
     padding: var(--spacing-16);
   }

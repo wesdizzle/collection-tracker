@@ -263,9 +263,9 @@ interface GameGroup {
       }
 
       .platform-section {
-        contain: layout style;
         content-visibility: auto;
         contain-intrinsic-size: auto 320px;
+        padding: 4px 6px 12px 6px;
       }
 
       .platform-header {
