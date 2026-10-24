@@ -692,5 +692,44 @@ describe('ItemDetailComponent', () => {
       };
       expect(component.isUpcomingRelease(futureGame)).toBe(true);
     });
+
+    it('should never show watch for physical button on verified physical or signature matched games even when unowned', async () => {
+      const asteroidsUnowned: Game = {
+        ...mockGame,
+        id: 'asteroids-atari-2600',
+        title: 'Asteroids',
+        platform: 'Atari 2600',
+        platform_id: 10,
+        ownership_status: 0,
+        physical_status: 'verified_physical',
+        rom_name: 'Asteroids (Japan, USA).a26',
+        releases: [
+          {
+            id: 'asteroids-atari-2600-rel-1',
+            game_id: 10,
+            region: 'USA',
+            rom_name: 'Asteroids (Japan, USA).a26',
+            ownership_status: 0,
+            backup_status: 0,
+            is_physical: 1,
+          },
+        ],
+      };
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of(asteroidsUnowned),
+      );
+      paramMapSubject.next(
+        convertToParamMap({ id: 'asteroids-atari-2600', type: 'game' }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.textContent).not.toContain('+ Watch for Physical');
+      expect(component.canWatchPhysical(asteroidsUnowned)).toBe(false);
+      expect(component.hasPhysicalRelease(asteroidsUnowned)).toBe(true);
+    });
   });
 });

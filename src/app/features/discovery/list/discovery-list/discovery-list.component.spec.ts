@@ -31,6 +31,8 @@ describe('DiscoveryListComponent', () => {
     scanAmiibo: Mock;
     addToy: Mock;
     refreshAll: Mock;
+    isAdmin: Mock;
+    promptAdminLogin: Mock;
   };
 
   const mockAmiiboItems: AmiiboDiscoveryItem[] = [
@@ -121,6 +123,8 @@ describe('DiscoveryListComponent', () => {
         .fn()
         .mockReturnValue(of({ success: true, id: 'amiibo-mario' })),
       refreshAll: vi.fn().mockResolvedValue(undefined),
+      isAdmin: vi.fn().mockReturnValue(true),
+      promptAdminLogin: vi.fn(),
     };
 
     await TestBed.configureTestingModule({
@@ -261,7 +265,6 @@ describe('DiscoveryListComponent', () => {
     );
     expect(component.showModal()).toBe(false);
     expect(component.searchResults().length).toBe(0);
-    expect(mockCollectionService.refreshAll).toHaveBeenCalled();
   });
 
   it('should trigger franchise series scan and add suggested game', async () => {
@@ -774,7 +777,6 @@ describe('DiscoveryListComponent', () => {
       }),
     );
     expect(component.searchResults()).toHaveLength(0);
-    expect(mockCollectionService.refreshAll).toHaveBeenCalled();
   });
 
   it('should not allow canWatchPhysical for verified physical releases even if unowned', () => {

@@ -34,6 +34,7 @@ import {
   ViewMode,
   PlayStatus,
   PhysicalStatus,
+  OwnershipStatus,
   IGDBSearchResult,
   DiscoveryRelease,
   ScanSuggestion,
@@ -472,7 +473,32 @@ export class CollectionService {
     }
     return this.http
       .post<{ success: boolean; id: string }>('/api/discovery/add-toy', toy)
-      .pipe(catchError(this.handleMutationError));
+      .pipe(
+        tap((res) => {
+          if (res?.success && res.id) {
+            const newToy: Toy = {
+              stable_id: Date.now(),
+              id: res.id,
+              name: toy.name || 'Unknown Item',
+              line: toy.line || 'Amiibo',
+              series_name: toy.series_name || toy.series || 'Other',
+              series_line:
+                toy.series_line || toy.series_name || toy.series || 'Other',
+              series: toy.series || toy.series_name || 'Other',
+              type: toy.type || 'Figure',
+              release_date: toy.release_date || '',
+              ownership_status: toy.ownership_status ?? 1,
+              image_url: toy.image_url || '',
+              amiibo_id: toy.amiibo_id || undefined,
+              metadata_json: toy.metadata_json || undefined,
+              region: toy.region || 'USA',
+            };
+            this._toys.update((toys) => [newToy, ...toys]);
+            this._refreshTrigger.update((v) => v + 1);
+          }
+        }),
+        catchError(this.handleMutationError),
+      );
   }
 
   /**
@@ -529,8 +555,16 @@ export class CollectionService {
       play_status?: number;
       backup_status?: number;
     };
-    releases: Partial<DiscoveryRelease>[];
-  }): Observable<{ success: boolean; gameId: string }> {
+    releases: Array<
+      Partial<DiscoveryRelease> & {
+        rom_name?: string | null;
+        rom_crc?: string | null;
+        release_date?: string | null;
+        ownership_status?: number;
+        backup_status?: number;
+      }
+    >;
+  }): Observable<{ success: boolean; gameId: string; stableId?: number }> {
     if (!this._isAdmin()) {
       this.promptAdminLogin();
       return throwError(
@@ -538,8 +572,77 @@ export class CollectionService {
       );
     }
     return this.http
-      .post<{ success: boolean; gameId: string }>('/api/discovery/add', payload)
-      .pipe(catchError(this.handleMutationError));
+      .post<{
+        success: boolean;
+        gameId: string;
+        stableId?: number;
+      }>('/api/discovery/add', payload)
+      .pipe(
+        tap((res) => {
+          if (res?.success && res.gameId) {
+            const platform = this._platforms().find(
+              (p) => p.id === payload.game.platform_id,
+            );
+            const stableId = res.stableId || Date.now();
+            const newGame: Game = {
+              stable_id: stableId,
+              id: res.gameId,
+              game_id: res.gameId,
+              title: payload.game.title || 'Unknown Game',
+              series: payload.game.series || payload.game.title || 'Unknown',
+              canonical_series:
+                payload.game.canonical_series ||
+                payload.game.title ||
+                'Unknown',
+              platform_id: payload.game.platform_id ?? 0,
+              platform: platform?.name || 'Unknown',
+              display_name:
+                platform?.display_name || platform?.name || 'Unknown',
+              image_url: payload.game.image_url || null,
+              ownership_status:
+                (payload.game.ownership_status as OwnershipStatus) ?? 0,
+              play_status: (payload.game.play_status as PlayStatus) ?? 0,
+              backup_status: payload.game.backup_status ? 1 : 0,
+              physical_status:
+                (payload.game.physical_status as PhysicalStatus) ||
+                'unverified',
+              verification_tier: payload.game.verification_tier ?? 0,
+              release_date: payload.game.release_date || null,
+              region: payload.game.region || 'USA',
+              summary: payload.game.summary || null,
+              genres: payload.game.genres || null,
+              collections: payload.game.collections || null,
+              franchises: payload.game.franchises || null,
+              igdb_id: payload.game.igdb_id || null,
+              igdb_url: payload.game.igdb_url || null,
+              sort_index: 0,
+              releases: (payload.releases || []).map((r, idx) => ({
+                id: `${res.gameId}-${r.romCrc || r.rom_crc || r.romName || r.rom_name || `rel-${idx + 1}`}`,
+                game_id: stableId,
+                region: r.region || 'USA',
+                variants: r.variants || null,
+                rom_name: r.romName || r.rom_name || null,
+                rom_crc: r.romCrc || r.rom_crc || null,
+                ownership_status:
+                  r.ownership_status ?? payload.game.ownership_status ?? 0,
+                backup_status: r.backup_status ?? 0,
+                release_date:
+                  r.releaseDate ||
+                  r.release_date ||
+                  payload.game.release_date ||
+                  null,
+                canonical_release_id: r.canonical_release_id || null,
+                barcode: r.barcode || null,
+                is_physical: r.is_physical ?? 1,
+              })),
+            };
+
+            this._games.update((games) => [newGame, ...games]);
+            this._refreshTrigger.update((v) => v + 1);
+          }
+        }),
+        catchError(this.handleMutationError),
+      );
   }
 
   /**

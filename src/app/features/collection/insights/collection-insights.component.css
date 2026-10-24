@@ -79,6 +79,8 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--spacing-16);
   margin-bottom: var(--spacing-24);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .stat-card {
@@ -88,6 +90,9 @@
   padding: var(--spacing-20);
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
@@ -165,17 +170,16 @@
   color: var(--m3-on-surface-variant);
 }
 
-/* Two-Column Content Grid */
 .insights-content-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--spacing-24);
   align-items: start;
 }
 
 @media (max-width: 960px) {
   .insights-content-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -183,14 +187,18 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-24);
+  min-width: 0;
+  max-width: 100%;
 }
 
-/* Common Insight Panel */
 .insight-panel {
   background: var(--m3-surface-container);
   border: 1px solid var(--m3-outline-variant);
   border-radius: var(--radius-md);
   padding: var(--spacing-24);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .panel-header {
@@ -199,6 +207,13 @@
   justify-content: space-between;
   gap: var(--spacing-12);
   margin-bottom: var(--spacing-20);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.panel-title-group {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .panel-title {
@@ -206,6 +221,8 @@
   font-weight: 700;
   color: var(--m3-on-surface);
   margin: 0 0 var(--spacing-4) 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .panel-subtitle {
@@ -410,7 +427,6 @@
   color: var(--m3-on-surface);
 }
 
-/* Play Status / Backlog */
 .play-status-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -458,7 +474,6 @@
   color: #f59e0b;
 }
 
-/* Series / Franchise */
 .series-list {
   display: flex;
   flex-direction: column;
@@ -504,7 +519,6 @@
   font-feature-settings: 'tnum' on;
 }
 
-/* Platform Completion */
 .platform-list {
   display: flex;
   flex-direction: column;
@@ -588,7 +602,6 @@
   color: var(--m3-on-surface-variant);
 }
 
-/* Top Valuable Items */
 .valuable-items-list {
   display: flex;
   flex-direction: column;
@@ -673,7 +686,6 @@
   font-size: 0.875rem;
 }
 
-/* Era & Decade Histogram */
 .decade-histogram {
   display: flex;
   flex-direction: column;
@@ -720,7 +732,6 @@
   min-width: 2px;
 }
 
-/* Backlog Mini Cards */
 .backlog-subgroup {
   margin-top: var(--spacing-16);
 }
@@ -857,38 +868,28 @@
   margin-top: var(--spacing-16);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
+  .insights-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-12);
+  }
+
   .summary-cards-grid {
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: var(--spacing-12);
   }
 
   .stat-card {
     padding: var(--spacing-14, 14px);
-    overflow: hidden;
   }
 
   .stat-main-value {
     font-size: 1.5rem;
-    word-break: break-word;
-  }
-
-  .stat-subtext {
-    word-break: break-word;
-  }
-
-  .condition-valuation-summary {
-    gap: var(--spacing-6, 6px);
-  }
-
-  .val-num {
-    font-size: 0.875rem;
   }
 
   .insight-panel {
     padding: var(--spacing-16);
-    overflow-x: hidden;
-    max-width: 100%;
   }
 
   .panel-header {
@@ -898,7 +899,6 @@
 
   .panel-title {
     font-size: 1rem;
-    word-break: break-word;
   }
 
   .panel-subtitle {
@@ -924,40 +924,14 @@
 
   .backup-stats-row.journal-cost-grid {
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: var(--spacing-8);
   }
 
   .series-name {
     max-width: 140px;
   }
-
-  .platform-item {
-    padding: var(--spacing-10, 10px);
-  }
-
-  .platform-item-header {
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
-
-  .platform-counts {
-    flex-wrap: wrap;
-    font-size: 0.75rem;
-    gap: 4px;
-  }
-
-  .decade-info {
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    font-size: 0.75rem;
-  }
-
-  .valuable-item-title {
-    font-size: 0.8125rem;
-  }
 }
 
-@media (max-width: 420px) {
+@media (max-width: 560px) {
   .insights-header {
     margin-bottom: var(--spacing-16);
   }
@@ -968,16 +942,26 @@
 
   .summary-cards-grid {
     grid-template-columns: 1fr;
-    gap: var(--spacing-8);
+    gap: var(--spacing-10);
   }
 
   .stat-card {
     padding: var(--spacing-12);
   }
 
+  .stat-main-value {
+    font-size: 1.4rem;
+  }
+
   .insight-panel {
-    padding: var(--spacing-12);
+    padding: 14px;
     border-radius: var(--radius-sm);
+  }
+
+  .panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-8);
   }
 
   .condition-valuation-summary {
@@ -1005,7 +989,8 @@
     min-width: 120px;
   }
 
-  .backup-stats-row {
+  .backup-stats-row,
+  .backup-stats-row.journal-cost-grid {
     grid-template-columns: 1fr;
     gap: var(--spacing-6);
   }
@@ -1030,6 +1015,18 @@
   .platform-counts {
     justify-content: flex-start;
     width: 100%;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    gap: 4px;
+  }
+
+  .platform-item {
+    padding: var(--spacing-10, 10px);
+  }
+
+  .platform-item-header {
+    flex-wrap: wrap;
+    gap: 0.35rem;
   }
 
   .platform-item-name {
@@ -1050,5 +1047,15 @@
   .series-meta {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .decade-info {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+  }
+
+  .valuable-item-title {
+    font-size: 0.8125rem;
   }
 }

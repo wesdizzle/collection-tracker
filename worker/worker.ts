@@ -2855,13 +2855,21 @@ Disallow: /
           // Do not create default releases.
         } else if (releases && releases.length > 0) {
           const statements = [];
+          const usedRelSlugs = new Set<string>();
           for (let i = 0; i < releases.length; i++) {
             const rel = releases[i];
-            const baseRelSlug = `${candidateGameId}-${rel.rom_crc || slugify(rel.rom_name || `release-${i + 1}`)}`;
+            const rawSlug = `${candidateGameId}-${rel.rom_crc || slugify(rel.rom_name || `release-${i + 1}`)}`;
+            let baseRelSlug = rawSlug;
+            let relSuffix = 1;
+            while (usedRelSlugs.has(baseRelSlug)) {
+              baseRelSlug = `${rawSlug}-${relSuffix++}`;
+            }
+            usedRelSlugs.add(baseRelSlug);
+
             statements.push(
               env.DB.prepare(
                 `
-                INSERT INTO game_releases (
+                INSERT OR REPLACE INTO game_releases (
                   id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
                   canonical_release_id, barcode, is_physical
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2889,7 +2897,7 @@ Disallow: /
           const defaultRelId = `${candidateGameId}-default`;
           await env.DB.prepare(
             `
-            INSERT INTO game_releases (
+            INSERT OR REPLACE INTO game_releases (
               id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date, is_physical
             ) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)
           `,
@@ -2909,7 +2917,11 @@ Disallow: /
         invalidateSeriesScanCache();
         await invalidateEdgeApiCache(request.url);
         await markDbDirty(env);
-        return Response.json({ success: true, gameId: candidateGameId });
+        return Response.json({
+          success: true,
+          gameId: candidateGameId,
+          stableId: finalStableId,
+        });
       }
 
       // Endpoint: POST /api/discovery/add-toy

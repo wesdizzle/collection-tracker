@@ -758,6 +758,53 @@ describe('Worker API Logic', () => {
     expect(releases[0].release_date).toBe('1994-03-19');
   });
 
+  it('POST /api/discovery/add handles duplicate release identifiers cleanly with unique slugs', async () => {
+    const req = new Request('http://localhost/api/discovery/add', {
+      method: 'POST',
+      body: JSON.stringify({
+        game: {
+          title: 'Mega Man & Bass',
+          platform_id: 1,
+          igdb_id: 5555,
+          physical_status: 'verified_physical',
+          ownership_status: 0,
+        },
+        releases: [
+          {
+            region: 'USA',
+            rom_name: 'Mega Man & Bass (USA)',
+            rom_crc: '11223344',
+          },
+          {
+            region: 'Europe',
+            rom_name: 'Mega Man & Bass (USA)', // duplicate rom_name & rom_crc
+            rom_crc: '11223344',
+          },
+        ],
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-access-authenticated-user-email': 'admin@example.com',
+      },
+    });
+
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      success: boolean;
+      gameId: string;
+      stableId: number;
+    };
+    expect(data.success).toBe(true);
+    expect(data.stableId).toBeGreaterThan(0);
+
+    const releases = db
+      .prepare('SELECT id, region FROM game_releases WHERE id LIKE ?')
+      .all(`${data.gameId}%`) as { id: string; region: string }[];
+    expect(releases.length).toBe(2);
+    expect(releases[0].id).not.toBe(releases[1].id);
+  });
+
   it('POST /api/discovery/add inserts Platform 0 wishlist title with 0 releases', async () => {
     const req = new Request('http://localhost/api/discovery/add', {
       method: 'POST',

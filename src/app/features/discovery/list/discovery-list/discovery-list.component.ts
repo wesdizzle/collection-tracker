@@ -2641,6 +2641,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
    * Ingests a search candidate into Platform 0 (No Platform) as Physical Pending / Watch.
    */
   async ingestPhysicalWatchForGame(game: IGDBSearchResult): Promise<void> {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+
     const cleanIgdbId =
       typeof game.id === 'string'
         ? parseInt(game.id.replace('igdb-', ''), 10)
@@ -2673,9 +2678,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.searchResults.update((current) =>
         current.filter((g) => g.id !== game.id),
       );
-      if (this.collectionService.refreshAll) {
-        await this.collectionService.refreshAll();
-      }
       this.showToast(`Watching "${game.name}" for Physical Release!`);
     } catch (err: unknown) {
       console.error(`Failed to watch physical for ${game.name}:`, err);
@@ -2758,6 +2760,10 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
    * Ingests all selected platforms for a search candidate in one click.
    */
   async ingestSelectedForGame(game: IGDBSearchResult): Promise<void> {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
     if (!this.collectionService.addGame) {
       console.warn('[DiscoveryList] addGame API is not available.');
       return;
@@ -2857,10 +2863,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         );
       }
 
-      if (this.collectionService.refreshAll) {
-        await this.collectionService.refreshAll();
-      }
-
       this.showToast(
         `Successfully ingested "${game.name}" (${successCount} edition${successCount > 1 ? 's' : ''})!`,
       );
@@ -2871,6 +2873,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
    * 1-Click ingestion for Platform 0 ('No Platform') wishlist titles.
    */
   async ingestWishlistForGame(game: IGDBSearchResult): Promise<void> {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+
     const cleanIgdbId =
       typeof game.id === 'string'
         ? parseInt(game.id.replace('igdb-', ''), 10)
@@ -2903,9 +2910,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.searchResults.update((current) =>
         current.filter((g) => g.id !== game.id),
       );
-      if (this.collectionService.refreshAll) {
-        await this.collectionService.refreshAll();
-      }
       this.showToast(`Added "${game.name}" to Physical Wishlist!`);
     } catch (err: unknown) {
       console.error(`Failed to wishlist ${game.name}:`, err);
@@ -3096,6 +3100,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     const game = this.modalGame();
     if (!game) return;
 
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+
     if (!this.collectionService.addGame) {
       console.warn('[DiscoveryList] addGame API is not available.');
       return;
@@ -3153,9 +3162,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         current.filter((g) => g.id.toString() !== game.id.toString()),
       );
 
-      if (this.collectionService.refreshAll) {
-        await this.collectionService.refreshAll();
-      }
       this.showToast(`Successfully ingested "${game.name}"!`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -3404,6 +3410,10 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   }
 
   async addGameFromSeries(game: ScanSuggestion) {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
     if (!this.collectionService.addGame) return;
 
     const payload = {
@@ -3457,9 +3467,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         return current;
       });
 
-      if (this.collectionService.refreshAll) {
-        await this.collectionService.refreshAll();
-      }
       this.showToast(`Successfully ingested "${game.title}"!`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -3468,6 +3475,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   }
 
   async bulkAddSeriesGames() {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+
     const selected = this.filteredScanResults().filter((g) =>
       this.selectedScanGameIds().has(g.id + '-' + g.platform_id),
     );
@@ -3477,6 +3489,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
 
     this.scanLoading.set(true);
     let count = 0;
+    const failedTitles: string[] = [];
 
     for (const game of selected) {
       const payload = {
@@ -3533,16 +3546,20 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         });
       } catch (err: unknown) {
         console.error(`Failed to bulk add "${game.title}":`, err);
+        failedTitles.push(game.title);
       }
     }
 
     this.scanLoading.set(false);
-    if (this.collectionService.refreshAll) {
-      await this.collectionService.refreshAll();
+    if (failedTitles.length > 0) {
+      this.showToast(
+        `Added ${count} games. Failed (${failedTitles.length}): ${failedTitles.join(', ')}`,
+      );
+    } else {
+      this.showToast(
+        `Successfully bulk ingested ${count} franchise series games.`,
+      );
     }
-    this.showToast(
-      `Successfully bulk ingested ${count} franchise series games.`,
-    );
   }
 
   clearScanSelection() {
@@ -3618,6 +3635,10 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   }
 
   async addSingleAmiibo(item: AmiiboDiscoveryItem) {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
     if (!this.collectionService.addToy) return;
     try {
       const slugify = (s: string) =>
@@ -3653,9 +3674,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         return s;
       });
 
-      if (this.collectionService.refreshAll) {
-        await this.collectionService.refreshAll();
-      }
       this.showToast(`Successfully added amiibo "${item.name}"!`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -3664,6 +3682,10 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   }
 
   async bulkAddAmiibo() {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
     if (!this.collectionService.addToy) return;
     const selectedIds = this.selectedAmiiboIds();
     const itemsToAdd = this.amiiboResults().filter((a) =>
@@ -3714,9 +3736,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     }
 
     this.amiiboLoading.set(false);
-    if (this.collectionService.refreshAll) {
-      await this.collectionService.refreshAll();
-    }
     this.showToast(`Successfully ingested ${count} amiibo items.`);
   }
 }

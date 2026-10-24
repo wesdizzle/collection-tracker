@@ -85,6 +85,36 @@ describe('CollectionService', () => {
       req.flush({ success: true });
       expect(result?.success).toBe(true);
     });
+
+    it('addGame issues POST /api/discovery/add and immediately prepends to _games signal', () => {
+      let result: { success: boolean; gameId: string } | undefined;
+      service
+        .addGame({
+          game: {
+            title: 'Mega Man & Bass',
+            platform_id: 2,
+            physical_status: 'verified_physical',
+          },
+          releases: [{ rom_name: 'Mega Man & Bass (USA)', region: 'USA' }],
+        })
+        .subscribe((r) => (result = r));
+
+      const req = httpMock.expectOne('/api/discovery/add');
+      expect(req.request.method).toBe('POST');
+      req.flush({
+        success: true,
+        gameId: 'mega-man-bass-snes',
+        stableId: 9999,
+      });
+
+      expect(result?.success).toBe(true);
+      expect(result?.gameId).toBe('mega-man-bass-snes');
+      const games = service.games();
+      expect(games.length).toBeGreaterThan(0);
+      expect(games[0].id).toBe('mega-man-bass-snes');
+      expect(games[0].title).toBe('Mega Man & Bass');
+      expect(games[0].physical_status).toBe('verified_physical');
+    });
   });
 
   it('should fetch games list using relative path', () => {
