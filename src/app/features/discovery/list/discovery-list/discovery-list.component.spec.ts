@@ -774,5 +774,61 @@ describe('DiscoveryListComponent', () => {
       }),
     );
     expect(component.searchResults()).toHaveLength(0);
+    expect(mockCollectionService.refreshAll).toHaveBeenCalled();
+  });
+
+  it('should not allow canWatchPhysical for verified physical releases even if unowned', () => {
+    const verifiedGame: IGDBSearchResult = {
+      id: 'igdb-9999',
+      name: 'Asteroids',
+      platform: 'Atari 2600',
+      platform_id: 10,
+      image_url: null,
+      physical_status: 'verified_physical',
+      physical_platforms: [
+        {
+          platform_id: 10,
+          platform_name: 'Atari 2600',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: false,
+          matched_releases_count: 2,
+        },
+      ],
+    };
+
+    expect(component.canWatchPhysical(verifiedGame)).toBe(false);
+  });
+
+  it('should support selecting only verified physical items in franchise scan results', () => {
+    const suggestions: ScanSuggestion[] = [
+      {
+        id: 101,
+        title: 'Sonic the Hedgehog',
+        platform: 'Sega Genesis',
+        platform_id: 29,
+        image_url: null,
+        physical_status: 'verified_physical',
+        is_physical: true,
+        releases: [],
+      },
+      {
+        id: 102,
+        title: 'Sonic Runners',
+        platform: 'Android',
+        platform_id: 34,
+        image_url: null,
+        physical_status: 'digital_only',
+        is_physical: false,
+        releases: [],
+      },
+    ];
+
+    component.scanResults.set(suggestions);
+    component.selectVerifiedScanOnly();
+
+    expect(component.selectedScanGameIds().has('101-29')).toBe(true);
+    expect(component.selectedScanGameIds().has('102-34')).toBe(false);
+    expect(component.selectedScanGameIds().size).toBe(1);
   });
 });

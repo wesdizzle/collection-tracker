@@ -234,7 +234,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                             <span class="text-xs text-secondary font-medium"
                               >Platforms:</span
                             >
-                            <div class="platform-quick-actions flex gap-xs">
+                            <div
+                              class="platform-quick-actions flex gap-xs items-center"
+                            >
                               <button
                                 type="button"
                                 class="quick-link-btn"
@@ -243,7 +245,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                               >
                                 Verified Only
                               </button>
-                              <span class="text-secondary text-xs">•</span>
                               <button
                                 type="button"
                                 class="quick-link-btn"
@@ -252,7 +253,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                               >
                                 All
                               </button>
-                              <span class="text-secondary text-xs">•</span>
                               <button
                                 type="button"
                                 class="quick-link-btn"
@@ -615,6 +615,13 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                 </p>
               </div>
               <div class="flex gap-sm">
+                <button
+                  class="m3-btn m3-btn-secondary"
+                  (click)="selectVerifiedScanOnly()"
+                  title="Select only verified physical suggestions"
+                >
+                  Select Verified Only
+                </button>
                 <button
                   class="m3-btn m3-btn-secondary"
                   (click)="toggleSelectAllScan()"
@@ -1087,7 +1094,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                       >
                         Verified Only
                       </button>
-                      <span class="text-secondary">•</span>
                       <button
                         type="button"
                         class="quick-link-btn"
@@ -1096,7 +1102,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                       >
                         All
                       </button>
-                      <span class="text-secondary">•</span>
                       <button
                         type="button"
                         class="quick-link-btn"
@@ -1632,20 +1637,29 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         margin-top: var(--spacing-6);
       }
       .quick-link-btn {
-        background: transparent;
-        border: none;
-        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--m3-surface-container-high, rgba(255, 255, 255, 0.08));
+        border: 1px solid var(--m3-outline-variant, rgba(255, 255, 255, 0.12));
+        border-radius: var(--radius-full, 9999px);
+        padding: 2px 8px;
         font-family: var(--font-body);
-        font-size: 0.72rem;
-        color: var(--m3-primary);
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: var(--m3-on-surface-variant);
         cursor: pointer;
-        font-weight: 500;
-        text-decoration: underline;
-        opacity: 0.85;
-        transition: opacity 0.15s ease;
+        text-decoration: none;
+        line-height: 1.2;
+        transition: all 0.15s ease;
       }
       .quick-link-btn:hover {
-        opacity: 1;
+        background: var(
+          --m3-surface-container-highest,
+          rgba(255, 255, 255, 0.16)
+        );
+        border-color: var(--m3-primary);
+        color: var(--m3-primary);
       }
       .platform-chips {
         display: flex;
@@ -2583,16 +2597,43 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
 
   /**
    * Determines if a search result can be ingested as a physical watch item.
+   * A game can only be watched for physical release if it has NO verified physical releases
+   * across any platform.
    */
   canWatchPhysical(game: IGDBSearchResult): boolean {
     if (game.platform_id === 0) return false;
-    // Allow watching if unowned or has non-verified/digital status
+
+    // If game-level status is verified physical, cannot watch physical
+    if (game.physical_status === 'verified_physical') return false;
+
+    // If any platform has verified physical status, is_physical flag, or matched physical releases, cannot watch physical
+    if (
+      game.physical_platforms?.some(
+        (p) =>
+          p.physical_status === 'verified_physical' ||
+          p.is_physical ||
+          p.matched_releases_count > 0,
+      )
+    ) {
+      return false;
+    }
+
+    // Only allow watching if overall game or its platforms are digital only, pending, or unverified
     return (
       game.physical_status === 'not_yet_physical' ||
       game.physical_status === 'physical_pending' ||
       game.physical_status === 'digital_only' ||
       game.physical_status === 'unverified' ||
-      (game.physical_platforms?.some((p) => !p.is_owned) ?? true)
+      Boolean(
+        game.physical_platforms?.length &&
+        game.physical_platforms.every(
+          (p) =>
+            p.physical_status === 'not_yet_physical' ||
+            p.physical_status === 'physical_pending' ||
+            p.physical_status === 'digital_only' ||
+            p.physical_status === 'unverified',
+        ),
+      )
     );
   }
 
@@ -2632,6 +2673,9 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.searchResults.update((current) =>
         current.filter((g) => g.id !== game.id),
       );
+      if (this.collectionService.refreshAll) {
+        await this.collectionService.refreshAll();
+      }
       this.showToast(`Watching "${game.name}" for Physical Release!`);
     } catch (err: unknown) {
       console.error(`Failed to watch physical for ${game.name}:`, err);
@@ -2813,6 +2857,10 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         );
       }
 
+      if (this.collectionService.refreshAll) {
+        await this.collectionService.refreshAll();
+      }
+
       this.showToast(
         `Successfully ingested "${game.name}" (${successCount} edition${successCount > 1 ? 's' : ''})!`,
       );
@@ -2855,6 +2903,9 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.searchResults.update((current) =>
         current.filter((g) => g.id !== game.id),
       );
+      if (this.collectionService.refreshAll) {
+        await this.collectionService.refreshAll();
+      }
       this.showToast(`Added "${game.name}" to Physical Wishlist!`);
     } catch (err: unknown) {
       console.error(`Failed to wishlist ${game.name}:`, err);
@@ -3335,6 +3386,21 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       results.forEach((g) => set.add(g.id + '-' + g.platform_id));
       this.selectedScanGameIds.set(set);
     }
+  }
+
+  selectVerifiedScanOnly() {
+    const results = this.filteredScanResults();
+    const verifiedSet = new Set<string>();
+    results.forEach((g) => {
+      if (
+        g.physical_status === 'verified_physical' ||
+        g.is_physical ||
+        (g.releases && g.releases.some((r) => r.is_physical))
+      ) {
+        verifiedSet.add(g.id + '-' + g.platform_id);
+      }
+    });
+    this.selectedScanGameIds.set(verifiedSet);
   }
 
   async addGameFromSeries(game: ScanSuggestion) {
