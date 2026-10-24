@@ -1861,6 +1861,46 @@ Disallow: /
               for (const g of gamesFromBatch) {
                 if (!isOfficialIGDBGame(g)) continue;
                 if (!g.platforms) continue;
+
+                // When scanning a specific targeted franchise (specificSeries), prevent crossover explosion
+                // where games have unrelated collections/franchises tagged (e.g. Smash Bros tagged with Mario, Sonic, Persona)
+                if (specificSeries && specificSeries.trim()) {
+                  const computedSeries = computeGameCanonicalSeries({
+                    title: g.name,
+                    collections: g.collections?.map((c) => c.name).join(', '),
+                    franchises: g.franchises?.map((f) => f.name).join(', '),
+                  });
+                  const normComputed = (computedSeries || '')
+                    .toLowerCase()
+                    .trim();
+                  const normTitle = (g.name || '').toLowerCase().trim();
+
+                  const matchesRequestedSeries = canonicalSeriesList.some(
+                    (s) => {
+                      const normS = s.toLowerCase().trim();
+                      if (normComputed === normS || normTitle.includes(normS))
+                        return true;
+                      const collMatches = (g.collections || []).some(
+                        (c) => c.name.toLowerCase().trim() === normS,
+                      );
+                      if (collMatches) return true;
+                      // If matching only via franchise tag, require title or computedSeries alignment to avoid crossover contamination
+                      const franMatches = (g.franchises || []).some(
+                        (f) => f.name.toLowerCase().trim() === normS,
+                      );
+                      if (franMatches) {
+                        return (
+                          normTitle.includes(normS) ||
+                          normComputed.includes(normS)
+                        );
+                      }
+                      return false;
+                    },
+                  );
+
+                  if (!matchesRequestedSeries) continue;
+                }
+
                 for (const plat of g.platforms) {
                   const mapped = igdbToPlatformId.get(plat.id);
                   if (!mapped) continue;

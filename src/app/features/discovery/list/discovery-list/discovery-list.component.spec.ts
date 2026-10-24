@@ -682,4 +682,97 @@ describe('DiscoveryListComponent', () => {
     );
     expect(component.searchResults()).toHaveLength(0);
   });
+
+  it('should filter platform selection to verified physical only with selectVerifiedPlatforms', () => {
+    const multiGame: IGDBSearchResult = {
+      id: 'igdb-5555',
+      name: 'Braid: Anniversary Edition',
+      platform: 'PlayStation 5',
+      platform_id: 1,
+      image_url: null,
+      physical_status: 'digital_only',
+      physical_platforms: [
+        {
+          platform_id: 1,
+          platform_name: 'PlayStation 5',
+          physical_status: 'digital_only',
+          is_physical: false,
+          is_owned: false,
+          matched_releases_count: 0,
+          matched_releases: [],
+        },
+        {
+          platform_id: 2,
+          platform_name: 'Nintendo Switch',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: false,
+          matched_releases_count: 1,
+          matched_releases: [
+            {
+              name: 'Braid (Switch)',
+              romName: 'Braid',
+              romCrc: '12345678',
+              region: 'USA',
+              variants: null,
+              releaseDate: null,
+              canonical_release_id: 10,
+              serial_code: null,
+              barcode: null,
+              is_physical: true,
+            },
+          ],
+        },
+      ],
+    };
+
+    component.searchResults.set([multiGame]);
+    component.selectVerifiedPlatforms(multiGame);
+
+    const selectedIds = component.getSelectedPlatformIds(multiGame);
+    expect(selectedIds).toEqual([2]);
+    expect(component.isPlatformSelected(multiGame.id, 2)).toBe(true);
+    expect(component.isPlatformSelected(multiGame.id, 1)).toBe(false);
+
+    component.selectAllPlatforms(multiGame);
+    expect(component.getSelectedPlatformIds(multiGame).sort()).toEqual([1, 2]);
+
+    component.deselectAllPlatforms(multiGame);
+    expect(component.getSelectedPlatformIds(multiGame)).toEqual([]);
+  });
+
+  it('should support ingesting search candidates as physical watch items', async () => {
+    const digitalGame: IGDBSearchResult = {
+      id: 'igdb-7777',
+      name: 'Braid: Anniversary Edition',
+      platform: 'PlayStation 5',
+      platform_id: 1,
+      image_url: null,
+      physical_status: 'digital_only',
+      first_release_date: '2024-05-14',
+    };
+
+    mockCollectionService.addGame.mockReturnValueOnce(
+      of({ success: true, gameId: 'braid-anniversary' }),
+    );
+
+    component.searchResults.set([digitalGame]);
+    expect(component.canWatchPhysical(digitalGame)).toBe(true);
+
+    await component.ingestPhysicalWatchForGame(digitalGame);
+
+    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        game: expect.objectContaining({
+          title: 'Braid: Anniversary Edition',
+          platform_id: 0,
+          ownership_status: 2,
+          physical_status: 'not_yet_physical',
+          release_date: '2024-05-14',
+        }),
+        releases: [],
+      }),
+    );
+    expect(component.searchResults()).toHaveLength(0);
+  });
 });

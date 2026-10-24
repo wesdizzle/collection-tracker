@@ -228,6 +228,41 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                           game.physical_platforms &&
                           game.physical_platforms.length > 0
                         ) {
+                          <div
+                            class="platform-selection-header flex items-center justify-between mb-xs"
+                          >
+                            <span class="text-xs text-secondary font-medium"
+                              >Platforms:</span
+                            >
+                            <div class="platform-quick-actions flex gap-xs">
+                              <button
+                                type="button"
+                                class="quick-link-btn"
+                                title="Select verified physical releases only"
+                                (click)="selectVerifiedPlatforms(game)"
+                              >
+                                Verified Only
+                              </button>
+                              <span class="text-secondary text-xs">•</span>
+                              <button
+                                type="button"
+                                class="quick-link-btn"
+                                title="Select all available platforms"
+                                (click)="selectAllPlatforms(game)"
+                              >
+                                All
+                              </button>
+                              <span class="text-secondary text-xs">•</span>
+                              <button
+                                type="button"
+                                class="quick-link-btn"
+                                title="Deselect all platforms"
+                                (click)="deselectAllPlatforms(game)"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
                           <div class="platform-chips">
                             @for (
                               p of game.physical_platforms;
@@ -350,6 +385,15 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                             getSelectedPlatformsCount(game)
                           }})
                         </button>
+                        @if (canWatchPhysical(game)) {
+                          <button
+                            class="m3-btn m3-btn-secondary btn-sm"
+                            title="Track as digital release awaiting physical edition (Platform 0)"
+                            (click)="ingestPhysicalWatchForGame(game)"
+                          >
+                            + Watch Physical
+                          </button>
+                        }
                       }
                       <button
                         class="m3-btn m3-btn-secondary btn-sm"
@@ -1027,19 +1071,42 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
               <!-- Matched Canonical Physical Releases Checklist -->
               @if (matchedReleases().length > 0) {
                 <div class="form-field mb-lg">
-                  <label
-                    class="font-bold flex justify-between items-center mb-xs"
-                  >
-                    <span
-                      >Canonical Physical Releases ({{
+                  <div class="flex justify-between items-center mb-xs">
+                    <label class="font-bold">
+                      Canonical Physical Releases ({{
                         matchedReleases().length
                       }}
-                      found)</span
-                    >
-                    <span class="text-xs text-secondary font-normal"
-                      >Select variants to track</span
-                    >
-                  </label>
+                      found)
+                    </label>
+                    <div class="flex items-center gap-xs text-xs">
+                      <button
+                        type="button"
+                        class="quick-link-btn"
+                        (click)="selectVerifiedReleasesOnly()"
+                        title="Select verified physical releases only"
+                      >
+                        Verified Only
+                      </button>
+                      <span class="text-secondary">•</span>
+                      <button
+                        type="button"
+                        class="quick-link-btn"
+                        (click)="selectAllReleases()"
+                        title="Select all canonical releases"
+                      >
+                        All
+                      </button>
+                      <span class="text-secondary">•</span>
+                      <button
+                        type="button"
+                        class="quick-link-btn"
+                        (click)="clearReleaseSelection()"
+                        title="Clear release selection"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
                   <div class="releases-checklist">
                     @for (
                       rel of matchedReleases();
@@ -1563,6 +1630,22 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
       }
       .platform-selection-group {
         margin-top: var(--spacing-6);
+      }
+      .quick-link-btn {
+        background: transparent;
+        border: none;
+        padding: 0;
+        font-family: var(--font-body);
+        font-size: 0.72rem;
+        color: var(--m3-primary);
+        cursor: pointer;
+        font-weight: 500;
+        text-decoration: underline;
+        opacity: 0.85;
+        transition: opacity 0.15s ease;
+      }
+      .quick-link-btn:hover {
+        opacity: 1;
       }
       .platform-chips {
         display: flex;
@@ -2421,6 +2504,139 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     this.lastQuery.set('');
     this.searchError.set(null);
     this.selectedPlatformsByGame.set(new Map());
+  }
+
+  /**
+   * Selects only platforms that have verified physical releases or matched releases.
+   */
+  selectVerifiedPlatforms(game: IGDBSearchResult): void {
+    if (!game.physical_platforms) return;
+    const gKey = String(game.id);
+    const map = new Map(this.selectedPlatformsByGame());
+    const verifiedPids = game.physical_platforms
+      .filter(
+        (p) =>
+          !p.is_owned &&
+          (p.physical_status === 'verified_physical' ||
+            p.matched_releases_count > 0 ||
+            p.is_physical),
+      )
+      .map((p) => p.platform_id);
+    map.set(gKey, new Set(verifiedPids));
+    this.selectedPlatformsByGame.set(map);
+  }
+
+  /**
+   * Selects all unowned platforms for a search card.
+   */
+  selectAllPlatforms(game: IGDBSearchResult): void {
+    if (!game.physical_platforms) return;
+    const gKey = String(game.id);
+    const map = new Map(this.selectedPlatformsByGame());
+    const allPids = game.physical_platforms
+      .filter((p) => !p.is_owned)
+      .map((p) => p.platform_id);
+    map.set(gKey, new Set(allPids));
+    this.selectedPlatformsByGame.set(map);
+  }
+
+  /**
+   * Clears platform selection for a search card.
+   */
+  deselectAllPlatforms(game: IGDBSearchResult): void {
+    const gKey = String(game.id);
+    const map = new Map(this.selectedPlatformsByGame());
+    map.set(gKey, new Set());
+    this.selectedPlatformsByGame.set(map);
+  }
+
+  /**
+   * Selects only verified physical releases in the ingestion modal checklist.
+   */
+  selectVerifiedReleasesOnly(): void {
+    const rels = this.matchedReleases();
+    const verifiedKeys = new Set<string>();
+    rels.forEach((r) => {
+      if (r.is_physical) {
+        verifiedKeys.add(r.romCrc || r.romName || r.name);
+      }
+    });
+    this.selectedReleaseIds.set(verifiedKeys);
+  }
+
+  /**
+   * Selects all releases in the modal checklist.
+   */
+  selectAllReleases(): void {
+    const rels = this.matchedReleases();
+    const allKeys = new Set<string>();
+    rels.forEach((r) => allKeys.add(r.romCrc || r.romName || r.name));
+    this.selectedReleaseIds.set(allKeys);
+  }
+
+  /**
+   * Clears release selection in the modal checklist.
+   */
+  clearReleaseSelection(): void {
+    this.selectedReleaseIds.set(new Set());
+  }
+
+  /**
+   * Determines if a search result can be ingested as a physical watch item.
+   */
+  canWatchPhysical(game: IGDBSearchResult): boolean {
+    if (game.platform_id === 0) return false;
+    // Allow watching if unowned or has non-verified/digital status
+    return (
+      game.physical_status === 'not_yet_physical' ||
+      game.physical_status === 'physical_pending' ||
+      game.physical_status === 'digital_only' ||
+      game.physical_status === 'unverified' ||
+      (game.physical_platforms?.some((p) => !p.is_owned) ?? true)
+    );
+  }
+
+  /**
+   * Ingests a search candidate into Platform 0 (No Platform) as Physical Pending / Watch.
+   */
+  async ingestPhysicalWatchForGame(game: IGDBSearchResult): Promise<void> {
+    const cleanIgdbId =
+      typeof game.id === 'string'
+        ? parseInt(game.id.replace('igdb-', ''), 10)
+        : Number(game.id);
+
+    const payload = {
+      game: {
+        title: game.name,
+        platform_id: 0,
+        igdb_id: isNaN(cleanIgdbId) ? null : cleanIgdbId,
+        igdb_url: game.igdb_url || null,
+        summary: game.summary || null,
+        genres: game.genres || null,
+        region: 'USA',
+        image_url: game.image_url || null,
+        collections: game.collections || null,
+        franchises: game.franchises || null,
+        ownership_status: 2, // Seeking
+        play_status: 0,
+        backup_status: 0,
+        physical_status: 'not_yet_physical' as const,
+        verification_tier: 0,
+        release_date: game.first_release_date || null,
+      },
+      releases: [],
+    };
+
+    try {
+      await firstValueFrom(this.collectionService.addGame(payload));
+      this.searchResults.update((current) =>
+        current.filter((g) => g.id !== game.id),
+      );
+      this.showToast(`Watching "${game.name}" for Physical Release!`);
+    } catch (err: unknown) {
+      console.error(`Failed to watch physical for ${game.name}:`, err);
+      this.showToast(`Failed to add "${game.name}" to watch list.`);
+    }
   }
 
   /**
