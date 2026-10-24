@@ -122,7 +122,7 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   <span>IGDB Verified</span>
                 </a>
               }
-              @if (g.release_date && !hasOwnedPhysical(g)) {
+              @if (isUpcomingRelease(g)) {
                 <div class="stat-pill active upcoming">
                   <span class="icon"
                     ><app-icon name="calendar" [size]="14"
@@ -3048,6 +3048,15 @@ export class ItemDetailComponent {
       return 'USA Retail Edition';
     }
     return 'Physical Edition';
+  }
+
+  /**
+   * Returns true if the game is upcoming and not yet owned.
+   */
+  public isUpcomingRelease(game?: Game | null): boolean {
+    if (!game?.release_date) return false;
+    if (this.hasOwnedPhysical(game)) return false;
+    return new Date(game.release_date) > new Date();
   }
 
   /**

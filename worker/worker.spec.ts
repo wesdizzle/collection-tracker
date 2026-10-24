@@ -717,6 +717,7 @@ describe('Worker API Logic', () => {
           ownership_status: 1,
           play_status: 1,
           backup_status: 1,
+          release_date: '1994-03-19',
         },
         releases: [
           {
@@ -744,10 +745,17 @@ describe('Worker API Logic', () => {
     expect(insertedGame.igdb_id).toBe(1234);
 
     const releases = db
-      .prepare('SELECT rom_name, rom_crc FROM game_releases WHERE id LIKE ?')
-      .all(`${data.gameId}%`) as { rom_name: string; rom_crc: string }[];
+      .prepare(
+        'SELECT rom_name, rom_crc, release_date FROM game_releases WHERE id LIKE ?',
+      )
+      .all(`${data.gameId}%`) as {
+      rom_name: string;
+      rom_crc: string;
+      release_date: string;
+    }[];
     expect(releases.length).toBe(1);
     expect(releases[0].rom_crc).toBe('D63ED5F8');
+    expect(releases[0].release_date).toBe('1994-03-19');
   });
 
   it('POST /api/discovery/add inserts Platform 0 wishlist title with 0 releases', async () => {

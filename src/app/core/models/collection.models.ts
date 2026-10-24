@@ -350,6 +350,7 @@ export interface ScanSuggestion {
   is_physical?: boolean;
   physical_regions?: string[];
   verification_reasons?: string[];
+  first_release_date?: string | null;
 }
 
 export interface AmiiboDiscoveryItem {

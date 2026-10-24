@@ -649,5 +649,48 @@ describe('ItemDetailComponent', () => {
         'pricecharting.com/search-products',
       );
     });
+
+    it('should not mark past released unowned games as upcoming pre-release', async () => {
+      const pastUnownedGame: Game = {
+        ...mockGame,
+        ownership_status: 0,
+        release_date: '1990-11-21',
+        releases: [
+          {
+            id: 'super-mario-world-snes-1',
+            game_id: 1,
+            region: 'USA',
+            ownership_status: 0,
+            backup_status: 0,
+            release_date: '1990-11-21',
+          },
+        ],
+      };
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of(pastUnownedGame),
+      );
+      paramMapSubject.next(
+        convertToParamMap({ id: 'super-mario-world-snes', type: 'game' }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const upcomingPill = compiled.querySelector('.stat-pill.upcoming');
+      expect(upcomingPill).toBeNull();
+      expect(component.isUpcomingRelease(pastUnownedGame)).toBe(false);
+    });
+
+    it('should correctly mark future unowned games as upcoming pre-release', () => {
+      const futureGame: Game = {
+        ...mockGame,
+        ownership_status: 0,
+        release_date: '2099-01-01',
+        releases: [],
+      };
+      expect(component.isUpcomingRelease(futureGame)).toBe(true);
+    });
   });
 });

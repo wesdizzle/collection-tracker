@@ -3220,6 +3220,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         backup_status: 0, // Not Backed Up
         physical_status: game.physical_status || 'unverified',
         verification_tier: game.verification_tier || 0,
+        release_date: game.first_release_date || null,
       },
       releases: game.releases
         ? game.releases.map((r: DiscoveryRelease) => ({
@@ -3292,6 +3293,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
           backup_status: 0,
           physical_status: game.physical_status || 'unverified',
           verification_tier: game.verification_tier || 0,
+          release_date: game.first_release_date || null,
         },
         releases: game.releases
           ? game.releases.map((r: DiscoveryRelease) => ({

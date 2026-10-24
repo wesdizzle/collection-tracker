@@ -1993,6 +1993,11 @@ Disallow: /
               is_physical: verification.is_physical,
               physical_regions: verification.physical_regions,
               verification_reasons: verification.reasons,
+              first_release_date: g.first_release_date
+                ? new Date(g.first_release_date * 1000)
+                    .toISOString()
+                    .split('T')[0]
+                : null,
             });
           }
 
@@ -2830,7 +2835,7 @@ Disallow: /
                 rel.rom_crc || null,
                 rel.ownership_status ?? (game.ownership_status || 0),
                 rel.backup_status ?? 0,
-                rel.release_date || null,
+                rel.release_date || game.release_date || null,
                 rel.canonical_release_id || null,
                 rel.barcode || null,
                 rel.is_physical ?? 1,
