@@ -369,8 +369,8 @@ interface GameGroup {
 
       @media (max-width: 480px) {
         .platform-section {
-          padding-left: 0;
-          padding-right: 0;
+          padding-left: 4px;
+          padding-right: 4px;
         }
         .grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
