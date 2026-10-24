@@ -367,3 +367,19 @@
   font-size: 0.6875rem;
   font-weight: 600;
 }
+
+@media (max-width: 768px) {
+  .card-content {
+    padding: 0.625rem 0.5rem;
+  }
+  .card-title {
+    font-size: 0.8125rem;
+  }
+  .platform-badge-chip {
+    font-size: 0.625rem;
+    padding: 0.1rem 0.35rem;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

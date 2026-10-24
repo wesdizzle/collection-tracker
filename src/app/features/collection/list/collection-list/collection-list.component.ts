@@ -268,6 +268,8 @@ interface GameGroup {
         content-visibility: auto;
         contain-intrinsic-size: auto 320px;
         padding: 4px 6px 12px 6px;
+        min-width: 0;
+        max-width: 100%;
       }
 
       .platform-header {
@@ -283,6 +285,9 @@ interface GameGroup {
         background: var(--m3-surface-container-high);
         border-radius: var(--radius-md);
         border: 1px solid var(--m3-outline-variant);
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
       }
 
       .platform-logo-frame {
@@ -307,12 +312,15 @@ interface GameGroup {
         font-size: 1.25rem;
         font-weight: 700;
         color: var(--m3-on-surface);
-        flex: 1;
+        flex: 1 1 auto;
         display: flex;
         align-items: baseline;
         flex-wrap: wrap;
         gap: var(--spacing-12);
         row-gap: 0.25rem;
+        min-width: 0;
+        word-break: break-word;
+        overflow-wrap: anywhere;
       }
       .platform-year {
         font-family: var(--font-body);
@@ -333,18 +341,40 @@ interface GameGroup {
         padding: 0.25rem 0.75rem;
         border-radius: var(--radius-full);
         white-space: nowrap;
+        flex-shrink: 0;
       }
 
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
         gap: 1.25rem;
+        width: 100%;
+        min-width: 0;
+      }
+
+      @media (max-width: 768px) {
+        .header-content {
+          padding: 0.625rem 0.875rem;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+        }
+        .platform-title {
+          font-size: 1rem;
+        }
+        .grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.625rem;
+        }
       }
 
       @media (max-width: 480px) {
+        .platform-section {
+          padding-left: 0;
+          padding-right: 0;
+        }
         .grid {
-          grid-template-columns: repeat(2, 1fr);
-          gap: 0.75rem;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.5rem;
         }
       }
 
