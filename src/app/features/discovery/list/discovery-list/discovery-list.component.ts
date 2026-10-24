@@ -132,18 +132,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             >
               Search IGDB
             </button>
-
-            <div class="filter-toggle-wrapper">
-              <label class="filter-toggle-label">
-                <input
-                  type="checkbox"
-                  class="filter-checkbox"
-                  [checked]="filterDigital()"
-                  (change)="onFilterDigitalChange($event)"
-                />
-                <span>Hide Digital-Only</span>
-              </label>
-            </div>
           </div>
 
           <!-- Search States -->
@@ -204,35 +192,10 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             </div>
           }
 
-          @if (
-            !searchLoading() &&
-            searchResults().length > 0 &&
-            filteredSearchResults().length === 0 &&
-            !searchError() &&
-            searchPerformed()
-          ) {
-            <div class="empty-state animate-slide-up">
-              <div class="empty-icon text-4xl">
-                <app-icon name="circle-empty" [size]="48" />
-              </div>
-              <h3>All {{ searchResults().length }} Results are Digital-Only</h3>
-              <p class="text-secondary mb-md">
-                Uncheck "Hide Digital-Only" above to view digital releases for
-                "{{ lastQuery() }}".
-              </p>
-              <button
-                class="m3-btn m3-btn-secondary btn-sm"
-                (click)="filterDigital.set(false)"
-              >
-                Show Digital Results
-              </button>
-            </div>
-          }
-
           <!-- Search Results Grid -->
-          @if (!searchLoading() && filteredSearchResults().length > 0) {
+          @if (!searchLoading() && searchResults().length > 0) {
             <div class="results-grid">
-              @for (game of filteredSearchResults(); track game.id) {
+              @for (game of searchResults(); track game.id) {
                 <div class="game-result-card">
                   <div class="result-cover">
                     @if (game.image_url) {
@@ -495,8 +458,8 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                     }
                   </span>
                   <span
-                    >{{ filteredScanResults().length }} missing game{{
-                      filteredScanResults().length === 1 ? '' : 's'
+                    >{{ scanResults().length }} missing game{{
+                      scanResults().length === 1 ? '' : 's'
                     }}
                     found</span
                   >
@@ -596,39 +559,13 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             </div>
           }
 
-          <!-- Scan Empty State for Digital Only Filter -->
-          @if (
-            scanResults().length > 0 &&
-            filteredScanResults().length === 0 &&
-            !scanError()
-          ) {
-            <div class="empty-state animate-slide-up">
-              <div class="empty-icon text-4xl">
-                <app-icon name="circle-empty" [size]="48" />
-              </div>
-              <h3>
-                All {{ scanResults().length }} Suggestions are Digital-Only
-              </h3>
-              <p class="text-secondary mb-md">
-                Uncheck "Hide Digital-Only" in the Game Search tab to view
-                digital series suggestions.
-              </p>
-              <button
-                class="m3-btn m3-btn-secondary btn-sm"
-                (click)="filterDigital.set(false)"
-              >
-                Show Digital Results
-              </button>
-            </div>
-          }
-
           <!-- Scan Results Grid -->
-          @if (filteredScanResults().length > 0) {
+          @if (scanResults().length > 0) {
             <div
               class="scan-results-header mb-md flex justify-between items-center"
             >
               <div>
-                <h3>{{ filteredScanResults().length }} Suggestions Found</h3>
+                <h3>{{ scanResults().length }} Suggestions Found</h3>
                 <p class="text-secondary text-xs">
                   Series scans assume games are unowned and unplayed by default.
                 </p>
@@ -639,7 +576,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                   (click)="toggleSelectAllScan()"
                 >
                   {{
-                    selectedScanGameIds().size === filteredScanResults().length
+                    selectedScanGameIds().size === scanResults().length
                       ? 'Deselect All'
                       : 'Select All'
                   }}
@@ -656,7 +593,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
 
             <div class="series-grid">
               @for (
-                game of filteredScanResults();
+                game of scanResults();
                 track game.id + '-' + game.platform_id
               ) {
                 <div class="series-game-card">
@@ -2175,7 +2112,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   public searchError = signal<string | null>(null);
   public searchPerformed = signal<boolean>(false);
   public lastQuery = signal<string>('');
-  public filterDigital = signal<boolean>(true);
+  public filterDigital = signal<boolean>(false);
   public selectedPlatformsByGame = signal<Map<string, Set<number>>>(new Map());
 
   public bulkActionBarVisible = computed<boolean>(() => {
@@ -2297,29 +2234,14 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     return Array.from(typeSet).sort();
   });
 
-  /** Filtered search results based on the Hide Digital-Only toggle. */
+  /** Filtered search results (all search results). */
   public filteredSearchResults = computed<IGDBSearchResult[]>(() => {
-    const results = this.searchResults();
-    if (!this.filterDigital()) {
-      return results;
-    }
-    return results.filter((g) => {
-      if (g.physical_platforms && g.physical_platforms.length > 0) {
-        return g.physical_platforms.some(
-          (p) => p.physical_status !== 'digital_only' && !p.is_owned,
-        );
-      }
-      return g.physical_status !== 'digital_only';
-    });
+    return this.searchResults();
   });
 
-  /** Filtered franchise series scan results based on the Hide Digital-Only toggle. */
+  /** Filtered franchise series scan results. */
   public filteredScanResults = computed<ScanSuggestion[]>(() => {
-    const results = this.scanResults();
-    if (!this.filterDigital()) {
-      return results;
-    }
-    return results.filter((g) => g.physical_status !== 'digital_only');
+    return this.scanResults();
   });
 
   /** Filtered Amiibo view. */

@@ -120,7 +120,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                 [class.active]="isUpcomingActive()"
                 (click)="selectQuickStatus('upcoming')"
               >
-                Upcoming
+                Watch & Upcoming
               </button>
               <button
                 type="button"

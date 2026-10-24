@@ -168,7 +168,7 @@ describe('DiscoveryListComponent', () => {
     expect(component.filteredSearchResults().length).toBe(1);
   });
 
-  it('should reactively filter search results when filterDigital is toggled', () => {
+  it('should preserve search results in filteredSearchResults', () => {
     const physicalGame: IGDBSearchResult = {
       id: 'igdb-1',
       name: 'Super Mario 64',
@@ -185,12 +185,9 @@ describe('DiscoveryListComponent', () => {
     };
 
     component.searchResults.set([physicalGame, digitalGame]);
-    component.filterDigital.set(true);
-    expect(component.filteredSearchResults().length).toBe(1);
-    expect(component.filteredSearchResults()[0].id).toBe('igdb-1');
-
-    component.filterDigital.set(false);
     expect(component.filteredSearchResults().length).toBe(2);
+    expect(component.filteredSearchResults()[0].id).toBe('igdb-1');
+    expect(component.filteredSearchResults()[1].id).toBe('igdb-2');
   });
 
   it('should defer release matches when opening ingestion modal with platform = 0', async () => {
