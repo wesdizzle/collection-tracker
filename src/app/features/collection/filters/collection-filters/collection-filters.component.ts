@@ -2496,6 +2496,8 @@ export class CollectionFiltersComponent {
 
   readonly sortByOptions = [
     { value: 'default', label: 'Default' },
+    { value: 'release_desc', label: 'Release Date: Newest First' },
+    { value: 'release_asc', label: 'Release Date: Oldest First' },
     { value: 'retail_asc', label: 'Lowest Retail Price' },
     { value: 'discount_desc', label: 'Deepest Sale Discount' },
     { value: 'value_desc', label: 'Value: High to Low' },

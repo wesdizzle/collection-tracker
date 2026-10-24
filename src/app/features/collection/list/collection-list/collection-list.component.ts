@@ -1684,13 +1684,32 @@ export class CollectionListComponent
         }
       }
 
-      const isPriceSort =
+      // Release Date Sorting
+      if (f.sortBy === 'release_desc' || f.sortBy === 'release_asc') {
+        const isDesc = f.sortBy === 'release_desc';
+        // Treat placeholder/null '9999-99-99' as unknown and sort them to the end in both directions
+        const aKnown = a.releaseDate !== '9999-99-99';
+        const bKnown = b.releaseDate !== '9999-99-99';
+        if (aKnown && bKnown) {
+          if (a.releaseDate !== b.releaseDate) {
+            return isDesc
+              ? b.releaseDate.localeCompare(a.releaseDate)
+              : a.releaseDate.localeCompare(b.releaseDate);
+          }
+        } else if (aKnown !== bKnown) {
+          return aKnown ? -1 : 1;
+        }
+      }
+
+      const isBypassPlatformGroupSort =
         f.sortBy === 'value_desc' ||
         f.sortBy === 'value_asc' ||
         f.sortBy === 'retail_asc' ||
-        f.sortBy === 'discount_desc';
+        f.sortBy === 'discount_desc' ||
+        f.sortBy === 'release_desc' ||
+        f.sortBy === 'release_asc';
 
-      if (!isPriceSort) {
+      if (!isBypassPlatformGroupSort) {
         // 1. Platform Launch Date (ASC)
         if (a.platformLaunchDate !== b.platformLaunchDate) {
           return a.platformLaunchDate.localeCompare(b.platformLaunchDate);
@@ -2127,13 +2146,21 @@ export class CollectionListComponent
       f.sortBy === 'retail_asc' ||
       f.sortBy === 'discount_desc';
 
-    if (isPriceSort) {
+    const isReleaseDateSort =
+      f.sortBy === 'release_desc' || f.sortBy === 'release_asc';
+    const isFlatSort = isPriceSort || isReleaseDateSort;
+
+    if (isFlatSort) {
       const sortLabel =
         f.sortBy === 'retail_asc'
           ? 'Ranked by Lowest Retail Price'
           : f.sortBy === 'discount_desc'
             ? 'Ranked by Biggest Sale %'
-            : 'Ranked by Value';
+            : f.sortBy === 'release_desc'
+              ? 'Ranked by Release Date (Newest First)'
+              : f.sortBy === 'release_asc'
+                ? 'Ranked by Release Date (Oldest First)'
+                : 'Ranked by Value';
       const headerTitle = f.platform_id
         ? `${displayed[0]?.display_name || displayed[0]?.platform || 'Platform'} (${sortLabel})`
         : `All Platforms (${sortLabel})`;

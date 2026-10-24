@@ -1864,6 +1864,93 @@ describe('CollectionListComponent', () => {
     expect(localStorage.getItem('app_preferred_view_mode')).toBe('compact');
   });
 
+  it('should sort games by release date and bypass platform grouping', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'g1',
+        title: 'Mid Game',
+        release_date: '2010-05-15',
+        platform: 'PS3',
+        platform_id: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 'g2',
+        title: 'Old Game',
+        release_date: '1995-10-20',
+        platform: 'SNES',
+        platform_id: 2,
+        ownership_status: 1,
+      },
+      {
+        id: 'g3',
+        title: 'New Game',
+        release_date: '2023-11-01',
+        platform: 'PS5',
+        platform_id: 3,
+        ownership_status: 1,
+      },
+      {
+        id: 'g4',
+        title: 'Undated Game',
+        release_date: null,
+        platform: 'PC',
+        platform_id: 4,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Test release_desc (newest first, undated at end)
+    component.filters.set({
+      ownership: 'all',
+      sortBy: 'release_desc',
+    });
+
+    const descGames = component.filteredGames();
+    expect(descGames.map((g) => g.id)).toEqual(['g3', 'g1', 'g2', 'g4']);
+
+    // Check groupedGames bypasses platform headers into a unified list
+    const groupsDesc = component.groupedGames();
+    expect(groupsDesc.length).toBe(1);
+    expect(groupsDesc[0].platformName).toContain(
+      'Ranked by Release Date (Newest First)',
+    );
+    expect(groupsDesc[0].games.map((g) => g.id)).toEqual([
+      'g3',
+      'g1',
+      'g2',
+      'g4',
+    ]);
+
+    // Test release_asc (oldest first, undated at end)
+    component.filters.set({
+      ownership: 'all',
+      sortBy: 'release_asc',
+    });
+
+    const ascGames = component.filteredGames();
+    expect(ascGames.map((g) => g.id)).toEqual(['g2', 'g1', 'g3', 'g4']);
+
+    const groupsAsc = component.groupedGames();
+    expect(groupsAsc.length).toBe(1);
+    expect(groupsAsc[0].platformName).toContain(
+      'Ranked by Release Date (Oldest First)',
+    );
+    expect(groupsAsc[0].games.map((g) => g.id)).toEqual([
+      'g2',
+      'g1',
+      'g3',
+      'g4',
+    ]);
+  });
+
   it('should apply inbound query parameters and clear them from URL via replaceUrl: true', () => {
     const router = TestBed.inject(Router);
     const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);

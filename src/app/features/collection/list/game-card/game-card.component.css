@@ -192,6 +192,19 @@
   gap: 0.2rem;
 }
 
+.platform-badge-chip {
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--m3-primary);
+  background: var(--m3-primary-container);
+  border: 1px solid var(--m3-outline-variant);
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--radius-tag, 6px);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 .variant-badge {
   font-family: var(--font-body);
   font-size: 0.6875rem;

@@ -260,7 +260,9 @@ export interface FilterState {
     | 'value_desc'
     | 'value_asc'
     | 'retail_asc'
-    | 'discount_desc';
+    | 'discount_desc'
+    | 'release_desc'
+    | 'release_asc';
 }
 
 export interface PlatformGroup {

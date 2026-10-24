@@ -67,7 +67,15 @@
 
   <div class="card-content">
     <div class="content-header">
-      <div class="flex gap-2xs items-center">
+      <div class="flex gap-2xs items-center flex-wrap">
+        @if (showPlatform()) {
+          <span
+            class="platform-badge-chip"
+            [title]="'Platform: ' + (game().display_name || game().platform)"
+          >
+            {{ game().display_name || game().platform }}
+          </span>
+        }
         @if (
           game().ownership_status === 1 &&
           game().release_medium !== 'digital_native' &&
