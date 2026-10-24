@@ -3400,8 +3400,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     results.forEach((g) => {
       if (
         g.physical_status === 'verified_physical' ||
-        g.is_physical ||
-        (g.releases && g.releases.some((r) => r.is_physical))
+        g.verification_tier === 1
       ) {
         verifiedSet.add(g.id + '-' + g.platform_id);
       }

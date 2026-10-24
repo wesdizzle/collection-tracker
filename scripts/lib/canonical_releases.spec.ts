@@ -849,6 +849,87 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(res.verification_tier).toBe(2);
       expect(res.is_physical).toBe(true);
     });
+
+    it('should not allow non-Latin subtitle alternative names to falsely match 2013 reboot disc on PS3', () => {
+      // PS3 (32) has a verified physical release of the 2013 reboot "Tomb Raider"
+      const ps3RebootRelease = [
+        {
+          id: 717402,
+          platform_id: 32,
+          raw_title: 'Tomb Raider',
+          normalized_title: 'tombraider',
+          region: 'USA',
+          variants: null,
+          rom_name: 'Tomb Raider (USA).iso',
+          rom_crc: null,
+          serial_code: null,
+          barcode: null,
+          publisher: 'Square Enix',
+          source: 'dat' as const,
+          is_verified_physical: 1,
+        },
+      ];
+
+      // Tomb Raider IV: The Last Revelation has Russian alt name with Cyrillic subtitle
+      const resIV = detectPhysicalReleaseStatus({
+        platformId: 32, // PS3
+        gameTitle: 'Tomb Raider: The Last Revelation',
+        alternativeNames: [
+          {
+            comment: 'Russian title',
+            name: 'Tomb Raider: Последнее откровение',
+          },
+        ],
+        firstReleaseDate: 943401600, // 1999
+        platformLaunchDate: '2006-11-17',
+        publisher: 'Eidos Interactive',
+        canonicalReleases: ps3RebootRelease,
+      });
+      expect(resIV.physical_status).toBe('digital_only');
+      expect(resIV.is_physical).toBe(false);
+
+      // Tomb Raider: Chronicles has Russian alt name
+      const resChronicles = detectPhysicalReleaseStatus({
+        platformId: 32, // PS3
+        gameTitle: 'Tomb Raider: Chronicles',
+        alternativeNames: [
+          { comment: 'Russian title', name: 'Tomb Raider: Хроники' },
+        ],
+        firstReleaseDate: 974419200, // 2000
+        platformLaunchDate: '2006-11-17',
+        publisher: 'Eidos Interactive',
+        canonicalReleases: ps3RebootRelease,
+      });
+      expect(resChronicles.physical_status).toBe('digital_only');
+      expect(resChronicles.is_physical).toBe(false);
+
+      // Tomb Raider: Legend has Russian alt name
+      const resLegend = detectPhysicalReleaseStatus({
+        platformId: 32, // PS3
+        gameTitle: 'Tomb Raider: Legend',
+        alternativeNames: [
+          { comment: 'Russian title', name: 'Tomb Raider - Легенда' },
+        ],
+        firstReleaseDate: 1144368000, // 2006
+        platformLaunchDate: '2006-11-17',
+        publisher: 'Eidos Interactive',
+        canonicalReleases: ps3RebootRelease,
+      });
+      expect(resLegend.physical_status).toBe('digital_only');
+      expect(resLegend.is_physical).toBe(false);
+
+      // Actual 2013 reboot game MUST match
+      const resReboot = detectPhysicalReleaseStatus({
+        platformId: 32, // PS3
+        gameTitle: 'Tomb Raider',
+        firstReleaseDate: 1362441600, // 2013
+        platformLaunchDate: '2006-11-17',
+        publisher: 'Square Enix',
+        canonicalReleases: ps3RebootRelease,
+      });
+      expect(resReboot.physical_status).toBe('verified_physical');
+      expect(resReboot.is_physical).toBe(true);
+    });
   });
 
   describe('Scoped Compilation Disc Subtitles, Multi-Disc Deduplication & Bonus Disc Enrichment', () => {

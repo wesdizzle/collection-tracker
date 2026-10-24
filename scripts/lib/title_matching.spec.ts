@@ -880,4 +880,140 @@ describe('Title Matching Strategies', () => {
       ),
     ).toBe(false);
   });
+
+  describe('Non-Latin Subtitle and Regional Alternative Names Guard', () => {
+    it('prevents non-Latin subtitles from stripping down to base franchise names', () => {
+      // Tomb Raider: The Last Revelation (IV) with Russian subtitle must not match 2013 reboot Tomb Raider on PS3
+      const altIV = [
+        { comment: 'Russian title', name: 'Tomb Raider: Последнее откровение' },
+      ];
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Tomb Raider: The Last Revelation',
+          'Tomb Raider',
+          'Tomb Raider (USA).iso',
+          32,
+          altIV,
+          'USA',
+        ),
+      ).toBe(false);
+
+      // Even if tested against a Russian release of the 2013 reboot, non-Latin subtitle stripping guard prevents the collision
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Tomb Raider: The Last Revelation',
+          'Tomb Raider',
+          'Tomb Raider (Russia).iso',
+          32,
+          altIV,
+          'Russia',
+        ),
+      ).toBe(false);
+
+      // Tomb Raider: Chronicles (V) with Russian subtitle
+      const altChronicles = [
+        { comment: 'Russian title', name: 'Tomb Raider: Хроники' },
+      ];
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Tomb Raider: Chronicles',
+          'Tomb Raider',
+          'Tomb Raider (USA).iso',
+          32,
+          altChronicles,
+          'USA',
+        ),
+      ).toBe(false);
+
+      // Tomb Raider: Legend with Russian subtitle
+      const altLegend = [
+        { comment: 'Russian title', name: 'Tomb Raider - Легенда' },
+      ];
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Tomb Raider: Legend',
+          'Tomb Raider',
+          'Tomb Raider (USA).iso',
+          32,
+          altLegend,
+          'USA',
+        ),
+      ).toBe(false);
+
+      // Valid matches must continue to work normally
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Tomb Raider: The Last Revelation',
+          'Tomb Raider - The Last Revelation',
+          'Tomb Raider - The Last Revelation (USA).bin',
+          29,
+          altIV,
+          'USA',
+        ),
+      ).toBe(true);
+
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Resident Evil',
+          'Biohazard',
+          'Biohazard (Japan).bin',
+          29,
+          [{ name: 'Biohazard', comment: 'Japanese title' }],
+          'Japan',
+        ),
+      ).toBe(true);
+    });
+
+    it('enforces Chinese and Korean regional comment guards', () => {
+      // Game title and release title do not match directly (Rockman vs Mega Man)
+      // A Chinese or Korean alternative title must not match a USA release
+      const altChinese = [{ comment: 'Chinese title', name: 'Mega Man' }];
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Rockman',
+          'Mega Man',
+          'Mega Man (USA).nes',
+          13,
+          altChinese,
+          'USA',
+        ),
+      ).toBe(false);
+
+      // But should match an Asia/China release
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Rockman',
+          'Mega Man',
+          'Mega Man (Asia).nes',
+          13,
+          altChinese,
+          'Asia',
+        ),
+      ).toBe(true);
+
+      const altKorean = [{ comment: 'Korean title', name: 'Mega Man' }];
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Rockman',
+          'Mega Man',
+          'Mega Man (USA).nes',
+          13,
+          altKorean,
+          'USA',
+        ),
+      ).toBe(false);
+
+      // But should match Korea release
+      expect(
+        gameMatchesReleaseWithAlternatives(
+          'Rockman',
+          'Mega Man',
+          'Mega Man (Korea).nes',
+          13,
+          altKorean,
+          'Korea',
+        ),
+      ).toBe(true);
+    });
+  });
 });

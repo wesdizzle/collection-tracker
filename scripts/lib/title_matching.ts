@@ -616,8 +616,19 @@ export function gameMatchesReleaseWithAlternatives(
     /\b(europe|eu|eur|uk|australia|germany|france|spain|italy|netherlands|sweden|scandinavia|world)\b/i.test(
       effectiveRegion,
     );
+  const isRussiaRelease = /\b(russia|russian|ru|cis)\b/i.test(effectiveRegion);
+  const isChinaRelease =
+    /\b(china|chinese|taiwan|hong kong|asia|world)\b/i.test(effectiveRegion);
+  const isKoreaRelease = /\b(korea|korean|kor|asia|world)\b/i.test(
+    effectiveRegion,
+  );
 
   const gLower = gameTitle.toLowerCase().trim();
+  const NON_LATIN_SCRIPT_REGEX =
+    /[\p{Script=Cyrillic}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Greek}\p{Script=Hebrew}\p{Script=Thai}]/u;
+  const releaseHasNonLatin =
+    NON_LATIN_SCRIPT_REGEX.test(releaseTitle) ||
+    (rawReleaseName ? NON_LATIN_SCRIPT_REGEX.test(rawReleaseName) : false);
 
   for (const alt of alternativeNames) {
     if (!alt?.name) continue;
@@ -658,11 +669,37 @@ export function gameMatchesReleaseWithAlternatives(
       commentLower.includes('french') ||
       commentLower.includes('spanish') ||
       commentLower.includes('italian');
+    const isRussianComment =
+      commentLower.includes('russian') || commentLower.includes('russia');
+    const isChineseComment =
+      commentLower.includes('chinese') ||
+      commentLower.includes('china') ||
+      commentLower.includes('taiwan') ||
+      commentLower.includes('hong kong');
+    const isKoreanComment =
+      commentLower.includes('korean') || commentLower.includes('korea');
 
     if (isJapaneseComment && !isJapanRelease) {
       continue;
     }
     if (isEuropeanComment && !isEuropeRelease) {
+      continue;
+    }
+    if (isRussianComment && !isRussiaRelease) {
+      continue;
+    }
+    if (isChineseComment && !isChinaRelease) {
+      continue;
+    }
+    if (isKoreanComment && !isKoreaRelease) {
+      continue;
+    }
+
+    // Non-Latin Subtitle Stripping Guard:
+    // If an alternative name contains non-Latin scripts (Cyrillic, CJK, etc.) but the release contains
+    // no non-Latin characters, normalizer would strip the non-Latin subtitle/segment and collapse it into
+    // a base franchise title (e.g. "Tomb Raider: Последнее откровение" -> "tombraider").
+    if (NON_LATIN_SCRIPT_REGEX.test(altName) && !releaseHasNonLatin) {
       continue;
     }
 
