@@ -1951,6 +1951,106 @@ describe('CollectionListComponent', () => {
     ]);
   });
 
+  it('should filter collection with home_region_and_owned preset filter', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'g-owned-japan',
+        title: 'Owned Japanese Game',
+        region: 'Japan',
+        ownership_status: 1, // Owned
+      },
+      {
+        id: 'g-owned-usa',
+        title: 'Owned USA Game',
+        region: 'USA',
+        ownership_status: 1, // Owned
+      },
+      {
+        id: 'g-seeking-usa',
+        title: 'Seeking USA Game',
+        region: 'USA',
+        ownership_status: 2, // Seeking
+      },
+      {
+        id: 'g-seeking-world',
+        title: 'Seeking World Game',
+        region: 'World',
+        ownership_status: 2, // Seeking
+      },
+      {
+        id: 'g-unowned-usa',
+        title: 'Unowned USA Game',
+        region: 'USA',
+        ownership_status: 0, // Unowned
+      },
+      {
+        id: 'g-seeking-japan',
+        title: 'Seeking Japanese Game',
+        region: 'Japan',
+        ownership_status: 2, // Seeking foreign
+      },
+      {
+        id: 'g-unowned-europe',
+        title: 'Unowned European Game',
+        region: 'Europe',
+        ownership_status: 0, // Unowned foreign
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        id: 't-owned-jp',
+        name: 'Owned JP Toy',
+        line: 'Amiibo',
+        series_name: 'Super Mario',
+        region: 'Japan',
+        ownership_status: 1,
+      },
+      {
+        id: 't-seeking-usa',
+        name: 'Seeking USA Toy',
+        line: 'Amiibo',
+        series_name: 'Super Mario',
+        region: 'USA',
+        ownership_status: 2,
+      },
+      {
+        id: 't-seeking-jp',
+        name: 'Seeking JP Toy',
+        line: 'Amiibo',
+        series_name: 'Super Mario',
+        region: 'Japan',
+        ownership_status: 2,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    component.filters.set({
+      ownership: 'home_region_and_owned',
+    });
+
+    const games = component.filteredGames();
+    const gameIds = games.map((g) => g.id);
+    expect(gameIds).toContain('g-owned-japan');
+    expect(gameIds).toContain('g-owned-usa');
+    expect(gameIds).toContain('g-seeking-usa');
+    expect(gameIds).toContain('g-seeking-world');
+    expect(gameIds).toContain('g-unowned-usa');
+    expect(gameIds).not.toContain('g-seeking-japan');
+    expect(gameIds).not.toContain('g-unowned-europe');
+
+    component.currentTab.set('toys');
+    const toys = component.filteredToys();
+    const toyIds = toys.map((t) => t.id);
+    expect(toyIds).toContain('t-owned-jp');
+    expect(toyIds).toContain('t-seeking-usa');
+    expect(toyIds).not.toContain('t-seeking-jp');
+  });
+
   it('should apply inbound query parameters and clear them from URL via replaceUrl: true', () => {
     const router = TestBed.inject(Router);
     const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);

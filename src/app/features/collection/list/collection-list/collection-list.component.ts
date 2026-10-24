@@ -49,6 +49,8 @@ import {
   ViewMode,
   OwnershipStatus,
   PlayStatus,
+  DEFAULT_USER_HOME_REGION,
+  isRegionMatchingHome,
 } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 import { GameCardComponent } from '../game-card/game-card.component';
@@ -824,11 +826,18 @@ export class CollectionListComponent
         qpFilters.ownership = 0;
       } else if (qs === 'seeking') {
         qpFilters.ownership = 2;
+      } else if (qs === 'home_region_and_owned') {
+        qpFilters.ownership = 'home_region_and_owned';
       }
     }
     if (qp['ownership'] !== undefined) {
       const ownStr = String(qp['ownership']);
-      if (ownStr === 'all' || ownStr === 'seeking_or_unowned') {
+      if (
+        ownStr === 'all' ||
+        ownStr === 'seeking_or_unowned' ||
+        ownStr === 'home_region_and_owned' ||
+        ownStr === 'upcoming'
+      ) {
         qpFilters.ownership = ownStr;
       } else {
         const own = parseInt(ownStr, 10);
@@ -1470,6 +1479,16 @@ export class CollectionListComponent
           status === OwnershipStatus.Seeking ||
           status === OwnershipStatus.Unowned;
         if (!isSeekingOrUnowned) return false;
+      } else if (f.ownership === 'home_region_and_owned') {
+        const isOwnedOrOrdered =
+          status === OwnershipStatus.Owned ||
+          status === OwnershipStatus.Ordered;
+        if (!isOwnedOrOrdered) {
+          // For unowned or seeking games, only include if matching user's home region (with regional hierarchy)
+          if (!isRegionMatchingHome(g.region, DEFAULT_USER_HOME_REGION)) {
+            return false;
+          }
+        }
       } else if (f.ownership === 'upcoming') {
         const isUpcoming =
           (g.release_date && new Date(g.release_date) > new Date()) ||
@@ -2243,6 +2262,15 @@ export class CollectionListComponent
           status === OwnershipStatus.Seeking ||
           status === OwnershipStatus.Unowned;
         if (!isSeekingOrUnowned) return false;
+      } else if (f.ownership === 'home_region_and_owned') {
+        const isOwnedOrOrdered =
+          status === OwnershipStatus.Owned ||
+          status === OwnershipStatus.Ordered;
+        if (!isOwnedOrOrdered) {
+          if (!isRegionMatchingHome(toy.region, DEFAULT_USER_HOME_REGION)) {
+            return false;
+          }
+        }
       } else if (f.ownership !== 'all' && f.ownership !== status) {
         return false;
       }

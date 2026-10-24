@@ -100,6 +100,15 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
             <button
               type="button"
               class="status-pill-btn state-layer"
+              [class.active]="isHomeRegionAndOwnedActive()"
+              (click)="selectQuickStatus('home_region_and_owned')"
+              title="All owned items, plus seeking/unowned items from your home region"
+            >
+              Home Region & Owned
+            </button>
+            <button
+              type="button"
+              class="status-pill-btn state-layer"
               [class.active]="isAllActive()"
               (click)="selectQuickStatus('all')"
             >
@@ -2296,6 +2305,13 @@ export class CollectionFiltersComponent {
     return this.filters().ownership === 1 && !this.filters().deals_only;
   });
 
+  public readonly isHomeRegionAndOwnedActive = computed(() => {
+    return (
+      this.filters().ownership === 'home_region_and_owned' &&
+      !this.filters().deals_only
+    );
+  });
+
   public readonly isAllActive = computed(() => {
     const o = this.filters().ownership;
     return (o === 'all' || o === undefined) && !this.filters().deals_only;
@@ -2317,7 +2333,13 @@ export class CollectionFiltersComponent {
   });
 
   public selectQuickStatus(
-    status: 'owned' | 'all' | 'seeking' | 'deals' | 'upcoming',
+    status:
+      | 'owned'
+      | 'home_region_and_owned'
+      | 'all'
+      | 'seeking'
+      | 'deals'
+      | 'upcoming',
   ) {
     if (status === 'deals') {
       this.filtersChange.emit({
@@ -2329,6 +2351,12 @@ export class CollectionFiltersComponent {
       this.filtersChange.emit({
         ...this.filters(),
         ownership: 'upcoming',
+        deals_only: false,
+      });
+    } else if (status === 'home_region_and_owned') {
+      this.filtersChange.emit({
+        ...this.filters(),
+        ownership: 'home_region_and_owned',
         deals_only: false,
       });
     } else if (status === 'owned') {
@@ -2369,7 +2397,8 @@ export class CollectionFiltersComponent {
     if (
       f.ownership === 3 ||
       f.ownership === 0 ||
-      f.ownership === 'seeking_or_unowned'
+      f.ownership === 'seeking_or_unowned' ||
+      f.ownership === 'home_region_and_owned'
     )
       count++;
     return count;
@@ -2443,10 +2472,18 @@ export class CollectionFiltersComponent {
 
   /** --- Options Catalogues --- */
   readonly ownershipOptions: {
-    value: 'all' | 'seeking_or_unowned' | 1 | 2 | 3 | 0;
+    value:
+      | 'all'
+      | 'seeking_or_unowned'
+      | 'home_region_and_owned'
+      | 1
+      | 2
+      | 3
+      | 0;
     label: string;
   }[] = [
     { value: 'all', label: 'All' },
+    { value: 'home_region_and_owned', label: 'Home Region & Owned' },
     { value: 'seeking_or_unowned', label: 'Seeking or Unowned' },
     { value: 1, label: 'Owned' },
     { value: 2, label: 'Seeking' },

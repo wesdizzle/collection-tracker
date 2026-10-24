@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isOpticalPlatform, getMediaIconName } from './collection.models';
+import {
+  isOpticalPlatform,
+  getMediaIconName,
+  isRegionMatchingHome,
+  DEFAULT_USER_HOME_REGION,
+} from './collection.models';
 
 describe('Collection Models Platform and Media Detection', () => {
   describe('isOpticalPlatform', () => {
@@ -118,6 +123,63 @@ describe('Collection Models Platform and Media Detection', () => {
         'rom-archive',
       );
       expect(getMediaIconName('Atari 2600', 1)).toBe('rom-archive');
+    });
+  });
+
+  describe('isRegionMatchingHome', () => {
+    it('defaults home region to USA', () => {
+      expect(DEFAULT_USER_HOME_REGION).toBe('USA');
+      expect(isRegionMatchingHome('USA')).toBe(true);
+      expect(isRegionMatchingHome('Japan')).toBe(false);
+    });
+
+    it('matches exact region case-insensitively', () => {
+      expect(isRegionMatchingHome('usa', 'USA')).toBe(true);
+      expect(isRegionMatchingHome('USA', 'usa')).toBe(true);
+      expect(isRegionMatchingHome('Japan', 'Japan')).toBe(true);
+    });
+
+    it('handles World as matching all home regions', () => {
+      expect(isRegionMatchingHome('World', 'USA')).toBe(true);
+      expect(isRegionMatchingHome('World', 'UK')).toBe(true);
+      expect(isRegionMatchingHome('World', 'Japan')).toBe(true);
+    });
+
+    it('handles regional supersets/ancestors for USA', () => {
+      expect(isRegionMatchingHome('North America', 'USA')).toBe(true);
+      expect(isRegionMatchingHome('Americas', 'USA')).toBe(true);
+      expect(isRegionMatchingHome('Europe', 'USA')).toBe(false);
+      expect(isRegionMatchingHome('Asia', 'USA')).toBe(false);
+    });
+
+    it('handles regional supersets/ancestors for European countries and UK', () => {
+      expect(isRegionMatchingHome('Europe', 'UK')).toBe(true);
+      expect(isRegionMatchingHome('Europe', 'France')).toBe(true);
+      expect(isRegionMatchingHome('Europe', 'Germany')).toBe(true);
+      expect(isRegionMatchingHome('Europe', 'Sweden')).toBe(true);
+      expect(isRegionMatchingHome('Scandinavia', 'Sweden')).toBe(true);
+      expect(isRegionMatchingHome('Scandinavia', 'Germany')).toBe(false);
+      expect(isRegionMatchingHome('USA', 'UK')).toBe(false);
+    });
+
+    it('handles regional supersets/ancestors for Asian countries', () => {
+      expect(isRegionMatchingHome('Asia', 'Japan')).toBe(true);
+      expect(isRegionMatchingHome('Asia', 'Korea')).toBe(true);
+      expect(isRegionMatchingHome('Asia', 'China')).toBe(true);
+      expect(isRegionMatchingHome('USA', 'Japan')).toBe(false);
+    });
+
+    it('handles comma-separated multi-region tags', () => {
+      expect(isRegionMatchingHome('USA, Europe', 'USA')).toBe(true);
+      expect(isRegionMatchingHome('Japan, Asia', 'USA')).toBe(false);
+      expect(isRegionMatchingHome('Europe, Australia', 'UK')).toBe(true);
+      expect(isRegionMatchingHome('Japan, USA', 'USA')).toBe(true);
+    });
+
+    it('handles null, undefined, and empty string safely', () => {
+      expect(isRegionMatchingHome(null, 'USA')).toBe(false);
+      expect(isRegionMatchingHome(undefined, 'USA')).toBe(false);
+      expect(isRegionMatchingHome('', 'USA')).toBe(false);
     });
   });
 });
