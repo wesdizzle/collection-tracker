@@ -194,10 +194,57 @@ export interface RawSpreadsheetRow {
   isPastRevision: boolean;
 }
 
+export interface BaseGameRegionInfo {
+  frontCartCode: string | null;
+}
+
 export interface BaseGameMetadata {
   rawTitle: string;
-  region: string | null;
-  frontCartBase: string | null;
+  regions: Map<string, BaseGameRegionInfo>;
+}
+
+/**
+ * Detects explicit regional indicators from comments or game titles in Past Revisions rows.
+ */
+export function detectExplicitPastRevisionRegions(
+  comments: string,
+  rawTitle: string,
+): string[] | null {
+  const combined = `${rawTitle} ${comments}`.toUpperCase();
+  if (
+    combined.includes('EUR COPIES ONLY') ||
+    combined.includes('EUROPE ONLY') ||
+    combined.includes('SRG RELEASE') ||
+    combined.includes('SUPER RARE GAMES')
+  ) {
+    return ['Europe'];
+  }
+  if (combined.includes('JPN COPIES ONLY') || combined.includes('JAPAN ONLY')) {
+    return ['Japan'];
+  }
+  if (
+    combined.includes('USA COPIES ONLY') ||
+    combined.includes('US COPIES ONLY') ||
+    combined.includes('LRG RELEASE') ||
+    combined.includes('LIMITED RUN')
+  ) {
+    return ['USA'];
+  }
+  if (combined.includes('KOR COPIES ONLY') || combined.includes('KOREA ONLY')) {
+    return ['Korea'];
+  }
+  if (combined.includes('ASIA COPIES ONLY') || combined.includes('ASIA ONLY')) {
+    return ['Asia'];
+  }
+  const titleRegion = extractRegions(rawTitle);
+  if (titleRegion) {
+    const tokens = titleRegion
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (tokens.length > 0) return tokens;
+  }
+  return null;
 }
 
 /**
@@ -290,17 +337,31 @@ export function parseSwitchRevisionsCsv(
       // Record base game metadata for Past Revisions inheritance
       const norm = normalizeTitleForMatching(lastSeenGameName);
       const platMap = baseGamesByPlatform.get(tab.platformId);
-      if (norm && platMap && !platMap.has(norm)) {
-        let frontBase: string | null = null;
-        if (frontCartCode) {
-          const match = frontCartCode.match(/^(L[A-Z]-[A-Z0-9]+)/i);
-          if (match) frontBase = match[1].toUpperCase();
+      if (norm && platMap) {
+        let meta = platMap.get(norm);
+        if (!meta) {
+          meta = {
+            rawTitle: lastSeenGameName,
+            regions: new Map<string, BaseGameRegionInfo>(),
+          };
+          platMap.set(norm, meta);
         }
-        platMap.set(norm, {
-          rawTitle: lastSeenGameName,
-          region: normalizeSpreadsheetRegion(region),
-          frontCartBase: frontBase,
-        });
+        const normReg = normalizeSpreadsheetRegion(region);
+        if (normReg) {
+          const regTokens = normReg
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          for (const reg of regTokens) {
+            if (!meta.regions.has(reg)) {
+              meta.regions.set(reg, {
+                frontCartCode: frontCartCode || null,
+              });
+            } else if (frontCartCode && !meta.regions.get(reg)!.frontCartCode) {
+              meta.regions.get(reg)!.frontCartCode = frontCartCode;
+            }
+          }
+        }
       }
     }
   }
@@ -329,21 +390,95 @@ export function parseSwitchRevisionsCsv(
       // Look up base game from main tabs
       const norm = normalizeTitleForMatching(lastSeenGameName);
       const baseMeta = baseGamesByPlatform.get(tab.platformId)?.get(norm);
-
-      parsedPastRows.push({
-        gameName: baseMeta?.rawTitle || lastSeenGameName,
-        revisionNum: pastRevNum,
-        versionOnCart,
-        downloadAvailable: 'No',
-        downloadSize: 'N/A',
-        region: baseMeta?.region || 'USA',
-        frontCartCode: baseMeta?.frontCartBase
-          ? `${baseMeta.frontCartBase}-USA`
-          : '',
+      const explicitRegions = detectExplicitPastRevisionRegions(
         comments,
-        platformId: tab.platformId,
-        isPastRevision: true,
-      });
+        lastSeenGameName,
+      );
+      const cleanRevNum = pastRevNum.trim();
+      const gameName = baseMeta?.rawTitle || lastSeenGameName;
+
+      if (cleanRevNum === '000') {
+        // Launch cartridge revision
+        if (explicitRegions && explicitRegions.length > 0) {
+          for (const reg of explicitRegions) {
+            const code = baseMeta?.regions.get(reg)?.frontCartCode || '';
+            parsedPastRows.push({
+              gameName,
+              revisionNum: cleanRevNum,
+              versionOnCart,
+              downloadAvailable: 'No',
+              downloadSize: 'N/A',
+              region: reg,
+              frontCartCode: code,
+              comments,
+              platformId: tab.platformId,
+              isPastRevision: true,
+            });
+          }
+        } else if (baseMeta && baseMeta.regions.size > 0) {
+          // Expand across all verified launch regions from Pass 1
+          for (const [reg, info] of baseMeta.regions.entries()) {
+            parsedPastRows.push({
+              gameName,
+              revisionNum: cleanRevNum,
+              versionOnCart,
+              downloadAvailable: 'No',
+              downloadSize: 'N/A',
+              region: reg,
+              frontCartCode: info.frontCartCode || '',
+              comments,
+              platformId: tab.platformId,
+              isPastRevision: true,
+            });
+          }
+        } else {
+          parsedPastRows.push({
+            gameName,
+            revisionNum: cleanRevNum,
+            versionOnCart,
+            downloadAvailable: 'No',
+            downloadSize: 'N/A',
+            region: 'World',
+            frontCartCode: '',
+            comments,
+            platformId: tab.platformId,
+            isPastRevision: true,
+          });
+        }
+      } else {
+        // Intermediate reprints (Rev 001, 002, 003...)
+        if (explicitRegions && explicitRegions.length > 0) {
+          for (const reg of explicitRegions) {
+            const code = baseMeta?.regions.get(reg)?.frontCartCode || '';
+            parsedPastRows.push({
+              gameName,
+              revisionNum: cleanRevNum,
+              versionOnCart,
+              downloadAvailable: 'No',
+              downloadSize: 'N/A',
+              region: reg,
+              frontCartCode: code,
+              comments,
+              platformId: tab.platformId,
+              isPastRevision: true,
+            });
+          }
+        } else {
+          // Undocumented intermediate reprint: assign 'World'
+          parsedPastRows.push({
+            gameName,
+            revisionNum: cleanRevNum,
+            versionOnCart,
+            downloadAvailable: 'No',
+            downloadSize: 'N/A',
+            region: 'World',
+            frontCartCode: '',
+            comments,
+            platformId: tab.platformId,
+            isPastRevision: true,
+          });
+        }
+      }
     }
   }
 
@@ -355,7 +490,8 @@ export function parseSwitchRevisionsCsv(
     const normalized = normalizeTitleForMatching(cleanTitle);
     if (!normalized) return;
 
-    const normalizedRegion = normalizeSpreadsheetRegion(row.region) || 'World';
+    const normalizedRegion =
+      normalizeSpreadsheetRegion(row.region) || row.region || 'World';
     const variant = formatSwitchRevisionVariant(
       row.revisionNum,
       row.versionOnCart,
@@ -366,6 +502,8 @@ export function parseSwitchRevisionsCsv(
     const serialCode = row.frontCartCode.trim()
       ? row.frontCartCode.trim()
       : null;
+
+    const comments = row.comments.trim() ? row.comments.trim() : null;
 
     // Grouping key: platformId + normalizedTitle + region + variant
     const key = `${row.platformId}::${normalized}::${normalizedRegion}::${variant}`;
@@ -381,7 +519,7 @@ export function parseSwitchRevisionsCsv(
         rom_crc: null,
         serial_code: serialCode,
         barcode: null,
-        publisher: null,
+        publisher: comments,
         source: 'nintendo_revised',
         is_verified_physical: 1,
       });
@@ -389,6 +527,9 @@ export function parseSwitchRevisionsCsv(
       const existing = releasesMap.get(key)!;
       if (!existing.serial_code && serialCode) {
         existing.serial_code = serialCode;
+      }
+      if (!existing.publisher && comments) {
+        existing.publisher = comments;
       }
     }
   };
@@ -552,9 +693,28 @@ export function normalizeVersionString(
 export function resolveBestSwitchRevisionMatch(
   parsedDump: NxdumptoolParseResult,
   candidateReleases: CanonicalRelease[],
+  preferredRegion?: string | null,
 ): CanonicalRelease | null {
   if (candidateReleases.length === 0) return null;
   if (candidateReleases.length === 1) return candidateReleases[0];
+
+  // Helper: prefer regional match if multiple candidates match the same revision/version
+  const matchPreferred = (candidates: CanonicalRelease[]) => {
+    if (!preferredRegion || candidates.length <= 1)
+      return candidates[0] || null;
+    const cleanPref = preferredRegion.trim().toLowerCase();
+    const regional = candidates.find(
+      (c) =>
+        c.region &&
+        (c.region.toLowerCase().includes(cleanPref) ||
+          cleanPref.includes(c.region.toLowerCase())),
+    );
+    return (
+      regional ||
+      candidates.find((c) => c.region?.toLowerCase() === 'world') ||
+      candidates[0]
+    );
+  };
 
   // Prioritize community Nintendo Revised releases over unverified or placeholder sources
   const nintendoRevisedCandidates = candidateReleases.filter(
@@ -566,7 +726,7 @@ export function resolveBestSwitchRevisionMatch(
       : candidateReleases;
 
   const primarySegment = parsedDump.segments[0];
-  if (!primarySegment) return activeCandidates[0];
+  if (!primarySegment) return matchPreferred(activeCandidates);
 
   // Helper: extract version string from canonical variants (e.g. "Rev 001 (v1.1)" -> "1.1" or "v1.0.5/1.0.3" -> "1.0.5/1.0.3")
   const extractVersionFromVariant = (variant: string | null): string | null => {
@@ -589,49 +749,48 @@ export function resolveBestSwitchRevisionMatch(
     const dumpVers = parsedDump.segments
       .map((s) => normalizeVersionString(s.displayVersion))
       .filter((v): v is string => Boolean(v));
-    for (const rel of activeCandidates) {
+    const multiCandidates = activeCandidates.filter((rel) => {
       const rawVer = extractVersionFromVariant(rel.variants);
       if (rawVer && rawVer.includes('/')) {
         const subVers = rawVer.split('/').map(normalizeVersionString);
-        if (dumpVers.every((dv) => subVers.includes(dv))) {
-          return rel;
-        }
+        return dumpVers.every((dv) => subVers.includes(dv));
       }
-    }
+      return false;
+    });
+    if (multiCandidates.length > 0) return matchPreferred(multiCandidates);
   }
 
   // 2. If dump has an explicit displayVersion (e.g., "1.1", "1.0.2", "1.1.100.3")
   if (primarySegment.displayVersion) {
     const targetNorm = normalizeVersionString(primarySegment.displayVersion);
-    for (const rel of activeCandidates) {
+    const verCandidates = activeCandidates.filter((rel) => {
       const candRaw = extractVersionFromVariant(rel.variants);
-      if (!candRaw) continue;
+      if (!candRaw) return false;
       const subVers = candRaw.split('/').map(normalizeVersionString);
-      if (subVers.includes(targetNorm)) {
-        return rel;
-      }
-    }
+      return subVers.includes(targetNorm);
+    });
+    if (verCandidates.length > 0) return matchPreferred(verCandidates);
   }
 
   // 3. If versionInt === 0 ([v0]), match base revision (Rev 000 / Rev 00 / lowest version)
   if (primarySegment.versionInt === 0) {
-    const rev0 = activeCandidates.find((r) => {
+    const rev0Candidates = activeCandidates.filter((r) => {
       const rev = extractRevisionFromVariant(r.variants);
       return rev === 0;
     });
-    if (rev0) return rev0;
+    if (rev0Candidates.length > 0) return matchPreferred(rev0Candidates);
   }
 
   // 4. If versionInt > 0, match patchLevel against Rev number
   if (primarySegment.patchLevel > 0) {
-    const revMatch = activeCandidates.find((r) => {
+    const revCandidates = activeCandidates.filter((r) => {
       const rev = extractRevisionFromVariant(r.variants);
       return rev === primarySegment.patchLevel;
     });
-    if (revMatch) return revMatch;
+    if (revCandidates.length > 0) return matchPreferred(revCandidates);
   }
 
-  return activeCandidates[0];
+  return matchPreferred(activeCandidates);
 }
 
 /**
@@ -732,7 +891,7 @@ export function syncSwitchRevisionsToDatabase(
   // 2. Fetch existing 'nintendo_revised' rows to compute diff
   const existingRows = db
     .prepare(
-      `SELECT id, platform_id, raw_title, normalized_title, region, variants, serial_code FROM canonical_releases WHERE platform_id IN (${targetIdsStr}) AND source = 'nintendo_revised'`,
+      `SELECT id, platform_id, raw_title, normalized_title, region, variants, serial_code, publisher FROM canonical_releases WHERE platform_id IN (${targetIdsStr}) AND source = 'nintendo_revised'`,
     )
     .all() as Array<{
     id: number;
@@ -742,6 +901,7 @@ export function syncSwitchRevisionsToDatabase(
     region: string | null;
     variants: string | null;
     serial_code: string | null;
+    publisher: string | null;
   }>;
 
   const existingMap = new Map<string, (typeof existingRows)[0]>();
@@ -760,7 +920,7 @@ export function syncSwitchRevisionsToDatabase(
       rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical
     ) VALUES (
       ?, ?, ?, ?, ?,
-      NULL, NULL, ?, NULL, NULL, 'nintendo_revised', 1
+      NULL, NULL, ?, NULL, ?, 'nintendo_revised', 1
     )
   `);
 
@@ -768,7 +928,7 @@ export function syncSwitchRevisionsToDatabase(
     ? null
     : db.prepare(`
     UPDATE canonical_releases
-    SET raw_title = ?, serial_code = ?
+    SET raw_title = ?, serial_code = ?, publisher = ?
     WHERE id = ?
   `);
 
@@ -791,16 +951,23 @@ export function syncSwitchRevisionsToDatabase(
             rel.region || null,
             rel.variants || null,
             rel.serial_code || null,
+            rel.publisher || null,
           );
         }
         addedCanonical++;
       } else {
         if (
           existing.serial_code !== (rel.serial_code || null) ||
-          existing.raw_title !== rel.raw_title
+          existing.raw_title !== rel.raw_title ||
+          existing.publisher !== (rel.publisher || null)
         ) {
           if (updateStmt) {
-            updateStmt.run(rel.raw_title, rel.serial_code || null, existing.id);
+            updateStmt.run(
+              rel.raw_title,
+              rel.serial_code || null,
+              rel.publisher || null,
+              existing.id,
+            );
           }
           updatedCanonical++;
         }

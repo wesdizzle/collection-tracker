@@ -1202,6 +1202,12 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
       platform: string;
     }[] = [];
     const allMatchedReleaseIds = new Set<string>();
+    const matchedSwitchUpdates: Array<{
+      releaseId: string;
+      romName: string;
+      canonicalReleaseId: number | null;
+      variants: string | null;
+    }> = [];
 
     for (const subDir of subDirs) {
       const dbPlatform = findDbPlatform(subDir, dbPlatforms);
@@ -1260,7 +1266,7 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
       const allPlatformReleases = db
         .prepare(
           `
-        SELECT r.id, r.game_id, r.region, r.rom_name, r.rom_crc, r.ownership_status, r.canonical_release_id
+        SELECT r.id, r.game_id, r.region, r.rom_name, r.rom_crc, r.ownership_status, r.canonical_release_id, r.variants, r.backup_status, r.is_physical
         FROM game_releases r
         JOIN games g ON r.game_id = g.stable_id
         WHERE g.platform_id IN (${placeholders})
@@ -1274,6 +1280,9 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
         rom_crc: string | null;
         ownership_status: number;
         canonical_release_id: number | null;
+        variants?: string | null;
+        backup_status?: number;
+        is_physical?: number;
       }>;
 
       // Load all games for fallback title-matching verification
@@ -1391,18 +1400,26 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
                   normalizeTitleForMatching(parsed.segments[0].cleanTitle),
                 ) as CanonicalRelease[];
 
-              const bestRev = resolveBestSwitchRevisionMatch(
-                parsed,
-                canonicalMatches,
-              );
-
               const gameRels = allPlatformReleases.filter(
                 (r) => r.game_id === matchedGame!.stable_id,
               );
               const targetRel =
                 gameRels.find((r) => r.ownership_status === 1) || gameRels[0];
 
+              const bestRev = resolveBestSwitchRevisionMatch(
+                parsed,
+                canonicalMatches,
+                targetRel?.region,
+              );
+
               if (targetRel) {
+                targetRel.rom_name = filename;
+                targetRel.rom_crc = null;
+                targetRel.backup_status = 1;
+                targetRel.is_physical = 1;
+                if (bestRev?.id) targetRel.canonical_release_id = bestRev.id;
+                if (bestRev?.variants) targetRel.variants = bestRev.variants;
+
                 if (!isDryRun) {
                   db.prepare(
                     `
@@ -1410,6 +1427,7 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
                     SET rom_name = ?,
                         canonical_release_id = COALESCE(?, canonical_release_id),
                         variants = COALESCE(?, variants),
+                        rom_crc = NULL,
                         backup_status = 1,
                         is_physical = 1
                     WHERE id = ?
@@ -1421,6 +1439,13 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
                     targetRel.id,
                   );
                 }
+
+                matchedSwitchUpdates.push({
+                  releaseId: targetRel.id,
+                  romName: filename,
+                  canonicalReleaseId: bestRev?.id || null,
+                  variants: bestRev?.variants || null,
+                });
 
                 console.log(
                   `  [Switch Match] "${filename}" -> "${matchedGame.title}" (${bestRev?.variants || 'Standard'}) [Release: ${targetRel.id}]`,
@@ -1676,6 +1701,11 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
       const platList = Array.from(allScannedPlatformIds).join(', ');
       sqlContent += `-- 1. Reset backup_status only for scanned platforms\n`;
       sqlContent += `UPDATE game_releases SET backup_status = 0 WHERE backup_status != 0 AND game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${platList}));\n\n`;
+
+      if (allScannedPlatformIds.has(26) || allScannedPlatformIds.has(27)) {
+        sqlContent += `-- Clear legacy rom_crc on Nintendo Switch games\n`;
+        sqlContent += `UPDATE game_releases SET rom_crc = NULL WHERE rom_crc IS NOT NULL AND game_id IN (SELECT stable_id FROM games WHERE platform_id IN (26, 27));\n\n`;
+      }
     }
 
     if (allMatchedReleaseIds.size > 0) {
@@ -1688,6 +1718,22 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
           .map((id) => `'${id.replace(/'/g, "''")}'`)
           .join(', ');
         sqlContent += `UPDATE game_releases SET backup_status = 1 WHERE backup_status != 1 AND id IN (${escapedIds});\n`;
+      }
+      sqlContent += '\n';
+    }
+
+    if (matchedSwitchUpdates.length > 0) {
+      sqlContent += `-- 3. Link matched Switch releases to canonical catalog revisions and update rom_name\n`;
+      for (const upd of matchedSwitchUpdates) {
+        const escId = `'${upd.releaseId.replace(/'/g, "''")}'`;
+        const escRom = `'${upd.romName.replace(/'/g, "''")}'`;
+        const canonVal = upd.canonicalReleaseId
+          ? `${upd.canonicalReleaseId}`
+          : 'NULL';
+        const varVal = upd.variants
+          ? `'${upd.variants.replace(/'/g, "''")}'`
+          : 'NULL';
+        sqlContent += `UPDATE game_releases SET rom_name = ${escRom}, rom_crc = NULL, canonical_release_id = COALESCE(${canonVal}, canonical_release_id), variants = COALESCE(${varVal}, variants), is_physical = 1 WHERE id = ${escId};\n`;
       }
       sqlContent += '\n';
     }

@@ -228,16 +228,16 @@ describe('ItemDetailComponent', () => {
     expect(romPill).toBeTruthy();
     expect(romPill.textContent).toContain('Catalog Signature Matched');
 
-    // Check for ROM filename in the discs list
+    // Check for physical discs / releases section
     const discsSection = compiled.querySelector('.discs-section');
     expect(discsSection).toBeTruthy();
-    expect(discsSection.textContent).toContain('Physical Discs / ROMs');
-    expect(discsSection.textContent).toContain('Super Mario World (USA).sfc');
+    expect(discsSection.textContent).toContain('Physical Discs / Releases');
 
-    // Check for CRC metadata in the discs list
-    const crcText = compiled.querySelector('.crc-text');
-    expect(crcText).toBeTruthy();
-    expect(crcText.textContent).toContain('B19DF4F3');
+    // Filenames and raw CRC32 must NOT be rendered in the UI
+    expect(discsSection.textContent).not.toContain(
+      'Super Mario World (USA).sfc',
+    );
+    expect(discsSection.textContent).not.toContain('B19DF4F3');
   });
 
   it('should render the IGDB verified pill as an anchor tag with correct URL', async () => {
@@ -285,6 +285,46 @@ describe('ItemDetailComponent', () => {
       'docs.google.com/spreadsheets/d/1CEABCBrPv1tWf89hSZqUunK0JW-sQo8XpxuvZhdtHQs',
     );
     expect(sheetLink.textContent).toContain('Nintendo Revised Sheet');
+  });
+
+  it('should display Switch revision variant, serial code, and sheet comments without raw filename or CRC32', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        platform_id: 26,
+        platform: 'Nintendo Switch',
+        title: '1-2-Switch',
+        releases: [
+          {
+            id: 'rel-switch-1',
+            game_id: 1,
+            region: 'USA',
+            variants: 'Rev 001 (v1.1.0)',
+            serial_code: 'LA-H-AACCA-USA',
+            comments: 'Complete on cart',
+            rom_name: '1-2-Switch [0100000000010000][v65536].xci',
+            rom_crc: null,
+            backup_status: 1,
+            ownership_status: 1,
+          },
+        ],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const discsSection = compiled.querySelector('.discs-section');
+    expect(discsSection).toBeTruthy();
+    expect(discsSection.textContent).toContain('Rev 001 (v1.1.0)');
+    expect(discsSection.textContent).toContain('LA-H-AACCA-USA');
+    expect(discsSection.textContent).toContain('Complete on cart');
+    expect(discsSection.textContent).not.toContain(
+      '1-2-Switch [0100000000010000][v65536].xci',
+    );
+    expect(discsSection.textContent).not.toContain('CRC32');
   });
 
   it('should display extracted archival ROM provenance and badge', async () => {

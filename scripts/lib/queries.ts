@@ -179,15 +179,19 @@ export const GAME_DETAIL_QUERY = `
  `;
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `
-     SELECT id, game_id, region, variants, also_released_as, rom_name, rom_crc, backup_status, ownership_status, release_date, image_url, COALESCE(has_case, 0) as has_case, COALESCE(has_manual, 0) as has_manual
-     FROM game_releases
-     WHERE game_id = ? AND region IS ? AND variants IS ?
+     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status, r.release_date, r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+            cr.serial_code, cr.publisher as comments
+     FROM game_releases r
+     LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
+     WHERE r.game_id = ? AND r.region IS ? AND r.variants IS ?
  `;
 
 export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
-     SELECT id, game_id, region, variants, also_released_as, rom_name, rom_crc, backup_status, ownership_status, release_date, image_url, COALESCE(has_case, 0) as has_case, COALESCE(has_manual, 0) as has_manual
-     FROM game_releases
-     WHERE game_id = ? AND rom_name IS NOT NULL
+     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status, r.release_date, r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+            cr.serial_code, cr.publisher as comments
+     FROM game_releases r
+     LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
+     WHERE r.game_id = ? AND r.rom_name IS NOT NULL
  `;
 
 export const BUNDLED_GAMES_BY_PARENT_QUERY = `

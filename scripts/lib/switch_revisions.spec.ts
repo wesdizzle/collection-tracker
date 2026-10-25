@@ -53,13 +53,13 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
   });
 
   describe('parseSwitchRevisionsCsv with Past Revisions Inheritance', () => {
-    it('should parse main tabs and inherit metadata on past revision continuation rows', () => {
+    it('should parse main tabs and handle launch multi-region expansion and World intermediate reprints', () => {
       const mainTab: SwitchSheetTabConfig = {
         gid: '0',
         name: 'S1: 1st Party Nintendo',
         platformId: 26,
       };
-      const mainCsv = `Game Name,Revision #,Version on Cart,Download Available?,Download Size,Regions,Front Cart Code,Additional Comments,Last Checked\n1-2-Switch,001,1.1.0,No,N/A,USA,LA-H-AACCA-USA,Complete on cart,30/05/2024\nAnimal Crossing: New Horizons,009,1.8.0,No,N/A,USA,LA-H-ALACA-USA,Complete,30/05/2024`;
+      const mainCsv = `Game Name,Revision #,Version on Cart,Download Available?,Download Size,Regions,Front Cart Code,Additional Comments,Last Checked\n1-2-Switch,001,1.1.0,No,N/A,USA,LA-H-AACCA-USA,Complete on cart,30/05/2024\n1-2-Switch,001,1.1.0,No,N/A,EUR,LA-H-AACCA-EUR,Complete on cart,30/05/2024\nAnimal Crossing: New Horizons,009,1.8.0,No,N/A,USA,LA-H-ALACA-USA,Complete,30/05/2024`;
 
       const pastTab: SwitchSheetTabConfig = {
         gid: '609274111',
@@ -67,32 +67,52 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
         platformId: 26,
         isPastRevisions: true,
       };
-      const pastCsv = `Game Name,Past Revision #,Version on Cart,Additional Comments\n1-2-Switch,000,1.0.0,Base print\nAnimal Crossing: New Horizons,000,1.0.0,Base\n,001,1.1.0,Patch 1\n,004,1.2.0,Patch 2`;
+      const pastCsv = `Game Name,Past Revision #,Version on Cart,Additional Comments\n1-2-Switch,000,1.0.0,Base print\nAnimal Crossing: New Horizons,000,1.0.0,Base\n,001,1.1.0,Patch 1\n,004,1.2.0,EUR COPIES ONLY`;
 
       const releases = parseSwitchRevisionsCsv([
         { tab: mainTab, csv: mainCsv },
         { tab: pastTab, csv: pastCsv },
       ]);
 
-      // Should have 1-2-Switch Rev 001 (main) and Rev 000 (past)
+      // 1-2-Switch: Rev 001 for USA and Europe, Rev 000 expanded to USA and Europe with real serial codes
       const oneTwoSwitchRevs = releases.filter(
         (r) => r.raw_title === '1-2-Switch',
       );
-      expect(oneTwoSwitchRevs).toHaveLength(2);
-      expect(
-        oneTwoSwitchRevs.some((r) => r.variants === 'Rev 001 (v1.1.0)'),
-      ).toBe(true);
-      expect(
-        oneTwoSwitchRevs.some((r) => r.variants === 'Rev 000 (v1.0.0)'),
-      ).toBe(true);
+      expect(oneTwoSwitchRevs).toHaveLength(4);
+      const rev000Usa = oneTwoSwitchRevs.find(
+        (r) => r.variants === 'Rev 000 (v1.0.0)' && r.region === 'USA',
+      );
+      expect(rev000Usa).toBeTruthy();
+      expect(rev000Usa?.serial_code).toBe('LA-H-AACCA-USA');
+      expect(rev000Usa?.publisher).toBe('Base print');
 
-      // Animal Crossing continuation rows should inherit title and region
+      const rev000Eur = oneTwoSwitchRevs.find(
+        (r) => r.variants === 'Rev 000 (v1.0.0)' && r.region === 'Europe',
+      );
+      expect(rev000Eur).toBeTruthy();
+      expect(rev000Eur?.serial_code).toBe('LA-H-AACCA-EUR');
+
+      // Animal Crossing:
+      // Rev 009 (USA, LA-H-ALACA-USA)
+      // Rev 000 (USA, LA-H-ALACA-USA)
+      // Rev 001 (World - undocumented reprint)
+      // Rev 004 (Europe - explicit "EUR COPIES ONLY")
       const acRevs = releases.filter(
         (r) => r.raw_title === 'Animal Crossing: New Horizons',
       );
-      expect(acRevs.length).toBeGreaterThanOrEqual(4);
-      expect(acRevs.every((r) => r.region === 'USA')).toBe(true);
-      expect(acRevs.some((r) => r.variants === 'Rev 004 (v1.2.0)')).toBe(true);
+      expect(acRevs).toHaveLength(4);
+
+      const acRev0 = acRevs.find((r) => r.variants === 'Rev 000 (v1.0.0)');
+      expect(acRev0?.region).toBe('USA');
+      expect(acRev0?.serial_code).toBe('LA-H-ALACA-USA');
+
+      const acRev1 = acRevs.find((r) => r.variants === 'Rev 001 (v1.1.0)');
+      expect(acRev1?.region).toBe('World');
+      expect(acRev1?.publisher).toBe('Patch 1');
+
+      const acRev4 = acRevs.find((r) => r.variants === 'Rev 004 (v1.2.0)');
+      expect(acRev4?.region).toBe('Europe');
+      expect(acRev4?.publisher).toBe('EUR COPIES ONLY');
     });
   });
 

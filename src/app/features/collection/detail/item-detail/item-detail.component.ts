@@ -409,11 +409,6 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                                   >
                                 }
                               </div>
-                              @if (b.rom_name) {
-                                <div class="rom-text font-mono text-2xs">
-                                  {{ b.rom_name }}
-                                </div>
-                              }
                             </div>
                             <div class="disc-actions flex items-center gap-sm">
                               <div
@@ -442,87 +437,100 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   }
                   @if (g.releases && g.releases.length > 0) {
                     <div class="meta-box full-width discs-section mt-lg">
-                      <span class="label">Physical Discs / ROMs</span>
+                      <span class="label">Physical Discs / Releases</span>
                       <div class="discs-list flex flex-col gap-md">
                         @for (release of g.releases; track release.id) {
                           <div
                             class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
                           >
                             <div class="disc-info flex-1">
-                              @if (
-                                release.disc_label ||
-                                release.companion_game_id ||
-                                (g.releases.length > 1 &&
-                                  release.also_released_as)
-                              ) {
+                              <div
+                                class="flex flex-wrap items-center gap-xs mb-2xs"
+                              >
+                                @if (release.disc_label) {
+                                  <span class="variant-badge">{{
+                                    release.disc_label
+                                  }}</span>
+                                }
+                                @if (
+                                  release.variants &&
+                                  release.variants !== release.disc_label
+                                ) {
+                                  <span class="variant-badge">{{
+                                    release.variants
+                                  }}</span>
+                                }
+                                @if (release.serial_code) {
+                                  <span
+                                    class="variant-badge serial-badge font-mono"
+                                    >{{ release.serial_code }}</span
+                                  >
+                                }
+                                @if (
+                                  release.is_companion_base_disc &&
+                                  release.companion_game_id
+                                ) {
+                                  <span
+                                    class="companion-disc-note text-xs flex items-center gap-xs"
+                                  >
+                                    <app-icon name="link" [size]="12" />
+                                    Identical disc master to original release:
+                                    <a
+                                      [routerLink]="[
+                                        '/collection',
+                                        'game',
+                                        release.companion_game_id,
+                                      ]"
+                                      class="meta-link font-semibold"
+                                    >
+                                      {{
+                                        release.companion_game_title ||
+                                          'View Original Release'
+                                      }}
+                                    </a>
+                                  </span>
+                                } @else if (release.companion_game_id) {
+                                  <span
+                                    class="companion-disc-note text-xs flex items-center gap-xs"
+                                  >
+                                    <app-icon name="link" [size]="12" />
+                                    Standalone game:
+                                    <a
+                                      [routerLink]="[
+                                        '/collection',
+                                        'game',
+                                        release.companion_game_id,
+                                      ]"
+                                      class="meta-link font-semibold"
+                                    >
+                                      {{
+                                        release.companion_game_title ||
+                                          'View Standalone Game'
+                                      }}
+                                    </a>
+                                  </span>
+                                }
+                                @if (
+                                  g.releases.length > 1 &&
+                                  release.also_released_as
+                                ) {
+                                  <span class="also-released-pill">{{
+                                    'Also released as: ' +
+                                      release.also_released_as
+                                  }}</span>
+                                }
+                              </div>
+                              @if (release.comments) {
                                 <div
-                                  class="flex flex-wrap items-center gap-xs mb-2xs"
+                                  class="release-comments-note text-xs text-secondary flex items-center gap-xs mt-2xs"
                                 >
-                                  @if (release.disc_label) {
-                                    <span class="variant-badge">{{
-                                      release.disc_label
-                                    }}</span>
-                                  }
-                                  @if (
-                                    release.is_companion_base_disc &&
-                                    release.companion_game_id
-                                  ) {
-                                    <span
-                                      class="companion-disc-note text-xs flex items-center gap-xs"
-                                    >
-                                      <app-icon name="link" [size]="12" />
-                                      Identical disc master to original release:
-                                      <a
-                                        [routerLink]="[
-                                          '/collection',
-                                          'game',
-                                          release.companion_game_id,
-                                        ]"
-                                        class="meta-link font-semibold"
-                                      >
-                                        {{
-                                          release.companion_game_title ||
-                                            'View Original Release'
-                                        }}
-                                      </a>
-                                    </span>
-                                  } @else if (release.companion_game_id) {
-                                    <span
-                                      class="companion-disc-note text-xs flex items-center gap-xs"
-                                    >
-                                      <app-icon name="link" [size]="12" />
-                                      Standalone game:
-                                      <a
-                                        [routerLink]="[
-                                          '/collection',
-                                          'game',
-                                          release.companion_game_id,
-                                        ]"
-                                        class="meta-link font-semibold"
-                                      >
-                                        {{
-                                          release.companion_game_title ||
-                                            'View Standalone Game'
-                                        }}
-                                      </a>
-                                    </span>
-                                  }
-                                  @if (
-                                    g.releases.length > 1 &&
-                                    release.also_released_as
-                                  ) {
-                                    <span class="also-released-pill">{{
-                                      'Also released as: ' +
-                                        release.also_released_as
-                                    }}</span>
-                                  }
+                                  <span>{{ release.comments }}</span>
                                 </div>
                               }
-                              @if (release.rom_name) {
-                                <div class="rom-text font-mono mb-2xs">
-                                  {{ release.rom_name }}
-                                </div>
-                              } @else {
+                              @if (
+                                !release.rom_name &&
+                                !release.canonical_release_id
+                              ) {
                                 <div
                                   class="rom-text warning-text font-mono mb-2xs"
                                 >
@@ -532,13 +540,6 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                                       ? 'No cartridge revision exists in community catalog'
                                       : 'No dump exists in community DAT files'
                                   }}
-                                </div>
-                              }
-                              @if (release.rom_crc) {
-                                <div
-                                  class="crc-text font-mono text-2xs text-secondary"
-                                >
-                                  CRC32: {{ release.rom_crc }}
                                 </div>
                               }
                             </div>
@@ -648,10 +649,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                     </div>
                   } @else if (!g.rom_name) {
                     <div class="meta-box full-width">
-                      <span class="label">ROM Filename</span>
+                      <span class="label">Release Catalog</span>
                       <span
-                        class="value rom-text warning-text"
-                        class="flex items-center gap-xs"
+                        class="value rom-text warning-text flex items-center gap-xs"
                         ><app-icon name="alert-triangle" [size]="14" />
                         {{
                           g.platform_id === 26 || g.platform_id === 27
@@ -2069,6 +2069,18 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         font-size: 0.8125rem;
         padding: 0.2rem 0.65rem;
         border-radius: var(--radius-tag, 6px);
+      }
+      .variant-badge.serial-badge {
+        font-family: var(--font-mono, monospace);
+        font-size: 0.72rem;
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface);
+        border: 1px solid var(--m3-outline-variant);
+        text-transform: none;
+      }
+      .release-comments-note {
+        font-size: 0.75rem;
+        color: var(--m3-on-surface-variant);
       }
       .also-released-label {
         font-family: var(--font-body);

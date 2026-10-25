@@ -59,6 +59,8 @@ export interface GameRelease {
   is_companion_base_disc?: boolean;
   companion_game_id?: string;
   companion_game_title?: string;
+  serial_code?: string | null;
+  comments?: string | null;
 }
 
 export interface SharedBackupReleaseLink {
