@@ -1,4 +1,4 @@
-import { isTrueEditionOrRevisionVariant } from './dat_format.js';
+import { isTrueEditionOrRevisionVariant } from './source_format.js';
 
 /**
  * @file title_matching.ts

@@ -264,6 +264,29 @@ describe('ItemDetailComponent', () => {
     expect(igdbLink.getAttribute('target')).toBe('_blank');
   });
 
+  it('should display Nintendo Revised attribution pill for Switch 1 & Switch 2 games', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        platform_id: 26,
+        platform: 'Nintendo Switch',
+        title: 'Super Mario Odyssey',
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const sheetLink = compiled.querySelector('a.stat-pill.physical');
+    expect(sheetLink).toBeTruthy();
+    expect(sheetLink.getAttribute('href')).toContain(
+      'docs.google.com/spreadsheets/d/1CEABCBrPv1tWf89hSZqUunK0JW-sQo8XpxuvZhdtHQs',
+    );
+    expect(sheetLink.textContent).toContain('Nintendo Revised Sheet');
+  });
+
   it('should display extracted archival ROM provenance and badge', async () => {
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(
       of({

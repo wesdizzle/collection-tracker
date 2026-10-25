@@ -51,7 +51,7 @@ describe('Canonical DAT Downloader', () => {
     const noIntroFiles = NO_INTRO_TARGETS.map((t) => t.remoteFileName);
     expect(noIntroFiles).toContain('Nintendo - Game Boy Advance.dat');
     expect(noIntroFiles).toContain('Nintendo - Nintendo 64.dat');
-    expect(noIntroFiles).toContain('Nintendo - Nintendo Switch.dat');
+    expect(noIntroFiles).not.toContain('Nintendo - Nintendo Switch.dat');
     expect(noIntroFiles).toContain('Sega - Mega Drive - Genesis.dat');
   });
 
@@ -119,73 +119,11 @@ describe('Canonical DAT Downloader', () => {
     expect(result.error).toContain('HTTP 503 Service Unavailable');
   });
 
-  it('should automatically fetch, convert, and save Nintendo Switch XML from NSWDB into Logiqx DAT', async () => {
-    const mockNswdbXml = `<?xml version="1.0"?>
-<releases>
-  <release>
-    <id>1</id>
-    <name>The Legend of Zelda: Breath of the Wild</name>
-    <publisher>Nintendo</publisher>
-    <region>WLD</region>
-    <serial>LA-H-AAAAA</serial>
-    <imgcrc>5DD119C1</imgcrc>
-    <trimmedsize>14880118272</trimmedsize>
-    <type>1</type>
-  </release>
-</releases>`;
-
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () => mockNswdbXml,
-    });
-    vi.stubGlobal('fetch', mockFetch);
-
+  it('should not include Nintendo Switch in DAT download targets since it uses Nintendo Revised spreadsheet', () => {
     const switchTarget = NO_INTRO_TARGETS.find(
       (t) => t.name === 'Nintendo Switch',
-    )!;
-    expect(switchTarget).toBeDefined();
-
-    const result = await downloadNoIntroDat(switchTarget, tempTestDir);
-    expect(result.success).toBe(true);
-    expect(result.fileName).toBe('Nintendo - Nintendo Switch.dat');
-    expect(mockFetch).toHaveBeenCalledWith(
-      'http://nswdb.com/xml.php',
-      expect.any(Object),
     );
-
-    const savedPath = path.join(tempTestDir, result.fileName!);
-    expect(fs.existsSync(savedPath)).toBe(true);
-    const content = fs.readFileSync(savedPath, 'utf8');
-    expect(content).toContain('<datafile>');
-    expect(content).toContain(
-      '<game name="The Legend of Zelda - Breath of the Wild (World)">',
-    );
-  });
-
-  it('should preserve existing Nintendo Switch DAT if network request fails', async () => {
-    const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
-    vi.stubGlobal('fetch', mockFetch);
-
-    const switchTarget = NO_INTRO_TARGETS.find(
-      (t) => t.name === 'Nintendo Switch',
-    )!;
-
-    // Simulate pre-existing Switch DAT file
-    const preExistingPath = path.join(
-      tempTestDir,
-      'Nintendo - Nintendo Switch.dat',
-    );
-    fs.writeFileSync(
-      preExistingPath,
-      '<datafile><game name="Pre-existing Game (World)"/></datafile>',
-      'utf8',
-    );
-
-    const result = await downloadNoIntroDat(switchTarget, tempTestDir);
-    expect(result.success).toBe(true);
-    expect(result.fileName).toBe('Nintendo - Nintendo Switch.dat');
-    expect(fs.existsSync(preExistingPath)).toBe(true);
+    expect(switchTarget).toBeUndefined();
   });
 
   it('should fetch and save canonical PlayStation Vita PSVgameSD releases directly from mirror', async () => {
@@ -516,11 +454,11 @@ game (
       expect(savedContent).toContain('datomatic.no-intro.org');
     });
 
-    it('should preserve Nintendo Switch DAT files and migrate loose files from root dats dir', () => {
+    it('should clean up legacy Nintendo Switch DAT files and migrate loose files from root dats dir', () => {
       const testNoIntro = path.join(tempTestDir, 'No-Intro');
       fs.mkdirSync(testNoIntro, { recursive: true });
 
-      // Place a manual Switch DAT directly in No-Intro
+      // Place a legacy Switch DAT directly in No-Intro
       fs.writeFileSync(
         path.join(
           testNoIntro,
@@ -538,7 +476,7 @@ game (
       );
 
       const result = pruneAndDeduplicateDats(tempTestDir);
-      expect(result.renamedCount).toBeGreaterThanOrEqual(1);
+      expect(result.removedCount).toBeGreaterThanOrEqual(1);
 
       // Verify loose file was migrated into No-Intro
       expect(
@@ -548,10 +486,10 @@ game (
         fs.existsSync(path.join(testNoIntro, 'Nintendo - Game Boy.dat')),
       ).toBe(true);
 
-      // Verify Switch file was NOT pruned, but rather normalized to canonical name
+      // Verify legacy Switch file was pruned
       expect(
         fs.existsSync(path.join(testNoIntro, 'Nintendo - Nintendo Switch.dat')),
-      ).toBe(true);
+      ).toBe(false);
       expect(
         fs.existsSync(
           path.join(

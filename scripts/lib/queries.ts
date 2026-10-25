@@ -12,7 +12,7 @@ import {
   isCompilationDiscSubtitle,
   isRegionOrLanguageOrDisc,
   isTrueEditionOrRevisionVariant,
-} from './dat_format.js';
+} from './source_format.js';
 import {
   BOX_SET_DEFINITIONS,
   BOX_SET_DISC_LABELS,

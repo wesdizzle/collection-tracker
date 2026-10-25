@@ -51,9 +51,13 @@ import {
 } from '../scripts/lib/queries';
 import {
   detectPhysicalReleaseStatus,
-  isPlatformDatComplete,
+  isPlatformSourceComplete,
   CanonicalRelease,
 } from '../scripts/lib/canonical_releases';
+import {
+  fetchSwitchSpreadsheetTabs,
+  parseSwitchRevisionsCsv,
+} from '../scripts/lib/switch_revisions';
 import { normalizeTitleForMatching } from '../scripts/lib/title_matching';
 import {
   findVerifiedRegionalPhysicalReleases,
@@ -1493,7 +1497,7 @@ Disallow: /
           const canonicalRows = (initialCanonicalRows ||
             []) as unknown as CanonicalRelease[];
 
-          if (!isPlatformDatComplete(localPlatformId)) {
+          if (!isPlatformSourceComplete(localPlatformId)) {
             try {
               const verifiedRegional =
                 await findVerifiedRegionalPhysicalReleases(
@@ -3825,6 +3829,36 @@ Disallow: /
         );
       }
 
+      // 4. Scheduled Nintendo Switch 1 & 2 revisions sync (daily window)
+      console.log(
+        '[WorkerCron] Executing scheduled Nintendo Switch 1 & 2 revisions sync...',
+      );
+      const switchStart = Date.now();
+      try {
+        const res = await syncWorkerSwitchRevisions(env);
+        await logCronExecution(
+          env,
+          'switch_revisions',
+          'SUCCESS',
+          Date.now() - switchStart,
+          res.hashMatch
+            ? 'Spreadsheet unchanged (0 writes)'
+            : `Synced Switch revisions (+${res.addedCanonical} / ~${res.updatedCanonical} / -${res.deletedCanonical}, ${res.verifiedGames} games verified)`,
+          res,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[WorkerCron] Switch revisions sync failed:', err);
+        await logCronExecution(
+          env,
+          'switch_revisions',
+          'ERROR',
+          Date.now() - switchStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
+
       // Prune cron execution logs older than 7 days (zero-churn retention)
       try {
         await env.DB.prepare(
@@ -4131,6 +4165,190 @@ export async function dispatchDealPushNotifications(
     console.error('[WebPush] Error dispatching deal notifications:', err);
     return { dispatchedCount: 0, purgedCount: 0 };
   }
+}
+
+/**
+ * Synchronizes Nintendo Switch 1 & 2 canonical cartridge revisions from the Nintendo Revised
+ * community Google Spreadsheet into Cloudflare D1 with hash-gated zero-write fast path and row-level diffing.
+ */
+export async function syncWorkerSwitchRevisions(env: Env): Promise<{
+  checked: boolean;
+  hashMatch: boolean;
+  addedCanonical: number;
+  updatedCanonical: number;
+  deletedCanonical: number;
+  verifiedGames: number;
+}> {
+  const tabContents = await fetchSwitchSpreadsheetTabs();
+
+  // Compute SHA-256 hash of all tab CSV contents combined
+  const combinedCsv = tabContents
+    .map((t) => `${t.tab.gid}:${t.csv}`)
+    .join('||');
+  const encoder = new TextEncoder();
+  const data = encoder.encode(combinedCsv);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const currentHash = hashArray
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const lastHashRow = await env.DB.prepare(
+    "SELECT value FROM sync_state WHERE key = 'switch_revisions_hash'",
+  ).first<{ value: string }>();
+
+  if (lastHashRow?.value === currentHash) {
+    return {
+      checked: true,
+      hashMatch: true,
+      addedCanonical: 0,
+      updatedCanonical: 0,
+      deletedCanonical: 0,
+      verifiedGames: 0,
+    };
+  }
+
+  // Parse CSV into canonical releases
+  const canonicalReleases = parseSwitchRevisionsCsv(tabContents);
+
+  // Unlink & delete legacy DAT rows for platforms 26 & 27 if any exist
+  await env.DB.prepare(
+    `
+    UPDATE game_releases
+    SET canonical_release_id = NULL
+    WHERE canonical_release_id IN (
+      SELECT id FROM canonical_releases WHERE platform_id IN (26, 27) AND source = 'dat'
+    )
+  `,
+  ).run();
+  await env.DB.prepare(
+    "DELETE FROM canonical_releases WHERE platform_id IN (26, 27) AND source = 'dat'",
+  ).run();
+
+  // Query existing canonical releases
+  const existingRows = await env.DB.prepare(
+    "SELECT id, platform_id, raw_title, normalized_title, region, variants, serial_code FROM canonical_releases WHERE platform_id IN (26, 27) AND source = 'nintendo_revised'",
+  ).all<{
+    id: number;
+    platform_id: number;
+    raw_title: string;
+    normalized_title: string;
+    region: string | null;
+    variants: string | null;
+    serial_code: string | null;
+  }>();
+
+  const existingMap = new Map<string, (typeof existingRows.results)[0]>();
+  for (const r of existingRows.results || []) {
+    const key = `${r.platform_id}::${r.normalized_title}::${r.region || 'World'}::${r.variants || 'Standard'}`;
+    existingMap.set(key, r);
+  }
+
+  const incomingKeys = new Set<string>();
+  const statements: D1PreparedStatement[] = [];
+  let added = 0;
+  let updated = 0;
+  let deleted = 0;
+
+  for (const rel of canonicalReleases) {
+    const key = `${rel.platform_id}::${rel.normalized_title}::${rel.region || 'World'}::${rel.variants || 'Standard'}`;
+    incomingKeys.add(key);
+    const existing = existingMap.get(key);
+    if (!existing) {
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, serial_code, source, is_verified_physical) VALUES (?, ?, ?, ?, ?, ?, 'nintendo_revised', 1)",
+        ).bind(
+          rel.platform_id,
+          rel.raw_title,
+          rel.normalized_title,
+          rel.region,
+          rel.variants,
+          rel.serial_code,
+        ),
+      );
+      added++;
+    } else if (
+      existing.serial_code !== (rel.serial_code || null) ||
+      existing.raw_title !== rel.raw_title
+    ) {
+      statements.push(
+        env.DB.prepare(
+          'UPDATE canonical_releases SET raw_title = ?, serial_code = ? WHERE id = ?',
+        ).bind(rel.raw_title, rel.serial_code || null, existing.id),
+      );
+      updated++;
+    }
+  }
+
+  for (const [key, existing] of existingMap.entries()) {
+    if (!incomingKeys.has(key)) {
+      statements.push(
+        env.DB.prepare('DELETE FROM canonical_releases WHERE id = ?').bind(
+          existing.id,
+        ),
+      );
+      deleted++;
+    }
+  }
+
+  // Execute in batches of 100 statements
+  for (let i = 0; i < statements.length; i += 100) {
+    await env.DB.batch(statements.slice(i, i + 100));
+  }
+
+  // Update physical_status on Switch games
+  const gamesRes = await env.DB.prepare(
+    'SELECT stable_id, title, platform_id, physical_status FROM games WHERE platform_id IN (26, 27)',
+  ).all<{
+    stable_id: number;
+    title: string;
+    platform_id: number;
+    physical_status: string | null;
+  }>();
+
+  const canonicalByPlatformNorm = new Set<string>();
+  for (const cr of canonicalReleases) {
+    canonicalByPlatformNorm.add(`${cr.platform_id}::${cr.normalized_title}`);
+  }
+
+  const gameStatements: D1PreparedStatement[] = [];
+  let verifiedGames = 0;
+  for (const g of gamesRes.results || []) {
+    const norm = normalizeTitleForMatching(g.title);
+    if (
+      canonicalByPlatformNorm.has(`${g.platform_id}::${norm}`) &&
+      g.physical_status !== 'verified_physical'
+    ) {
+      gameStatements.push(
+        env.DB.prepare(
+          "UPDATE games SET physical_status = 'verified_physical', verification_tier = 1 WHERE stable_id = ?",
+        ).bind(g.stable_id),
+      );
+      verifiedGames++;
+    }
+  }
+
+  for (let i = 0; i < gameStatements.length; i += 100) {
+    await env.DB.batch(gameStatements.slice(i, i + 100));
+  }
+
+  // Save new hash into sync_state
+  await env.DB.prepare(
+    `INSERT INTO sync_state (key, value, updated_at) VALUES ('switch_revisions_hash', ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')`,
+  )
+    .bind(currentHash, currentHash)
+    .run();
+
+  return {
+    checked: true,
+    hashMatch: false,
+    addedCanonical: added,
+    updatedCanonical: updated,
+    deletedCanonical: deleted,
+    verifiedGames,
+  };
 }
 
 /**

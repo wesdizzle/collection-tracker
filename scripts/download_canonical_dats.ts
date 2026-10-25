@@ -18,7 +18,6 @@ import * as os from 'node:os';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import { convertNswdbXmlToLogiqxDat } from './convert_nswdb.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -266,12 +265,6 @@ export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
     remoteFileName: 'Nintendo - New Nintendo 3DS.dat',
     canonicalFileName: 'Nintendo - New Nintendo 3DS.dat',
     pattern: /^Nintendo\s*-\s*New Nintendo 3DS/i,
-  },
-  {
-    name: 'Nintendo Switch',
-    remoteFileName: 'Nintendo - Nintendo Switch.dat',
-    canonicalFileName: 'Nintendo - Nintendo Switch.dat',
-    pattern: /^Nintendo\s*-\s*Nintendo Switch(?!\s*(?:2|\(Digital\)))/i,
   },
   {
     name: 'Virtual Boy',
@@ -750,68 +743,6 @@ export async function downloadNoIntroDat(
   const canonicalName = target.canonicalFileName || target.remoteFileName;
   const finalDestination = path.join(destinationDir, canonicalName);
 
-  if (target.name === 'Nintendo Switch') {
-    // 1. Check if a local NSWreleases.xml exists in datsDir
-    const localXmlPath = path.join(datsDir, 'NSWreleases.xml');
-    let xmlContent = '';
-    if (fs.existsSync(localXmlPath)) {
-      try {
-        xmlContent = fs.readFileSync(localXmlPath, 'utf8');
-        // Clean up immediately so dats/ remains strictly .dat files
-        fs.unlinkSync(localXmlPath);
-      } catch {
-        // ignore read error
-      }
-    }
-
-    // 2. Fetch online directly from NSWDB if no local file was found
-    if (!xmlContent) {
-      try {
-        const response = await fetch('http://nswdb.com/xml.php', {
-          headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          },
-        });
-        if (response.ok) {
-          xmlContent = await response.text();
-        }
-      } catch (fetchErr) {
-        if (fs.existsSync(finalDestination)) {
-          const size = fs.statSync(finalDestination).size;
-          return { success: true, fileName: canonicalName, sizeBytes: size };
-        }
-        return {
-          success: false,
-          error: `Could not fetch from nswdb.com: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
-        };
-      }
-    }
-
-    if (!xmlContent || !xmlContent.includes('<releases>')) {
-      if (fs.existsSync(finalDestination)) {
-        const size = fs.statSync(finalDestination).size;
-        return { success: true, fileName: canonicalName, sizeBytes: size };
-      }
-      return {
-        success: false,
-        error: 'Failed to retrieve valid NSWDB XML.',
-      };
-    }
-
-    try {
-      const { datContent } = convertNswdbXmlToLogiqxDat(xmlContent);
-      fs.writeFileSync(finalDestination, datContent, 'utf8');
-      const size = fs.statSync(finalDestination).size;
-      return { success: true, fileName: canonicalName, sizeBytes: size };
-    } catch (convErr) {
-      return {
-        success: false,
-        error: `Could not convert NSWDB XML: ${convErr instanceof Error ? convErr.message : String(convErr)}`,
-      };
-    }
-  }
-
   if (target.name === 'PlayStation Vita') {
     const rawBaseName = target.remoteFileName.replace(/\.(?:xml|dat)$/i, '');
     const spludlowUrl = `https://data.spludlow.co.uk/no-intro/unofficial/${encodeURIComponent(rawBaseName)}.xml`;
@@ -1151,6 +1082,18 @@ export function pruneAndDeduplicateDats(targetDatsDir: string = datsDir): {
           renamedCount++;
         } catch {
           // Ignore rename error
+        }
+      }
+    }
+    // Clean up legacy Switch DAT files since Switch physical releases are cataloged via Nintendo Revised spreadsheet
+    const allNoIntroFiles = fs.readdirSync(targetNoIntroDir);
+    for (const file of allNoIntroFiles) {
+      if (/Nintendo\s*-\s*Nintendo\s*Switch/i.test(file)) {
+        try {
+          fs.unlinkSync(path.join(targetNoIntroDir, file));
+          removedCount++;
+        } catch {
+          // Ignore unlink error
         }
       }
     }

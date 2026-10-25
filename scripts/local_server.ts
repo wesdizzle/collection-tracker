@@ -25,7 +25,7 @@ import {
 import { PlatformRecord } from './lib/dat_cache.js';
 import {
   detectPhysicalReleaseStatus,
-  isPlatformDatComplete,
+  isPlatformSourceComplete,
   CanonicalRelease,
 } from './lib/canonical_releases.js';
 import { normalizeTitleForMatching } from './lib/title_matching.js';
@@ -859,7 +859,7 @@ export const handleRequest =
           )
           .all(localPid) as CanonicalRelease[];
 
-        if (!isPlatformDatComplete(localPid) && !process.env['VITEST']) {
+        if (!isPlatformSourceComplete(localPid) && !process.env['VITEST']) {
           const verifiedRegional = await findVerifiedRegionalPhysicalReleases(
             game.name,
             localPid,

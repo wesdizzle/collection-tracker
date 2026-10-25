@@ -25,9 +25,15 @@ import {
   normalizeTitleForMatching,
   titlesMatch,
 } from './lib/title_matching.js';
-import { extractRegions, isPlatformMatch } from './lib/dat_format.js';
+import { extractRegions, isPlatformMatch } from './lib/source_format.js';
 import { stripDiscIndicator } from './lib/queries.js';
 import { getLocalD1Path } from './lib/db.js';
+import {
+  parseNxdumptoolFilename,
+  resolveBestSwitchRevisionMatch,
+} from './lib/switch_revisions.js';
+import { stripEditionSuffix } from './lib/reconcile_releases.js';
+import { CanonicalRelease } from './lib/canonical_releases.js';
 
 export interface PlatformRow {
   id: number;
@@ -1292,6 +1298,142 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
             `  [S&K Exception] Skipping unmatched alert for lock-on file: "${filename}"`,
           );
           continue;
+        }
+
+        // Nintendo Switch 1 & 2 nxdumptool backup matching
+        if (dbPlatform.id === 26 || dbPlatform.id === 27) {
+          const parsed = parseNxdumptoolFilename(filename);
+          if (parsed.isNxdumptool) {
+            const compMappings: Record<string, string> = {
+              'asteroids: recharged + breakout: recharged':
+                'atari recharged collection 1',
+              'black widow: recharged + centipede: recharged':
+                'atari recharged collection 2',
+              'gravitar: recharged + missile command: recharged':
+                'atari recharged collection 3',
+              'caverns of mars: recharged + yars: recharged':
+                'atari recharged collection 4',
+              '20xx + 30xx': '20xx / 30xx',
+              'axiom verge + axiom verge 2': 'axiom verge 1 & 2 double pack',
+            };
+
+            let matchedGame: {
+              stable_id: number;
+              id: string;
+              title: string;
+            } | null = null;
+            const compKey = parsed.compositeTitle.toLowerCase();
+            if (compMappings[compKey]) {
+              const targetNorm = normalizeTitleForMatching(
+                compMappings[compKey],
+              );
+              matchedGame =
+                platformGames.find(
+                  (g) => normalizeTitleForMatching(g.title) === targetNorm,
+                ) || null;
+            }
+
+            if (!matchedGame) {
+              for (const seg of parsed.segments) {
+                const segNorm = normalizeTitleForMatching(seg.cleanTitle);
+                matchedGame =
+                  platformGames.find((g) => {
+                    const gNorm = normalizeTitleForMatching(g.title);
+                    const strippedNorm = normalizeTitleForMatching(
+                      stripEditionSuffix(g.title),
+                    );
+                    return gNorm === segNorm || strippedNorm === segNorm;
+                  }) || null;
+                if (matchedGame) break;
+              }
+            }
+
+            if (!matchedGame) {
+              for (const g of platformGames) {
+                const segClean = parsed.segments[0].cleanTitle;
+                if (
+                  titlesMatch(g.title, segClean, filename, dbPlatform.id) ||
+                  titlesMatch(
+                    stripEditionSuffix(g.title),
+                    segClean,
+                    filename,
+                    dbPlatform.id,
+                  )
+                ) {
+                  matchedGame = g;
+                  break;
+                }
+                const toTokenStr = (s: string) =>
+                  s
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, '')
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .sort()
+                    .join(' ');
+                if (toTokenStr(g.title) === toTokenStr(segClean)) {
+                  matchedGame = g;
+                  break;
+                }
+              }
+            }
+
+            if (matchedGame) {
+              const canonicalMatches = db
+                .prepare(
+                  `SELECT id, platform_id, raw_title, normalized_title, region, variants, serial_code, source, is_verified_physical
+                   FROM canonical_releases
+                   WHERE platform_id = ? AND (normalized_title = ? OR normalized_title = ?)`,
+                )
+                .all(
+                  dbPlatform.id,
+                  normalizeTitleForMatching(matchedGame.title),
+                  normalizeTitleForMatching(parsed.segments[0].cleanTitle),
+                ) as CanonicalRelease[];
+
+              const bestRev = resolveBestSwitchRevisionMatch(
+                parsed,
+                canonicalMatches,
+              );
+
+              const gameRels = allPlatformReleases.filter(
+                (r) => r.game_id === matchedGame!.stable_id,
+              );
+              const targetRel =
+                gameRels.find((r) => r.ownership_status === 1) || gameRels[0];
+
+              if (targetRel) {
+                if (!isDryRun) {
+                  db.prepare(
+                    `
+                    UPDATE game_releases
+                    SET rom_name = ?,
+                        canonical_release_id = COALESCE(?, canonical_release_id),
+                        variants = COALESCE(?, variants),
+                        backup_status = 1,
+                        is_physical = 1
+                    WHERE id = ?
+                  `,
+                  ).run(
+                    filename,
+                    bestRev?.id || null,
+                    bestRev?.variants || null,
+                    targetRel.id,
+                  );
+                }
+
+                console.log(
+                  `  [Switch Match] "${filename}" -> "${matchedGame.title}" (${bestRev?.variants || 'Standard'}) [Release: ${targetRel.id}]`,
+                );
+                if (!allMatchedReleaseIds.has(targetRel.id)) {
+                  allMatchedReleaseIds.add(targetRel.id);
+                  platformStats[platformDisplayName].matched++;
+                  totalMatchedReleases++;
+                }
+                continue;
+              }
+            }
+          }
         }
 
         const matched = findBestReleaseMatch(filename, dbReleases);

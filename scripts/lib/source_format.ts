@@ -1,5 +1,5 @@
 /**
- * PURE DAT FORMAT & STRING MATCHING UTILITIES
+ * PURE SOURCE FORMAT & STRING MATCHING UTILITIES
  *
  * Lightweight, zero-dependency string extraction, region extraction, variant extraction,
  * and platform matching routines.

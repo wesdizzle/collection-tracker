@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { getDatabase } from './lib/db.js';
-import { isIgnoredFormatRelease } from './lib/dat_format.js';
+import { isIgnoredFormatRelease } from './lib/source_format.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

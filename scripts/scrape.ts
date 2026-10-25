@@ -34,7 +34,7 @@ import {
   resolveRegionalCoverUrl,
 } from './lib/igdb.js';
 import {
-  isPlatformDatComplete,
+  isPlatformSourceComplete,
   cleanTitleWithoutParentheticals,
   CanonicalRelease,
 } from './lib/canonical_releases.js';
@@ -69,7 +69,7 @@ import {
   extractRegions,
   extractVariants,
   isIgnoredFormatRelease,
-} from './lib/dat_format.js';
+} from './lib/source_format.js';
 import {
   searchGameyeGame,
   searchGameyeToy,
@@ -848,7 +848,7 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
         | undefined;
       const gameRegion = game?.region || vr.region || null;
       const isCompletePlatform = game
-        ? isPlatformDatComplete(game.platform_id)
+        ? isPlatformSourceComplete(game.platform_id)
         : true;
 
       const matchingRegionRelease = gameRegion
@@ -974,7 +974,7 @@ export async function reconcileRegionalReleasesForGame(
 ): Promise<number> {
   let added = 0;
 
-  if (isPlatformDatComplete(game.platform_id)) {
+  if (isPlatformSourceComplete(game.platform_id)) {
     const targetPlatformIds = getScannedPlatformIds(game.platform_id);
     let candidateCanonical: CanonicalRelease[] = [];
 
@@ -1383,7 +1383,7 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
         releases.some((r) => regionsMatch(r.region, game.region));
       const needsVirtual =
         releases.length === 0 ||
-        (!isPlatformDatComplete(game.platform_id) && !hasMatchingRegion);
+        (!isPlatformSourceComplete(game.platform_id) && !hasMatchingRegion);
 
       if (needsVirtual) {
         const virtualId = `${game.id}-default`;

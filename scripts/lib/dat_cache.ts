@@ -30,14 +30,14 @@ export {
   extractVariants,
   isIgnoredFormatRelease,
   isRegionOrLanguageOrDisc,
-} from './dat_format.js';
+} from './source_format.js';
 import {
   PlatformRecord,
   isPlatformMatch,
   extractRegions,
   extractVariants,
   isIgnoredFormatRelease,
-} from './dat_format.js';
+} from './source_format.js';
 
 /**
  * Scans a directory recursively and returns all file paths.

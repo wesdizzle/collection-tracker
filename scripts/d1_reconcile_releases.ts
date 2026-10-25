@@ -18,7 +18,7 @@ const sqlPath = path.join(tempDir, 'reconcile_game_releases.sql');
 
 if (!fs.existsSync(sqlPath)) {
   console.error(
-    `Error: ${sqlPath} not found. Run npm run dats:sync first to generate it.`,
+    `Error: ${sqlPath} not found. Run npm run sources:sync first to generate it.`,
   );
   process.exit(1);
 }

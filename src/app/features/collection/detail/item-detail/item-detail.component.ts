@@ -122,6 +122,18 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   <span>IGDB Verified</span>
                 </a>
               }
+              @if (g.platform_id === 26 || g.platform_id === 27) {
+                <a
+                  href="https://docs.google.com/spreadsheets/d/1CEABCBrPv1tWf89hSZqUunK0JW-sQo8XpxuvZhdtHQs/edit?gid=0#gid=0"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="stat-pill active physical interactive"
+                  title="Physical release data verified via Nintendo Revised Cartridge Revisions spreadsheet"
+                >
+                  <span class="icon"><app-icon name="link" [size]="14" /></span>
+                  <span>Nintendo Revised Sheet ↗</span>
+                </a>
+              }
               @if (isUpcomingRelease(g)) {
                 <div class="stat-pill active upcoming">
                   <span class="icon"
@@ -515,7 +527,11 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                                   class="rom-text warning-text font-mono mb-2xs"
                                 >
                                   <app-icon name="alert-triangle" [size]="14" />
-                                  No dump exists in community DAT files
+                                  {{
+                                    g.platform_id === 26 || g.platform_id === 27
+                                      ? 'No cartridge revision exists in community catalog'
+                                      : 'No dump exists in community DAT files'
+                                  }}
                                 </div>
                               }
                               @if (release.rom_crc) {
@@ -636,8 +652,12 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                       <span
                         class="value rom-text warning-text"
                         class="flex items-center gap-xs"
-                        ><app-icon name="alert-triangle" [size]="14" /> No dump
-                        exists in community DAT files</span
+                        ><app-icon name="alert-triangle" [size]="14" />
+                        {{
+                          g.platform_id === 26 || g.platform_id === 27
+                            ? 'No cartridge revision exists in community catalog'
+                            : 'No dump exists in community DAT files'
+                        }}</span
                       >
                     </div>
                   }

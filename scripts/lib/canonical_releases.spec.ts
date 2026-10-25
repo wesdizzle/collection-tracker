@@ -18,7 +18,7 @@ import {
   extractVariants,
   extractDiscLabel,
   isIgnoredFormatRelease,
-} from './dat_format.js';
+} from './source_format.js';
 import {
   getRomGroupingKey,
   enrichGameDetailWithCompanionsAndVouchers,

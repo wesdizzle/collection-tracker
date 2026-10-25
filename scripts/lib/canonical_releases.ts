@@ -17,7 +17,7 @@ import {
   extractRegions,
   extractVariants,
   isIgnoredFormatRelease,
-} from './dat_format.js';
+} from './source_format.js';
 import { KNOWN_VITA_PHYSICAL_SERIALS } from './vita_physical_serials.js';
 import {
   isKnownPhysicalModernDiscSerial,
@@ -51,6 +51,7 @@ export interface CanonicalRelease {
   publisher?: string | null;
   source:
     | 'dat'
+    | 'nintendo_revised'
     | 'igdb_physical'
     | 'publisher_whitelist'
     | 'barcode'
@@ -495,10 +496,10 @@ export function hasEraDiscrepancy(
 }
 
 /**
- * Platforms considered effectively complete in community DAT sets (No-Intro / Redump).
+ * Platforms considered effectively complete in community catalog sets (No-Intro / Redump).
  * Includes 1st through 7th generation consoles/handhelds plus Nintendo 3DS, New Nintendo 3DS, and Wii U.
  */
-export const COMPLETE_DAT_PLATFORM_IDS = new Set<number>([
+export const COMPLETE_SOURCE_PLATFORM_IDS = new Set<number>([
   1, // 3DO Interactive Multiplayer
   2, // Atari 2600
   3, // Atari 5200
@@ -545,14 +546,15 @@ export const COMPLETE_DAT_PLATFORM_IDS = new Set<number>([
   54, // Famicom Disk System
   55, // Nintendo 64DD
 ]);
+export const COMPLETE_DAT_PLATFORM_IDS = COMPLETE_SOURCE_PLATFORM_IDS;
 
 /**
- * Platforms that are still active or have incomplete community DAT tracking.
- * On these platforms, DAT files cannot be treated as the sole source of truth for regional releases.
- * Includes Nintendo Switch 2 (Platform 27, launched June 5, 2025) which is an active commercial platform
- * with physical cartridge releases and evolving community catalogs.
+ * Platforms that are still active or have evolving community catalog tracking.
+ * On these platforms, standard offline DAT files cannot be treated as the sole source of truth for regional releases.
+ * Includes Nintendo Switch (Platform 26) and Nintendo Switch 2 (Platform 27) whose physical releases
+ * are maintained via the Nintendo Revised catalog.
  */
-export const ACTIVE_OR_INCOMPLETE_DAT_PLATFORM_IDS = new Set<number>([
+export const ACTIVE_OR_INCOMPLETE_SOURCE_PLATFORM_IDS = new Set<number>([
   12, // Neo Geo X
   26, // Nintendo Switch
   27, // Nintendo Switch 2
@@ -564,13 +566,16 @@ export const ACTIVE_OR_INCOMPLETE_DAT_PLATFORM_IDS = new Set<number>([
   51, // PlayStation VR
   52, // PlayStation VR2
 ]);
+export const ACTIVE_OR_INCOMPLETE_DAT_PLATFORM_IDS =
+  ACTIVE_OR_INCOMPLETE_SOURCE_PLATFORM_IDS;
 
 /**
- * Returns true if the given platform ID has effectively complete DAT coverage.
+ * Returns true if the given platform ID has effectively complete source catalog coverage.
  */
-export function isPlatformDatComplete(platformId: number): boolean {
-  return COMPLETE_DAT_PLATFORM_IDS.has(platformId);
+export function isPlatformSourceComplete(platformId: number): boolean {
+  return COMPLETE_SOURCE_PLATFORM_IDS.has(platformId);
 }
+export const isPlatformDatComplete = isPlatformSourceComplete;
 
 /**
  * Detects the physical release status of a candidate game across all three verification tiers.
@@ -664,7 +669,7 @@ export function detectPhysicalReleaseStatus(options: {
     );
 
     reasons.push(
-      `Matched ${matchedPhysicalReleases.length} canonical physical release variant(s) in DAT database`,
+      `Matched ${matchedPhysicalReleases.length} canonical physical release variant(s) in canonical source dataset`,
     );
 
     return {
@@ -856,9 +861,11 @@ export function detectPhysicalReleaseStatus(options: {
     };
   }
 
-  // Fallback: Platforms with complete DAT coverage are digital only if not in DAT
-  if (isPlatformDatComplete(platformId)) {
-    reasons.push('Platform with complete DAT coverage had no physical match');
+  // Fallback: Platforms with complete source coverage are digital only if not in source catalog
+  if (isPlatformSourceComplete(platformId)) {
+    reasons.push(
+      'Platform with complete source catalog coverage had no physical match',
+    );
     return {
       physical_status: 'digital_only',
       verification_tier: 3,
@@ -871,7 +878,7 @@ export function detectPhysicalReleaseStatus(options: {
 
   // Modern console with undetermined signals
   reasons.push(
-    'Modern platform title with no physical DAT, serial, or publisher signals',
+    'Modern platform title with no physical source catalog, serial, or publisher signals',
   );
   return {
     physical_status: 'unverified',
