@@ -184,11 +184,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                     ><app-icon name="physical-box" [size]="14"
                   /></span>
                   <span>{{
-                    g.rom_name ||
-                    (g.releases &&
-                      g.releases.length > 0 &&
-                      g.releases[0].rom_name)
-                      ? 'Catalog Signature Matched'
+                    g.is_source_verified ||
+                    (g.releases && g.releases.some((r) => r.is_source_verified))
+                      ? 'Verified Source Match'
                       : 'Physical Retail Release'
                   }}</span>
                 </div>

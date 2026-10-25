@@ -46,11 +46,13 @@ export interface GameRelease {
   also_released_as?: string | null;
   rom_name?: string | null;
   rom_crc?: string | null;
+  canonical_release_id?: number | null;
+  is_source_verified?: number;
+  source?: string | null;
   backup_status: number;
   ownership_status: number;
   release_date?: string | null;
   image_url?: string | null;
-  canonical_release_id?: number | null;
   barcode?: string | null;
   is_physical?: boolean | number;
   has_case?: boolean | number;
@@ -119,6 +121,9 @@ export interface Game {
   also_released_as?: string | null;
   rom_name?: string | null;
   rom_crc?: string | null;
+  canonical_release_id?: number | null;
+  is_source_verified?: number;
+  source?: string | null;
   physical_status?: PhysicalStatus;
   release_medium?: ReleaseMedium;
   origin_metadata?: string | null;

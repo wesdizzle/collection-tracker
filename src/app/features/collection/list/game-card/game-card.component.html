@@ -172,13 +172,13 @@
           }
         }
         @if (
-          game().rom_name &&
+          game().is_source_verified &&
           (game().physical_status === 'verified_physical' ||
             !game().physical_status)
         ) {
           <span
             class="physical-release-badge"
-            title="Catalog Signature Matched (No-Intro/Redump)"
+            title="Verified Source Match (DAT / Nintendo Revised)"
           >
             <app-icon name="physical-box" [size]="14" />
           </span>

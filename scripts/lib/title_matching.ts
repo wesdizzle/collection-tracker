@@ -22,6 +22,9 @@ export function normalizeTitleForMatching(
 ): string {
   let t = title.toLowerCase().trim();
 
+  // Normalize Unicode curly apostrophes/quotes before stripping 's
+  t = t.replace(/[\u2018\u2019\u201B\u2032`]/g, "'");
+
   // Strip apostrophe-s ('s) early so publisher/franchise prefixes are cleanly removed.
   // E.g. "Disney's DuckTales" -> "Disney DuckTales" -> "DuckTales"
   t = t.replace(/'s\b/g, '');
@@ -118,6 +121,26 @@ export function normalizeTitleForMatching(
     homeuniquehorroradventure: 'home',
     fireemblemthreehopes: 'fireemblemwarriorsthreehopes',
     nierautomataendyorha: 'nierautomata',
+    anniversarycollectionarcadeclassics: 'arcadeclassicsanniversary',
+    batmanenemywithintelltaleseries: 'batmanenemywithin',
+    blastermasterzeroii: 'blastermasterzero2',
+    childlightultimatevaliantheartsgreatwar:
+      'childlightultimatevaliantheartsgreatwardoublepack',
+    cryptnecrodancerswitch: 'cryptnecrodancer',
+    finalfantasypixelremastercollection:
+      'finalfantasyivipixelremastercollection',
+    glover: 'gloverqubyteclassics',
+    groundedfullyyoked: 'groundedfullyyolked',
+    harvestmonlighthope: 'harvestmonlighthopespecial',
+    megamanlegacycollection12: 'megamanlegacycollection',
+    ninokuniwrathwhitewitchremastered: 'ninokuniwrathwhitewitch',
+    octodaddadliestcatch: 'octodaddeadliestcatch',
+    oddworldmunchoddysee: 'oddworldmunchoddysseyhd',
+    oddworldnewntasty: 'oddworldabeoddyseenewntasty',
+    pikmin12bundle: 'pikmin12',
+    plantsvszombiesbattleneighborvillecomplete:
+      'plantsvszombiesbattleneighborville',
+    shantaeriskyrevengedirectorcut: 'shantaeriskyrevenge',
   };
 
   if (

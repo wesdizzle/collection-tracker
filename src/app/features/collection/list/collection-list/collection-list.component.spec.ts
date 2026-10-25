@@ -265,12 +265,14 @@ describe('CollectionListComponent', () => {
         ownership_status: 1,
         platform: 'NES',
         rom_name: 'Game 1.nes',
+        is_source_verified: 1,
       },
       {
         id: '2',
         title: 'Game 2',
         ownership_status: 1,
         platform: 'NES',
+        is_source_verified: 0,
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);
@@ -856,6 +858,7 @@ describe('CollectionListComponent', () => {
         ownership_status: 1,
         rom_name: 'Game With ROM (USA).nes',
         rom_crc: '12345678',
+        is_source_verified: 1,
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);
@@ -870,7 +873,7 @@ describe('CollectionListComponent', () => {
     );
     expect(physicalReleaseBadge).toBeTruthy();
     expect(physicalReleaseBadge.getAttribute('title')).toContain(
-      'Catalog Signature Matched',
+      'Verified Source Match',
     );
   });
 

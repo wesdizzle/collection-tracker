@@ -1162,7 +1162,7 @@ export function reconcileSwitchReleasesWithDatabase(
       // Check existing game releases
       const releases = db
         .prepare(
-          `SELECT id, region, variants, rom_name, canonical_release_id
+          `SELECT id, region, variants, rom_name, canonical_release_id, backup_status
            FROM game_releases
            WHERE game_id = ?`,
         )
@@ -1172,6 +1172,7 @@ export function reconcileSwitchReleasesWithDatabase(
         variants: string | null;
         rom_name: string | null;
         canonical_release_id: number | null;
+        backup_status: number;
       }>;
 
       // Select default base revision candidate (prefer Rev 000 / lowest revision in game's region)
@@ -1197,15 +1198,31 @@ export function reconcileSwitchReleasesWithDatabase(
           !canonicalIdSet.has(rel.canonical_release_id);
         if (!rel.canonical_release_id || isDangling) {
           const matchingCandidate = rel.variants
-            ? candidates.find(
+            ? matches.find(
+                (c) =>
+                  c.variants &&
+                  c.variants.toLowerCase().trim() ===
+                    rel.variants!.toLowerCase().trim() &&
+                  (!rel.region ||
+                    !c.region ||
+                    (c.region || 'World').toLowerCase() ===
+                      (rel.region || 'World').toLowerCase()),
+              ) ||
+              matches.find(
                 (c) =>
                   c.variants &&
                   c.variants.toLowerCase().trim() ===
                     rel.variants!.toLowerCase().trim(),
-              ) || baseRevCandidate
+              ) ||
+              baseRevCandidate
             : baseRevCandidate;
 
           if (matchingCandidate) {
+            const clearStaleXci =
+              rel.backup_status === 0 &&
+              Boolean(
+                rel.rom_name && rel.rom_name.toLowerCase().endsWith('.xci'),
+              );
             if (!rel.variants || rel.variants.trim() === '') {
               if (updateReleaseVariantStmt) {
                 updateReleaseVariantStmt.run(
@@ -1214,15 +1231,21 @@ export function reconcileSwitchReleasesWithDatabase(
                   rel.id,
                 );
               }
+              const romUpdateSql = clearStaleXci
+                ? ', rom_name = NULL, rom_crc = NULL'
+                : '';
               d1Statements.push(
-                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, variants = ${escapeSql(matchingCandidate.variants)}, is_physical = 1 WHERE id = ${escapeSql(rel.id)};`,
+                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, variants = ${escapeSql(matchingCandidate.variants)}, is_physical = 1${romUpdateSql} WHERE id = ${escapeSql(rel.id)};`,
               );
             } else {
               if (updateReleaseStmt) {
                 updateReleaseStmt.run(matchingCandidate.id, rel.id);
               }
+              const romUpdateSql = clearStaleXci
+                ? ', rom_name = NULL, rom_crc = NULL'
+                : '';
               d1Statements.push(
-                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, is_physical = 1 WHERE id = ${escapeSql(rel.id)};`,
+                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, is_physical = 1${romUpdateSql} WHERE id = ${escapeSql(rel.id)};`,
               );
             }
             rel.canonical_release_id = matchingCandidate.id;
@@ -1232,8 +1255,8 @@ export function reconcileSwitchReleasesWithDatabase(
         }
       }
 
-      // 2. Insert missing revisions for this game
-      for (const cand of candidates) {
+      // 2. Insert missing revisions for this game across all cataloged regions
+      for (const cand of matches) {
         if (!cand.variants) continue;
         const exists = releases.some((r) => {
           if (r.canonical_release_id === cand.id) return true;

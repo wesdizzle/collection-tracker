@@ -1354,10 +1354,38 @@ export class CollectionListComponent
       }
     >();
     for (const g of allGames) {
+      const isPackIn =
+        g.rom_name &&
+        ((g.platform_id === 29 &&
+          /^mega man legends 2.*\(demo\)/i.test(g.rom_name)) ||
+          (g.platform_id === 30 &&
+            /^metal gear solid 2 - sons of liberty - trial edition.*\(demo\)/i.test(
+              g.rom_name,
+            )) ||
+          (g.platform_id === 30 &&
+            /^final fantasy xii\s*\(usa\)\s*\(demo\)/i.test(g.rom_name)));
+
       const romKey = this.getRomGroupingKey(g.rom_name);
-      const baseKey = romKey.startsWith('multi:')
+      let baseKey = romKey.startsWith('multi:')
         ? `${g.game_id || g.id}_${romKey}`
         : `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${romKey}`;
+
+      if (isPackIn) {
+        // Pack-in companion bonus discs (e.g. Mega Man Legends 2 Demo inside Tron Bonne)
+        // merge into the host game's primary release group so they don't spawn duplicate cards.
+        const hostEntry = Array.from(groupedMap.entries()).find(
+          ([k, val]) =>
+            (val.game_id === g.game_id || val.stable_id === g.stable_id) &&
+            val.region === g.region &&
+            !k.includes('_Demo_') &&
+            !k.includes('_demo_'),
+        );
+        if (hostEntry) {
+          baseKey = hostEntry[0];
+        } else {
+          baseKey = `${g.game_id || g.id}_${g.region || ''}_primary`;
+        }
+      }
       if (!groupedMap.has(baseKey)) {
         groupedMap.set(baseKey, {
           ...g,
@@ -1559,18 +1587,24 @@ export class CollectionListComponent
 
       // Physical Release Verified Filter
       if (f.physical_verified !== undefined && f.physical_verified !== 'all') {
-        const isVerified = g.rom_name ? 1 : 0;
+        const isVerified =
+          (g.is_source_verified ?? (g.rom_name ? 1 : 0)) ? 1 : 0;
         if (f.physical_verified !== isVerified) return false;
       }
 
       // Pre-release Guard: hide betas, protos, demos, and kiosk samplers unless it is an owned pack-in companion bonus disc
       const isPreRelease =
-        /\b(beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
+        (/\b(beta|proto|taikenban|trial version|promo)\b/i.test(
           g.rom_name || '',
         ) ||
-        /\b(beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
-          g.variants || '',
-        );
+          /\b(beta|proto|taikenban|trial version|promo)\b/i.test(
+            g.variants || '',
+          ) ||
+          (/\bdemo\b/i.test(g.rom_name || '') &&
+            !/demo disc/i.test(g.title || '')) ||
+          (/\bdemo\b/i.test(g.variants || '') &&
+            !/demo disc/i.test(g.title || ''))) &&
+        !/^prototype/i.test(g.title || '');
       if (
         isPreRelease &&
         !g.companion_game_id &&
@@ -1935,6 +1969,14 @@ export class CollectionListComponent
 
     const lastDot = filename.lastIndexOf('.');
     let base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+    const baseLower = base.toLowerCase();
+
+    // Normalize cross-region companion Disc 2s that share a retail box with a single-region Disc 1
+    if (baseLower.startsWith('halo 3 - odst')) {
+      base = base
+        .replace(/\(usa,\s*brazil\)/gi, '(USA)')
+        .replace(/\(europe,\s*asia\)/gi, '(Europe, Australia)');
+    }
 
     const hasNumberedDisc =
       /[-_\s]*\((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\]\s*[0-9]+)?(?:\s*[-:]\s*[^)]+)?\)/i.test(
@@ -1973,6 +2015,12 @@ export class CollectionListComponent
     if (hasNumberedDisc) {
       base = base.replace(/\(([^)]+)\)/g, (full, inner: string) => {
         const t = inner.trim().toLowerCase();
+        if (
+          baseLower.startsWith('metal gear solid 3 - subsistence') &&
+          /^(?:limited edition|shokai seisanban)$/i.test(t)
+        ) {
+          return '';
+        }
         if (
           /^(?:usa|japan|europe|world|asia|korea|china|taiwan|australia|brazil|canada|france|germany|italy|spain|netherlands|sweden|norway|denmark|finland|russia|poland|portugal|greece|turkey|india|south africa|latin america|united kingdom|scandinavia|united arab emirates|austria|switzerland|ireland|hong kong|mexico|new zealand|unknown)(?:\s*,\s*[a-z\s]+)*$/i.test(
             t,

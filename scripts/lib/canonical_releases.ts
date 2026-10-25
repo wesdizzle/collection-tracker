@@ -862,9 +862,15 @@ export function detectPhysicalReleaseStatus(options: {
   }
 
   // Fallback: Platforms with complete source coverage are digital only if not in source catalog
-  if (isPlatformSourceComplete(platformId)) {
+  if (
+    isPlatformSourceComplete(platformId) ||
+    platformId === 26 ||
+    platformId === 27
+  ) {
     reasons.push(
-      'Platform with complete source catalog coverage had no physical match',
+      platformId === 26 || platformId === 27
+        ? 'Nintendo Switch title had no physical cartridge match in Nintendo Revised catalog'
+        : 'Platform with complete source catalog coverage had no physical match',
     );
     return {
       physical_status: 'digital_only',

@@ -1,7 +1,10 @@
 /**
- * CLOUDFLARE D1 SWITCH REVISIONS DEPLOYER
+ * CLOUDFLARE D1 SURGICAL & FRUGAL SWITCH REVISIONS DEPLOYER
  *
- * Safely applies updated canonical releases and backup statuses for Switch 1 & 2 to remote Cloudflare D1.
+ * Applies delta SQL (missing revisions, verified source relinking, curly apostrophe normalization,
+ * non-physical removals, and Batman disc links) to remote Cloudflare D1 without wiping canonical_releases.
+ *
+ * Estimated Cost: ~306 row writes (<0.35% of daily free tier quota).
  *
  * USAGE:
  *   npx tsx scripts/d1_deploy_switch_revisions.ts --yes
@@ -27,105 +30,70 @@ async function main() {
   }
 
   const tempDir = path.resolve(process.cwd(), 'scripts', 'temp');
-  const revisionsSqlPath = path.join(tempDir, 'update_switch_revisions_d1.sql');
-  const reconcileSqlPath = path.join(
-    tempDir,
-    'reconcile_switch_game_releases.sql',
-  );
+  const migrationSqlPath = path.join(tempDir, 'frugal_d1_migration.sql');
   const backupSqlPath = path.join(tempDir, 'update_backup_status.sql');
 
-  if (!fs.existsSync(revisionsSqlPath) || !fs.existsSync(backupSqlPath)) {
-    console.error('Error: Required SQL files in scripts/temp/ are missing.');
+  if (!fs.existsSync(migrationSqlPath)) {
+    console.error(
+      `Error: Migration SQL file not found at ${migrationSqlPath}.`,
+    );
     process.exit(1);
   }
 
-  console.log('🚀 [D1 Switch Deploy] Starting remote D1 migration...');
-
-  // 1. Delete previous Switch canonical releases
-  console.log(
-    '  1/4 Deleting obsolete Switch canonical releases on remote D1...',
-  );
-  const deleteSqlPath = path.join(tempDir, 'delete_switch_canonical.sql');
-  fs.writeFileSync(
-    deleteSqlPath,
-    'PRAGMA foreign_keys = OFF;\nDELETE FROM canonical_releases WHERE platform_id IN (26, 27);\nPRAGMA foreign_keys = ON;\n',
-    'utf8',
-  );
-  try {
-    execSync(
-      `npx wrangler d1 execute collection-db --remote --file="${path.relative(process.cwd(), deleteSqlPath)}"`,
-      { stdio: 'inherit' },
-    );
-  } finally {
-    if (fs.existsSync(deleteSqlPath)) fs.unlinkSync(deleteSqlPath);
-  }
-
-  // 2. Apply canonical releases in safe ~300 KB chunks
-  console.log('  2/4 Chunking and uploading canonical releases...');
-  const revisionsSql = fs.readFileSync(revisionsSqlPath, 'utf8');
-  const insertStatements = revisionsSql
-    .split(/;\s*\n\s*\n/)
+  const migrationSql = fs.readFileSync(migrationSqlPath, 'utf8');
+  const statementCount = migrationSql
+    .split(';')
     .map((s) => s.trim())
-    .filter((s) => s.startsWith('INSERT INTO canonical_releases'));
+    .filter(Boolean).length;
 
-  const CHUNK_SIZE = 7;
-  const chunkFiles: string[] = [];
-  for (let i = 0; i < insertStatements.length; i += CHUNK_SIZE) {
-    const chunkStatements = insertStatements.slice(i, i + CHUNK_SIZE);
-    const chunkPath = path.join(
-      tempDir,
-      `switch_canonical_chunk_${Math.floor(i / CHUNK_SIZE) + 1}.sql`,
-    );
-    const chunkContent = `PRAGMA foreign_keys = OFF;\n\n${chunkStatements.join(';\n\n')};\n\nPRAGMA foreign_keys = ON;\n`;
-    fs.writeFileSync(chunkPath, chunkContent, 'utf8');
-    chunkFiles.push(chunkPath);
-  }
-
-  try {
-    for (let i = 0; i < chunkFiles.length; i++) {
-      const file = chunkFiles[i];
-      const relPath = path.relative(process.cwd(), file);
-      console.log(
-        `    Uploading chunk ${i + 1}/${chunkFiles.length} (${relPath})...`,
-      );
-      execSync(
-        `npx wrangler d1 execute collection-db --remote --file="${relPath}"`,
-        { stdio: 'inherit' },
-      );
-    }
-  } finally {
-    for (const file of chunkFiles) {
-      if (fs.existsSync(file)) fs.unlinkSync(file);
-    }
-  }
-
-  // 3. Apply collection game_releases reconciliation (inserting missing revisions and relinking canonical IDs)
-  if (fs.existsSync(reconcileSqlPath)) {
-    console.log(
-      '  3/5 Applying Switch game_releases reconciliation on remote D1...',
-    );
-    const relReconcilePath = path.relative(process.cwd(), reconcileSqlPath);
-    execSync(
-      `npx wrangler d1 execute collection-db --remote --file="${relReconcilePath}"`,
-      { stdio: 'inherit' },
-    );
-  }
-
-  // 4. Apply backup status, nxdumptool filenames, and null rom_crc updates
+  console.log('🚀 [D1 Switch Deploy] Starting surgical remote D1 migration...');
+  console.log(`- Target File: ${migrationSqlPath}`);
+  console.log(`- Total Statements: ${statementCount}`);
   console.log(
-    '  4/5 Applying backup scan updates and clearing Switch rom_crc on remote D1...',
+    `- Expected Billable Row Writes: ~${statementCount} (<0.35% of daily quota)`,
   );
-  const relBackupPath = path.relative(process.cwd(), backupSqlPath);
+
+  // 1. Apply surgical migration SQL
+  console.log('  1/3 Applying delta migration SQL on remote D1...');
+  const relMigrationPath = path.relative(process.cwd(), migrationSqlPath);
   execSync(
-    `npx wrangler d1 execute collection-db --remote --file="${relBackupPath}"`,
+    `npx wrangler d1 execute collection-db --remote --file="${relMigrationPath}"`,
     { stdio: 'inherit' },
   );
 
-  // 5. Run remote smoke test
-  console.log('  5/5 Running remote D1 smoke test...');
+  // 2. Apply any pending backup status updates if present
+  if (fs.existsSync(backupSqlPath)) {
+    console.log('  2/3 Applying backup status updates on remote D1...');
+    const relBackupPath = path.relative(process.cwd(), backupSqlPath);
+    execSync(
+      `npx wrangler d1 execute collection-db --remote --file="${relBackupPath}"`,
+      { stdio: 'inherit' },
+    );
+  } else {
+    console.log('  2/3 No separate backup update SQL found (skipped).');
+  }
+
+  // 3. Invalidate Cloudflare Worker Edge Cache
+  console.log('  3/3 Invalidating Worker Edge Cache (/api/games?bust=1)...');
+  try {
+    const res = await fetch('https://games.wesley-miller.com/api/games?bust=1');
+    console.log(
+      `    Edge cache purge response: ${res.status} ${res.statusText}`,
+    );
+  } catch (err) {
+    console.warn(
+      '    Notice: Worker edge cache purge request failed (will refresh naturally):',
+      err,
+    );
+  }
+
+  // 4. Run remote smoke test
+  console.log('  4/4 Running remote D1 smoke test...');
   await runD1SmokeTest();
 
-  console.log('✅ Remote Cloudflare D1 migration completed successfully!');
+  console.log(
+    '✅ Remote Cloudflare D1 migration completed successfully with minimal quota consumption!',
+  );
 }
 
 main().catch((err) => {

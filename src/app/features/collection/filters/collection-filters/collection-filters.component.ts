@@ -556,10 +556,10 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                 </div>
               </div>
 
-              <!-- Catalog Signature Match -->
+              <!-- Verified Source Match -->
               <div class="filter-group">
                 <div class="filter-group-header">
-                  <label class="m3-label">Catalog Signature Match</label>
+                  <label class="m3-label">Verified Source Match</label>
                 </div>
                 <div
                   class="input-wrapper dropdown-wrapper"
@@ -2415,8 +2415,8 @@ export class CollectionFiltersComponent {
   readonly physicalVerifiedOptions: { value: 'all' | 1 | 0; label: string }[] =
     [
       { value: 'all', label: 'All' },
-      { value: 1, label: 'Matched in Redump/No-Intro' },
-      { value: 0, label: 'Unmatched / Modern Platform' },
+      { value: 1, label: 'Verified (DAT / Nintendo Revised)' },
+      { value: 0, label: 'Unverified / Modern Platform' },
     ];
 
   readonly budgetLabelOptions: {

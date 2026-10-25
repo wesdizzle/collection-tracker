@@ -204,6 +204,7 @@ describe('ItemDetailComponent', () => {
         ...mockGame,
         rom_name: 'Super Mario World (USA).sfc',
         rom_crc: 'B19DF4F3',
+        is_source_verified: 1,
         releases: [
           {
             id: 'super-mario-world-snes-usa',
@@ -213,6 +214,7 @@ describe('ItemDetailComponent', () => {
             rom_crc: 'B19DF4F3',
             backup_status: 1,
             ownership_status: 1,
+            is_source_verified: 1,
           },
         ],
       }),
@@ -226,7 +228,7 @@ describe('ItemDetailComponent', () => {
     // Check for Physical Release Verified pill
     const romPill = compiled.querySelector('.stat-pill.physical-release');
     expect(romPill).toBeTruthy();
-    expect(romPill.textContent).toContain('Catalog Signature Matched');
+    expect(romPill.textContent).toContain('Verified Source Match');
 
     // Check for physical discs / releases section
     const discsSection = compiled.querySelector('.discs-section');

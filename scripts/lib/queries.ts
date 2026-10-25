@@ -80,9 +80,18 @@ export const GAMES_LIST_QUERY = `
             COALESCE(pp.brand, p.brand) as brand, 
             COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
             COALESCE(pp.image_url, p.image_url) as platform_logo,
-            p.parent_platform_id
+            p.parent_platform_id,
+            r.canonical_release_id,
+            cr.source,
+            CASE
+              WHEN g.platform_id IN (26, 27) THEN
+                CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE 0 END
+              ELSE
+                CASE WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1 ELSE 0 END
+            END as is_source_verified
      FROM games g 
      LEFT JOIN game_releases r ON g.stable_id = r.game_id
+     LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
      LEFT JOIN platforms p ON g.platform_id = p.id
      LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
      LEFT JOIN (
@@ -150,7 +159,15 @@ export const GAME_DETAIL_QUERY = `
             COALESCE(pp.brand, p.brand) as brand, 
             COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
             COALESCE(pp.image_url, p.image_url) as platform_logo,
-            p.parent_platform_id
+            p.parent_platform_id,
+            r.canonical_release_id,
+            cr.source,
+            CASE
+              WHEN g.platform_id IN (26, 27) THEN
+                CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE 0 END
+              ELSE
+                CASE WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1 ELSE 0 END
+            END as is_source_verified
      FROM games g 
      LEFT JOIN game_releases r ON r.id = (
          SELECT id FROM (
@@ -162,6 +179,7 @@ export const GAME_DETAIL_QUERY = `
          ORDER BY priority ASC, is_owned DESC, region_match ASC, id ASC
          LIMIT 1
      )
+     LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
      LEFT JOIN platforms p ON g.platform_id = p.id 
      LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
      LEFT JOIN (
@@ -180,6 +198,12 @@ export const GAME_DETAIL_QUERY = `
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `
      SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status, r.release_date, r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+            r.canonical_release_id, cr.source,
+            CASE
+              WHEN cr.source = 'nintendo_revised' THEN 1
+              WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1
+              ELSE 0
+            END as is_source_verified,
             cr.serial_code, cr.publisher as comments
      FROM game_releases r
      LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
@@ -197,6 +221,12 @@ export const GAME_RELEASES_BY_GAME_ID_QUERY = `
 
 export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
      SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status, r.release_date, r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+            r.canonical_release_id, cr.source,
+            CASE
+              WHEN cr.source = 'nintendo_revised' THEN 1
+              WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1
+              ELSE 0
+            END as is_source_verified,
             cr.serial_code, cr.publisher as comments
      FROM game_releases r
      LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
