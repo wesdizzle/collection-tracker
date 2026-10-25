@@ -9,8 +9,6 @@
  */
 
 import type Database from 'better-sqlite3';
-import * as fs from 'fs';
-import * as path from 'path';
 import { CanonicalRelease } from './canonical_releases.js';
 import { normalizeTitleForMatching } from './title_matching.js';
 import { extractRegions } from './source_format.js';
@@ -833,6 +831,8 @@ export interface SwitchSyncResult {
   reconciledReleases: number;
   insertedRevisions: number;
   verifiedGames: number;
+  sqlPath?: string;
+  sqlContent?: string;
 }
 
 /**
@@ -1023,6 +1023,8 @@ export function syncSwitchRevisionsToDatabase(
     reconciledReleases,
     insertedRevisions,
     verifiedGames,
+    sqlPath: reconcileResult.sqlPath,
+    sqlContent: reconcileResult.sqlContent,
   };
 }
 
@@ -1041,6 +1043,7 @@ export function reconcileSwitchReleasesWithDatabase(
   verifiedGames: number;
   insertedRevisions: number;
   sqlPath?: string;
+  sqlContent?: string;
 } {
   const isDryRun = options.isDryRun ?? false;
   const targetPlatformIds = options.platformIds ?? [26, 27];
@@ -1271,16 +1274,15 @@ export function reconcileSwitchReleasesWithDatabase(
   d1Statements.push('PRAGMA foreign_keys = ON;');
   d1Statements.push('');
 
-  const sqlPath =
-    options.sqlOutputPath ||
-    path.resolve('scripts/temp/reconcile_switch_game_releases.sql');
-  if (!isDryRun && d1Statements.length > 4) {
-    const parentDir = path.dirname(sqlPath);
-    if (!fs.existsSync(parentDir)) {
-      fs.mkdirSync(parentDir, { recursive: true });
-    }
-    fs.writeFileSync(sqlPath, d1Statements.join('\n'), 'utf8');
-  }
+  const sqlPath = options.sqlOutputPath;
+  const sqlContent =
+    !isDryRun && d1Statements.length > 4 ? d1Statements.join('\n') : undefined;
 
-  return { reconciledReleases, verifiedGames, insertedRevisions, sqlPath };
+  return {
+    reconciledReleases,
+    verifiedGames,
+    insertedRevisions,
+    sqlPath,
+    sqlContent,
+  };
 }

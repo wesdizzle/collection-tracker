@@ -63,6 +63,14 @@ async function main() {
       ),
     });
 
+    if (!isDryRun && result.sqlContent && result.sqlPath) {
+      const parentDir = path.dirname(result.sqlPath);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
+      fs.writeFileSync(result.sqlPath, result.sqlContent, 'utf8');
+    }
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
     console.log(
       '\n===============================================================',
