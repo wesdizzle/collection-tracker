@@ -9,6 +9,8 @@
  */
 
 import type Database from 'better-sqlite3';
+import * as fs from 'fs';
+import * as path from 'path';
 import { CanonicalRelease } from './canonical_releases.js';
 import { normalizeTitleForMatching } from './title_matching.js';
 import { extractRegions } from './source_format.js';
@@ -829,6 +831,7 @@ export interface SwitchSyncResult {
   deletedCanonical: number;
   purgedLegacyDat: number;
   reconciledReleases: number;
+  insertedRevisions: number;
   verifiedGames: number;
 }
 
@@ -839,7 +842,7 @@ export interface SwitchSyncResult {
 export function syncSwitchRevisionsToDatabase(
   db: Database.Database,
   canonicalReleases: CanonicalRelease[],
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; sqlOutputPath?: string } = {},
 ): SwitchSyncResult {
   const isDryRun = options.dryRun ?? false;
 
@@ -853,6 +856,7 @@ export function syncSwitchRevisionsToDatabase(
       deletedCanonical: 0,
       purgedLegacyDat: 0,
       reconciledReleases: 0,
+      insertedRevisions: 0,
       verifiedGames: 0,
     };
   }
@@ -1005,8 +1009,10 @@ export function syncSwitchRevisionsToDatabase(
   const reconcileResult = reconcileSwitchReleasesWithDatabase(db, {
     isDryRun,
     platformIds: targetPlatformIds,
+    sqlOutputPath: options.sqlOutputPath,
   });
   const reconciledReleases = reconcileResult.reconciledReleases;
+  const insertedRevisions = reconcileResult.insertedRevisions;
   const verifiedGames = reconcileResult.verifiedGames;
 
   return {
@@ -1015,6 +1021,7 @@ export function syncSwitchRevisionsToDatabase(
     deletedCanonical,
     purgedLegacyDat,
     reconciledReleases,
+    insertedRevisions,
     verifiedGames,
   };
 }
@@ -1024,13 +1031,33 @@ export function syncSwitchRevisionsToDatabase(
  */
 export function reconcileSwitchReleasesWithDatabase(
   db: Database.Database,
-  options: { isDryRun?: boolean; platformIds?: number[] } = {},
-): { reconciledReleases: number; verifiedGames: number } {
+  options: {
+    isDryRun?: boolean;
+    platformIds?: number[];
+    sqlOutputPath?: string;
+  } = {},
+): {
+  reconciledReleases: number;
+  verifiedGames: number;
+  insertedRevisions: number;
+  sqlPath?: string;
+} {
   const isDryRun = options.isDryRun ?? false;
   const targetPlatformIds = options.platformIds ?? [26, 27];
   const targetIdsStr = targetPlatformIds.join(', ');
   let reconciledReleases = 0;
   let verifiedGames = 0;
+  let insertedRevisions = 0;
+
+  const escapeSql = (s: string | null | undefined) =>
+    s !== null && s !== undefined ? `'${s.replace(/'/g, "''")}'` : 'NULL';
+
+  const d1Statements: string[] = [
+    '-- Surgical Nintendo Switch Game Releases Reconciliation',
+    `-- Generated on: ${new Date().toISOString()}`,
+    'PRAGMA foreign_keys = OFF;',
+    '',
+  ];
 
   const games = db
     .prepare(
@@ -1062,6 +1089,8 @@ export function reconcileSwitchReleasesWithDatabase(
     variants: string | null;
     serial_code: string | null;
   }>;
+
+  const canonicalIdSet = new Set<number>(canonicalRows.map((r) => r.id));
 
   // Group canonical rows by platform_id -> normalized_title -> list
   const canonicalByPlatformNorm = new Map<
@@ -1103,6 +1132,14 @@ export function reconcileSwitchReleasesWithDatabase(
     WHERE id = ?
   `);
 
+  const insertMissingReleaseStmt = isDryRun
+    ? null
+    : db.prepare(`
+    INSERT OR IGNORE INTO game_releases (
+      id, game_id, canonical_release_id, region, variants, backup_status, ownership_status, is_physical
+    ) VALUES (?, ?, ?, ?, ?, 0, 0, 1)
+  `);
+
   for (const game of games) {
     const norm = normalizeTitleForMatching(game.title);
     const platMap = canonicalByPlatformNorm.get(game.platform_id);
@@ -1113,6 +1150,9 @@ export function reconcileSwitchReleasesWithDatabase(
         if (updateGameStatusStmt) {
           updateGameStatusStmt.run(game.stable_id);
         }
+        d1Statements.push(
+          `UPDATE games SET physical_status = 'verified_physical', verification_tier = 1 WHERE stable_id = ${game.stable_id};`,
+        );
         verifiedGames++;
       }
 
@@ -1147,27 +1187,100 @@ export function reconcileSwitchReleasesWithDatabase(
         candidates.find((c) => /Rev\s*0+0\b/i.test(c.variants || '')) ||
         candidates[0];
 
+      // 1. Relink existing game_releases (fixing unlinked or dead dangling IDs)
       for (const rel of releases) {
-        // If release has rom_name, it may already be pinned by backup scanner
-        if (!rel.canonical_release_id && baseRevCandidate) {
-          if (!rel.variants || rel.variants.trim() === '') {
-            if (updateReleaseVariantStmt) {
-              updateReleaseVariantStmt.run(
-                baseRevCandidate.id,
-                baseRevCandidate.variants,
-                rel.id,
+        const isDangling =
+          rel.canonical_release_id != null &&
+          !canonicalIdSet.has(rel.canonical_release_id);
+        if (!rel.canonical_release_id || isDangling) {
+          const matchingCandidate = rel.variants
+            ? candidates.find(
+                (c) =>
+                  c.variants &&
+                  c.variants.toLowerCase().trim() ===
+                    rel.variants!.toLowerCase().trim(),
+              ) || baseRevCandidate
+            : baseRevCandidate;
+
+          if (matchingCandidate) {
+            if (!rel.variants || rel.variants.trim() === '') {
+              if (updateReleaseVariantStmt) {
+                updateReleaseVariantStmt.run(
+                  matchingCandidate.id,
+                  matchingCandidate.variants,
+                  rel.id,
+                );
+              }
+              d1Statements.push(
+                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, variants = ${escapeSql(matchingCandidate.variants)}, is_physical = 1 WHERE id = ${escapeSql(rel.id)};`,
+              );
+            } else {
+              if (updateReleaseStmt) {
+                updateReleaseStmt.run(matchingCandidate.id, rel.id);
+              }
+              d1Statements.push(
+                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, is_physical = 1 WHERE id = ${escapeSql(rel.id)};`,
               );
             }
-          } else {
-            if (updateReleaseStmt) {
-              updateReleaseStmt.run(baseRevCandidate.id, rel.id);
-            }
+            rel.canonical_release_id = matchingCandidate.id;
+            if (!rel.variants) rel.variants = matchingCandidate.variants;
+            reconciledReleases++;
           }
-          reconciledReleases++;
+        }
+      }
+
+      // 2. Insert missing revisions for this game
+      for (const cand of candidates) {
+        if (!cand.variants) continue;
+        const exists = releases.some((r) => {
+          if (r.canonical_release_id === cand.id) return true;
+          if (
+            r.variants &&
+            cand.variants &&
+            r.variants.toLowerCase().trim() ===
+              cand.variants.toLowerCase().trim() &&
+            (r.region || 'World').toLowerCase() ===
+              (cand.region || 'World').toLowerCase()
+          ) {
+            return true;
+          }
+          return false;
+        });
+
+        if (!exists) {
+          const revId = `${game.id || `switch-${game.stable_id}`}-rev-${cand.id}`;
+          if (insertMissingReleaseStmt) {
+            insertMissingReleaseStmt.run(
+              revId,
+              game.stable_id,
+              cand.id,
+              cand.region || 'World',
+              cand.variants,
+            );
+          }
+          d1Statements.push(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, backup_status, ownership_status, is_physical) VALUES (${escapeSql(revId)}, ${game.stable_id}, ${cand.id}, ${escapeSql(cand.region || 'World')}, ${escapeSql(cand.variants)}, 0, 0, 1);`,
+          );
+          insertedRevisions++;
         }
       }
     }
   }
 
-  return { reconciledReleases, verifiedGames };
+  d1Statements.push('');
+  d1Statements.push('PRAGMA foreign_keys = ON;');
+  d1Statements.push('');
+
+  const sqlPath =
+    options.sqlOutputPath ||
+    path.resolve('scripts/temp/reconcile_switch_game_releases.sql');
+  if (!isDryRun && d1Statements.length > 4) {
+    const parentDir = path.dirname(sqlPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+    fs.writeFileSync(sqlPath, d1Statements.join('\n'), 'utf8');
+  }
+
+  return { reconciledReleases, verifiedGames, insertedRevisions, sqlPath };
 }

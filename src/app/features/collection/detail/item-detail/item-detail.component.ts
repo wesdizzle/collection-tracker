@@ -467,6 +467,13 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                                   >
                                 }
                                 @if (
+                                  release.region && release.region !== g.region
+                                ) {
+                                  <span class="variant-badge region-badge">{{
+                                    release.region
+                                  }}</span>
+                                }
+                                @if (
                                   release.is_companion_base_disc &&
                                   release.companion_game_id
                                 ) {
@@ -2077,6 +2084,12 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
         color: var(--m3-on-surface);
         border: 1px solid var(--m3-outline-variant);
         text-transform: none;
+      }
+      .variant-badge.region-badge {
+        font-size: 0.72rem;
+        background: var(--m3-surface-variant, #2a2e39);
+        color: var(--m3-on-surface-variant, #c4c7c5);
+        border: 1px solid var(--m3-outline-variant, #444746);
       }
       .release-comments-note {
         font-size: 0.75rem;

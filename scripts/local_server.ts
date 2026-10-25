@@ -36,6 +36,7 @@ import {
   GAMES_LIST_QUERY,
   GAME_DETAIL_QUERY,
   GAME_RELEASES_BY_GAME_ID_QUERY,
+  GAME_ALL_RELEASES_BY_GAME_ID_QUERY,
   BUNDLED_GAMES_BY_PARENT_QUERY,
   PLATFORMS_LIST_QUERY,
   TOYS_LIST_QUERY,
@@ -1651,17 +1652,26 @@ export const handleRequest =
           res.statusCode = 404;
           res.end(JSON.stringify({ error: 'Not found' }));
         } else {
-          if (game.rom_name) {
-            const releases = db
-              .prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
-              .all(game.stable_id, game.region, game.variants) as Array<
-              Record<string, unknown> & { rom_name: string | null }
-            >;
-            const targetKey = getRomGroupingKey(game.rom_name);
-            game.releases = releases.filter(
-              (r) => getRomGroupingKey(r.rom_name) === targetKey,
-            );
-          } else {
+          const targetKey = getRomGroupingKey(game.rom_name);
+          const isMulti = targetKey.startsWith('multi:');
+          const releases = isMulti
+            ? (db
+                .prepare(GAME_ALL_RELEASES_BY_GAME_ID_QUERY)
+                .all(game.stable_id) as Array<
+                Record<string, unknown> & { rom_name: string | null }
+              >)
+            : (db
+                .prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
+                .all(game.stable_id, game.region) as Array<
+                Record<string, unknown> & { rom_name: string | null }
+              >);
+          game.releases = isMulti
+            ? releases.filter(
+                (r) => getRomGroupingKey(r.rom_name) === targetKey,
+              )
+            : releases;
+
+          if (!game.releases || game.releases.length === 0) {
             game.releases = [
               {
                 id: game.id,

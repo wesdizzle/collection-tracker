@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import Database from 'better-sqlite3';
 import {
   parseCsvRows,
   normalizeSpreadsheetRegion,
@@ -6,6 +7,7 @@ import {
   parseSwitchRevisionsCsv,
   parseNxdumptoolFilename,
   resolveBestSwitchRevisionMatch,
+  reconcileSwitchReleasesWithDatabase,
   SwitchSheetTabConfig,
 } from './switch_revisions.js';
 import { CanonicalRelease } from './canonical_releases.js';
@@ -207,6 +209,106 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
       );
       const match = resolveBestSwitchRevisionMatch(parsed, mockReleases);
       expect(match?.variants).toBe('Rev 000 (v1.0)');
+    });
+  });
+
+  describe('reconcileSwitchReleasesWithDatabase', () => {
+    it('should relink dangling canonical IDs and insert missing past revisions', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE games (
+          stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          id TEXT,
+          title TEXT NOT NULL,
+          region TEXT,
+          platform_id INTEGER,
+          physical_status TEXT DEFAULT 'unverified',
+          verification_tier INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE canonical_releases (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          platform_id INTEGER NOT NULL,
+          raw_title TEXT NOT NULL,
+          normalized_title TEXT NOT NULL,
+          region TEXT,
+          variants TEXT,
+          rom_name TEXT,
+          rom_crc TEXT,
+          serial_code TEXT,
+          barcode TEXT,
+          publisher TEXT,
+          source TEXT NOT NULL DEFAULT 'nintendo_revised',
+          is_verified_physical INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE game_releases (
+          id TEXT PRIMARY KEY,
+          game_id INTEGER NOT NULL,
+          canonical_release_id INTEGER,
+          region TEXT,
+          variants TEXT,
+          rom_name TEXT,
+          rom_crc TEXT,
+          backup_status INTEGER NOT NULL DEFAULT 0,
+          ownership_status INTEGER NOT NULL DEFAULT 0,
+          is_physical INTEGER DEFAULT 1
+        );
+      `);
+
+      // Seed game
+      db.prepare(
+        "INSERT INTO games (stable_id, id, title, region, platform_id) VALUES (1, 'super-mario-odyssey', 'Super Mario Odyssey', 'USA', 26)",
+      ).run();
+
+      // Seed existing launch release with dangling canonical_release_id (old deleted DAT ID 999999)
+      db.prepare(
+        "INSERT INTO game_releases (id, game_id, canonical_release_id, region, variants, backup_status, ownership_status) VALUES ('odyssey-launch', 1, 999999, 'USA', NULL, 0, 1)",
+      ).run();
+
+      // Seed canonical releases: Rev 000, Rev 001, Rev 002, Rev 003
+      db.prepare(
+        `
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, serial_code, publisher) VALUES
+        (101, 26, 'Super Mario Odyssey', 'supermarioodyssey', 'USA', 'Rev 000 (v1.0.0)', 'LA-H-AAACA-USA', 'Has complete revision: Rev 003'),
+        (102, 26, 'Super Mario Odyssey', 'supermarioodyssey', 'World', 'Rev 001 (v1.0.1)', NULL, NULL),
+        (103, 26, 'Super Mario Odyssey', 'supermarioodyssey', 'World', 'Rev 002 (v1.1.0)', NULL, NULL),
+        (104, 26, 'Super Mario Odyssey', 'supermarioodyssey', 'USA', 'Rev 003 (v1.3.0)', 'LA-H-AAACA-USA', 'Complete on cart for Switch 1');
+      `,
+      ).run();
+
+      const result = reconcileSwitchReleasesWithDatabase(db, {
+        platformIds: [26],
+      });
+
+      expect(result.verifiedGames).toBe(1);
+      expect(result.reconciledReleases).toBe(1); // Relinked dangling launch cart
+      expect(result.insertedRevisions).toBe(3); // Inserted Rev 001, Rev 002, Rev 003
+
+      // Verify launch release was relinked to Rev 000
+      const launch = db
+        .prepare("SELECT * FROM game_releases WHERE id = 'odyssey-launch'")
+        .get() as { canonical_release_id: number; variants: string | null };
+      expect(launch.canonical_release_id).toBe(101);
+      expect(launch.variants).toBe('Rev 000 (v1.0.0)');
+
+      // Verify all 4 releases are now in game_releases
+      const allRels = db
+        .prepare(
+          'SELECT id, variants, canonical_release_id FROM game_releases WHERE game_id = 1 ORDER BY variants ASC',
+        )
+        .all() as Array<{
+        id: string;
+        variants: string | null;
+        canonical_release_id: number;
+      }>;
+      expect(allRels).toHaveLength(4);
+      expect(allRels.map((r) => r.variants)).toEqual([
+        'Rev 000 (v1.0.0)',
+        'Rev 001 (v1.0.1)',
+        'Rev 002 (v1.1.0)',
+        'Rev 003 (v1.3.0)',
+      ]);
     });
   });
 });

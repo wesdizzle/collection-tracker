@@ -183,7 +183,16 @@ export const GAME_RELEASES_BY_GAME_ID_QUERY = `
             cr.serial_code, cr.publisher as comments
      FROM game_releases r
      LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
-     WHERE r.game_id = ? AND r.region IS ? AND r.variants IS ?
+     WHERE r.game_id = ?
+     ORDER BY
+       CASE
+         WHEN r.region IS ? THEN 0
+         WHEN r.region = 'World' THEN 1
+         WHEN r.region IS NULL THEN 2
+         ELSE 3
+       END ASC,
+       r.variants ASC,
+       r.id ASC
  `;
 
 export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
@@ -191,7 +200,8 @@ export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
             cr.serial_code, cr.publisher as comments
      FROM game_releases r
      LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
-     WHERE r.game_id = ? AND r.rom_name IS NOT NULL
+     WHERE r.game_id = ?
+     ORDER BY r.id ASC
  `;
 
 export const BUNDLED_GAMES_BY_PARENT_QUERY = `

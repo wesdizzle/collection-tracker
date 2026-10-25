@@ -774,23 +774,25 @@ Disallow: /
         if (!game)
           return Response.json({ error: 'Not found' }, { status: 404 });
 
-        if (game.rom_name) {
-          const targetKey = getRomGroupingKey(game.rom_name);
-          const isMulti = targetKey.startsWith('multi:');
-          const { results } = isMulti
-            ? await env.DB.prepare(GAME_ALL_RELEASES_BY_GAME_ID_QUERY)
-                .bind(game.stable_id)
-                .all()
-            : await env.DB.prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
-                .bind(game.stable_id, game.region, game.variants)
-                .all();
-          const typedResults = (results || []) as {
-            rom_name?: string | null;
-          }[];
-          game.releases = typedResults.filter(
-            (r) => getRomGroupingKey(r.rom_name) === targetKey,
-          );
-        } else {
+        const targetKey = getRomGroupingKey(game.rom_name);
+        const isMulti = targetKey.startsWith('multi:');
+        const { results } = isMulti
+          ? await env.DB.prepare(GAME_ALL_RELEASES_BY_GAME_ID_QUERY)
+              .bind(game.stable_id)
+              .all()
+          : await env.DB.prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
+              .bind(game.stable_id, game.region)
+              .all();
+        const typedResults = (results || []) as Array<
+          Record<string, unknown> & { rom_name?: string | null }
+        >;
+        game.releases = isMulti
+          ? typedResults.filter(
+              (r) => getRomGroupingKey(r.rom_name) === targetKey,
+            )
+          : typedResults;
+
+        if (!game.releases || game.releases.length === 0) {
           game.releases = [
             {
               id: game.id,

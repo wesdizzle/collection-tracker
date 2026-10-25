@@ -55,6 +55,12 @@ async function main() {
 
     const result = syncSwitchRevisionsToDatabase(db, canonicalReleases, {
       dryRun: isDryRun,
+      sqlOutputPath: path.join(
+        process.cwd(),
+        'scripts',
+        'temp',
+        'reconcile_switch_game_releases.sql',
+      ),
     });
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -77,6 +83,7 @@ async function main() {
     console.log(
       `- Collection Releases Linked:    ${result.reconciledReleases}`,
     );
+    console.log(`- Missing Revisions Inserted:    ${result.insertedRevisions}`);
     console.log(`- Games Confirmed Physical:      ${result.verifiedGames}`);
     console.log(
       '===============================================================\n',

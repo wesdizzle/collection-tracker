@@ -28,6 +28,10 @@ async function main() {
 
   const tempDir = path.resolve(process.cwd(), 'scripts', 'temp');
   const revisionsSqlPath = path.join(tempDir, 'update_switch_revisions_d1.sql');
+  const reconcileSqlPath = path.join(
+    tempDir,
+    'reconcile_switch_game_releases.sql',
+  );
   const backupSqlPath = path.join(tempDir, 'update_backup_status.sql');
 
   if (!fs.existsSync(revisionsSqlPath) || !fs.existsSync(backupSqlPath)) {
@@ -95,9 +99,21 @@ async function main() {
     }
   }
 
-  // 3. Apply backup status, nxdumptool filenames, and null rom_crc updates
+  // 3. Apply collection game_releases reconciliation (inserting missing revisions and relinking canonical IDs)
+  if (fs.existsSync(reconcileSqlPath)) {
+    console.log(
+      '  3/5 Applying Switch game_releases reconciliation on remote D1...',
+    );
+    const relReconcilePath = path.relative(process.cwd(), reconcileSqlPath);
+    execSync(
+      `npx wrangler d1 execute collection-db --remote --file="${relReconcilePath}"`,
+      { stdio: 'inherit' },
+    );
+  }
+
+  // 4. Apply backup status, nxdumptool filenames, and null rom_crc updates
   console.log(
-    '  3/4 Applying backup scan updates and clearing Switch rom_crc on remote D1...',
+    '  4/5 Applying backup scan updates and clearing Switch rom_crc on remote D1...',
   );
   const relBackupPath = path.relative(process.cwd(), backupSqlPath);
   execSync(
@@ -105,8 +121,8 @@ async function main() {
     { stdio: 'inherit' },
   );
 
-  // 4. Run remote smoke test
-  console.log('  4/4 Running remote D1 smoke test...');
+  // 5. Run remote smoke test
+  console.log('  5/5 Running remote D1 smoke test...');
   await runD1SmokeTest();
 
   console.log('✅ Remote Cloudflare D1 migration completed successfully!');

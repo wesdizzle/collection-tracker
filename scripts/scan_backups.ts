@@ -1403,14 +1403,28 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
               const gameRels = allPlatformReleases.filter(
                 (r) => r.game_id === matchedGame!.stable_id,
               );
-              const targetRel =
+              const defaultRel =
                 gameRels.find((r) => r.ownership_status === 1) || gameRels[0];
 
               const bestRev = resolveBestSwitchRevisionMatch(
                 parsed,
                 canonicalMatches,
-                targetRel?.region,
+                defaultRel?.region,
               );
+
+              const targetRel =
+                (bestRev?.id
+                  ? gameRels.find((r) => r.canonical_release_id === bestRev.id)
+                  : undefined) ||
+                (bestRev?.variants
+                  ? gameRels.find(
+                      (r) =>
+                        r.variants &&
+                        r.variants.toLowerCase().trim() ===
+                          bestRev.variants!.toLowerCase().trim(),
+                    )
+                  : undefined) ||
+                defaultRel;
 
               if (targetRel) {
                 targetRel.rom_name = filename;
