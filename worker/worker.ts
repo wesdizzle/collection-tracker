@@ -48,6 +48,7 @@ import {
   normalizeJournalDatePayload,
   normalizeMerchantName,
   normalizeReceiptUrl,
+  resolveLocalizedReleaseTitle,
 } from '../scripts/lib/queries';
 import {
   detectPhysicalReleaseStatus,
@@ -121,6 +122,7 @@ interface DbGame {
   backup_status?: number;
   ownership_status?: number;
   release_date?: string | null;
+  metadata_json?: string | null;
   releases?: Array<Record<string, unknown>>;
   other_releases?: Array<Record<string, unknown>>;
   bundled_games?: unknown[];
@@ -852,6 +854,35 @@ Disallow: /
           game.other_releases = typedResults.filter(
             (r) => !primaryReleases.some((pr) => pr.id === r.id),
           );
+        }
+
+        const extractDiscOrder = (rel: Record<string, unknown>): number => {
+          const label = String(rel['disc_label'] || '');
+          let m = label.match(/^(?:disc|disco|disque|disk)\s+(\d+)/i);
+          if (m) return parseInt(m[1], 10);
+          const rom = String(rel['rom_name'] || '');
+          m = rom.match(/\b(?:disc|disco|disque|disk)\s*(\d+)/i);
+          if (m) return parseInt(m[1], 10);
+          return 99;
+        };
+        if (game.releases.length > 1) {
+          game.releases.sort(
+            (a, b) =>
+              extractDiscOrder(a) - extractDiscOrder(b) ||
+              String(a['rom_name'] || '').localeCompare(
+                String(b['rom_name'] || ''),
+              ),
+          );
+        }
+        if (game.other_releases && game.other_releases.length > 0) {
+          for (const rel of game.other_releases) {
+            rel['title'] = resolveLocalizedReleaseTitle(
+              game.title || '',
+              rel['region'] as string | null,
+              game.metadata_json || null,
+              rel['title'] as string | null,
+            );
+          }
         }
 
         if (!game.releases || game.releases.length === 0) {

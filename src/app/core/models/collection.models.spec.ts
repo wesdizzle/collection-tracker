@@ -57,10 +57,18 @@ describe('Collection Models Platform and Media Detection', () => {
 
       // Nintendo Cartridges & Cards
       expect(isOpticalPlatform('Nintendo Entertainment System')).toBe(false);
+      expect(isOpticalPlatform('Nintendo Entertainment System / Famicom')).toBe(
+        false,
+      );
       expect(isOpticalPlatform('NES')).toBe(false);
       expect(isOpticalPlatform('Super Nintendo Entertainment System')).toBe(
         false,
       );
+      expect(
+        isOpticalPlatform(
+          'Super Nintendo Entertainment System / Super Famicom',
+        ),
+      ).toBe(false);
       expect(isOpticalPlatform('SNES')).toBe(false);
       expect(isOpticalPlatform('Nintendo 64')).toBe(false);
       expect(isOpticalPlatform('Game Boy')).toBe(false);

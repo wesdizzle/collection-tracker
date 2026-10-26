@@ -305,5 +305,84 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
         'Rev 003 (v1.3.0)',
       ]);
     });
+
+    it('should synchronize release region with canonical Nintendo Revised region and default unlinked to World', () => {
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE games (
+          stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          id TEXT,
+          title TEXT NOT NULL,
+          region TEXT,
+          platform_id INTEGER,
+          physical_status TEXT DEFAULT 'unverified',
+          verification_tier INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE canonical_releases (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          platform_id INTEGER NOT NULL,
+          raw_title TEXT NOT NULL,
+          normalized_title TEXT NOT NULL,
+          region TEXT,
+          variants TEXT,
+          rom_name TEXT,
+          rom_crc TEXT,
+          serial_code TEXT,
+          barcode TEXT,
+          publisher TEXT,
+          source TEXT NOT NULL DEFAULT 'nintendo_revised',
+          is_verified_physical INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE game_releases (
+          id TEXT PRIMARY KEY,
+          game_id INTEGER NOT NULL,
+          canonical_release_id INTEGER,
+          region TEXT,
+          variants TEXT,
+          rom_name TEXT,
+          rom_crc TEXT,
+          backup_status INTEGER NOT NULL DEFAULT 0,
+          ownership_status INTEGER NOT NULL DEFAULT 0,
+          is_physical INTEGER DEFAULT 1,
+          release_date TEXT
+        );
+      `);
+
+      // Seed 2 games: Game 1 has European cartridge in Nintendo Revised, Game 2 has no Nintendo Revised entries
+      db.prepare(
+        "INSERT INTO games (stable_id, id, title, region, platform_id) VALUES (1, 'bloodstained', 'Bloodstained', 'USA', 26), (2, 'untracked-game', 'Untracked Game', 'USA', 26)",
+      ).run();
+
+      // Seed existing releases originally defaulted to 'USA'
+      db.prepare(
+        "INSERT INTO game_releases (id, game_id, canonical_release_id, region, variants) VALUES ('bloodstained-rel', 1, NULL, 'USA', NULL), ('untracked-rel', 2, NULL, 'USA', NULL)",
+      ).run();
+
+      // Seed canonical release for Bloodstained with Europe region
+      db.prepare(
+        `
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, serial_code)
+        VALUES (201, 26, 'Bloodstained', 'bloodstained', 'Europe', 'Rev 000 (v1.0.0)', 'LA-H-AB4PA-EUR');
+      `,
+      ).run();
+
+      reconcileSwitchReleasesWithDatabase(db, {
+        platformIds: [26],
+      });
+
+      const rel1 = db
+        .prepare("SELECT * FROM game_releases WHERE id = 'bloodstained-rel'")
+        .get() as { region: string; canonical_release_id: number };
+      expect(rel1.canonical_release_id).toBe(201);
+      expect(rel1.region).toBe('Europe');
+
+      const rel2 = db
+        .prepare("SELECT * FROM game_releases WHERE id = 'untracked-rel'")
+        .get() as { region: string; canonical_release_id: number | null };
+      expect(rel2.canonical_release_id).toBeNull();
+      expect(rel2.region).toBe('World');
+    });
   });
 });

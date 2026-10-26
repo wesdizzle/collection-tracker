@@ -700,10 +700,18 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                                   >{{ other.serial_code }}</span
                                 >
                               }
-                              @if (other.rom_name) {
+                              @if (other.title && other.title !== g.title) {
                                 <span
-                                  class="rom-text font-mono text-xs text-secondary"
-                                  >{{ other.rom_name }}</span
+                                  class="release-title font-semibold text-xs text-on-surface"
+                                  >{{ other.title }}</span
+                                >
+                              }
+                              @if (other.release_date) {
+                                <span
+                                  class="release-year text-xs text-secondary"
+                                  >({{
+                                    other.release_date | date: 'yyyy'
+                                  }})</span
                                 >
                               }
                               @if (other.ownership_status === 1) {

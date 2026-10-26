@@ -41,6 +41,7 @@ export type ReleaseMedium =
 export interface GameRelease {
   id: string;
   game_id: number;
+  title?: string | null;
   region?: string | null;
   variants?: string | null;
   also_released_as?: string | null;

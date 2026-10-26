@@ -796,5 +796,76 @@ describe('ItemDetailComponent', () => {
       expect(component.canWatchPhysical(asteroidsUnowned)).toBe(false);
       expect(component.hasPhysicalRelease(asteroidsUnowned)).toBe(true);
     });
+
+    it('should render other releases without exposing raw rom filenames and display alternate titles', async () => {
+      const apeEscapeGame: Game = {
+        ...mockGame,
+        id: 'ape-escape-playstation-8e306ae4',
+        title: 'Ape Escape',
+        platform: 'PlayStation',
+        releases: [
+          {
+            id: 'ape-escape-playstation-8e306ae4',
+            game_id: 1896,
+            region: 'USA',
+            rom_name: 'Ape Escape (USA).cue',
+            backup_status: 1,
+            ownership_status: 1,
+            is_physical: 1,
+          },
+        ],
+        other_releases: [
+          {
+            id: 'ape-escape-playstation-cd211697',
+            game_id: 1896,
+            title: 'Saru! Get You!',
+            region: 'Japan',
+            rom_name: 'Saru! Get You! (Japan) (Rev 1).cue',
+            release_date: '1999-06-24',
+            backup_status: 0,
+            ownership_status: 0,
+            is_physical: 1,
+          },
+          {
+            id: 'ape-escape-playstation-adbe9210',
+            game_id: 1896,
+            title: 'Ape Escape - La Invasión de los Monos',
+            region: 'Spain',
+            rom_name: 'Ape Escape - La Invasion de los Monos (Spain).cue',
+            release_date: '1999-07-02',
+            backup_status: 0,
+            ownership_status: 0,
+            is_physical: 1,
+          },
+        ],
+      };
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of(apeEscapeGame),
+      );
+      paramMapSubject.next(
+        convertToParamMap({
+          id: 'ape-escape-playstation-8e306ae4',
+          type: 'game',
+        }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const otherSection = compiled.querySelector('.other-releases-section');
+      expect(otherSection).toBeTruthy();
+      expect(otherSection?.textContent).toContain('Saru! Get You!');
+      expect(otherSection?.textContent).toContain(
+        'Ape Escape - La Invasión de los Monos',
+      );
+      expect(otherSection?.textContent).not.toContain(
+        'Saru! Get You! (Japan) (Rev 1).cue',
+      );
+      expect(otherSection?.textContent).not.toContain(
+        'Ape Escape - La Invasion de los Monos (Spain).cue',
+      );
+    });
   });
 });

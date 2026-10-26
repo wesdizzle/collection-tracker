@@ -1042,6 +1042,9 @@ export function reconcileSwitchReleasesWithDatabase(
   }>;
 
   const canonicalIdSet = new Set<number>(canonicalRows.map((r) => r.id));
+  const canonicalById = new Map<number, (typeof canonicalRows)[0]>(
+    canonicalRows.map((r) => [r.id, r]),
+  );
 
   // Group canonical rows by platform_id -> normalized_title -> list
   const canonicalByPlatformNorm = new Map<
@@ -1077,7 +1080,7 @@ export function reconcileSwitchReleasesWithDatabase(
     ? null
     : db.prepare(`
     UPDATE game_releases
-    SET canonical_release_id = ?, is_physical = 1
+    SET canonical_release_id = ?, region = ?, is_physical = 1
     WHERE id = ?
   `);
 
@@ -1085,7 +1088,15 @@ export function reconcileSwitchReleasesWithDatabase(
     ? null
     : db.prepare(`
     UPDATE game_releases
-    SET canonical_release_id = ?, variants = ?, is_physical = 1
+    SET canonical_release_id = ?, variants = ?, region = ?, is_physical = 1
+    WHERE id = ?
+  `);
+
+  const updateReleaseRegionStmt = isDryRun
+    ? null
+    : db.prepare(`
+    UPDATE game_releases
+    SET region = ?
     WHERE id = ?
   `);
 
@@ -1133,7 +1144,7 @@ export function reconcileSwitchReleasesWithDatabase(
       }>;
 
       // Select default base revision candidate (prefer Rev 000 / lowest revision in game's region)
-      const targetRegion = (game.region || 'USA').toLowerCase();
+      const targetRegion = (game.region || 'World').toLowerCase();
       const regionalMatches = matches.filter(
         (m) =>
           !m.region ||
@@ -1180,11 +1191,13 @@ export function reconcileSwitchReleasesWithDatabase(
               Boolean(
                 rel.rom_name && rel.rom_name.toLowerCase().endsWith('.xci'),
               );
+            const targetRelRegion = matchingCandidate.region || 'World';
             if (!rel.variants || rel.variants.trim() === '') {
               if (updateReleaseVariantStmt) {
                 updateReleaseVariantStmt.run(
                   matchingCandidate.id,
                   matchingCandidate.variants,
+                  targetRelRegion,
                   rel.id,
                 );
               }
@@ -1192,22 +1205,39 @@ export function reconcileSwitchReleasesWithDatabase(
                 ? ', rom_name = NULL, rom_crc = NULL'
                 : '';
               d1Statements.push(
-                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, variants = ${escapeSql(matchingCandidate.variants)}, is_physical = 1${romUpdateSql} WHERE id = ${escapeSql(rel.id)};`,
+                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, variants = ${escapeSql(matchingCandidate.variants)}, region = ${escapeSql(targetRelRegion)}, is_physical = 1${romUpdateSql} WHERE id = ${escapeSql(rel.id)};`,
               );
             } else {
               if (updateReleaseStmt) {
-                updateReleaseStmt.run(matchingCandidate.id, rel.id);
+                updateReleaseStmt.run(
+                  matchingCandidate.id,
+                  targetRelRegion,
+                  rel.id,
+                );
               }
               const romUpdateSql = clearStaleXci
                 ? ', rom_name = NULL, rom_crc = NULL'
                 : '';
               d1Statements.push(
-                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, is_physical = 1${romUpdateSql} WHERE id = ${escapeSql(rel.id)};`,
+                `UPDATE game_releases SET canonical_release_id = ${matchingCandidate.id}, region = ${escapeSql(targetRelRegion)}, is_physical = 1${romUpdateSql} WHERE id = ${escapeSql(rel.id)};`,
               );
             }
             rel.canonical_release_id = matchingCandidate.id;
+            rel.region = targetRelRegion;
             if (!rel.variants) rel.variants = matchingCandidate.variants;
             reconciledReleases++;
+          }
+        } else {
+          // Already linked: verify region matches canonical release truth
+          const cr = canonicalById.get(rel.canonical_release_id);
+          if (cr && cr.region && cr.region !== rel.region) {
+            if (updateReleaseRegionStmt) {
+              updateReleaseRegionStmt.run(cr.region, rel.id);
+            }
+            d1Statements.push(
+              `UPDATE game_releases SET region = ${escapeSql(cr.region)} WHERE id = ${escapeSql(rel.id)};`,
+            );
+            rel.region = cr.region;
           }
         }
       }
@@ -1248,6 +1278,22 @@ export function reconcileSwitchReleasesWithDatabase(
             `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, backup_status, ownership_status, is_physical, release_date) VALUES (${escapeSql(revId)}, ${game.stable_id}, ${cand.id}, ${escapeSql(cand.region || 'World')}, ${escapeSql(cand.variants)}, 0, 0, 1, ${escapeSql(parentDate)});`,
           );
           insertedRevisions++;
+        }
+      }
+    } else {
+      // Game not in Nintendo Revised: ensure unlinked releases assume 'World' instead of 'USA'
+      const releases = db
+        .prepare(`SELECT id, region FROM game_releases WHERE game_id = ?`)
+        .all(game.stable_id) as Array<{ id: string; region: string | null }>;
+      for (const rel of releases) {
+        if (rel.region === 'USA') {
+          if (updateReleaseRegionStmt) {
+            updateReleaseRegionStmt.run('World', rel.id);
+          }
+          d1Statements.push(
+            `UPDATE game_releases SET region = 'World' WHERE id = ${escapeSql(rel.id)};`,
+          );
+          rel.region = 'World';
         }
       }
     }

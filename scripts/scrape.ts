@@ -1392,10 +1392,16 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
           .prepare('SELECT 1 FROM game_releases WHERE id = ?')
           .get(virtualId);
         if (!exists) {
+          const defaultRegion =
+            game.platform_id === 26
+              ? game.region === 'USA'
+                ? 'World'
+                : game.region || 'World'
+              : game.region;
           insertStmt.run(
             virtualId,
             game.stable_id,
-            game.region,
+            defaultRegion,
             game.release_date || null,
           );
           createdCount++;

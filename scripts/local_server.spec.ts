@@ -821,6 +821,38 @@ describe('Local Server API Logic', () => {
       expect(gow3.shared_backup_releases[0].title).toBe('God of War Saga');
     });
 
+    it('should sort multi-disc sets sequentially by Disc number (Disc 1, Disc 2, Disc 3)', async () => {
+      mockDb
+        .prepare(
+          `
+        INSERT INTO games (stable_id, id, title, platform_id, region)
+        VALUES (9999, 'ff7', 'Final Fantasy VII', 29, 'USA');
+      `,
+        )
+        .run();
+      mockDb
+        .prepare(
+          `
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, backup_status, ownership_status)
+        VALUES
+          ('ff7-d2', 9999, 'USA', NULL, 'Final Fantasy VII (USA) (Disc 2).cue', 1, 1),
+          ('ff7-d1', 9999, 'USA', NULL, 'Final Fantasy VII (USA) (Disc 1).cue', 1, 1),
+          ('ff7-d3', 9999, 'USA', NULL, 'Final Fantasy VII (USA) (Disc 3).cue', 1, 1);
+      `,
+        )
+        .run();
+
+      const handler = handleRequest(mockDb);
+      const { req, res } = createMocks('/api/games/ff7');
+      await handler(req, res);
+      const ff7 = JSON.parse(res.end.mock.calls[0][0]);
+
+      expect(ff7.releases).toHaveLength(3);
+      expect(ff7.releases[0].rom_name).toContain('Disc 1');
+      expect(ff7.releases[1].rom_name).toContain('Disc 2');
+      expect(ff7.releases[2].rom_name).toContain('Disc 3');
+    });
+
     it('should save, retrieve, list, and delete journal entries via /api/journal', async () => {
       const handler = handleRequest(mockDb);
 

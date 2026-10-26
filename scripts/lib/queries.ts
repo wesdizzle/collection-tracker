@@ -30,7 +30,7 @@ export const GAMES_LIST_QUERY = `
     SELECT COALESCE(r.id, g.id) as id,
            g.id as game_id,
            g.stable_id,
-           g.title,
+           COALESCE(cr.raw_title, g.title) as title,
            g.series,
            g.canonical_series,
            COALESCE(
@@ -116,7 +116,7 @@ export const GAME_DETAIL_QUERY = `
      SELECT COALESCE(r.id, g.id) as id,
             g.id as game_id,
             g.stable_id,
-            g.title,
+            COALESCE(cr.raw_title, g.title) as title,
             g.series,
             g.canonical_series,
             COALESCE(
@@ -216,6 +216,7 @@ export const GAME_DETAIL_QUERY = `
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `
      SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status,
+            COALESCE(cr.raw_title, r.also_released_as) as title,
             COALESCE(
               r.release_date,
               (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = r.game_id AND r2.release_date IS NOT NULL LIMIT 1)
@@ -239,11 +240,12 @@ export const GAME_RELEASES_BY_GAME_ID_QUERY = `
          ELSE 3
        END ASC,
        r.variants ASC,
-       r.id ASC
+       COALESCE(r.rom_name, r.id) ASC
  `;
 
 export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
      SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status,
+            COALESCE(cr.raw_title, r.also_released_as) as title,
             COALESCE(
               r.release_date,
               (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = r.game_id AND r2.release_date IS NOT NULL LIMIT 1)
@@ -259,7 +261,7 @@ export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
      FROM game_releases r
      LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
      WHERE r.game_id = ?
-     ORDER BY r.id ASC
+     ORDER BY COALESCE(r.rom_name, r.id) ASC
  `;
 
 export const BUNDLED_GAMES_BY_PARENT_QUERY = `
@@ -1038,17 +1040,23 @@ export function enrichGameDetailWithCompanionsAndVouchers(
         }
       }
     }
+  }
 
-    // Sort box set discs sequentially by Disc number (Disc 1, Disc 2, Disc 3, ...)
-    const extractDiscOrder = (label: unknown): number => {
-      const m = String(label || '').match(
-        /^(?:disc|disco|disque|disk)\s+(\d+)/i,
-      );
-      return m ? parseInt(m[1], 10) : 99;
+  // Sort multi-disc sets sequentially by Disc number (Disc 1, Disc 2, Disc 3, ...)
+  if (game.releases && game.releases.length > 1) {
+    const extractDiscOrder = (rel: Record<string, unknown>): number => {
+      const label = String(rel['disc_label'] || '');
+      let m = label.match(/^(?:disc|disco|disque|disk)\s+(\d+)/i);
+      if (m) return parseInt(m[1], 10);
+      const rom = String(rel['rom_name'] || '');
+      m = rom.match(/\b(?:disc|disco|disque|disk)\s*(\d+)/i);
+      if (m) return parseInt(m[1], 10);
+      return 99;
     };
     game.releases.sort(
       (a, b) =>
-        extractDiscOrder(a['disc_label']) - extractDiscOrder(b['disc_label']),
+        extractDiscOrder(a) - extractDiscOrder(b) ||
+        String(a['rom_name'] || '').localeCompare(String(b['rom_name'] || '')),
     );
   }
 
@@ -1605,4 +1613,93 @@ export function normalizeReceiptUrl(
     return `https://mail.google.com/mail/u/0/#all/${trimmed}`;
   }
   return null;
+}
+
+/**
+ * Resolves the appropriate localized or alternate release title from IGDB metadata_json
+ * (game_localizations and alternative_names) or canonical source raw_title.
+ */
+export function resolveLocalizedReleaseTitle(
+  gameTitle: string,
+  releaseRegion: string | null | undefined,
+  metadataJson: string | null | undefined,
+  canonicalTitle: string | null | undefined,
+): string {
+  if (metadataJson) {
+    try {
+      const parsed = JSON.parse(metadataJson);
+      const regLower = (releaseRegion || '').toLowerCase();
+      // 1. Check game_localizations
+      if (
+        Array.isArray(parsed.game_localizations) &&
+        parsed.game_localizations.length > 0
+      ) {
+        let targetRegId: number | null = null;
+        if (regLower.includes('japan') || regLower.includes('jp')) {
+          targetRegId = 3;
+        } else if (regLower.includes('korea')) {
+          targetRegId = 2;
+        } else if (regLower.includes('europe') || regLower.includes('pal')) {
+          targetRegId = 4;
+        }
+        if (targetRegId !== null) {
+          const loc = parsed.game_localizations.find(
+            (l: { region?: number; name?: string }) =>
+              l.region === targetRegId && l.name,
+          );
+          if (loc?.name) return loc.name;
+        }
+      }
+      // 2. Check alternative_names
+      if (
+        Array.isArray(parsed.alternative_names) &&
+        parsed.alternative_names.length > 0
+      ) {
+        if (regLower.includes('japan') || regLower.includes('jp')) {
+          const jpAlt = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /japanese/i.test(a.comment || ''),
+          );
+          if (jpAlt?.name) return jpAlt.name;
+        } else if (regLower.includes('spain') || regLower.includes('spanish')) {
+          const esAlt = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /spanish/i.test(a.comment || ''),
+          );
+          if (esAlt?.name) return esAlt.name;
+        } else if (
+          regLower.includes('germany') ||
+          regLower.includes('german')
+        ) {
+          const deAlt = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /german/i.test(a.comment || ''),
+          );
+          if (deAlt?.name) return deAlt.name;
+        } else if (regLower.includes('france') || regLower.includes('french')) {
+          const frAlt = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /french/i.test(a.comment || ''),
+          );
+          if (frAlt?.name) return frAlt.name;
+        } else if (regLower.includes('italy') || regLower.includes('italian')) {
+          const itAlt = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /italian/i.test(a.comment || ''),
+          );
+          if (itAlt?.name) return itAlt.name;
+        }
+      }
+    } catch {
+      // ignore JSON parse error
+    }
+  }
+  if (
+    canonicalTitle &&
+    canonicalTitle.trim() &&
+    canonicalTitle.trim() !== gameTitle.trim()
+  ) {
+    return canonicalTitle.trim();
+  }
+  return gameTitle;
 }
