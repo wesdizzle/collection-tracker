@@ -137,6 +137,7 @@ export interface Game {
   companion_game_title?: string;
   is_companion_base_disc?: boolean;
   releases?: GameRelease[];
+  other_releases?: GameRelease[];
   bundled_games?: BundledGame[];
   shared_backup_releases?: SharedBackupReleaseLink[];
   voucher_notes?: string[];

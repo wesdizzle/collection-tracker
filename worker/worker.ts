@@ -122,6 +122,7 @@ interface DbGame {
   ownership_status?: number;
   release_date?: string | null;
   releases?: Array<Record<string, unknown>>;
+  other_releases?: Array<Record<string, unknown>>;
   bundled_games?: unknown[];
   shared_backup_releases?: SharedBackupReleaseLink[];
 }
@@ -823,13 +824,35 @@ Disallow: /
               .bind(game.stable_id, game.region)
               .all();
         const typedResults = (results || []) as Array<
-          Record<string, unknown> & { rom_name?: string | null }
+          Record<string, unknown> & {
+            id?: string;
+            rom_name?: string | null;
+            region?: string | null;
+            variants?: string | null;
+          }
         >;
-        game.releases = isMulti
-          ? typedResults.filter(
-              (r) => getRomGroupingKey(r.rom_name) === targetKey,
-            )
-          : typedResults;
+        if (isMulti) {
+          game.releases = typedResults.filter(
+            (r) => getRomGroupingKey(r.rom_name) === targetKey,
+          );
+          game.other_releases = typedResults.filter(
+            (r) => getRomGroupingKey(r.rom_name) !== targetKey,
+          );
+        } else {
+          let primaryReleases = typedResults.filter((r) => r.id === game.id);
+          if (primaryReleases.length === 0) {
+            primaryReleases = typedResults.filter(
+              (r) => r.region === game.region && r.variants === game.variants,
+            );
+          }
+          if (primaryReleases.length === 0 && typedResults.length > 0) {
+            primaryReleases = [typedResults[0]];
+          }
+          game.releases = primaryReleases;
+          game.other_releases = typedResults.filter(
+            (r) => !primaryReleases.some((pr) => pr.id === r.id),
+          );
+        }
 
         if (!game.releases || game.releases.length === 0) {
           game.releases = [

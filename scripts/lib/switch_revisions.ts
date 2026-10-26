@@ -1093,8 +1093,8 @@ export function reconcileSwitchReleasesWithDatabase(
     ? null
     : db.prepare(`
     INSERT OR IGNORE INTO game_releases (
-      id, game_id, canonical_release_id, region, variants, backup_status, ownership_status, is_physical
-    ) VALUES (?, ?, ?, ?, ?, 0, 0, 1)
+      id, game_id, canonical_release_id, region, variants, backup_status, ownership_status, is_physical, release_date
+    ) VALUES (?, ?, ?, ?, ?, 0, 0, 1, ?)
   `);
 
   for (const game of games) {
@@ -1118,7 +1118,7 @@ export function reconcileSwitchReleasesWithDatabase(
       // Check existing game releases
       const releases = db
         .prepare(
-          `SELECT id, region, variants, rom_name, canonical_release_id, backup_status
+          `SELECT id, region, variants, rom_name, canonical_release_id, backup_status, release_date
            FROM game_releases
            WHERE game_id = ?`,
         )
@@ -1129,6 +1129,7 @@ export function reconcileSwitchReleasesWithDatabase(
         rom_name: string | null;
         canonical_release_id: number | null;
         backup_status: number;
+        release_date: string | null;
       }>;
 
       // Select default base revision candidate (prefer Rev 000 / lowest revision in game's region)
@@ -1231,6 +1232,8 @@ export function reconcileSwitchReleasesWithDatabase(
 
         if (!exists) {
           const revId = `${game.id || `switch-${game.stable_id}`}-rev-${cand.id}`;
+          const parentDate =
+            releases.find((r) => r.release_date)?.release_date || null;
           if (insertMissingReleaseStmt) {
             insertMissingReleaseStmt.run(
               revId,
@@ -1238,10 +1241,11 @@ export function reconcileSwitchReleasesWithDatabase(
               cand.id,
               cand.region || 'World',
               cand.variants,
+              parentDate,
             );
           }
           d1Statements.push(
-            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, backup_status, ownership_status, is_physical) VALUES (${escapeSql(revId)}, ${game.stable_id}, ${cand.id}, ${escapeSql(cand.region || 'World')}, ${escapeSql(cand.variants)}, 0, 0, 1);`,
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, backup_status, ownership_status, is_physical, release_date) VALUES (${escapeSql(revId)}, ${game.stable_id}, ${cand.id}, ${escapeSql(cand.region || 'World')}, ${escapeSql(cand.variants)}, 0, 0, 1, ${escapeSql(parentDate)});`,
           );
           insertedRevisions++;
         }

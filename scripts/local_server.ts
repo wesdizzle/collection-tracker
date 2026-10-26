@@ -1634,6 +1634,7 @@ export const handleRequest =
         const game = db.prepare(query).get(id, id, id) as
           | (Record<string, unknown> & {
               releases?: Array<Record<string, unknown>>;
+              other_releases?: Array<Record<string, unknown>>;
               rom_name?: string | null;
               rom_crc?: string | null;
               stable_id?: number;
@@ -1658,18 +1659,45 @@ export const handleRequest =
             ? (db
                 .prepare(GAME_ALL_RELEASES_BY_GAME_ID_QUERY)
                 .all(game.stable_id) as Array<
-                Record<string, unknown> & { rom_name: string | null }
+                Record<string, unknown> & {
+                  id?: string;
+                  rom_name?: string | null;
+                  region?: string | null;
+                  variants?: string | null;
+                }
               >)
             : (db
                 .prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
                 .all(game.stable_id, game.region) as Array<
-                Record<string, unknown> & { rom_name: string | null }
+                Record<string, unknown> & {
+                  id?: string;
+                  rom_name?: string | null;
+                  region?: string | null;
+                  variants?: string | null;
+                }
               >);
-          game.releases = isMulti
-            ? releases.filter(
-                (r) => getRomGroupingKey(r.rom_name) === targetKey,
-              )
-            : releases;
+          if (isMulti) {
+            game.releases = releases.filter(
+              (r) => getRomGroupingKey(r.rom_name) === targetKey,
+            );
+            game.other_releases = releases.filter(
+              (r) => getRomGroupingKey(r.rom_name) !== targetKey,
+            );
+          } else {
+            let primaryReleases = releases.filter((r) => r.id === game.id);
+            if (primaryReleases.length === 0) {
+              primaryReleases = releases.filter(
+                (r) => r.region === game.region && r.variants === game.variants,
+              );
+            }
+            if (primaryReleases.length === 0 && releases.length > 0) {
+              primaryReleases = [releases[0]];
+            }
+            game.releases = primaryReleases;
+            game.other_releases = releases.filter(
+              (r) => !primaryReleases.some((pr) => pr.id === r.id),
+            );
+          }
 
           if (!game.releases || game.releases.length === 0) {
             game.releases = [

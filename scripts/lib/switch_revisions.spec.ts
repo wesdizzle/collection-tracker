@@ -246,7 +246,8 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
           rom_crc TEXT,
           backup_status INTEGER NOT NULL DEFAULT 0,
           ownership_status INTEGER NOT NULL DEFAULT 0,
-          is_physical INTEGER DEFAULT 1
+          is_physical INTEGER DEFAULT 1,
+          release_date TEXT
         );
       `);
 

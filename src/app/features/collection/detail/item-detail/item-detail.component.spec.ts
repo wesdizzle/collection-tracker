@@ -233,7 +233,7 @@ describe('ItemDetailComponent', () => {
     // Check for physical discs / releases section
     const discsSection = compiled.querySelector('.discs-section');
     expect(discsSection).toBeTruthy();
-    expect(discsSection.textContent).toContain('Physical Discs / Releases');
+    expect(discsSection.textContent).toContain('Physical Cartridge Release');
 
     // Filenames and raw CRC32 must NOT be rendered in the UI
     expect(discsSection.textContent).not.toContain(

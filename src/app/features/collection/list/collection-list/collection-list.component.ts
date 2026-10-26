@@ -1368,7 +1368,7 @@ export class CollectionListComponent
       const romKey = this.getRomGroupingKey(g.rom_name);
       let baseKey = romKey.startsWith('multi:')
         ? `${g.game_id || g.id}_${romKey}`
-        : `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${romKey}`;
+        : `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${g.canonical_release_id || ''}_${romKey}`;
 
       if (isPackIn) {
         // Pack-in companion bonus discs (e.g. Mega Man Legends 2 Demo inside Tron Bonne)

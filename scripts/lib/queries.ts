@@ -33,7 +33,10 @@ export const GAMES_LIST_QUERY = `
            g.title,
            g.series,
            g.canonical_series,
-           r.release_date,
+           COALESCE(
+             r.release_date,
+             (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = g.stable_id AND r2.release_date IS NOT NULL LIMIT 1)
+           ) as release_date,
            g.platform_id,
             g.queued,
             g.sort_index,
@@ -116,7 +119,10 @@ export const GAME_DETAIL_QUERY = `
             g.title,
             g.series,
             g.canonical_series,
-            r.release_date,
+            COALESCE(
+              r.release_date,
+              (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = g.stable_id AND r2.release_date IS NOT NULL LIMIT 1)
+            ) as release_date,
             g.platform_id,
             g.queued,
             g.sort_index,
@@ -209,7 +215,12 @@ export const GAME_DETAIL_QUERY = `
  `;
 
 export const GAME_RELEASES_BY_GAME_ID_QUERY = `
-     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status, r.release_date, r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status,
+            COALESCE(
+              r.release_date,
+              (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = r.game_id AND r2.release_date IS NOT NULL LIMIT 1)
+            ) as release_date,
+            r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
             r.canonical_release_id, cr.source,
             CASE
               WHEN cr.source = 'nintendo_revised' THEN 1
@@ -232,7 +243,12 @@ export const GAME_RELEASES_BY_GAME_ID_QUERY = `
  `;
 
 export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
-     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status, r.release_date, r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status,
+            COALESCE(
+              r.release_date,
+              (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = r.game_id AND r2.release_date IS NOT NULL LIMIT 1)
+            ) as release_date,
+            r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
             r.canonical_release_id, cr.source,
             CASE
               WHEN cr.source = 'nintendo_revised' THEN 1

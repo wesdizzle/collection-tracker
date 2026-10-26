@@ -435,7 +435,9 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                   }
                   @if (g.releases && g.releases.length > 0) {
                     <div class="meta-box full-width discs-section mt-lg">
-                      <span class="label">Physical Discs / Releases</span>
+                      <span class="label">{{
+                        getReleasesSectionLabel(g)
+                      }}</span>
                       <div class="discs-list flex flex-col gap-md">
                         @for (release of g.releases; track release.id) {
                           <div
@@ -664,6 +666,64 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                             : 'No dump exists in community DAT files'
                         }}</span
                       >
+                    </div>
+                  }
+
+                  @if (g.other_releases && g.other_releases.length > 0) {
+                    <div
+                      class="meta-box full-width other-releases-section mt-lg"
+                    >
+                      <span class="label"
+                        >Other Releases & Regional Prints</span
+                      >
+                      <div
+                        class="other-releases-list flex flex-col gap-sm mt-xs"
+                      >
+                        @for (other of g.other_releases; track other.id) {
+                          <div
+                            class="other-release-row flex flex-col md:flex-row md:items-center justify-between gap-sm p-sm rounded-md border border-outline-variant bg-surface-container-high"
+                          >
+                            <div class="flex items-center gap-xs flex-wrap">
+                              @if (other.variants) {
+                                <span class="variant-badge">{{
+                                  other.variants
+                                }}</span>
+                              }
+                              @if (other.region) {
+                                <span class="variant-badge region-badge">{{
+                                  other.region
+                                }}</span>
+                              }
+                              @if (other.serial_code) {
+                                <span
+                                  class="variant-badge serial-badge font-mono"
+                                  >{{ other.serial_code }}</span
+                                >
+                              }
+                              @if (other.rom_name) {
+                                <span
+                                  class="rom-text font-mono text-xs text-secondary"
+                                  >{{ other.rom_name }}</span
+                                >
+                              }
+                              @if (other.ownership_status === 1) {
+                                <span
+                                  class="text-2xs font-semibold flex items-center gap-2xs text-primary"
+                                >
+                                  <app-icon name="check" [size]="12" /> Owned
+                                </span>
+                              }
+                            </div>
+                            <a
+                              [routerLink]="['/collection', 'game', other.id]"
+                              class="meta-link text-xs font-semibold flex items-center gap-xs interactive"
+                            >
+                              <span>View Release</span>
+                              <app-icon name="link" [size]="12" />
+                            </a>
+                          </div>
+                        }
+                      </div>
                     </div>
                   }
                 }
@@ -3411,6 +3471,17 @@ export class ItemDetailComponent {
     backedUp: boolean | number,
   ): IconName {
     return getMediaIconName(platform, backedUp);
+  }
+
+  getReleasesSectionLabel(game: Game): string {
+    const isDisc =
+      this.getMediaIcon(game.display_name || game.platform, 1) === 'disc';
+    if (game.releases && game.releases.length > 1) {
+      return isDisc
+        ? 'Physical Discs (Multi-Disc Set)'
+        : 'Physical Releases & Revisions';
+    }
+    return isDisc ? 'Physical Disc Release' : 'Physical Cartridge Release';
   }
 
   onToggleDiscBackup(release: GameRelease) {
