@@ -51,6 +51,7 @@ import {
   PlayStatus,
   DEFAULT_USER_HOME_REGION,
   isRegionMatchingHome,
+  normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 import { GameCardComponent } from '../game-card/game-card.component';
@@ -1244,70 +1245,7 @@ export class CollectionListComponent
   }
 
   private normalizeBudgetToken(token: string): string | null {
-    const t = token.trim();
-    if (!t) return null;
-    if (
-      /^Greatest Hits$/i.test(t) ||
-      /^Double Pack Greatest Hits$/i.test(t) ||
-      /:\s*Greatest Hits$/i.test(t) ||
-      /\(Greatest Hits\)$/i.test(t)
-    ) {
-      return 'Greatest Hits';
-    }
-    if (
-      /^Platinum Hits$/i.test(t) ||
-      /^Best of Platinum Hits$/i.test(t) ||
-      /^Platinum Family Hits$/i.test(t) ||
-      /\(Platinum Hits\)$/i.test(t) ||
-      /:\s*Platinum Hits$/i.test(t)
-    ) {
-      return 'Platinum Hits';
-    }
-    if (
-      /^Platinum$/i.test(t) ||
-      /^Platinum - Twin Pack$/i.test(t) ||
-      /^Platinum:\s*(?:The Best of|EA Most Wanted)/i.test(t)
-    ) {
-      return 'Platinum';
-    }
-    if (
-      /^Platinum Collection$/i.test(t) ||
-      /\(Platinum Collection\)$/i.test(t)
-    ) {
-      return 'Platinum Collection';
-    }
-    if (/^Player's Choice/i.test(t)) {
-      return "Player's Choice";
-    }
-    if (/^Nintendo Selects$/i.test(t)) {
-      return 'Nintendo Selects';
-    }
-    if (
-      /^Xbox Classics$/i.test(t) ||
-      /^Classics$/i.test(t) ||
-      /^Classic$/i.test(t) ||
-      /\(Classics\)$/i.test(t)
-    ) {
-      return 'Xbox Classics';
-    }
-    if (
-      /^(?:PSP\s+|PS3\s+|PlayStation\s+)?Essentials$/i.test(t) ||
-      /Classics HD:\s*Essentials/i.test(t)
-    ) {
-      return 'Essentials';
-    }
-    if (/^Favorites$/i.test(t)) return 'Favorites';
-    if (/^Sega All Stars$/i.test(t)) return 'Sega All Stars';
-    if (/^PS\s*one Books$/i.test(t)) return 'PSone Books';
-    if (
-      /\bthe Best(?:\s+for\s+Family)?$/i.test(t) ||
-      /^EA Best Hits$/i.test(t) ||
-      /^Satakore$/i.test(t) ||
-      /^DreKore$/i.test(t)
-    ) {
-      return t;
-    }
-    return null;
+    return normalizeBudgetToken(token);
   }
 
   public isBudgetLabel(label: string): boolean {

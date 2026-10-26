@@ -81,6 +81,7 @@ describe('reconcile_releases', () => {
           game_id INTEGER,
           region TEXT,
           variants TEXT,
+          also_released_as TEXT,
           rom_name TEXT,
           rom_crc TEXT,
           canonical_release_id INTEGER,
@@ -94,6 +95,9 @@ describe('reconcile_releases', () => {
           normalized_title TEXT,
           region TEXT,
           variants TEXT,
+          also_released_as TEXT,
+          packin_host_normalized_title TEXT,
+          redump_disc_id INTEGER,
           rom_name TEXT,
           rom_crc TEXT,
           source TEXT

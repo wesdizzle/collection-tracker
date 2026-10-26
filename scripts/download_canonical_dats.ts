@@ -902,25 +902,59 @@ export async function downloadNoIntroDat(
     }
   }
 
-  const baseUrl =
-    'https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/';
-  const url = `${baseUrl}${encodeURIComponent(target.remoteFileName)}`;
-
   try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'CollectionTracker/2.0 (DAT Synchronizer)',
-      },
-    });
+    // 1. Try official Datomatic XML from Spludlow mirror
+    const rawBaseName = (
+      target.canonicalFileName || target.remoteFileName
+    ).replace(/\.(?:xml|dat)$/i, '');
+    const spludlowUrl = `https://data.spludlow.co.uk/no-intro/no-intro/${encodeURIComponent(rawBaseName)}.xml`;
+    let text = '';
 
-    if (!response.ok) {
-      return {
-        success: false,
-        error: `HTTP ${response.status} ${response.statusText}`,
-      };
+    try {
+      const spludlowRes = await fetch(spludlowUrl, {
+        headers: { 'User-Agent': 'CollectionTracker/2.0 (DAT Synchronizer)' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (spludlowRes.ok) {
+        const candidateText = await spludlowRes.text();
+        if (
+          candidateText.includes('<datafile>') ||
+          candidateText.includes('<header>')
+        ) {
+          text = candidateText;
+        }
+      }
+    } catch {
+      // Fall through to libretro fallback
     }
 
-    const text = await response.text();
+    // 2. Fallback to libretro-database mirror if Spludlow is unreachable or missing
+    if (!text) {
+      const baseUrl =
+        'https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/';
+      const url = `${baseUrl}${encodeURIComponent(target.remoteFileName)}`;
+
+      try {
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'CollectionTracker/2.0 (DAT Synchronizer)',
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!response.ok) {
+          return {
+            success: false,
+            error: `HTTP ${response.status} ${response.statusText}`,
+          };
+        }
+
+        text = await response.text();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { success: false, error: msg };
+      }
+    }
     if (
       !text ||
       text.length < 200 ||

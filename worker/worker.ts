@@ -850,6 +850,22 @@ Disallow: /
           if (primaryReleases.length === 0 && typedResults.length > 0) {
             primaryReleases = [typedResults[0]];
           }
+          // Also include companion pack-in demo/bonus discs in primaryReleases if they belong to this game and region
+          const packInReleases = typedResults.filter(
+            (r) =>
+              !primaryReleases.some((pr) => pr.id === r.id) &&
+              (r.region === game.region ||
+                (!r.region && game.region === 'USA')) &&
+              (/\b(demo|trial edition|bonus disc|sampler)\b/i.test(
+                String(r.variants || ''),
+              ) ||
+                /\b(demo|trial edition|bonus disc|sampler)\b/i.test(
+                  String(r.rom_name || ''),
+                )),
+          );
+          if (packInReleases.length > 0) {
+            primaryReleases = [...primaryReleases, ...packInReleases];
+          }
           game.releases = primaryReleases;
           game.other_releases = typedResults.filter(
             (r) => !primaryReleases.some((pr) => pr.id === r.id),
@@ -1660,6 +1676,7 @@ Disallow: /
               romCrc: mr.rom_crc || null,
               region: mr.region || null,
               variants: mr.variants || null,
+              also_released_as: mr.also_released_as || null,
               releaseDate: null,
               canonical_release_id: mr.id || null,
               serial_code: mr.serial_code || null,
@@ -2826,6 +2843,7 @@ Disallow: /
           releases?: Array<{
             region?: string | null;
             variants?: string | null;
+            also_released_as?: string | null;
             rom_name?: string | null;
             rom_crc?: string | null;
             ownership_status?: number;
@@ -2969,15 +2987,16 @@ Disallow: /
               env.DB.prepare(
                 `
                 INSERT OR REPLACE INTO game_releases (
-                  id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
+                  id, game_id, region, variants, also_released_as, rom_name, rom_crc, ownership_status, backup_status, release_date,
                   canonical_release_id, barcode, is_physical
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `,
               ).bind(
                 baseRelSlug,
                 finalStableId,
                 rel.region ? normalizeRegionStr(rel.region) : null,
                 rel.variants || null,
+                rel.also_released_as || null,
                 rel.rom_name || null,
                 rel.rom_crc || null,
                 rel.ownership_status ?? (game.ownership_status || 0),

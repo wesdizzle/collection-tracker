@@ -2595,7 +2595,7 @@ async function runScraper(): Promise<void> {
         }
         */
 
-    // 4. Discovery: amiibo
+    // 4. Discovery: amiibo, Skylanders, and Starlink
     if (runDiscovery) {
       console.log('Starting full amiibo discovery pass...');
       const discovered = await discoverAllAmiibo(existingToys);
@@ -2603,6 +2603,24 @@ async function runScraper(): Promise<void> {
         toyDiscoveryResults.push({
           series: 'amiibo (Auto-Added)',
           items: discovered,
+        });
+      }
+
+      console.log('Starting full Skylanders discovery pass...');
+      const discoveredSkylanders = await discoverAllSkylanders(existingToys);
+      if (discoveredSkylanders.length > 0) {
+        toyDiscoveryResults.push({
+          series: 'Skylanders (Auto-Added)',
+          items: discoveredSkylanders,
+        });
+      }
+
+      console.log('Starting full Starlink discovery pass...');
+      const discoveredStarlink = await discoverAllStarlink(existingToys);
+      if (discoveredStarlink.length > 0) {
+        toyDiscoveryResults.push({
+          series: 'Starlink (Auto-Added)',
+          items: discoveredStarlink,
         });
       }
     }
@@ -2658,7 +2676,7 @@ async function discoverAllAmiibo(existingToys: Toy[]): Promise<Toy[]> {
   const added: Toy[] = [];
 
   const insertStmt = db.prepare(`
-        INSERT INTO toys (id, name, line, series, type, image_url, amiibo_id, owned, verified, metadata_json, series_id)
+        INSERT INTO toys (id, name, line, series, type, image_url, amiibo_id, ownership_status, verified, metadata_json, series_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
@@ -2702,6 +2720,219 @@ async function discoverAllAmiibo(existingToys: Toy[]): Promise<Toy[]> {
     added.push(a);
   }
   console.log(`Added ${added.length} missing amiibo as Wanted.`);
+  return added;
+}
+
+/**
+ * UTILITY: discoverAllSkylanders
+ *
+ * Slices all Skylanders pages from SCL sitemaps to seed wanted entries on a fresh fork.
+ */
+async function discoverAllSkylanders(existingToys: Toy[]): Promise<Toy[]> {
+  console.log('Fetching master Skylanders sitemaps...');
+  const sitemapEntries = await scrapeSkylandersSitemap();
+  const existingSclUrls = new Set(
+    existingToys
+      .filter((t) => t.line.toLowerCase() === 'skylanders' && t.scl_url)
+      .map((t) => t.scl_url!.toLowerCase().trim()),
+  );
+  const existingNames = new Set(
+    existingToys
+      .filter((t) => t.line.toLowerCase() === 'skylanders')
+      .map((t) => superNormalize(t.name)),
+  );
+
+  const added: Toy[] = [];
+  const insertStmt = db.prepare(`
+    INSERT INTO toys (id, name, line, series, type, image_url, scl_url, ownership_status, verified, metadata_json, series_id)
+    VALUES (?, ?, 'Skylanders', ?, 'Figure', ?, ?, 0, 1, ?, ?)
+  `);
+  const insertSeriesStmt = db.prepare(
+    'INSERT OR IGNORE INTO toy_series (id, line, name) VALUES (?, ?, ?)',
+  );
+  insertSeriesStmt.run('skylanders-general', 'Skylanders', 'Skylanders');
+
+  const usedSlugs = new Set(
+    (db.prepare('SELECT id FROM toys').all() as { id: string }[]).map(
+      (t) => t.id,
+    ),
+  );
+
+  const IGNORED_SCL_SLUGS = new Set([
+    '',
+    'about',
+    'contact',
+    'privacy-policy',
+    'disclaimer',
+    'sitemap',
+    'compatibility',
+    'skylanders-checklist',
+    'characters',
+    'skylanders-elements',
+  ]);
+
+  for (const entry of sitemapEntries) {
+    if (existingSclUrls.has(entry.loc.toLowerCase().trim())) continue;
+
+    const slug = entry.loc
+      .replace(/^https?:\/\/skylanderscharacterlist\.com\//i, '')
+      .replace(/\/$/, '')
+      .trim();
+
+    if (!slug || IGNORED_SCL_SLUGS.has(slug.toLowerCase())) continue;
+    if (
+      slug.includes('/') ||
+      slug.includes('page-sitemap') ||
+      slug.includes('post-sitemap')
+    )
+      continue;
+
+    const cleanTitle = cleanSclTitle(slug);
+    if (!cleanTitle || cleanTitle.length < 2) continue;
+
+    const normName = superNormalize(cleanTitle);
+    if (existingNames.has(normName)) continue;
+
+    let canonicalId = `skylanders-${slugify(cleanTitle)}`;
+    if (usedSlugs.has(canonicalId)) {
+      canonicalId += `-${slug}`;
+    }
+    usedSlugs.add(canonicalId);
+    existingNames.add(normName);
+
+    const imageUrl = entry.images.length > 0 ? entry.images[0] : null;
+
+    insertStmt.run(
+      canonicalId,
+      cleanTitle,
+      'Skylanders',
+      imageUrl,
+      entry.loc,
+      null,
+      'skylanders-general',
+    );
+
+    added.push({
+      id: canonicalId,
+      name: cleanTitle,
+      line: 'Skylanders',
+      series_name: 'Skylanders',
+      type: 'Figure',
+      image_url: imageUrl,
+      scl_url: entry.loc,
+    });
+  }
+
+  console.log(`Added ${added.length} missing Skylanders as Wanted.`);
+  return added;
+}
+
+/**
+ * UTILITY: discoverAllStarlink
+ *
+ * Populates all 35 modular toys for Starlink: Battle for Atlas (ships, pilots, weapons).
+ */
+async function discoverAllStarlink(existingToys: Toy[]): Promise<Toy[]> {
+  console.log('Discovering Starlink: Battle for Atlas toys...');
+  const existingNames = new Set(
+    existingToys
+      .filter((t) => t.line.toLowerCase() === 'starlink')
+      .map((t) => superNormalize(t.name)),
+  );
+
+  const added: Toy[] = [];
+  const insertStmt = db.prepare(`
+    INSERT INTO toys (id, name, line, series, type, image_url, ownership_status, verified, series_id, sort_index, release_date)
+    VALUES (?, ?, 'Starlink', 'Battle for Atlas', ?, ?, 0, 1, 'starlink-battle-for-atlas', ?, ?)
+  `);
+  const insertSeriesStmt = db.prepare(
+    'INSERT OR IGNORE INTO toy_series (id, line, name) VALUES (?, ?, ?)',
+  );
+  insertSeriesStmt.run(
+    'starlink-battle-for-atlas',
+    'Starlink',
+    'Battle for Atlas',
+  );
+
+  const usedSlugs = new Set(
+    (db.prepare('SELECT id FROM toys').all() as { id: string }[]).map(
+      (t) => t.id,
+    ),
+  );
+
+  const DISPLAY_NAMES: Record<string, string> = {
+    arwing: 'Arwing',
+    cerberus: 'Cerberus',
+    lance: 'Lance',
+    nadir: 'Nadir',
+    neptune: 'Neptune',
+    pulse: 'Pulse',
+    scramble: 'Scramble',
+    zenith: 'Zenith',
+    chasedasilva: 'Chase da Silva',
+    eliarborwood: 'Eli Arborwood',
+    foxmccloud: 'Fox McCloud',
+    hunterhakka: 'Hunter Hakka',
+    judge: 'Judge',
+    kharlzeon: 'Kharl Zeon',
+    levimccray: 'Levi McCray',
+    masonrana: 'Mason Rana',
+    razorlemay: 'Razor Lemay',
+    shaid: 'Shaid',
+    startail: 'Startail',
+    crusher: 'Crusher',
+    flamethrower: 'Flamethrower',
+    freezeraymk2: 'Freeze Ray Mk 2',
+    frostbarrage: 'Frost Barrage',
+    furycannon: 'Fury Cannon',
+    gaussgunmk2: 'Gauss Gun Mk 2',
+    hailstorm: 'Hailstorm',
+    imploder: 'Imploder',
+    ironfist: 'Iron Fist',
+    levitator: 'Levitator',
+    meteormk2: 'Meteor Mk 2',
+    nullifier: 'Nullifier',
+    shockwave: 'Shockwave',
+    shredder: 'Shredder',
+    shreddermk2: 'Shredder Mk 2',
+    volcano: 'Volcano',
+  };
+
+  for (const [key, meta] of Object.entries(STARLINK_TOYS)) {
+    const displayName =
+      DISPLAY_NAMES[key] || key.charAt(0).toUpperCase() + key.slice(1);
+    const norm = superNormalize(displayName);
+    if (existingNames.has(norm)) continue;
+
+    let canonicalId = `starlink-${slugify(displayName)}`;
+    if (usedSlugs.has(canonicalId)) {
+      canonicalId += `-${key}`;
+    }
+    usedSlugs.add(canonicalId);
+    existingNames.add(norm);
+
+    insertStmt.run(
+      canonicalId,
+      displayName,
+      meta.type,
+      null,
+      meta.sortIndex,
+      meta.releaseDate,
+    );
+
+    added.push({
+      id: canonicalId,
+      name: displayName,
+      line: 'Starlink',
+      series_name: 'Battle for Atlas',
+      type: meta.type,
+      image_url: null,
+      sort_index: meta.sortIndex,
+      release_date: meta.releaseDate,
+    });
+  }
+
+  console.log(`Added ${added.length} missing Starlink toys as Wanted.`);
   return added;
 }
 

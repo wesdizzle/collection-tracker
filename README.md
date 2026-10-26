@@ -38,16 +38,48 @@ The database models collection items across four tiers:
 3. **Media (`game_releases` table)**: Physical discs, cartridges, or ROM images within that release. A multi-disc game or package with a pack-in demo has multiple `game_releases` records linked to the same `game_id`. Individual media rows are displayed in the item detail view under "Physical Discs / ROMs".
 4. **Journal Entry (`journal_entries` table)**: Private provenance, purchase price, purchase date, approximate date flag, merchant attribution, gift provenance (`gifted_by`), receipt verification URL, and personal notes for a game or toy.
 
+### Public Authoritative Sources & Aggregation Architecture
+
+The application is designed as an aggregator and organizer over public, authoritative backing data. Anyone who spins up a fresh fork of this repository can populate all catalog details, canonical physical signatures, budget line statuses, and toy metadata from scratch using publicly available sources without needing private databases:
+
+- **Official No-Intro Datomatic v4 XML Datafiles**: Downloaded from the public Spludlow mirror (`https://data.spludlow.co.uk/no-intro/no-intro/<System>.xml`), providing canonical physical ROM signatures, SHA1/CRC hashes, and serial codes, with automatic fallback to libretro-database mirrors.
+- **Redump Live Web Tables & Cross-Links**: Dynamically aggregates optical disc editions, serials, barcodes, and pack-in cross-links from `http://redump.org/discs/system/<slug>/`, disc pages `/disc/<id>/`, and `/disc/<id>/sfv/`.
+- **Wikipedia MediaWiki Action API**: Fetches and parses official manufacturer budget line wikitables (`Nintendo_Selects`, `PlayStation_Hits`, `Essentials_(PlayStation)`, `Platinum_Hits`) to extract regional induction dates across all console generations.
+- **Nintendo Revised Community Catalog**: Syncs verified cartridge revision and reprint data from the community Google Spreadsheet across Nintendo Switch 1 & 2.
+- **AmiiboAPI**: Master REST catalog for all Amiibo figures, cards, and series (`https://amiiboapi.com/api/amiibo/`).
+- **Skylanders Character List (SCL)**: Visual sitemaps (`post-sitemap.xml`, etc.) parsing every figure URL, variant, and high-res image.
+- **PriceCharting & Starlink Fandom Wiki API**: Full catalog and high-res assets for Starlink: Battle for Atlas modular ships, pilots, and weapons.
+- **IGDB API**: Commercial releases, platforms, franchises, categories, and cover art.
+
+### Deterministic Budget Line Status Engine
+
+Budget line re-releases are deterministically classified to distinguish whether a physical release was _only ever_ released under a budget banner vs. sometimes in standard packaging and sometimes in budget packaging:
+
+- **Budget Only (`variants = <Label>`, Solid Amber Badge)**: Assigned when a physical cartridge or revised edition was exclusively manufactured and sold under a budget banner in that region.
+- **Standard and Budget (`also_released_as = <Label>`, Dashed Amber Badge `± <Label>`)**: Assigned when the release initially launched at full retail in standard packaging prior to the budget-line induction date, with subsequent printings also available under the budget line.
+- **Temporal Induction Rule**: Evaluates the physical release launch date $D_{\text{release}}(R)$ against the regional budget-line induction date $D_{\text{budget}}(R)$ parsed from Wikipedia:
+  - _Example 1 (Animal Crossing: New Leaf - Welcome amiibo in USA)_: Cartridge `CTR-P-EAAE` launched December 2, 2016, which is $\ge$ the North American Nintendo Selects induction date of August 26, 2016. Because standard non-Selects packaging never existed for the US _Welcome amiibo_ physical cartridge, it is deterministically classified as **`variants: 'Nintendo Selects'`** (`budget_only`).
+  - _Example 2 (Animal Crossing: New Leaf - Welcome amiibo in Europe)_: Cartridge `CTR-P-EAAP` launched November 25, 2016, which is $<$ the European Nintendo Selects induction date of June 29, 2018. It is classified as **`also_released_as: 'Nintendo Selects'`** (`standard_and_budget`).
+  - _Example 3 (Original Animal Crossing: New Leaf)_: Launched 2012/2013 prior to budget line induction in all regions -> Classified as **`also_released_as: 'Nintendo Selects'`**.
+
+### Pack-In Demo & Companion Disc Provenance
+
+Retail packages containing bonus discs, soundtrack CDs, or pack-in demos (such as _The Misadventures of Tron Bonne_ on PS1 including the _Mega Man Legends 2_ playable demo disc) are aggregated deterministically:
+
+- Redump disc pages expose cross-links in their comments table (`Includes <a href=/disc/13075/>Mega Man Legends 2 (USA) (Demo)</a>` and `Bundled with <a href=/disc/13074/>The Misadventures of Tron Bonne</a>`).
+- In `canonical_releases`, companion pack-in discs are linked to the host game via `packin_host_normalized_title` (e.g. `themisadventuresoftronbonne`) and store their `redump_disc_id`.
+- During ingestion and collection detail views, companion discs are cleanly nested inside the host game's release tray under "Physical Discs / ROMs", preventing namesake base games (e.g. standalone _Mega Man Legends 2_) from stealing pack-in demo backups.
+
 ### Metadata Ingestion & Physical Reconciliation
 
 Heavy scraping and data indexing are performed locally against staging SQLite and synchronized to Cloudflare D1:
 
-- **Canonical DAT Sync (`scripts/sync_canonical_dats.ts`)**: Parses No-Intro and Redump XML DAT files in `dats/` to build the `canonical_releases` index.
+- **Canonical DAT & Source Sync (`npm run sources:sync`)**: Syncs DAT files in `dats/`, aggregates Wikipedia budget lines, resolves pack-in provenance, and updates `canonical_releases`.
 - **Title Matching Strategies (`scripts/lib/title_matching.ts`)**:
   - _Strategy 1 (Exact Match)_: Compares normalized titles with diacritics stripped, punctuation cleaned, and common publisher prefixes removed.
   - _Strategy 2 (Segment/Subtitle Matching)_: Splits titles on colons and dashes to match base games against subtitle variations.
   - _Strategy 3 (Middle-Segment Stripping)_: Handles mission packs and multi-segment naming patterns.
-  - _Strategy 4 (Bonus Disc Matching)_: Uses parenthetical identifiers to resolve pack-in discs.
+  - _Strategy 4 (Bonus Disc Matching)_: Uses parenthetical identifiers and pack-in host metadata to resolve companion discs.
 - **Physical vs. Digital Distinction**: Disregards digital installers (`.pkg`), Virtual Console re-releases, and mini-console wrappers. For PlayStation Vita, canonical retail cartridge serials (`PCSE`, `PCSB`, `PCSG`, `PCSA`) are tagged as `is_verified_physical = 1` while digital-only PSN titles are tagged `0`.
 - **Bundles & Download Vouchers**: When physical releases include digital vouchers for companion games, the voucher details are shown as an informative note on the parent release without penalizing physical media backup status.
 - **Nintendo Switch & Switch 2 Cartridge Revisions (`scripts/sync_switch_revisions.ts`)**:
@@ -147,6 +179,24 @@ The application implements an edge-native **Model Context Protocol (MCP)** serve
    npm run dev
    ```
 
+### Clean Fork Setup (Populating Catalog from Public Sources)
+
+Anyone spinning up a fork of this repository can populate all non-personal catalog details (game signatures, Switch cartridge revisions, budget line metadata, pack-in demo homing, and toy figures) directly from public authoritative sources:
+
+```bash
+# 1. Initialize schema and platforms
+npm run db:init
+
+# 2. Download canonical Datomatic v4 XMLs and Redump DATs
+npm run dats:download
+
+# 3. Aggregate budget lines, Redump pack-in cross-links, Switch revisions, and populate canonical_releases
+npm run sources:sync
+
+# 4. Discover and populate games and all toy lines (Amiibo, Skylanders, Starlink)
+npm run scrape -- --discovery
+```
+
 ### Cloudflare Deployment
 
 1. **Create Cloudflare D1 database**:
@@ -159,7 +209,7 @@ The application implements an edge-native **Model Context Protocol (MCP)** serve
    ```bash
    npx wrangler d1 execute collection-db --remote --file=migrations/0001_initial_schema.sql -y
    # Apply subsequent migrations sequentially, e.g.:
-   npx wrangler d1 execute collection-db --remote --file=migrations/0021_cron_performance_indexes.sql -y
+   npx wrangler d1 execute collection-db --remote --file=migrations/0025_canonical_edition_and_packin_provenance.sql -y
    ```
 4. **Create R2 backup bucket**:
    Create a bucket named `collection-backups` in the Cloudflare Dashboard or via Wrangler:
@@ -183,25 +233,26 @@ The application implements an edge-native **Model Context Protocol (MCP)** serve
 
 ### Database & Scraper Scripts
 
-| Command                                               | Description                                                                             |
-| :---------------------------------------------------- | :-------------------------------------------------------------------------------------- |
-| `npm run db:init`                                     | Initializes fresh local `collection.sqlite` from schema and migrations                  |
-| `npm run db:backup`                                   | Exports binary, SQL, and JSON backups locally                                           |
-| `npm run db:pull`                                     | Pulls latest production snapshot from Cloudflare R2 into local staging SQLite           |
-| `npm run db:pull-r2`                                  | Downloads latest R2 snapshot and constructs `data/remote_baseline.db` (0 D1 quota cost) |
-| `npm run sources:sync-switch`                         | Synchronizes Switch 1 & 2 revisions from Nintendo Revised spreadsheet                   |
-| `npm run d1:cost-guard -- --file=<sql> [--confirm]`   | Pre-flight cost guard validating write budgets and index plans for migrations           |
-| `npm run d1:deploy-switch [--confirm]`                | Deploys Switch cartridge revision delta to remote D1 via the Pre-Flight Cost Guard      |
-| `npm run dats:download`                               | Downloads latest No-Intro and Redump XML DATs into `dats/`                              |
-| `npm run dats:update`                                 | Downloads latest DATs and updates `canonical_releases`                                  |
-| `npm run dats:sync`                                   | Indexes local DAT releases into `canonical_releases`                                    |
-| `npm run dats:sync:platform -- --platform=<name\|id>` | Runs scoped DAT sync for a single platform to minimize D1 write quota                   |
-| `npm run dats:dry-run`                                | Analyzes DATs and estimates Cloudflare D1 write quota usage without modifying data      |
-| `npm run scan-backups`                                | Scans local backup directories to detect ROM files and match against games              |
-| `npm run reconcile-ownership`                         | Reconciles physical ownership status and backup flags across catalog releases           |
-| `npm run local-api`                                   | Runs standalone local Express API server proxying collection requests                   |
-| `npx tsx scripts/sync_bestbuy.ts`                     | Manually scrapes current retail game deals from Best Buy                                |
-| `npx tsx scripts/reconcile_toy_pricing.ts`            | Manually reconciles toy pricing and GAMEYE IDs                                          |
+| Command                                                  | Description                                                                             |
+| :------------------------------------------------------- | :-------------------------------------------------------------------------------------- |
+| `npm run db:init`                                        | Initializes fresh local `collection.sqlite` from schema and migrations                  |
+| `npm run db:backup`                                      | Exports binary, SQL, and JSON backups locally                                           |
+| `npm run db:pull`                                        | Pulls latest production snapshot from Cloudflare R2 into local staging SQLite           |
+| `npm run db:pull-r2`                                     | Downloads latest R2 snapshot and constructs `data/remote_baseline.db` (0 D1 quota cost) |
+| `npm run sources:download`                               | Downloads latest official No-Intro Datomatic v4 XMLs and Redump DATs into `dats/`       |
+| `npm run sources:sync`                                   | Aggregates DATs, Wikipedia budget lines, Redump pack-ins, and Switch revisions          |
+| `npm run sources:sync:platform -- --platform=<name\|id>` | Runs scoped canonical sync for a single platform to minimize D1 write quota             |
+| `npm run sources:update`                                 | Runs `sources:download` and `sources:sync` in a single combined pipeline                |
+| `npm run sources:dry-run`                                | Analyzes canonical sources and estimates D1 write quota usage without modifying data    |
+| `npm run sources:sync-switch`                            | Synchronizes Switch 1 & 2 revisions from Nintendo Revised spreadsheet                   |
+| `npm run d1:cost-guard -- --file=<sql> [--confirm]`      | Pre-flight cost guard validating write budgets and index plans for migrations           |
+| `npm run d1:deploy-switch [--confirm]`                   | Deploys Switch cartridge revision delta to remote D1 via the Pre-Flight Cost Guard      |
+| `npm run scrape`                                         | Runs multi-tier IGDB and PriceCharting reconciliation against local collection          |
+| `npm run scrape -- --discovery`                          | Discovers missing games and all toy lines (Amiibo, Skylanders, Starlink) as Wanted      |
+| `npm run scan-backups`                                   | Scans local backup directories to detect ROM files and match against games              |
+| `npm run local-api`                                      | Runs standalone local Express API server proxying collection requests                   |
+| `npm run sync:bestbuy`                                   | Manually scrapes current retail game deals from Best Buy                                |
+| `npx tsx scripts/reconcile_toy_pricing.ts`               | Manually reconciles toy pricing and GAMEYE IDs                                          |
 
 ### Development & Quality Gates
 

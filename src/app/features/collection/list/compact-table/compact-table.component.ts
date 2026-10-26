@@ -10,6 +10,7 @@ import {
   Toy,
   FilterState,
   getMediaIconName,
+  normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
@@ -146,27 +147,6 @@ export class CompactTableComponent {
   }
 
   private normalizeBudgetToken(token: string): string | null {
-    const trimmed = token.trim();
-    if (!trimmed) return null;
-    const lower = trimmed.toLowerCase();
-    if (lower.includes("player's choice") || lower.includes('players choice')) {
-      return "Player's Choice";
-    }
-    if (lower.includes('platinum hits') || lower.includes('platinum series')) {
-      return 'Platinum Hits';
-    }
-    if (lower.includes('greatest hits')) {
-      return 'Greatest Hits';
-    }
-    if (lower.includes('nintendo selects')) {
-      return 'Nintendo Selects';
-    }
-    if (lower.includes('playstation hits')) {
-      return 'PlayStation Hits';
-    }
-    if (lower.includes('favorites') || lower.includes('favourites')) {
-      return 'Favorites';
-    }
-    return null;
+    return normalizeBudgetToken(token);
   }
 }

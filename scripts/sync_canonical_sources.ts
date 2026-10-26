@@ -37,6 +37,13 @@ import {
   parseSwitchRevisionsCsv,
   syncSwitchRevisionsToDatabase,
 } from './lib/switch_revisions.js';
+import {
+  getPublicBudgetInductionRecords,
+  classifyCartridgeBudgetWithRecords,
+  BudgetInductionRecord,
+} from './lib/budget_sources.js';
+import { findRetailPackInDisc } from './lib/special_labels.js';
+import { normalizeTitleForMatching } from './lib/title_matching.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -164,15 +171,40 @@ const insertStmt = isDryRun
   ? null
   : db.prepare(`
   INSERT INTO canonical_releases (
-    platform_id, raw_title, normalized_title, region, variants,
+    platform_id, raw_title, normalized_title, region, variants, also_released_as, packin_host_normalized_title, redump_disc_id,
     rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical
   ) VALUES (
-    ?, ?, ?, ?, ?,
+    ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?
   )
 `);
 
-const processDats = () => {
+const processDats = (budgetRecords: BudgetInductionRecord[] = []) => {
+  // Pre-load known release dates from existing collection game_releases
+  const datesMap = new Map<string, string>();
+  try {
+    const releaseDatesRows = db
+      .prepare(
+        `SELECT g.title, gr.region, gr.release_date
+         FROM game_releases gr
+         JOIN games g ON gr.game_id = g.stable_id
+         WHERE gr.release_date IS NOT NULL AND gr.release_date != ''`,
+      )
+      .all() as Array<{
+      title: string;
+      region: string | null;
+      release_date: string;
+    }>;
+    for (const row of releaseDatesRows) {
+      const norm = normalizeTitleForMatching(row.title);
+      const key = `${norm}::${(row.region || '').toLowerCase()}`;
+      datesMap.set(key, row.release_date);
+      datesMap.set(norm, row.release_date);
+    }
+  } catch {
+    // Database unpopulated on clean fork
+  }
+
   if (!isDryRun) {
     if (isScoped) {
       const targetIds = targetPlatforms.map((p) => p.id).join(',');
@@ -215,6 +247,55 @@ const processDats = () => {
     });
 
     for (const rel of deduplicated) {
+      // 1. Pack-in demo and bonus disc homing
+      if (!rel.packin_host_normalized_title) {
+        const packIn = findRetailPackInDisc(rel.rom_name || rel.raw_title);
+        if (packIn) {
+          rel.packin_host_normalized_title = packIn.hostGameNormTitle;
+        }
+      }
+
+      // 2. Budget line classification (e.g. Nintendo Selects, Player's Choice)
+      if (budgetRecords.length > 0) {
+        const isUpdatedEdition =
+          /welcome\s*amiibo|edition|plus|\+|deluxe|director'?s cut|game of the year|goty/i.test(
+            rel.raw_title,
+          );
+        const dateKey = `${rel.normalized_title}::${(rel.region || '').toLowerCase()}`;
+        const relDate =
+          datesMap.get(dateKey) || datesMap.get(rel.normalized_title) || null;
+
+        const classification = classifyCartridgeBudgetWithRecords(
+          budgetRecords,
+          {
+            platformId: plat.id,
+            gameTitle: rel.raw_title,
+            region: rel.region,
+            physicalReleaseDate: relDate,
+            isUpdatedEdition,
+          },
+        );
+
+        if (classification.isBudget) {
+          if (classification.isBudgetOnly && classification.budgetLabel) {
+            if (!rel.variants) {
+              rel.variants = classification.budgetLabel;
+            } else if (
+              !rel.variants
+                .toLowerCase()
+                .includes(classification.budgetLabel.toLowerCase())
+            ) {
+              rel.variants = `${rel.variants}, ${classification.budgetLabel}`;
+            }
+          } else if (
+            !classification.isBudgetOnly &&
+            classification.alsoReleasedAs
+          ) {
+            rel.also_released_as = classification.alsoReleasedAs;
+          }
+        }
+      }
+
       if (insertStmt) {
         insertStmt.run(
           rel.platform_id,
@@ -222,6 +303,9 @@ const processDats = () => {
           rel.normalized_title,
           rel.region || null,
           rel.variants || null,
+          rel.also_released_as || null,
+          rel.packin_host_normalized_title || null,
+          rel.redump_disc_id || null,
           rel.rom_name || null,
           rel.rom_crc || null,
           rel.serial_code || null,
@@ -244,13 +328,23 @@ const processDats = () => {
 
 async function run() {
   try {
+    const budgetRecords = await getPublicBudgetInductionRecords();
     if (!isDryRun) {
       db.pragma('foreign_keys = OFF');
-      const syncTx = db.transaction(processDats);
+      const syncTx = db.transaction(() => processDats(budgetRecords));
       syncTx();
       db.pragma('foreign_keys = ON');
+
+      // Sync updated canonical metadata (variants, also_released_as) back into existing game_releases
+      db.prepare(
+        `UPDATE game_releases
+         SET also_released_as = COALESCE(also_released_as, (SELECT also_released_as FROM canonical_releases WHERE id = game_releases.canonical_release_id)),
+             variants = COALESCE(game_releases.variants, (SELECT variants FROM canonical_releases WHERE id = game_releases.canonical_release_id))
+         WHERE canonical_release_id IS NOT NULL
+           AND (also_released_as IS NULL OR variants IS NULL)`,
+      ).run();
     } else {
-      processDats();
+      processDats(budgetRecords);
     }
 
     // If Switch 1 or Switch 2 are in targetPlatforms, run Switch spreadsheet sync
@@ -373,14 +467,16 @@ async function run() {
         for (let i = 0; i < allCanonicalReleases.length; i += BATCH_SIZE) {
           const batch = allCanonicalReleases.slice(i, i + BATCH_SIZE);
           sqlBuffer +=
-            'INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical) VALUES\n';
+            'INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, also_released_as, packin_host_normalized_title, redump_disc_id, rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical) VALUES\n';
 
           const valueRows = batch.map((r) => {
             const escape = (val: string | null | undefined) =>
               val !== null && val !== undefined
                 ? `'${String(val).replace(/'/g, "''")}'`
                 : 'NULL';
-            return `  (${r.platform_id}, ${escape(r.raw_title)}, ${escape(r.normalized_title)}, ${escape(r.region)}, ${escape(r.variants)}, ${escape(r.rom_name)}, ${escape(r.rom_crc)}, ${escape(r.serial_code)}, ${escape(r.barcode)}, ${escape(r.publisher)}, '${r.source}', ${r.is_verified_physical})`;
+            const num = (val: number | null | undefined) =>
+              val !== null && val !== undefined ? val : 'NULL';
+            return `  (${r.platform_id}, ${escape(r.raw_title)}, ${escape(r.normalized_title)}, ${escape(r.region)}, ${escape(r.variants)}, ${escape(r.also_released_as)}, ${escape(r.packin_host_normalized_title)}, ${num(r.redump_disc_id)}, ${escape(r.rom_name)}, ${escape(r.rom_crc)}, ${escape(r.serial_code)}, ${escape(r.barcode)}, ${escape(r.publisher)}, '${r.source}', ${r.is_verified_physical})`;
           });
 
           sqlBuffer += valueRows.join(',\n') + ';\n\n';
@@ -392,7 +488,13 @@ async function run() {
         for (const update of reconcileResult.updates) {
           const escapedRom = `'${update.romName.replace(/'/g, "''")}'`;
           const escapedCrc = update.romCrc ? `'${update.romCrc}'` : 'NULL';
-          sqlBuffer += `UPDATE game_releases SET canonical_release_id = ${update.canonicalId}, rom_name = ${escapedRom}, rom_crc = ${escapedCrc} WHERE id = '${update.releaseId}';\n`;
+          const escapedVariants = update.variants
+            ? `'${update.variants.replace(/'/g, "''")}'`
+            : 'NULL';
+          const escapedAlso = update.alsoReleasedAs
+            ? `'${update.alsoReleasedAs.replace(/'/g, "''")}'`
+            : 'NULL';
+          sqlBuffer += `UPDATE game_releases SET canonical_release_id = ${update.canonicalId}, rom_name = ${escapedRom}, rom_crc = ${escapedCrc}, variants = COALESCE(variants, ${escapedVariants}), also_released_as = COALESCE(also_released_as, ${escapedAlso}) WHERE id = '${update.releaseId}';\n`;
         }
         sqlBuffer += '\n';
       }

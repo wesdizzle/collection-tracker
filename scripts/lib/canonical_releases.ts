@@ -44,6 +44,9 @@ export interface CanonicalRelease {
   normalized_title: string;
   region: string | null;
   variants: string | null;
+  also_released_as?: string | null;
+  packin_host_normalized_title?: string | null;
+  redump_disc_id?: number | null;
   rom_name: string | null;
   rom_crc: string | null;
   serial_code?: string | null;
