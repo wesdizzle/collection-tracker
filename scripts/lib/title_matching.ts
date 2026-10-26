@@ -79,6 +79,7 @@ export function normalizeTitleForMatching(
 
   // Explicit overrides using clean alphanumeric keys to resolve colons, spaces, and other punctuation differences.
   const ALIASES: Record<string, string> = {
+    anothercrabstreasure: 'anothercrabtreasure',
     earthboundbeginnings: 'mother',
     legendzeldaocarinatimelegendzeldaocarinatimemasterquesttwogamebonusdisc:
       'legendzeldaocarinatimemasterquest',

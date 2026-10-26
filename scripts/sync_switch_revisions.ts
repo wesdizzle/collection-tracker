@@ -21,15 +21,19 @@ import {
   SWITCH_REVISIONS_ATTRIBUTION_URL,
 } from './lib/switch_revisions.js';
 
-const dbPath = getLocalD1Path();
+const isDryRun = process.argv.includes('--dry-run');
+const useBaseline = process.argv.includes('--baseline');
+
+const dbPath = useBaseline
+  ? path.join(process.cwd(), 'data', 'remote_baseline.db')
+  : getLocalD1Path();
+
 if (!fs.existsSync(dbPath)) {
   console.error(
-    `[SyncSwitch] Error: Database not found at ${dbPath}. Run npm run db:init first.`,
+    `[SyncSwitch] Error: Database not found at ${dbPath}. Run npm run ${useBaseline ? 'db:pull-r2' : 'db:init'} first.`,
   );
   process.exit(1);
 }
-
-const isDryRun = process.argv.includes('--dry-run');
 
 async function main() {
   console.log(
@@ -53,14 +57,13 @@ async function main() {
       `📦 Parsed ${canonicalReleases.length} canonical cartridge revision entries.`,
     );
 
+    const targetSqlFile = useBaseline
+      ? 'reconcile_and_revisions_d1.sql'
+      : 'reconcile_switch_game_releases.sql';
+
     const result = syncSwitchRevisionsToDatabase(db, canonicalReleases, {
       dryRun: isDryRun,
-      sqlOutputPath: path.join(
-        process.cwd(),
-        'scripts',
-        'temp',
-        'reconcile_switch_game_releases.sql',
-      ),
+      sqlOutputPath: path.join(process.cwd(), 'scripts', 'temp', targetSqlFile),
     });
 
     if (!isDryRun && result.sqlContent && result.sqlPath) {
@@ -97,8 +100,8 @@ async function main() {
       '===============================================================\n',
     );
 
-    // Export surgical Cloudflare D1 migration SQL file preserving exact primary keys
-    if (!isDryRun) {
+    // Export full canonical releases rewrite ONLY when targeting local development (not baseline)
+    if (!isDryRun && !useBaseline) {
       const tempDir = path.join(process.cwd(), 'scripts', 'temp');
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });

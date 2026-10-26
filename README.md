@@ -50,6 +50,23 @@ Heavy scraping and data indexing are performed locally against staging SQLite an
   - _Strategy 4 (Bonus Disc Matching)_: Uses parenthetical identifiers to resolve pack-in discs.
 - **Physical vs. Digital Distinction**: Disregards digital installers (`.pkg`), Virtual Console re-releases, and mini-console wrappers. For PlayStation Vita, canonical retail cartridge serials (`PCSE`, `PCSB`, `PCSG`, `PCSA`) are tagged as `is_verified_physical = 1` while digital-only PSN titles are tagged `0`.
 - **Bundles & Download Vouchers**: When physical releases include digital vouchers for companion games, the voucher details are shown as an informative note on the parent release without penalizing physical media backup status.
+- **Nintendo Switch & Switch 2 Cartridge Revisions (`scripts/sync_switch_revisions.ts`)**:
+  - Ingests verified cartridge revision and reprint data from the Nintendo Revised community catalog across Switch 1 and Switch 2 tabs.
+  - _Ground-Truth Regional Attribution_: Explicit regional cartridge codes (`LA-H-XXXXX-USA/EUR/JPN`) and documented regional reprint notes are strictly preserved. Past revisions lacking explicit regional documentation are cataloged as `'World'` releases and displayed across all regional filters.
+  - _nxdumptool Integration_: Automatically resolves `Title [TitleID][vVersion].xci` dump filenames to corresponding canonical revisions and cartridge patch versions.
+
+### Cloudflare Edge Caching & Cache Invalidation
+
+- **Edge Cache API (`caches.default`)**: Public read endpoints (`/api/games`, `/api/toys`, `/api/platforms`) are cached at the edge with `public, max-age=60, s-maxage=3600, stale-while-revalidate=86400`.
+- **Normalized Cache Key Purging**: Cache keys strip transient parameters (`bust`, `purge`, `refresh`). Issuing `GET /api/games?bust=1` or `x-cache-purge: true` automatically purges and revalidates the canonical `/api/games` edge entry.
+
+### Cloudflare D1 Quota Preservation & Pre-Flight Cost Guard
+
+Managed serverless databases enforce daily read and write limits (e.g. Cloudflare D1's 100,000 writes/day free tier). The project employs a strict pre-flight protection architecture:
+
+- **Zero-Cost R2 Baseline Hydration (`npm run db:pull-r2`)**: Downloads automated R2 snapshots (`snapshots/latest.json`) to hydrate a local clone (`data/remote_baseline.db`) without consuming any D1 read or write quota.
+- **Index Write Amplification Accounting ($1 + K$)**: Every inserted, updated, or deleted row in a table with $K$ secondary indexes incurs $1 + K$ billable writes. For example, modifying a row in `game_releases` ($K=8$) incurs 9 billable writes; `games` ($K=11$) incurs 12 billable writes.
+- **Standalone Pre-Flight Cost Guard (`scripts/lib/d1_cost_guard.ts`)**: Standalone runner that parses candidate migration SQL, audits `EXPLAIN QUERY PLAN` for unindexed table scans on large tables, dry-runs execution in a sandbox clone to calculate exact $\sum (\Delta \text{rows} \times (1 + K))$ write costs, and hard-aborts if projected writes exceed `--max-writes`. Remote execution occurs only when explicitly confirmed via `--confirm`.
 
 ### Edge Background Automation Engine
 
@@ -166,21 +183,25 @@ The application implements an edge-native **Model Context Protocol (MCP)** serve
 
 ### Database & Scraper Scripts
 
-| Command                                               | Description                                                                        |
-| :---------------------------------------------------- | :--------------------------------------------------------------------------------- |
-| `npm run db:init`                                     | Initializes fresh local `collection.sqlite` from schema and migrations             |
-| `npm run db:backup`                                   | Exports binary, SQL, and JSON backups locally                                      |
-| `npm run db:pull`                                     | Pulls latest production snapshot from Cloudflare R2 into local staging SQLite      |
-| `npm run dats:download`                               | Downloads latest No-Intro and Redump XML DATs into `dats/`                         |
-| `npm run dats:update`                                 | Downloads latest DATs and updates `canonical_releases`                             |
-| `npm run dats:sync`                                   | Indexes local DAT releases into `canonical_releases`                               |
-| `npm run dats:sync:platform -- --platform=<name\|id>` | Runs scoped DAT sync for a single platform to minimize D1 write quota              |
-| `npm run dats:dry-run`                                | Analyzes DATs and estimates Cloudflare D1 write quota usage without modifying data |
-| `npm run scan-backups`                                | Scans local backup directories to detect ROM files and match against games         |
-| `npm run reconcile-ownership`                         | Reconciles physical ownership status and backup flags across catalog releases      |
-| `npm run local-api`                                   | Runs standalone local Express API server proxying collection requests              |
-| `npx tsx scripts/sync_bestbuy.ts`                     | Manually scrapes current retail game deals from Best Buy                           |
-| `npx tsx scripts/reconcile_toy_pricing.ts`            | Manually reconciles toy pricing and GAMEYE IDs                                     |
+| Command                                               | Description                                                                             |
+| :---------------------------------------------------- | :-------------------------------------------------------------------------------------- |
+| `npm run db:init`                                     | Initializes fresh local `collection.sqlite` from schema and migrations                  |
+| `npm run db:backup`                                   | Exports binary, SQL, and JSON backups locally                                           |
+| `npm run db:pull`                                     | Pulls latest production snapshot from Cloudflare R2 into local staging SQLite           |
+| `npm run db:pull-r2`                                  | Downloads latest R2 snapshot and constructs `data/remote_baseline.db` (0 D1 quota cost) |
+| `npm run sources:sync-switch`                         | Synchronizes Switch 1 & 2 revisions from Nintendo Revised spreadsheet                   |
+| `npm run d1:cost-guard -- --file=<sql> [--confirm]`   | Pre-flight cost guard validating write budgets and index plans for migrations           |
+| `npm run d1:deploy-switch [--confirm]`                | Deploys Switch cartridge revision delta to remote D1 via the Pre-Flight Cost Guard      |
+| `npm run dats:download`                               | Downloads latest No-Intro and Redump XML DATs into `dats/`                              |
+| `npm run dats:update`                                 | Downloads latest DATs and updates `canonical_releases`                                  |
+| `npm run dats:sync`                                   | Indexes local DAT releases into `canonical_releases`                                    |
+| `npm run dats:sync:platform -- --platform=<name\|id>` | Runs scoped DAT sync for a single platform to minimize D1 write quota                   |
+| `npm run dats:dry-run`                                | Analyzes DATs and estimates Cloudflare D1 write quota usage without modifying data      |
+| `npm run scan-backups`                                | Scans local backup directories to detect ROM files and match against games              |
+| `npm run reconcile-ownership`                         | Reconciles physical ownership status and backup flags across catalog releases           |
+| `npm run local-api`                                   | Runs standalone local Express API server proxying collection requests                   |
+| `npx tsx scripts/sync_bestbuy.ts`                     | Manually scrapes current retail game deals from Best Buy                                |
+| `npx tsx scripts/reconcile_toy_pricing.ts`            | Manually reconciles toy pricing and GAMEYE IDs                                          |
 
 ### Development & Quality Gates
 

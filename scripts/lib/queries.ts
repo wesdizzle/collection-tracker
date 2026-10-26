@@ -45,8 +45,14 @@ export const GAMES_LIST_QUERY = `
             g.collections,
             g.franchises,
             g.manually_verified,
-            g.physical_status,
-            g.verification_tier,
+            COALESCE(
+              CASE WHEN cr.source = 'nintendo_revised' THEN 'verified_physical' ELSE NULL END,
+              g.physical_status
+            ) as physical_status,
+            COALESCE(
+              CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE NULL END,
+              g.verification_tier
+            ) as verification_tier,
             g.barcode,
             g.release_medium,
             g.origin_metadata,
@@ -124,8 +130,14 @@ export const GAME_DETAIL_QUERY = `
             g.franchises,
             g.manually_verified,
             g.metadata_json,
-            g.physical_status,
-            g.verification_tier,
+            COALESCE(
+              CASE WHEN cr.source = 'nintendo_revised' THEN 'verified_physical' ELSE NULL END,
+              g.physical_status
+            ) as physical_status,
+            COALESCE(
+              CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE NULL END,
+              g.verification_tier
+            ) as verification_tier,
             g.barcode,
             g.release_medium,
             g.origin_metadata,

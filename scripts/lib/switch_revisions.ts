@@ -397,48 +397,15 @@ export function parseSwitchRevisionsCsv(
       const cleanRevNum = pastRevNum.trim();
       const gameName = baseMeta?.rawTitle || lastSeenGameName;
 
-      if (cleanRevNum === '000') {
-        // Launch cartridge revision
-        if (explicitRegions && explicitRegions.length > 0) {
-          for (const reg of explicitRegions) {
-            const code = baseMeta?.regions.get(reg)?.frontCartCode || '';
-            parsedPastRows.push({
-              gameName,
-              revisionNum: cleanRevNum,
-              versionOnCart,
-              downloadAvailable: 'No',
-              downloadSize: 'N/A',
-              region: reg,
-              frontCartCode: code,
-              comments,
-              platformId: tab.platformId,
-              isPastRevision: true,
-            });
-          }
-        } else if (baseMeta && baseMeta.regions.size > 0) {
-          // Expand across all verified launch regions from Pass 1
-          for (const [reg, info] of baseMeta.regions.entries()) {
-            parsedPastRows.push({
-              gameName,
-              revisionNum: cleanRevNum,
-              versionOnCart,
-              downloadAvailable: 'No',
-              downloadSize: 'N/A',
-              region: reg,
-              frontCartCode: info.frontCartCode || '',
-              comments,
-              platformId: tab.platformId,
-              isPastRevision: true,
-            });
-          }
-        } else {
+      if (explicitRegions && explicitRegions.length > 0) {
+        for (const reg of explicitRegions) {
           parsedPastRows.push({
             gameName,
             revisionNum: cleanRevNum,
             versionOnCart,
             downloadAvailable: 'No',
             downloadSize: 'N/A',
-            region: 'World',
+            region: reg,
             frontCartCode: '',
             comments,
             platformId: tab.platformId,
@@ -446,38 +413,18 @@ export function parseSwitchRevisionsCsv(
           });
         }
       } else {
-        // Intermediate reprints (Rev 001, 002, 003...)
-        if (explicitRegions && explicitRegions.length > 0) {
-          for (const reg of explicitRegions) {
-            const code = baseMeta?.regions.get(reg)?.frontCartCode || '';
-            parsedPastRows.push({
-              gameName,
-              revisionNum: cleanRevNum,
-              versionOnCart,
-              downloadAvailable: 'No',
-              downloadSize: 'N/A',
-              region: reg,
-              frontCartCode: code,
-              comments,
-              platformId: tab.platformId,
-              isPastRevision: true,
-            });
-          }
-        } else {
-          // Undocumented intermediate reprint: assign 'World'
-          parsedPastRows.push({
-            gameName,
-            revisionNum: cleanRevNum,
-            versionOnCart,
-            downloadAvailable: 'No',
-            downloadSize: 'N/A',
-            region: 'World',
-            frontCartCode: '',
-            comments,
-            platformId: tab.platformId,
-            isPastRevision: true,
-          });
-        }
+        parsedPastRows.push({
+          gameName,
+          revisionNum: cleanRevNum,
+          versionOnCart,
+          downloadAvailable: 'No',
+          downloadSize: 'N/A',
+          region: 'World',
+          frontCartCode: '',
+          comments,
+          platformId: tab.platformId,
+          isPastRevision: true,
+        });
       }
     }
   }
@@ -1037,6 +984,7 @@ export function reconcileSwitchReleasesWithDatabase(
     isDryRun?: boolean;
     platformIds?: number[];
     sqlOutputPath?: string;
+    skipGamesTableUpdate?: boolean;
   } = {},
 ): {
   reconciledReleases: number;
@@ -1105,10 +1053,16 @@ export function reconcileSwitchReleasesWithDatabase(
       canonicalByPlatformNorm.set(cr.platform_id, new Map());
     }
     const platMap = canonicalByPlatformNorm.get(cr.platform_id)!;
-    if (!platMap.has(cr.normalized_title)) {
-      platMap.set(cr.normalized_title, []);
+    const norm = normalizeTitleForMatching(cr.raw_title) || cr.normalized_title;
+    if (norm !== cr.normalized_title) {
+      d1Statements.push(
+        `UPDATE canonical_releases SET normalized_title = ${escapeSql(norm)} WHERE id = ${cr.id};`,
+      );
     }
-    platMap.get(cr.normalized_title)!.push(cr);
+    if (!platMap.has(norm)) {
+      platMap.set(norm, []);
+    }
+    platMap.get(norm)!.push(cr);
   }
 
   const updateGameStatusStmt = isDryRun
@@ -1153,9 +1107,11 @@ export function reconcileSwitchReleasesWithDatabase(
         if (updateGameStatusStmt) {
           updateGameStatusStmt.run(game.stable_id);
         }
-        d1Statements.push(
-          `UPDATE games SET physical_status = 'verified_physical', verification_tier = 1 WHERE stable_id = ${game.stable_id};`,
-        );
+        if (!options.skipGamesTableUpdate) {
+          d1Statements.push(
+            `UPDATE games SET physical_status = 'verified_physical', verification_tier = 1 WHERE stable_id = ${game.stable_id};`,
+          );
+        }
         verifiedGames++;
       }
 

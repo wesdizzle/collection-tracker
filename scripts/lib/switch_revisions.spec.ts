@@ -55,7 +55,7 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
   });
 
   describe('parseSwitchRevisionsCsv with Past Revisions Inheritance', () => {
-    it('should parse main tabs and handle launch multi-region expansion and World intermediate reprints', () => {
+    it('should parse main tabs and assign World to undocumented past revisions without regional expansion', () => {
       const mainTab: SwitchSheetTabConfig = {
         gid: '0',
         name: 'S1: 1st Party Nintendo',
@@ -76,27 +76,21 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
         { tab: pastTab, csv: pastCsv },
       ]);
 
-      // 1-2-Switch: Rev 001 for USA and Europe, Rev 000 expanded to USA and Europe with real serial codes
+      // 1-2-Switch: Rev 001 for USA and Europe, Rev 000 tagged 'World' without fabricated regional expansion
       const oneTwoSwitchRevs = releases.filter(
         (r) => r.raw_title === '1-2-Switch',
       );
-      expect(oneTwoSwitchRevs).toHaveLength(4);
-      const rev000Usa = oneTwoSwitchRevs.find(
-        (r) => r.variants === 'Rev 000 (v1.0.0)' && r.region === 'USA',
+      expect(oneTwoSwitchRevs).toHaveLength(3);
+      const rev000World = oneTwoSwitchRevs.find(
+        (r) => r.variants === 'Rev 000 (v1.0.0)',
       );
-      expect(rev000Usa).toBeTruthy();
-      expect(rev000Usa?.serial_code).toBe('LA-H-AACCA-USA');
-      expect(rev000Usa?.publisher).toBe('Base print');
-
-      const rev000Eur = oneTwoSwitchRevs.find(
-        (r) => r.variants === 'Rev 000 (v1.0.0)' && r.region === 'Europe',
-      );
-      expect(rev000Eur).toBeTruthy();
-      expect(rev000Eur?.serial_code).toBe('LA-H-AACCA-EUR');
+      expect(rev000World).toBeTruthy();
+      expect(rev000World?.region).toBe('World');
+      expect(rev000World?.publisher).toBe('Base print');
 
       // Animal Crossing:
       // Rev 009 (USA, LA-H-ALACA-USA)
-      // Rev 000 (USA, LA-H-ALACA-USA)
+      // Rev 000 (World - no explicit region)
       // Rev 001 (World - undocumented reprint)
       // Rev 004 (Europe - explicit "EUR COPIES ONLY")
       const acRevs = releases.filter(
@@ -105,8 +99,8 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
       expect(acRevs).toHaveLength(4);
 
       const acRev0 = acRevs.find((r) => r.variants === 'Rev 000 (v1.0.0)');
-      expect(acRev0?.region).toBe('USA');
-      expect(acRev0?.serial_code).toBe('LA-H-ALACA-USA');
+      expect(acRev0?.region).toBe('World');
+      expect(acRev0?.publisher).toBe('Base');
 
       const acRev1 = acRevs.find((r) => r.variants === 'Rev 001 (v1.1.0)');
       expect(acRev1?.region).toBe('World');

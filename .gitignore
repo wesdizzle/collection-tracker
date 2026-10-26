@@ -67,3 +67,6 @@ backup_collection.json
 /temp/
 /backups/
 /dats/
+*.db-wal
+*.db-shm
+/data/

@@ -608,14 +608,49 @@ export async function performScheduledBackup(
 
 /**
  * Flags the database as dirty in sync_state so the scheduled cron creates a fresh snapshot.
+ * Optionally records the touched primary key ('<table>:<id>') for zero-scan post-backup reconciliation.
  */
-export async function markDbDirty(env: Env): Promise<void> {
+export async function markDbDirty(
+  env: Env,
+  table?: string,
+  id?: string | number,
+): Promise<void> {
   try {
     await env.DB.prepare(
       `INSERT INTO sync_state (key, value, updated_at)
        VALUES ('db_dirty', '1', datetime('now'))
        ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = datetime('now')`,
     ).run();
+
+    if (table && id !== undefined) {
+      try {
+        const row = await env.DB.prepare(
+          `SELECT value FROM sync_state WHERE key = 'dirty_keys'`,
+        ).first<{ value: string }>();
+        let keys: string[] = [];
+        if (row?.value) {
+          try {
+            keys = JSON.parse(row.value);
+          } catch {
+            keys = [];
+          }
+        }
+        const itemKey = `${table}:${id}`;
+        if (!keys.includes(itemKey)) {
+          keys.push(itemKey);
+          if (keys.length > 500) keys.shift();
+          await env.DB.prepare(
+            `INSERT INTO sync_state (key, value, updated_at)
+             VALUES ('dirty_keys', ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+          )
+            .bind(JSON.stringify(keys))
+            .run();
+        }
+      } catch (keyErr) {
+        console.warn('[WorkerBackup] Failed to append dirty key:', keyErr);
+      }
+    }
   } catch (err) {
     console.warn('[WorkerBackup] Failed to mark db dirty:', err);
   }
@@ -714,7 +749,11 @@ Disallow: /
         request.headers.get('x-cache-purge') === 'true';
 
       const edgeCache = await getEdgeCache();
-      const cacheKey = new Request(request.url);
+      const normalizedCacheUrl = new URL(request.url);
+      normalizedCacheUrl.searchParams.delete('bust');
+      normalizedCacheUrl.searchParams.delete('purge');
+      normalizedCacheUrl.searchParams.delete('refresh');
+      const cacheKey = new Request(normalizedCacheUrl.toString());
       if (isPublicCacheable && !isNoCache && edgeCache) {
         const cached = await edgeCache.match(cacheKey);
         if (cached) {
@@ -2549,7 +2588,7 @@ Disallow: /
         }
 
         await invalidateEdgeApiCache(request.url);
-        await markDbDirty(env);
+        await markDbDirty(env, type === 'game' ? 'games' : 'toys', id);
         return Response.json({ success: true });
       }
 
@@ -2601,7 +2640,7 @@ Disallow: /
 
         invalidateSeriesScanCache();
         await invalidateEdgeApiCache(request.url);
-        await markDbDirty(env);
+        await markDbDirty(env, 'games', game.stable_id);
         return Response.json({ success: true, deletedGameId: game.id });
       }
 
@@ -2697,7 +2736,7 @@ Disallow: /
         }
 
         await invalidateEdgeApiCache(request.url);
-        await markDbDirty(env);
+        await markDbDirty(env, type === 'game' ? 'games' : 'toys', id);
         return Response.json({ success: true });
       }
 
@@ -3748,6 +3787,11 @@ Disallow: /
             `INSERT INTO sync_state (key, value, updated_at)
              VALUES ('db_dirty', '0', datetime('now'))
              ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')`,
+          ).run();
+          await env.DB.prepare(
+            `INSERT INTO sync_state (key, value, updated_at)
+             VALUES ('dirty_keys', '[]', datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = '[]', updated_at = datetime('now')`,
           ).run();
           await logCronExecution(
             env,

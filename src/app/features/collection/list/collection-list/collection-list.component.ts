@@ -1645,7 +1645,9 @@ export class CollectionListComponent
           .split(',')
           .map((r) => r.trim())
           .filter(Boolean);
-        const match = itemRegions.some((r) => f.regions!.includes(r));
+        const match = itemRegions.some(
+          (r) => r === 'World' || f.regions!.includes(r),
+        );
         if (!match) return false;
       }
 
@@ -2365,7 +2367,9 @@ export class CollectionListComponent
           .split(',')
           .map((r) => r.trim())
           .filter(Boolean);
-        const match = itemRegions.some((r) => f.regions!.includes(r));
+        const match = itemRegions.some(
+          (r) => r === 'World' || f.regions!.includes(r),
+        );
         if (!match) return false;
       }
 
