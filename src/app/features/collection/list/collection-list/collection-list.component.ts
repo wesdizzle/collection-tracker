@@ -787,6 +787,7 @@ export class CollectionListComponent
   private restorationPending = true;
   private stateInitialized = signal(false);
   private queryParamsSub?: Subscription;
+  private statePersistTimer: ReturnType<typeof setTimeout> | null = null;
 
   private applyQueryParams(qp: Record<string, unknown>) {
     if (!qp || Object.keys(qp).length === 0) return;
@@ -1274,12 +1275,12 @@ export class CollectionListComponent
   }
 
   /**
-   * Reactive pipeline that applies active filters to the full games collection.
-   * Handles ownership, platform, region, name, series, and tag matching.
+   * Pre-computed grouped games list (disc grouping and companion disc GOTY matching).
+   * Depends strictly on collectionService.games(), decoupling expensive multi-disc grouping
+   * and candidate scans from active filter and search keystrokes.
    */
-  public filteredGames = computed(() => {
+  public discMergedGames = computed(() => {
     const allGames = this.collectionService.games();
-    const f = this.filters();
 
     // Group multiple discs of the same release version (game_id, region, variants, and base rom name)
     const groupedMap = new Map<
@@ -1372,7 +1373,7 @@ export class CollectionListComponent
       }
     }
 
-    const groupedGames = Array.from(groupedMap.values()).map((g) => {
+    return Array.from(groupedMap.values()).map((g) => {
       const discBackups = [...g.discBackups];
 
       // If this is a 2-disc GOTY/expanded release that only catalogs Disc 2 under its own game_id
@@ -1461,6 +1462,25 @@ export class CollectionListComponent
         backup_status: allBackedUp,
       };
     });
+  });
+
+  /**
+   * Reactive pipeline that applies active filters to the full games collection.
+   * Handles ownership, platform, region, name, series, and tag matching.
+   */
+  public filteredGames = computed(() => {
+    const groupedGames = this.discMergedGames();
+    const f = this.filters();
+
+    // Hoist filter string normalizations outside the iteration loop for optimal O(N) performance
+    const activeNameFilter = f.name || f.seriesOrName;
+    const normalizedNameFilter = activeNameFilter
+      ? this.normalizeString(activeNameFilter)
+      : '';
+    const normalizedSeriesFilter = f.series
+      ? this.normalizeString(f.series)
+      : '';
+    const normalizedTagFilter = f.tag ? this.normalizeString(f.tag) : '';
 
     const filteredGamesList = groupedGames.filter((g) => {
       // Option A: Hide bundled child discs/games from top-level collection list
@@ -1596,31 +1616,50 @@ export class CollectionListComponent
       }
 
       // Name Filter (Case & Accent Insensitive)
-      const activeNameFilter = f.name || f.seriesOrName;
-      if (activeNameFilter) {
-        const normalizedFilter = this.normalizeString(activeNameFilter);
+      if (normalizedNameFilter) {
         const normalizedTitle = this.normalizeString(g.title || '');
+        const normalizedSeries = this.normalizeString(
+          g.canonical_series || g.series || '',
+        );
+        const normalizedRom = g.rom_name
+          ? this.normalizeString(g.rom_name)
+          : '';
+        const normalizedAlso = g.also_released_as
+          ? this.normalizeString(g.also_released_as)
+          : '';
         if (f.nameExact) {
-          if (normalizedTitle !== normalizedFilter) return false;
+          if (
+            normalizedTitle !== normalizedNameFilter &&
+            normalizedSeries !== normalizedNameFilter
+          ) {
+            return false;
+          }
         } else {
-          if (!normalizedTitle.includes(normalizedFilter)) return false;
+          if (
+            !normalizedTitle.includes(normalizedNameFilter) &&
+            !normalizedSeries.includes(normalizedNameFilter) &&
+            !normalizedRom.includes(normalizedNameFilter) &&
+            !normalizedAlso.includes(normalizedNameFilter)
+          ) {
+            return false;
+          }
         }
       }
 
       // Series Filter (Case & Accent Insensitive)
-      if (f.series) {
-        const normalizedFilter = this.normalizeString(f.series);
-        const normalizedSeries = this.normalizeString(g.canonical_series || '');
+      if (normalizedSeriesFilter) {
+        const normalizedSeries = this.normalizeString(
+          g.canonical_series || g.series || '',
+        );
         if (f.seriesExact) {
-          if (normalizedSeries !== normalizedFilter) return false;
+          if (normalizedSeries !== normalizedSeriesFilter) return false;
         } else {
-          if (!normalizedSeries.includes(normalizedFilter)) return false;
+          if (!normalizedSeries.includes(normalizedSeriesFilter)) return false;
         }
       }
 
       // Tag / Variant Filter (Case & Accent Insensitive)
-      if (f.tag) {
-        const normalizedFilter = this.normalizeString(f.tag);
+      if (normalizedTagFilter) {
         const itemTags = (g.variants || '')
           .split(',')
           .map((v) => this.normalizeString(v.trim()))
@@ -1643,9 +1682,10 @@ export class CollectionListComponent
         }
         if (itemTags.length === 0) return false;
         if (f.tagExact) {
-          if (!itemTags.some((t) => t === normalizedFilter)) return false;
+          if (!itemTags.some((t) => t === normalizedTagFilter)) return false;
         } else {
-          if (!itemTags.some((t) => t.includes(normalizedFilter))) return false;
+          if (!itemTags.some((t) => t.includes(normalizedTagFilter)))
+            return false;
         }
       }
 
@@ -2272,6 +2312,15 @@ export class CollectionListComponent
   public filteredToys = computed(() => {
     const allToys = this.collectionService.toys();
     const f = this.filters();
+
+    const activeNameFilter = f.name || f.seriesOrName;
+    const normalizedNameFilter = activeNameFilter
+      ? this.normalizeString(activeNameFilter)
+      : '';
+    const normalizedSeriesFilter = f.series
+      ? this.normalizeString(f.series)
+      : '';
+
     const filteredToysList = allToys.filter((toy) => {
       // Ownership Filter
       const status = toy.ownership_status ?? 0;
@@ -2312,25 +2361,33 @@ export class CollectionListComponent
       }
 
       // Name Filter (Case & Accent Insensitive)
-      const activeNameFilter = f.name || f.seriesOrName;
-      if (activeNameFilter) {
-        const normalizedFilter = this.normalizeString(activeNameFilter);
+      if (normalizedNameFilter) {
         const normalizedName = this.normalizeString(toy.name || '');
+        const normalizedSeries = this.normalizeString(toy.series_name || '');
         if (f.nameExact) {
-          if (normalizedName !== normalizedFilter) return false;
+          if (
+            normalizedName !== normalizedNameFilter &&
+            normalizedSeries !== normalizedNameFilter
+          ) {
+            return false;
+          }
         } else {
-          if (!normalizedName.includes(normalizedFilter)) return false;
+          if (
+            !normalizedName.includes(normalizedNameFilter) &&
+            !normalizedSeries.includes(normalizedNameFilter)
+          ) {
+            return false;
+          }
         }
       }
 
       // Series Filter (Case & Accent Insensitive)
-      if (f.series) {
-        const normalizedFilter = this.normalizeString(f.series);
+      if (normalizedSeriesFilter) {
         const normalizedSeries = this.normalizeString(toy.series_name || '');
         if (f.seriesExact) {
-          if (normalizedSeries !== normalizedFilter) return false;
+          if (normalizedSeries !== normalizedSeriesFilter) return false;
         } else {
-          if (!normalizedSeries.includes(normalizedFilter)) return false;
+          if (!normalizedSeries.includes(normalizedSeriesFilter)) return false;
         }
       }
 
@@ -2662,7 +2719,13 @@ export class CollectionListComponent
           scrollX: current?.scrollX ?? 0,
           scrollY: current?.scrollY ?? 0,
         };
-        this.collectionService.updateListState(state);
+        if (this.statePersistTimer) {
+          clearTimeout(this.statePersistTimer);
+        }
+        this.statePersistTimer = setTimeout(() => {
+          this.statePersistTimer = null;
+          this.collectionService.updateListState(state);
+        }, 150);
       }
     });
   }
@@ -2811,6 +2874,10 @@ export class CollectionListComponent
    */
   ngOnDestroy() {
     this.isInitialized = false;
+    if (this.statePersistTimer) {
+      clearTimeout(this.statePersistTimer);
+      this.statePersistTimer = null;
+    }
     if (this.queryParamsSub) {
       this.queryParamsSub.unsubscribe();
     }

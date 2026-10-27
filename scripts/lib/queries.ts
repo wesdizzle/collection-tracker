@@ -31,6 +31,8 @@ export const GAMES_LIST_QUERY = `
            g.id as game_id,
            g.stable_id,
            COALESCE(cr.raw_title, g.title) as title,
+           g.title as base_title,
+           cr.raw_title,
            g.series,
            g.canonical_series,
            COALESCE(
@@ -48,6 +50,7 @@ export const GAMES_LIST_QUERY = `
             g.collections,
             g.franchises,
             g.manually_verified,
+            g.metadata_json,
             COALESCE(
               CASE WHEN cr.source = 'nintendo_revised' THEN 'verified_physical' ELSE NULL END,
               g.physical_status
@@ -117,6 +120,8 @@ export const GAME_DETAIL_QUERY = `
             g.id as game_id,
             g.stable_id,
             COALESCE(cr.raw_title, g.title) as title,
+            g.title as base_title,
+            cr.raw_title,
             g.series,
             g.canonical_series,
             COALESCE(
@@ -1615,9 +1620,13 @@ export function normalizeReceiptUrl(
   return null;
 }
 
+const NATIVE_ASIAN_SCRIPT_REGEX =
+  /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
+
 /**
  * Resolves the appropriate localized or alternate release title from IGDB metadata_json
  * (game_localizations and alternative_names) or canonical source raw_title.
+ * Respects the native language for each release region (e.g. Japanese Kanji/Kana, Korean Hangul).
  */
 export function resolveLocalizedReleaseTitle(
   gameTitle: string,
@@ -1625,75 +1634,130 @@ export function resolveLocalizedReleaseTitle(
   metadataJson: string | null | undefined,
   canonicalTitle: string | null | undefined,
 ): string {
+  const regLower = (releaseRegion || '').toLowerCase();
+
   if (metadataJson) {
     try {
       const parsed = JSON.parse(metadataJson);
-      const regLower = (releaseRegion || '').toLowerCase();
-      // 1. Check game_localizations
-      if (
-        Array.isArray(parsed.game_localizations) &&
-        parsed.game_localizations.length > 0
-      ) {
-        let targetRegId: number | null = null;
-        if (regLower.includes('japan') || regLower.includes('jp')) {
-          targetRegId = 3;
-        } else if (regLower.includes('korea')) {
-          targetRegId = 2;
-        } else if (regLower.includes('europe') || regLower.includes('pal')) {
-          targetRegId = 4;
+
+      // Check Japan / Asian regions
+      if (regLower.includes('japan') || regLower.includes('jp')) {
+        // 1. Check alternative_names for native Japanese script first
+        if (Array.isArray(parsed.alternative_names)) {
+          const jpNative = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /japanese|japan/i.test(a.comment || '') &&
+              a.name &&
+              NATIVE_ASIAN_SCRIPT_REGEX.test(a.name),
+          );
+          if (jpNative?.name) return jpNative.name;
         }
-        if (targetRegId !== null) {
+
+        // 2. Check game_localizations for region 3 (Japan)
+        if (Array.isArray(parsed.game_localizations)) {
           const loc = parsed.game_localizations.find(
-            (l: { region?: number; name?: string }) =>
-              l.region === targetRegId && l.name,
+            (l: { region?: number; name?: string }) => l.region === 3 && l.name,
           );
           if (loc?.name) return loc.name;
         }
-      }
-      // 2. Check alternative_names
-      if (
-        Array.isArray(parsed.alternative_names) &&
-        parsed.alternative_names.length > 0
-      ) {
-        if (regLower.includes('japan') || regLower.includes('jp')) {
+
+        // 3. Fallback to any Japanese alternative name
+        if (Array.isArray(parsed.alternative_names)) {
           const jpAlt = parsed.alternative_names.find(
             (a: { name?: string; comment?: string }) =>
-              /japanese/i.test(a.comment || ''),
+              /japanese|japan/i.test(a.comment || '') && a.name,
           );
           if (jpAlt?.name) return jpAlt.name;
-        } else if (regLower.includes('spain') || regLower.includes('spanish')) {
+        }
+      } else if (regLower.includes('korea')) {
+        if (Array.isArray(parsed.alternative_names)) {
+          const koNative = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /korean|korea/i.test(a.comment || '') &&
+              a.name &&
+              /[\uac00-\ud7af]/.test(a.name),
+          );
+          if (koNative?.name) return koNative.name;
+        }
+        if (Array.isArray(parsed.game_localizations)) {
+          const loc = parsed.game_localizations.find(
+            (l: { region?: number; name?: string }) => l.region === 2 && l.name,
+          );
+          if (loc?.name) return loc.name;
+        }
+        if (Array.isArray(parsed.alternative_names)) {
+          const koAlt = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /korean|korea/i.test(a.comment || '') && a.name,
+          );
+          if (koAlt?.name) return koAlt.name;
+        }
+      } else if (
+        regLower.includes('china') ||
+        regLower.includes('taiwan') ||
+        regLower.includes('hong kong')
+      ) {
+        if (Array.isArray(parsed.alternative_names)) {
+          const zhNative = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /chinese|taiwan|hong kong/i.test(a.comment || '') &&
+              a.name &&
+              /[\u3400-\u4dbf\u4e00-\u9fff]/.test(a.name),
+          );
+          if (zhNative?.name) return zhNative.name;
+        }
+      } else if (regLower.includes('spain') || regLower.includes('spanish')) {
+        if (Array.isArray(parsed.alternative_names)) {
           const esAlt = parsed.alternative_names.find(
             (a: { name?: string; comment?: string }) =>
-              /spanish/i.test(a.comment || ''),
+              /spanish|spain/i.test(a.comment || '') && a.name,
           );
           if (esAlt?.name) return esAlt.name;
-        } else if (
-          regLower.includes('germany') ||
-          regLower.includes('german')
-        ) {
+        }
+      } else if (regLower.includes('germany') || regLower.includes('german')) {
+        if (Array.isArray(parsed.alternative_names)) {
           const deAlt = parsed.alternative_names.find(
             (a: { name?: string; comment?: string }) =>
-              /german/i.test(a.comment || ''),
+              /german/i.test(a.comment || '') && a.name,
           );
           if (deAlt?.name) return deAlt.name;
-        } else if (regLower.includes('france') || regLower.includes('french')) {
+        }
+      } else if (regLower.includes('france') || regLower.includes('french')) {
+        if (Array.isArray(parsed.alternative_names)) {
           const frAlt = parsed.alternative_names.find(
             (a: { name?: string; comment?: string }) =>
-              /french/i.test(a.comment || ''),
+              /french|france/i.test(a.comment || '') && a.name,
           );
           if (frAlt?.name) return frAlt.name;
-        } else if (regLower.includes('italy') || regLower.includes('italian')) {
+        }
+      } else if (regLower.includes('italy') || regLower.includes('italian')) {
+        if (Array.isArray(parsed.alternative_names)) {
           const itAlt = parsed.alternative_names.find(
             (a: { name?: string; comment?: string }) =>
-              /italian/i.test(a.comment || ''),
+              /italian|italy/i.test(a.comment || '') && a.name,
           );
           if (itAlt?.name) return itAlt.name;
+        }
+      } else if (regLower.includes('europe') || regLower.includes('pal')) {
+        if (Array.isArray(parsed.game_localizations)) {
+          const loc = parsed.game_localizations.find(
+            (l: { region?: number; name?: string }) => l.region === 4 && l.name,
+          );
+          if (loc?.name) return loc.name;
+        }
+        if (Array.isArray(parsed.alternative_names)) {
+          const euAlt = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /europe|pal/i.test(a.comment || '') && a.name,
+          );
+          if (euAlt?.name) return euAlt.name;
         }
       }
     } catch {
       // ignore JSON parse error
     }
   }
+
   if (
     canonicalTitle &&
     canonicalTitle.trim() &&

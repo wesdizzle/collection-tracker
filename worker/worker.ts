@@ -114,6 +114,8 @@ interface DbGame {
   stable_id: number;
   id: string;
   title?: string;
+  base_title?: string;
+  raw_title?: string | null;
   platform_id?: number;
   region?: string | null;
   variants?: string | null;
@@ -793,6 +795,18 @@ Disallow: /
         const { results } = await env.DB.prepare(query)
           .bind(...params)
           .all();
+        if (results && results.length > 0) {
+          for (const row of results as Record<string, unknown>[]) {
+            if (row['region'] && (row['metadata_json'] || row['raw_title'])) {
+              row['title'] = resolveLocalizedReleaseTitle(
+                (row['base_title'] || row['title'] || '') as string,
+                row['region'] as string | null,
+                (row['metadata_json'] as string) || null,
+                (row['raw_title'] || row['title'] || '') as string,
+              );
+            }
+          }
+        }
         const res = new Response(JSON.stringify(results || []), {
           headers: publicCacheHeaders,
         });
@@ -890,10 +904,27 @@ Disallow: /
               ),
           );
         }
+        const baseTitle = game.base_title || game.title || '';
+        game.title = resolveLocalizedReleaseTitle(
+          baseTitle,
+          game.region as string | null,
+          game.metadata_json || null,
+          game.raw_title || game.title || '',
+        );
+        if (game.releases && game.releases.length > 0) {
+          for (const rel of game.releases) {
+            rel['title'] = resolveLocalizedReleaseTitle(
+              baseTitle,
+              rel['region'] as string | null,
+              game.metadata_json || null,
+              rel['title'] as string | null,
+            );
+          }
+        }
         if (game.other_releases && game.other_releases.length > 0) {
           for (const rel of game.other_releases) {
             rel['title'] = resolveLocalizedReleaseTitle(
-              game.title || '',
+              baseTitle,
               rel['region'] as string | null,
               game.metadata_json || null,
               rel['title'] as string | null,
@@ -5121,7 +5152,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
 
   // 2. Query next incremental slice of games using primary key index
   let { results: batchResults } = await env.DB.prepare(
-    `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series, physical_status
+    `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
      FROM games
      WHERE stable_id > ?
      ORDER BY stable_id ASC
@@ -5136,13 +5167,14 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       franchises: string | null;
       canonical_series: string | null;
       physical_status?: string | null;
+      metadata_json?: string | null;
     }>();
 
   let isEndOfTable = false;
   if (!batchResults || batchResults.length === 0) {
     // Reached the end of the collection; wrap around to beginning
     const wrapRes = await env.DB.prepare(
-      `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series, physical_status
+      `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
        FROM games
        WHERE stable_id > 0
        ORDER BY stable_id ASC
@@ -5157,6 +5189,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
         franchises: string | null;
         canonical_series: string | null;
         physical_status?: string | null;
+        metadata_json?: string | null;
       }>();
     batchResults = wrapRes.results || [];
     isEndOfTable = false;
@@ -5173,7 +5206,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   let trackedUpcomingGames: typeof batchGames = [];
   try {
     const upcomingRes = await env.DB.prepare(
-      `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series, physical_status
+      `SELECT stable_id, title, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
        FROM games
        WHERE physical_status IN ('not_yet_physical', 'physical_pending', 'likely_physical')
          AND igdb_id IS NOT NULL AND igdb_id > 0`,
@@ -5185,6 +5218,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       franchises: string | null;
       canonical_series: string | null;
       physical_status?: string | null;
+      metadata_json?: string | null;
     }>();
     trackedUpcomingGames = upcomingRes.results || [];
   } catch {
@@ -5213,7 +5247,11 @@ export async function syncWorkerIgdbSeriesAndCanonical(
 
   const igdbFreshMap = new Map<
     number,
-    { collections: string | null; franchises: string | null }
+    {
+      collections: string | null;
+      franchises: string | null;
+      metadataJson: string | null;
+    }
   >();
 
   if (
@@ -5221,11 +5259,13 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     env.TWITCH_CLIENT_ID &&
     env.TWITCH_CLIENT_SECRET
   ) {
-    const igdbQuery = `fields id, collections.name, franchises.name; where id = (${igdbIdsToQuery.join(',')}); limit ${igdbIdsToQuery.length};`;
+    const igdbQuery = `fields id, collections.name, franchises.name, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region; where id = (${igdbIdsToQuery.join(',')}); limit ${igdbIdsToQuery.length};`;
     const rawIgdb = (await queryIGDBEdge('games', igdbQuery, env)) as Array<{
       id: number;
       collections?: Array<{ name: string }>;
       franchises?: Array<{ name: string }>;
+      alternative_names?: Array<{ name: string; comment?: string }>;
+      game_localizations?: Array<{ name: string; region?: number }>;
     }>;
 
     for (const item of rawIgdb || []) {
@@ -5237,7 +5277,15 @@ export async function syncWorkerIgdbSeriesAndCanonical(
         item.franchises && item.franchises.length > 0
           ? item.franchises.map((f) => f.name).join(', ')
           : null;
-      igdbFreshMap.set(item.id, { collections, franchises });
+      const metadataJson =
+        (item.game_localizations && item.game_localizations.length > 0) ||
+        (item.alternative_names && item.alternative_names.length > 0)
+          ? JSON.stringify({
+              game_localizations: item.game_localizations || [],
+              alternative_names: item.alternative_names || [],
+            })
+          : null;
+      igdbFreshMap.set(item.id, { collections, franchises, metadataJson });
     }
   }
 
@@ -5257,23 +5305,29 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       collections: nextCollections || undefined,
       franchises: nextFranchises || undefined,
     });
+    const metadataChanged =
+      Boolean(fresh?.metadataJson) &&
+      fresh?.metadataJson !== (game.metadata_json ?? null);
 
     if (
       nextCollections !== (game.collections ?? null) ||
       nextFranchises !== (game.franchises ?? null) ||
-      nextCanonicalSeries !== (game.canonical_series ?? null)
+      nextCanonicalSeries !== (game.canonical_series ?? null) ||
+      metadataChanged
     ) {
       statements.push(
         env.DB.prepare(
           `UPDATE games
            SET collections = ?,
                franchises = ?,
-               canonical_series = ?
+               canonical_series = ?,
+               metadata_json = COALESCE(?, metadata_json)
            WHERE stable_id = ?`,
         ).bind(
           nextCollections,
           nextFranchises,
           nextCanonicalSeries,
+          fresh?.metadataJson ?? null,
           game.stable_id,
         ),
       );

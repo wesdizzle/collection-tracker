@@ -24,6 +24,7 @@ import {
   HostListener,
   ElementRef,
   inject,
+  OnDestroy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
@@ -67,7 +68,8 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
               class="m3-input quick-search-input"
               placeholder="Search by title or series..."
               [ngModel]="filters().name || filters().seriesOrName"
-              (ngModelChange)="onQuickSearchChange($event)"
+              (ngModelChange)="onQuickSearchInput($event)"
+              (keydown.enter)="onQuickSearchEnter($event)"
               id="filter-name"
               autocomplete="off"
             />
@@ -1035,7 +1037,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                 <input
                   type="text"
                   [ngModel]="filters().series"
-                  (ngModelChange)="onSeriesInputChange($event)"
+                  (ngModelChange)="onSeriesInput($event)"
                   (focus)="activeDropdown.set('series')"
                   class="m3-input list-input"
                   [class.open]="activeDropdown() === 'series'"
@@ -1155,7 +1157,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                   <input
                     type="text"
                     [ngModel]="filters().tag"
-                    (ngModelChange)="onTagInputChange($event)"
+                    (ngModelChange)="onTagInput($event)"
                     (focus)="activeDropdown.set('tag')"
                     class="m3-input list-input"
                     [class.open]="activeDropdown() === 'tag'"
@@ -2185,8 +2187,27 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
     `,
   ],
 })
-export class CollectionFiltersComponent {
+export class CollectionFiltersComponent implements OnDestroy {
   public readonly notificationService = inject(NotificationService);
+
+  private quickSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private seriesDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private tagDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  ngOnDestroy(): void {
+    if (this.quickSearchDebounceTimer) {
+      clearTimeout(this.quickSearchDebounceTimer);
+      this.quickSearchDebounceTimer = null;
+    }
+    if (this.seriesDebounceTimer) {
+      clearTimeout(this.seriesDebounceTimer);
+      this.seriesDebounceTimer = null;
+    }
+    if (this.tagDebounceTimer) {
+      clearTimeout(this.tagDebounceTimer);
+      this.tagDebounceTimer = null;
+    }
+  }
 
   /** --- Internal UI State --- */
   public showFilters = signal(false);
@@ -2303,6 +2324,18 @@ export class CollectionFiltersComponent {
   });
 
   public resetFilters() {
+    if (this.quickSearchDebounceTimer) {
+      clearTimeout(this.quickSearchDebounceTimer);
+      this.quickSearchDebounceTimer = null;
+    }
+    if (this.seriesDebounceTimer) {
+      clearTimeout(this.seriesDebounceTimer);
+      this.seriesDebounceTimer = null;
+    }
+    if (this.tagDebounceTimer) {
+      clearTimeout(this.tagDebounceTimer);
+      this.tagDebounceTimer = null;
+    }
     this.filtersChange.emit({
       ownership: 1,
       play_status: 'all',
@@ -2324,7 +2357,32 @@ export class CollectionFiltersComponent {
     });
   }
 
+  public onQuickSearchInput(value: string) {
+    if (this.quickSearchDebounceTimer) {
+      clearTimeout(this.quickSearchDebounceTimer);
+    }
+    this.quickSearchDebounceTimer = setTimeout(() => {
+      this.quickSearchDebounceTimer = null;
+      this.onQuickSearchChange(value);
+    }, 150);
+  }
+
+  public onQuickSearchEnter(event: Event) {
+    if (this.quickSearchDebounceTimer) {
+      clearTimeout(this.quickSearchDebounceTimer);
+      this.quickSearchDebounceTimer = null;
+    }
+    const target = event.target as HTMLInputElement;
+    if (target) {
+      this.onQuickSearchChange(target.value);
+    }
+  }
+
   public onQuickSearchChange(value: string) {
+    if (this.quickSearchDebounceTimer) {
+      clearTimeout(this.quickSearchDebounceTimer);
+      this.quickSearchDebounceTimer = null;
+    }
     this.filtersChange.emit({
       ...this.filters(),
       name: value,
@@ -2333,6 +2391,10 @@ export class CollectionFiltersComponent {
   }
 
   public clearQuickSearch() {
+    if (this.quickSearchDebounceTimer) {
+      clearTimeout(this.quickSearchDebounceTimer);
+      this.quickSearchDebounceTimer = null;
+    }
     this.filtersChange.emit({
       ...this.filters(),
       name: '',
@@ -2552,22 +2614,60 @@ export class CollectionFiltersComponent {
     this.closeDropdown();
   }
 
+  onSeriesInput(value: string) {
+    this.activeDropdown.set('series');
+    if (this.seriesDebounceTimer) {
+      clearTimeout(this.seriesDebounceTimer);
+    }
+    this.seriesDebounceTimer = setTimeout(() => {
+      this.seriesDebounceTimer = null;
+      this.onSeriesInputChange(value);
+    }, 150);
+  }
+
   onSeriesInputChange(value: string) {
+    if (this.seriesDebounceTimer) {
+      clearTimeout(this.seriesDebounceTimer);
+      this.seriesDebounceTimer = null;
+    }
     this.onPartialChange('series', value);
     this.activeDropdown.set('series');
   }
 
   selectSeries(series: string) {
+    if (this.seriesDebounceTimer) {
+      clearTimeout(this.seriesDebounceTimer);
+      this.seriesDebounceTimer = null;
+    }
     this.onPartialChange('series', series);
     this.closeDropdown();
   }
 
+  onTagInput(value: string) {
+    this.activeDropdown.set('tag');
+    if (this.tagDebounceTimer) {
+      clearTimeout(this.tagDebounceTimer);
+    }
+    this.tagDebounceTimer = setTimeout(() => {
+      this.tagDebounceTimer = null;
+      this.onTagInputChange(value);
+    }, 150);
+  }
+
   onTagInputChange(value: string) {
+    if (this.tagDebounceTimer) {
+      clearTimeout(this.tagDebounceTimer);
+      this.tagDebounceTimer = null;
+    }
     this.onPartialChange('tag', value);
     this.activeDropdown.set('tag');
   }
 
   selectTag(tag: string) {
+    if (this.tagDebounceTimer) {
+      clearTimeout(this.tagDebounceTimer);
+      this.tagDebounceTimer = null;
+    }
     this.onPartialChange('tag', tag);
     this.closeDropdown();
   }

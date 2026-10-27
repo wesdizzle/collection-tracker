@@ -30,11 +30,20 @@ export function getLocalD1Path(): string {
 
   if (fs.existsSync(d1StateDir)) {
     const items = fs.readdirSync(d1StateDir);
-    for (const item of items) {
-      if (item.endsWith('.sqlite') && !item.startsWith('metadata')) {
-        cachedD1Path = path.join(d1StateDir, item);
-        return cachedD1Path;
-      }
+    const candidates = items
+      .filter(
+        (item) => item.endsWith('.sqlite') && !item.startsWith('metadata'),
+      )
+      .map((item) => {
+        const fullPath = path.join(d1StateDir, item);
+        return { path: fullPath, size: fs.statSync(fullPath).size };
+      })
+      .filter((c) => c.size > 0)
+      .sort((a, b) => b.size - a.size);
+
+    if (candidates.length > 0) {
+      cachedD1Path = candidates[0].path;
+      return cachedD1Path;
     }
   }
 

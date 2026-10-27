@@ -1749,11 +1749,24 @@ async function runScraper(): Promise<void> {
               fresh.igdb_url !== null &&
               fresh.igdb_url !== game.igdb_url);
 
-          if (hasActualChanges) {
+          const freshMetadata =
+            (fresh.game_localizations && fresh.game_localizations.length > 0) ||
+            (fresh.alternative_names && fresh.alternative_names.length > 0)
+              ? JSON.stringify({
+                  game_localizations: fresh.game_localizations || [],
+                  alternative_names: fresh.alternative_names || [],
+                })
+              : null;
+
+          const metadataChanged =
+            Boolean(freshMetadata) &&
+            freshMetadata !== (game.metadata_json || null);
+
+          if (hasActualChanges || metadataChanged) {
             db.prepare(
               `
                             UPDATE games 
-                            SET id = ?, summary = ?, image_url = ?, genres = ?, collections = ?, franchises = ?, igdb_url = ?
+                            SET id = ?, summary = ?, image_url = ?, genres = ?, collections = ?, franchises = ?, igdb_url = ?, metadata_json = COALESCE(?, metadata_json)
                             WHERE stable_id = ?
                         `,
             ).run(
@@ -1764,6 +1777,7 @@ async function runScraper(): Promise<void> {
               finalCollections,
               finalFranchises,
               finalIgdbUrl,
+              freshMetadata,
               game.stable_id,
             );
 

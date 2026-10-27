@@ -1627,7 +1627,22 @@ export const handleRequest =
 
         query += GAMES_ORDER_BY;
 
-        const games = db.prepare(query).all(...params);
+        const games = db.prepare(query).all(...params) as Record<
+          string,
+          unknown
+        >[];
+        if (games && games.length > 0) {
+          for (const row of games) {
+            if (row['region'] && (row['metadata_json'] || row['raw_title'])) {
+              row['title'] = resolveLocalizedReleaseTitle(
+                (row['base_title'] || row['title'] || '') as string,
+                row['region'] as string | null,
+                (row['metadata_json'] as string) || null,
+                (row['raw_title'] || row['title'] || '') as string,
+              );
+            }
+          }
+        }
         res.end(JSON.stringify(games));
       } else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
         const id = pathname.split('/').pop();
@@ -1719,12 +1734,29 @@ export const handleRequest =
                 ),
             );
           }
+          const baseTitle = (game['base_title'] || game.title || '') as string;
+          game.title = resolveLocalizedReleaseTitle(
+            baseTitle,
+            game.region as string | null,
+            game.metadata_json as string | null,
+            (game['raw_title'] || game.title || '') as string,
+          );
+          if (game.releases && game.releases.length > 0) {
+            for (const rel of game.releases) {
+              rel['title'] = resolveLocalizedReleaseTitle(
+                baseTitle,
+                rel['region'] as string | null,
+                game.metadata_json as string | null,
+                rel['title'] as string | null,
+              );
+            }
+          }
           if (game.other_releases && game.other_releases.length > 0) {
             for (const rel of game.other_releases) {
               rel['title'] = resolveLocalizedReleaseTitle(
-                game.title || '',
+                baseTitle,
                 rel['region'] as string | null,
-                game.metadata_json || null,
+                game.metadata_json as string | null,
                 rel['title'] as string | null,
               );
             }

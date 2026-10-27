@@ -1374,6 +1374,12 @@ describe('Worker API Logic', () => {
                   id: 500,
                   collections: [{ name: 'Xenoblade Chronicles' }],
                   franchises: [{ name: 'Xenoblade' }],
+                  alternative_names: [
+                    { name: 'ゼノブレイドクロス', comment: 'Japanese title' },
+                  ],
+                  game_localizations: [
+                    { name: 'Xenoblade Chronicles X JP', region: 3 },
+                  ],
                 },
               ]),
               { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -1390,16 +1396,19 @@ describe('Worker API Logic', () => {
 
       const game10 = db
         .prepare(
-          'SELECT collections, franchises, canonical_series FROM games WHERE stable_id = 10',
+          'SELECT collections, franchises, canonical_series, metadata_json FROM games WHERE stable_id = 10',
         )
         .get() as {
         collections: string;
         franchises: string;
         canonical_series: string;
+        metadata_json: string | null;
       };
       expect(game10.collections).toBe('Xenoblade Chronicles');
       expect(game10.franchises).toBe('Xenoblade');
       expect(game10.canonical_series).toBe('Xenoblade Chronicles');
+      expect(game10.metadata_json).toContain('ゼノブレイドクロス');
+      expect(game10.metadata_json).toContain('Xenoblade Chronicles X JP');
 
       const game11 = db
         .prepare('SELECT canonical_series FROM games WHERE stable_id = 11')
