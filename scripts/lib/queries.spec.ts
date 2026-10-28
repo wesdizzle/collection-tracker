@@ -110,4 +110,38 @@ describe('resolveLocalizedReleaseTitle', () => {
     );
     expect(title).toBe('Saru! Get You!');
   });
+
+  it('prefers local language for multi-region releases containing (Japan, USA)', () => {
+    const breakoutMetadata = JSON.stringify({
+      alternative_names: [
+        { comment: 'Japanese title', name: 'テイーテイーブロック' },
+        { comment: 'Japanese title (romanized)', name: 'TT Block' },
+      ],
+    });
+    const withCanonical = resolveLocalizedReleaseTitle(
+      'Breakout',
+      'Japan, USA',
+      breakoutMetadata,
+      'Breakout ~ Breakaway IV',
+    );
+    expect(withCanonical).toBe('Breakout ~ Breakaway IV');
+
+    const base = resolveLocalizedReleaseTitle(
+      'Breakout',
+      'Japan, USA',
+      breakoutMetadata,
+      'Breakout',
+    );
+    expect(base).toBe('Breakout');
+  });
+
+  it('prefers local language over Japanese for Ape Escape on Japan, USA releases', () => {
+    const title = resolveLocalizedReleaseTitle(
+      'Ape Escape',
+      'Japan, USA',
+      apeEscapeMetadata,
+      'Ape Escape',
+    );
+    expect(title).toBe('Ape Escape');
+  });
 });

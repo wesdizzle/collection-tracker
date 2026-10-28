@@ -1877,6 +1877,10 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
         }
       }
 
+      .toolbar-auxiliary-row {
+        margin-top: var(--spacing-12);
+      }
+
       .view-toggle-group {
         display: inline-flex;
         align-items: center;

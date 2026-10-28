@@ -809,3 +809,118 @@ export function isPlatformMatch(
 
   return false;
 }
+
+/**
+ * DEFAULT USER HOME REGION
+ * Defaults to 'USA'.
+ */
+export const DEFAULT_USER_HOME_REGION = 'USA';
+
+/**
+ * Regional hierarchy lookup map.
+ * Defines which broader geographical regions encompass each country or sub-region.
+ * Note: 'World' contains all regions by definition and is evaluated directly.
+ */
+export const REGION_ANCESTORS: Record<string, string[]> = {
+  // North America
+  usa: ['north america', 'americas'],
+  canada: ['north america', 'americas'],
+  mexico: ['north america', 'americas', 'latin america'],
+
+  // Europe & European countries
+  uk: ['europe', 'pal'],
+  'united kingdom': ['europe', 'pal'],
+  ireland: ['europe', 'pal'],
+  france: ['europe', 'pal'],
+  germany: ['europe', 'pal'],
+  italy: ['europe', 'pal'],
+  spain: ['europe', 'pal'],
+  portugal: ['europe', 'pal'],
+  netherlands: ['europe', 'pal'],
+  austria: ['europe', 'pal'],
+  switzerland: ['europe', 'pal'],
+  sweden: ['europe', 'scandinavia', 'pal'],
+  norway: ['europe', 'scandinavia', 'pal'],
+  denmark: ['europe', 'scandinavia', 'pal'],
+  finland: ['europe', 'scandinavia', 'pal'],
+  scandinavia: ['europe', 'pal'],
+  poland: ['europe', 'pal'],
+  russia: ['europe'],
+  greece: ['europe', 'pal'],
+  turkey: ['europe'],
+
+  // Asia
+  japan: ['asia'],
+  korea: ['asia'],
+  china: ['asia'],
+  taiwan: ['asia'],
+  'hong kong': ['asia'],
+
+  // Oceania
+  australia: ['oceania', 'pal'],
+  'new zealand': ['oceania', 'pal'],
+
+  // Americas
+  brazil: ['americas', 'latin america'],
+  'latin america': ['americas'],
+};
+
+/**
+ * Checks whether an item's region tag matches the user's home region, taking
+ * regional hierarchies and superset containers into account.
+ *
+ * Rules:
+ * - Empty / null item region is considered not matching.
+ * - If an item is labeled 'World', it satisfies all home regions.
+ * - If an item region exactly matches the home region (case-insensitive), it matches.
+ * - If an item region is a recognized ancestor of the home region (e.g. item is 'Europe'
+ *   and home region is 'UK', or item is 'North America' and home region is 'USA'), it matches.
+ * - Handles comma-separated multi-region strings (e.g. 'USA, Europe', 'Japan, Asia', 'Japan, USA').
+ *
+ * @param itemRegion The comma-delimited or single region from the game/toy (e.g. 'USA', 'World', 'Europe').
+ * @param homeRegion The user's home region (defaults to DEFAULT_USER_HOME_REGION = 'USA').
+ */
+export function isRegionMatchingHome(
+  itemRegion: string | null | undefined,
+  homeRegion: string = DEFAULT_USER_HOME_REGION,
+): boolean {
+  if (!itemRegion) return false;
+  const cleanHome = homeRegion.trim().toLowerCase();
+  if (!cleanHome) return false;
+
+  const itemTokens = itemRegion
+    .split(',')
+    .map((r) => r.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (itemTokens.length === 0) return false;
+
+  // 'World' contains everything
+  if (itemTokens.includes('world')) {
+    return true;
+  }
+
+  // Direct match
+  if (itemTokens.includes(cleanHome)) {
+    return true;
+  }
+
+  // Check if any item token is an ancestor region containing the home region
+  const homeAncestors = REGION_ANCESTORS[cleanHome] || [];
+  for (const ancestor of homeAncestors) {
+    if (itemTokens.includes(ancestor)) {
+      return true;
+    }
+  }
+
+  // Also check reverse if the user's home region is a broader region (e.g. user set home to 'Europe')
+  // and the item is tagged with a sub-region (e.g. 'UK')
+  for (const token of itemTokens) {
+    const tokenAncestors = REGION_ANCESTORS[token] || [];
+    if (tokenAncestors.includes(cleanHome)) {
+      return true;
+    }
+  }
+
+  return false;
+}

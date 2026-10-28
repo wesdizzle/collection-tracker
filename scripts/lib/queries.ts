@@ -7,9 +7,11 @@
  */
 
 import {
+  DEFAULT_USER_HOME_REGION,
   DISC_ROLE_INDICATORS,
   extractDiscLabel,
   isCompilationDiscSubtitle,
+  isRegionMatchingHome,
   isRegionOrLanguageOrDisc,
   isTrueEditionOrRevisionVariant,
 } from './source_format.js';
@@ -1633,8 +1635,47 @@ export function resolveLocalizedReleaseTitle(
   releaseRegion: string | null | undefined,
   metadataJson: string | null | undefined,
   canonicalTitle: string | null | undefined,
+  homeRegion: string = DEFAULT_USER_HOME_REGION,
 ): string {
   const regLower = (releaseRegion || '').toLowerCase();
+
+  // If the release includes the user's local/home region, prefer the local language
+  if (isRegionMatchingHome(releaseRegion, homeRegion)) {
+    if (metadataJson) {
+      try {
+        const parsed = JSON.parse(metadataJson);
+        if (Array.isArray(parsed.alternative_names)) {
+          const usAlt = parsed.alternative_names.find(
+            (a: { name?: string; comment?: string }) =>
+              /north america|united states|\busa\b|\bus title\b/i.test(
+                a.comment || '',
+              ) &&
+              a.name &&
+              !NATIVE_ASIAN_SCRIPT_REGEX.test(a.name),
+          );
+          if (usAlt?.name) return usAlt.name;
+        }
+        if (Array.isArray(parsed.game_localizations)) {
+          const loc = parsed.game_localizations.find(
+            (l: { region?: number; name?: string }) => l.region === 1 && l.name,
+          );
+          if (loc?.name) return loc.name;
+        }
+      } catch {
+        // ignore JSON parse error
+      }
+    }
+
+    if (
+      canonicalTitle &&
+      canonicalTitle.trim() &&
+      canonicalTitle.trim() !== gameTitle.trim() &&
+      !NATIVE_ASIAN_SCRIPT_REGEX.test(canonicalTitle)
+    ) {
+      return canonicalTitle.trim();
+    }
+    return gameTitle;
+  }
 
   if (metadataJson) {
     try {
