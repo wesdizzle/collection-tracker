@@ -1223,7 +1223,10 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
           </section>
         }
 
-        @if (type() === 'game' || type() === 'toy') {
+        @if (
+          (type() === 'game' || type() === 'toy') &&
+          collectionService.isAuthenticated()
+        ) {
           <section
             class="journal-section animate-slide-up mb-xl"
             data-testid="journal-section"
@@ -1236,11 +1239,7 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                 </span>
               </h2>
               <div class="flex items-center gap-sm">
-                @if (
-                  collectionService.isAdmin() &&
-                  collectionService.journalRevealed() &&
-                  !isEditingJournal()
-                ) {
+                @if (!isEditingJournal()) {
                   <button
                     type="button"
                     class="btn-journal-action"
@@ -1253,70 +1252,10 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                     }}</span>
                   </button>
                 }
-                <button
-                  type="button"
-                  class="btn-eye-toggle"
-                  [class.revealed]="collectionService.journalRevealed()"
-                  (click)="onToggleJournalVisibility()"
-                  [attr.aria-label]="
-                    collectionService.journalRevealed()
-                      ? 'Mask private acquisition provenance'
-                      : 'Reveal private acquisition provenance'
-                  "
-                  data-testid="btn-toggle-journal-eye"
-                >
-                  <app-icon
-                    [name]="
-                      collectionService.journalRevealed() ? 'eye-off' : 'eye'
-                    "
-                    [size]="16"
-                  />
-                  <span>{{
-                    collectionService.journalRevealed()
-                      ? 'Hide Provenance'
-                      : 'Reveal Provenance'
-                  }}</span>
-                </button>
               </div>
             </div>
 
-            @if (!collectionService.journalRevealed()) {
-              <div
-                class="pricing-grid journal-masked-grid"
-                data-testid="journal-masked-state"
-              >
-                <div class="price-tier-card masked-card">
-                  <span class="tier-label">Acquired Date</span>
-                  <span class="tier-price masked-dots">••••••</span>
-                  <span class="tier-sub">Private Ledger</span>
-                </div>
-                <div class="price-tier-card masked-card">
-                  <span class="tier-label">Price Paid</span>
-                  <span class="tier-price masked-dots">$••.••</span>
-                  <span class="tier-sub">Cost Basis Hidden</span>
-                </div>
-                <div class="price-tier-card masked-card">
-                  <span class="tier-label">Merchant / Source</span>
-                  <span class="tier-price masked-dots">••••••••</span>
-                  <span class="tier-sub">Provenance Hidden</span>
-                </div>
-                <div class="price-tier-card masked-card">
-                  <span class="tier-label">Cost vs. Market ROI</span>
-                  <span class="tier-price masked-dots">••••••</span>
-                  <span class="tier-sub">Appreciation Hidden</span>
-                </div>
-              </div>
-              <div class="journal-privacy-caption mt-xs text-xs text-secondary">
-                <app-icon name="lock" [size]="12" />
-                <span>
-                  {{
-                    collectionService.isAdmin()
-                      ? 'Acquisition cost basis and provenance are masked for privacy. Click the eye icon to reveal.'
-                      : 'Protected provenance record — sign in via the eye icon to view acquisition details.'
-                  }}
-                </span>
-              </div>
-            } @else if (isEditingJournal()) {
+            @if (isEditingJournal()) {
               <div
                 class="journal-editor-card p-md rounded-lg border border-outline-variant bg-surface-container-high"
                 data-testid="journal-editor-form"
@@ -1648,16 +1587,14 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                     receipt link to track cost basis and appreciation.
                   </div>
                 </div>
-                @if (collectionService.isAdmin()) {
-                  <button
-                    type="button"
-                    class="btn-journal-action"
-                    (click)="openJournalEditor()"
-                  >
-                    <app-icon name="edit" [size]="14" />
-                    <span>Record Provenance</span>
-                  </button>
-                }
+                <button
+                  type="button"
+                  class="btn-journal-action"
+                  (click)="openJournalEditor()"
+                >
+                  <app-icon name="edit" [size]="14" />
+                  <span>Record Provenance</span>
+                </button>
               </div>
             }
           </section>

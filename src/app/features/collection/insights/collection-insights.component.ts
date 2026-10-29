@@ -66,7 +66,7 @@ export class CollectionInsightsComponent implements OnInit {
       await this.refresh();
     }
     if (
-      this.collectionService.isAdmin() &&
+      this.collectionService.isAuthenticated() &&
       !this.collectionService.journalLoaded()
     ) {
       this.collectionService.loadAllJournalEntries().subscribe();
@@ -77,7 +77,7 @@ export class CollectionInsightsComponent implements OnInit {
     this.isRefreshing.set(true);
     try {
       await this.collectionService.refreshAll();
-      if (this.collectionService.isAdmin()) {
+      if (this.collectionService.isAuthenticated()) {
         this.collectionService.loadAllJournalEntries().subscribe();
       }
     } finally {

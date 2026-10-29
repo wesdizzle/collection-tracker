@@ -5,6 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
+import { CollectionService } from '../../../../core/services/collection.service';
 import { CommandPaletteService } from '../../../../core/services/command-palette.service';
 import { CollectionLayoutComponent } from './collection-layout.component';
 
@@ -86,6 +87,10 @@ describe('CollectionLayoutComponent', () => {
     });
 
     it('should house navigation tabs inside header-inner within main-header to persist during scroll', () => {
+      const collectionService = TestBed.inject(CollectionService);
+      collectionService.setAdminForTesting(true);
+      fixture.detectChanges();
+
       const header = fixture.nativeElement.querySelector('.main-header');
       const headerInner = header.querySelector('.header-inner');
       const mainNav = headerInner.querySelector('.main-nav');
@@ -101,6 +106,12 @@ describe('CollectionLayoutComponent', () => {
         el.querySelector('.label')?.textContent?.trim(),
       );
       expect(labels).toEqual(['Games', 'Toys', 'Insights', 'Discovery']);
+
+      // When non-admin, Discovery tab is hidden
+      collectionService.setAdminForTesting(false);
+      fixture.detectChanges();
+      const nonAdminNavLinks = headerInner.querySelectorAll('.nav-item');
+      expect(nonAdminNavLinks.length).toBe(3);
     });
 
     it('should house content-area and main-footer inside layout-container', () => {
@@ -140,6 +151,37 @@ describe('CollectionLayoutComponent', () => {
 
       expect(
         fixture.nativeElement.querySelector('app-notification-settings-modal'),
+      ).toBeNull();
+    });
+  });
+
+  describe('Profile Modal Rendering', () => {
+    it('should not render profile modal by default', () => {
+      const modal = fixture.nativeElement.querySelector('app-profile-modal');
+      expect(modal).toBeNull();
+    });
+
+    it('should render profile modal when open and trigger via header user button when authenticated', () => {
+      const cs = TestBed.inject(CollectionService);
+      cs.setAdminForTesting(true);
+      fixture.detectChanges();
+
+      const userBtn = fixture.nativeElement.querySelector(
+        '[data-testid="header-user-btn"]',
+      ) as HTMLButtonElement;
+      expect(userBtn).toBeTruthy();
+
+      userBtn.click();
+      fixture.detectChanges();
+
+      expect(component.profileModalService.isOpen()).toBe(true);
+      const modal = fixture.nativeElement.querySelector('app-profile-modal');
+      expect(modal).toBeTruthy();
+
+      component.profileModalService.close();
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector('app-profile-modal'),
       ).toBeNull();
     });
   });

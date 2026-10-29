@@ -6,6 +6,7 @@
  * logic drift between production and development environments.
  */
 
+export { DEFAULT_USER_HOME_REGION } from './source_format';
 import {
   DEFAULT_USER_HOME_REGION,
   DISC_ROLE_INDICATORS,
@@ -28,7 +29,20 @@ import {
   normalizeForLabelMatch,
 } from './special_labels.js';
 
-export const GAMES_LIST_QUERY = `
+export function buildGamesListQuery(userId?: number | null): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?
+       LEFT JOIN user_games ug ON ug.game_id = g.stable_id AND ug.user_id = ?`
+    : '';
+
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+  const playStatusCol = userId ? 'COALESCE(ug.play_status, 0)' : '0';
+  const queuedCol = userId ? 'COALESCE(ug.queued, 0)' : '0';
+
+  return `
     SELECT COALESCE(r.id, g.id) as id,
            g.id as game_id,
            g.stable_id,
@@ -42,82 +56,104 @@ export const GAMES_LIST_QUERY = `
              (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = g.stable_id AND r2.release_date IS NOT NULL LIMIT 1)
            ) as release_date,
            g.platform_id,
-            g.queued,
-            g.sort_index,
-            COALESCE(r.image_url, g.image_url) as image_url,
-            g.play_status,
-            g.igdb_id,
-            g.igdb_url,
-            g.genres,
-            g.collections,
-            g.franchises,
-            g.manually_verified,
-            g.metadata_json,
-            COALESCE(
-              CASE WHEN cr.source = 'nintendo_revised' THEN 'verified_physical' ELSE NULL END,
-              g.physical_status
-            ) as physical_status,
-            COALESCE(
-              CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE NULL END,
-              g.verification_tier
-            ) as verification_tier,
-            g.barcode,
-            g.release_medium,
-            g.origin_metadata,
-            g.bundle_parent_id,
-            g.bundle_disc_number,
-            COALESCE(bc.bundle_count, 0) as bundle_count,
-            COALESCE(r.ownership_status, 0) as ownership_status,
-            COALESCE(r.region, g.region) as region,
-            r.variants,
-            r.also_released_as,
-            r.rom_name,
-            r.rom_crc,
-            COALESCE(r.backup_status, 0) as backup_status,
-            COALESCE(r.has_case, 0) as has_case,
-            COALESCE(r.has_manual, 0) as has_manual,
-            g.gameye_id,
-            g.gameye_platform_id,
-            g.price_loose,
-            g.price_cib,
-            g.price_new,
-            g.price_updated_at,
-            g.retail_price,
-            g.retail_regular_price,
-            g.retail_discount_pct,
-            COALESCE(g.retail_on_sale, 0) as retail_on_sale,
-            g.retail_store,
-            g.retail_url,
-            g.retail_updated_at,
-            COALESCE(pp.display_name, p.display_name) as display_name, 
-            COALESCE(pp.display_name, p.display_name) as platform, 
-            COALESCE(pp.brand, p.brand) as brand, 
-            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
-            COALESCE(pp.image_url, p.image_url) as platform_logo,
-            p.parent_platform_id,
-            r.canonical_release_id,
-            cr.source,
-            CASE
-              WHEN g.platform_id IN (26, 27) THEN
-                CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE 0 END
-              ELSE
-                CASE WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1 ELSE 0 END
-            END as is_source_verified
-     FROM games g 
-     LEFT JOIN game_releases r ON g.stable_id = r.game_id
-     LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
-     LEFT JOIN platforms p ON g.platform_id = p.id
-     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-     LEFT JOIN (
-         SELECT bundle_parent_id, COUNT(*) as bundle_count 
-         FROM games 
-         WHERE bundle_parent_id IS NOT NULL 
-         GROUP BY bundle_parent_id
-     ) bc ON g.stable_id = bc.bundle_parent_id
-     WHERE 1=1
- `;
+           ${queuedCol} as queued,
+           g.sort_index,
+           COALESCE(r.image_url, g.image_url) as image_url,
+           ${playStatusCol} as play_status,
+           g.igdb_id,
+           g.igdb_url,
+           g.genres,
+           g.collections,
+           g.franchises,
+           g.manually_verified,
+           g.metadata_json,
+           COALESCE(
+             CASE WHEN cr.source = 'nintendo_revised' THEN 'verified_physical' ELSE NULL END,
+             g.physical_status
+           ) as physical_status,
+           COALESCE(
+             CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE NULL END,
+             g.verification_tier
+           ) as verification_tier,
+           g.barcode,
+           g.release_medium,
+           g.origin_metadata,
+           g.bundle_parent_id,
+           g.bundle_disc_number,
+           COALESCE(bc.bundle_count, 0) as bundle_count,
+           ${ownershipCol} as ownership_status,
+           COALESCE(r.region, g.region) as region,
+           r.variants,
+           r.also_released_as,
+           r.rom_name,
+           r.rom_crc,
+           ${backupCol} as backup_status,
+           ${hasCaseCol} as has_case,
+           ${hasManualCol} as has_manual,
+           g.gameye_id,
+           g.gameye_platform_id,
+           g.price_loose,
+           g.price_cib,
+           g.price_new,
+           g.price_updated_at,
+           g.retail_price,
+           g.retail_regular_price,
+           g.retail_discount_pct,
+           COALESCE(g.retail_on_sale, 0) as retail_on_sale,
+           g.retail_store,
+           g.retail_url,
+           g.retail_updated_at,
+           COALESCE(pp.display_name, p.display_name) as display_name, 
+           COALESCE(pp.display_name, p.display_name) as platform, 
+           COALESCE(pp.brand, p.brand) as brand, 
+           COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
+           COALESCE(pp.image_url, p.image_url) as platform_logo,
+           p.parent_platform_id,
+           r.canonical_release_id,
+           cr.source,
+           CASE
+             WHEN g.platform_id IN (26, 27) THEN
+               CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE 0 END
+             ELSE
+               CASE WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1 ELSE 0 END
+           END as is_source_verified
+    FROM games g 
+    LEFT JOIN game_releases r ON g.stable_id = r.game_id
+    ${userJoin}
+    LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
+    LEFT JOIN platforms p ON g.platform_id = p.id
+    LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+    LEFT JOIN (
+        SELECT bundle_parent_id, COUNT(*) as bundle_count 
+        FROM games 
+        WHERE bundle_parent_id IS NOT NULL 
+        GROUP BY bundle_parent_id
+    ) bc ON g.stable_id = bc.bundle_parent_id
+    WHERE 1=1
+  `;
+}
 
-export const GAME_DETAIL_QUERY = `
+export const GAMES_LIST_QUERY = buildGamesListQuery(null);
+
+export function buildGameDetailQuery(userId?: number | null): string {
+  const candidateJoin = userId
+    ? `LEFT JOIN user_game_releases ugr_sub ON ugr_sub.release_id = r2.id AND ugr_sub.user_id = ?`
+    : '';
+  const isOwnedCol = userId ? 'COALESCE(ugr_sub.ownership_status, 0)' : '0';
+
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?
+       LEFT JOIN user_games ug ON ug.game_id = g.stable_id AND ug.user_id = ?`
+    : '';
+
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+  const playStatusCol = userId ? 'COALESCE(ug.play_status, 0)' : '0';
+  const queuedCol = userId ? 'COALESCE(ug.queued, 0)' : '0';
+
+  return `
      SELECT COALESCE(r.id, g.id) as id,
             g.id as game_id,
             g.stable_id,
@@ -131,10 +167,10 @@ export const GAME_DETAIL_QUERY = `
               (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = g.stable_id AND r2.release_date IS NOT NULL LIMIT 1)
             ) as release_date,
             g.platform_id,
-            g.queued,
+            ${queuedCol} as queued,
             g.sort_index,
             COALESCE(r.image_url, g.image_url) as image_url,
-            g.play_status,
+            ${playStatusCol} as play_status,
             g.igdb_id,
             g.igdb_url,
             g.summary,
@@ -157,15 +193,15 @@ export const GAME_DETAIL_QUERY = `
             g.bundle_parent_id,
             g.bundle_disc_number,
             COALESCE(bc.bundle_count, 0) as bundle_count,
-            COALESCE(r.ownership_status, 0) as ownership_status,
+            ${ownershipCol} as ownership_status,
             COALESCE(r.region, g.region) as region,
             r.variants,
             r.also_released_as,
             r.rom_name,
             r.rom_crc,
-            COALESCE(r.backup_status, 0) as backup_status,
-            COALESCE(r.has_case, 0) as has_case,
-            COALESCE(r.has_manual, 0) as has_manual,
+            ${backupCol} as backup_status,
+            ${hasCaseCol} as has_case,
+            ${hasManualCol} as has_manual,
             g.gameye_id,
             g.gameye_platform_id,
             g.price_loose,
@@ -198,12 +234,15 @@ export const GAME_DETAIL_QUERY = `
          SELECT id FROM (
              SELECT id, 1 as priority, 0 as is_owned, 1 as region_match FROM game_releases WHERE id = ?
              UNION ALL
-             SELECT id, 2 as priority, ownership_status as is_owned, (CASE WHEN region = g.region THEN 0 ELSE 1 END) as region_match
-             FROM game_releases WHERE game_id = g.stable_id
+             SELECT r2.id, 2 as priority, ${isOwnedCol} as is_owned, (CASE WHEN r2.region = g.region THEN 0 ELSE 1 END) as region_match
+             FROM game_releases r2
+             ${candidateJoin}
+             WHERE r2.game_id = g.stable_id
          )
          ORDER BY priority ASC, is_owned DESC, region_match ASC, id ASC
          LIMIT 1
      )
+     ${userJoin}
      LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
      LEFT JOIN platforms p ON g.platform_id = p.id 
      LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
@@ -219,16 +258,57 @@ export const GAME_DETAIL_QUERY = `
          SELECT stable_id FROM games WHERE id = ?
          LIMIT 1
      )
- `;
+  `;
+}
 
-export const GAME_RELEASES_BY_GAME_ID_QUERY = `
-     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status,
+export const GAME_DETAIL_QUERY = buildGameDetailQuery(null);
+
+export function getGameDetailQueryParams(
+  id: string,
+  userId?: number | null,
+): unknown[] {
+  if (userId) {
+    return [id, userId, userId, userId, id, id];
+  }
+  return [id, id, id];
+}
+
+export function buildGameReleasesByGameIdQuery(
+  userId?: number | null,
+  isAll?: boolean,
+): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
+    : '';
+  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+
+  const orderClause = isAll
+    ? `ORDER BY COALESCE(r.rom_name, r.id) ASC`
+    : `ORDER BY
+        CASE
+          WHEN r.region IS ? THEN 0
+          WHEN r.region = 'World' THEN 1
+          WHEN r.region IS NULL THEN 2
+          ELSE 3
+        END ASC,
+        r.variants ASC,
+        COALESCE(r.rom_name, r.id) ASC`;
+
+  return `
+     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+            ${backupCol} as backup_status,
+            ${ownershipCol} as ownership_status,
             COALESCE(cr.raw_title, r.also_released_as) as title,
             COALESCE(
               r.release_date,
               (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = r.game_id AND r2.release_date IS NOT NULL LIMIT 1)
             ) as release_date,
-            r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+            r.image_url,
+            ${hasCaseCol} as has_case,
+            ${hasManualCol} as has_manual,
             r.canonical_release_id, cr.source,
             CASE
               WHEN cr.source = 'nintendo_revised' THEN 1
@@ -237,41 +317,27 @@ export const GAME_RELEASES_BY_GAME_ID_QUERY = `
             END as is_source_verified,
             cr.serial_code, cr.publisher as comments
      FROM game_releases r
+     ${userJoin}
      LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
      WHERE r.game_id = ?
-     ORDER BY
-       CASE
-         WHEN r.region IS ? THEN 0
-         WHEN r.region = 'World' THEN 1
-         WHEN r.region IS NULL THEN 2
-         ELSE 3
-       END ASC,
-       r.variants ASC,
-       COALESCE(r.rom_name, r.id) ASC
- `;
+     ${orderClause}
+  `;
+}
 
-export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY = `
-     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc, r.backup_status, r.ownership_status,
-            COALESCE(cr.raw_title, r.also_released_as) as title,
-            COALESCE(
-              r.release_date,
-              (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = r.game_id AND r2.release_date IS NOT NULL LIMIT 1)
-            ) as release_date,
-            r.image_url, COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
-            r.canonical_release_id, cr.source,
-            CASE
-              WHEN cr.source = 'nintendo_revised' THEN 1
-              WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1
-              ELSE 0
-            END as is_source_verified,
-            cr.serial_code, cr.publisher as comments
-     FROM game_releases r
-     LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
-     WHERE r.game_id = ?
-     ORDER BY COALESCE(r.rom_name, r.id) ASC
- `;
+export const GAME_RELEASES_BY_GAME_ID_QUERY = buildGameReleasesByGameIdQuery(
+  null,
+  false,
+);
+export const GAME_ALL_RELEASES_BY_GAME_ID_QUERY =
+  buildGameReleasesByGameIdQuery(null, true);
 
-export const BUNDLED_GAMES_BY_PARENT_QUERY = `
+export function buildBundledGamesByParentQuery(userId?: number | null): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
+    : '';
+  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+
+  return `
     SELECT g.stable_id,
            g.id,
            g.title,
@@ -280,16 +346,21 @@ export const BUNDLED_GAMES_BY_PARENT_QUERY = `
            g.release_medium,
            g.origin_metadata,
            COALESCE(r.rom_name, g.title) as rom_name,
-           COALESCE(r.backup_status, 0) as backup_status,
+           ${backupCol} as backup_status,
            COALESCE(pp.display_name, p.display_name) as platform_name,
            COALESCE(pp.display_name, p.display_name) as platform
     FROM games g
     LEFT JOIN game_releases r ON g.stable_id = r.game_id
+    ${userJoin}
     LEFT JOIN platforms p ON g.platform_id = p.id
     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
     WHERE g.bundle_parent_id = ?
     ORDER BY g.bundle_disc_number ASC, g.title ASC
 `;
+}
+
+export const BUNDLED_GAMES_BY_PARENT_QUERY =
+  buildBundledGamesByParentQuery(null);
 
 export const PLATFORMS_LIST_QUERY = `
     SELECT p.* FROM platforms p 
@@ -307,9 +378,20 @@ export const PLATFORMS_LIST_QUERY = `
     ORDER BY p.launch_date ASC, p.id ASC
 `;
 
-export const TOYS_LIST_QUERY = `
-    SELECT f.*, fs.line as series_line, COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) as series_name, fs.sort_index as series_index
+export function buildToysListQuery(userId?: number | null): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_toys ut ON ut.toy_id = f.id AND ut.user_id = ?`
+    : '';
+  const ownershipCol = userId ? 'COALESCE(ut.ownership_status, 0)' : '0';
+
+  return `
+    SELECT f.*,
+           ${ownershipCol} as ownership_status,
+           fs.line as series_line,
+           COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) as series_name,
+           fs.sort_index as series_index
     FROM toys f
+    ${userJoin}
     LEFT JOIN toy_series fs ON f.series_id = fs.id
     ORDER BY 
              CASE WHEN fs.line COLLATE NOCASE LIKE 'the %' THEN SUBSTR(fs.line, 5) WHEN fs.line COLLATE NOCASE LIKE 'a %' THEN SUBSTR(fs.line, 3) ELSE fs.line END COLLATE NOCASE ASC, 
@@ -337,14 +419,31 @@ export const TOYS_LIST_QUERY = `
              CASE WHEN f.line = 'amiibo' THEN f.sort_index ELSE 1 END ASC,
              -- 5. Fallback Name
              CASE WHEN f.name COLLATE NOCASE LIKE 'the %' THEN SUBSTR(f.name, 5) WHEN f.name COLLATE NOCASE LIKE 'a %' THEN SUBSTR(f.name, 3) ELSE f.name END COLLATE NOCASE ASC
-`;
+  `;
+}
 
-export const TOY_DETAIL_QUERY = `
-    SELECT f.*, fs.line as series_line, COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) as series_name, fs.sort_index as series_index
+export const TOYS_LIST_QUERY = buildToysListQuery(null);
+
+export function buildToyDetailQuery(userId?: number | null): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_toys ut ON ut.toy_id = f.id AND ut.user_id = ?`
+    : '';
+  const ownershipCol = userId ? 'COALESCE(ut.ownership_status, 0)' : '0';
+
+  return `
+    SELECT f.*,
+           ${ownershipCol} as ownership_status,
+           fs.line as series_line,
+           COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) as series_name,
+           fs.sort_index as series_index
     FROM toys f
+    ${userJoin}
     LEFT JOIN toy_series fs ON f.series_id = fs.id
     WHERE f.id = ?
-`;
+  `;
+}
+
+export const TOY_DETAIL_QUERY = buildToyDetailQuery(null);
 
 /**
  * Common Sorters and Filters can also be added here if they share SQL syntax.
@@ -506,45 +605,90 @@ export function getRomGroupingKey(filename: string | null | undefined): string {
   return `single:${baseLower}`;
 }
 
+export function buildTargetedCompanionByCrcQuery(
+  userId?: number | null,
+): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
+    : '';
+  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+  return `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           ${backupCol} as backup_status, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
+           g.title as game_title, g.platform_id
+    FROM game_releases r
+    ${userJoin}
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE r.rom_crc = ? AND r.id != ?
+  `;
+}
+
+export const TARGETED_COMPANION_BY_CRC_QUERY =
+  buildTargetedCompanionByCrcQuery(null);
+
+export function buildTargetedCompanionByGameIdQuery(
+  userId?: number | null,
+): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
+    : '';
+  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+  return `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           ${backupCol} as backup_status, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
+           g.title as game_title, g.platform_id
+    FROM game_releases r
+    ${userJoin}
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE g.stable_id = ? AND r.rom_name IS NOT NULL
+  `;
+}
+
+export const TARGETED_COMPANION_BY_GAME_ID_QUERY =
+  buildTargetedCompanionByGameIdQuery(null);
+
+export function buildTargetedCompanionByTitleQuery(
+  userId?: number | null,
+): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
+    : '';
+  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+  return `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           ${backupCol} as backup_status, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
+           g.title as game_title, g.platform_id
+    FROM game_releases r
+    ${userJoin}
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE g.platform_id = ? AND g.title = ? AND r.rom_name IS NOT NULL
+  `;
+}
+
+export const TARGETED_COMPANION_BY_TITLE_QUERY =
+  buildTargetedCompanionByTitleQuery(null);
+
 export const PLATFORM_RELEASES_FOR_COMPANION_QUERY = `
     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           r.backup_status, r.ownership_status, r.release_date,
-           COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
+           0 as backup_status, 0 as ownership_status, r.release_date,
+           0 as has_case, 0 as has_manual,
            g.title as game_title, g.platform_id
     FROM game_releases r
     JOIN games g ON r.game_id = g.stable_id
     WHERE g.platform_id = ? AND r.rom_name IS NOT NULL
     ORDER BY r.rom_name ASC
-`;
-
-export const TARGETED_COMPANION_BY_CRC_QUERY = `
-    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           r.backup_status, r.ownership_status, r.release_date,
-           COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
-           g.title as game_title, g.platform_id
-    FROM game_releases r
-    JOIN games g ON r.game_id = g.stable_id
-    WHERE r.rom_crc = ? AND r.id != ?
-`;
-
-export const TARGETED_COMPANION_BY_GAME_ID_QUERY = `
-    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           r.backup_status, r.ownership_status, r.release_date,
-           COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
-           g.title as game_title, g.platform_id
-    FROM game_releases r
-    JOIN games g ON r.game_id = g.stable_id
-    WHERE g.stable_id = ? AND r.rom_name IS NOT NULL
-`;
-
-export const TARGETED_COMPANION_BY_TITLE_QUERY = `
-    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           r.backup_status, r.ownership_status, r.release_date,
-           COALESCE(r.has_case, 0) as has_case, COALESCE(r.has_manual, 0) as has_manual,
-           g.title as game_title, g.platform_id
-    FROM game_releases r
-    JOIN games g ON r.game_id = g.stable_id
-    WHERE g.platform_id = ? AND g.title = ? AND r.rom_name IS NOT NULL
 `;
 
 /**
@@ -1488,6 +1632,7 @@ export function isOfficialIGDBGame(game: {
 
 export interface JournalEntryRow {
   id: number;
+  user_id?: number;
   item_type: 'game' | 'toy';
   item_id: string;
   purchase_date: string | null;
@@ -1509,27 +1654,28 @@ export const RESOLVE_CANONICAL_GAME_ID_QUERY = `
 `;
 
 export const JOURNAL_ENTRY_BY_ITEM_QUERY = `
-  SELECT id, item_type, item_id, purchase_date, is_approximate_date, price_paid,
+  SELECT id, user_id, item_type, item_id, purchase_date, is_approximate_date, price_paid,
          merchant, gifted_by, receipt_url, notes, created_at, updated_at
   FROM journal_entries
-  WHERE item_type = ? AND item_id IN (?, ?)
+  WHERE user_id = ? AND item_type = ? AND item_id IN (?, ?)
   ORDER BY id DESC
   LIMIT 1
 `;
 
 export const JOURNAL_ENTRIES_ALL_QUERY = `
-  SELECT id, item_type, item_id, purchase_date, is_approximate_date, price_paid,
+  SELECT id, user_id, item_type, item_id, purchase_date, is_approximate_date, price_paid,
          merchant, gifted_by, receipt_url, notes, created_at, updated_at
   FROM journal_entries
+  WHERE user_id = ?
   ORDER BY COALESCE(purchase_date, '') DESC, id DESC
 `;
 
 export const UPSERT_JOURNAL_ENTRY_QUERY = `
   INSERT INTO journal_entries (
-    item_type, item_id, purchase_date, is_approximate_date, price_paid,
+    user_id, item_type, item_id, purchase_date, is_approximate_date, price_paid,
     merchant, gifted_by, receipt_url, notes, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  ON CONFLICT(item_type, item_id) DO UPDATE SET
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ON CONFLICT(user_id, item_type, item_id) DO UPDATE SET
     purchase_date = excluded.purchase_date,
     is_approximate_date = excluded.is_approximate_date,
     price_paid = excluded.price_paid,
@@ -1542,7 +1688,7 @@ export const UPSERT_JOURNAL_ENTRY_QUERY = `
 
 export const DELETE_JOURNAL_ENTRY_QUERY = `
   DELETE FROM journal_entries
-  WHERE item_type = ? AND item_id = ?
+  WHERE user_id = ? AND item_type = ? AND item_id = ?
 `;
 
 /**

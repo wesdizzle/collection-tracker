@@ -10,13 +10,20 @@ import { CollectionService } from '../../../../core/services/collection.service'
 import { BrandingService } from '../../../../core/services/branding.service';
 import { NotificationService } from '../../../../core/services/notification.service';
 import { CommandPaletteService } from '../../../../core/services/command-palette.service';
+import { ProfileModalService } from '../../../../core/services/profile-modal.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 import { NotificationSettingsModalComponent } from '../../notifications/notification-settings-modal/notification-settings-modal.component';
+import { ProfileModalComponent } from '../../../profile/profile-modal.component';
 
 @Component({
   selector: 'app-collection-layout',
   standalone: true,
-  imports: [RouterModule, IconComponent, NotificationSettingsModalComponent],
+  imports: [
+    RouterModule,
+    IconComponent,
+    NotificationSettingsModalComponent,
+    ProfileModalComponent,
+  ],
   template: `
     <header class="main-header">
       <div class="header-inner">
@@ -63,15 +70,17 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
             <span class="label">Insights</span>
             <div class="indicator"></div>
           </a>
-          <a
-            routerLink="/collection/discovery"
-            (click)="onNavClick()"
-            routerLinkActive="active"
-            class="nav-item dev-item"
-          >
-            <span class="label">Discovery</span>
-            <div class="indicator"></div>
-          </a>
+          @if (isAdmin()) {
+            <a
+              routerLink="/collection/discovery"
+              (click)="onNavClick()"
+              routerLinkActive="active"
+              class="nav-item dev-item"
+            >
+              <span class="label">Discovery</span>
+              <div class="indicator"></div>
+            </a>
+          }
         </nav>
 
         <div class="header-right">
@@ -99,19 +108,17 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
           </button>
 
           <button
-            (click)="onAdminClick()"
+            (click)="onUserIconClick()"
             class="m3-button-icon state-layer"
+            [class.authenticated-icon]="isAuthenticated()"
             [title]="
-              isAdmin()
-                ? 'Admin Authenticated (Click to Log Out)'
-                : 'Admin Login (Cloudflare Access OTP)'
+              isAuthenticated()
+                ? 'Profile (@' + (currentUser()?.username || 'user') + ')'
+                : 'Sign In (Cloudflare Access)'
             "
+            data-testid="header-user-btn"
           >
-            @if (isAdmin()) {
-              <app-icon name="unlock" [size]="18" />
-            } @else {
-              <app-icon name="lock" [size]="18" />
-            }
+            <app-icon name="user" [size]="18" />
           </button>
 
           <a
@@ -130,6 +137,24 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
       </div>
     </header>
 
+    @if (isPublicView() && publicProfile(); as pub) {
+      <div
+        class="public-collection-banner"
+        data-testid="public-collection-banner"
+      >
+        <div class="public-banner-inner">
+          <span class="public-badge">Public Collection</span>
+          <span class="public-username"
+            >Viewing <strong>{{ pub.displayName || pub.username }}</strong
+            >'s library (@{{ pub.username }})</span
+          >
+          @if (pub.bio) {
+            <span class="public-bio">&bull; {{ pub.bio }}</span>
+          }
+        </div>
+      </div>
+    }
+
     <div class="layout-container">
       <main class="content-area animate-expressive">
         <router-outlet></router-outlet>
@@ -145,6 +170,10 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
       <app-notification-settings-modal
         (close)="notificationService.closeSettingsModal()"
       />
+    }
+
+    @if (profileModalService.isOpen()) {
+      <app-profile-modal />
     }
   `,
   styles: [
@@ -167,6 +196,37 @@ import { NotificationSettingsModalComponent } from '../../notifications/notifica
         justify-content: space-between;
         align-items: center;
         position: relative; /* For absolute centering of desktop nav */
+      }
+
+      .public-collection-banner {
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
+        padding: 0.625rem 1rem;
+        border-bottom: 1px solid var(--m3-outline-variant);
+        font-size: 0.875rem;
+      }
+      .public-banner-inner {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 var(--container-padding);
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .public-badge {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
+        padding: 0.125rem 0.5rem;
+        border-radius: var(--radius-full);
+      }
+      .public-bio {
+        opacity: 0.85;
+        font-style: italic;
       }
 
       .layout-container {
@@ -372,9 +432,14 @@ export class CollectionLayoutComponent implements OnDestroy {
   private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
   public readonly notificationService = inject(NotificationService);
   public readonly commandPalette = inject(CommandPaletteService);
+  public readonly profileModalService = inject(ProfileModalService);
   public readonly branding = inject(BrandingService);
   public theme = signal<'light' | 'dark' | 'auto'>('auto');
   public isAdmin = this.collectionService.isAdmin;
+  public isAuthenticated = this.collectionService.isAuthenticated;
+  public currentUser = this.collectionService.currentUser;
+  public isPublicView = this.collectionService.isPublicView;
+  public publicProfile = this.collectionService.publicProfile;
 
   private mediaQuery =
     typeof window !== 'undefined' && window.matchMedia
@@ -446,14 +511,18 @@ export class CollectionLayoutComponent implements OnDestroy {
     }
   }
 
-  onAdminClick() {
-    if (this.isAdmin()) {
-      this.collectionService.logoutAdmin();
+  onUserIconClick() {
+    if (this.isAuthenticated()) {
+      this.profileModalService.open();
     } else {
       if (typeof window !== 'undefined') {
-        window.location.assign('/admin/login');
+        window.location.assign('/api/auth/login');
       }
     }
+  }
+
+  onAdminClick() {
+    this.onUserIconClick();
   }
 
   toggleTheme() {

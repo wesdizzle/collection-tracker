@@ -14,7 +14,7 @@
  *   underlying API layer based on RxJS Observables.
  */
 
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import {
@@ -41,6 +41,9 @@ import {
   AmiiboDiscoveryItem,
   PagedScanSeriesResult,
   JournalEntry,
+  UserProfile,
+  PublicUserProfile,
+  AuthMeResponse,
 } from '../models/collection.models';
 
 @Injectable({
@@ -60,11 +63,25 @@ export class CollectionService {
   public readonly gamesState = this._gamesState.asReadonly();
   public readonly toysState = this._toysState.asReadonly();
 
-  private _isAdmin = signal<boolean>(false);
-  public readonly isAdmin = this._isAdmin.asReadonly();
+  private _currentUser = signal<UserProfile | null>(null);
+  public readonly currentUser = this._currentUser.asReadonly();
+  public readonly isAuthenticated = computed(
+    () => this._currentUser() !== null,
+  );
+  public readonly isAdmin = computed(
+    () => this._currentUser()?.role === 'admin',
+  );
+  public readonly homeRegion = computed(
+    () => this._currentUser()?.homeRegion || 'USA',
+  );
 
-  private _journalRevealed = signal<boolean>(false);
-  public readonly journalRevealed = this._journalRevealed.asReadonly();
+  private _isPublicView = signal<boolean>(false);
+  public readonly isPublicView = this._isPublicView.asReadonly();
+
+  private _publicProfile = signal<PublicUserProfile | null>(null);
+  public readonly publicProfile = this._publicProfile.asReadonly();
+
+  public readonly journalRevealed = computed(() => this.isAuthenticated());
 
   private _journalEntriesMap = signal<Map<string, JournalEntry>>(new Map());
   public readonly journalEntriesMap = this._journalEntriesMap.asReadonly();
@@ -85,23 +102,18 @@ export class CollectionService {
   }
 
   /**
-   * Checks whether the current user has an active, authorized admin session.
+   * Checks whether the current user has an active session via /api/auth/me.
    */
-  public checkAdminStatus() {
+  public checkAdminStatus(): void {
     this.http
-      .get<{ authenticated: boolean; authorized: boolean }>('/api/admin/me')
-      .pipe(catchError(() => of({ authenticated: false, authorized: false })))
+      .get<AuthMeResponse>('/api/auth/me')
+      .pipe(catchError(() => of({ authenticated: false, user: null })))
       .subscribe((res) => {
-        const authorized = !!res.authorized;
-        this._isAdmin.set(authorized);
-        if (
-          authorized &&
-          typeof sessionStorage !== 'undefined' &&
-          sessionStorage.getItem('app_journal_revealed') === 'true'
-        ) {
-          this._journalRevealed.set(true);
-        } else if (!authorized) {
-          this._journalRevealed.set(false);
+        if (res.authenticated && res.user) {
+          this._currentUser.set(res.user);
+          this.loadAllJournalEntries().subscribe();
+        } else {
+          this._currentUser.set(null);
         }
       });
   }
@@ -110,7 +122,68 @@ export class CollectionService {
    * Helper method for testing to set administrative status.
    */
   public setAdminForTesting(authorized: boolean): void {
-    this._isAdmin.set(authorized);
+    if (authorized) {
+      this._currentUser.set({
+        id: 1,
+        email: 'admin@example.com',
+        username: 'wesley',
+        role: 'admin',
+        isPublic: true,
+        homeRegion: 'USA',
+        displayName: 'Wesley',
+        bio: null,
+      });
+    } else {
+      this._currentUser.set(null);
+    }
+  }
+
+  public setCurrentUserForTesting(user: UserProfile | null): void {
+    this._currentUser.set(user);
+  }
+
+  public getProfile(): Observable<UserProfile> {
+    return this.http.get<UserProfile>('/api/user/profile');
+  }
+
+  public updateProfile(data: Partial<UserProfile>): Observable<UserProfile> {
+    return this.http.put<UserProfile>('/api/user/profile', data).pipe(
+      tap((profile) => {
+        this._currentUser.set(profile);
+      }),
+    );
+  }
+
+  public getHomeRegions(): Observable<string[]> {
+    return this.http.get<string[]>('/api/user/regions');
+  }
+
+  public getPublicUser(username: string): Observable<PublicUserProfile> {
+    return this.http.get<PublicUserProfile>(
+      `/api/u/${encodeURIComponent(username)}`,
+    );
+  }
+
+  public getPublicGames(
+    username: string,
+    platformId?: number,
+  ): Observable<Game[]> {
+    const url = platformId
+      ? `/api/u/${encodeURIComponent(username)}/games?platform=${platformId}`
+      : `/api/u/${encodeURIComponent(username)}/games`;
+    return this.http.get<Game[]>(url);
+  }
+
+  public getPublicToys(username: string): Observable<Toy[]> {
+    return this.http.get<Toy[]>(`/api/u/${encodeURIComponent(username)}/toys`);
+  }
+
+  public setPublicView(
+    enabled: boolean,
+    profile?: PublicUserProfile | null,
+  ): void {
+    this._isPublicView.set(enabled);
+    this._publicProfile.set(profile || null);
   }
 
   /**
@@ -298,8 +371,11 @@ export class CollectionService {
    */
   getGames(platformId?: number): Observable<Game[]> {
     let url = '/api/games';
+    if (this._isPublicView() && this._publicProfile()) {
+      url = `/api/u/${encodeURIComponent(this._publicProfile()!.username)}/games`;
+    }
     if (platformId) {
-      url += `?platform_id=${platformId}`;
+      url += (url.includes('?') ? '&' : '?') + `platform_id=${platformId}`;
     }
     return this.http.get<Game[]>(url).pipe(
       map((games) => games.map((game) => this.enrichGameTitle(game))),
@@ -314,7 +390,11 @@ export class CollectionService {
    * Fetches the entire toys collection.
    */
   getToys(): Observable<Toy[]> {
-    return this.http.get<Toy[]>('/api/toys').pipe(
+    let url = '/api/toys';
+    if (this._isPublicView() && this._publicProfile()) {
+      url = `/api/u/${encodeURIComponent(this._publicProfile()!.username)}/toys`;
+    }
+    return this.http.get<Toy[]>(url).pipe(
       catchError((err) => {
         console.error('[CollectionService] Error fetching toys:', err);
         return of([]);
@@ -465,7 +545,7 @@ export class CollectionService {
    * @returns Observable denoting success status of the ingestion.
    */
   addToy(toy: Partial<Toy>): Observable<{ success: boolean; id: string }> {
-    if (!this._isAdmin()) {
+    if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
         () => new Error('Unauthorized: Admin session required'),
@@ -565,7 +645,7 @@ export class CollectionService {
       }
     >;
   }): Observable<{ success: boolean; gameId: string; stableId?: number }> {
-    if (!this._isAdmin()) {
+    if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
         () => new Error('Unauthorized: Admin session required'),
@@ -747,7 +827,7 @@ export class CollectionService {
         (err as { status: number }).status === 401 ||
         (err as { status: number }).status === 403)
     ) {
-      this._isAdmin.set(false);
+      this._currentUser.set(null);
       this.promptAdminLogin();
     }
     return throwError(() => err);
@@ -761,10 +841,13 @@ export class CollectionService {
     type: 'game' | 'toy',
     status: number,
   ): Observable<unknown> {
-    if (!this._isAdmin()) {
+    if (this._isPublicView()) {
+      return throwError(() => new Error('Cannot modify public collection'));
+    }
+    if (!this.isAuthenticated()) {
       this.promptAdminLogin();
       return throwError(
-        () => new Error('Unauthorized: Admin session required'),
+        () => new Error('Unauthorized: Authentication required'),
       );
     }
     return this.http
@@ -776,7 +859,6 @@ export class CollectionService {
       })
       .pipe(
         tap(() => {
-          this._isAdmin.set(true);
           if (type === 'game') {
             this._games.update((games) =>
               games.map((g) =>
@@ -801,10 +883,13 @@ export class CollectionService {
    * Updates the 'play_status' of a game.
    */
   updatePlayStatus(id: string, status: PlayStatus): Observable<unknown> {
-    if (!this._isAdmin()) {
+    if (this._isPublicView()) {
+      return throwError(() => new Error('Cannot modify public collection'));
+    }
+    if (!this.isAuthenticated()) {
       this.promptAdminLogin();
       return throwError(
-        () => new Error('Unauthorized: Admin session required'),
+        () => new Error('Unauthorized: Authentication required'),
       );
     }
     return this.http
@@ -816,7 +901,6 @@ export class CollectionService {
       })
       .pipe(
         tap(() => {
-          this._isAdmin.set(true);
           this._games.update((games) =>
             games.map((g) =>
               g.id === id || g.game_id === id
@@ -833,10 +917,13 @@ export class CollectionService {
    * Updates the 'backup_status' of a game.
    */
   updateBackupStatus(id: string, status: number): Observable<unknown> {
-    if (!this._isAdmin()) {
+    if (this._isPublicView()) {
+      return throwError(() => new Error('Cannot modify public collection'));
+    }
+    if (!this.isAuthenticated()) {
       this.promptAdminLogin();
       return throwError(
-        () => new Error('Unauthorized: Admin session required'),
+        () => new Error('Unauthorized: Authentication required'),
       );
     }
     return this.http
@@ -848,7 +935,6 @@ export class CollectionService {
       })
       .pipe(
         tap(() => {
-          this._isAdmin.set(true);
           this._games.update((games) =>
             games.map((g) => {
               if (g.id === id || g.game_id === id) {
@@ -886,10 +972,13 @@ export class CollectionService {
    * Updates the 'has_case' flag of a game release.
    */
   updateHasCase(id: string, status: number): Observable<unknown> {
-    if (!this._isAdmin()) {
+    if (this._isPublicView()) {
+      return throwError(() => new Error('Cannot modify public collection'));
+    }
+    if (!this.isAuthenticated()) {
       this.promptAdminLogin();
       return throwError(
-        () => new Error('Unauthorized: Admin session required'),
+        () => new Error('Unauthorized: Authentication required'),
       );
     }
     return this.http
@@ -901,7 +990,6 @@ export class CollectionService {
       })
       .pipe(
         tap(() => {
-          this._isAdmin.set(true);
           this._games.update((games) =>
             games.map((g) =>
               g.id === id || g.game_id === id ? { ...g, has_case: status } : g,
@@ -916,10 +1004,13 @@ export class CollectionService {
    * Updates the 'has_manual' flag of a game release.
    */
   updateHasManual(id: string, status: number): Observable<unknown> {
-    if (!this._isAdmin()) {
+    if (this._isPublicView()) {
+      return throwError(() => new Error('Cannot modify public collection'));
+    }
+    if (!this.isAuthenticated()) {
       this.promptAdminLogin();
       return throwError(
-        () => new Error('Unauthorized: Admin session required'),
+        () => new Error('Unauthorized: Authentication required'),
       );
     }
     return this.http
@@ -931,7 +1022,6 @@ export class CollectionService {
       })
       .pipe(
         tap(() => {
-          this._isAdmin.set(true);
           this._games.update((games) =>
             games.map((g) =>
               g.id === id || g.game_id === id
@@ -951,7 +1041,7 @@ export class CollectionService {
     id: string,
     status: PhysicalStatus | string,
   ): Observable<unknown> {
-    if (!this._isAdmin()) {
+    if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
         () => new Error('Unauthorized: Admin session required'),
@@ -966,7 +1056,6 @@ export class CollectionService {
       })
       .pipe(
         tap(() => {
-          this._isAdmin.set(true);
           this._games.update((games) =>
             games.map((g) =>
               g.id === id || g.game_id === id
@@ -984,7 +1073,7 @@ export class CollectionService {
    * Accepts either the game ID or any of its release IDs. Admin-only.
    */
   deleteGame(id: string): Observable<{ success: boolean }> {
-    if (!this._isAdmin()) {
+    if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
         () => new Error('Unauthorized: Admin session required'),
@@ -996,7 +1085,6 @@ export class CollectionService {
       }>(`/api/collection/game?id=${encodeURIComponent(id)}`)
       .pipe(
         tap(() => {
-          this._isAdmin.set(true);
           this._games.update((games) =>
             games.filter((g) => g.id !== id && g.game_id !== id),
           );
@@ -1010,7 +1098,7 @@ export class CollectionService {
    * The parent game remains, even if it ends up with no releases.
    */
   deleteRelease(releaseId: string): Observable<{ success: boolean }> {
-    if (!this._isAdmin()) {
+    if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
         () => new Error('Unauthorized: Admin session required'),
@@ -1020,10 +1108,7 @@ export class CollectionService {
       .delete<{
         success: boolean;
       }>(`/api/collection/release?id=${encodeURIComponent(releaseId)}`)
-      .pipe(
-        tap(() => this._isAdmin.set(true)),
-        catchError(this.handleMutationError),
-      );
+      .pipe(catchError(this.handleMutationError));
   }
 
   /**
@@ -1034,7 +1119,7 @@ export class CollectionService {
     type: 'game' | 'toy',
     sortIndex: number,
   ): Observable<unknown> {
-    if (!this._isAdmin()) {
+    if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
         () => new Error('Unauthorized: Admin session required'),
@@ -1163,20 +1248,14 @@ export class CollectionService {
 
   /**
    * Toggles the visibility of private acquisition journal data.
-   * If the user is not an authorized admin, redirects to /api/admin/login (Cloudflare Access).
+   * If the user is not authenticated, redirects to /api/auth/login (Cloudflare Access).
    */
   public toggleJournalVisibility(): void {
-    if (!this._isAdmin()) {
+    if (!this.isAuthenticated()) {
       if (typeof window !== 'undefined') {
-        window.location.href = '/api/admin/login';
+        window.location.href = '/api/auth/login';
       }
       return;
-    }
-
-    const next = !this._journalRevealed();
-    this._journalRevealed.set(next);
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem('app_journal_revealed', String(next));
     }
   }
 
@@ -1236,7 +1315,7 @@ export class CollectionService {
   }
 
   /**
-   * Saves or updates an acquisition journal entry (admin-only).
+   * Saves or updates an acquisition journal entry for the current user.
    */
   public saveJournalEntry(
     payload: Partial<JournalEntry> & {
@@ -1244,10 +1323,13 @@ export class CollectionService {
       item_id: string;
     },
   ): Observable<{ success: boolean; entry: JournalEntry | null }> {
-    if (!this._isAdmin()) {
+    if (this._isPublicView()) {
+      return throwError(() => new Error('Cannot modify public collection'));
+    }
+    if (!this.isAuthenticated()) {
       this.promptAdminLogin();
       return throwError(
-        () => new Error('Unauthorized: Admin session required'),
+        () => new Error('Unauthorized: Authentication required'),
       );
     }
     return this.http
@@ -1271,16 +1353,19 @@ export class CollectionService {
   }
 
   /**
-   * Deletes an acquisition journal entry (admin-only).
+   * Deletes an acquisition journal entry for the current user.
    */
   public deleteJournalEntry(
     itemType: 'game' | 'toy',
     itemId: string,
   ): Observable<{ success: boolean }> {
-    if (!this._isAdmin()) {
+    if (this._isPublicView()) {
+      return throwError(() => new Error('Cannot modify public collection'));
+    }
+    if (!this.isAuthenticated()) {
       this.promptAdminLogin();
       return throwError(
-        () => new Error('Unauthorized: Admin session required'),
+        () => new Error('Unauthorized: Authentication required'),
       );
     }
     return this.http

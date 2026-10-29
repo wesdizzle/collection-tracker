@@ -102,71 +102,22 @@
   <div class="insights-content-grid">
     <!-- Left Column: Preservation, Condition & Backlog -->
     <div class="insights-column">
-      <!-- Acquisition Cost Basis & Provenance Panel -->
-      <section
-        class="insight-panel journal-insight-panel"
-        data-testid="insights-journal-panel"
-      >
-        <div class="panel-header">
-          <div class="panel-title-group">
-            <h2 class="panel-title">Acquisition Cost Basis & Provenance</h2>
-            <p class="panel-subtitle">
-              Private purchase ledger, total spend, and collection appreciation
-            </p>
+      <!-- Acquisition Cost Basis & Provenance Panel (Authenticated Users Only) -->
+      @if (collectionService.isAuthenticated()) {
+        <section
+          class="insight-panel journal-insight-panel"
+          data-testid="insights-journal-panel"
+        >
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <h2 class="panel-title">Acquisition Cost Basis & Provenance</h2>
+              <p class="panel-subtitle">
+                Private purchase ledger, total spend, and collection
+                appreciation
+              </p>
+            </div>
           </div>
-          <button
-            type="button"
-            class="btn-eye-toggle"
-            [class.revealed]="collectionService.journalRevealed()"
-            (click)="onToggleJournalVisibility()"
-            [attr.aria-label]="
-              collectionService.journalRevealed()
-                ? 'Mask private acquisition cost basis'
-                : 'Reveal private acquisition cost basis'
-            "
-            data-testid="insights-toggle-journal-eye"
-          >
-            <app-icon
-              [name]="collectionService.journalRevealed() ? 'eye-off' : 'eye'"
-              [size]="16"
-            />
-            <span>{{
-              collectionService.journalRevealed()
-                ? 'Hide Cost Basis'
-                : 'Reveal Cost Basis'
-            }}</span>
-          </button>
-        </div>
 
-        @if (!collectionService.journalRevealed()) {
-          <div
-            class="backup-stats-row journal-cost-grid"
-            data-testid="insights-journal-masked"
-          >
-            <div class="backup-stat-item">
-              <span class="backup-stat-number masked-dots">$••••••</span>
-              <span class="backup-stat-desc">Total Tracked Spend</span>
-            </div>
-            <div class="backup-stat-item">
-              <span class="backup-stat-number masked-dots">+$••••••</span>
-              <span class="backup-stat-desc">Net Appreciation</span>
-            </div>
-            <div class="backup-stat-item">
-              <span class="backup-stat-number masked-dots">••• / •••</span>
-              <span class="backup-stat-desc">Provenance Coverage</span>
-            </div>
-          </div>
-          <div class="journal-privacy-note">
-            <app-icon name="lock" [size]="12" />
-            <span>
-              {{
-                collectionService.isAdmin()
-                  ? 'Acquisition figures are masked by default. Click the eye icon to reveal your cost basis.'
-                  : 'Protected acquisition ledger — sign in via the eye icon to view cost basis and ROI.'
-              }}
-            </span>
-          </div>
-        } @else {
           @if (journalSummary(); as js) {
             <div
               class="backup-stats-row journal-cost-grid"
@@ -230,8 +181,8 @@
               </div>
             }
           }
-        }
-      </section>
+        </section>
+      }
 
       <!-- Physical Preservation & Backup Rate Card -->
       <section class="insight-panel">

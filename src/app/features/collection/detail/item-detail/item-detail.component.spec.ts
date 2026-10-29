@@ -535,13 +535,8 @@ describe('ItemDetailComponent', () => {
     );
   });
 
-  it('renders Acquisition Journal masked by default and reveals approximate "Around" dates, receipt URL, and ROI when toggled by admin', async () => {
-    const internalService = collectionService as unknown as {
-      _isAdmin: { set: (val: boolean) => void };
-      _journalRevealed: { set: (val: boolean) => void };
-    };
-    internalService._isAdmin.set(true);
-    internalService._journalRevealed.set(false);
+  it('renders Acquisition Journal directly when authenticated and omits it when unauthenticated', async () => {
+    collectionService.setAdminForTesting(true);
 
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(
       of({
@@ -580,28 +575,18 @@ describe('ItemDetailComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
 
-    // 1. Default state is masked
-    const maskedGrid = compiled.querySelector(
-      '[data-testid="journal-masked-state"]',
-    );
-    expect(maskedGrid).toBeTruthy();
-    expect(maskedGrid?.textContent).toContain('••••••');
-    expect(
-      compiled.querySelector('[data-testid="journal-revealed-state"]'),
-    ).toBeNull();
-
-    // 2. Click eye icon button to reveal
-    const eyeBtn = compiled.querySelector(
-      '[data-testid="btn-toggle-journal-eye"]',
-    ) as HTMLButtonElement;
-    expect(eyeBtn).toBeTruthy();
-    eyeBtn.click();
-    fixture.detectChanges();
-
+    // Authenticated: Journal rendered directly without masking or eye toggle
     const revealedGrid = compiled.querySelector(
       '[data-testid="journal-revealed-state"]',
     );
     expect(revealedGrid).toBeTruthy();
+    expect(
+      compiled.querySelector('[data-testid="journal-masked-state"]'),
+    ).toBeNull();
+    expect(
+      compiled.querySelector('[data-testid="btn-toggle-journal-eye"]'),
+    ).toBeNull();
+
     expect(
       compiled.querySelector('[data-testid="journal-date-display"]')
         ?.textContent,
@@ -631,6 +616,13 @@ describe('ItemDetailComponent', () => {
       '[data-testid="journal-notes-display"]',
     );
     expect(notesCallout?.textContent).toContain('HP Pavilion dv6-1245dx');
+
+    // Unauthenticated: Journal section is completely omitted
+    collectionService.setAdminForTesting(false);
+    fixture.detectChanges();
+    expect(
+      compiled.querySelector('[data-testid="journal-section"]'),
+    ).toBeNull();
   });
 
   describe('PriceCharting & Market Pricing Integration', () => {

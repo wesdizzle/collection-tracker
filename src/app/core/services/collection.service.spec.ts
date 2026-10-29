@@ -33,8 +33,12 @@ describe('CollectionService', () => {
     service = TestBed.inject(CollectionService);
     httpMock = TestBed.inject(HttpTestingController);
 
-    const meReqs = httpMock.match('/api/admin/me');
-    meReqs.forEach((r) => r.flush({ authenticated: false, authorized: false }));
+    const authReqs = httpMock.match(
+      (r) => r.url === '/api/auth/me' || r.url === '/api/admin/me',
+    );
+    authReqs.forEach((r) =>
+      r.flush({ authenticated: false, authorized: false, user: null }),
+    );
   });
 
   afterEach(() => {
@@ -49,9 +53,7 @@ describe('CollectionService', () => {
 
   describe('Deletion', () => {
     beforeEach(() => {
-      (
-        service as unknown as { _isAdmin: { set(v: boolean): void } }
-      )._isAdmin.set(true);
+      service.setAdminForTesting(true);
     });
 
     it('deleteGame issues DELETE and removes the game from local state', () => {
@@ -459,20 +461,12 @@ describe('CollectionService', () => {
       expect(formatJournalDate('2021-02-10', 1)).toBe('Around Feb 10, 2021');
     });
 
-    it('toggles journal visibility when authorized admin', () => {
-      const internal = service as unknown as {
-        _isAdmin: { set: (val: boolean) => void };
-      };
-      internal._isAdmin.set(true);
-
+    it('reflects journal visibility based on authentication status', () => {
+      service.setAdminForTesting(false);
       expect(service.journalRevealed()).toBe(false);
-      service.toggleJournalVisibility();
+
+      service.setAdminForTesting(true);
       expect(service.journalRevealed()).toBe(true);
-      expect(sessionStorage.getItem('app_journal_revealed')).toBe('true');
-
-      service.toggleJournalVisibility();
-      expect(service.journalRevealed()).toBe(false);
-      expect(sessionStorage.getItem('app_journal_revealed')).toBe('false');
     });
 
     it('fetches, saves, and deletes journal entries and updates in-memory map', () => {

@@ -23,6 +23,7 @@ describe('CollectionInsightsComponent', () => {
   const mockToys = signal<Toy[]>([]);
   const mockPlatforms = signal<Platform[]>([]);
   const mockIsAdmin = signal<boolean>(false);
+  const mockIsAuthenticated = signal<boolean>(false);
   const mockJournalRevealed = signal<boolean>(false);
   const mockJournalLoaded = signal<boolean>(false);
   const mockJournalEntriesMap = signal<Map<string, JournalEntry>>(new Map());
@@ -32,6 +33,7 @@ describe('CollectionInsightsComponent', () => {
     toys: mockToys.asReadonly(),
     platforms: mockPlatforms.asReadonly(),
     isAdmin: mockIsAdmin.asReadonly(),
+    isAuthenticated: mockIsAuthenticated.asReadonly(),
     journalRevealed: mockJournalRevealed.asReadonly(),
     journalLoaded: mockJournalLoaded.asReadonly(),
     journalEntriesMap: mockJournalEntriesMap.asReadonly(),
@@ -47,6 +49,7 @@ describe('CollectionInsightsComponent', () => {
     mockToys.set([]);
     mockPlatforms.set([]);
     mockIsAdmin.set(false);
+    mockIsAuthenticated.set(false);
     mockJournalRevealed.set(false);
     mockJournalLoaded.set(false);
     mockJournalEntriesMap.set(new Map());
@@ -491,9 +494,8 @@ describe('CollectionInsightsComponent', () => {
     expect(html).toContain('Game + Box / Case (No Manual)');
   });
 
-  it('should mask acquisition cost basis by default and compute spend, appreciation, and top merchants when revealed', () => {
-    mockIsAdmin.set(true);
-    mockJournalRevealed.set(false);
+  it('should render acquisition cost basis panel directly when authenticated and omit when unauthenticated', () => {
+    mockIsAuthenticated.set(true);
 
     mockGames.set([
       {
@@ -532,21 +534,7 @@ describe('CollectionInsightsComponent', () => {
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
 
-    // Masked by default
-    expect(
-      compiled.querySelector('[data-testid="insights-journal-masked"]'),
-    ).toBeTruthy();
-    expect(
-      compiled.querySelector('[data-testid="insights-journal-revealed"]'),
-    ).toBeNull();
-
-    // Reveal via eye button
-    const eyeBtn = compiled.querySelector(
-      '[data-testid="insights-toggle-journal-eye"]',
-    ) as HTMLButtonElement;
-    eyeBtn.click();
-    fixture.detectChanges();
-
+    // Authenticated: rendered directly with metrics
     const revealed = compiled.querySelector(
       '[data-testid="insights-journal-revealed"]',
     );
@@ -555,5 +543,12 @@ describe('CollectionInsightsComponent', () => {
     expect(revealed?.textContent).toContain('+$480.00');
     expect(revealed?.textContent).toContain('1 / 1');
     expect(compiled.innerHTML).toContain('eBay');
+
+    // Unauthenticated: panel is completely omitted
+    mockIsAuthenticated.set(false);
+    fixture.detectChanges();
+    expect(
+      compiled.querySelector('[data-testid="insights-journal-panel"]'),
+    ).toBeNull();
   });
 });

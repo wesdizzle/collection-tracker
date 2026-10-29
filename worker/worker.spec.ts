@@ -175,8 +175,53 @@ describe('Worker API Logic', () => {
         game_stable_id INTEGER,
         PRIMARY KEY (toy_stable_id, game_stable_id)
       );
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin', 'user')),
+        is_public INTEGER NOT NULL DEFAULT 0,
+        home_region TEXT NOT NULL DEFAULT 'USA',
+        display_name TEXT,
+        bio TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO users (id, email, username, role, is_public, home_region, display_name)
+      VALUES (1, 'admin@example.com', 'wesley', 'admin', 1, 'USA', 'Wesley');
+      CREATE TABLE user_game_releases (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        release_id TEXT NOT NULL REFERENCES game_releases(id) ON DELETE CASCADE,
+        ownership_status INTEGER NOT NULL DEFAULT 0,
+        backup_status INTEGER NOT NULL DEFAULT 0,
+        has_case INTEGER NOT NULL DEFAULT 0,
+        has_manual INTEGER NOT NULL DEFAULT 0,
+        rating INTEGER,
+        notes TEXT,
+        PRIMARY KEY (user_id, release_id)
+      );
+      CREATE TABLE user_games (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
+        play_status INTEGER NOT NULL DEFAULT 0,
+        queued INTEGER NOT NULL DEFAULT 0,
+        rating INTEGER,
+        notes TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, game_id)
+      );
+      CREATE TABLE user_toys (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        toy_id TEXT NOT NULL REFERENCES toys(id) ON DELETE CASCADE,
+        ownership_status INTEGER NOT NULL DEFAULT 0,
+        rating INTEGER,
+        notes TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, toy_id)
+      );
       CREATE TABLE push_subscriptions (
         id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
         endpoint TEXT NOT NULL UNIQUE,
         p256dh TEXT NOT NULL,
         auth TEXT NOT NULL,
@@ -192,6 +237,7 @@ describe('Worker API Logic', () => {
       );
       CREATE TABLE IF NOT EXISTS journal_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
         item_type TEXT NOT NULL CHECK(item_type IN ('game', 'toy')),
         item_id TEXT NOT NULL,
         purchase_date TEXT,
@@ -203,7 +249,7 @@ describe('Worker API Logic', () => {
         notes TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(item_type, item_id)
+        UNIQUE(user_id, item_type, item_id)
       );
       CREATE TABLE IF NOT EXISTS cron_execution_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -400,7 +446,7 @@ describe('Worker API Logic', () => {
     );
 
     const unauthRes = await worker.fetch(unauthReq, mockEnv);
-    expect(unauthRes.status).toBe(403);
+    expect(unauthRes.status).toBe(401);
 
     // Authenticated request with Cloudflare Access header for admin@example.com
     const authReq = new Request(
@@ -424,7 +470,7 @@ describe('Worker API Logic', () => {
     expect(authRes.status).toBe(200);
 
     const updatedToy = db
-      .prepare('SELECT ownership_status FROM toys WHERE id = ?')
+      .prepare('SELECT ownership_status FROM user_toys WHERE toy_id = ?')
       .get('link-amiibo') as { ownership_status: number };
     expect(updatedToy.ownership_status).toBe(1);
   });
@@ -445,7 +491,9 @@ describe('Worker API Logic', () => {
     expect(res.status).toBe(200);
 
     const updatedGame = db
-      .prepare('SELECT play_status FROM games WHERE id = ?')
+      .prepare(
+        'SELECT play_status FROM user_games WHERE game_id = (SELECT stable_id FROM games WHERE id = ?)',
+      )
       .get('mario') as { play_status: number };
     expect(updatedGame.play_status).toBe(2);
   });
@@ -1932,7 +1980,7 @@ describe('Worker API Logic', () => {
         }),
         lockedEnv,
       );
-      expect(postRes.status).toBe(403);
+      expect(postRes.status).toBe(401);
     });
 
     it('normalizes merchant names, approximate dates, receipt URLs, and canonical game IDs on save, read, and delete', async () => {
@@ -2897,14 +2945,23 @@ describe('Worker API Logic', () => {
          VALUES ('castlevania-jp', 930, 'Japan', 0, 1)`,
       ).run();
 
-      // Second release inserted is USA and owned
+      // Second release inserted is USA and owned by User 1
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
-         VALUES ('castlevania-usa', 930, 'USA', 1, 1)`,
+        `INSERT INTO game_releases (id, game_id, region, is_physical)
+         VALUES ('castlevania-usa', 930, 'USA', 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+         VALUES (1, 'castlevania-usa', 1)`,
       ).run();
 
       const req = new Request(
         'https://collection-tracker.example.com/api/games/castlevania-dominus-test',
+        {
+          headers: {
+            'Cf-Access-Authenticated-User-Email': 'admin@example.com',
+          },
+        },
       );
       const res = await worker.fetch(req, mockEnv);
       expect(res.status).toBe(200);
@@ -3493,6 +3550,185 @@ describe('Worker API Logic', () => {
       } finally {
         fetchSpy.mockRestore();
       }
+    });
+
+    describe('Multi-User & Profile Endpoints', () => {
+      it('GET /api/auth/me returns authenticated user profile when signed in', async () => {
+        const req = new Request(
+          'https://collection-tracker.example.com/api/auth/me',
+          {
+            headers: {
+              'Cf-Access-Authenticated-User-Email': 'admin@example.com',
+            },
+          },
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(200);
+        const data = (await res.json()) as {
+          authenticated: boolean;
+          user: {
+            username: string;
+            email: string;
+            role: string;
+            homeRegion: string;
+          };
+        };
+        expect(data.authenticated).toBe(true);
+        expect(data.user.username).toBe('wesley');
+        expect(data.user.email).toBe('admin@example.com');
+        expect(data.user.role).toBe('admin');
+        expect(data.user.homeRegion).toBe('USA');
+      });
+
+      it('GET /api/auth/me returns provisioned: false when email is not allowlisted', async () => {
+        const req = new Request(
+          'https://collection-tracker.example.com/api/auth/me',
+          {
+            headers: {
+              'Cf-Access-Authenticated-User-Email': 'stranger@example.com',
+            },
+          },
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(200);
+        const data = (await res.json()) as {
+          authenticated: boolean;
+          provisioned?: boolean;
+          email?: string;
+          user: unknown;
+        };
+        expect(data.authenticated).toBe(false);
+        expect(data.provisioned).toBe(false);
+        expect(data.email).toBe('stranger@example.com');
+        expect(data.user).toBeNull();
+      });
+
+      it('GET /api/auth/me returns authenticated: false when unauthenticated', async () => {
+        const req = new Request(
+          'https://collection-tracker.example.com/api/auth/me',
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(200);
+        const data = (await res.json()) as {
+          authenticated: boolean;
+          user: unknown;
+        };
+        expect(data.authenticated).toBe(false);
+        expect(data.user).toBeNull();
+      });
+
+      it('GET /api/user/regions returns allowed home regions', async () => {
+        const req = new Request(
+          'https://collection-tracker.example.com/api/user/regions',
+        );
+        const res = await worker.fetch(req, mockEnv);
+        expect(res.status).toBe(200);
+        const regions = (await res.json()) as string[];
+        expect(regions).toContain('USA');
+        expect(regions).toContain('Japan');
+        expect(regions).toContain('Europe');
+      });
+
+      it('GET /api/user/profile and PUT /api/user/profile manages user settings and homeRegion', async () => {
+        const authHeaders = {
+          'Cf-Access-Authenticated-User-Email': 'admin@example.com',
+          'Content-Type': 'application/json',
+        };
+
+        // 1. GET profile
+        const getReq = new Request(
+          'https://collection-tracker.example.com/api/user/profile',
+          { headers: authHeaders },
+        );
+        const getRes = await worker.fetch(getReq, mockEnv);
+        expect(getRes.status).toBe(200);
+        const initial = (await getRes.json()) as {
+          username: string;
+          homeRegion: string;
+          isPublic: boolean;
+        };
+        expect(initial.username).toBe('wesley');
+        expect(initial.homeRegion).toBe('USA');
+
+        // 2. PUT profile updating homeRegion, isPublic, bio
+        const putReq = new Request(
+          'https://collection-tracker.example.com/api/user/profile',
+          {
+            method: 'PUT',
+            headers: authHeaders,
+            body: JSON.stringify({
+              homeRegion: 'Japan',
+              isPublic: true,
+              bio: 'Retro gaming archivist',
+              displayName: 'Wes M.',
+            }),
+          },
+        );
+        const putRes = await worker.fetch(putReq, mockEnv);
+        expect(putRes.status).toBe(200);
+        const updated = (await putRes.json()) as {
+          homeRegion: string;
+          isPublic: boolean;
+          bio: string;
+          displayName: string;
+        };
+        expect(updated.homeRegion).toBe('Japan');
+        expect(updated.isPublic).toBe(true);
+        expect(updated.bio).toBe('Retro gaming archivist');
+        expect(updated.displayName).toBe('Wes M.');
+
+        // 3. Verify in DB
+        const dbRow = db
+          .prepare(
+            'SELECT home_region, is_public, bio, display_name FROM users WHERE id = 1',
+          )
+          .get() as {
+          home_region: string;
+          is_public: number;
+          bio: string;
+          display_name: string;
+        };
+        expect(dbRow.home_region).toBe('Japan');
+        expect(dbRow.is_public).toBe(1);
+        expect(dbRow.bio).toBe('Retro gaming archivist');
+        expect(dbRow.display_name).toBe('Wes M.');
+      });
+
+      it('GET /api/u/:username returns public profile, and 404 for private or missing profiles', async () => {
+        // Seed private user
+        db.prepare(
+          `
+          INSERT INTO users (id, email, username, role, is_public, home_region, display_name)
+          VALUES (2, 'private@example.com', 'stealth_user', 'user', 0, 'Europe', 'Stealth')
+        `,
+        ).run();
+
+        // Public profile lookup
+        const pubReq = new Request(
+          'https://collection-tracker.example.com/api/u/wesley',
+        );
+        const pubRes = await worker.fetch(pubReq, mockEnv);
+        expect(pubRes.status).toBe(200);
+        const pubData = (await pubRes.json()) as {
+          username: string;
+          homeRegion: string;
+        };
+        expect(pubData.username).toBe('wesley');
+
+        // Private profile lookup by unauthenticated guest -> 404
+        const privReq = new Request(
+          'https://collection-tracker.example.com/api/u/stealth_user',
+        );
+        const privRes = await worker.fetch(privReq, mockEnv);
+        expect(privRes.status).toBe(404);
+
+        // Non-existent profile -> 404
+        const missingReq = new Request(
+          'https://collection-tracker.example.com/api/u/ghost',
+        );
+        const missingRes = await worker.fetch(missingReq, mockEnv);
+        expect(missingRes.status).toBe(404);
+      });
     });
   });
 });

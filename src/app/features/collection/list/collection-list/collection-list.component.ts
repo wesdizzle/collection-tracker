@@ -49,7 +49,6 @@ import {
   ViewMode,
   OwnershipStatus,
   PlayStatus,
-  DEFAULT_USER_HOME_REGION,
   isRegionMatchingHome,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
@@ -1501,7 +1500,9 @@ export class CollectionListComponent
           status === OwnershipStatus.Ordered;
         if (!isOwnedOrOrdered) {
           // For unowned or seeking games, only include if matching user's home region (with regional hierarchy)
-          if (!isRegionMatchingHome(g.region, DEFAULT_USER_HOME_REGION)) {
+          if (
+            !isRegionMatchingHome(g.region, this.collectionService.homeRegion())
+          ) {
             return false;
           }
         }
@@ -2334,7 +2335,12 @@ export class CollectionListComponent
           status === OwnershipStatus.Owned ||
           status === OwnershipStatus.Ordered;
         if (!isOwnedOrOrdered) {
-          if (!isRegionMatchingHome(toy.region, DEFAULT_USER_HOME_REGION)) {
+          if (
+            !isRegionMatchingHome(
+              toy.region,
+              this.collectionService.homeRegion(),
+            )
+          ) {
             return false;
           }
         }
@@ -2971,7 +2977,11 @@ export class CollectionListComponent
     event.preventDefault();
     event.stopPropagation();
 
-    if (!this.collectionService.isAdmin()) {
+    if (this.collectionService.isPublicView()) {
+      return;
+    }
+
+    if (!this.collectionService.isAuthenticated()) {
       this.collectionService.promptAdminLogin();
       return;
     }
@@ -3083,7 +3093,10 @@ export class CollectionListComponent
   onToggleCase(event: MouseEvent, game: Game) {
     event.preventDefault();
     event.stopPropagation();
-    if (!this.collectionService.isAdmin()) {
+    if (this.collectionService.isPublicView()) {
+      return;
+    }
+    if (!this.collectionService.isAuthenticated()) {
       this.collectionService.promptAdminLogin();
       return;
     }
@@ -3102,7 +3115,10 @@ export class CollectionListComponent
   onToggleManual(event: MouseEvent, game: Game) {
     event.preventDefault();
     event.stopPropagation();
-    if (!this.collectionService.isAdmin()) {
+    if (this.collectionService.isPublicView()) {
+      return;
+    }
+    if (!this.collectionService.isAuthenticated()) {
       this.collectionService.promptAdminLogin();
       return;
     }
@@ -3129,7 +3145,10 @@ export class CollectionListComponent
   ): void {
     event.preventDefault();
     event.stopPropagation();
-    if (!this.collectionService.isAdmin()) {
+    if (this.collectionService.isPublicView()) {
+      return;
+    }
+    if (!this.collectionService.isAuthenticated()) {
       this.collectionService.promptAdminLogin();
       return;
     }

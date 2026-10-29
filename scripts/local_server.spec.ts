@@ -211,8 +211,23 @@ describe('Local Server API Logic', () => {
                 price_new INTEGER,
                 price_updated_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin', 'user')),
+                is_public INTEGER NOT NULL DEFAULT 0,
+                home_region TEXT NOT NULL DEFAULT 'USA',
+                display_name TEXT,
+                bio TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO users (id, email, username, role, is_public, home_region, display_name)
+            VALUES (1, 'admin@example.com', 'wesley', 'admin', 1, 'USA', 'Wesley');
             CREATE TABLE IF NOT EXISTS journal_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
                 item_type TEXT NOT NULL CHECK(item_type IN ('game', 'toy')),
                 item_id TEXT NOT NULL,
                 purchase_date TEXT,
@@ -224,7 +239,7 @@ describe('Local Server API Logic', () => {
                 notes TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(item_type, item_id)
+                UNIQUE(user_id, item_type, item_id)
             );
         `);
 

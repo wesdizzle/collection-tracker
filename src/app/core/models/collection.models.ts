@@ -776,3 +776,28 @@ export function normalizeBudgetToken(token: string): string | null {
   }
   return null;
 }
+
+export interface UserProfile {
+  id: number;
+  email: string;
+  username: string;
+  role: 'admin' | 'user';
+  isPublic: boolean;
+  homeRegion: string;
+  displayName: string | null;
+  bio: string | null;
+}
+
+export interface PublicUserProfile {
+  username: string;
+  displayName: string | null;
+  bio: string | null;
+  homeRegion: string;
+}
+
+export interface AuthMeResponse {
+  authenticated: boolean;
+  user: UserProfile | null;
+  provisioned?: boolean;
+  email?: string;
+}

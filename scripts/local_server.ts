@@ -2256,7 +2256,7 @@ export const handleRequest =
 
         const entry = db
           .prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
-          .get(itemType, itemId, canonicalId) as JournalEntryRow | undefined;
+          .get(1, itemType, itemId, canonicalId) as JournalEntryRow | undefined;
 
         res.end(
           JSON.stringify({
@@ -2268,7 +2268,7 @@ export const handleRequest =
 
       // GET /api/journal/entries
       else if (req.method === 'GET' && pathname === '/api/journal/entries') {
-        const entries = db.prepare(JOURNAL_ENTRIES_ALL_QUERY).all();
+        const entries = db.prepare(JOURNAL_ENTRIES_ALL_QUERY).all(1);
         res.end(
           JSON.stringify({
             authorized: true,
@@ -2352,6 +2352,7 @@ export const handleRequest =
         const notes = body.notes ? String(body.notes).trim() || null : null;
 
         db.prepare(UPSERT_JOURNAL_ENTRY_QUERY).run(
+          1,
           itemType,
           canonicalId,
           purchaseDate,
@@ -2364,12 +2365,12 @@ export const handleRequest =
         );
 
         if (canonicalId !== rawItemId) {
-          db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(itemType, rawItemId);
+          db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(1, itemType, rawItemId);
         }
 
         const savedEntry = db
           .prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
-          .get(itemType, canonicalId, canonicalId) as
+          .get(1, itemType, canonicalId, canonicalId) as
           | JournalEntryRow
           | undefined;
 
@@ -2400,9 +2401,9 @@ export const handleRequest =
           }
         }
 
-        db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(itemType, canonicalId);
+        db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(1, itemType, canonicalId);
         if (canonicalId !== rawItemId) {
-          db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(itemType, rawItemId);
+          db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(1, itemType, rawItemId);
         }
 
         res.end(JSON.stringify({ success: true }));
