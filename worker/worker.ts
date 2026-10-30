@@ -87,7 +87,7 @@ import {
   SessionUser,
   signSession,
   verifySession,
-  verifyAccessJwt,
+  extractAccessEmail,
   parseCookies,
   buildSessionCookie,
   clearSessionCookie,
@@ -369,14 +369,17 @@ export async function resolveSessionUser(
     if (user) return user;
   }
 
-  // Cloudflare Access header (direct production or test injection)
-  const accessEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+  // Cloudflare Access header or CF_Authorization cookie
+  const accessEmail = await extractAccessEmail(request, {
+    teamDomain: env.TEAM_DOMAIN,
+    audience: env.ACCESS_AUDIENCE,
+  });
   if (accessEmail) {
     try {
       const user = (await env.DB.prepare(
         'SELECT id, username, role, home_region FROM users WHERE email = ? COLLATE NOCASE',
       )
-        .bind(accessEmail.toLowerCase().trim())
+        .bind(accessEmail)
         .first()) as {
         id: number;
         username: string;
@@ -390,26 +393,6 @@ export async function resolveSessionUser(
           username: user.username,
           role: user.role,
           homeRegion: user.home_region || 'USA',
-        };
-      }
-      if (
-        env.ADMIN_EMAIL &&
-        accessEmail.toLowerCase() === env.ADMIN_EMAIL.toLowerCase()
-      ) {
-        try {
-          await env.DB.prepare(
-            "UPDATE users SET email = ? WHERE id = 1 AND email = '__ADMIN_EMAIL__'",
-          )
-            .bind(accessEmail.toLowerCase().trim())
-            .run();
-        } catch {
-          // Table may not exist yet or DB error
-        }
-        return {
-          id: 1,
-          username: 'wesley',
-          role: 'admin',
-          homeRegion: 'USA',
         };
       }
     } catch {
@@ -2833,38 +2816,20 @@ Disallow: /
         path === '/admin/login' ||
         path.startsWith('/cdn-cgi/access/authorized')
       ) {
-        let candidateEmail: string | null = null;
+        let candidateEmail = await extractAccessEmail(request, {
+          teamDomain: env.TEAM_DOMAIN,
+          audience: env.ACCESS_AUDIENCE,
+        });
 
-        // 1. Verify Access JWT if available and TEAM_DOMAIN is configured
-        const cookies = parseCookies(request.headers.get('Cookie'));
-        const jwt =
-          request.headers.get('Cf-Access-Jwt-Assertion') ||
-          cookies['CF_Authorization'];
-        if (jwt && env.TEAM_DOMAIN) {
-          candidateEmail = await verifyAccessJwt(jwt, {
-            teamDomain: env.TEAM_DOMAIN,
-            audience: env.ACCESS_AUDIENCE,
-            fetchFn: fetch,
-          });
-        }
-
-        // 2. Direct Cf-Access-Authenticated-User-Email header fallback
-        if (!candidateEmail) {
-          candidateEmail = request.headers.get(
-            'Cf-Access-Authenticated-User-Email',
-          );
-        }
-
-        // 3. Localhost loopback development or test environment fallback
+        // Localhost loopback development or test environment fallback
         if (!candidateEmail) {
           candidateEmail =
             env.DEV_AUTH_EMAIL ||
             env.ADMIN_EMAIL ||
             (isLoopbackRequest(url) ? 'wesley@example.com' : null);
-        }
-
-        if (candidateEmail) {
-          candidateEmail = candidateEmail.toLowerCase().trim();
+          if (candidateEmail) {
+            candidateEmail = candidateEmail.toLowerCase().trim();
+          }
         }
 
         const userRow = candidateEmail

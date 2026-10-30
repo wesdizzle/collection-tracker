@@ -1,6 +1,6 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CollectionService } from '../../core/services/collection.service';
 import { IconComponent } from '../../shared/components/icon/icon.component';
 
@@ -41,12 +41,20 @@ import { IconComponent } from '../../shared/components/icon/icon.component';
                 is currently invite-only.
               </p>
             </div>
+            <button
+              type="button"
+              class="alert-close-btn"
+              (click)="dismissAlert()"
+              aria-label="Dismiss banner"
+            >
+              <app-icon name="close" [size]="16" />
+            </button>
           </div>
         }
 
         <div class="cta-actions">
           <a
-            href="/api/auth/login"
+            href="/admin/login"
             class="btn btn-primary btn-lg"
             data-testid="landing-btn-login"
           >
@@ -235,6 +243,24 @@ import { IconComponent } from '../../shared/components/icon/icon.component';
         color: #cbd5e1;
       }
 
+      .alert-close-btn {
+        margin-left: auto;
+        background: transparent;
+        border: none;
+        color: #cbd5e1;
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 0.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .alert-close-btn:hover {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
       .features-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -292,7 +318,8 @@ import { IconComponent } from '../../shared/components/icon/icon.component';
 })
 export class LandingPageComponent implements OnInit {
   private route = inject(ActivatedRoute);
-  private collectionService = inject(CollectionService);
+  private router = inject(Router);
+  public readonly collectionService = inject(CollectionService);
 
   public readonly accountMissing = signal<boolean>(false);
 
@@ -301,5 +328,18 @@ export class LandingPageComponent implements OnInit {
     if (qp['account'] === 'missing') {
       this.accountMissing.set(true);
     }
+    if (this.collectionService.currentUser()) {
+      this.router.navigate(['/collection/games'], { replaceUrl: true });
+    }
+  }
+
+  public dismissAlert(): void {
+    this.accountMissing.set(false);
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { account: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 }

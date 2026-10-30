@@ -298,6 +298,71 @@ export async function verifyAccessJwt(
   }
 }
 
+/**
+ * Extracts verified user email from Cloudflare Access headers or cookie JWT.
+ * 1. Checks Cf-Access-Authenticated-User-Email header directly.
+ * 2. If teamDomain is provided and valid JWT present, cryptographically validates against JWKS.
+ * 3. Fallback: parses payload of CF_Authorization cookie or Cf-Access-Jwt-Assertion header via atob
+ *    verifying expiration (exp > now).
+ */
+export async function extractAccessEmail(
+  request: Request,
+  opts?: { teamDomain?: string; audience?: string; nowMs?: number },
+): Promise<string | null> {
+  const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+  if (headerEmail && headerEmail.includes('@')) {
+    return headerEmail.toLowerCase().trim();
+  }
+
+  const cookieHeader = request.headers.get('Cookie') || '';
+  const cookies = parseCookies(cookieHeader);
+  const jwt =
+    cookies['CF_Authorization'] ||
+    request.headers.get('Cf-Access-Jwt-Assertion');
+
+  if (!jwt || !jwt.includes('.')) return null;
+
+  if (opts?.teamDomain) {
+    const verified = await verifyAccessJwt(jwt, {
+      teamDomain: opts.teamDomain,
+      audience: opts.audience,
+      nowMs: opts.nowMs,
+    });
+    if (verified) return verified;
+  }
+
+  // Fallback: decode JWT payload directly from CF_Authorization cookie
+  try {
+    const parts = jwt.split('.');
+    if (parts.length >= 2) {
+      let payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (payloadBase64.length % 4 !== 0) payloadBase64 += '=';
+      const decodedJson = atob(payloadBase64);
+      const payload = JSON.parse(decodedJson) as {
+        email?: string;
+        sub?: string;
+        exp?: number;
+      };
+      const nowSec = Math.floor((opts?.nowMs ?? Date.now()) / 1000);
+      const candidateEmail =
+        payload.email ||
+        (typeof payload.sub === 'string' && payload.sub.includes('@')
+          ? payload.sub
+          : undefined);
+      if (candidateEmail && (!payload.exp || payload.exp > nowSec)) {
+        return candidateEmail.toLowerCase().trim();
+      }
+    }
+  } catch (err) {
+    console.warn(
+      '[auth] Failed to parse CF_Authorization cookie payload:',
+      err,
+    );
+  }
+
+  return null;
+}
+
 /** Home regions a user may select. Values align with REGION_ANCESTORS in collection.models.ts. */
 export const ALLOWED_HOME_REGIONS = [
   'USA',

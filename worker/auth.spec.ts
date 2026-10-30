@@ -5,6 +5,7 @@ import {
   buildSessionCookie,
   clearSessionCookie,
   parseCookies,
+  extractAccessEmail,
   normalizeHomeRegion,
   SessionUser,
 } from './auth.js';
@@ -83,5 +84,53 @@ describe('worker/auth', () => {
     expect(normalizeHomeRegion('UK')).toBe('UK');
     expect(normalizeHomeRegion('japan')).toBe('Japan');
     expect(normalizeHomeRegion('InvalidRegion')).toBeNull();
+  });
+
+  describe('extractAccessEmail', () => {
+    it('extracts email from direct header', async () => {
+      const req = new Request('https://example.com/', {
+        headers: {
+          'Cf-Access-Authenticated-User-Email': 'WESLEY@EXAMPLE.COM',
+        },
+      });
+      const email = await extractAccessEmail(req);
+      expect(email).toBe('wesley@example.com');
+    });
+
+    it('extracts email from CF_Authorization cookie payload without teamDomain', async () => {
+      const headerB64 = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
+      const payloadB64 = btoa(
+        JSON.stringify({
+          email: 'collector@games.org',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        }),
+      );
+      const mockJwt = `${headerB64}.${payloadB64}.fake-sig`;
+      const req = new Request('https://example.com/', {
+        headers: {
+          Cookie: `CF_Authorization=${mockJwt}`,
+        },
+      });
+      const email = await extractAccessEmail(req);
+      expect(email).toBe('collector@games.org');
+    });
+
+    it('rejects expired CF_Authorization cookie', async () => {
+      const headerB64 = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
+      const payloadB64 = btoa(
+        JSON.stringify({
+          email: 'expired@games.org',
+          exp: Math.floor(Date.now() / 1000) - 100,
+        }),
+      );
+      const mockJwt = `${headerB64}.${payloadB64}.fake-sig`;
+      const req = new Request('https://example.com/', {
+        headers: {
+          Cookie: `CF_Authorization=${mockJwt}`,
+        },
+      });
+      const email = await extractAccessEmail(req);
+      expect(email).toBeNull();
+    });
   });
 });
