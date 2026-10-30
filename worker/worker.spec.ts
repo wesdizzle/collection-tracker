@@ -3148,6 +3148,10 @@ describe('Worker API Logic', () => {
          VALUES (101, 'toy-unpriced', 'Unpriced Toy', 'amiibo', 1, NULL, NULL),
                 (102, 'toy-priced', 'Priced Toy', 'amiibo', 1, 1500, '2026-09-01T00:00:00Z')`,
       ).run();
+      db.prepare(
+        `INSERT INTO user_toys (user_id, toy_id, ownership_status)
+         VALUES (1, 'toy-unpriced', 1), (1, 'toy-priced', 1)`,
+      ).run();
 
       const mockClient = {
         get: vi.fn(async () => {
@@ -3379,6 +3383,12 @@ describe('Worker API Logic', () => {
                 ('rel-502', 502, 1),
                 ('rel-503', 503, 1)`,
       ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+         VALUES (1, 'rel-501', 1),
+                (1, 'rel-502', 1),
+                (1, 'rel-503', 1)`,
+      ).run();
 
       // Set initial cursor to 500 so test runs specifically over games 501, 502, 503
       db.prepare(
@@ -3434,6 +3444,12 @@ describe('Worker API Logic', () => {
          VALUES (601, 'toy-cursor-1', 'Cursor Toy 1', 'amiibo', 1),
                 (602, 'toy-cursor-2', 'Cursor Toy 2', 'amiibo', 1),
                 (603, 'toy-cursor-3', 'Cursor Toy 3', 'amiibo', 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_toys (user_id, toy_id, ownership_status)
+         VALUES (1, 'toy-cursor-1', 1),
+                (1, 'toy-cursor-2', 1),
+                (1, 'toy-cursor-3', 1)`,
       ).run();
 
       // Set initial cursor to 600 so test runs specifically over toys 601, 602, 603

@@ -3604,14 +3604,16 @@ Disallow: /
           game.region || (releases && releases[0]?.region),
         );
 
+        const currentUserId = sessionUser ? sessionUser.id : 1;
+
         await env.DB.prepare(
           `
           INSERT INTO games (
-            id, title, platform_id, queued, sort_index, image_url, play_status,
+            id, title, platform_id, sort_index, image_url,
             igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
             physical_status, verification_tier, barcode, canonical_series
           ) VALUES (
-            ?, ?, ?, 0, ?, ?, ?,
+            ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?, ?, 1,
             ?, ?, ?, ?
           )
@@ -3623,7 +3625,6 @@ Disallow: /
             game.platform_id,
             sortIndex,
             game.image_url || null,
-            game.play_status || 0,
             game.igdb_id || null,
             game.igdb_url || null,
             game.summary || null,
@@ -3646,11 +3647,24 @@ Disallow: /
 
         const finalStableId = insertedGame?.stable_id || 0;
 
+        if (game.play_status) {
+          await env.DB.prepare(
+            `INSERT INTO user_games (user_id, game_id, play_status, queued, updated_at)
+             VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
+             ON CONFLICT(user_id, game_id) DO UPDATE SET
+               play_status = excluded.play_status,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+            .bind(currentUserId, finalStableId, game.play_status)
+            .run();
+        }
+
         if (game.platform_id === 0) {
           // Virtual Platform 0 represents untracked / wishlist games with 0 releases.
           // Do not create default releases.
         } else if (releases && releases.length > 0) {
           const statements = [];
+          const userStatements = [];
           const usedRelSlugs = new Set<string>();
           for (let i = 0; i < releases.length; i++) {
             const rel = releases[i];
@@ -3666,9 +3680,9 @@ Disallow: /
               env.DB.prepare(
                 `
                 INSERT OR REPLACE INTO game_releases (
-                  id, game_id, region, variants, also_released_as, rom_name, rom_crc, ownership_status, backup_status, release_date,
+                  id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date,
                   canonical_release_id, barcode, is_physical
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `,
               ).bind(
                 baseRelSlug,
@@ -3678,37 +3692,63 @@ Disallow: /
                 rel.also_released_as || null,
                 rel.rom_name || null,
                 rel.rom_crc || null,
-                rel.ownership_status ?? (game.ownership_status || 0),
-                rel.backup_status ?? 0,
                 rel.release_date || game.release_date || null,
                 rel.canonical_release_id || null,
                 rel.barcode || null,
                 rel.is_physical ?? 1,
               ),
             );
+
+            const ownStatus =
+              rel.ownership_status ?? (game.ownership_status || 0);
+            const bkpStatus = rel.backup_status ?? 0;
+            if (ownStatus > 0 || bkpStatus > 0) {
+              userStatements.push(
+                env.DB.prepare(
+                  `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(user_id, release_id) DO UPDATE SET
+                     ownership_status = excluded.ownership_status,
+                     backup_status = excluded.backup_status`,
+                ).bind(currentUserId, baseRelSlug, ownStatus, bkpStatus),
+              );
+            }
           }
           if (statements.length > 0) {
             await env.DB.batch(statements);
+          }
+          if (userStatements.length > 0) {
+            await env.DB.batch(userStatements);
           }
         } else {
           const defaultRelId = `${candidateGameId}-default`;
           await env.DB.prepare(
             `
             INSERT OR REPLACE INTO game_releases (
-              id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date, is_physical
-            ) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)
+              id, game_id, region, variants, rom_name, rom_crc, release_date, is_physical
+            ) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?)
           `,
           )
             .bind(
               defaultRelId,
               finalStableId,
               gameRegion,
-              game.ownership_status || 0,
-              0,
               game.release_date || null,
               game.physical_status === 'digital_only' ? 0 : 1,
             )
             .run();
+
+          const ownStatus = game.ownership_status || 0;
+          if (ownStatus > 0) {
+            await env.DB.prepare(
+              `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+               VALUES (?, ?, ?, 0)
+               ON CONFLICT(user_id, release_id) DO UPDATE SET
+                 ownership_status = excluded.ownership_status`,
+            )
+              .bind(currentUserId, defaultRelId, ownStatus)
+              .run();
+          }
         }
 
         invalidateSeriesScanCache();
@@ -3768,24 +3808,36 @@ Disallow: /
           .bind(toy.amiibo_id || candidateId, candidateId, toy.name)
           .first()) as { id: string; stable_id: number } | null;
 
+        const currentUserId = sessionUser ? sessionUser.id : 1;
+
         if (existingToy) {
           await env.DB.prepare(
             `UPDATE toys 
-             SET ownership_status = COALESCE(?, ownership_status),
-                 verified = 1,
+             SET verified = 1,
                  image_url = COALESCE(?, image_url),
                  metadata_json = COALESCE(?, metadata_json),
                  amiibo_id = COALESCE(?, amiibo_id)
              WHERE stable_id = ?`,
           )
             .bind(
-              toy.ownership_status ?? 1,
               toy.image_url || null,
               toy.metadata_json || null,
               toy.amiibo_id || null,
               existingToy.stable_id,
             )
             .run();
+
+          const ownStatus = toy.ownership_status ?? 1;
+          await env.DB.prepare(
+            `INSERT INTO user_toys (user_id, toy_id, ownership_status, updated_at)
+             VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(user_id, toy_id) DO UPDATE SET
+               ownership_status = excluded.ownership_status,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+            .bind(currentUserId, existingToy.id, ownStatus)
+            .run();
+
           return Response.json({ success: true, id: existingToy.id });
         }
 
@@ -3805,10 +3857,10 @@ Disallow: /
           `
           INSERT INTO toys (
             id, name, line, series_name, series_line, series, type, release_date,
-            ownership_status, image_url, amiibo_id, verified, metadata_json, sort_index, region
+            image_url, amiibo_id, verified, metadata_json, sort_index, region
           ) VALUES (
             ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, 1, ?, ?, ?
+            ?, ?, 1, ?, ?, ?
           )
         `,
         )
@@ -3821,13 +3873,23 @@ Disallow: /
             toy.series || toy.series_name || 'Other',
             toy.type || 'Figure',
             toy.release_date || null,
-            toy.ownership_status ?? 1,
             toy.image_url || null,
             toy.amiibo_id || null,
             toy.metadata_json || null,
             sortIndex,
             toy.region || 'USA',
           )
+          .run();
+
+        const ownStatus = toy.ownership_status ?? 1;
+        await env.DB.prepare(
+          `INSERT INTO user_toys (user_id, toy_id, ownership_status, updated_at)
+           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(user_id, toy_id) DO UPDATE SET
+             ownership_status = excluded.ownership_status,
+             updated_at = CURRENT_TIMESTAMP`,
+        )
+          .bind(currentUserId, candidateId, ownStatus)
           .run();
 
         await invalidateEdgeApiCache(request.url);
@@ -4705,9 +4767,10 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
   }
 
   const candidateRows = await env.DB.prepare(
-    `SELECT g.stable_id, g.id, g.title, g.platform_id, COALESCE(r.ownership_status, 0) as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, COALESCE(ugr.ownership_status, 0) as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
      FROM games g
-     LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
+     LEFT JOIN game_releases r ON r.game_id = g.stable_id
+     LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id`,
   ).all<{
     stable_id: number;
     id: string;
@@ -5198,11 +5261,12 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
   const placeholders = platformsWithNoPlat.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
-            MAX(COALESCE(r.ownership_status, 0)) AS ownership_status,
-            MAX(CASE WHEN r.ownership_status = 1 THEN 1 ELSE 0 END) AS has_owned_physical,
+            MAX(COALESCE(ugr.ownership_status, 0)) AS ownership_status,
+            MAX(CASE WHEN ugr.ownership_status = 1 THEN 1 ELSE 0 END) AS has_owned_physical,
             GROUP_CONCAT(COALESCE(r.variants, '')) AS owned_variants
      FROM games g
      LEFT JOIN game_releases r ON r.game_id = g.stable_id
+     LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id
      WHERE g.platform_id IN (${placeholders})
      GROUP BY g.stable_id`,
   )
@@ -5343,14 +5407,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
           statements.push(
             env.DB.prepare(
               `INSERT OR IGNORE INTO game_releases (
-                 id, game_id, region, variants, ownership_status, backup_status, release_date
-               ) VALUES (?, ?, 'USA', ?, ?, 0, NULL)`,
-            ).bind(
-              relId,
-              match.stable_id,
-              po.edition || 'Standard Physical',
-              match.ownership_status || 2, // Retain Seeking/Ordered
-            ),
+                 id, game_id, region, variants, release_date
+               ) VALUES (?, ?, 'USA', ?, NULL)`,
+            ).bind(relId, match.stable_id, po.edition || 'Standard Physical'),
           );
         } else {
           statements.push(
@@ -6129,7 +6188,7 @@ export async function syncWorkerGameyePricing(
       const res = await env.DB.prepare(
         `SELECT stable_id, id, name, line, series_id, type, gameye_id, price_loose, price_cib, price_new, price_updated_at
          FROM toys
-         WHERE ownership_status > 0 AND stable_id > ?
+         WHERE EXISTS (SELECT 1 FROM user_toys ut WHERE ut.toy_id = toys.id AND ut.ownership_status > 0) AND stable_id > ?
          ORDER BY stable_id ASC
          LIMIT ?`,
       )
@@ -6154,7 +6213,7 @@ export async function syncWorkerGameyePricing(
         const wrapRes = await env.DB.prepare(
           `SELECT stable_id, id, name, line, series_id, type, gameye_id, price_loose, price_cib, price_new, price_updated_at
            FROM toys
-           WHERE ownership_status > 0 AND stable_id > 0
+           WHERE EXISTS (SELECT 1 FROM user_toys ut WHERE ut.toy_id = toys.id AND ut.ownership_status > 0) AND stable_id > 0
            ORDER BY stable_id ASC
            LIMIT ?`,
         )
@@ -6320,7 +6379,8 @@ export async function syncWorkerGameyePricing(
         `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
                 g.price_loose, g.price_cib, g.price_new, g.price_updated_at
          FROM games g
-         JOIN game_releases r ON r.game_id = g.stable_id AND r.ownership_status > 0
+         JOIN game_releases r ON r.game_id = g.stable_id
+         JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.ownership_status > 0
          WHERE g.stable_id > ?
          GROUP BY g.stable_id
          ORDER BY g.stable_id ASC
@@ -6348,7 +6408,8 @@ export async function syncWorkerGameyePricing(
           `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
                   g.price_loose, g.price_cib, g.price_new, g.price_updated_at
            FROM games g
-           JOIN game_releases r ON r.game_id = g.stable_id AND r.ownership_status > 0
+           JOIN game_releases r ON r.game_id = g.stable_id
+           JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.ownership_status > 0
            WHERE g.stable_id > 0
            GROUP BY g.stable_id
            ORDER BY g.stable_id ASC

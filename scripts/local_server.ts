@@ -263,32 +263,81 @@ export const handleRequest =
               ? maxSortIndexRow.max_idx
               : 0) + 1;
 
-          db.prepare(
-            `
-            INSERT INTO toys (
-              id, name, line, series_name, series_line, series, type, release_date,
-              ownership_status, image_url, amiibo_id, verified, metadata_json, sort_index, region
-            ) VALUES (
-              ?, ?, ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, 1, ?, ?, ?
-            )
-          `,
-          ).run(
-            candidateId,
-            toy.name,
-            toy.line || 'amiibo',
-            toy.series_name || 'Other',
-            toy.line || 'amiibo',
-            toy.series || toy.series_name || 'Other',
-            toy.type || 'Figure',
-            toy.release_date || null,
-            toy.ownership_status ?? 1,
-            toy.image_url || null,
-            toy.amiibo_id || null,
-            toy.metadata_json || null,
-            sortIndex,
-            toy.region || 'USA',
+          const toyColumns = new Set(
+            (
+              db.prepare('PRAGMA table_info(toys)').all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
           );
+          const hasUserToys = !!db
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_toys'",
+            )
+            .get();
+
+          if (toyColumns.has('ownership_status')) {
+            db.prepare(
+              `
+              INSERT INTO toys (
+                id, name, line, series_name, series_line, series, type, release_date,
+                ownership_status, image_url, amiibo_id, verified, metadata_json, sort_index, region
+              ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, 1, ?, ?, ?
+              )
+            `,
+            ).run(
+              candidateId,
+              toy.name,
+              toy.line || 'amiibo',
+              toy.series_name || 'Other',
+              toy.line || 'amiibo',
+              toy.series || toy.series_name || 'Other',
+              toy.type || 'Figure',
+              toy.release_date || null,
+              toy.ownership_status ?? 1,
+              toy.image_url || null,
+              toy.amiibo_id || null,
+              toy.metadata_json || null,
+              sortIndex,
+              toy.region || 'USA',
+            );
+          } else {
+            db.prepare(
+              `
+              INSERT INTO toys (
+                id, name, line, series_name, series_line, series, type, release_date,
+                image_url, amiibo_id, verified, metadata_json, sort_index, region
+              ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, 1, ?, ?, ?
+              )
+            `,
+            ).run(
+              candidateId,
+              toy.name,
+              toy.line || 'amiibo',
+              toy.series_name || 'Other',
+              toy.line || 'amiibo',
+              toy.series || toy.series_name || 'Other',
+              toy.type || 'Figure',
+              toy.release_date || null,
+              toy.image_url || null,
+              toy.amiibo_id || null,
+              toy.metadata_json || null,
+              sortIndex,
+              toy.region || 'USA',
+            );
+          }
+
+          if (hasUserToys) {
+            db.prepare(
+              `INSERT INTO user_toys (user_id, toy_id, ownership_status)
+               VALUES (1, ?, ?)
+               ON CONFLICT(user_id, toy_id) DO UPDATE SET ownership_status = excluded.ownership_status`,
+            ).run(candidateId, toy.ownership_status ?? 1);
+          }
 
           res.end(JSON.stringify({ success: true, id: candidateId }));
         } catch (err: unknown) {
@@ -329,6 +378,60 @@ export const handleRequest =
             throw new Error(`Invalid field: ${field}`);
           }
 
+          const gameColumns = new Set(
+            (
+              db.prepare('PRAGMA table_info(games)').all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
+          );
+          const releaseColumns = new Set(
+            (
+              db.prepare('PRAGMA table_info(game_releases)').all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
+          );
+          const toyColumns = new Set(
+            (
+              db.prepare('PRAGMA table_info(toys)').all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
+          );
+          const hasUserGames = !!db
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_games'",
+            )
+            .get();
+          const hasUserGameReleases = !!db
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_game_releases'",
+            )
+            .get();
+          const hasUserToys = !!db
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_toys'",
+            )
+            .get();
+
+          const updateReleaseField = (relId: string) => {
+            if (releaseColumns.has(field)) {
+              db.prepare(
+                `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
+              ).run(status, relId);
+            }
+            if (hasUserGameReleases) {
+              db.prepare(
+                `
+                INSERT INTO user_game_releases (user_id, release_id, ${field})
+                VALUES (1, ?, ?)
+                ON CONFLICT(user_id, release_id) DO UPDATE SET ${field} = excluded.${field}
+              `,
+              ).run(relId, status);
+            }
+          };
+
           if (type === 'game') {
             if (field === 'play_status') {
               // play_status: update games table
@@ -349,9 +452,20 @@ export const handleRequest =
               if (stableId === null) {
                 throw new Error(`Could not find game/release with ID: ${id}`);
               }
-              db.prepare(
-                'UPDATE games SET play_status = ? WHERE stable_id = ?',
-              ).run(status, stableId);
+              if (gameColumns.has('play_status')) {
+                db.prepare(
+                  'UPDATE games SET play_status = ? WHERE stable_id = ?',
+                ).run(status, stableId);
+              }
+              if (hasUserGames) {
+                db.prepare(
+                  `
+                  INSERT INTO user_games (user_id, game_id, play_status)
+                  VALUES (1, ?, ?)
+                  ON CONFLICT(user_id, game_id) DO UPDATE SET play_status = excluded.play_status
+                `,
+                ).run(stableId, status);
+              }
             } else {
               // ownership_status, has_case, has_manual, or backup_status: update game_releases table
               const release = db
@@ -394,19 +508,14 @@ export const handleRequest =
                       getRomGroupingKey(r.rom_name) === targetKey,
                   );
 
-                  const updateStmt = db.prepare(
-                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
-                  );
                   db.transaction(() => {
                     for (const r of matchingReleases) {
-                      updateStmt.run(status, r.id);
+                      updateReleaseField(r.id);
                     }
                   })();
                 } else {
                   // backup_status: update only the specific targeted disc release to allow individual tracking
-                  db.prepare(
-                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
-                  ).run(status, id);
+                  updateReleaseField(id);
                 }
               } else {
                 // Not a release ID; find game first by game ID
@@ -432,41 +541,54 @@ export const handleRequest =
                     field === 'has_manual'
                   ) {
                     // Update all releases of this game
-                    const updateStmt = db.prepare(
-                      `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
-                    );
                     db.transaction(() => {
                       for (const r of releases) {
-                        updateStmt.run(status, r.id);
+                        updateReleaseField(r.id);
                       }
                     })();
                   } else {
-                    db.prepare(
-                      `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
-                    ).run(status, releases[0].id);
+                    updateReleaseField(releases[0].id);
                   }
                 } else {
                   // Create default virtual release if it somehow doesn't exist
                   const releaseId = `${id}-default`;
-                  db.prepare(
-                    `
-                    INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, has_case, has_manual)
-                    VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, 0, 0)
-                  `,
-                  ).run(releaseId, game.stable_id, game.region);
-                  db.prepare(
-                    `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
-                  ).run(status, releaseId);
+                  if (releaseColumns.has('ownership_status')) {
+                    db.prepare(
+                      `
+                      INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, has_case, has_manual)
+                      VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, 0, 0)
+                    `,
+                    ).run(releaseId, game.stable_id, game.region);
+                  } else {
+                    db.prepare(
+                      `
+                      INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc)
+                      VALUES (?, ?, ?, NULL, NULL, NULL)
+                    `,
+                    ).run(releaseId, game.stable_id, game.region);
+                  }
+                  updateReleaseField(releaseId);
                 }
               }
             }
             console.log(`Updated game status: ${id} -> ${field}=${status}`);
           } else {
             // Toys update
-            db.prepare(`UPDATE toys SET ${field} = ? WHERE id = ?`).run(
-              status,
-              id,
-            );
+            if (toyColumns.has(field)) {
+              db.prepare(`UPDATE toys SET ${field} = ? WHERE id = ?`).run(
+                status,
+                id,
+              );
+            }
+            if (hasUserToys && field === 'ownership_status') {
+              db.prepare(
+                `
+                INSERT INTO user_toys (user_id, toy_id, ownership_status)
+                VALUES (1, ?, ?)
+                ON CONFLICT(user_id, toy_id) DO UPDATE SET ownership_status = excluded.ownership_status
+              `,
+              ).run(id, status);
+            }
             console.log(`Updated toy status: ${id} -> ${field}=${status}`);
           }
 
@@ -1031,83 +1153,206 @@ export const handleRequest =
             game.region || (releases && releases[0]?.region),
           );
 
+          const gameColumns = new Set(
+            (
+              db.prepare('PRAGMA table_info(games)').all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
+          );
+          const releaseColumns = new Set(
+            (
+              db.prepare('PRAGMA table_info(game_releases)').all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
+          );
+          const hasUserGames = !!db
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_games'",
+            )
+            .get();
+          const hasUserGameReleases = !!db
+            .prepare(
+              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_game_releases'",
+            )
+            .get();
+
           let stableId: number;
           db.transaction(() => {
-            const insertGame = db.prepare(`
-              INSERT INTO games (
-                id, title, platform_id, queued, sort_index, image_url, play_status,
-                igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
-                physical_status, verification_tier, barcode, canonical_series
-              ) VALUES (
-                ?, ?, ?, 0, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, 1,
-                ?, ?, ?, ?
-              )
-            `);
+            if (gameColumns.has('play_status')) {
+              const insertGame = db.prepare(`
+                INSERT INTO games (
+                  id, title, platform_id, queued, sort_index, image_url, play_status,
+                  igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
+                  physical_status, verification_tier, barcode, canonical_series
+                ) VALUES (
+                  ?, ?, ?, 0, ?, ?, ?,
+                  ?, ?, ?, ?, ?, ?, ?, 1,
+                  ?, ?, ?, ?
+                )
+              `);
 
-            const result = insertGame.run(
-              newGameId,
-              game.title,
-              game.platform_id,
-              sortIndex,
-              game.image_url || null,
-              game.play_status || 0,
-              game.igdb_id || null,
-              game.igdb_url || null,
-              game.summary || null,
-              game.genres || null,
-              gameRegion,
-              game.collections || null,
-              game.franchises || null,
-              game.physical_status || 'unverified',
-              game.verification_tier || 0,
-              game.barcode || null,
-              canonicalSeries,
-            );
+              const result = insertGame.run(
+                newGameId,
+                game.title,
+                game.platform_id,
+                sortIndex,
+                game.image_url || null,
+                game.play_status || 0,
+                game.igdb_id || null,
+                game.igdb_url || null,
+                game.summary || null,
+                game.genres || null,
+                gameRegion,
+                game.collections || null,
+                game.franchises || null,
+                game.physical_status || 'unverified',
+                game.verification_tier || 0,
+                game.barcode || null,
+                canonicalSeries,
+              );
+              stableId = Number(result.lastInsertRowid);
+            } else {
+              const insertGame = db.prepare(`
+                INSERT INTO games (
+                  id, title, platform_id, sort_index, image_url,
+                  igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
+                  physical_status, verification_tier, barcode, canonical_series
+                ) VALUES (
+                  ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?, ?, ?, 1,
+                  ?, ?, ?, ?
+                )
+              `);
 
-            stableId = Number(result.lastInsertRowid);
+              const result = insertGame.run(
+                newGameId,
+                game.title,
+                game.platform_id,
+                sortIndex,
+                game.image_url || null,
+                game.igdb_id || null,
+                game.igdb_url || null,
+                game.summary || null,
+                game.genres || null,
+                gameRegion,
+                game.collections || null,
+                game.franchises || null,
+                game.physical_status || 'unverified',
+                game.verification_tier || 0,
+                game.barcode || null,
+                canonicalSeries,
+              );
+              stableId = Number(result.lastInsertRowid);
+            }
+
+            if (hasUserGames && game.play_status) {
+              db.prepare(
+                `INSERT INTO user_games (user_id, game_id, play_status, queued)
+                 VALUES (1, ?, ?, 0)
+                 ON CONFLICT(user_id, game_id) DO UPDATE SET play_status = excluded.play_status`,
+              ).run(stableId, game.play_status);
+            }
 
             if (releases && releases.length > 0) {
-              const insertRelease = db.prepare(`
-                INSERT INTO game_releases (
-                  id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
-                  canonical_release_id, barcode, is_physical
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `);
+              const hasRelOwnership = releaseColumns.has('ownership_status');
+              const insertRelease = hasRelOwnership
+                ? db.prepare(`
+                    INSERT INTO game_releases (
+                      id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
+                      canonical_release_id, barcode, is_physical
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  `)
+                : db.prepare(`
+                    INSERT INTO game_releases (
+                      id, game_id, region, variants, rom_name, rom_crc, release_date,
+                      canonical_release_id, barcode, is_physical
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  `);
 
               for (const rel of releases) {
                 const baseRelSlug = `${newGameId}-${rel.rom_crc || slugify(rel.rom_name || 'release')}`;
                 const uniqueRelId = generateUniqueReleaseId(baseRelSlug);
 
-                insertRelease.run(
-                  uniqueRelId,
-                  stableId,
-                  rel.region ? normalizeRegionStr(rel.region) : null,
-                  rel.variants || null,
-                  rel.rom_name || null,
-                  rel.rom_crc || null,
-                  rel.ownership_status || 0,
-                  rel.backup_status || 0,
-                  rel.release_date || null,
-                  rel.canonical_release_id || null,
-                  rel.barcode || null,
-                  rel.is_physical ?? 1,
-                );
+                if (hasRelOwnership) {
+                  insertRelease.run(
+                    uniqueRelId,
+                    stableId,
+                    rel.region ? normalizeRegionStr(rel.region) : null,
+                    rel.variants || null,
+                    rel.rom_name || null,
+                    rel.rom_crc || null,
+                    rel.ownership_status || 0,
+                    rel.backup_status || 0,
+                    rel.release_date || null,
+                    rel.canonical_release_id || null,
+                    rel.barcode || null,
+                    rel.is_physical ?? 1,
+                  );
+                } else {
+                  insertRelease.run(
+                    uniqueRelId,
+                    stableId,
+                    rel.region ? normalizeRegionStr(rel.region) : null,
+                    rel.variants || null,
+                    rel.rom_name || null,
+                    rel.rom_crc || null,
+                    rel.release_date || null,
+                    rel.canonical_release_id || null,
+                    rel.barcode || null,
+                    rel.is_physical ?? 1,
+                  );
+                }
+
+                if (
+                  hasUserGameReleases &&
+                  ((rel.ownership_status !== undefined &&
+                    rel.ownership_status > 0) ||
+                    (rel.backup_status !== undefined && rel.backup_status > 0))
+                ) {
+                  db.prepare(
+                    `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+                     VALUES (1, ?, ?, ?, 0, 0)
+                     ON CONFLICT(user_id, release_id) DO UPDATE SET
+                       ownership_status = excluded.ownership_status,
+                       backup_status = excluded.backup_status`,
+                  ).run(
+                    uniqueRelId,
+                    rel.ownership_status || 0,
+                    rel.backup_status || 0,
+                  );
+                }
               }
             } else {
               const virtualId = `${newGameId}-default`;
-              db.prepare(
-                `
-                INSERT INTO game_releases (
-                  id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date, is_physical
-                ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, NULL, ?)
-              `,
-              ).run(
-                virtualId,
-                stableId,
-                gameRegion,
-                game.physical_status === 'digital_only' ? 0 : 1,
-              );
+              if (releaseColumns.has('ownership_status')) {
+                db.prepare(
+                  `
+                  INSERT INTO game_releases (
+                    id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date, is_physical
+                  ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, NULL, ?)
+                `,
+                ).run(
+                  virtualId,
+                  stableId,
+                  gameRegion,
+                  game.physical_status === 'digital_only' ? 0 : 1,
+                );
+              } else {
+                db.prepare(
+                  `
+                  INSERT INTO game_releases (
+                    id, game_id, region, variants, rom_name, rom_crc, release_date, is_physical
+                  ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, ?)
+                `,
+                ).run(
+                  virtualId,
+                  stableId,
+                  gameRegion,
+                  game.physical_status === 'digital_only' ? 0 : 1,
+                );
+              }
             }
           })();
 
