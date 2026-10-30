@@ -2769,11 +2769,12 @@ Disallow: /
         }
       }
 
-      // Endpoint: GET /api/auth/login or GET /api/admin/login or GET /admin/login
+      // Endpoint: GET /api/auth/login, /api/admin/login, /admin/login, or /cdn-cgi/access/authorized
       else if (
         path === '/api/auth/login' ||
         path === '/api/admin/login' ||
-        path === '/admin/login'
+        path === '/admin/login' ||
+        path.startsWith('/cdn-cgi/access/authorized')
       ) {
         // Collect request diagnostics for debugging Cloudflare Access edge payloads
         const headerNames: string[] = [];
