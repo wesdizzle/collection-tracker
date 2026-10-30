@@ -2763,12 +2763,11 @@ Disallow: /
         }
       }
 
-      // Endpoint: GET /api/auth/login or GET /api/admin/login or GET /admin/login or /cdn-cgi/access/authorized
+      // Endpoint: GET /api/auth/login or GET /api/admin/login or GET /admin/login
       else if (
         path === '/api/auth/login' ||
         path === '/api/admin/login' ||
-        path === '/admin/login' ||
-        path.startsWith('/cdn-cgi/access/authorized')
+        path === '/admin/login'
       ) {
         let candidateEmail = await extractAccessEmail(request, {
           teamDomain: env.TEAM_DOMAIN,
@@ -2802,10 +2801,15 @@ Disallow: /
 
         if (!userRow) {
           // User is not in allowlist! Redirect to landing page with account=missing
-          return Response.redirect(
-            new URL('/?account=missing', request.url).toString(),
-            302,
-          );
+          return new Response(null, {
+            status: 302,
+            headers: {
+              Location: new URL('/?account=missing', request.url).toString(),
+              'x-auth-status': candidateEmail
+                ? 'user-not-found'
+                : 'missing-identity',
+            },
+          });
         }
 
         const sessionDays = env.ADMIN_SESSION_DAYS
@@ -2836,48 +2840,20 @@ Disallow: /
           sessionDays,
         );
 
-        const res = new Response(
-          `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Authenticated</title>
-  <meta http-equiv="refresh" content="0; url=/collection/games">
-</head>
-<body style="background:#130b24;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-  <p>Authenticated. Redirecting to collection...</p>
-  <script>window.location.replace('/collection/games');</script>
-</body>
-</html>`,
-          {
-            status: 200,
-            headers: {
-              'Content-Type': 'text/html; charset=utf-8',
-              'Cache-Control': 'no-store, no-cache, must-revalidate',
-            },
+        const targetUrl = new URL('/collection/games', request.url).toString();
+        const res = new Response(null, {
+          status: 302,
+          headers: {
+            Location: targetUrl,
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'x-auth-status': 'session-minted',
           },
-        );
+        });
 
         res.headers.append(
           'Set-Cookie',
           buildSessionCookie(sessionToken, maxAge, isSecure),
         );
-
-        // Keep legacy admin cookies if admin role
-        if (userRow.role === 'admin') {
-          const expiresDate = new Date(
-            Date.now() + maxAge * 1000,
-          ).toUTCString();
-          const secureAttr = isSecure ? '; Secure' : '';
-          res.headers.append(
-            'Set-Cookie',
-            `CF_AppSession=dev-admin-session; Path=/; Max-Age=${maxAge}; Expires=${expiresDate}; SameSite=Lax${secureAttr}`,
-          );
-          res.headers.append(
-            'Set-Cookie',
-            `app_admin_session=active; Path=/; Max-Age=${maxAge}; Expires=${expiresDate}; SameSite=Lax${secureAttr}`,
-          );
-        }
 
         return res;
       }

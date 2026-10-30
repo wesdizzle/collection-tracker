@@ -970,26 +970,19 @@ describe('Worker API Logic', () => {
     }
   });
 
-  it('GET /admin/login returns HTML with refresh redirect and persistent session cookies', async () => {
+  it('GET /admin/login returns 302 redirect and sets app_user_session cookie', async () => {
     const req = new Request('https://tracker.example.com/admin/login');
     const res = await worker.fetch(req, mockEnv);
-    expect(res.status).toBe(200);
-    const body = await res.text();
-    expect(body).toContain('/collection/games');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe(
+      'https://tracker.example.com/collection/games',
+    );
+    expect(res.headers.get('x-auth-status')).toBe('session-minted');
 
     const cookies = res.headers.getSetCookie();
     expect(
       cookies.some(
-        (c) =>
-          c.includes('CF_AppSession=dev-admin-session') &&
-          c.includes('Max-Age=2592000'),
-      ),
-    ).toBe(true);
-    expect(
-      cookies.some(
-        (c) =>
-          c.includes('app_admin_session=active') &&
-          c.includes('Max-Age=2592000'),
+        (c) => c.includes('app_user_session=') && c.includes('Max-Age=2592000'),
       ),
     ).toBe(true);
 
