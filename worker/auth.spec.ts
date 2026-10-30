@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   signSession,
   verifySession,
@@ -131,6 +131,20 @@ describe('worker/auth', () => {
       });
       const email = await extractAccessEmail(req);
       expect(email).toBeNull();
+    });
+
+    it('extracts email from ctx.access.getIdentity() when present', async () => {
+      const req = new Request('https://example.com/');
+      const mockCtx = {
+        access: {
+          getIdentity: vi.fn().mockResolvedValue({
+            email: 'CTX_USER@EXAMPLE.COM',
+          }),
+        },
+      };
+      const email = await extractAccessEmail(req, { ctx: mockCtx });
+      expect(email).toBe('ctx_user@example.com');
+      expect(mockCtx.access.getIdentity).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -355,6 +355,7 @@ export async function queryIGDBEdge(
 export async function resolveSessionUser(
   request: Request,
   env: Env,
+  ctx?: ExecutionContext,
 ): Promise<SessionUser | null> {
   const cookieHeader = request.headers.get('Cookie');
   const cookies = parseCookies(cookieHeader);
@@ -369,10 +370,11 @@ export async function resolveSessionUser(
     if (user) return user;
   }
 
-  // Cloudflare Access header or CF_Authorization cookie
+  // Cloudflare Access header or CF_Authorization cookie or ctx.access
   const accessEmail = await extractAccessEmail(request, {
     teamDomain: env.TEAM_DOMAIN,
     audience: env.ACCESS_AUDIENCE,
+    ctx,
   });
   if (accessEmail) {
     try {
@@ -708,7 +710,11 @@ export default {
   /**
    * Main fetch router handling edge API requests and falling back to static SPA assets.
    */
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx?: ExecutionContext,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
     lastKnownOrigin = url.origin;
@@ -769,7 +775,7 @@ Disallow: /
     }
 
     try {
-      const sessionUser = await resolveSessionUser(request, env);
+      const sessionUser = await resolveSessionUser(request, env, ctx);
 
       /**
        * PUBLIC READ-ONLY API ENDPOINTS (Cacheable for anonymous callers and public profiles)
@@ -2769,9 +2775,22 @@ Disallow: /
         path === '/api/admin/login' ||
         path === '/admin/login'
       ) {
+        // Collect request diagnostics for debugging Cloudflare Access edge payloads
+        const headerNames: string[] = [];
+        request.headers.forEach((_, key) =>
+          headerNames.push(key.toLowerCase()),
+        );
+        const cookieHeader = request.headers.get('Cookie') || '';
+        const incomingCookies = parseCookies(cookieHeader);
+        const cookieNames = Object.keys(incomingCookies);
+        const cfAccessHeaders = headerNames.filter((h) =>
+          h.startsWith('cf-access-'),
+        );
+
         let candidateEmail = await extractAccessEmail(request, {
           teamDomain: env.TEAM_DOMAIN,
           audience: env.ACCESS_AUDIENCE,
+          ctx,
         });
 
         // Localhost loopback development or test environment fallback
@@ -2784,6 +2803,15 @@ Disallow: /
             candidateEmail = candidateEmail.toLowerCase().trim();
           }
         }
+
+        console.log('[WorkerAuth:login]', {
+          path,
+          hasCandidateEmail: Boolean(candidateEmail),
+          candidateEmail: candidateEmail || 'null',
+          cfAccessHeaders,
+          cookieNames,
+          hasCtxAccess: Boolean((ctx as { access?: unknown })?.access),
+        });
 
         const userRow = candidateEmail
           ? ((await env.DB.prepare(
@@ -2800,6 +2828,26 @@ Disallow: /
           : null;
 
         if (!userRow) {
+          // If explicit debug parameter requested, output diagnostic JSON instead of redirecting
+          if (url.searchParams.get('debug') === '1') {
+            return Response.json(
+              {
+                status: 'error',
+                reason: candidateEmail ? 'user-not-found' : 'missing-identity',
+                candidateEmail: candidateEmail || null,
+                cfAccessHeaders,
+                cookieNames,
+                hasCtxAccess: Boolean((ctx as { access?: unknown })?.access),
+                headers: Object.fromEntries(
+                  [...request.headers.entries()].filter(([k]) =>
+                    k.toLowerCase().startsWith('cf-access-'),
+                  ),
+                ),
+              },
+              { status: 401 },
+            );
+          }
+
           // User is not in allowlist! Redirect to landing page with account=missing
           return new Response(null, {
             status: 302,

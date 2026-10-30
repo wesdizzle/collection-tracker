@@ -307,11 +307,35 @@ export async function verifyAccessJwt(
  */
 export async function extractAccessEmail(
   request: Request,
-  opts?: { teamDomain?: string; audience?: string; nowMs?: number },
+  opts?: {
+    teamDomain?: string;
+    audience?: string;
+    nowMs?: number;
+    ctx?: unknown;
+  },
 ): Promise<string | null> {
   const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
   if (headerEmail && headerEmail.includes('@')) {
     return headerEmail.toLowerCase().trim();
+  }
+
+  // Check ctx.access.getIdentity() when running natively under Cloudflare Workers Access
+  if (opts?.ctx && typeof opts.ctx === 'object' && 'access' in opts.ctx) {
+    try {
+      const accessObj = (
+        opts.ctx as {
+          access?: { getIdentity?: () => Promise<{ email?: string }> };
+        }
+      ).access;
+      if (accessObj && typeof accessObj.getIdentity === 'function') {
+        const idObj = await accessObj.getIdentity();
+        if (idObj?.email && idObj.email.includes('@')) {
+          return idObj.email.toLowerCase().trim();
+        }
+      }
+    } catch {
+      // ctx.access threw or not supported in this runtime
+    }
   }
 
   const cookieHeader = request.headers.get('Cookie') || '';
