@@ -8,10 +8,11 @@ export const routes: Routes = [
     path: '',
     pathMatch: 'full',
     canActivate: [
-      () => {
+      async () => {
         const cs = inject(CollectionService);
         const router = inject(Router);
-        if (cs.isAuthenticated()) {
+        const user = await cs.ensureAuthLoaded();
+        if (user) {
           return router.createUrlTree(['/collection/games']);
         }
         return true;
@@ -82,6 +83,17 @@ export const routes: Routes = [
   },
   {
     path: 'collection',
+    canActivate: [
+      async () => {
+        const cs = inject(CollectionService);
+        const router = inject(Router);
+        const user = await cs.ensureAuthLoaded();
+        if (!user) {
+          return router.createUrlTree(['/']);
+        }
+        return true;
+      },
+    ],
     loadComponent: () =>
       import('./features/collection/layout/collection-layout/collection-layout.component').then(
         (m) => m.CollectionLayoutComponent,
@@ -139,5 +151,5 @@ export const routes: Routes = [
     redirectTo: 'collection/games',
     pathMatch: 'full',
   },
-  { path: '**', redirectTo: 'collection/games' },
+  { path: '**', redirectTo: '' },
 ];

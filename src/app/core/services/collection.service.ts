@@ -89,6 +89,10 @@ export class CollectionService {
   private _journalLoaded = signal<boolean>(false);
   public readonly journalLoaded = this._journalLoaded.asReadonly();
 
+  private _authInitialized = signal<boolean>(false);
+  public readonly authInitialized = this._authInitialized.asReadonly();
+  private _authPromise: Promise<UserProfile | null> | null = null;
+
   /**
    * Initializes the service and restores any saved navigation state from sessionStorage.
    * This ensures that when a user returns from a detail page, their context is restored.
@@ -102,20 +106,39 @@ export class CollectionService {
   }
 
   /**
+   * Ensures auth status has been verified via /api/auth/me before resolving.
+   * Caches the promise to prevent duplicate requests during initial app load.
+   */
+  public ensureAuthLoaded(): Promise<UserProfile | null> {
+    if (this._authInitialized()) {
+      return Promise.resolve(this._currentUser());
+    }
+    if (this._authPromise) {
+      return this._authPromise;
+    }
+    this._authPromise = firstValueFrom(
+      this.http.get<AuthMeResponse>('/api/auth/me').pipe(
+        catchError(() => of({ authenticated: false, user: null })),
+        map((res) => {
+          if (res.authenticated && res.user) {
+            this._currentUser.set(res.user);
+            this.loadAllJournalEntries().subscribe();
+          } else {
+            this._currentUser.set(null);
+          }
+          this._authInitialized.set(true);
+          return this._currentUser();
+        }),
+      ),
+    );
+    return this._authPromise;
+  }
+
+  /**
    * Checks whether the current user has an active session via /api/auth/me.
    */
   public checkAdminStatus(): void {
-    this.http
-      .get<AuthMeResponse>('/api/auth/me')
-      .pipe(catchError(() => of({ authenticated: false, user: null })))
-      .subscribe((res) => {
-        if (res.authenticated && res.user) {
-          this._currentUser.set(res.user);
-          this.loadAllJournalEntries().subscribe();
-        } else {
-          this._currentUser.set(null);
-        }
-      });
+    this.ensureAuthLoaded().catch(() => {});
   }
 
   /**
@@ -136,10 +159,12 @@ export class CollectionService {
     } else {
       this._currentUser.set(null);
     }
+    this._authInitialized.set(true);
   }
 
   public setCurrentUserForTesting(user: UserProfile | null): void {
     this._currentUser.set(user);
+    this._authInitialized.set(true);
   }
 
   public getProfile(): Observable<UserProfile> {

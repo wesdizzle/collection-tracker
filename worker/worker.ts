@@ -400,8 +400,13 @@ export async function resolveSessionUser(
     }
   }
 
-  // Admin key header, loopback bypass, or legacy dev session cookies
-  if (isAuthorizedAdmin(request, env)) {
+  const url = new URL(request.url);
+  const adminKey = request.headers.get('x-admin-key');
+  // Admin key header or loopback dev bypass for local testing only
+  if (
+    (env.ADMIN_KEY && adminKey && adminKey === env.ADMIN_KEY) ||
+    isLoopbackRequest(url)
+  ) {
     return {
       id: 1,
       username: 'wesley',
@@ -415,8 +420,7 @@ export async function resolveSessionUser(
 
 /**
  * Validates whether the incoming request is authorized to execute mutation actions.
- * Supports Cloudflare Access (Cf-Access-Authenticated-User-Email header), custom admin key,
- * and localhost bypass during local testing.
+ * Supports explicit sessionUser role verification, custom admin key, and loopback localhost testing.
  *
  * @param request The incoming HTTP Request
  * @param env Cloudflare worker environment bindings
@@ -432,112 +436,62 @@ export function isAuthorizedAdmin(
     return sessionUser.role === 'admin';
   }
   const url = new URL(request.url);
-  const host =
-    request.headers.get('x-forwarded-host') ||
-    request.headers.get('host') ||
-    url.hostname;
-  const origin =
-    request.headers.get('origin') || request.headers.get('referer') || '';
 
-  const cookieHeader = request.headers.get('Cookie') || '';
-  if (
-    cookieHeader.includes('CF_AppSession=dev-admin-session') ||
-    cookieHeader.includes('app_admin_session=active') ||
-    cookieHeader.includes('CF_Authorization=local-admin-dev-token')
-  ) {
-    return true;
-  }
-
-  const isLocalDev =
-    url.hostname === 'localhost' ||
-    url.hostname === '127.0.0.1' ||
-    url.hostname === '0.0.0.0' ||
-    url.hostname.endsWith('.workers.dev') ||
-    host.includes('localhost') ||
-    host.includes('127.0.0.1') ||
-    origin.includes('localhost') ||
-    origin.includes('127.0.0.1');
-  if (isLocalDev) return true;
-
-  // 1. Direct header injected by Cloudflare Access when route is in Zero Trust
-  let accessEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
-
-  // 2. Fallback: Parse CF_Authorization cookie from browser session
-  if (!accessEmail) {
-    const cookieHeader = request.headers.get('Cookie') || '';
-    const cookies = Object.fromEntries(
-      cookieHeader
-        .split(';')
-        .map((c) => {
-          const idx = c.indexOf('=');
-          if (idx === -1) return ['', ''];
-          return [c.slice(0, idx).trim(), c.slice(idx + 1).trim()];
-        })
-        .filter(([k]) => !!k),
-    );
-
-    const jwt =
-      cookies['CF_Authorization'] ||
-      request.headers.get('Cf-Access-Jwt-Assertion');
-
-    if (jwt && jwt.includes('.')) {
-      try {
-        const parts = jwt.split('.');
-        if (parts.length >= 2) {
-          let payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-          while (payloadBase64.length % 4 !== 0) {
-            payloadBase64 += '=';
-          }
-          const decodedJson = atob(payloadBase64);
-          const payload = JSON.parse(decodedJson) as {
-            email?: string;
-            sub?: string;
-            exp?: number;
-          };
-          const now = Math.floor(Date.now() / 1000);
-          const candidateEmail =
-            payload.email ||
-            (typeof payload.sub === 'string' && payload.sub.includes('@')
-              ? payload.sub
-              : undefined);
-          if (payload.exp && payload.exp > now && candidateEmail) {
-            accessEmail = candidateEmail;
-          }
-        }
-      } catch (err) {
-        console.warn(
-          '[isAuthorizedAdmin] Failed to parse CF_Authorization cookie:',
-          err,
-        );
-      }
-    }
-
-    if (accessEmail) {
-      if (env.ADMIN_EMAIL) {
-        return accessEmail.toLowerCase() === env.ADMIN_EMAIL.toLowerCase();
-      }
-      return true;
-    }
-
-    // 3. Fallback: Active Cloudflare Access or persistent app session cookie on the domain
-    if (
-      (cookies['CF_AppSession'] && cookies['CF_AppSession'].length > 0) ||
-      (cookies['app_admin_session'] && cookies['app_admin_session'].length > 0)
-    ) {
-      return true;
-    }
-  }
-
-  if (accessEmail) {
-    if (env.ADMIN_EMAIL) {
-      return accessEmail.toLowerCase() === env.ADMIN_EMAIL.toLowerCase();
-    }
-    return true;
-  }
-
+  // 1. Explicit admin key header
   const adminKey = request.headers.get('x-admin-key');
   if (env.ADMIN_KEY && adminKey && adminKey === env.ADMIN_KEY) {
     return true;
+  }
+
+  // 2. Loopback local dev bypass
+  if (isLoopbackRequest(url)) {
+    return true;
+  }
+
+  // 3. Direct header injected by Cloudflare Access matching ADMIN_EMAIL
+  const adminEmail = (env.ADMIN_EMAIL || '').toLowerCase();
+  const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+  if (adminEmail && headerEmail && headerEmail.toLowerCase() === adminEmail) {
+    return true;
+  }
+
+  // 4. Fallback: Parse CF_Authorization cookie matching ADMIN_EMAIL
+  if (adminEmail) {
+    const cookieHeader = request.headers.get('Cookie') || '';
+    if (cookieHeader.includes('CF_Authorization=')) {
+      const cookies = parseCookies(cookieHeader);
+      const jwt = cookies['CF_Authorization'];
+      if (jwt && jwt.includes('.')) {
+        try {
+          const parts = jwt.split('.');
+          if (parts.length >= 2) {
+            let payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+            while (payloadBase64.length % 4 !== 0) payloadBase64 += '=';
+            const payload = JSON.parse(atob(payloadBase64)) as {
+              email?: string;
+              sub?: string;
+              exp?: number;
+            };
+            const now = Math.floor(Date.now() / 1000);
+            const candidateEmail =
+              payload.email ||
+              (typeof payload.sub === 'string' && payload.sub.includes('@')
+                ? payload.sub
+                : undefined);
+            if (
+              payload.exp &&
+              payload.exp > now &&
+              candidateEmail &&
+              candidateEmail.toLowerCase() === adminEmail
+            ) {
+              return true;
+            }
+          }
+        } catch {
+          // malformed JWT
+        }
+      }
+    }
   }
 
   return false;

@@ -94,20 +94,6 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
           </button>
 
           <button
-            (click)="toggleTheme()"
-            class="theme-toggle m3-button-icon state-layer"
-            [title]="'Theme: ' + theme()"
-          >
-            @if (theme() === 'light') {
-              <app-icon name="sun" [size]="18" />
-            } @else if (theme() === 'dark') {
-              <app-icon name="moon" [size]="18" />
-            } @else {
-              <app-icon name="sun-moon" [size]="18" />
-            }
-          </button>
-
-          <button
             (click)="onUserIconClick()"
             class="m3-button-icon state-layer"
             [class.authenticated-icon]="isAuthenticated()"
@@ -119,6 +105,20 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
             data-testid="header-user-btn"
           >
             <app-icon name="user" [size]="18" />
+          </button>
+
+          <button
+            (click)="toggleTheme()"
+            class="theme-toggle m3-button-icon state-layer"
+            [title]="'Theme: ' + theme()"
+          >
+            @if (theme() === 'light') {
+              <app-icon name="sun" [size]="18" />
+            } @else if (theme() === 'dark') {
+              <app-icon name="moon" [size]="18" />
+            } @else {
+              <app-icon name="sun-moon" [size]="18" />
+            }
           </button>
 
           <a

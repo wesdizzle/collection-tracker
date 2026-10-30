@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import * as webPush from './web_push';
+import { signSession } from './auth';
 import worker, {
   Env,
   isAuthorizedAdmin,
@@ -1041,11 +1042,15 @@ describe('Worker API Logic', () => {
     expect(authData.authenticated).toBe(true);
     expect(authData.email).toBe('admin@example.com');
 
-    // Test app_admin_session cookie
+    // Test signed app_user_session cookie for admin
+    const signedAdminToken = await signSession(
+      { id: 1, username: 'wesley', role: 'admin', homeRegion: 'USA' },
+      'dev-insecure-session-secret-change-me',
+    );
     const sessionCookieReq = new Request(
       'https://tracker.example.com/api/admin/me',
       {
-        headers: { Cookie: 'app_admin_session=active' },
+        headers: { Cookie: `app_user_session=${signedAdminToken}` },
       },
     );
     const sessionRes = await worker.fetch(sessionCookieReq, mockEnv);
@@ -1099,17 +1104,37 @@ describe('Worker API Logic', () => {
     });
     expect(isAuthorizedAdmin(expiredCookieReq, mockEnv)).toBe(false);
 
-    // Test CF_AppSession cookie authentication
+    // Ensure CF_AppSession cookie alone does NOT grant admin authorization
     const appSessionReq = new Request('https://tracker.com/api/test', {
       headers: { Cookie: 'CF_AppSession=valid-session-token-12345' },
     });
-    expect(isAuthorizedAdmin(appSessionReq, mockEnv)).toBe(true);
+    expect(isAuthorizedAdmin(appSessionReq, mockEnv)).toBe(false);
 
-    // Test app_admin_session cookie authentication
+    // Ensure legacy app_admin_session cookie alone does NOT grant admin authorization
     const persistentSessionReq = new Request('https://tracker.com/api/test', {
       headers: { Cookie: 'app_admin_session=active' },
     });
-    expect(isAuthorizedAdmin(persistentSessionReq, mockEnv)).toBe(true);
+    expect(isAuthorizedAdmin(persistentSessionReq, mockEnv)).toBe(false);
+
+    // Test explicit admin sessionUser
+    expect(
+      isAuthorizedAdmin(prodUnauth, mockEnv, {
+        id: 1,
+        username: 'wesley',
+        role: 'admin',
+        homeRegion: 'USA',
+      }),
+    ).toBe(true);
+
+    // Test non-admin sessionUser
+    expect(
+      isAuthorizedAdmin(prodUnauth, mockEnv, {
+        id: 2,
+        username: 'wesley_test',
+        role: 'user',
+        homeRegion: 'USA',
+      }),
+    ).toBe(false);
   });
 
   it('GET /api/discovery/search annotates physical release status and filters digital fluff', async () => {
