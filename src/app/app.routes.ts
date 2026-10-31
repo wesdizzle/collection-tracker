@@ -86,6 +86,7 @@ export const routes: Routes = [
     canActivate: [
       async () => {
         const cs = inject(CollectionService);
+        cs.exitPublicView();
         const router = inject(Router);
         const user = await cs.ensureAuthLoaded();
         if (!user) {

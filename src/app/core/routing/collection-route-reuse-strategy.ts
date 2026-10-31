@@ -55,10 +55,10 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    * true scroll coordinates before the document collapses to 0 height.
    */
   override shouldDetach(route: ActivatedRouteSnapshot): boolean {
-    const path = this.getRoutePath(route);
-    if (path === 'games' || path === 'toys') {
+    const key = this.getRouteKey(route);
+    if (this.isCollectionListView(key)) {
       if (typeof window !== 'undefined') {
-        this.pendingScroll.set(path, {
+        this.pendingScroll.set(key!, {
           scrollX: window.scrollX,
           scrollY: window.scrollY,
         });
@@ -75,22 +75,22 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
     route: ActivatedRouteSnapshot,
     handle: DetachedRouteHandle | null,
   ): void {
-    const path = this.getRoutePath(route);
-    if (!path) return;
+    const key = this.getRouteKey(route);
+    if (!key) return;
 
     if (handle) {
-      const pending = this.pendingScroll.get(path);
+      const pending = this.pendingScroll.get(key);
       const scrollX =
         pending?.scrollX ??
         (typeof window !== 'undefined' ? window.scrollX : 0);
       const scrollY =
         pending?.scrollY ??
         (typeof window !== 'undefined' ? window.scrollY : 0);
-      this.pendingScroll.delete(path);
-      this.storedHandles.set(path, { handle, scrollX, scrollY });
+      this.pendingScroll.delete(key);
+      this.storedHandles.set(key, { handle, scrollX, scrollY });
     } else {
-      this.storedHandles.delete(path);
-      this.pendingScroll.delete(path);
+      this.storedHandles.delete(key);
+      this.pendingScroll.delete(key);
     }
   }
 
@@ -98,8 +98,8 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    * Determines if a stored route handle is available to be reattached.
    */
   override shouldAttach(route: ActivatedRouteSnapshot): boolean {
-    const path = this.getRoutePath(route);
-    return !!path && this.storedHandles.has(path);
+    const key = this.getRouteKey(route);
+    return !!key && this.storedHandles.has(key);
   }
 
   /**
@@ -111,10 +111,10 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    * the host elements are mounted and reflowed before restoring scroll.
    */
   override retrieve(route: ActivatedRouteSnapshot): DetachedRouteHandle | null {
-    const path = this.getRoutePath(route);
-    if (!path) return null;
+    const key = this.getRouteKey(route);
+    if (!key) return null;
 
-    const stored = this.storedHandles.get(path);
+    const stored = this.storedHandles.get(key);
     if (!stored) return null;
 
     if (typeof window !== 'undefined') {
@@ -154,14 +154,19 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    * Resets the preserved scroll coordinates for a route back to the top.
    * Used when clicking primary navigation tabs or the brand link.
    */
-  public resetScroll(path?: 'games' | 'toys'): void {
+  public resetScroll(path?: 'games' | 'toys' | string): void {
     if (path) {
-      const stored = this.storedHandles.get(path);
-      if (stored) {
-        stored.scrollX = 0;
-        stored.scrollY = 0;
-      }
-      this.pendingScroll.delete(path);
+      this.storedHandles.forEach((stored, key) => {
+        if (key === path || key.endsWith(`/${path}`)) {
+          stored.scrollX = 0;
+          stored.scrollY = 0;
+        }
+      });
+      this.pendingScroll.forEach((_, key) => {
+        if (key === path || key.endsWith(`/${path}`)) {
+          this.pendingScroll.delete(key);
+        }
+      });
     } else {
       this.storedHandles.forEach((stored) => {
         stored.scrollX = 0;
@@ -175,9 +180,17 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    * Clears a stored route handle completely.
    * Used when applying franchise series filters or forcing a fresh reload.
    */
-  public clearRoute(path: 'games' | 'toys'): void {
-    this.storedHandles.delete(path);
-    this.pendingScroll.delete(path);
+  public clearRoute(path: 'games' | 'toys' | string): void {
+    this.storedHandles.forEach((_, key) => {
+      if (key === path || key.endsWith(`/${path}`)) {
+        this.storedHandles.delete(key);
+      }
+    });
+    this.pendingScroll.forEach((_, key) => {
+      if (key === path || key.endsWith(`/${path}`)) {
+        this.pendingScroll.delete(key);
+      }
+    });
   }
 
   /**
@@ -191,25 +204,55 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
   /**
    * Returns whether a given route is currently preserved.
    */
-  public hasStoredRoute(path: 'games' | 'toys'): boolean {
-    return this.storedHandles.has(path);
+  public hasStoredRoute(path: 'games' | 'toys' | string): boolean {
+    if (this.storedHandles.has(path)) return true;
+    for (const key of this.storedHandles.keys()) {
+      if (key.endsWith(`/${path}`)) return true;
+    }
+    return false;
   }
 
   /**
    * Returns the stored scroll coordinate for a given route.
    */
   public getStoredScroll(
-    path: 'games' | 'toys',
+    path: 'games' | 'toys' | string,
   ): { scrollX: number; scrollY: number } | null {
-    const stored = this.storedHandles.get(path);
-    if (!stored) return null;
-    return { scrollX: stored.scrollX, scrollY: stored.scrollY };
+    const direct = this.storedHandles.get(path);
+    if (direct) return { scrollX: direct.scrollX, scrollY: direct.scrollY };
+    for (const [key, stored] of this.storedHandles.entries()) {
+      if (key.endsWith(`/${path}`)) {
+        return { scrollX: stored.scrollX, scrollY: stored.scrollY };
+      }
+    }
+    return null;
+  }
+
+  private isCollectionListView(key: string | null): boolean {
+    if (!key) return false;
+    return (
+      key === 'games' ||
+      key === 'toys' ||
+      key.endsWith('/games') ||
+      key.endsWith('/toys')
+    );
   }
 
   /**
    * Extracts the identifying path segment from the route snapshot.
+   * Resolves the full URL path from root (e.g. 'u/alice/games' vs 'collection/games')
+   * to prevent collisions across public profiles and primary collection lists.
    */
-  private getRoutePath(route: ActivatedRouteSnapshot): string | null {
+  private getRouteKey(route: ActivatedRouteSnapshot): string | null {
+    if (route.pathFromRoot && route.pathFromRoot.length > 0) {
+      const fullPath = route.pathFromRoot
+        .map(
+          (it) => it.url?.map((segment) => segment.toString()).join('/') || '',
+        )
+        .filter((it) => it.length > 0)
+        .join('/');
+      if (fullPath) return fullPath;
+    }
     return route.routeConfig?.path || null;
   }
 }

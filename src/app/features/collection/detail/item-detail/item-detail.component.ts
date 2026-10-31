@@ -2708,13 +2708,13 @@ export class ItemDetailComponent {
   public journalEntry = toSignal(
     combineLatest([
       this.route.paramMap,
-      toObservable(this.collectionService.isAdmin),
+      toObservable(this.collectionService.isAuthenticated),
       toObservable(this.journalRefreshTrigger),
     ]).pipe(
-      switchMap(([params, isAdmin]) => {
+      switchMap(([params, isAuth]) => {
         const type = params.get('type') || '';
         const id = params.get('id');
-        if (!isAdmin || !id || (type !== 'game' && type !== 'toy')) {
+        if (!isAuth || !id || (type !== 'game' && type !== 'toy')) {
           return of(null);
         }
         return this.collectionService

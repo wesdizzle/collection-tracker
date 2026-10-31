@@ -88,7 +88,7 @@ export class CollectionInsightsComponent implements OnInit {
   public onToggleJournalVisibility(): void {
     this.collectionService.toggleJournalVisibility();
     if (
-      this.collectionService.isAdmin() &&
+      this.collectionService.isAuthenticated() &&
       this.collectionService.journalRevealed() &&
       !this.collectionService.journalLoaded()
     ) {
@@ -151,10 +151,18 @@ export class CollectionInsightsComponent implements OnInit {
     this.collectionService.toys().filter((t) => t.ownership_status === 1),
   );
 
+  public readonly wishlistToys = computed<Toy[]>(() =>
+    this.collectionService.toys().filter((t) => t.ownership_status === 2),
+  );
+
   public readonly seekingGamesCount = computed<number>(
     () =>
       this.collectionService.games().filter((g) => g.ownership_status === 2)
         .length,
+  );
+
+  public readonly seekingToysCount = computed<number>(
+    () => this.wishlistToys().length,
   );
 
   /** --- Financial Valuation Metrics --- */

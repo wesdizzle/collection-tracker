@@ -211,6 +211,10 @@ export class CollectionService {
     this._publicProfile.set(profile || null);
   }
 
+  public exitPublicView(): void {
+    this.setPublicView(false, null);
+  }
+
   /**
    * Hydrates the lastUpdated signal from localStorage.
    */
