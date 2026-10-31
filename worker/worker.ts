@@ -412,7 +412,7 @@ export async function resolveSessionUser(
   ) {
     return {
       id: 1,
-      username: 'wesley',
+      username: 'admin',
       role: 'admin',
       homeRegion: 'USA',
     };
@@ -2856,7 +2856,7 @@ Disallow: /
           candidateEmail =
             env.DEV_AUTH_EMAIL ||
             env.ADMIN_EMAIL ||
-            (isLoopbackRequest(url) ? 'wesley@example.com' : null);
+            (isLoopbackRequest(url) ? 'admin@example.com' : null);
           if (candidateEmail) {
             candidateEmail = candidateEmail.toLowerCase().trim();
           }
@@ -2970,8 +2970,7 @@ Disallow: /
         path === '/api/admin/logout' ||
         path === '/admin/logout'
       ) {
-        const teamDomain =
-          env.TEAM_DOMAIN || 'wesleymiller.cloudflareaccess.com';
+        const teamDomain = env.TEAM_DOMAIN || 'your-team.cloudflareaccess.com';
         const returnUrl = new URL('/', request.url).toString();
         const logoutUrl = `https://${teamDomain}/cdn-cgi/access/logout?return_to=${encodeURIComponent(
           returnUrl,
@@ -3566,7 +3565,6 @@ Disallow: /
             release_date?: string | null;
             canonical_release_id?: number | null;
             barcode?: string | null;
-            is_physical?: number;
           }>;
         };
 
@@ -3717,8 +3715,8 @@ Disallow: /
                 `
                 INSERT OR REPLACE INTO game_releases (
                   id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date,
-                  canonical_release_id, barcode, is_physical
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  canonical_release_id, barcode
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `,
               ).bind(
                 baseRelSlug,
@@ -3731,7 +3729,6 @@ Disallow: /
                 rel.release_date || game.release_date || null,
                 rel.canonical_release_id || null,
                 rel.barcode || null,
-                rel.is_physical ?? 1,
               ),
             );
 
@@ -3761,8 +3758,8 @@ Disallow: /
           await env.DB.prepare(
             `
             INSERT OR REPLACE INTO game_releases (
-              id, game_id, region, variants, rom_name, rom_crc, release_date, is_physical
-            ) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?)
+              id, game_id, region, variants, rom_name, rom_crc, release_date
+            ) VALUES (?, ?, ?, NULL, NULL, NULL, ?)
           `,
           )
             .bind(
@@ -3770,7 +3767,6 @@ Disallow: /
               finalStableId,
               gameRegion,
               game.release_date || null,
-              game.physical_status === 'digital_only' ? 0 : 1,
             )
             .run();
 

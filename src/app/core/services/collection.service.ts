@@ -742,7 +742,6 @@ export class CollectionService {
                   null,
                 canonical_release_id: r.canonical_release_id || null,
                 barcode: r.barcode || null,
-                is_physical: r.is_physical ?? 1,
               })),
             };
 

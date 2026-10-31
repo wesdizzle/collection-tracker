@@ -473,8 +473,15 @@ export class CollectionLayoutComponent implements OnDestroy {
       });
     }
 
-    const saved = (localStorage.getItem('app-theme') ??
-      localStorage.getItem('gagglog-theme')) as
+    const legacyTheme = localStorage.getItem('gagglog-theme');
+    if (legacyTheme) {
+      if (!localStorage.getItem('app-theme')) {
+        localStorage.setItem('app-theme', legacyTheme);
+      }
+      localStorage.removeItem('gagglog-theme');
+    }
+
+    const saved = localStorage.getItem('app-theme') as
       | 'light'
       | 'dark'
       | 'auto'

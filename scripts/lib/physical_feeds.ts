@@ -387,7 +387,7 @@ export async function fetchBoutiquePreOrders(
     try {
       const resp = await fetchFn(config.url, {
         headers: {
-          'User-Agent': 'Gagglog/1.0 (BoutiqueCatalogSync)',
+          'User-Agent': 'CollectionTracker/2.0 (BoutiqueCatalogSync)',
           Accept: 'application/json',
         },
       });

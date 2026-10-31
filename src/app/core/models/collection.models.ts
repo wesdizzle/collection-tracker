@@ -55,7 +55,6 @@ export interface GameRelease {
   release_date?: string | null;
   image_url?: string | null;
   barcode?: string | null;
-  is_physical?: boolean | number;
   has_case?: boolean | number;
   has_manual?: boolean | number;
   disc_label?: string | null;

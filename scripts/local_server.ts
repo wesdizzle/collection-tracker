@@ -287,10 +287,9 @@ export const handleRequest =
         );
         return;
       } else if (
-
-      /**
-       * ROUTE: GET /api/discovery/scan-amiibo
-       */
+        /**
+         * ROUTE: GET /api/discovery/scan-amiibo
+         */
         req.method === 'GET' &&
         pathname === '/api/discovery/scan-amiibo'
       ) {
@@ -1446,53 +1445,67 @@ export const handleRequest =
 
             if (releases && releases.length > 0) {
               const hasRelOwnership = releaseColumns.has('ownership_status');
-              const insertRelease = hasRelOwnership
-                ? db.prepare(`
-                    INSERT INTO game_releases (
-                      id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
-                      canonical_release_id, barcode, is_physical
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                  `)
-                : db.prepare(`
-                    INSERT INTO game_releases (
-                      id, game_id, region, variants, rom_name, rom_crc, release_date,
-                      canonical_release_id, barcode, is_physical
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                  `);
+              const hasRelPhysical = releaseColumns.has('is_physical');
+
+              let insertReleaseSql: string;
+              if (hasRelOwnership && hasRelPhysical) {
+                insertReleaseSql = `
+                  INSERT INTO game_releases (
+                    id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
+                    canonical_release_id, barcode, is_physical
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
+              } else if (hasRelOwnership) {
+                insertReleaseSql = `
+                  INSERT INTO game_releases (
+                    id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
+                    canonical_release_id, barcode
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
+              } else if (hasRelPhysical) {
+                insertReleaseSql = `
+                  INSERT INTO game_releases (
+                    id, game_id, region, variants, rom_name, rom_crc, release_date,
+                    canonical_release_id, barcode, is_physical
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
+              } else {
+                insertReleaseSql = `
+                  INSERT INTO game_releases (
+                    id, game_id, region, variants, rom_name, rom_crc, release_date,
+                    canonical_release_id, barcode
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
+              }
+              const insertRelease = db.prepare(insertReleaseSql);
 
               for (const rel of releases) {
                 const baseRelSlug = `${newGameId}-${rel.rom_crc || slugify(rel.rom_name || 'release')}`;
                 const uniqueRelId = generateUniqueReleaseId(baseRelSlug);
 
+                const params: unknown[] = [
+                  uniqueRelId,
+                  stableId,
+                  rel.region ? normalizeRegionStr(rel.region) : null,
+                  rel.variants || null,
+                  rel.rom_name || null,
+                  rel.rom_crc || null,
+                ];
                 if (hasRelOwnership) {
-                  insertRelease.run(
-                    uniqueRelId,
-                    stableId,
-                    rel.region ? normalizeRegionStr(rel.region) : null,
-                    rel.variants || null,
-                    rel.rom_name || null,
-                    rel.rom_crc || null,
+                  params.push(
                     rel.ownership_status || 0,
                     rel.backup_status || 0,
-                    rel.release_date || null,
-                    rel.canonical_release_id || null,
-                    rel.barcode || null,
-                    rel.is_physical ?? 1,
-                  );
-                } else {
-                  insertRelease.run(
-                    uniqueRelId,
-                    stableId,
-                    rel.region ? normalizeRegionStr(rel.region) : null,
-                    rel.variants || null,
-                    rel.rom_name || null,
-                    rel.rom_crc || null,
-                    rel.release_date || null,
-                    rel.canonical_release_id || null,
-                    rel.barcode || null,
-                    rel.is_physical ?? 1,
                   );
                 }
+                params.push(
+                  rel.release_date || null,
+                  rel.canonical_release_id || null,
+                  rel.barcode || null,
+                );
+                if (hasRelPhysical) {
+                  params.push(rel.is_physical ?? 1);
+                }
+                insertRelease.run(...params);
 
                 if (
                   hasUserGameReleases &&
@@ -1515,7 +1528,10 @@ export const handleRequest =
               }
             } else {
               const virtualId = `${newGameId}-default`;
-              if (releaseColumns.has('ownership_status')) {
+              const hasRelOwnership = releaseColumns.has('ownership_status');
+              const hasRelPhysical = releaseColumns.has('is_physical');
+
+              if (hasRelOwnership && hasRelPhysical) {
                 db.prepare(
                   `
                   INSERT INTO game_releases (
@@ -1528,7 +1544,15 @@ export const handleRequest =
                   gameRegion,
                   game.physical_status === 'digital_only' ? 0 : 1,
                 );
-              } else {
+              } else if (hasRelOwnership) {
+                db.prepare(
+                  `
+                  INSERT INTO game_releases (
+                    id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date
+                  ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, NULL)
+                `,
+                ).run(virtualId, stableId, gameRegion);
+              } else if (hasRelPhysical) {
                 db.prepare(
                   `
                   INSERT INTO game_releases (
@@ -1541,6 +1565,14 @@ export const handleRequest =
                   gameRegion,
                   game.physical_status === 'digital_only' ? 0 : 1,
                 );
+              } else {
+                db.prepare(
+                  `
+                  INSERT INTO game_releases (
+                    id, game_id, region, variants, rom_name, rom_crc, release_date
+                  ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL)
+                `,
+                ).run(virtualId, stableId, gameRegion);
               }
             }
           })();

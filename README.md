@@ -29,14 +29,15 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 
 ## Architecture & Data Model
 
-### Data Hierarchy
+### Data Hierarchy & Multi-User Architecture
 
-The database models collection items across four tiers:
+The database models catalog and collection items across structured tiers:
 
-1. **Game (`games` table)**: The title/intellectual property for a platform (e.g., _Final Fantasy VII_ on PlayStation). Stores series classifications, physical status, genres, and pricing.
-2. **Release**: The commercial retail SKU published in a territory. The collection list view displays one card per release.
-3. **Media (`game_releases` table)**: Physical discs, cartridges, or ROM images within that release. A multi-disc game or package with a pack-in demo has multiple `game_releases` records linked to the same `game_id`. Individual media rows are displayed in the item detail view under "Physical Discs / ROMs".
-4. **Journal Entry (`journal_entries` table)**: Private provenance, purchase price, purchase date, approximate date flag, merchant attribution, gift provenance (`gifted_by`), receipt verification URL, and personal notes for a game or toy.
+1. **Catalog Game (`games` table)**: The shared title/intellectual property for a platform (e.g., _Final Fantasy VII_ on PlayStation). Stores platform ID, series classifications, physical status, genres, and pricing.
+2. **Catalog Media (`game_releases` table)**: Physical discs, cartridges, or verified ROM images within a commercial retail SKU. A multi-disc game or package with a pack-in demo has multiple `game_releases` records linked to the same `game_id`. Individual media rows are displayed in the item detail view under "Physical Discs / ROMs".
+3. **User Collection & Ownership (`users`, `user_game_releases`, `user_games`, `user_toys` tables)**: Decoupled per-user state tracking ownership status (`owned`, `wishlist`), completeness (`has_case`, `has_manual`), backup status, and play status (`unplayed`, `playing`, `completed`, `abandoned`). Supports multiple user profiles on a single shared catalog instance.
+4. **Public Profiles & Route Reuse Isolation (`/u/:username`)**: Users can share public profile views (`/u/:username/games`, `/u/:username/toys`). Private collections (`is_public = 0`) return 404 with edge-cache privacy guards (`Cache-Control: private, no-cache`). Angular's custom `CollectionRouteReuseStrategy` isolates detached tab DOM caches by full URL route keys (`u/alice/games` vs `collection/games`), preventing cross-profile state leakage.
+5. **Private Acquisition Journal (`journal_entries` table)**: Private provenance, purchase price / cost basis, purchase date, approximate date flag, merchant attribution, gift provenance (`gifted_by`), receipt verification URL, and personal notes for a game or toy, protected behind authenticated session verification.
 
 ### Public Authoritative Sources & Aggregation Architecture
 
@@ -80,7 +81,8 @@ Heavy scraping and data indexing are performed locally against staging SQLite an
   - _Strategy 2 (Segment/Subtitle Matching)_: Splits titles on colons and dashes to match base games against subtitle variations.
   - _Strategy 3 (Middle-Segment Stripping)_: Handles mission packs and multi-segment naming patterns.
   - _Strategy 4 (Bonus Disc Matching)_: Uses parenthetical identifiers and pack-in host metadata to resolve companion discs.
-- **Physical vs. Digital Distinction**: Disregards digital installers (`.pkg`), Virtual Console re-releases, and mini-console wrappers. For PlayStation Vita, canonical retail cartridge serials (`PCSE`, `PCSB`, `PCSG`, `PCSA`) are tagged as `is_verified_physical = 1` while digital-only PSN titles are tagged `0`.
+- **Strict Physical-Only Boundary**: The catalog tracks physical media exclusively. Ingestion pipelines and DAT parsers reject digital installers (`.pkg`), mini-console extractions, and Virtual Console wrappers at the ingestion boundary. The obsolete `is_physical` column has been completely purged from the schema, queries, and models, guaranteeing zero digital bloat.
+- **Amiibo Multi-Pose Figures & Card Sets**: Amiibo entities with multiple swappable physical figures (e.g. Mr. Game & Watch's 4 poses: Default, Parachute, Bell, and Judge) are deterministically expanded into unique catalog entries with canonical pose qualifiers, distinct stable IDs, and pose-specific slugs. Duplicate card variants across series (such as Animal Crossing and Street Fighter 6 promotional cards) are disambiguated by wave and set markers.
 - **Bundles & Download Vouchers**: When physical releases include digital vouchers for companion games, the voucher details are shown as an informative note on the parent release without penalizing physical media backup status.
 - **Nintendo Switch & Switch 2 Cartridge Revisions (`scripts/sync_switch_revisions.ts`)**:
   - Ingests verified cartridge revision and reprint data from the Nintendo Revised community catalog across Switch 1 and Switch 2 tabs.
@@ -107,7 +109,7 @@ The Cloudflare Worker implements an edge-native background engine (`worker/worke
 1. **Rolling GAMEYE / PriceCharting Valuations**: Fetches loose, CIB, and new valuations in batches of 25 games and 11 toys using persistent primary-key cursors (`gameye_game_cursor`, `gameye_toy_cursor`) stored in `sync_state`, avoiding full-table scans.
 2. **Rolling IGDB Series & Franchise Sync**: Refreshes upstream IGDB series, franchises, and canonical grouping in 100-game batches using a persistent cursor (`igdb_sync_offset`), refreshing the full 4,337-game catalog every 21.7 hours in a single subrequest per run.
 3. **Hourly Boutique Storefront Feeds**: Scrapes limited-print physical storefront feeds (LRG, SRG, iam8bit, Fangamer, Strictly Limited) every 55 minutes, evaluating stock availability, region alignment, and existing collection ownership before dispatching push alerts.
-4. **Automated Daily R2 Snapshots**: Dumps all D1 tables into structured, timestamped JSON backups in Cloudflare R2 at 23:30 UTC whenever data has changed, automatically pruning snapshots older than 30 days.
+4. **Automated Daily R2 Snapshots**: Dumps all D1 tables—including `users`, `user_game_releases`, `user_games`, and `user_toys`—into structured, timestamped JSON backups in Cloudflare R2 at 23:30 UTC whenever data has changed, automatically pruning snapshots older than 30 days.
 5. **Launch-Day Transitions**: Automatically transitions announced titles (`announced_unreleased`, `physical_pending`) whose release date has arrived into the active catalog.
 
 ### Model Context Protocol (MCP) Edge Server

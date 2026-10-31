@@ -3148,7 +3148,7 @@ export class ItemDetailComponent {
       return true;
     }
     if (game.releases && game.releases.length > 0) {
-      return game.releases.some((r) => r.is_physical !== false || !!r.rom_name);
+      return true;
     }
     return false;
   }

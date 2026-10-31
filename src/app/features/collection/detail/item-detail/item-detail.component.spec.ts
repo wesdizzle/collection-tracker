@@ -768,7 +768,6 @@ describe('ItemDetailComponent', () => {
             rom_name: 'Asteroids (Japan, USA).a26',
             ownership_status: 0,
             backup_status: 0,
-            is_physical: 1,
           },
         ],
       };
@@ -803,7 +802,6 @@ describe('ItemDetailComponent', () => {
             rom_name: 'Ape Escape (USA).cue',
             backup_status: 1,
             ownership_status: 1,
-            is_physical: 1,
           },
         ],
         other_releases: [
@@ -816,7 +814,6 @@ describe('ItemDetailComponent', () => {
             release_date: '1999-06-24',
             backup_status: 0,
             ownership_status: 0,
-            is_physical: 1,
           },
           {
             id: 'ape-escape-playstation-adbe9210',
@@ -827,7 +824,6 @@ describe('ItemDetailComponent', () => {
             release_date: '1999-07-02',
             backup_status: 0,
             ownership_status: 0,
-            is_physical: 1,
           },
         ],
       };
