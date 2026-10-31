@@ -32,6 +32,33 @@ export interface Toy {
   sort_index?: number | null;
 }
 
+export interface MultiPoseAmiiboPose {
+  poseKey: string;
+  nameSuffix: string;
+  slugSuffix: string;
+}
+
+/**
+ * Curated registry of amiibo figures that physically shipped with interchangeable poses
+ * sharing a single NFC base.
+ */
+export const MULTI_POSE_AMIIBO_EXPANSIONS: Record<
+  string,
+  MultiPoseAmiiboPose[]
+> = {
+  // Mr. Game & Watch (Super Smash Bros. Series) - 4 interchangeable poses
+  '07800000002d0002': [
+    { poseKey: 'default', nameSuffix: ' (Default)', slugSuffix: '' },
+    {
+      poseKey: 'parachute',
+      nameSuffix: ' (Parachute)',
+      slugSuffix: '-parachute',
+    },
+    { poseKey: 'bell', nameSuffix: ' (Bell)', slugSuffix: '-bell' },
+    { poseKey: 'judge', nameSuffix: ' (Judge)', slugSuffix: '-judge' },
+  ],
+};
+
 /**
  * UTILITY: getAmiiboSeries
  *
@@ -78,20 +105,39 @@ export async function getAmiiboSeries(seriesName?: string): Promise<Toy[]> {
         }
         return true;
       })
-      .map((a: Amiibo) => {
+      .flatMap((a: Amiibo) => {
         const effectiveSeries =
           a.amiiboSeries === 'Others' && a.gameSeries
             ? a.gameSeries
             : a.amiiboSeries;
-        return {
-          id: `${a.head}${a.tail}`,
-          name: a.name,
-          line: 'amiibo',
-          series_name: effectiveSeries,
-          type: a.type,
-          image_url: a.image,
-          release_date: a.release?.na || null,
-        };
+        const fullAmiiboId = `${a.head}${a.tail}`;
+        const poseExpansions = MULTI_POSE_AMIIBO_EXPANSIONS[fullAmiiboId];
+
+        if (poseExpansions && poseExpansions.length > 0) {
+          return poseExpansions.map((p) => ({
+            id: p.slugSuffix ? `${fullAmiiboId}_${p.poseKey}` : fullAmiiboId,
+            name: `${a.name}${p.nameSuffix}`,
+            line: 'amiibo',
+            series_name: effectiveSeries,
+            type: a.type,
+            image_url: a.image,
+            release_date: a.release?.na || null,
+            amiibo_id: fullAmiiboId,
+          }));
+        }
+
+        return [
+          {
+            id: fullAmiiboId,
+            name: a.name,
+            line: 'amiibo',
+            series_name: effectiveSeries,
+            type: a.type,
+            image_url: a.image,
+            release_date: a.release?.na || null,
+            amiibo_id: fullAmiiboId,
+          },
+        ];
       });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

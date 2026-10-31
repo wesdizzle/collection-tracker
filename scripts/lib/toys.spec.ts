@@ -214,6 +214,36 @@ describe('Toys Metadata Ingestion Helpers', () => {
       const toys = await getAmiiboSeries('Super Smash Bros.');
       expect(toys).toHaveLength(0);
     });
+
+    it('should expand multi-pose amiibo figures into individual pose records (Mr. Game & Watch)', async () => {
+      const mockResponse = {
+        amiibo: [
+          {
+            head: '07800000',
+            tail: '002d0002',
+            name: 'Mr. Game & Watch',
+            amiiboSeries: 'Super Smash Bros.',
+            type: 'Figure',
+            image: 'https://example.com/gw.png',
+            release: { na: '2015-09-25' },
+          },
+        ],
+      };
+
+      mockedAxios.get.mockResolvedValue({ data: mockResponse });
+
+      const toys = await getAmiiboSeries('Super Smash Bros.');
+
+      expect(toys).toHaveLength(4);
+      expect(toys.map((t) => t.name)).toEqual([
+        'Mr. Game & Watch (Default)',
+        'Mr. Game & Watch (Parachute)',
+        'Mr. Game & Watch (Bell)',
+        'Mr. Game & Watch (Judge)',
+      ]);
+      expect(toys[0].amiibo_id).toBe('07800000002d0002');
+      expect(toys[1].amiibo_id).toBe('07800000002d0002');
+    });
   });
 
   describe('extractBaseCharacterName', () => {

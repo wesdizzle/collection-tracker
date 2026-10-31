@@ -61,6 +61,7 @@ import {
   parseSwitchRevisionsCsv,
 } from '../scripts/lib/switch_revisions';
 import { normalizeTitleForMatching } from '../scripts/lib/title_matching';
+import { MULTI_POSE_AMIIBO_EXPANSIONS } from '../scripts/lib/toys';
 import {
   findVerifiedRegionalPhysicalReleases,
   searchGameyeToy,
@@ -2732,14 +2733,54 @@ Disallow: /
               continue;
             }
 
-            if (existingIds.has(amiiboId) || existingNames.has(cleanName)) {
-              continue;
-            }
-
             const effectiveSeries =
               a.amiiboSeries === 'Others' && a.gameSeries
                 ? a.gameSeries
                 : a.amiiboSeries || 'Other';
+
+            const defaultRegion = a.release?.na
+              ? 'USA'
+              : a.release?.jp
+                ? 'Japan'
+                : a.release?.eu
+                  ? 'Europe'
+                  : 'USA';
+            const defaultDate =
+              a.release?.na || a.release?.jp || a.release?.eu || null;
+
+            const poseExpansions = MULTI_POSE_AMIIBO_EXPANSIONS[amiiboId];
+            if (poseExpansions && poseExpansions.length > 0) {
+              for (const p of poseExpansions) {
+                const poseName = `${a.name}${p.nameSuffix}`;
+                const poseCleanName = poseName.toLowerCase().trim();
+                const poseId = p.slugSuffix
+                  ? `${amiiboId}${p.slugSuffix}`
+                  : amiiboId;
+                if (
+                  existingNames.has(poseCleanName) ||
+                  existingIds.has(poseId)
+                ) {
+                  continue;
+                }
+                missingAmiibo.push({
+                  id: poseId,
+                  amiibo_id: amiiboId,
+                  name: poseName,
+                  line: 'amiibo',
+                  series_name: effectiveSeries,
+                  game_series: a.gameSeries || null,
+                  type: a.type || 'Figure',
+                  image_url: a.image,
+                  release_date: defaultDate,
+                  region: defaultRegion,
+                });
+              }
+              continue;
+            }
+
+            if (existingIds.has(amiiboId) || existingNames.has(cleanName)) {
+              continue;
+            }
 
             missingAmiibo.push({
               id: amiiboId,
@@ -2750,15 +2791,8 @@ Disallow: /
               game_series: a.gameSeries || null,
               type: a.type || 'Figure',
               image_url: a.image,
-              release_date:
-                a.release?.na || a.release?.jp || a.release?.eu || null,
-              region: a.release?.na
-                ? 'USA'
-                : a.release?.jp
-                  ? 'Japan'
-                  : a.release?.eu
-                    ? 'Europe'
-                    : 'USA',
+              release_date: defaultDate,
+              region: defaultRegion,
             });
           }
 

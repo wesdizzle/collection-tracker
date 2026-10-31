@@ -2685,33 +2685,35 @@ async function discoverAllAmiibo(existingToys: Toy[]): Promise<Toy[]> {
   console.log('Fetching master amiibo list...');
   const allAmiibo = await getAmiiboSeries();
   const existingAmiiboIds = new Set(
-    existingToys.filter((t) => t.line === 'amiibo').map((t) => t.amiibo_id),
+    existingToys
+      .filter((t) => t.line === 'amiibo' && t.amiibo_id)
+      .map((t) => t.amiibo_id!),
+  );
+  const usedSlugs = new Set(
+    (db.prepare('SELECT id FROM toys').all() as { id: string }[]).map(
+      (t) => t.id,
+    ),
   );
   const added: Toy[] = [];
 
   const insertStmt = db.prepare(`
-        INSERT INTO toys (id, name, line, series, type, image_url, amiibo_id, ownership_status, verified, metadata_json, series_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO toys (id, name, line, series, type, image_url, amiibo_id, verified, metadata_json, series_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
   const insertSeriesStmt = db.prepare(
     'INSERT OR IGNORE INTO toy_series (id, line, name) VALUES (?, ?, ?)',
   );
 
-  const usedSlugs = new Set(
-    (db.prepare('SELECT id FROM toys').all() as { id: string }[]).map(
-      (t) => t.id,
-    ),
-  );
-
   for (const a of allAmiibo) {
-    if (existingAmiiboIds.has(a.id)) continue;
+    const rawAmiiboId = a.amiibo_id || a.id;
+    const canonicalId = `${slugify(a.name)}-amiibo-${slugify(a.series_name)}`;
 
-    // a.id is head+tail from getAmiiboSeries
-    let canonicalId = `${slugify(a.name)}-amiibo-${slugify(a.series_name)}`;
-    if (usedSlugs.has(canonicalId)) {
-      canonicalId += `-${a.id.substring(0, 8)}`;
-    }
+    // If slug already exists, skip
+    if (usedSlugs.has(canonicalId)) continue;
+
+    // For single-pose amiibo, if amiibo_id already exists in DB, skip
+    if (!a.id.includes('_') && existingAmiiboIds.has(rawAmiiboId)) continue;
 
     usedSlugs.add(canonicalId);
 
@@ -2725,10 +2727,9 @@ async function discoverAllAmiibo(existingToys: Toy[]): Promise<Toy[]> {
       a.series_name,
       a.type,
       a.image_url,
-      a.id,
-      0, // Wanted
+      rawAmiiboId,
       1, // Verified
-      null, // We could store more if needed, but getAmiiboSeries only returns subset
+      null,
       seriesId,
     );
     added.push(a);
