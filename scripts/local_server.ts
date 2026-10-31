@@ -33,19 +33,19 @@ import { findVerifiedRegionalPhysicalReleases } from './lib/gameye.js';
 import { computeGameCanonicalSeries } from './lib/canonical_series.js';
 import { recomputeCanonicalSeries } from './compute_canonical_series.js';
 import {
-  GAMES_LIST_QUERY,
-  GAME_DETAIL_QUERY,
-  GAME_RELEASES_BY_GAME_ID_QUERY,
-  GAME_ALL_RELEASES_BY_GAME_ID_QUERY,
-  BUNDLED_GAMES_BY_PARENT_QUERY,
   PLATFORMS_LIST_QUERY,
-  TOYS_LIST_QUERY,
-  TOY_DETAIL_QUERY,
   GAMES_ORDER_BY,
   getRomGroupingKey,
-  TARGETED_COMPANION_BY_CRC_QUERY,
-  TARGETED_COMPANION_BY_GAME_ID_QUERY,
-  TARGETED_COMPANION_BY_TITLE_QUERY,
+  buildTargetedCompanionByCrcQuery,
+  buildTargetedCompanionByGameIdQuery,
+  buildTargetedCompanionByTitleQuery,
+  buildGamesListQuery,
+  buildGameDetailQuery,
+  getGameDetailQueryParams,
+  buildGameReleasesByGameIdQuery,
+  buildBundledGamesByParentQuery,
+  buildToysListQuery,
+  buildToyDetailQuery,
   getRelatedGameIdsForCompanion,
   getRelatedGameTitlesForCompanion,
   CompanionDiscCandidateRow,
@@ -101,10 +101,199 @@ export const handleRequest =
     }
 
     try {
+      // GET /api/auth/me
+      if (req.method === 'GET' && pathname === '/api/auth/me') {
+        let user = {
+          id: 1,
+          username: 'admin',
+          role: 'admin',
+          homeRegion: 'USA',
+        };
+        try {
+          const row = db
+            .prepare(
+              'SELECT id, username, role, home_region FROM users WHERE id = 1',
+            )
+            .get() as
+            | {
+                id: number;
+                username: string;
+                role: string;
+                home_region: string | null;
+              }
+            | undefined;
+          if (row) {
+            user = {
+              id: row.id,
+              username: row.username,
+              role: row.role as 'admin',
+              homeRegion: row.home_region || 'USA',
+            };
+          }
+        } catch {
+          // Table might not exist in mocked tests
+        }
+        res.end(JSON.stringify({ user }));
+        return;
+      }
+
+      // POST /api/auth/login
+      else if (req.method === 'POST' && pathname === '/api/auth/login') {
+        res.end(JSON.stringify({ success: true }));
+        return;
+      }
+
+      // POST /api/auth/logout
+      else if (req.method === 'POST' && pathname === '/api/auth/logout') {
+        res.end(JSON.stringify({ success: true }));
+        return;
+      }
+
+      // GET /api/u/:username/games
+      else if (
+        req.method === 'GET' &&
+        pathname.startsWith('/api/u/') &&
+        pathname.endsWith('/games')
+      ) {
+        const parts = pathname.split('/');
+        const username = decodeURIComponent(parts[3] || '').trim();
+        let user:
+          | {
+              id: number;
+              username: string;
+              home_region: string | null;
+              is_public: number;
+            }
+          | undefined;
+        try {
+          user = db
+            .prepare(
+              'SELECT id, username, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
+            )
+            .get(username) as typeof user;
+        } catch {
+          // table might not exist
+        }
+        if (!user) {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ error: 'User not found' }));
+          return;
+        }
+
+        const platformId =
+          url.searchParams.get('platform') ||
+          url.searchParams.get('platform_id');
+        let query = buildGamesListQuery(user.id);
+        const params: unknown[] = [user.id, user.id];
+
+        if (platformId) {
+          query += ' AND (g.platform_id = ? OR p.parent_platform_id = ?)';
+          params.push(platformId, platformId);
+        }
+
+        query += GAMES_ORDER_BY;
+
+        const games = db.prepare(query).all(...params) as Record<
+          string,
+          unknown
+        >[];
+        const homeRegion = user.home_region || 'USA';
+        for (const row of games) {
+          if (row['region'] && (row['metadata_json'] || row['raw_title'])) {
+            row['title'] = resolveLocalizedReleaseTitle(
+              (row['base_title'] || row['title'] || '') as string,
+              row['region'] as string | null,
+              (row['metadata_json'] as string) || null,
+              (row['raw_title'] || row['title'] || '') as string,
+              homeRegion,
+            );
+          }
+        }
+        res.end(JSON.stringify(games || []));
+        return;
+      }
+
+      // GET /api/u/:username/toys
+      else if (
+        req.method === 'GET' &&
+        pathname.startsWith('/api/u/') &&
+        pathname.endsWith('/toys')
+      ) {
+        const parts = pathname.split('/');
+        const username = decodeURIComponent(parts[3] || '').trim();
+        let user:
+          | { id: number; username: string; is_public: number }
+          | undefined;
+        try {
+          user = db
+            .prepare(
+              'SELECT id, username, is_public FROM users WHERE username = ? COLLATE NOCASE',
+            )
+            .get(username) as typeof user;
+        } catch {
+          // table might not exist
+        }
+        if (!user) {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ error: 'User not found' }));
+          return;
+        }
+
+        const query = buildToysListQuery(user.id);
+        const toys = db.prepare(query).all(user.id);
+        res.end(JSON.stringify(toys || []));
+        return;
+      }
+
+      // GET /api/u/:username
+      else if (
+        req.method === 'GET' &&
+        pathname.startsWith('/api/u/') &&
+        !pathname.slice(7).includes('/')
+      ) {
+        const username = decodeURIComponent(pathname.slice(7)).trim();
+        let user:
+          | {
+              id: number;
+              username: string;
+              display_name: string | null;
+              bio: string | null;
+              home_region: string | null;
+              is_public: number;
+            }
+          | undefined;
+        try {
+          user = db
+            .prepare(
+              'SELECT id, username, display_name, bio, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
+            )
+            .get(username) as typeof user;
+        } catch {
+          // table might not exist
+        }
+        if (!user) {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ error: 'User not found' }));
+          return;
+        }
+
+        res.end(
+          JSON.stringify({
+            username: user.username,
+            displayName: user.display_name,
+            bio: user.bio,
+            homeRegion: user.home_region || 'USA',
+          }),
+        );
+        return;
+      } else if (
+
       /**
        * ROUTE: GET /api/discovery/scan-amiibo
        */
-      if (req.method === 'GET' && pathname === '/api/discovery/scan-amiibo') {
+        req.method === 'GET' &&
+        pathname === '/api/discovery/scan-amiibo'
+      ) {
         try {
           const response = await axios.get(
             'https://amiiboapi.org/api/amiibo/',
@@ -1862,8 +2051,14 @@ export const handleRequest =
         const platformId =
           url.searchParams.get('platform') ||
           url.searchParams.get('platform_id');
-        const params: unknown[] = [];
-        let query = GAMES_LIST_QUERY;
+        const hasUserGameReleases = !!db
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_game_releases'",
+          )
+          .get();
+        const userId = hasUserGameReleases ? 1 : null;
+        let query = buildGamesListQuery(userId);
+        const params: unknown[] = userId ? [userId, userId] : [];
 
         if (platformId) {
           query += ' AND (g.platform_id = ? OR p.parent_platform_id = ?)';
@@ -1890,9 +2085,16 @@ export const handleRequest =
         }
         res.end(JSON.stringify(games));
       } else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
-        const id = pathname.split('/').pop();
-        const query = GAME_DETAIL_QUERY;
-        const game = db.prepare(query).get(id, id, id) as
+        const id = pathname.split('/').pop() || '';
+        const hasUserGameReleases = !!db
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_game_releases'",
+          )
+          .get();
+        const userId = hasUserGameReleases ? 1 : null;
+        const query = buildGameDetailQuery(userId);
+        const params = getGameDetailQueryParams(id, userId);
+        const game = db.prepare(query).get(...params) as
           | (Record<string, unknown> & {
               releases?: Array<Record<string, unknown>>;
               other_releases?: Array<Record<string, unknown>>;
@@ -1917,27 +2119,24 @@ export const handleRequest =
         } else {
           const targetKey = getRomGroupingKey(game.rom_name);
           const isMulti = targetKey.startsWith('multi:');
-          const releases = isMulti
-            ? (db
-                .prepare(GAME_ALL_RELEASES_BY_GAME_ID_QUERY)
-                .all(game.stable_id) as Array<
-                Record<string, unknown> & {
-                  id?: string;
-                  rom_name?: string | null;
-                  region?: string | null;
-                  variants?: string | null;
-                }
-              >)
-            : (db
-                .prepare(GAME_RELEASES_BY_GAME_ID_QUERY)
-                .all(game.stable_id, game.region) as Array<
-                Record<string, unknown> & {
-                  id?: string;
-                  rom_name?: string | null;
-                  region?: string | null;
-                  variants?: string | null;
-                }
-              >);
+          const releaseParams = userId
+            ? isMulti
+              ? [userId, game.stable_id]
+              : [userId, game.stable_id, game.region]
+            : isMulti
+              ? [game.stable_id]
+              : [game.stable_id, game.region];
+          const releaseQuery = buildGameReleasesByGameIdQuery(userId, isMulti);
+          const releases = db
+            .prepare(releaseQuery)
+            .all(...releaseParams) as Array<
+            Record<string, unknown> & {
+              id?: string;
+              rom_name?: string | null;
+              region?: string | null;
+              variants?: string | null;
+            }
+          >;
           if (isMulti) {
             game.releases = releases.filter(
               (r) => getRomGroupingKey(r.rom_name) === targetKey,
@@ -2027,6 +2226,12 @@ export const handleRequest =
             const candidateReleases: CompanionDiscCandidateRow[] = [];
             const seenCandidateIds = new Set<string>();
 
+            const companionCrcQuery = buildTargetedCompanionByCrcQuery(userId);
+            const companionGameIdQuery =
+              buildTargetedCompanionByGameIdQuery(userId);
+            const companionTitleQuery =
+              buildTargetedCompanionByTitleQuery(userId);
+
             // 1. Target companion releases by rom_crc across all releases in this game
             const releasesToCheck =
               game.releases && game.releases.length > 0
@@ -2036,9 +2241,12 @@ export const handleRequest =
               const relCrc = (rel['rom_crc'] as string | null) || null;
               const relId = (rel['id'] as string | null) || null;
               if (relCrc) {
+                const bindParams = userId
+                  ? [userId, relCrc, relId || '']
+                  : [relCrc, relId || ''];
                 const rows = db
-                  .prepare(TARGETED_COMPANION_BY_CRC_QUERY)
-                  .all(relCrc, relId || '') as CompanionDiscCandidateRow[];
+                  .prepare(companionCrcQuery)
+                  .all(...bindParams) as CompanionDiscCandidateRow[];
                 for (const r of rows) {
                   if (!seenCandidateIds.has(r.id)) {
                     seenCandidateIds.add(r.id);
@@ -2051,9 +2259,10 @@ export const handleRequest =
             // 2. Target companion releases by related game IDs (e.g. Superseded pairs)
             const relatedIds = getRelatedGameIdsForCompanion(game);
             for (const relStableId of relatedIds) {
+              const bindParams = userId ? [userId, relStableId] : [relStableId];
               const rows = db
-                .prepare(TARGETED_COMPANION_BY_GAME_ID_QUERY)
-                .all(relStableId) as CompanionDiscCandidateRow[];
+                .prepare(companionGameIdQuery)
+                .all(...bindParams) as CompanionDiscCandidateRow[];
               for (const r of rows) {
                 if (!seenCandidateIds.has(r.id)) {
                   seenCandidateIds.add(r.id);
@@ -2065,9 +2274,12 @@ export const handleRequest =
             // 3. Target companion releases by related game titles (e.g. Box sets and standalone counterparts)
             const relatedTitles = getRelatedGameTitlesForCompanion(game);
             for (const title of relatedTitles) {
+              const bindParams = userId
+                ? [userId, game.platform_id, title]
+                : [game.platform_id, title];
               const rows = db
-                .prepare(TARGETED_COMPANION_BY_TITLE_QUERY)
-                .all(game.platform_id, title) as CompanionDiscCandidateRow[];
+                .prepare(companionTitleQuery)
+                .all(...bindParams) as CompanionDiscCandidateRow[];
               for (const r of rows) {
                 if (!seenCandidateIds.has(r.id)) {
                   seenCandidateIds.add(r.id);
@@ -2080,9 +2292,11 @@ export const handleRequest =
           }
 
           if (game.stable_id) {
-            const bundled = db
-              .prepare(BUNDLED_GAMES_BY_PARENT_QUERY)
-              .all(game.stable_id);
+            const bundledQuery = buildBundledGamesByParentQuery(userId);
+            const bundledParams = userId
+              ? [userId, game.stable_id]
+              : [game.stable_id];
+            const bundled = db.prepare(bundledQuery).all(...bundledParams);
             game['bundled_games'] = bundled;
           }
 
@@ -2092,16 +2306,32 @@ export const handleRequest =
 
       // GET /api/toys
       else if (req.method === 'GET' && pathname === '/api/toys') {
-        const query = TOYS_LIST_QUERY;
-        const toys = db.prepare(query).all();
+        const hasUserToys = !!db
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_toys'",
+          )
+          .get();
+        const userId = hasUserToys ? 1 : null;
+        const query = buildToysListQuery(userId);
+        const toys = userId
+          ? db.prepare(query).all(userId)
+          : db.prepare(query).all();
         res.end(JSON.stringify(toys));
       }
 
       // GET /api/toys/:id
       else if (req.method === 'GET' && pathname.startsWith('/api/toys/')) {
         const id = pathname.split('/').pop();
-        const query = TOY_DETAIL_QUERY;
-        const toy = db.prepare(query).get(id);
+        const hasUserToys = !!db
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_toys'",
+          )
+          .get();
+        const userId = hasUserToys ? 1 : null;
+        const query = buildToyDetailQuery(userId);
+        const toy = userId
+          ? db.prepare(query).get(userId, id)
+          : db.prepare(query).get(id);
         if (!toy) {
           res.statusCode = 404;
           res.end(JSON.stringify({ error: 'Not found' }));
@@ -2307,26 +2537,59 @@ export const handleRequest =
           const userAgent = req.headers['user-agent'] || null;
           const prefsJson = JSON.stringify(payload.preferences || {});
 
-          db.prepare(
-            `INSERT INTO push_subscriptions (
-               id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(endpoint) DO UPDATE SET
-               p256dh = excluded.p256dh,
-               auth = excluded.auth,
-               preferences_json = excluded.preferences_json,
-               user_agent = excluded.user_agent,
-               updated_at = excluded.updated_at`,
-          ).run(
-            id,
-            payload.endpoint,
-            payload.keys.p256dh,
-            payload.keys.auth,
-            prefsJson,
-            userAgent,
-            nowIso,
-            nowIso,
+          const subCols = new Set(
+            (
+              db
+                .prepare('PRAGMA table_info(push_subscriptions)')
+                .all() as Array<{
+                name: string;
+              }>
+            ).map((c) => c.name),
           );
+          if (subCols.has('user_id')) {
+            db.prepare(
+              `INSERT INTO push_subscriptions (
+                 id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at
+               ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(endpoint) DO UPDATE SET
+                 user_id = excluded.user_id,
+                 p256dh = excluded.p256dh,
+                 auth = excluded.auth,
+                 preferences_json = excluded.preferences_json,
+                 user_agent = excluded.user_agent,
+                 updated_at = excluded.updated_at`,
+            ).run(
+              id,
+              payload.endpoint,
+              payload.keys.p256dh,
+              payload.keys.auth,
+              prefsJson,
+              userAgent,
+              nowIso,
+              nowIso,
+            );
+          } else {
+            db.prepare(
+              `INSERT INTO push_subscriptions (
+                 id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(endpoint) DO UPDATE SET
+                 p256dh = excluded.p256dh,
+                 auth = excluded.auth,
+                 preferences_json = excluded.preferences_json,
+                 user_agent = excluded.user_agent,
+                 updated_at = excluded.updated_at`,
+            ).run(
+              id,
+              payload.endpoint,
+              payload.keys.p256dh,
+              payload.keys.auth,
+              prefsJson,
+              userAgent,
+              nowIso,
+              nowIso,
+            );
+          }
 
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ success: true, id }));

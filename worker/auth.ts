@@ -314,11 +314,6 @@ export async function extractAccessEmail(
     ctx?: unknown;
   },
 ): Promise<string | null> {
-  const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
-  if (headerEmail && headerEmail.includes('@')) {
-    return headerEmail.toLowerCase().trim();
-  }
-
   // Check ctx.access.getIdentity() when running natively under Cloudflare Workers Access
   if (opts?.ctx && typeof opts.ctx === 'object' && 'access' in opts.ctx) {
     try {
@@ -341,21 +336,28 @@ export async function extractAccessEmail(
   const cookieHeader = request.headers.get('Cookie') || '';
   const cookies = parseCookies(cookieHeader);
   const jwt =
-    cookies['CF_Authorization'] ||
-    request.headers.get('Cf-Access-Jwt-Assertion');
+    request.headers.get('Cf-Access-Jwt-Assertion') ||
+    cookies['CF_Authorization'];
 
-  if (!jwt || !jwt.includes('.')) return null;
-
+  // When teamDomain is configured, cryptographically verify the JWT
   if (opts?.teamDomain) {
-    const verified = await verifyAccessJwt(jwt, {
+    if (!jwt || !jwt.includes('.')) return null;
+    return await verifyAccessJwt(jwt, {
       teamDomain: opts.teamDomain,
       audience: opts.audience,
       nowMs: opts.nowMs,
     });
-    if (verified) return verified;
   }
 
-  // Fallback: decode JWT payload directly from CF_Authorization cookie
+  // Fallback for dev / unconfigured teamDomain:
+  const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+  if (headerEmail && headerEmail.includes('@')) {
+    return headerEmail.toLowerCase().trim();
+  }
+
+  if (!jwt || !jwt.includes('.')) return null;
+
+  // Fallback: decode JWT payload directly from CF_Authorization cookie or header
   try {
     const parts = jwt.split('.');
     if (parts.length >= 2) {

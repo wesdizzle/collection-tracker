@@ -22,9 +22,9 @@ import {
   GAMES_ORDER_BY,
   getRomGroupingKey,
   PLATFORM_MAP,
-  TARGETED_COMPANION_BY_CRC_QUERY,
-  TARGETED_COMPANION_BY_GAME_ID_QUERY,
-  TARGETED_COMPANION_BY_TITLE_QUERY,
+  buildTargetedCompanionByCrcQuery,
+  buildTargetedCompanionByGameIdQuery,
+  buildTargetedCompanionByTitleQuery,
   getRelatedGameIdsForCompanion,
   getRelatedGameTitlesForCompanion,
   CompanionDiscCandidateRow,
@@ -1111,7 +1111,9 @@ Disallow: /
         return Response.json(results || [], {
           headers: {
             'Content-Type': 'application/json',
-            'Cache-Control': 'public, max-age=60, s-maxage=300',
+            'Cache-Control': user.is_public
+              ? 'public, max-age=60, s-maxage=300'
+              : 'private, no-cache, no-store, must-revalidate',
           },
         });
       }
@@ -1143,7 +1145,9 @@ Disallow: /
         return Response.json(results || [], {
           headers: {
             'Content-Type': 'application/json',
-            'Cache-Control': 'public, max-age=60, s-maxage=300',
+            'Cache-Control': user.is_public
+              ? 'public, max-age=60, s-maxage=300'
+              : 'private, no-cache, no-store, must-revalidate',
           },
         });
       }
@@ -1181,7 +1185,9 @@ Disallow: /
           {
             headers: {
               'Content-Type': 'application/json',
-              'Cache-Control': 'public, max-age=60, s-maxage=300',
+              'Cache-Control': user.is_public
+                ? 'public, max-age=60, s-maxage=300'
+                : 'private, no-cache, no-store, must-revalidate',
             },
           },
         );
@@ -1390,6 +1396,12 @@ Disallow: /
           const candidateReleases: CompanionDiscCandidateRow[] = [];
           const seenCandidateIds = new Set<string>();
 
+          const companionCrcQuery = buildTargetedCompanionByCrcQuery(userId);
+          const companionGameIdQuery =
+            buildTargetedCompanionByGameIdQuery(userId);
+          const companionTitleQuery =
+            buildTargetedCompanionByTitleQuery(userId);
+
           // 1. Target companion releases by rom_crc across all releases in this game
           const releasesToCheck =
             game.releases && game.releases.length > 0 ? game.releases : [game];
@@ -1397,10 +1409,13 @@ Disallow: /
             const relCrc = (rel['rom_crc'] as string | null) || null;
             const relId = (rel['id'] as string | null) || null;
             if (relCrc) {
+              const bindParams = userId
+                ? [userId, relCrc, relId || '']
+                : [relCrc, relId || ''];
               const { results: crcRows } = await env.DB.prepare(
-                TARGETED_COMPANION_BY_CRC_QUERY,
+                companionCrcQuery,
               )
-                .bind(relCrc, relId || '')
+                .bind(...bindParams)
                 .all();
               for (const r of (crcRows ||
                 []) as unknown as CompanionDiscCandidateRow[]) {
@@ -1415,10 +1430,11 @@ Disallow: /
           // 2. Target companion releases by related game IDs (e.g. Superseded pairs)
           const relatedIds = getRelatedGameIdsForCompanion(game);
           for (const relStableId of relatedIds) {
+            const bindParams = userId ? [userId, relStableId] : [relStableId];
             const { results: idRows } = await env.DB.prepare(
-              TARGETED_COMPANION_BY_GAME_ID_QUERY,
+              companionGameIdQuery,
             )
-              .bind(relStableId)
+              .bind(...bindParams)
               .all();
             for (const r of (idRows ||
               []) as unknown as CompanionDiscCandidateRow[]) {
@@ -1432,10 +1448,13 @@ Disallow: /
           // 3. Target companion releases by related game titles (e.g. Box sets and standalone counterparts)
           const relatedTitles = getRelatedGameTitlesForCompanion(game);
           for (const title of relatedTitles) {
+            const bindParams = userId
+              ? [userId, game.platform_id, title]
+              : [game.platform_id, title];
             const { results: titleRows } = await env.DB.prepare(
-              TARGETED_COMPANION_BY_TITLE_QUERY,
+              companionTitleQuery,
             )
-              .bind(game.platform_id, title)
+              .bind(...bindParams)
               .all();
             for (const r of (titleRows ||
               []) as unknown as CompanionDiscCandidateRow[]) {
@@ -3873,10 +3892,10 @@ Disallow: /
         await env.DB.prepare(
           `
           INSERT INTO toys (
-            id, name, line, series_name, series_line, series, type, release_date,
+            id, name, line, series_id, series, type, release_date,
             image_url, amiibo_id, verified, metadata_json, sort_index, region
           ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?,
             ?, ?, 1, ?, ?, ?
           )
         `,
@@ -3885,8 +3904,11 @@ Disallow: /
             candidateId,
             toy.name,
             toy.line || 'amiibo',
-            toy.series_name || 'Other',
-            toy.line || 'amiibo',
+            toy.series_name
+              ? slugify(toy.series_name)
+              : toy.series
+                ? slugify(toy.series)
+                : null,
             toy.series || toy.series_name || 'Other',
             toy.type || 'Figure',
             toy.release_date || null,
@@ -4227,6 +4249,13 @@ Disallow: /
         request.method === 'PUT' &&
         path === '/api/notifications/preferences'
       ) {
+        if (!sessionUser) {
+          return Response.json(
+            { error: 'Unauthorized: Authentication required.' },
+            { status: 401 },
+          );
+        }
+
         const body = (await request.json()) as {
           endpoint?: string;
           preferences?: Record<string, unknown>;
@@ -4260,6 +4289,13 @@ Disallow: /
         request.method === 'POST' &&
         path === '/api/notifications/unsubscribe'
       ) {
+        if (!sessionUser) {
+          return Response.json(
+            { error: 'Unauthorized: Authentication required.' },
+            { status: 401 },
+          );
+        }
+
         const body = (await request.json()) as { endpoint?: string };
         if (!body?.endpoint) {
           return Response.json(
@@ -4282,6 +4318,13 @@ Disallow: /
         request.method === 'POST' &&
         path === '/api/notifications/test'
       ) {
+        if (!sessionUser) {
+          return Response.json(
+            { error: 'Unauthorized: Authentication required.' },
+            { status: 401 },
+          );
+        }
+
         const body = (await request.json()) as { endpoint?: string };
         if (!body?.endpoint) {
           return Response.json(
