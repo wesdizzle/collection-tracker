@@ -107,14 +107,14 @@ export async function fetchNintendoSelectsRecords(): Promise<
       { heading: '=== Nintendo 3DS ===', platformId: 23 },
       { heading: '=== Wii U ===', platformId: 24 },
       { heading: '=== Wii ===', platformId: 22 },
-      { heading: '=== GameCube ===', platformId: 21 },
-      { heading: '=== Nintendo 64 ===', platformId: 20 },
+      { heading: '=== GameCube ===', platformId: 20 },
+      { heading: '=== Nintendo 64 ===', platformId: 17 },
       {
         heading: '=== Super Nintendo Entertainment System ===',
-        platformId: 19,
+        platformId: 15,
       },
-      { heading: '=== Game Boy Advance ===', platformId: 18 },
-      { heading: '=== Game Boy ===', platformId: 16 },
+      { heading: '=== Game Boy Advance ===', platformId: 19 },
+      { heading: '=== Game Boy ===', platformId: 14 },
     ];
 
     for (const sec of platformSections) {
@@ -187,11 +187,11 @@ export async function fetchNintendoSelectsRecords(): Promise<
         }
 
         const isChoice =
-          sec.platformId === 21 ||
           sec.platformId === 20 ||
+          sec.platformId === 17 ||
+          sec.platformId === 15 ||
           sec.platformId === 19 ||
-          sec.platformId === 18 ||
-          sec.platformId === 16;
+          sec.platformId === 14;
         records.push({
           title,
           normalizedTitle: norm,

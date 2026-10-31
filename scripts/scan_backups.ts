@@ -1623,11 +1623,6 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
         .map(() => '?')
         .join(',');
       const applyTx = db.transaction(() => {
-        // 0. Prune obsolete duplicate game rows
-        db.prepare(
-          'DELETE FROM games WHERE stable_id IN (10036, 10037, 10038)',
-        ).run();
-
         // 1. Scoped reset of game_releases for scanned platforms
         db.prepare(
           `UPDATE game_releases SET backup_status = 0 WHERE backup_status != 0 AND game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${platPlaceholders}))`,
@@ -1706,10 +1701,6 @@ export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
       '-- Surgical Backup Status Update Migration for Cloudflare D1\n';
     sqlContent += '-- Generated on: ' + new Date().toISOString() + '\n\n';
     sqlContent += 'PRAGMA foreign_keys = OFF;\n\n';
-
-    // 0. Prune obsolete duplicate game rows
-    sqlContent += `-- 0. Prune obsolete duplicate game rows\n`;
-    sqlContent += `DELETE FROM games WHERE stable_id IN (10036, 10037, 10038);\n\n`;
 
     if (allScannedPlatformIds.size > 0) {
       const platList = Array.from(allScannedPlatformIds).join(', ');

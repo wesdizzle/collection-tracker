@@ -12,25 +12,24 @@
  */
 
 export const REDUMP_SYSTEM_SLUGS: Record<number, string> = {
-  21: 'gc', // Nintendo GameCube
+  1: '3do', // 3DO Interactive Multiplayer
+  10: 'ngcd', // SNK Neo Geo CD
+  20: 'gc', // Nintendo GameCube
   22: 'wii', // Nintendo Wii
   24: 'wiiu', // Nintendo Wii U (WIP)
-  28: 'dc', // Sega Dreamcast
+  28: 'cdi', // Philips CD-i
   29: 'psx', // Sony PlayStation
   30: 'ps2', // Sony PlayStation 2
-  31: 'ps3', // Sony PlayStation 3
-  32: 'psp', // Sony PlayStation Portable
+  31: 'psp', // Sony PlayStation Portable
+  32: 'ps3', // Sony PlayStation 3
   34: 'ps4', // Sony PlayStation 4 (WIP)
-  36: 'xbox', // Microsoft Xbox
-  37: 'xbox360', // Microsoft Xbox 360
-  38: 'xbone', // Microsoft Xbox One (WIP)
-  40: 'ss', // Sega Saturn
-  41: 'mcd', // Sega CD
-  43: '3do', // Panasonic 3DO
-  44: 'ajcd', // Atari Jaguar CD
-  45: 'ngcd', // SNK Neo Geo CD
-  46: 'cdi', // Philips CD-i
-  47: 'pce', // PC Engine CD & TurboGrafx CD
+  39: 'mcd', // Sega CD
+  42: 'ss', // Sega Saturn
+  43: 'dc', // Sega Dreamcast
+  46: 'pce', // PC Engine CD & TurboGrafx CD
+  47: 'xbox', // Microsoft Xbox
+  48: 'xbox360', // Microsoft Xbox 360
+  49: 'xbone', // Microsoft Xbox One (WIP)
 };
 
 export interface RedumpDiscSummary {

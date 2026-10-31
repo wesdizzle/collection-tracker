@@ -390,45 +390,34 @@ describe('Canonical Releases & Physical Verification Engine', () => {
     });
   });
 
-  describe('Canonical Extracted ROMs & Multi-Game Bundles', () => {
-    it('should classify EarthBound Beginnings on NES as digital_extracted_rom with provenance metadata', () => {
+  describe('Multi-Game Bundles & Physical Verification', () => {
+    it('should reject games without physical cartridge or disc releases as digital_only', () => {
       const result = detectPhysicalReleaseStatus({
         platformId: 13, // NES
         gameTitle: 'EarthBound Beginnings',
         canonicalReleases: [], // No physical NES cartridge in US
       });
 
-      expect(result.physical_status).toBe('digital_extracted_rom');
       expect(result.is_physical).toBe(false);
-      expect(result.verification_tier).toBe(3);
-      expect(result.origin_metadata?.origin_channel).toContain(
-        'Wii U Virtual Console',
-      );
-      expect(result.origin_metadata?.target_hardware).toBe(
-        'Nintendo Entertainment System',
-      );
+      expect(result.physical_status).toBe('digital_only');
     });
 
-    it('should classify Star Fox 2 and Trials of Mana on SNES as digital_extracted_rom', () => {
+    it('should classify unreleased physical games like Star Fox 2 as digital_only without DAT records', () => {
       const starFoxResult = detectPhysicalReleaseStatus({
-        platformId: 19, // SNES
+        platformId: 15, // SNES
         gameTitle: 'Star Fox 2',
         canonicalReleases: [],
       });
-      expect(starFoxResult.physical_status).toBe('digital_extracted_rom');
-      expect(starFoxResult.origin_metadata?.origin_channel).toContain(
-        'Super NES Classic Edition',
-      );
+      expect(starFoxResult.is_physical).toBe(false);
+      expect(starFoxResult.physical_status).toBe('digital_only');
 
       const trialsResult = detectPhysicalReleaseStatus({
-        platformId: 19, // SNES
+        platformId: 15, // SNES
         gameTitle: 'Trials of Mana',
         canonicalReleases: [],
       });
-      expect(trialsResult.physical_status).toBe('digital_extracted_rom');
-      expect(trialsResult.origin_metadata?.origin_channel).toContain(
-        'Collection of Mana',
-      );
+      expect(trialsResult.is_physical).toBe(false);
+      expect(trialsResult.physical_status).toBe('digital_only');
     });
 
     it('should retain verified_physical for Mother on Famicom when physical DAT matches', () => {

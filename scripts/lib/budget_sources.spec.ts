@@ -2,11 +2,25 @@ import { describe, it, expect } from 'vitest';
 import {
   parseWikiDate,
   cleanWikiTitle,
-  classifyCartridgeBudgetStatus,
+  classifyCartridgeBudgetWithRecords,
+  BudgetInductionRecord,
 } from './budget_sources.js';
 import { classifyRedumpEdition } from './redump_metadata.js';
 
 describe('Budget Sources Public Aggregator', () => {
+  const mockBudgetRecords: BudgetInductionRecord[] = [
+    {
+      title: 'Animal Crossing: New Leaf',
+      normalizedTitle: 'animalcrossingnewleaf',
+      platformId: 23,
+      budgetLabel: 'Nintendo Selects',
+      regionalInductionDates: {
+        USA: '2016-08-26',
+        Europe: '2018-06-29',
+      },
+    },
+  ];
+
   it('parses wiki date templates', () => {
     expect(parseWikiDate('{{dts|2016|08|26}}')).toBe('2016-08-26');
     expect(parseWikiDate('{{dts|2018|06|29}}')).toBe('2018-06-29');
@@ -24,8 +38,8 @@ describe('Budget Sources Public Aggregator', () => {
     ).toBe('Super Mario Maker for Nintendo 3DS');
   });
 
-  it('classifies Animal Crossing Welcome amiibo USA as budget_only', async () => {
-    const result = await classifyCartridgeBudgetStatus({
+  it('classifies Animal Crossing Welcome amiibo USA as budget_only', () => {
+    const result = classifyCartridgeBudgetWithRecords(mockBudgetRecords, {
       platformId: 23, // 3DS
       gameTitle: 'Animal Crossing: New Leaf - Welcome amiibo',
       region: 'USA',
@@ -39,8 +53,8 @@ describe('Budget Sources Public Aggregator', () => {
     expect(result.alsoReleasedAs).toBeNull();
   });
 
-  it('classifies Animal Crossing Welcome amiibo Europe as standard_and_budget', async () => {
-    const result = await classifyCartridgeBudgetStatus({
+  it('classifies Animal Crossing Welcome amiibo Europe as standard_and_budget', () => {
+    const result = classifyCartridgeBudgetWithRecords(mockBudgetRecords, {
       platformId: 23, // 3DS
       gameTitle: 'Animal Crossing: New Leaf - Welcome amiibo',
       region: 'Europe',
