@@ -557,6 +557,10 @@ export async function performScheduledBackup(
     'push_subscriptions',
     'sync_state',
     'journal_entries',
+    'users',
+    'user_game_releases',
+    'user_games',
+    'user_toys',
   ];
 
   const backupData: Record<string, unknown[]> = {};

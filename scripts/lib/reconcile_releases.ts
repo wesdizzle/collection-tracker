@@ -173,7 +173,7 @@ export function reconcileGameReleasesWithCanonical(
   // Query releases that need ROM names
   const candidateQuery = `
     SELECT gr.id, gr.game_id, g.id as game_slug, g.platform_id, g.title, gr.region, gr.variants,
-           gr.rom_name, gr.rom_crc, gr.canonical_release_id, gr.ownership_status
+           gr.rom_name, gr.rom_crc, gr.canonical_release_id
     FROM game_releases gr
     JOIN games g ON gr.game_id = g.stable_id
     WHERE gr.rom_name IS NULL
@@ -192,7 +192,6 @@ export function reconcileGameReleasesWithCanonical(
     rom_name: string | null;
     rom_crc: string | null;
     canonical_release_id: number | null;
-    ownership_status: number;
   }>;
 
   // Track already-assigned ROM names and CRCs per game_id and per platform_id to prevent duplicate overwrites
@@ -503,11 +502,11 @@ export function reconcileGameReleasesWithCanonical(
         usedSet.add(sibling.rom_name);
         const siblingId = `${rel.game_slug || rel.id.replace(/-default$/, '')}-disc-${sibling.id}`;
         sqlStatements.push(
-          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, ownership_status, backup_status) VALUES (${escapeSql(siblingId)}, ${rel.game_id}, ${sibling.id}, ${escapeSql(sibling.region || rel.region)}, ${escapeSql(sibling.variants || rel.variants)}, ${escapeSql(sibling.also_released_as)}, ${escapeSql(sibling.rom_name)}, ${escapeSql(sibling.rom_crc)}, ${rel.ownership_status ?? 0}, 0);`,
+          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(siblingId)}, ${rel.game_id}, ${sibling.id}, ${escapeSql(sibling.region || rel.region)}, ${escapeSql(sibling.variants || rel.variants)}, ${escapeSql(sibling.also_released_as)}, ${escapeSql(sibling.rom_name)}, ${escapeSql(sibling.rom_crc)});`,
         );
         if (!isDryRun) {
           db.prepare(
-            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, ownership_status, backup_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           ).run(
             siblingId,
             rel.game_id,
@@ -517,7 +516,6 @@ export function reconcileGameReleasesWithCanonical(
             sibling.also_released_as,
             sibling.rom_name,
             sibling.rom_crc,
-            rel.ownership_status ?? 0,
           );
         }
       }
@@ -531,11 +529,11 @@ export function reconcileGameReleasesWithCanonical(
       usedSet.add(packIn.rom_name);
       const packInId = `${rel.game_slug || rel.id.replace(/-default$/, '')}-packin-${packIn.id}`;
       sqlStatements.push(
-        `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, ownership_status, backup_status) VALUES (${escapeSql(packInId)}, ${rel.game_id}, ${packIn.id}, ${escapeSql(packIn.region || rel.region)}, ${escapeSql(packIn.variants || 'Demo')}, ${escapeSql(packIn.also_released_as)}, ${escapeSql(packIn.rom_name)}, ${escapeSql(packIn.rom_crc)}, ${rel.ownership_status ?? 0}, 0);`,
+        `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(packInId)}, ${rel.game_id}, ${packIn.id}, ${escapeSql(packIn.region || rel.region)}, ${escapeSql(packIn.variants || 'Demo')}, ${escapeSql(packIn.also_released_as)}, ${escapeSql(packIn.rom_name)}, ${escapeSql(packIn.rom_crc)});`,
       );
       if (!isDryRun) {
         db.prepare(
-          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, ownership_status, backup_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           packInId,
           rel.game_id,
@@ -545,7 +543,6 @@ export function reconcileGameReleasesWithCanonical(
           packIn.also_released_as,
           packIn.rom_name,
           packIn.rom_crc,
-          rel.ownership_status ?? 0,
         );
       }
     }
@@ -620,11 +617,11 @@ export function reconcileGameReleasesWithCanonical(
         }
         const newId = `${g.slug}-dat-${c.id}`;
         sqlStatements.push(
-          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, ownership_status, backup_status) VALUES (${escapeSql(newId)}, ${g.stable_id}, ${c.id}, ${escapeSql(c.region)}, ${escapeSql(c.variants)}, ${escapeSql(c.also_released_as)}, ${escapeSql(c.rom_name)}, ${escapeSql(c.rom_crc)}, 0, 0);`,
+          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(newId)}, ${g.stable_id}, ${c.id}, ${escapeSql(c.region)}, ${escapeSql(c.variants)}, ${escapeSql(c.also_released_as)}, ${escapeSql(c.rom_name)}, ${escapeSql(c.rom_crc)});`,
         );
         if (!isDryRun) {
           db.prepare(
-            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, ownership_status, backup_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           ).run(
             newId,
             g.stable_id,

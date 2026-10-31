@@ -227,11 +227,9 @@ export function auditSqlCost(
         for (const row of planRows) {
           const detail = row.detail.toUpperCase();
           if (
-            detail.includes('SCAN TABLE') &&
-            (detail.includes('GAMES') ||
-              detail.includes('GAME_RELEASES') ||
-              detail.includes('CANONICAL_RELEASES') ||
-              detail.includes('TOYS'))
+            /\bSCAN\s+(?:TABLE\s+)?(GAMES|GAME_RELEASES|CANONICAL_RELEASES|TOYS)\b/i.test(
+              detail,
+            )
           ) {
             unindexedScans.push({ statement: stmt, plan: row.detail });
           }

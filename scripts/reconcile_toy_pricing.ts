@@ -42,7 +42,9 @@ async function main() {
       `
     SELECT stable_id, id, name, line, series_id, type, gameye_id, price_loose, price_cib, price_new
     FROM toys
-    WHERE ownership_status > 0 OR gameye_id IS NOT NULL OR price_loose IS NOT NULL
+    WHERE EXISTS (SELECT 1 FROM user_toys ut WHERE ut.toy_id = toys.id AND ut.ownership_status > 0)
+       OR gameye_id IS NOT NULL
+       OR price_loose IS NOT NULL
   `,
     )
     .all() as ToyRow[];

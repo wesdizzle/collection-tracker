@@ -5,8 +5,7 @@
  * digital services, or other hardware emulators (e.g. Super Mario Sunshine from Super Mario 3D All-Stars,
  * Animal Crossing NES minigame extracts, GameCube Zelda extracts on N64, Virtual Console extracts).
  *
- * Sets `is_physical = 0` on these records so they are treated as digital extracts
- * rather than phantom physical releases.
+ * Deletes these records from game_releases so digital extracts are not tracked as physical releases.
  *
  * Usage:
  *   npx tsx scripts/purge_extracted_compilation_releases.ts [--dry-run]
@@ -35,11 +34,11 @@ export function purgeExtractedCompilationReleases(isDryRun = false) {
     .prepare(
       `
     SELECT gr.id, gr.game_id, g.title, g.platform_id, p.name as platform_name,
-           gr.variants, gr.rom_name, gr.rom_crc, gr.is_physical
+           gr.variants, gr.rom_name, gr.rom_crc
     FROM game_releases gr
     JOIN games g ON gr.game_id = g.stable_id
     JOIN platforms p ON g.platform_id = p.id
-    WHERE gr.is_physical = 1 AND gr.rom_name IS NOT NULL
+    WHERE gr.rom_name IS NOT NULL
   `,
     )
     .all() as Array<{
@@ -51,10 +50,9 @@ export function purgeExtractedCompilationReleases(isDryRun = false) {
     variants: string | null;
     rom_name: string;
     rom_crc: string | null;
-    is_physical: number;
   }>;
 
-  const toDeclassify: typeof candidates = [];
+  const toDelete: typeof candidates = [];
   for (const c of candidates) {
     if (
       isIgnoredFormatRelease(
@@ -63,28 +61,28 @@ export function purgeExtractedCompilationReleases(isDryRun = false) {
         c.platform_id,
       )
     ) {
-      toDeclassify.push(c);
+      toDelete.push(c);
     }
   }
 
   console.log(
-    `Evaluated ${candidates.length} physical releases. Found ${toDeclassify.length} extracted compilation/digital releases to declassify.\n`,
+    `Evaluated ${candidates.length} releases. Found ${toDelete.length} extracted compilation/digital releases to purge.\n`,
   );
 
   const sqlStatements: string[] = [];
-  const updateStmt = isDryRun
+  const deleteStmt = isDryRun
     ? null
-    : db.prepare('UPDATE game_releases SET is_physical = 0 WHERE id = ?');
+    : db.prepare('DELETE FROM game_releases WHERE id = ?');
 
-  for (const row of toDeclassify) {
+  for (const row of toDelete) {
     console.log(
       `  - [${row.platform_name}] "${row.title}" -> ${row.rom_name} (variant: ${row.variants || 'none'})`,
     );
-    if (!isDryRun && updateStmt) {
-      updateStmt.run(row.id);
+    if (!isDryRun && deleteStmt) {
+      deleteStmt.run(row.id);
     }
     sqlStatements.push(
-      `UPDATE game_releases SET is_physical = 0 WHERE id = '${row.id.replace(/'/g, "''")}';`,
+      `DELETE FROM game_releases WHERE id = '${row.id.replace(/'/g, "''")}';`,
     );
   }
 
@@ -94,10 +92,8 @@ export function purgeExtractedCompilationReleases(isDryRun = false) {
   );
   fs.writeFileSync(sqlFilePath, sqlStatements.join('\n'), 'utf8');
 
-  console.log('\n=== Declassification Summary ===');
-  console.log(
-    `Releases declassified to is_physical = 0: ${toDeclassify.length}`,
-  );
+  console.log('\n=== Purge Summary ===');
+  console.log(`Releases purged:                          ${toDelete.length}`);
   console.log(
     `SQL statements generated:                 ${sqlStatements.length}`,
   );
@@ -106,7 +102,7 @@ export function purgeExtractedCompilationReleases(isDryRun = false) {
 
   db.close();
   return {
-    declassifiedCount: toDeclassify.length,
+    declassifiedCount: toDelete.length,
     sqlStatementsCount: sqlStatements.length,
     sqlFilePath,
   };

@@ -58,7 +58,8 @@ export function syncVitaPlatform(options: { dryRun?: boolean } = {}) {
     SELECT DISTINCT g.title
     FROM games g
     JOIN game_releases gr ON g.stable_id = gr.game_id
-    WHERE g.platform_id = 33 AND (gr.is_physical = 1 OR gr.ownership_status = 1 OR g.gameye_id IS NOT NULL)
+    LEFT JOIN user_game_releases ugr ON gr.id = ugr.release_id
+    WHERE g.platform_id = 33 AND (ugr.ownership_status = 1 OR g.gameye_id IS NOT NULL)
   `,
     )
     .all() as Array<{ title: string }>;

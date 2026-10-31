@@ -84,9 +84,7 @@ describe('reconcile_releases', () => {
           also_released_as TEXT,
           rom_name TEXT,
           rom_crc TEXT,
-          canonical_release_id INTEGER,
-          ownership_status INTEGER DEFAULT 0,
-          backup_status INTEGER DEFAULT 0
+          canonical_release_id INTEGER
         );
         CREATE TABLE canonical_releases (
           id INTEGER PRIMARY KEY,

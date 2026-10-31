@@ -244,10 +244,15 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
           variants TEXT,
           rom_name TEXT,
           rom_crc TEXT,
-          backup_status INTEGER NOT NULL DEFAULT 0,
-          ownership_status INTEGER NOT NULL DEFAULT 0,
-          is_physical INTEGER DEFAULT 1,
           release_date TEXT
+        );
+
+        CREATE TABLE user_game_releases (
+          user_id INTEGER NOT NULL,
+          release_id TEXT NOT NULL,
+          ownership_status INTEGER NOT NULL DEFAULT 0,
+          backup_status INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (user_id, release_id)
         );
       `);
 
@@ -258,7 +263,7 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
 
       // Seed existing launch release with dangling canonical_release_id (old deleted DAT ID 999999)
       db.prepare(
-        "INSERT INTO game_releases (id, game_id, canonical_release_id, region, variants, backup_status, ownership_status) VALUES ('odyssey-launch', 1, 999999, 'USA', NULL, 0, 1)",
+        "INSERT INTO game_releases (id, game_id, canonical_release_id, region, variants) VALUES ('odyssey-launch', 1, 999999, 'USA', NULL)",
       ).run();
 
       // Seed canonical releases: Rev 000, Rev 001, Rev 002, Rev 003
@@ -343,10 +348,15 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
           variants TEXT,
           rom_name TEXT,
           rom_crc TEXT,
-          backup_status INTEGER NOT NULL DEFAULT 0,
-          ownership_status INTEGER NOT NULL DEFAULT 0,
-          is_physical INTEGER DEFAULT 1,
           release_date TEXT
+        );
+
+        CREATE TABLE user_game_releases (
+          user_id INTEGER NOT NULL,
+          release_id TEXT NOT NULL,
+          ownership_status INTEGER NOT NULL DEFAULT 0,
+          backup_status INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (user_id, release_id)
         );
       `);
 

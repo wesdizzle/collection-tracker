@@ -424,13 +424,6 @@ async function syncDats(): Promise<void> {
       WHERE game_id = ? AND (rom_name = ? OR (rom_crc = ? AND rom_crc IS NOT NULL))
     `);
 
-    const existingStatusStmt = db.prepare(`
-      SELECT ownership_status, backup_status FROM game_releases
-      WHERE game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${placeholders}))
-        AND (rom_name = ? OR (rom_crc = ? AND rom_crc IS NOT NULL))
-      LIMIT 1
-    `);
-
     const updateReleaseStmt = db.prepare(`
       UPDATE game_releases 
       SET region = ?, variants = ?
@@ -439,9 +432,9 @@ async function syncDats(): Promise<void> {
 
     const insertReleaseStmt = db.prepare(`
       INSERT INTO game_releases (
-        id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date
+        id, game_id, region, variants, rom_name, rom_crc, release_date
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?
       )
     `);
 
@@ -553,16 +546,6 @@ async function syncDats(): Promise<void> {
           );
         }
 
-        // Check if this ROM was already matched to some other game on the platform.
-        // If so, we want to migrate its user status (ownership and backup status) to the new candidate(s).
-        const prevStatus = existingStatusStmt.get(
-          ...platformIds,
-          romName,
-          romCrc,
-        ) as { ownership_status: number; backup_status: number } | undefined;
-        const ownership = prevStatus?.ownership_status || 0;
-        const backup = prevStatus?.backup_status || 0;
-
         for (const parentGame of bestGames) {
           // Idempotency check: does this physical release (rom_name/rom_crc) already exist for this specific game?
           const exists = existsStmt.get(
@@ -592,8 +575,6 @@ async function syncDats(): Promise<void> {
               variants,
               romName,
               romCrc,
-              ownership,
-              backup,
               parentGame.release_date || null,
             );
 
@@ -619,7 +600,7 @@ async function syncDats(): Promise<void> {
     const physicalReleases = db
       .prepare(
         `
-      SELECT r.id, r.game_id, r.ownership_status, r.backup_status
+      SELECT r.id, r.game_id
       FROM game_releases r
       JOIN games g ON r.game_id = g.stable_id
       WHERE g.platform_id IN (${placeholders})
@@ -630,8 +611,6 @@ async function syncDats(): Promise<void> {
       .all(...processedIdsArr) as {
       id: string;
       game_id: number;
-      ownership_status: number;
-      backup_status: number;
     }[];
 
     // 2. Identify releases that were not synced in this run
@@ -662,8 +641,8 @@ async function syncDats(): Promise<void> {
       }[];
 
       const insertVirtualStmt = db.prepare(`
-        INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date)
-        VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, ?)
+        INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, release_date)
+        VALUES (?, ?, ?, NULL, NULL, NULL, ?)
       `);
 
       db.transaction(() => {
@@ -679,11 +658,20 @@ async function syncDats(): Promise<void> {
       })();
 
       // Migrate user statuses to virtual default releases
-      const updateVirtualStmt = db.prepare(`
-        UPDATE game_releases 
-        SET ownership_status = MAX(ownership_status, ?),
-            backup_status = MAX(backup_status, ?)
-        WHERE id = ?
+      const migrateUserReleasesStmt = db.prepare(`
+        INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+        SELECT user_id, ?, ownership_status, backup_status, has_case, has_manual
+        FROM user_game_releases
+        WHERE release_id = ?
+        ON CONFLICT(user_id, release_id) DO UPDATE SET
+          ownership_status = MAX(user_game_releases.ownership_status, excluded.ownership_status),
+          backup_status = MAX(user_game_releases.backup_status, excluded.backup_status),
+          has_case = MAX(user_game_releases.has_case, excluded.has_case),
+          has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
+      `);
+
+      const deleteUserReleasesStmt = db.prepare(`
+        DELETE FROM user_game_releases WHERE release_id = ?
       `);
 
       const deleteReleaseStmt = db.prepare(`
@@ -692,14 +680,9 @@ async function syncDats(): Promise<void> {
 
       db.transaction(() => {
         for (const r of staleReleases) {
-          if (r.ownership_status > 0 || r.backup_status > 0) {
-            const virtualId = `${r.game_id}-default`;
-            updateVirtualStmt.run(
-              r.ownership_status,
-              r.backup_status,
-              virtualId,
-            );
-          }
+          const virtualId = `${r.game_id}-default`;
+          migrateUserReleasesStmt.run(virtualId, r.id);
+          deleteUserReleasesStmt.run(r.id);
           deleteReleaseStmt.run(r.id);
         }
       })();
@@ -792,13 +775,13 @@ function regionsMatch(reg1: string | null, reg2: string | null): boolean {
 function cleanupVirtualReleases(dbInstance: Database.Database): void {
   console.log('Running virtual releases cleanup post-processing...');
   const virtualReleases = dbInstance
-    .prepare("SELECT * FROM game_releases WHERE id LIKE '%-default'")
+    .prepare(
+      "SELECT id, game_id, region FROM game_releases WHERE id LIKE '%-default'",
+    )
     .all() as {
     id: string;
     game_id: number;
     region: string | null;
-    ownership_status: number;
-    backup_status: number;
   }[];
 
   let migratedCount = 0;
@@ -806,7 +789,7 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
     // Find all real, physical releases for the same game
     const realReleases = dbInstance
       .prepare(
-        "SELECT * FROM game_releases WHERE game_id = ? AND id NOT LIKE '%-default'",
+        "SELECT id, game_id, region, variants FROM game_releases WHERE game_id = ? AND id NOT LIKE '%-default'",
       )
       .all(vr.game_id) as {
       id: string;
@@ -856,26 +839,32 @@ function cleanupVirtualReleases(dbInstance: Database.Database): void {
         : null;
       const bestRelease =
         matchingRegionRelease ||
-        (!gameRegion ||
-        (isCompletePlatform &&
-          vr.ownership_status === 0 &&
-          vr.backup_status === 0)
-          ? realReleases[0]
-          : null);
+        (!gameRegion || isCompletePlatform ? realReleases[0] : null);
 
       if (bestRelease) {
-        // If the virtual release had a set ownership status or backup status, migrate it
-        if (vr.ownership_status > 0 || vr.backup_status > 0) {
+        // Migrate user state from virtual default release to best real release
+        const userReleases = dbInstance
+          .prepare('SELECT 1 FROM user_game_releases WHERE release_id = ?')
+          .get(vr.id);
+        if (userReleases) {
           dbInstance
             .prepare(
               `
-              UPDATE game_releases
-              SET ownership_status = MAX(ownership_status, ?),
-                  backup_status = MAX(backup_status, ?)
-              WHERE id = ?
+              INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+              SELECT user_id, ?, ownership_status, backup_status, has_case, has_manual
+              FROM user_game_releases
+              WHERE release_id = ?
+              ON CONFLICT(user_id, release_id) DO UPDATE SET
+                ownership_status = MAX(user_game_releases.ownership_status, excluded.ownership_status),
+                backup_status = MAX(user_game_releases.backup_status, excluded.backup_status),
+                has_case = MAX(user_game_releases.has_case, excluded.has_case),
+                has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
             `,
             )
-            .run(vr.ownership_status, vr.backup_status, bestRelease.id);
+            .run(bestRelease.id, vr.id);
+          dbInstance
+            .prepare('DELETE FROM user_game_releases WHERE release_id = ?')
+            .run(vr.id);
           migratedCount++;
         }
 
@@ -1067,8 +1056,8 @@ export async function reconcileRegionalReleasesForGame(
     const insertRelStmt = dbInstance.prepare(`
       INSERT INTO game_releases (
         id, game_id, region, variants, rom_name, rom_crc,
-        ownership_status, backup_status, release_date, canonical_release_id, is_physical, also_released_as
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 1, ?)
+        release_date, canonical_release_id, also_released_as
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const updateCanonicalStmt = dbInstance.prepare(`
@@ -1170,8 +1159,8 @@ export async function reconcileRegionalReleasesForGame(
     const insertRelStmt = dbInstance.prepare(`
       INSERT INTO game_releases (
         id, game_id, region, variants, rom_name, rom_crc,
-        ownership_status, backup_status, release_date, canonical_release_id, is_physical
-      ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, ?, ?, 1)
+        release_date, canonical_release_id
+      ) VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?)
     `);
 
     const updateCanonicalStmt = dbInstance.prepare(`
@@ -1364,8 +1353,8 @@ function ensureVirtualReleases(dbInstance: Database.Database): void {
 
   let createdCount = 0;
   const insertStmt = dbInstance.prepare(`
-    INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date)
-    VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, ?)
+    INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, release_date)
+    VALUES (?, ?, ?, NULL, NULL, NULL, ?)
   `);
 
   dbInstance.transaction(() => {
@@ -1437,8 +1426,14 @@ export async function syncGameyeData(
     SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, p.display_name as platform_name
     FROM games g
     JOIN platforms p ON g.platform_id = p.id
-    WHERE EXISTS (SELECT 1 FROM game_releases r WHERE r.game_id = g.stable_id AND (r.ownership_status > 0 OR r.backup_status > 0))
-       OR g.play_status > 0
+    WHERE EXISTS (
+      SELECT 1 FROM user_game_releases ugr
+      JOIN game_releases r ON ugr.release_id = r.id
+      WHERE r.game_id = g.stable_id AND (ugr.ownership_status > 0 OR ugr.backup_status > 0)
+    ) OR EXISTS (
+      SELECT 1 FROM user_games ug
+      WHERE ug.game_id = g.stable_id AND ug.play_status > 0
+    )
   `;
     if (!runRefresh) {
       gameQuery += ` AND (g.gameye_id IS NULL OR g.price_loose IS NULL)`;
@@ -1522,7 +1517,7 @@ export async function syncGameyeData(
     let toyQuery = `
       SELECT stable_id, id, name, line, series_id, gameye_id, type
       FROM toys
-      WHERE ownership_status > 0
+      WHERE EXISTS (SELECT 1 FROM user_toys ut WHERE ut.toy_id = toys.id AND ut.ownership_status > 0)
     `;
     if (!runRefresh) {
       toyQuery += ` AND (gameye_id IS NULL OR price_loose IS NULL)`;
@@ -2759,8 +2754,8 @@ async function discoverAllSkylanders(existingToys: Toy[]): Promise<Toy[]> {
 
   const added: Toy[] = [];
   const insertStmt = db.prepare(`
-    INSERT INTO toys (id, name, line, series, type, image_url, scl_url, ownership_status, verified, metadata_json, series_id)
-    VALUES (?, ?, 'Skylanders', ?, 'Figure', ?, ?, 0, 1, ?, ?)
+    INSERT INTO toys (id, name, line, series, type, image_url, scl_url, verified, metadata_json, series_id)
+    VALUES (?, ?, 'Skylanders', ?, 'Figure', ?, ?, 1, ?, ?)
   `);
   const insertSeriesStmt = db.prepare(
     'INSERT OR IGNORE INTO toy_series (id, line, name) VALUES (?, ?, ?)',
@@ -2857,8 +2852,8 @@ async function discoverAllStarlink(existingToys: Toy[]): Promise<Toy[]> {
 
   const added: Toy[] = [];
   const insertStmt = db.prepare(`
-    INSERT INTO toys (id, name, line, series, type, image_url, ownership_status, verified, series_id, sort_index, release_date)
-    VALUES (?, ?, 'Starlink', 'Battle for Atlas', ?, ?, 0, 1, 'starlink-battle-for-atlas', ?, ?)
+    INSERT INTO toys (id, name, line, series, type, image_url, verified, series_id, sort_index, release_date)
+    VALUES (?, ?, 'Starlink', 'Battle for Atlas', ?, ?, 1, 'starlink-battle-for-atlas', ?, ?)
   `);
   const insertSeriesStmt = db.prepare(
     'INSERT OR IGNORE INTO toy_series (id, line, name) VALUES (?, ?, ?)',

@@ -97,6 +97,21 @@ for (const table of tables) {
   sqlDump += '\n';
 }
 
+// 3. Append secondary indexes
+const indexes = db
+  .prepare(
+    "SELECT sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%'",
+  )
+  .all() as { sql: string }[];
+
+if (indexes.length > 0) {
+  sqlDump += '-- Secondary Performance Indexes\n';
+  for (const idx of indexes) {
+    sqlDump += `${idx.sql};\n`;
+  }
+  sqlDump += '\n';
+}
+
 sqlDump += 'PRAGMA foreign_keys = ON;\n';
 db.close();
 
