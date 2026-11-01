@@ -176,4 +176,21 @@ describe('GameCardComponent', () => {
     expect(component.getMediaIcon(cartGame, 1)).toBe('rom-archive');
     expect(component.getMediaIcon(opticalGame, 0)).toBe('missing-dump');
   });
+
+  it('should format preorder retail_price in cents correctly even under $10', () => {
+    const preorderGame: Game = {
+      ...mockGame,
+      id: 'preorder-test-game',
+      retail_on_sale: 0,
+      retail_store: 'Limited Run Games',
+      retail_url: 'https://example.com/preorder',
+      retail_price: 999,
+    };
+    fixture.componentRef.setInput('game', preorderGame);
+    fixture.detectChanges();
+
+    const badge = fixture.nativeElement.querySelector('.preorder-store-badge');
+    expect(badge).toBeTruthy();
+    expect(badge.textContent).toContain('$9.99');
+  });
 });

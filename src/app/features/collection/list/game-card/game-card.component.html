@@ -336,12 +336,7 @@
           <app-icon name="physical-box" [size]="12" />
           Pre-Order at {{ game().retail_store }}
           @if (game().retail_price) {
-            • ${{
-              (game().retail_price! > 1000
-                ? game().retail_price! / 100
-                : game().retail_price!
-              ).toFixed(2)
-            }}
+            • {{ '$' + (game().retail_price! / 100).toFixed(2) }}
           }
         </span>
       </div>
