@@ -80,6 +80,7 @@ export interface Game {
   id: string; // The durable slug: game-title-platform-name
   game_id?: string | null; // Grouped game slug reference
   title: string;
+  base_title?: string | null;
   series: string;
   canonical_series: string;
   release_date?: string | null;
@@ -127,6 +128,7 @@ export interface Game {
   physical_status?: PhysicalStatus;
   release_medium?: ReleaseMedium;
   origin_metadata?: string | null;
+  metadata_json?: string | null;
   bundle_parent_id?: number | null;
   bundle_disc_number?: number | null;
   bundle_count?: number;
@@ -144,6 +146,8 @@ export interface Game {
   discIds?: string[];
   discBackups?: number[];
   discRomNames?: string[];
+  searchableNames?: string[];
+  searchableSeries?: string[];
 }
 
 export interface BundledGame {
@@ -465,6 +469,27 @@ export function getMediaIconName(
   if (!backedUp) return 'missing-dump';
   return isOpticalPlatform(platform) ? 'disc' : 'rom-archive';
 }
+
+export const SERIES_CROSS_LANGUAGE_ALIASES: Record<string, string[]> = {
+  'mega man': ['rockman', 'ロックマン'],
+  rockman: ['mega man', 'ロックマン'],
+  pokemon: ['pocket monsters', 'pokémon', 'ポケットモンスター'],
+  pokémon: ['pocket monsters', 'pokemon', 'ポケットモンスター'],
+  'pocket monsters': ['pokemon', 'pokémon', 'ポケットモンスター'],
+  mario: ['super mario', 'マリオ'],
+  'super mario': ['mario', 'マリオ'],
+  'f-zero': ['f zero', 'エフゼロ'],
+  'star fox': ['starwing', 'lylat wars', 'スターフォックス'],
+  'resident evil': ['biohazard', 'バイオハザード'],
+  biohazard: ['resident evil', 'バイオハザード'],
+  castlevania: ['akumajou dracula', 'dracula', '悪魔城ドラキュラ'],
+  'akumajou dracula': ['castlevania', '悪魔城ドラキュラ'],
+  contra: ['probotector', 'gryzor', '魂斗羅'],
+  'dragon quest': ['dragon warrior', 'ドラゴンクエスト'],
+  'dragon warrior': ['dragon quest', 'ドラゴンクエスト'],
+  mother: ['earthbound', 'マザー'],
+  earthbound: ['mother', 'マザー'],
+};
 
 export interface JournalEntry {
   id: number;

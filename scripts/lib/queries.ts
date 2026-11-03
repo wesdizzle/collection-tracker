@@ -112,10 +112,8 @@ export function buildGamesListQuery(userId?: number | null): string {
            r.canonical_release_id,
            cr.source,
            CASE
-             WHEN g.platform_id IN (26, 27) THEN
-               CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE 0 END
-             ELSE
-               CASE WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1 ELSE 0 END
+             WHEN cr.source IN ('nintendo_revised', 'dat') OR r.rom_name IS NOT NULL THEN 1
+             ELSE 0
            END as is_source_verified
     FROM games g 
     LEFT JOIN game_releases r ON g.stable_id = r.game_id
@@ -224,10 +222,8 @@ export function buildGameDetailQuery(userId?: number | null): string {
             r.canonical_release_id,
             cr.source,
             CASE
-              WHEN g.platform_id IN (26, 27) THEN
-                CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE 0 END
-              ELSE
-                CASE WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1 ELSE 0 END
+              WHEN cr.source IN ('nintendo_revised', 'dat') OR r.rom_name IS NOT NULL THEN 1
+              ELSE 0
             END as is_source_verified
      FROM games g 
      LEFT JOIN game_releases r ON r.id = (

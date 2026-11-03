@@ -114,17 +114,6 @@
               }}</span>
               <div class="row-inline-badges">
                 @if (
-                  game.rom_name &&
-                  (game.physical_status === 'verified_physical' ||
-                    !game.physical_status)
-                ) {
-                  <span
-                    class="physical-release-badge"
-                    title="Catalog Signature Matched (No-Intro/Redump)"
-                  >
-                    <app-icon name="physical-box" [size]="12" />
-                  </span>
-                } @else if (
                   game.physical_status === 'digital_extracted_rom' ||
                   game.release_medium === 'digital_extracted_rom'
                 ) {

@@ -51,6 +51,7 @@ import {
   PlayStatus,
   isRegionMatchingHome,
   normalizeBudgetToken,
+  SERIES_CROSS_LANGUAGE_ALIASES,
 } from '../../../../core/models/collection.models';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 import { GameCardComponent } from '../game-card/game-card.component';
@@ -1456,9 +1457,74 @@ export class CollectionListComponent
 
       // Release is considered backed up if all its discs are backed up
       const allBackedUp = discBackups.every((b) => b === 1) ? 1 : 0;
+
+      // Precompute cross-language searchable names and series for optimal filter performance
+      const names = new Set<string>();
+      if (g.title) names.add(this.normalizeString(g.title));
+      if (g.base_title && g.base_title !== g.title) {
+        names.add(this.normalizeString(g.base_title));
+      }
+      if (g.rom_name) names.add(this.normalizeString(g.rom_name));
+      if (g.discRomNames) {
+        for (const rn of g.discRomNames) {
+          if (rn) names.add(this.normalizeString(rn));
+        }
+      }
+      if (g.also_released_as) {
+        for (const alias of g.also_released_as.split(',')) {
+          const trimmed = alias.trim();
+          if (trimmed) names.add(this.normalizeString(trimmed));
+        }
+      }
+      if (g.metadata_json) {
+        try {
+          const parsed = JSON.parse(g.metadata_json);
+          if (Array.isArray(parsed.alternative_names)) {
+            for (const alt of parsed.alternative_names) {
+              if (alt?.name) names.add(this.normalizeString(alt.name));
+            }
+          }
+          if (Array.isArray(parsed.game_localizations)) {
+            for (const loc of parsed.game_localizations) {
+              if (loc?.name) names.add(this.normalizeString(loc.name));
+            }
+          }
+        } catch {
+          // Ignore unparseable metadata JSON
+        }
+      }
+
+      const seriesSet = new Set<string>();
+      const addSeriesAndAliases = (s: string | null | undefined) => {
+        if (!s) return;
+        const norm = this.normalizeString(s);
+        if (norm) {
+          seriesSet.add(norm);
+          const aliases = SERIES_CROSS_LANGUAGE_ALIASES[norm];
+          if (aliases) {
+            for (const a of aliases) seriesSet.add(this.normalizeString(a));
+          }
+        }
+      };
+
+      addSeriesAndAliases(g.canonical_series);
+      addSeriesAndAliases(g.series);
+      if (g.franchises) {
+        for (const f of g.franchises.split(',')) {
+          addSeriesAndAliases(f.trim());
+        }
+      }
+      if (g.collections) {
+        for (const c of g.collections.split(',')) {
+          addSeriesAndAliases(c.trim());
+        }
+      }
+
       return {
         ...g,
         backup_status: allBackedUp,
+        searchableNames: Array.from(names),
+        searchableSeries: Array.from(seriesSet),
       };
     });
   });
@@ -1616,47 +1682,64 @@ export class CollectionListComponent
         if (f.is_linked !== hasIgdb) return false;
       }
 
-      // Name Filter (Case & Accent Insensitive)
+      // Name Filter (Case, Accent, Ampersand, and Cross-Language Insensitive)
       if (normalizedNameFilter) {
-        const normalizedTitle = this.normalizeString(g.title || '');
-        const normalizedSeries = this.normalizeString(
-          g.canonical_series || g.series || '',
-        );
-        const normalizedRom = g.rom_name
-          ? this.normalizeString(g.rom_name)
-          : '';
-        const normalizedAlso = g.also_released_as
-          ? this.normalizeString(g.also_released_as)
-          : '';
-        if (f.nameExact) {
-          if (
-            normalizedTitle !== normalizedNameFilter &&
-            normalizedSeries !== normalizedNameFilter
-          ) {
-            return false;
+        const query = normalizedNameFilter;
+        const queryWithAnd = query.replace(/\s*&\s*/g, ' and ');
+        const queryWithAmp = query.replace(/\band\b/g, '&');
+
+        const matchesTerm = (term: string) => {
+          if (f.nameExact) {
+            return (
+              term === query || term === queryWithAnd || term === queryWithAmp
+            );
           }
-        } else {
-          if (
-            !normalizedTitle.includes(normalizedNameFilter) &&
-            !normalizedSeries.includes(normalizedNameFilter) &&
-            !normalizedRom.includes(normalizedNameFilter) &&
-            !normalizedAlso.includes(normalizedNameFilter)
-          ) {
-            return false;
-          }
+          return (
+            term.includes(query) ||
+            (queryWithAnd !== query && term.includes(queryWithAnd)) ||
+            (queryWithAmp !== query && term.includes(queryWithAmp))
+          );
+        };
+
+        const namesList = g.searchableNames || [
+          this.normalizeString(g.title || ''),
+          this.normalizeString(g.rom_name || ''),
+          this.normalizeString(g.also_released_as || ''),
+        ];
+        const seriesList = g.searchableSeries || [
+          this.normalizeString(g.canonical_series || g.series || ''),
+        ];
+
+        const hasNameMatch = namesList.some(matchesTerm);
+        const hasSeriesMatch = seriesList.some(matchesTerm);
+
+        if (!hasNameMatch && !hasSeriesMatch) {
+          return false;
         }
       }
 
-      // Series Filter (Case & Accent Insensitive)
+      // Series Filter (Case, Accent, and Cross-Language Insensitive)
       if (normalizedSeriesFilter) {
-        const normalizedSeries = this.normalizeString(
-          g.canonical_series || g.series || '',
-        );
-        if (f.seriesExact) {
-          if (normalizedSeries !== normalizedSeriesFilter) return false;
-        } else {
-          if (!normalizedSeries.includes(normalizedSeriesFilter)) return false;
-        }
+        const query = normalizedSeriesFilter;
+        const queryAliases = SERIES_CROSS_LANGUAGE_ALIASES[query] || [];
+        const allQueries = [
+          query,
+          ...queryAliases.map((a) => this.normalizeString(a)),
+        ];
+
+        const seriesList = g.searchableSeries || [
+          this.normalizeString(g.canonical_series || g.series || ''),
+        ];
+
+        const matchesSeries = (term: string) => {
+          if (f.seriesExact) {
+            return allQueries.some((q) => term === q);
+          }
+          return allQueries.some((q) => term.includes(q));
+        };
+
+        const hasSeriesMatch = seriesList.some(matchesSeries);
+        if (!hasSeriesMatch) return false;
       }
 
       // Tag / Variant Filter (Case & Accent Insensitive)
@@ -2366,24 +2449,32 @@ export class CollectionListComponent
         if (!match) return false;
       }
 
-      // Name Filter (Case & Accent Insensitive)
+      // Name Filter (Case, Accent, and Ampersand Insensitive)
       if (normalizedNameFilter) {
+        const query = normalizedNameFilter;
+        const queryWithAnd = query.replace(/\s*&\s*/g, ' and ');
+        const queryWithAmp = query.replace(/\band\b/g, '&');
         const normalizedName = this.normalizeString(toy.name || '');
         const normalizedSeries = this.normalizeString(toy.series_name || '');
-        if (f.nameExact) {
-          if (
-            normalizedName !== normalizedNameFilter &&
-            normalizedSeries !== normalizedNameFilter
-          ) {
-            return false;
+
+        const matchesToyTerm = (term: string) => {
+          if (f.nameExact) {
+            return (
+              term === query || term === queryWithAnd || term === queryWithAmp
+            );
           }
-        } else {
-          if (
-            !normalizedName.includes(normalizedNameFilter) &&
-            !normalizedSeries.includes(normalizedNameFilter)
-          ) {
-            return false;
-          }
+          return (
+            term.includes(query) ||
+            (queryWithAnd !== query && term.includes(queryWithAnd)) ||
+            (queryWithAmp !== query && term.includes(queryWithAmp))
+          );
+        };
+
+        if (
+          !matchesToyTerm(normalizedName) &&
+          !matchesToyTerm(normalizedSeries)
+        ) {
+          return false;
         }
       }
 

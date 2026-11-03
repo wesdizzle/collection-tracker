@@ -180,9 +180,17 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
                 </div>
               } @else if (hasPhysicalRelease(g)) {
                 <div class="stat-pill active physical-release">
-                  <span class="icon"
-                    ><app-icon name="physical-box" [size]="14"
-                  /></span>
+                  <span class="icon">
+                    @if (
+                      g.is_source_verified ||
+                      (g.releases &&
+                        g.releases.some((r) => r.is_source_verified))
+                    ) {
+                      <app-icon name="verified-badge" [size]="14" />
+                    } @else {
+                      <app-icon name="physical-box" [size]="14" />
+                    }
+                  </span>
                   <span>{{
                     g.is_source_verified ||
                     (g.releases && g.releases.some((r) => r.is_source_verified))

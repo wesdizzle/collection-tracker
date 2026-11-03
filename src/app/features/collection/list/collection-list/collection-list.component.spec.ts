@@ -875,6 +875,8 @@ describe('CollectionListComponent', () => {
     expect(physicalReleaseBadge.getAttribute('title')).toContain(
       'Verified Source Match',
     );
+    const icon = physicalReleaseBadge.querySelector('app-icon');
+    expect(icon?.getAttribute('name')).toBe('verified-badge');
   });
 
   describe('Multi-disc grouping and getRomGroupingKey', () => {
@@ -2074,5 +2076,116 @@ describe('CollectionListComponent', () => {
       queryParams: {},
       replaceUrl: true,
     });
+  });
+
+  it('should support cross-language search, ampersand normalization, and metadata_json alternative titles', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'mario-to-wario-sfc',
+        title: 'Mario to Wario',
+        base_title: 'Mario & Wario',
+        platform: 'Super Nintendo Entertainment System / Super Famicom',
+        platform_id: 15,
+        ownership_status: 1,
+        series: 'Mario',
+        canonical_series: 'Mario',
+        franchises: 'Mario Bros., Wario, Mario',
+        rom_name: 'Mario to Wario (Japan) (En).sfc',
+        metadata_json: JSON.stringify({
+          alternative_names: [
+            { name: 'Mario & Wario' },
+            { name: 'Mario and Wario' },
+          ],
+          game_localizations: [{ name: 'マリオとワリオ', region: 3 }],
+        }),
+      },
+      {
+        id: 'rockman-x-sfc',
+        title: 'Rockman X',
+        base_title: 'Mega Man X',
+        platform: 'Super Nintendo Entertainment System / Super Famicom',
+        platform_id: 15,
+        ownership_status: 1,
+        series: 'Mega Man',
+        canonical_series: 'Mega Man',
+        metadata_json: JSON.stringify({
+          alternative_names: [{ name: 'Mega Man X' }],
+          game_localizations: [{ name: 'ロックマンX', region: 3 }],
+        }),
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    // 1. Search English title "Mario & Wario" when localized title is "Mario to Wario"
+    component.filters.set({ ownership: 'all', name: 'Mario & Wario' });
+    fixture.detectChanges();
+    let filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('mario-to-wario-sfc');
+
+    // 2. Search with "and" instead of "&": "Mario and Wario"
+    component.filters.set({ ownership: 'all', name: 'Mario and Wario' });
+    fixture.detectChanges();
+    filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('mario-to-wario-sfc');
+
+    // 3. Search Japanese localized text "マリオとワリオ"
+    component.filters.set({ ownership: 'all', name: 'マリオとワリオ' });
+    fixture.detectChanges();
+    filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('mario-to-wario-sfc');
+
+    // 4. Cross-language series filter: Filter by series "Rockman" matches "Mega Man" game
+    component.filters.set({ ownership: 'all', series: 'Rockman' });
+    fixture.detectChanges();
+    filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('rockman-x-sfc');
+
+    // 5. Franchise series match: Filter by "Wario" matches Mario to Wario
+    component.filters.set({ ownership: 'all', series: 'Wario' });
+    fixture.detectChanges();
+    filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('mario-to-wario-sfc');
+  });
+
+  it('should not render physical-release-badge in compact table row view', async () => {
+    component.currentTab.set('games');
+    component.viewMode.set('compact');
+    component.filters.set({ ownership: 'all' });
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'verified-game',
+        title: 'Verified Cartridge',
+        platform: 'Nintendo Entertainment System / Famicom',
+        platform_id: 13,
+        ownership_status: 1,
+        is_source_verified: 1,
+        physical_status: 'verified_physical',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const badge = fixture.nativeElement.querySelector(
+      '.col-title .physical-release-badge',
+    );
+    expect(badge).toBeNull();
   });
 });
