@@ -893,7 +893,14 @@ export const handleRequest =
         }
         const matches = await findGame(query, igdbPlatformId);
 
-        const filterDigital = url.searchParams.get('filterDigital') === 'true';
+        const filterDigitalParam = url.searchParams.get('filterDigital');
+        const hideDigitalParam = url.searchParams.get('hideDigital');
+        const filterDigital =
+          filterDigitalParam !== null
+            ? filterDigitalParam === 'true' || filterDigitalParam === '1'
+            : hideDigitalParam !== null
+              ? hideDigitalParam === 'true' || hideDigitalParam === '1'
+              : true;
         const platformRows = db
           .prepare('SELECT id, display_name, name, launch_date FROM platforms')
           .all() as Array<{
@@ -1615,9 +1622,14 @@ export const handleRequest =
         pathname === '/api/discovery/scan-series'
       ) {
         try {
+          const filterDigitalParam = url.searchParams.get('filterDigital');
+          const hideDigitalParam = url.searchParams.get('hideDigital');
           const filterDigital =
-            url.searchParams.get('filterDigital') === 'true' ||
-            url.searchParams.get('hideDigital') === 'true';
+            filterDigitalParam !== null
+              ? filterDigitalParam === 'true' || filterDigitalParam === '1'
+              : hideDigitalParam !== null
+                ? hideDigitalParam === 'true' || hideDigitalParam === '1'
+                : true;
 
           const specificSeries = url.searchParams.get('series');
           const offsetParam = url.searchParams.get('offset');

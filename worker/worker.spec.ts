@@ -1253,7 +1253,7 @@ describe('Worker API Logic', () => {
       });
 
     try {
-      // 1. Search without digital filter
+      // 1. Search with default digital filter (defaults to filterDigital = true)
       const req = new Request(
         'http://localhost/api/discovery/search?query=Metroid&platformId=19',
       );
@@ -1268,28 +1268,30 @@ describe('Worker API Logic', () => {
         verification_tier: number;
         is_physical: boolean;
       }>;
-      expect(results).toHaveLength(2);
+      expect(results).toHaveLength(1);
       expect(results[0].name).toBe('Metroid Fusion');
       expect(results[0].physical_status).toBe('verified_physical');
       expect(results[0].verification_tier).toBe(1);
       expect(results[0].is_physical).toBe(true);
 
-      expect(results[1].name).toBe('Super Mario Bros. (Virtual Console)');
-      expect(results[1].physical_status).toBe('digital_only');
-      expect(results[1].verification_tier).toBe(3);
-      expect(results[1].is_physical).toBe(false);
-
-      // 2. Search WITH digital filter
+      // 2. Search WITH filterDigital=false explicitly requesting all digital fluff
       const filterReq = new Request(
-        'http://localhost/api/discovery/search?query=Metroid&platformId=19&filterDigital=true',
+        'http://localhost/api/discovery/search?query=Metroid&platformId=19&filterDigital=false',
       );
       const filterRes = await worker.fetch(filterReq, mockEnv);
       expect(filterRes.status).toBe(200);
-      const filteredResults = (await filterRes.json()) as Array<{
+      const allResults = (await filterRes.json()) as Array<{
         name: string;
+        physical_status: string;
+        verification_tier: number;
+        is_physical: boolean;
       }>;
-      expect(filteredResults).toHaveLength(1);
-      expect(filteredResults[0].name).toBe('Metroid Fusion');
+      expect(allResults).toHaveLength(2);
+      expect(allResults[0].name).toBe('Metroid Fusion');
+      expect(allResults[1].name).toBe('Super Mario Bros. (Virtual Console)');
+      expect(allResults[1].physical_status).toBe('digital_only');
+      expect(allResults[1].verification_tier).toBe(3);
+      expect(allResults[1].is_physical).toBe(false);
 
       // 3. Search with Platform 0 fallback for untracked indie title
       const indieReq = new Request(

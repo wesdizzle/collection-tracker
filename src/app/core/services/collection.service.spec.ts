@@ -448,6 +448,24 @@ describe('CollectionService', () => {
         hasMore: true,
       });
     });
+
+    it('should default filterDigital to true in searchGames', () => {
+      service.searchGames('Metroid', 19).subscribe();
+      const req = httpMock.expectOne(
+        '/api/discovery/search?query=Metroid&platformId=19&filterDigital=true',
+      );
+      expect(req.request.method).toBe('GET');
+      req.flush([]);
+    });
+
+    it('should allow filterDigital to be disabled in searchGames', () => {
+      service.searchGames('Metroid', 19, false).subscribe();
+      const req = httpMock.expectOne(
+        '/api/discovery/search?query=Metroid&platformId=19&filterDigital=false',
+      );
+      expect(req.request.method).toBe('GET');
+      req.flush([]);
+    });
   });
 
   describe('Collection Journal & Provenance', () => {

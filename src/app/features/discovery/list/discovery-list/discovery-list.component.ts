@@ -2224,7 +2224,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   public searchError = signal<string | null>(null);
   public searchPerformed = signal<boolean>(false);
   public lastQuery = signal<string>('');
-  public filterDigital = signal<boolean>(false);
+  public filterDigital = signal<boolean>(true);
   public selectedPlatformsByGame = signal<Map<string, Set<number>>>(new Map());
 
   public bulkActionBarVisible = computed<boolean>(() => {
@@ -2453,7 +2453,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
 
     try {
       const results = await firstValueFrom(
-        this.collectionService.searchGames(query, platformId),
+        this.collectionService.searchGames(
+          query,
+          platformId,
+          this.filterDigital(),
+        ),
       );
       this.searchResults.set(results || []);
       this.searchPerformed.set(true);

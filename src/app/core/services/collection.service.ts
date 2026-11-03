@@ -621,11 +621,13 @@ export class CollectionService {
   searchGames(
     query: string,
     platformId: number,
-    filterDigital = false,
+    filterDigital = true,
   ): Observable<IGDBSearchResult[]> {
     let url = `/api/discovery/search?query=${encodeURIComponent(query)}&platformId=${platformId}`;
     if (filterDigital) {
       url += '&filterDigital=true';
+    } else {
+      url += '&filterDigital=false';
     }
     return this.http
       .get<IGDBSearchResult[]>(url)
@@ -767,7 +769,7 @@ export class CollectionService {
           limit?: number;
         },
   ): Observable<ScanSuggestion[]> {
-    let filterDigital = false;
+    let filterDigital = true;
     let series: string | undefined;
     let offset: number | undefined;
     let limit: number | undefined;
@@ -775,14 +777,20 @@ export class CollectionService {
     if (typeof optionsOrFilterDigital === 'boolean') {
       filterDigital = optionsOrFilterDigital;
     } else if (optionsOrFilterDigital) {
-      filterDigital = !!optionsOrFilterDigital.filterDigital;
+      filterDigital =
+        optionsOrFilterDigital.filterDigital !== undefined
+          ? !!optionsOrFilterDigital.filterDigital
+          : true;
       series = optionsOrFilterDigital.series;
       offset = optionsOrFilterDigital.offset;
       limit = optionsOrFilterDigital.limit;
     }
 
     const params = new URLSearchParams();
-    if (filterDigital) params.set('filterDigital', 'true');
+    if (optionsOrFilterDigital !== undefined) {
+      if (filterDigital) params.set('filterDigital', 'true');
+      else params.set('filterDigital', 'false');
+    }
     if (series) params.set('series', series);
     if (offset !== undefined) params.set('offset', offset.toString());
     if (limit !== undefined) params.set('limit', limit.toString());
@@ -808,7 +816,10 @@ export class CollectionService {
     } = {},
   ): Observable<PagedScanSeriesResult> {
     const params = new URLSearchParams();
-    if (options.filterDigital) params.set('filterDigital', 'true');
+    const filterDigital =
+      options.filterDigital !== undefined ? !!options.filterDigital : true;
+    if (filterDigital) params.set('filterDigital', 'true');
+    else params.set('filterDigital', 'false');
     if (options.series) params.set('series', options.series);
     params.set('offset', (options.offset ?? 0).toString());
     params.set('limit', (options.limit ?? 30).toString());

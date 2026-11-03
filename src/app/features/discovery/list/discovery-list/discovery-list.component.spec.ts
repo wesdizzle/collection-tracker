@@ -167,7 +167,11 @@ describe('DiscoveryListComponent', () => {
 
   it('should trigger search for all platforms', async () => {
     await component.triggerSearch('Saros', '');
-    expect(mockCollectionService.searchGames).toHaveBeenCalledWith('Saros', 0);
+    expect(mockCollectionService.searchGames).toHaveBeenCalledWith(
+      'Saros',
+      0,
+      true,
+    );
     expect(component.searchResults().length).toBe(1);
     expect(component.filteredSearchResults().length).toBe(1);
   });

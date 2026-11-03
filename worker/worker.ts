@@ -1563,9 +1563,14 @@ Disallow: /
         const query = url.searchParams.get('query') || '';
         const platformIdParam = url.searchParams.get('platformId');
         const platformId = platformIdParam ? parseInt(platformIdParam, 10) : 0;
+        const filterDigitalParam = url.searchParams.get('filterDigital');
+        const hideDigitalParam = url.searchParams.get('hideDigital');
         const filterDigital =
-          url.searchParams.get('filterDigital') === 'true' ||
-          url.searchParams.get('hideDigital') === 'true';
+          filterDigitalParam !== null
+            ? filterDigitalParam === 'true' || filterDigitalParam === '1'
+            : hideDigitalParam !== null
+              ? hideDigitalParam === 'true' || hideDigitalParam === '1'
+              : true;
 
         if (!query.trim()) {
           return Response.json([]);
@@ -2257,9 +2262,14 @@ Disallow: /
           );
         }
 
+        const filterDigitalParam = url.searchParams.get('filterDigital');
+        const hideDigitalParam = url.searchParams.get('hideDigital');
         const filterDigital =
-          url.searchParams.get('filterDigital') === 'true' ||
-          url.searchParams.get('hideDigital') === 'true';
+          filterDigitalParam !== null
+            ? filterDigitalParam === 'true' || filterDigitalParam === '1'
+            : hideDigitalParam !== null
+              ? hideDigitalParam === 'true' || hideDigitalParam === '1'
+              : true;
 
         try {
           const specificSeries = url.searchParams.get('series');
