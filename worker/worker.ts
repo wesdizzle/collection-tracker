@@ -3859,7 +3859,7 @@ Disallow: /
             )
             .run();
 
-          const ownStatus = toy.ownership_status ?? 1;
+          const ownStatus = toy.ownership_status ?? 0;
           await env.DB.prepare(
             `INSERT INTO user_toys (user_id, toy_id, ownership_status, updated_at)
              VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -3916,7 +3916,7 @@ Disallow: /
           )
           .run();
 
-        const ownStatus = toy.ownership_status ?? 1;
+        const ownStatus = toy.ownership_status ?? 0;
         await env.DB.prepare(
           `INSERT INTO user_toys (user_id, toy_id, ownership_status, updated_at)
            VALUES (?, ?, ?, CURRENT_TIMESTAMP)

@@ -476,6 +476,39 @@ describe('Local Server API Logic', () => {
       expect(inserted.name).toBe('Zelda - TOTK');
       expect(inserted.verified).toBe(1);
     });
+
+    it('should default ownership_status to 0 when omitted via /api/discovery/add-toy', async () => {
+      const payload = {
+        name: 'Ganondorf - TOTK',
+        line: 'amiibo',
+        series_name: 'The Legend of Zelda',
+        amiibo_id: '0103000000400502',
+        type: 'Figure',
+        image_url: 'http://example.com/ganon.png',
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/discovery/add-toy',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.success).toBe(true);
+
+      const inserted = mockDb
+        .prepare("SELECT * FROM toys WHERE amiibo_id = '0103000000400502'")
+        .get() as ToyRow & { ownership_status?: number };
+      expect(inserted).toBeDefined();
+      expect(inserted.name).toBe('Ganondorf - TOTK');
+      if (inserted.ownership_status !== undefined) {
+        expect(inserted.ownership_status).toBe(0);
+      }
+    });
   });
 
   describe('Collection Toggle Logic', () => {

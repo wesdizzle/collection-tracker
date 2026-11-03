@@ -194,6 +194,12 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
 
           <!-- Search Results Grid -->
           @if (!searchLoading() && searchResults().length > 0) {
+            <div class="search-results-header mb-md">
+              <p class="text-secondary text-xs">
+                Search additions are added to your collection as unowned by
+                default.
+              </p>
+            </div>
             <div class="results-grid">
               @for (game of searchResults(); track game.id) {
                 <div class="game-result-card">
@@ -274,7 +280,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                                   title="Already in collection"
                                 >
                                   <app-icon name="check" [size]="12" />
-                                  {{ p.platform_name }} (Owned)
+                                  {{ p.platform_name }} (In Collection)
                                 </span>
                               } @else {
                                 <label
@@ -380,8 +386,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                           class="m3-btn m3-btn-primary flex-1 btn-sm"
                           [disabled]="getSelectedPlatformsCount(game) === 0"
                           (click)="ingestSelectedForGame(game)"
+                          title="Add selected platforms to collection as unowned"
                         >
-                          Ingest Selected ({{
+                          Ingest as Unowned ({{
                             getSelectedPlatformsCount(game)
                           }})
                         </button>
@@ -885,9 +892,16 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                   [disabled]="selectedAmiiboIds().size === 0"
                   (click)="bulkAddAmiibo()"
                 >
-                  Bulk Ingest ({{ selectedAmiiboIds().size }})
+                  Bulk Ingest Unowned ({{ selectedAmiiboIds().size }})
                 </button>
               </div>
+            </div>
+
+            <div class="mb-sm">
+              <p class="text-secondary text-xs">
+                Amiibo additions are added to your collection as unowned by
+                default.
+              </p>
             </div>
 
             <!-- Discovered Amiibo Cards Grid -->
@@ -942,8 +956,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                       <button
                         class="m3-btn m3-btn-secondary btn-sm"
                         (click)="addSingleAmiibo(item)"
+                        title="Add to collection as unowned"
                       >
-                        One-click Ingest
+                        Ingest as Unowned
                       </button>
                     </div>
                   </div>
@@ -1210,10 +1225,10 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
                     [value]="ownershipStatus()"
                     (change)="onOwnershipChange($event)"
                   >
+                    <option value="0">Unowned (Default)</option>
                     <option value="1">Owned</option>
                     <option value="2">Seeking</option>
                     <option value="3">Ordered</option>
-                    <option value="0">Unowned</option>
                   </select>
                 </div>
 
@@ -1304,7 +1319,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
               class="m3-btn m3-btn-primary btn-sm py-2"
               (click)="bulkAddAmiibo()"
             >
-              Ingest Bulk
+              Ingest Bulk Unowned
             </button>
           </div>
         }
@@ -2799,7 +2814,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
           image_url: game.image_url || null,
           collections: game.collections || null,
           franchises: game.franchises || null,
-          ownership_status: 1, // Default Owned when ingesting from search
+          ownership_status: 0, // Default Unowned when ingesting from search
           play_status: 0,
           backup_status: 0,
           physical_status:
@@ -2812,7 +2827,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
           variants: r.variants || null,
           rom_name: r.romName || r.name || null,
           rom_crc: r.romCrc || null,
-          ownership_status: 1,
+          ownership_status: 0,
           backup_status: 0,
           release_date: r.releaseDate || null,
           canonical_release_id: r.canonical_release_id || null,
@@ -2864,7 +2879,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       }
 
       this.showToast(
-        `Successfully ingested "${game.name}" (${successCount} edition${successCount > 1 ? 's' : ''})!`,
+        `Successfully ingested "${game.name}" (${successCount} edition${successCount > 1 ? 's' : ''}) as unowned!`,
       );
     }
   }
@@ -2962,7 +2977,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.selectedReleaseIds.set(autoSelected);
     }
 
-    // Reset forms to defaults (Seeking for upcoming/pending, else Owned)
+    // Reset forms to defaults (Seeking for upcoming/pending, else Unowned)
     const isUpcomingOrPending =
       game.physical_status === 'not_yet_physical' ||
       game.physical_status === 'physical_pending' ||
@@ -2970,7 +2985,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         game.first_release_date &&
         new Date(game.first_release_date) > new Date(),
       );
-    this.ownershipStatus.set(isUpcomingOrPending ? 2 : 1);
+    this.ownershipStatus.set(isUpcomingOrPending ? 2 : 0);
     this.playStatus.set(0);
     this.backupStatus.set(0);
 
@@ -3657,7 +3672,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         release_date: item.release_date || undefined,
         region: item.region || 'USA',
         amiibo_id: item.amiibo_id,
-        ownership_status: 1, // Owned
+        ownership_status: 0, // Unowned
         verified: 1,
         metadata_json: JSON.stringify(item),
       };
@@ -3673,7 +3688,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         return s;
       });
 
-      this.showToast(`Successfully added amiibo "${item.name}"!`);
+      this.showToast(`Successfully added amiibo "${item.name}" as unowned!`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       alert(`Failed to add amiibo "${item.name}": ` + msg);
@@ -3713,7 +3728,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
           release_date: item.release_date || undefined,
           region: item.region || 'USA',
           amiibo_id: item.amiibo_id,
-          ownership_status: 1,
+          ownership_status: 0,
           verified: 1,
           metadata_json: JSON.stringify(item),
         };
@@ -3735,6 +3750,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     }
 
     this.amiiboLoading.set(false);
-    this.showToast(`Successfully ingested ${count} amiibo items.`);
+    this.showToast(`Successfully ingested ${count} amiibo items as unowned.`);
   }
 }

@@ -922,6 +922,31 @@ describe('Worker API Logic', () => {
     expect(insertedToy.amiibo_id).toBe('01030000003f0502');
   });
 
+  it('POST /api/discovery/add-toy defaults ownership_status to 0 when omitted', async () => {
+    const req = new Request('http://localhost/api/discovery/add-toy', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Ganondorf - Tears of the Kingdom',
+        line: 'amiibo',
+        series_name: 'The Legend of Zelda',
+        amiibo_id: '0103000000400502',
+        type: 'Figure',
+        image_url: 'https://raw.githubusercontent.com/ganon.png',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { success: boolean; id: string };
+    expect(data.success).toBe(true);
+
+    const userToy = db
+      .prepare('SELECT ownership_status FROM user_toys WHERE toy_id = ?')
+      .get(data.id) as { ownership_status: number };
+    expect(userToy.ownership_status).toBe(0);
+  });
+
   it('GET /api/discovery/scan-amiibo queries AmiiboAPI and filters existing items', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi

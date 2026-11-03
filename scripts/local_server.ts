@@ -429,7 +429,7 @@ export const handleRequest =
                    amiibo_id = COALESCE(?, amiibo_id)
                WHERE stable_id = ?`,
             ).run(
-              toy.ownership_status ?? 1,
+              toy.ownership_status ?? 0,
               toy.image_url || null,
               toy.metadata_json || null,
               toy.amiibo_id || null,
@@ -484,7 +484,7 @@ export const handleRequest =
               toy.series || toy.series_name || 'Other',
               toy.type || 'Figure',
               toy.release_date || null,
-              toy.ownership_status ?? 1,
+              toy.ownership_status ?? 0,
               toy.image_url || null,
               toy.amiibo_id || null,
               toy.metadata_json || null,
@@ -524,7 +524,7 @@ export const handleRequest =
               `INSERT INTO user_toys (user_id, toy_id, ownership_status)
                VALUES (1, ?, ?)
                ON CONFLICT(user_id, toy_id) DO UPDATE SET ownership_status = excluded.ownership_status`,
-            ).run(candidateId, toy.ownership_status ?? 1);
+            ).run(candidateId, toy.ownership_status ?? 0);
           }
 
           res.end(JSON.stringify({ success: true, id: candidateId }));

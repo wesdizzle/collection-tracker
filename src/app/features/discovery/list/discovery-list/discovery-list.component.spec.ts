@@ -378,6 +378,7 @@ describe('DiscoveryListComponent', () => {
         name: 'Mario',
         line: 'amiibo',
         amiibo_id: '0000000000000002',
+        ownership_status: 0,
       }),
     );
     expect(component.amiiboResults().length).toBe(1);
@@ -545,7 +546,13 @@ describe('DiscoveryListComponent', () => {
         game: expect.objectContaining({
           title: 'Rockstar Games Presents Table Tennis',
           platform_id: 12,
+          ownership_status: 0,
         }),
+        releases: expect.arrayContaining([
+          expect.objectContaining({
+            ownership_status: 0,
+          }),
+        ]),
       }),
     );
     expect(mockCollectionService.addGame).toHaveBeenCalledWith(
@@ -553,14 +560,20 @@ describe('DiscoveryListComponent', () => {
         game: expect.objectContaining({
           title: 'Rockstar Games Presents Table Tennis',
           platform_id: 5,
+          ownership_status: 0,
         }),
+        releases: expect.arrayContaining([
+          expect.objectContaining({
+            ownership_status: 0,
+          }),
+        ]),
       }),
     );
 
     // All platforms ingested, card removed from search results
     expect(component.searchResults().length).toBe(0);
     expect(component.toastMessage()).toContain(
-      'Successfully ingested "Rockstar Games Presents Table Tennis" (2 editions)!',
+      'Successfully ingested "Rockstar Games Presents Table Tennis" (2 editions) as unowned!',
     );
   });
 
@@ -832,5 +845,62 @@ describe('DiscoveryListComponent', () => {
     expect(component.selectedScanGameIds().has('101-29')).toBe(true);
     expect(component.selectedScanGameIds().has('102-34')).toBe(false);
     expect(component.selectedScanGameIds().size).toBe(1);
+  });
+
+  it('should default ownership status to Unowned (0) in ingestion modal for released games, and Seeking (2) for pending games', async () => {
+    const releasedGame: IGDBSearchResult = {
+      id: 'igdb-100',
+      name: 'Super Mario World',
+      platform: 'Super Nintendo',
+      platform_id: 19,
+      image_url: null,
+      physical_status: 'verified_physical',
+      first_release_date: '1990-11-21',
+    };
+
+    await component.openIngestionModal(releasedGame, '19');
+    expect(component.ownershipStatus()).toBe(0);
+    component.closeIngestionModal();
+
+    const pendingGame: IGDBSearchResult = {
+      id: 'igdb-200',
+      name: 'Future Game',
+      platform: 'Nintendo Switch',
+      platform_id: 130,
+      image_url: null,
+      physical_status: 'physical_pending',
+      first_release_date: '2099-01-01',
+    };
+
+    await component.openIngestionModal(pendingGame, '130');
+    expect(component.ownershipStatus()).toBe(2);
+    component.closeIngestionModal();
+  });
+
+  it('should bulk ingest amiibo with ownership_status 0', async () => {
+    mockCollectionService.isAdmin.mockReturnValue(true);
+    const mockItems = [
+      {
+        id: 'amiibo-1',
+        amiibo_id: '00000001',
+        name: 'Bowser',
+        series_name: 'Super Mario',
+        type: 'Figure',
+        image_url: null,
+      },
+    ];
+
+    component.amiiboResults.set(mockItems as unknown as AmiiboDiscoveryItem[]);
+    component.selectedAmiiboIds.set(new Set(['00000001']));
+
+    await component.bulkAddAmiibo();
+
+    expect(mockCollectionService.addToy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Bowser',
+        ownership_status: 0,
+      }),
+    );
+    expect(component.toastMessage()).toContain('as unowned');
   });
 });
