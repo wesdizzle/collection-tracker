@@ -71,6 +71,13 @@ describe('CollectionRouteReuseStrategy', () => {
       expect(strategy.shouldDetach(createSnapshot(':type/:id'))).toBe(false);
       expect(strategy.shouldDetach(createSnapshot('discovery'))).toBe(false);
       expect(strategy.shouldDetach(createSnapshot(''))).toBe(false);
+      expect(strategy.shouldDetach(createSnapshot('u/alice/games/123'))).toBe(
+        false,
+      );
+      expect(strategy.shouldDetach(createSnapshot('u/alice/games'))).toBe(true);
+      expect(strategy.shouldDetach(createSnapshot('collection/toys'))).toBe(
+        true,
+      );
     });
   });
 
@@ -90,14 +97,32 @@ describe('CollectionRouteReuseStrategy', () => {
       });
     });
 
-    it('should remove handle when storing null', () => {
-      const handle = createMockHandle();
+    it('should remove handle and destroy its componentRef when storing null', () => {
+      const destroySpy = vi.fn();
+      const handle = {
+        componentRef: { destroy: destroySpy },
+      } as unknown as DetachedRouteHandle;
       strategy.store(createSnapshot('games'), handle);
       expect(strategy.shouldAttach(createSnapshot('games'))).toBe(true);
 
       strategy.store(createSnapshot('games'), null);
       expect(strategy.shouldAttach(createSnapshot('games'))).toBe(false);
       expect(strategy.hasStoredRoute('games')).toBe(false);
+      expect(destroySpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should destroy previous componentRef when replacing a stored handle with a new one', () => {
+      const destroyFirstSpy = vi.fn();
+      const firstHandle = {
+        componentRef: { destroy: destroyFirstSpy },
+      } as unknown as DetachedRouteHandle;
+      const secondHandle = createMockHandle();
+
+      strategy.store(createSnapshot('games'), firstHandle);
+      strategy.store(createSnapshot('games'), secondHandle);
+
+      expect(destroyFirstSpy).toHaveBeenCalledTimes(1);
+      expect(strategy.retrieve(createSnapshot('games'))).toBe(secondHandle);
     });
   });
 
@@ -163,22 +188,38 @@ describe('CollectionRouteReuseStrategy', () => {
   });
 
   describe('clearRoute and clearAll', () => {
-    it('should clear specific route handle', () => {
-      strategy.store(createSnapshot('games'), createMockHandle());
-      strategy.store(createSnapshot('toys'), createMockHandle());
+    it('should clear specific route handle and destroy its componentRef', () => {
+      const destroyGamesSpy = vi.fn();
+      const destroyToysSpy = vi.fn();
+      strategy.store(createSnapshot('games'), {
+        componentRef: { destroy: destroyGamesSpy },
+      } as unknown as DetachedRouteHandle);
+      strategy.store(createSnapshot('toys'), {
+        componentRef: { destroy: destroyToysSpy },
+      } as unknown as DetachedRouteHandle);
 
       strategy.clearRoute('games');
       expect(strategy.shouldAttach(createSnapshot('games'))).toBe(false);
       expect(strategy.shouldAttach(createSnapshot('toys'))).toBe(true);
+      expect(destroyGamesSpy).toHaveBeenCalledTimes(1);
+      expect(destroyToysSpy).not.toHaveBeenCalled();
     });
 
-    it('should clear all route handles on clearAll', () => {
-      strategy.store(createSnapshot('games'), createMockHandle());
-      strategy.store(createSnapshot('toys'), createMockHandle());
+    it('should clear all route handles and destroy all componentRefs on clearAll', () => {
+      const destroyGamesSpy = vi.fn();
+      const destroyToysSpy = vi.fn();
+      strategy.store(createSnapshot('games'), {
+        componentRef: { destroy: destroyGamesSpy },
+      } as unknown as DetachedRouteHandle);
+      strategy.store(createSnapshot('toys'), {
+        componentRef: { destroy: destroyToysSpy },
+      } as unknown as DetachedRouteHandle);
 
       strategy.clearAll();
       expect(strategy.shouldAttach(createSnapshot('games'))).toBe(false);
       expect(strategy.shouldAttach(createSnapshot('toys'))).toBe(false);
+      expect(destroyGamesSpy).toHaveBeenCalledTimes(1);
+      expect(destroyToysSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

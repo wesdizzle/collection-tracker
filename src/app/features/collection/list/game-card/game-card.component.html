@@ -1,7 +1,9 @@
-<a
-  [routerLink]="['/collection', 'game', game().id]"
-  class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden"
->
+<div class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
+  <a
+    [routerLink]="['/collection', 'game', game().id]"
+    class="card-primary-link"
+    [attr.aria-label]="game().title"
+  ></a>
   <div class="card-art-frame">
     @if (game().image_url) {
       <img
@@ -375,4 +377,4 @@
       </div>
     }
   </div>
-</a>
+</div>

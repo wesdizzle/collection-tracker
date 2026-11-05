@@ -9,6 +9,8 @@ import {
   AfterViewInit,
   OnDestroy,
   effect,
+  untracked,
+  ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -21,6 +23,7 @@ import { UserProfile } from '../../core/models/collection.models';
   selector: 'app-profile-modal',
   standalone: true,
   imports: [CommonModule, FormsModule, IconComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog
       #dialogEl
@@ -703,11 +706,13 @@ export class ProfileModalComponent implements OnInit, AfterViewInit, OnDestroy {
   constructor() {
     effect(() => {
       const open = this.modalService.isOpen();
-      if (open) {
-        this.openDialog();
-      } else {
-        this.closeDialog();
-      }
+      untracked(() => {
+        if (open) {
+          this.openDialog();
+        } else {
+          this.closeDialog();
+        }
+      });
     });
   }
 
@@ -873,12 +878,6 @@ export class ProfileModalComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   public signOut(): void {
-    if (typeof window !== 'undefined') {
-      const form = document.createElement('form');
-      form.method = 'POST';
-      form.action = '/api/auth/logout';
-      document.body.appendChild(form);
-      form.submit();
-    }
+    void this.collectionService.signOut();
   }
 }

@@ -79,6 +79,10 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
     if (!key) return;
 
     if (handle) {
+      const existing = this.storedHandles.get(key);
+      if (existing && existing.handle !== handle) {
+        this.destroyHandle(existing);
+      }
       const pending = this.pendingScroll.get(key);
       const scrollX =
         pending?.scrollX ??
@@ -89,6 +93,8 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
       this.pendingScroll.delete(key);
       this.storedHandles.set(key, { handle, scrollX, scrollY });
     } else {
+      const existing = this.storedHandles.get(key);
+      this.destroyHandle(existing);
       this.storedHandles.delete(key);
       this.pendingScroll.delete(key);
     }
@@ -181,8 +187,9 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    * Used when applying franchise series filters or forcing a fresh reload.
    */
   public clearRoute(path: 'games' | 'toys' | string): void {
-    this.storedHandles.forEach((_, key) => {
+    this.storedHandles.forEach((stored, key) => {
       if (key === path || key.endsWith(`/${path}`)) {
+        this.destroyHandle(stored);
         this.storedHandles.delete(key);
       }
     });
@@ -197,8 +204,18 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
    * Clears all stored route handles.
    */
   public clearAll(): void {
+    this.storedHandles.forEach((stored) => this.destroyHandle(stored));
     this.storedHandles.clear();
     this.pendingScroll.clear();
+  }
+
+  private destroyHandle(stored?: StoredRouteHandle): void {
+    const ref = (
+      stored?.handle as { componentRef?: { destroy?: () => void } } | undefined
+    )?.componentRef;
+    if (ref && typeof ref.destroy === 'function') {
+      ref.destroy();
+    }
   }
 
   /**
@@ -230,12 +247,7 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
 
   private isCollectionListView(key: string | null): boolean {
     if (!key) return false;
-    return (
-      key === 'games' ||
-      key === 'toys' ||
-      key.endsWith('/games') ||
-      key.endsWith('/toys')
-    );
+    return /^(?:(?:collection|u\/[^/]+)\/)?(?:games|toys)$/.test(key);
   }
 
   /**

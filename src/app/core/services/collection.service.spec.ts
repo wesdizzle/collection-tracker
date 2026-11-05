@@ -590,4 +590,106 @@ describe('CollectionService', () => {
       expect(promptSpy).toHaveBeenCalledTimes(5);
     });
   });
+
+  describe('Optimistic Updates, Error Preservation & SW Cache Purge', () => {
+    it('preserves existing games and sets error signal when getGames fails', async () => {
+      const p1 = service.refreshAll();
+      httpMock
+        .expectOne('/api/games')
+        .flush([{ stable_id: 1, id: 'g1', title: 'Initial Game' }]);
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await p1;
+      expect(service.games().length).toBe(1);
+      expect(service.error()).toBeNull();
+
+      let fallbackGames: Game[] = [];
+      service.getGames().subscribe((g) => (fallbackGames = g));
+      httpMock.expectOne('/api/games').flush('Gateway Timeout', {
+        status: 504,
+        statusText: 'Gateway Timeout',
+      });
+
+      expect(fallbackGames.length).toBe(1);
+      expect(fallbackGames[0].title).toBe('Initial Game');
+      expect(service.error()).toContain('504 Gateway Timeout');
+    });
+
+    it('immutably patches games, toys, and disc backups for OnPush consumers', async () => {
+      const p1 = service.refreshAll();
+      httpMock.expectOne('/api/games').flush([
+        {
+          stable_id: 1,
+          id: 'g1',
+          title: 'Final Fantasy VII',
+          ownership_status: 0,
+          play_status: 0,
+          backup_status: 0,
+          releases: [{ id: 'g1-d1', region: 'USA', backup_status: 0 }],
+          discIds: ['g1-d1'],
+          discBackups: [0],
+        },
+      ]);
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await p1;
+
+      const beforeGame = service.games()[0];
+      service.patchGameOptimistic('g1', { ownership_status: 1 });
+      const afterGame = service.games()[0];
+      expect(afterGame).not.toBe(beforeGame);
+      expect(afterGame.ownership_status).toBe(1);
+
+      service.patchDiscBackupOptimistic('g1-d1', 1);
+      const afterDiscGame = service.games()[0];
+      expect(afterDiscGame).not.toBe(afterGame);
+      expect(afterDiscGame.releases?.[0].backup_status).toBe(1);
+      expect(afterDiscGame.discBackups?.[0]).toBe(1);
+      expect(afterDiscGame.backup_status).toBe(1);
+    });
+
+    it('tracks owner context across refreshAll and clears SW data caches on signOut', async () => {
+      expect(service.isLoadedForCurrentContext()).toBe(false);
+
+      const refreshPromise = service.refreshAll();
+      httpMock
+        .expectOne('/api/games')
+        .flush([{ stable_id: 1, id: 'g1', title: 'Mario' }]);
+      httpMock
+        .expectOne('/api/toys')
+        .flush([{ id: 't1', name: 'Mario Amiibo' }]);
+      httpMock.expectOne('/api/platforms').flush([{ id: 1, name: 'NES' }]);
+      await refreshPromise;
+
+      expect(service.isLoadedForCurrentContext()).toBe(true);
+      service.setPublicView(true, {
+        username: 'alice',
+        displayName: 'Alice',
+        bio: null,
+        homeRegion: 'USA',
+      });
+      expect(service.isLoadedForCurrentContext()).toBe(false);
+
+      const deleteMock = vi.fn().mockResolvedValue(true);
+      Object.defineProperty(window, 'caches', {
+        value: {
+          keys: vi
+            .fn()
+            .mockResolvedValue([
+              'ngsw:1:data:dynamic:api-collection:cache',
+              'ngsw:1:assets:app:cache',
+            ]),
+          delete: deleteMock,
+        },
+        configurable: true,
+        writable: true,
+      });
+
+      await service.clearServiceWorkerDataCaches();
+      expect(deleteMock).toHaveBeenCalledTimes(1);
+      expect(deleteMock).toHaveBeenCalledWith(
+        'ngsw:1:data:dynamic:api-collection:cache',
+      );
+    });
+  });
 });

@@ -24,10 +24,15 @@ import { FormsModule } from '@angular/forms';
     <div class="dialog-overlay" (click)="onCancel()">
       <div
         class="dialog-container m3-surface-container-high animate-expressive"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirmation-dialog-title"
         (click)="$event.stopPropagation()"
       >
         <header class="dialog-header">
-          <h3 class="dialog-title">{{ title }}</h3>
+          <h3 id="confirmation-dialog-title" class="dialog-title">
+            {{ title }}
+          </h3>
         </header>
         <div class="dialog-body">
           <p>{{ message }}</p>

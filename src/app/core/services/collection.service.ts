@@ -338,6 +338,7 @@ export class CollectionService {
   private _loading = signal<boolean>(false);
   private _error = signal<string | null>(null);
   private _refreshTrigger = signal<number>(0);
+  private _loadedOwnerContext = signal<string | null>(null);
 
   /** --- Public Read-only Signal Views --- */
   public readonly games = this._games.asReadonly();
@@ -346,6 +347,91 @@ export class CollectionService {
   public readonly loading = this._loading.asReadonly();
   public readonly error = this._error.asReadonly();
   public readonly refreshTrigger = this._refreshTrigger.asReadonly();
+  public readonly loadedOwnerContext = this._loadedOwnerContext.asReadonly();
+
+  public getExpectedOwnerContext(): string {
+    return this._isPublicView() && this._publicProfile()
+      ? `u:${this._publicProfile()!.username.toLowerCase()}`
+      : 'self';
+  }
+
+  public isLoadedForCurrentContext(): boolean {
+    return (
+      this._loadedOwnerContext() === this.getExpectedOwnerContext() &&
+      (this._games().length > 0 ||
+        this._toys().length > 0 ||
+        this._platforms().length > 0)
+    );
+  }
+
+  /**
+   * Immutably patches a game in the in-memory games signal so OnPush and
+   * computed() consumers react immediately during optimistic UI updates.
+   */
+  public patchGameOptimistic(id: string, patch: Partial<Game>): void {
+    this._games.update((games) =>
+      games.map((g) => (g.id === id ? { ...g, ...patch } : g)),
+    );
+  }
+
+  /**
+   * Immutably patches a toy in the in-memory toys signal so OnPush and
+   * computed() consumers react immediately during optimistic UI updates.
+   */
+  public patchToyOptimistic(id: string, patch: Partial<Toy>): void {
+    this._toys.update((toys) =>
+      toys.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    );
+  }
+
+  /**
+   * Immutably updates a game release's backup_status in the in-memory games signal
+   * and recalculates the parent game's backup_status when discBackups are present.
+   */
+  public patchDiscBackupOptimistic(discId: string, status: number): void {
+    this._games.update((games) =>
+      games.map((g) => {
+        let matched = false;
+        let nextReleases = g.releases;
+        if (Array.isArray(g.releases)) {
+          nextReleases = g.releases.map((r) => {
+            if (r.id === discId) {
+              matched = true;
+              return { ...r, backup_status: status };
+            }
+            return r;
+          });
+        }
+        let nextDiscBackups = g.discBackups;
+        if (Array.isArray(g.discIds) && Array.isArray(g.discBackups)) {
+          const idx = g.discIds.indexOf(discId);
+          if (idx !== -1) {
+            matched = true;
+            nextDiscBackups = [...g.discBackups];
+            nextDiscBackups[idx] = status;
+          }
+        }
+        if (g.id === discId) {
+          matched = true;
+        }
+        if (!matched) return g;
+        const nextBackupStatus =
+          Array.isArray(nextDiscBackups) && nextDiscBackups.length > 0
+            ? nextDiscBackups.every((b) => b === 1)
+              ? 1
+              : 0
+            : g.id === discId
+              ? status
+              : g.backup_status;
+        return {
+          ...g,
+          releases: nextReleases,
+          discBackups: nextDiscBackups,
+          backup_status: nextBackupStatus,
+        };
+      }),
+    );
+  }
 
   /**
    * Timestamp of the last successful server synchronization.
@@ -364,6 +450,7 @@ export class CollectionService {
   async refreshAll(): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
+    const targetOwner = this.getExpectedOwnerContext();
     try {
       const [games, toys, platforms] = await Promise.all([
         firstValueFrom(this.getGames()),
@@ -373,10 +460,15 @@ export class CollectionService {
       this._games.set(games);
       this._toys.set(toys);
       this._platforms.set(platforms);
+      this._loadedOwnerContext.set(targetOwner);
       this._refreshTrigger.update((v) => v + 1);
 
-      // Update sync timestamp if we are reasonably sure we hit the network
-      if (typeof window !== 'undefined' && window.navigator.onLine) {
+      // Update sync timestamp if we are reasonably sure we hit the network without errors
+      if (
+        !this._error() &&
+        typeof window !== 'undefined' &&
+        window.navigator.onLine
+      ) {
         const now = new Date();
         this._lastUpdated.set(now);
         localStorage.setItem('app_last_updated', now.toISOString());
@@ -410,7 +502,11 @@ export class CollectionService {
       map((games) => games.map((game) => this.enrichGameTitle(game))),
       catchError((err) => {
         console.error('[CollectionService] Error fetching games:', err);
-        return of([]);
+        this._error.set(
+          err?.message ||
+            'Failed to load games collection. Please try again later.',
+        );
+        return of(this._games());
       }),
     );
   }
@@ -426,7 +522,11 @@ export class CollectionService {
     return this.http.get<Toy[]>(url).pipe(
       catchError((err) => {
         console.error('[CollectionService] Error fetching toys:', err);
-        return of([]);
+        this._error.set(
+          err?.message ||
+            'Failed to load toys collection. Please try again later.',
+        );
+        return of(this._toys());
       }),
     );
   }
@@ -438,7 +538,10 @@ export class CollectionService {
     return this.http.get<Platform[]>('/api/platforms').pipe(
       catchError((err) => {
         console.error('[CollectionService] Error fetching platforms:', err);
-        return of([]);
+        this._error.set(
+          err?.message || 'Failed to load platforms. Please try again later.',
+        );
+        return of(this._platforms());
       }),
     );
   }
@@ -836,10 +939,49 @@ export class CollectionService {
       'Sign in with Cloudflare Access (Email OTP) to manage and update your collection?',
       () => {
         if (typeof window !== 'undefined') {
-          window.location.assign('/admin/login');
+          window.location.assign('/api/auth/login');
         }
       },
     );
+  }
+
+  /**
+   * Purges Angular Service Worker data caches (`ngsw:*:data:*`) so cached
+   * authenticated API responses cannot leak to subsequent anonymous sessions.
+   */
+  public async clearServiceWorkerDataCaches(): Promise<void> {
+    if (typeof window !== 'undefined' && 'caches' in window && window.caches) {
+      try {
+        const keys = await window.caches.keys();
+        await Promise.all(
+          keys
+            .filter((k) => k.includes('ngsw:') && k.includes(':data:'))
+            .map((k) => window.caches.delete(k)),
+        );
+      } catch {
+        // Ignore CacheStorage errors
+      }
+    }
+  }
+
+  /**
+   * Signs out the current user, clears in-memory and Service Worker data caches,
+   * and navigates to `/api/auth/logout`.
+   */
+  public async signOut(): Promise<void> {
+    this._currentUser.set(null);
+    this._journalEntriesMap.set(new Map());
+    this._journalLoaded.set(false);
+    this._loadedOwnerContext.set(null);
+    this.resetListState();
+    await this.clearServiceWorkerDataCaches();
+    if (typeof window !== 'undefined') {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/api/auth/logout';
+      document.body.appendChild(form);
+      form.submit();
+    }
   }
 
   public logoutAdmin() {
@@ -847,27 +989,24 @@ export class CollectionService {
       'Admin Log Out',
       'Are you sure you want to log out of Admin mode? This will revoke your session cookie and lock edit permissions.',
       () => {
-        if (typeof window !== 'undefined') {
-          window.location.assign('/admin/logout');
-        }
+        void this.signOut();
       },
     );
   }
 
   /**
    * Handles authentication errors by prompting the user to sign in with Cloudflare Access OTP.
+   * Transient network errors (status === 0) do not invalidate the local user session.
    */
   private handleMutationError = (err: unknown) => {
-    if (
-      err &&
-      typeof err === 'object' &&
-      'status' in err &&
-      ((err as { status: number }).status === 0 ||
-        (err as { status: number }).status === 401 ||
-        (err as { status: number }).status === 403)
-    ) {
-      this._currentUser.set(null);
-      this.promptAdminLogin();
+    if (err && typeof err === 'object' && 'status' in err) {
+      const status = (err as { status: number }).status;
+      if (status === 401) {
+        this._currentUser.set(null);
+        this.promptAdminLogin();
+      } else if (status === 403 && !this.isAuthenticated()) {
+        this.promptAdminLogin();
+      }
     }
     return throwError(() => err);
   };

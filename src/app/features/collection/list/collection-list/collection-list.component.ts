@@ -20,6 +20,7 @@
 
 import {
   Component,
+  ChangeDetectionStrategy,
   inject,
   OnInit,
   ViewChild,
@@ -53,6 +54,11 @@ import {
   normalizeBudgetToken,
   SERIES_CROSS_LANGUAGE_ALIASES,
 } from '../../../../core/models/collection.models';
+import {
+  COMPANION_DISC1_PAIRS,
+  normalizeForLabelMatch,
+  getRomGroupingKey,
+} from '../../../../core/models/title-mappings';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 import { GameCardComponent } from '../game-card/game-card.component';
 import { ToyCardComponent } from '../toy-card/toy-card.component';
@@ -70,6 +76,7 @@ interface GameGroup {
 @Component({
   selector: 'app-collection-list',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterModule,
     CollectionFiltersComponent,
@@ -77,699 +84,8 @@ interface GameGroup {
     ToyCardComponent,
     CompactTableComponent,
   ],
-  template: `
-    <div class="animate-expressive" data-version="final-v12">
-      <app-collection-filters
-        [currentTab]="currentTab()"
-        [platformGroups]="platformGroups()"
-        [filters]="filters()"
-        [uniqueLines]="uniqueLines()"
-        [uniqueTypes]="uniqueTypes()"
-        [uniqueNames]="uniqueNames()"
-        [uniqueSeries]="uniqueSeries()"
-        [uniqueTags]="uniqueTags()"
-        [uniqueRegions]="uniqueRegions()"
-        [resultCount]="
-          currentTab() === 'games'
-            ? filteredGames().length
-            : filteredToys().length
-        "
-        [totalValue]="totalFilteredValue()"
-        [lastUpdated]="lastUpdated()"
-        [viewMode]="viewMode()"
-        (filtersChange)="onFiltersChange($event)"
-        (viewModeChange)="onViewModeChange($event)"
-      >
-      </app-collection-filters>
-
-      @if (currentTab() === 'games') {
-        <div class="groups-container animate-expressive animate-stagger-2">
-          @for (group of groupedGames(); track group.platformName) {
-            <div class="platform-section mb-xl">
-              <header class="platform-header">
-                <div class="header-content">
-                  @if (group.platformLogo) {
-                    <div class="platform-logo-frame">
-                      <img
-                        [src]="group.platformLogo"
-                        [alt]="group.platformName"
-                        class="platform-logo"
-                      />
-                    </div>
-                  }
-                  <h2 class="platform-title">
-                    <span>{{ group.platformName }}</span>
-                    @if (group.launchYear) {
-                      <span class="platform-year">{{ group.launchYear }}</span>
-                    }
-                  </h2>
-                  <div class="platform-badge">
-                    {{ group.totalCount }} Items
-                    @if (group.totalValue > 0) {
-                      • {{ formatCurrency(group.totalValue) }}
-                    }
-                  </div>
-                </div>
-              </header>
-
-              @if (viewMode() === 'grid') {
-                <div class="grid">
-                  @for (game of group.games; track game.id) {
-                    <app-game-card
-                      [game]="game"
-                      [showPlatform]="
-                        !!(
-                          filters().sortBy &&
-                          filters().sortBy !== 'default' &&
-                          !filters().platform_id
-                        )
-                      "
-                      (toggleStatus)="
-                        onToggleStatus($event.event, $event.game, 'game')
-                      "
-                      (toggleCase)="onToggleCase($event.event, $event.game)"
-                      (toggleManual)="onToggleManual($event.event, $event.game)"
-                      (toggleDiscBackup)="
-                        onToggleDiscBackup(
-                          $event.event,
-                          $event.game,
-                          $event.discIndex
-                        )
-                      "
-                    />
-                  }
-                </div>
-              } @else {
-                <app-compact-table
-                  mode="games"
-                  [games]="group.games"
-                  [filters]="filters()"
-                  (toggleGameStatus)="
-                    onToggleStatus($event.event, $event.game, 'game')
-                  "
-                  (toggleCase)="onToggleCase($event.event, $event.game)"
-                  (toggleManual)="onToggleManual($event.event, $event.game)"
-                  (toggleDiscBackup)="
-                    onToggleDiscBackup(
-                      $event.event,
-                      $event.game,
-                      $event.discIndex
-                    )
-                  "
-                />
-              }
-            </div>
-          }
-        </div>
-      }
-
-      @if (currentTab() === 'toys') {
-        <div class="groups-container animate-expressive animate-stagger-2">
-          @for (group of groupedToys(); track group.lineName) {
-            <div class="platform-section mb-xl">
-              <header class="platform-header">
-                <div class="header-content">
-                  <h2 class="platform-title uppercase letter-spacing-wide">
-                    {{ group.lineName }}
-                  </h2>
-                  <div class="platform-badge">
-                    {{ group.totalCount }} Items
-                    @if (group.totalValue && group.totalValue > 0) {
-                      • {{ formatCurrency(group.totalValue) }}
-                    }
-                  </div>
-                </div>
-              </header>
-
-              @for (series of group.seriesGroups; track series.seriesName) {
-                <div class="series-section mb-lg">
-                  <header class="series-header">
-                    <h3 class="series-title">{{ series.seriesName }}</h3>
-                    <div class="series-badge">
-                      {{ series.totalCount }} Items
-                      @if (series.totalValue && series.totalValue > 0) {
-                        • {{ formatCurrency(series.totalValue) }}
-                      }
-                    </div>
-                  </header>
-                  @if (viewMode() === 'grid') {
-                    <div class="grid">
-                      @for (toy of series.toys; track toy.id) {
-                        <app-toy-card
-                          [toy]="toy"
-                          (toggleStatus)="
-                            onToggleStatus($event.event, $event.toy, 'toy')
-                          "
-                        />
-                      }
-                    </div>
-                  } @else {
-                    <app-compact-table
-                      mode="toys"
-                      [toys]="series.toys"
-                      [filters]="filters()"
-                      (toggleToyStatus)="
-                        onToggleStatus($event.event, $event.toy, 'toy')
-                      "
-                    />
-                  }
-                </div>
-              }
-            </div>
-          }
-        </div>
-      }
-
-      <div
-        #scrollTrigger
-        class="scroll-trigger"
-        style="height: 50px; width: 100%;"
-      ></div>
-    </div>
-  `,
-  styles: [
-    `
-      .mb-xl {
-        margin-bottom: 4rem;
-      }
-      .mb-md {
-        margin-bottom: 1.25rem;
-      }
-      .p-md {
-        padding: 1rem;
-      }
-      .gap-xs {
-        gap: 0.5rem;
-      }
-      .gap-2xs {
-        gap: 0.25rem;
-      }
-
-      .platform-section {
-        content-visibility: auto;
-        contain-intrinsic-size: auto 320px;
-        padding: 4px 6px 12px 6px;
-        min-width: 0;
-        max-width: 100%;
-      }
-
-      .platform-header {
-        padding: 1rem 0;
-        margin-bottom: 1.5rem;
-      }
-
-      .header-content {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 0.625rem 1.25rem;
-        background: var(--m3-surface-container-high);
-        border-radius: var(--radius-md);
-        border: 1px solid var(--m3-outline-variant);
-        min-width: 0;
-        max-width: 100%;
-        box-sizing: border-box;
-      }
-
-      .platform-logo-frame {
-        width: 32px;
-        height: 32px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--m3-surface-container-highest);
-        border-radius: 8px;
-        padding: 0.25rem;
-        flex-shrink: 0;
-      }
-
-      .platform-logo {
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
-        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
-      }
-      .platform-title {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: var(--m3-on-surface);
-        flex: 1 1 auto;
-        display: flex;
-        align-items: baseline;
-        flex-wrap: wrap;
-        gap: var(--spacing-12);
-        row-gap: 0.25rem;
-        min-width: 0;
-        word-break: break-word;
-        overflow-wrap: anywhere;
-      }
-      .platform-year {
-        font-family: var(--font-body);
-        font-variation-settings: normal;
-        font-size: 0.875rem;
-        font-weight: 500;
-        letter-spacing: normal;
-        color: var(--m3-on-surface-variant);
-        opacity: 0.85;
-      }
-
-      .platform-badge {
-        font-family: var(--font-body);
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--m3-on-secondary-container);
-        background: var(--m3-secondary-container);
-        padding: 0.25rem 0.75rem;
-        border-radius: var(--radius-full);
-        white-space: nowrap;
-        flex-shrink: 0;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-        gap: 1.25rem;
-        width: 100%;
-        min-width: 0;
-      }
-
-      @media (max-width: 768px) {
-        .header-content {
-          padding: 0.625rem 0.875rem;
-          gap: 0.5rem;
-          flex-wrap: wrap;
-        }
-        .platform-title {
-          font-size: 1rem;
-        }
-        .grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 0.625rem;
-        }
-      }
-
-      @media (max-width: 480px) {
-        .platform-section {
-          padding-left: 4px;
-          padding-right: 4px;
-        }
-        .grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 0.5rem;
-        }
-      }
-
-      .m3-card {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-      }
-
-      .card-art-frame {
-        width: 100%;
-        aspect-ratio: 3/4;
-        background: var(--m3-surface-container-highest);
-        overflow: hidden;
-        position: relative;
-      }
-
-      .card-art {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-
-      .region-flag {
-        position: absolute;
-        top: 0.75rem;
-        right: 0.75rem;
-        padding: 0.2rem 0.45rem;
-        background: rgba(0, 0, 0, 0.8);
-        border-radius: var(--radius-tag, 6px);
-        font-family: var(--font-body);
-        font-size: 0.65rem;
-        font-weight: 700;
-        color: #fff;
-        z-index: 2;
-      }
-
-      .toy-frame {
-        background: radial-gradient(
-          circle at center,
-          var(--m3-surface-container-highest),
-          var(--m3-surface-container-high)
-        );
-        padding: 1rem;
-      }
-
-      .toy-art {
-        object-fit: contain !important;
-        filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
-      }
-
-      .card-content {
-        padding: 1rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.3rem;
-        flex: 1;
-      }
-
-      .content-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 0.15rem;
-      }
-
-      .card-title {
-        font-size: 0.9375rem;
-        font-weight: 600;
-        line-height: 1.3;
-        color: var(--m3-on-surface);
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-
-      .card-subtitle {
-        font-size: 0.75rem;
-        color: var(--m3-on-surface-variant);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .release-year {
-        font-family: var(--font-body);
-        font-size: 0.7rem;
-        font-weight: 600;
-        color: var(--m3-on-surface-variant);
-        background: var(--m3-surface-container-highest);
-        border: 1px solid var(--m3-outline-variant);
-        padding: 0.12rem 0.45rem;
-        border-radius: var(--radius-tag, 6px);
-        letter-spacing: 0.02em;
-      }
-
-      .igdb-icon {
-        font-size: 0.8rem;
-        display: inline-flex;
-        align-items: center;
-        color: var(--m3-primary);
-      }
-      .physical-release-badge {
-        font-size: 0.8rem;
-      }
-      .digital-extracted-badge {
-        font-size: 0.8rem;
-      }
-      .bundle-badge {
-        font-family: var(--font-body);
-        font-size: 0.7rem;
-        font-weight: 600;
-        color: var(--m3-on-secondary-container);
-        background: var(--m3-secondary-container);
-        padding: 0.12rem 0.45rem;
-        border-radius: var(--radius-tag, 6px);
-        letter-spacing: 0.02em;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.2rem;
-      }
-
-      .series-header {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-        padding-left: 0.5rem;
-        border-left: 3px solid var(--m3-primary);
-      }
-
-      .series-title {
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--m3-on-surface);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-
-      .series-badge {
-        font-family: var(--font-body);
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--m3-on-tertiary-container);
-        background: var(--m3-tertiary-container);
-        padding: 0.2rem 0.65rem;
-        border-radius: var(--radius-full);
-      }
-
-      .status-badge {
-        position: absolute;
-        top: 0.75rem;
-        left: 0.75rem;
-        width: 28px;
-        height: 28px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(4px);
-        border-radius: 50%;
-        color: var(--m3-outline);
-        z-index: 3;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        cursor: default;
-        transition:
-          transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-          filter 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-
-      .status-badge.interactive {
-        cursor: pointer;
-      }
-
-      .status-badge.status-1 {
-        color: var(--m3-primary);
-        background: var(--m3-primary-container);
-        border-color: var(--m3-primary);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-      }
-
-      .status-badge.status-2 {
-        color: var(--m3-tertiary);
-        background: var(--m3-tertiary-container);
-        border-color: var(--m3-tertiary);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-      }
-
-      .status-badge.status-3 {
-        color: #3b82f6;
-        background: rgba(59, 130, 246, 0.2);
-        border-color: #3b82f6;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-      }
-
-      .status-badge.interactive:hover {
-        transform: scale(1.2);
-        filter: brightness(1.2);
-      }
-
-      .sort-badge {
-        position: absolute;
-        top: 0.75rem;
-        left: 3.25rem;
-        padding: 0.25rem 0.5rem;
-        font-size: 0.75rem;
-        font-weight: 700;
-        font-family: var(--font-body);
-        background: var(--m3-surface-container-highest);
-        color: var(--m3-primary);
-        border-radius: var(--radius-full);
-        border: 1px solid var(--m3-outline-variant);
-        backdrop-filter: blur(8px);
-        z-index: 3;
-        cursor: pointer;
-        transition:
-          transform 0.2s ease,
-          background-color 0.2s ease,
-          color 0.2s ease,
-          box-shadow 0.2s ease;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      }
-
-      .sort-badge:hover {
-        background: var(--m3-primary);
-        color: var(--m3-on-primary);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
-      }
-
-      .variant-badge {
-        font-family: var(--font-body);
-        font-size: 0.65rem;
-        font-weight: 600;
-        color: var(--m3-on-secondary-container);
-        background: var(--m3-secondary-container);
-        padding: 0.12rem 0.45rem;
-        border-radius: var(--radius-tag, 6px);
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-      }
-
-      .badge-budget-exclusive {
-        color: #fbbf24;
-        background: rgba(245, 158, 11, 0.18);
-        border: 1px solid rgba(245, 158, 11, 0.45);
-      }
-
-      .badge-budget-optional {
-        color: #fbbf24;
-        background: rgba(245, 158, 11, 0.08);
-        border: 1px dashed rgba(245, 158, 11, 0.45);
-      }
-
-      .valuation-badge {
-        display: inline-flex;
-        align-items: center;
-        font-family: var(--font-body);
-        font-size: 0.7rem;
-        font-weight: 700;
-        color: var(--m3-primary);
-        background: var(--m3-surface-container-highest);
-        border: 1px solid var(--m3-outline-variant);
-        padding: 0.15rem 0.45rem;
-        border-radius: var(--radius-tag, 6px);
-        letter-spacing: 0.01em;
-      }
-
-      .deal-sale-badge {
-        display: inline-flex;
-        align-items: center;
-        font-family: var(--font-body);
-        font-size: 0.7rem;
-        font-weight: 700;
-        color: #ffffff;
-        background: #ef4444;
-        border: 1px solid #dc2626;
-        padding: 0.15rem 0.5rem;
-        border-radius: var(--radius-tag, 6px);
-        letter-spacing: 0.01em;
-        box-shadow: 0 2px 6px rgba(239, 68, 68, 0.35);
-      }
-
-      .deal-strikethrough-price {
-        font-family: var(--font-body);
-        font-size: 0.7rem;
-        color: var(--m3-on-surface-variant);
-        text-decoration: line-through;
-        opacity: 0.7;
-        font-weight: 600;
-      }
-
-      .deal-arb-badge {
-        display: inline-flex;
-        align-items: center;
-        font-family: var(--font-body);
-        font-size: 0.65rem;
-        font-weight: 700;
-        color: #3b82f6;
-        background: rgba(59, 130, 246, 0.12);
-        border: 1px solid rgba(59, 130, 246, 0.3);
-        padding: 0.12rem 0.45rem;
-        border-radius: var(--radius-tag, 6px);
-        letter-spacing: 0.01em;
-      }
-
-      .completeness-chips {
-        display: flex;
-        gap: 0.35rem;
-        margin-top: auto;
-        padding-top: 0.35rem;
-      }
-
-      .completeness-chip {
-        font-family: var(--font-body);
-        font-size: 0.65rem;
-        font-weight: 600;
-        padding: 0.2rem 0.6rem;
-        border-radius: var(--radius-full);
-        border: 1px solid var(--m3-outline-variant);
-        background: var(--m3-surface-container-high);
-        color: var(--m3-on-surface-variant);
-        opacity: 0.75;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .completeness-chip.active {
-        background: var(--m3-primary-container);
-        color: var(--m3-on-primary-container);
-        border-color: var(--m3-primary);
-        opacity: 1;
-        font-weight: 700;
-      }
-
-      .completeness-chip:hover {
-        opacity: 1;
-        transform: scale(1.05);
-      }
-
-      .multi-disc-tray {
-        background: var(--m3-surface-container);
-        border: 1px solid var(--m3-outline-variant);
-        border-radius: var(--radius-sm);
-        padding: 0.35rem 0.5rem;
-      }
-      .multi-disc-header {
-        margin-bottom: 0.25rem;
-      }
-      .multi-disc-label {
-        font-weight: 700;
-        color: var(--m3-on-surface-variant);
-      }
-      .multi-disc-status {
-        font-weight: 600;
-        color: var(--m3-outline);
-      }
-      .multi-disc-status.all-backed {
-        color: var(--m3-primary);
-      }
-      .disc-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        padding: 0.15rem 0.45rem;
-        font-size: 0.65rem;
-        font-weight: 600;
-        border-radius: var(--radius-full);
-        border: 1px solid var(--m3-outline-variant);
-        background: var(--m3-surface-container-high);
-        color: var(--m3-on-surface);
-        cursor: pointer;
-        transition: all 0.15s ease;
-      }
-      .disc-chip:hover {
-        background: var(--m3-surface-container-highest);
-      }
-      .disc-chip.backed-up {
-        border-color: var(--m3-primary);
-        background: var(--m3-primary-container);
-        color: var(--m3-on-primary-container);
-      }
-      .disc-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--m3-outline-variant);
-      }
-      .disc-dot.dot-backed {
-        background: var(--m3-primary);
-      }
-    `,
-  ],
+  templateUrl: './collection-list.component.html',
+  styleUrls: ['./collection-list.component.css'],
 })
 export class CollectionListComponent
   implements OnInit, AfterViewInit, OnDestroy
@@ -938,311 +254,10 @@ export class CollectionListComponent
       .sort((a, b) => a.brand.localeCompare(b.brand));
   });
 
-  /**
-   * Pairs where a 2-disc GOTY/expanded release reuses the original 1-disc release
-   * verbatim as Disc 1. Used so the GOTY release card requires BOTH Disc 1 (base game)
-   * and Disc 2 (add-on/DLC) to be backed up before reporting backup_status = 1,
-   * without altering ownership_status.
-   */
-  private readonly COMPANION_DISC1_PAIRS: ReadonlyArray<{
-    platformId: number;
-    supersetStableId?: number;
-    originalStableId?: number;
-    supersetNormalizedTitle: string;
-    originalNormalizedTitle: string;
-    supersetRomMarker?: string;
-    originalExcludeMarker?: string;
-    excludedRegions?: string[];
-  }> = [
-    {
-      platformId: 48,
-      supersetStableId: 3798,
-      originalStableId: 3796,
-      supersetNormalizedTitle: 'theelderscrollsivobliviongameoftheyearedition',
-      originalNormalizedTitle: 'theelderscrollsivoblivion',
-      originalExcludeMarker: 'collector',
-      excludedRegions: ['japan', 'asia'],
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3800,
-      originalStableId: 3799,
-      supersetNormalizedTitle: 'theelderscrollsvskyrimlegendaryedition',
-      originalNormalizedTitle: 'theelderscrollsvskyrim',
-      originalExcludeMarker: 'kinect sensor',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3808,
-      originalStableId: 3808,
-      supersetNormalizedTitle: 'fallout3gameoftheyearedition',
-      originalNormalizedTitle: 'fallout3',
-      supersetRomMarker: 'game of the year edition',
-      originalExcludeMarker: 'add-on',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3785,
-      originalStableId: 3784,
-      supersetNormalizedTitle: 'dishonoredgameoftheyearedition',
-      originalNormalizedTitle: 'dishonored',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3791,
-      originalStableId: 3790,
-      supersetNormalizedTitle: 'dragonageoriginsultimateedition',
-      originalNormalizedTitle: 'dragonageorigins',
-      originalExcludeMarker: 'tsuika contents',
-      excludedRegions: ['japan'],
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3732,
-      originalStableId: 3731,
-      supersetNormalizedTitle: 'borderlandsgameoftheyearedition',
-      originalNormalizedTitle: 'borderlands',
-      originalExcludeMarker: 'add-on',
-      excludedRegions: ['japan'],
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3734,
-      originalStableId: 3733,
-      supersetNormalizedTitle: 'borderlands2gameoftheyearedition',
-      originalNormalizedTitle: 'borderlands2',
-      originalExcludeMarker: 'add-on',
-    },
-    {
-      platformId: 32,
-      supersetStableId: 2373,
-      originalStableId: 2372,
-      supersetNormalizedTitle: 'borderlands2gameoftheyearedition',
-      originalNormalizedTitle: 'borderlands2',
-      originalExcludeMarker: 'add-on',
-    },
-    {
-      platformId: 32,
-      supersetStableId: 2463,
-      originalStableId: 2462,
-      supersetNormalizedTitle: 'killzonetrilogy',
-      originalNormalizedTitle: 'killzone3',
-    },
-    {
-      platformId: 48,
-      originalStableId: 3809,
-      supersetNormalizedTitle: 'falloutnewvegasultimateedition',
-      originalNormalizedTitle: 'falloutnewvegas',
-    },
-    {
-      platformId: 48,
-      originalStableId: 3951,
-      supersetNormalizedTitle: 'saintsrowthethirdthefullpackage',
-      originalNormalizedTitle: 'saintsrowthethird',
-    },
-    {
-      platformId: 48,
-      originalStableId: 3866,
-      supersetNormalizedTitle: 'mafiaii',
-      originalNormalizedTitle: 'mafiaii',
-      supersetRomMarker: 'add-on content disc',
-      originalExcludeMarker: 'add-on content disc',
-    },
-    {
-      platformId: 34,
-      supersetNormalizedTitle: 'outlasttrinity',
-      originalNormalizedTitle: 'outlastoutlastwhistleblower',
-    },
-    {
-      platformId: 48,
-      originalStableId: 3748,
-      supersetNormalizedTitle: 'callofdutymodernwarfare2',
-      originalNormalizedTitle: 'callofdutymodernwarfare2',
-      supersetRomMarker: 'stimulus package',
-      originalExcludeMarker: 'stimulus package',
-    },
-    {
-      platformId: 20,
-      supersetStableId: 692,
-      originalStableId: 692,
-      supersetNormalizedTitle: 'mariokartdoubledash',
-      originalNormalizedTitle: 'mariokartdoubledash',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 20,
-      supersetStableId: 718,
-      originalStableId: 718,
-      supersetNormalizedTitle: 'metroidprime2echoes',
-      originalNormalizedTitle: 'metroidprime2echoes',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 20,
-      supersetStableId: 748,
-      originalStableId: 748,
-      supersetNormalizedTitle: 'residentevil4',
-      originalNormalizedTitle: 'residentevil4',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 29,
-      supersetStableId: 1983,
-      originalStableId: 1983,
-      supersetNormalizedTitle: 'persona2eternalpunishment',
-      originalNormalizedTitle: 'persona2eternalpunishment',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 29,
-      supersetStableId: 1938,
-      originalStableId: 1938,
-      supersetNormalizedTitle: 'granturismo2',
-      originalNormalizedTitle: 'granturismo2',
-      supersetRomMarker: 'un cd bonus',
-      originalExcludeMarker: 'un cd bonus',
-    },
-    {
-      platformId: 30,
-      supersetStableId: 2088,
-      originalStableId: 2088,
-      supersetNormalizedTitle: 'killzone',
-      originalNormalizedTitle: 'killzone',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 47,
-      supersetStableId: 3622,
-      originalStableId: 3622,
-      supersetNormalizedTitle: 'fable',
-      originalNormalizedTitle: 'fable',
-      supersetRomMarker: 'limited edition bonus dvd',
-      originalExcludeMarker: 'bonus dvd',
-    },
-    {
-      platformId: 47,
-      supersetStableId: 3705,
-      originalStableId: 3705,
-      supersetNormalizedTitle: 'tomclancyssplintercell',
-      originalNormalizedTitle: 'tomclancyssplintercell',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3712,
-      originalStableId: 3712,
-      supersetNormalizedTitle: 'alanwake',
-      originalNormalizedTitle: 'alanwake',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3728,
-      originalStableId: 3728,
-      supersetNormalizedTitle:
-        'bioshockinfinitethecompleteeditionbonuscontentdisc',
-      originalNormalizedTitle: 'bioshockinfinite',
-      supersetRomMarker: 'bonus content disc',
-      originalExcludeMarker: 'bonus content disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3772,
-      originalStableId: 3772,
-      supersetNormalizedTitle: 'deadrising2',
-      originalNormalizedTitle: 'deadrising2',
-      supersetRomMarker: 'zombrex edition bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3804,
-      originalStableId: 3804,
-      supersetNormalizedTitle: 'fableii',
-      originalNormalizedTitle: 'fableii',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3819,
-      originalStableId: 3819,
-      supersetNormalizedTitle: 'gearsofwar',
-      originalNormalizedTitle: 'gearsofwar',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3820,
-      originalStableId: 3820,
-      supersetNormalizedTitle: 'gearsofwar2',
-      originalNormalizedTitle: 'gearsofwar2',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3888,
-      originalStableId: 3888,
-      supersetNormalizedTitle: 'masseffect',
-      originalNormalizedTitle: 'masseffect',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3913,
-      originalStableId: 3913,
-      supersetNormalizedTitle: 'perfectdarkzero',
-      originalNormalizedTitle: 'perfectdarkzero',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3925,
-      originalStableId: 3925,
-      supersetNormalizedTitle: 'quake4',
-      originalNormalizedTitle: 'quake4',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-    {
-      platformId: 48,
-      supersetStableId: 3981,
-      originalStableId: 3981,
-      supersetNormalizedTitle: 'vivapinata',
-      originalNormalizedTitle: 'vivapinata',
-      supersetRomMarker: 'bonus disc',
-      originalExcludeMarker: 'bonus disc',
-    },
-  ];
+  private readonly COMPANION_DISC1_PAIRS = COMPANION_DISC1_PAIRS;
 
   private normalizeForLabelMatch(name: string): string {
-    let clean = name
-      .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
-      .replace(/\s*\([^)]*\)/g, '')
-      .replace(/\s*\[[^\]]*\]/g, '')
-      .trim();
-    clean = clean.replace(
-      /(^|\s-\s)([^,-]+),\s*(the|a|an)(?=\s*(?:-|:|$))/gi,
-      '$1$3 $2',
-    );
-    return clean
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/&amp;/g, 'and')
-      .replace(/&/g, 'and')
-      .replace(/[^a-z0-9]/g, '');
+    return normalizeForLabelMatch(name);
   }
 
   private normalizeBudgetToken(token: string): string | null {
@@ -1474,6 +489,11 @@ export class CollectionListComponent
         for (const alias of g.also_released_as.split(',')) {
           const trimmed = alias.trim();
           if (trimmed) names.add(this.normalizeString(trimmed));
+        }
+      }
+      if (Array.isArray(g.searchableNames)) {
+        for (const n of g.searchableNames) {
+          if (n) names.add(this.normalizeString(n));
         }
       }
       if (g.metadata_json) {
@@ -1958,300 +978,8 @@ export class CollectionListComponent
     }
   }
 
-  private readonly COMPILATION_DISC_SUBTITLES: Record<
-    string,
-    ReadonlySet<string>
-  > = {
-    'batman - return to arkham': new Set(['arkham asylum', 'arkham city']),
-    'bioshock - the collection': new Set([
-      'bioshock-bioshock 2 disc',
-      'bioshock infinite disc',
-    ]),
-    'bioshock - ultimate rapture edition': new Set([
-      'bioshock - bonus content',
-      'bioshock 2 - bonus content',
-    ]),
-    'heavy rain & beyond - two souls collection': new Set([
-      'heavy rain',
-      'beyond - two souls',
-    ]),
-  };
-
-  private isCompilationDiscSubtitle(
-    content: string,
-    fullReleaseName?: string | null,
-  ): boolean {
-    if (!fullReleaseName) return false;
-    const normContent = content.toLowerCase().trim();
-    const normRelease = fullReleaseName.toLowerCase().trim();
-    for (const [prefix, subtitles] of Object.entries(
-      this.COMPILATION_DISC_SUBTITLES,
-    )) {
-      if (normRelease.startsWith(prefix) && subtitles.has(normContent)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Checks whether a ROM filename contains a multi-disc or disc-role indicator
-   * (including localized Disco/Disque/Disk and Play/Data/Install disc roles).
-   */
-  private hasDiscIndicator(filename: string | null | undefined): boolean {
-    if (!filename) {
-      return false;
-    }
-    const numberedDiscRegex =
-      /[-_\s]*\((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\]\s*[0-9]+)?(?:\s*[-:]\s*[^)]+)?\)/i;
-    if (numberedDiscRegex.test(filename)) return true;
-
-    const bareDiscRegex =
-      /[-_\s]+(?:disc|disco|disque|disk)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+)?\b/i;
-    if (bareDiscRegex.test(filename)) return true;
-
-    const roleDiscRegex =
-      /\((?:play\s+disc|data\s+disc|data\s+installation\s+disc|installation\s+disc|install\s+disc|game\s+disc|key\s+disc|install|play|single\s+player|single-player|single\s+player\s+disc|multiplayer|multiplayer\s+disc|campaign|campaign\s+disc|campanha|cinematics\s+disc|movie\s+disc|soundtrack\s+disc|add-on\s+disc|add-on\s+content\s+disc|additional\s+content\s+packs\s+install\s+disc|expansion\s+disk|expansion\s+disc|voice\s+over\s+pack|dlc\s+installer|tsuika\s+contents\s+disc)\)/i;
-    if (roleDiscRegex.test(filename)) return true;
-
-    const parentheticals = filename.match(/\(([^)]+)\)/g);
-    if (parentheticals) {
-      for (const m of parentheticals) {
-        const inner = m.slice(1, -1).trim();
-        if (this.isCompilationDiscSubtitle(inner, filename)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  private stripDiscIndicator(filename: string | null | undefined): string {
-    if (!filename) {
-      return '';
-    }
-
-    const lastDot = filename.lastIndexOf('.');
-    let base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
-    const baseLower = base.toLowerCase();
-
-    // Normalize cross-region companion Disc 2s that share a retail box with a single-region Disc 1
-    if (baseLower.startsWith('halo 3 - odst')) {
-      base = base
-        .replace(/\(usa,\s*brazil\)/gi, '(USA)')
-        .replace(/\(europe,\s*asia\)/gi, '(Europe, Australia)');
-    }
-
-    const hasNumberedDisc =
-      /[-_\s]*\((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\]\s*[0-9]+)?(?:\s*[-:]\s*[^)]+)?\)/i.test(
-        base,
-      );
-
-    base = base.replace(
-      /[-_\s]*\((?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\]\s*[0-9]+)?(?:\s*[-:]\s*[^)]+)?\)/gi,
-      '',
-    );
-    base = base.replace(
-      /[-_\s]+(?:disc|disco|disque|disk)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+)?\b/gi,
-      '',
-    );
-
-    // Strip role-based disc parentheticals
-    base = base.replace(
-      /[-_\s]*\((?:play\s+disc|data\s+disc|data\s+installation\s+disc|installation\s+disc|install\s+disc|game\s+disc|key\s+disc|install|play|single\s+player|single-player|single\s+player\s+disc|multiplayer|multiplayer\s+disc|campaign|campaign\s+disc|campanha|cinematics\s+disc|movie\s+disc|soundtrack\s+disc|add-on\s+disc|add-on\s+content\s+disc|additional\s+content\s+packs\s+install\s+disc|expansion\s+disk|expansion\s+disc|voice\s+over\s+pack|dlc\s+installer|tsuika\s+contents\s+disc)\)/gi,
-      '',
-    );
-
-    // Strip compilation-scoped disc subtitles
-    base = base.replace(/[-_\s]*\(([^)]+)\)/g, (full, inner: string) => {
-      if (this.isCompilationDiscSubtitle(inner, filename)) {
-        return '';
-      }
-      return full;
-    });
-
-    // Strip Japanese parenthetical counting indicators (e.g. "Ichi", "Ni" etc.) when used alongside or as disc indicators
-    base = base.replace(/[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/gi, '');
-
-    // If the ROM had a numbered (Disc N) marker, also strip per-disc content subtitles
-    // (e.g. "(Snake Eater)", "(Persistence)", "(Dante Disc)", "(Lucia Disc)", "(Red Dead Redemption Single Player)")
-    // while keeping region/language/revision parentheticals intact so discs of the same release group together.
-    if (hasNumberedDisc) {
-      base = base.replace(/\(([^)]+)\)/g, (full, inner: string) => {
-        const t = inner.trim().toLowerCase();
-        if (
-          baseLower.startsWith('metal gear solid 3 - subsistence') &&
-          /^(?:limited edition|shokai seisanban)$/i.test(t)
-        ) {
-          return '';
-        }
-        if (
-          /^(?:usa|japan|europe|world|asia|korea|china|taiwan|australia|brazil|canada|france|germany|italy|spain|netherlands|sweden|norway|denmark|finland|russia|poland|portugal|greece|turkey|india|south africa|latin america|united kingdom|scandinavia|united arab emirates|austria|switzerland|ireland|hong kong|mexico|new zealand|unknown)(?:\s*,\s*[a-z\s]+)*$/i.test(
-            t,
-          )
-        ) {
-          return full;
-        }
-        if (
-          /^[a-z]{2,3}(?:-[a-z]{2,4})?(?:,[a-z]{2,3}(?:-[a-z]{2,4})?)*$/i.test(
-            t,
-          )
-        ) {
-          return full;
-        }
-        if (
-          /^(?:rev\s*[a-z0-9.]+|v[0-9]+(?:\.[0-9a-z]+)*|alt(?:\s+[0-9]+)?|edc|no\s+edc|limited\s+edition|collector's\s+edition|special\s+edition|game\s+of\s+the\s+year\s+edition|complete\s+edition|gold\s+edition|platinum\s+hits|greatest\s+hits|black\s+label|nintendo\s+selects|player's\s+choice)$/i.test(
-            t,
-          )
-        ) {
-          return full;
-        }
-        return '';
-      });
-    }
-
-    base = base.replace(/\s+/g, ' ').trim();
-    base = base.replace(/[-_]$/, '').trim();
-
-    return base.toLowerCase();
-  }
-
-  private readonly BOX_SET_ROM_GROUPING_MAP: Record<string, string> = {
-    // 1. God of War Saga (PS3, USA)
-    'god of war collection (usa) (v02.00)': 'multi:god of war saga (usa)',
-    'god of war collection (usa, canada) (v02.00)':
-      'multi:god of war saga (usa)',
-    'god of war iii (usa) (v02.00)': 'multi:god of war saga (usa)',
-    'god of war iii (usa, canada) (v02.00)': 'multi:god of war saga (usa)',
-
-    // 2. Infamous Collection (PS3, USA)
-    'infamous (usa) (en,fr,es) (v02.00)': 'multi:infamous collection (usa)',
-    'infamous (usa, canada) (en,fr,es) (v02.00)':
-      'multi:infamous collection (usa)',
-    'infamous 2 (usa) (en,fr,es,pt) (v02.00)':
-      'multi:infamous collection (usa)',
-    'infamous 2 (usa, canada) (en,fr,es,pt) (v02.00)':
-      'multi:infamous collection (usa)',
-
-    // 3. Killzone Trilogy (PS3, USA)
-    'killzone trilogy (usa) (killzone + killzone 2)':
-      'multi:killzone trilogy (usa)',
-    'killzone 3 (usa, brazil) (en,ja,fr,de,es,it,nl,pt,sv,no,da,fi,zh,ko,pl,ru,tr)':
-      'multi:killzone trilogy (usa)',
-
-    // 4. Metal Gear Solid: The Legacy Collection (PS3, USA / Europe / Japan)
-    'metal gear solid - the legacy collection 1987-2012 (usa) (en,fr,es) (disc 2)':
-      'multi:metal gear solid - the legacy collection 1987-2012 (usa)',
-    'metal gear solid 4 - guns of the patriots (usa) (en,fr,de,es,it) (v02.00)':
-      'multi:metal gear solid - the legacy collection 1987-2012 (usa)',
-    'metal gear solid - the legacy collection 1987-2012 (europe) (en,fr,de,es,it) (disc 2)':
-      'multi:metal gear solid - the legacy collection 1987-2012 (europe)',
-    'metal gear solid 4 - guns of the patriots (europe) (en,fr,de,es,it) (v02.00)':
-      'multi:metal gear solid - the legacy collection 1987-2012 (europe)',
-    'metal gear solid - the legacy collection 1987-2012 (japan) (disc 1)':
-      'multi:metal gear solid - the legacy collection 1987-2012 (japan)',
-    'metal gear solid 4 - guns of the patriots (japan) (v02.01)':
-      'multi:metal gear solid - the legacy collection 1987-2012 (japan)',
-
-    // 5. Mass Effect Trilogy (PS3, USA & Europe)
-    'mass effect (usa, asia) (en,fr,es)': 'multi:mass effect trilogy (usa)',
-    'mass effect 2 (usa, asia) (en,fr,de,es,it,ru)':
-      'multi:mass effect trilogy (usa)',
-    'mass effect 3 (usa, asia) (en,ja,fr,de,es,it,pl,ru)':
-      'multi:mass effect trilogy (usa)',
-    'mass effect (europe) (en,fr,de,es,it)':
-      'multi:mass effect trilogy (europe)',
-    'mass effect 2 (europe, australia) (en,fr,de,es,it,ru)':
-      'multi:mass effect trilogy (europe)',
-    'mass effect 3 (europe) (en,ja,fr,de,es,it,pl,ru)':
-      'multi:mass effect trilogy (europe)',
-
-    // 6. Mass Effect Trilogy (Xbox 360, USA & Italy)
-    'mass effect (usa, europe) (en,es,pl) (rev 1)':
-      'multi:mass effect trilogy (usa)',
-    'mass effect 2 (usa, europe) (en,es) (disc 1)':
-      'multi:mass effect trilogy (usa)',
-    'mass effect 2 (usa, europe) (en,es) (disc 2)':
-      'multi:mass effect trilogy (usa)',
-    'mass effect 3 (world) (en,ja,fr,de,es,it,pl,ru) (disc 1)':
-      'multi:mass effect trilogy (usa)',
-    'mass effect 3 (world) (en,ja,fr,de,es,it,pl,ru) (disc 2)':
-      'multi:mass effect trilogy (usa)',
-    'mass effect (italy) (rev 1)': 'multi:mass effect trilogy (italy)',
-    'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 1) (rev 1)':
-      'multi:mass effect trilogy (italy)',
-    'mass effect 3 (italy) (en,ja,fr,de,es,it,pl,ru) (disc 2) (rev 1)':
-      'multi:mass effect trilogy (italy)',
-
-    // 7. Assassin's Creed: Heritage Collection (Xbox 360, Europe)
-    "assassin's creed (usa, europe) (en,fr,de,es,it) (rev 1)":
-      "multi:assassin's creed - heritage collection (europe)",
-    "assassin's creed - brotherhood (usa, europe) (en,fr,de,es,it,nl,pt,sv,no,da)":
-      "multi:assassin's creed - heritage collection (europe)",
-    "assassin's creed - revelations (usa, europe) (en,fr,de,es,it,nl,pt,sv,no,da)":
-      "multi:assassin's creed - heritage collection (europe)",
-    "assassin's creed ii - game of the year edition (europe) (en,fr,de,es,it,nl,sv,no,da)":
-      "multi:assassin's creed - heritage collection (europe)",
-    "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 1) (rev 1)":
-      "multi:assassin's creed - heritage collection (europe)",
-    "assassin's creed iii (europe) (en,fr,de,es,it,nl,pt,sv,no,da,fi) (disc 2) (rev 1)":
-      "multi:assassin's creed - heritage collection (europe)",
-    "assassin's creed ii - game of the year edition (europe) (it,pl,ru)":
-      "multi:assassin's creed - heritage collection (europe) (pl,ru)",
-    "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 1) (rev 1)":
-      "multi:assassin's creed - heritage collection (europe) (pl,ru)",
-    "assassin's creed iii (europe) (pl,ru,cs,hu) (disc 2) (rev 1)":
-      "multi:assassin's creed - heritage collection (europe) (pl,ru)",
-
-    // 8. Grand Theft Auto: The Trilogy (PS2, USA)
-    'grand theft auto iii (usa, canada)':
-      'multi:grand theft auto - the trilogy (usa)',
-    'grand theft auto - vice city (usa, canada) (v3.00)':
-      'multi:grand theft auto - the trilogy (usa)',
-    'grand theft auto - vice city (usa) (v4.00)':
-      'multi:grand theft auto - the trilogy (usa) (v4.00)',
-    'grand theft auto - san andreas (usa) (v3.00) (rev 1)':
-      'multi:grand theft auto - the trilogy (usa)',
-
-    // 9. Grand Theft Auto: The Trilogy (Xbox, USA / Europe)
-    'grand theft auto iii (usa)': 'multi:grand theft auto - the trilogy (usa)',
-    'grand theft auto - vice city (usa) (rev 1)':
-      'multi:grand theft auto - the trilogy (usa)',
-    'grand theft auto - san andreas (usa) (en,es) (rev 1)':
-      'multi:grand theft auto - the trilogy (usa)',
-    'grand theft auto iii (europe) (en,fr,de,es,it)':
-      'multi:grand theft auto - the trilogy (europe)',
-    'grand theft auto - vice city (europe) (en,fr,es,it) (rev 1)':
-      'multi:grand theft auto - the trilogy (europe)',
-    'grand theft auto - san andreas (europe) (en,fr,de,es,it) (rev 1)':
-      'multi:grand theft auto - the trilogy (europe)',
-
-    // 10. BioShock: Ultimate Rapture Edition (Xbox 360, USA / Europe)
-    'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock - bonus content)':
-      'multi:bioshock - ultimate rapture edition (usa)',
-    'bioshock - ultimate rapture edition (usa) (en,fr,de,es,it) (bioshock 2 - bonus content)':
-      'multi:bioshock - ultimate rapture edition (usa)',
-    'bioshock - ultimate rapture edition (usa, europe) (bioshock - bonus content)':
-      'multi:bioshock - ultimate rapture edition (usa, europe)',
-    'bioshock - ultimate rapture edition (usa, europe) (bioshock 2 - bonus content)':
-      'multi:bioshock - ultimate rapture edition (usa, europe)',
-  };
-
   private getRomGroupingKey(filename: string | null | undefined): string {
-    if (!filename) {
-      return '';
-    }
-    const lastDot = filename.lastIndexOf('.');
-    const base = (
-      lastDot !== -1 ? filename.slice(0, lastDot) : filename
-    ).toLowerCase();
-    if (this.BOX_SET_ROM_GROUPING_MAP[base]) {
-      return this.BOX_SET_ROM_GROUPING_MAP[base];
-    }
-    if (this.hasDiscIndicator(filename)) {
-      return `multi:${this.stripDiscIndicator(filename)}`;
-    }
-    return `single:${base}`;
+    return getRomGroupingKey(filename);
   }
 
   /** Total value of all filtered games in cents */
@@ -2946,9 +1674,10 @@ export class CollectionListComponent
     }
 
     const hasData =
-      this.currentTab() === 'games'
+      this.collectionService.isLoadedForCurrentContext() &&
+      (this.currentTab() === 'games'
         ? this.collectionService.games().length > 0
-        : this.collectionService.toys().length > 0;
+        : this.collectionService.toys().length > 0);
 
     if (hasData) {
       this.restoreScroll();
@@ -3095,11 +1824,29 @@ export class CollectionListComponent
         if (isNaN(numValue) || numValue < 0 || numValue > 3) return;
 
         item.ownership_status = numValue;
+        if (type === 'game') {
+          this.collectionService.patchGameOptimistic(item.id, {
+            ownership_status: numValue,
+          });
+        } else {
+          this.collectionService.patchToyOptimistic(item.id, {
+            ownership_status: numValue,
+          });
+        }
         this.collectionService
           .toggleOwnership(item.id, type, numValue)
           .subscribe({
             error: (err) => {
               item.ownership_status = prevStatus;
+              if (type === 'game') {
+                this.collectionService.patchGameOptimistic(item.id, {
+                  ownership_status: prevStatus,
+                });
+              } else {
+                this.collectionService.patchToyOptimistic(item.id, {
+                  ownership_status: prevStatus,
+                });
+              }
               console.error('Failed to set status:', err);
             },
           });
@@ -3134,11 +1881,29 @@ export class CollectionListComponent
         if (isNaN(numValue)) return;
 
         item.sort_index = numValue;
+        if (type === 'game') {
+          this.collectionService.patchGameOptimistic(item.id, {
+            sort_index: numValue,
+          });
+        } else {
+          this.collectionService.patchToyOptimistic(item.id, {
+            sort_index: numValue,
+          });
+        }
         this.collectionService
           .updateSortIndex(item.id, type, numValue)
           .subscribe({
             error: (err) => {
               item.sort_index = prevSort;
+              if (type === 'game') {
+                this.collectionService.patchGameOptimistic(item.id, {
+                  sort_index: prevSort,
+                });
+              } else {
+                this.collectionService.patchToyOptimistic(item.id, {
+                  sort_index: prevSort ?? undefined,
+                });
+              }
               console.error('Failed to update sort index:', err);
             },
           });
@@ -3195,9 +1960,15 @@ export class CollectionListComponent
     const current = Boolean(game.has_case);
     const newStatus = current ? 0 : 1;
     game.has_case = newStatus;
+    this.collectionService.patchGameOptimistic(game.id, {
+      has_case: newStatus,
+    });
     this.collectionService.updateHasCase(game.id, newStatus).subscribe({
       error: (err) => {
         game.has_case = prevStatus;
+        this.collectionService.patchGameOptimistic(game.id, {
+          has_case: prevStatus,
+        });
         console.error('Failed to toggle case:', err);
       },
     });
@@ -3217,9 +1988,15 @@ export class CollectionListComponent
     const current = Boolean(game.has_manual);
     const newStatus = current ? 0 : 1;
     game.has_manual = newStatus;
+    this.collectionService.patchGameOptimistic(game.id, {
+      has_manual: newStatus,
+    });
     this.collectionService.updateHasManual(game.id, newStatus).subscribe({
       error: (err) => {
         game.has_manual = prevStatus;
+        this.collectionService.patchGameOptimistic(game.id, {
+          has_manual: prevStatus,
+        });
         console.error('Failed to toggle manual:', err);
       },
     });
@@ -3255,12 +2032,17 @@ export class CollectionListComponent
       game.discBackups[discIndex] = newStatus;
       game.backup_status = game.discBackups.every((b) => b === 1) ? 1 : 0;
     }
+    this.collectionService.patchDiscBackupOptimistic(discId, newStatus);
     this.collectionService.updateBackupStatus(discId, newStatus).subscribe({
       error: (err) => {
         if (game.discBackups && prevDiscBackups) {
           game.discBackups = prevDiscBackups;
           game.backup_status = prevBackupStatus;
         }
+        this.collectionService.patchDiscBackupOptimistic(
+          discId,
+          current ? 1 : 0,
+        );
         console.error('Failed to toggle disc backup:', err);
       },
     });

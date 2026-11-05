@@ -4,6 +4,7 @@
 }
 
 .m3-card {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -14,6 +15,21 @@
   transition:
     transform 0.2s cubic-bezier(0.2, 0, 0, 1),
     box-shadow 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.card-primary-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  text-decoration: none;
+  color: inherit;
+  border-radius: inherit;
+}
+
+.backup-badge,
+.completeness-chip {
+  position: relative;
+  z-index: 2;
 }
 
 .m3-card:hover {
