@@ -7,6 +7,9 @@ import {
   parseCookies,
   extractAccessEmail,
   normalizeHomeRegion,
+  timingSafeEqualStrings,
+  verifyAccessJwt,
+  resetAccessJwksCache,
   SessionUser,
 } from './auth.js';
 
@@ -86,18 +89,26 @@ describe('worker/auth', () => {
     expect(normalizeHomeRegion('InvalidRegion')).toBeNull();
   });
 
+  it('compares strings in constant time with timingSafeEqualStrings', () => {
+    expect(timingSafeEqualStrings('secret-key-123', 'secret-key-123')).toBe(
+      true,
+    );
+    expect(timingSafeEqualStrings('secret-key-123', 'secret-key-124')).toBe(
+      false,
+    );
+    expect(timingSafeEqualStrings('secret-key-123', 'short')).toBe(false);
+    expect(timingSafeEqualStrings('', '')).toBe(false);
+  });
+
   describe('extractAccessEmail', () => {
-    it('extracts email from direct header', async () => {
-      const req = new Request('https://example.com/', {
+    it('rejects unverified direct header and unsigned cookie on non-loopback origin when teamDomain is unset', async () => {
+      const headerReq = new Request('https://example.com/', {
         headers: {
           'Cf-Access-Authenticated-User-Email': 'WESLEY@EXAMPLE.COM',
         },
       });
-      const email = await extractAccessEmail(req);
-      expect(email).toBe('wesley@example.com');
-    });
+      expect(await extractAccessEmail(headerReq)).toBeNull();
 
-    it('extracts email from CF_Authorization cookie payload without teamDomain', async () => {
       const headerB64 = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
       const payloadB64 = btoa(
         JSON.stringify({
@@ -106,7 +117,34 @@ describe('worker/auth', () => {
         }),
       );
       const mockJwt = `${headerB64}.${payloadB64}.fake-sig`;
-      const req = new Request('https://example.com/', {
+      const cookieReq = new Request('https://example.com/', {
+        headers: {
+          Cookie: `CF_Authorization=${mockJwt}`,
+        },
+      });
+      expect(await extractAccessEmail(cookieReq)).toBeNull();
+    });
+
+    it('extracts email from direct header on loopback origin', async () => {
+      const req = new Request('http://localhost/', {
+        headers: {
+          'Cf-Access-Authenticated-User-Email': 'WESLEY@EXAMPLE.COM',
+        },
+      });
+      const email = await extractAccessEmail(req);
+      expect(email).toBe('wesley@example.com');
+    });
+
+    it('extracts email from CF_Authorization cookie payload on loopback without teamDomain', async () => {
+      const headerB64 = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
+      const payloadB64 = btoa(
+        JSON.stringify({
+          email: 'collector@games.org',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        }),
+      );
+      const mockJwt = `${headerB64}.${payloadB64}.fake-sig`;
+      const req = new Request('http://localhost/', {
         headers: {
           Cookie: `CF_Authorization=${mockJwt}`,
         },
@@ -115,7 +153,7 @@ describe('worker/auth', () => {
       expect(email).toBe('collector@games.org');
     });
 
-    it('rejects expired CF_Authorization cookie', async () => {
+    it('rejects expired or exp-less CF_Authorization cookie on loopback', async () => {
       const headerB64 = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }));
       const payloadB64 = btoa(
         JSON.stringify({
@@ -124,13 +162,20 @@ describe('worker/auth', () => {
         }),
       );
       const mockJwt = `${headerB64}.${payloadB64}.fake-sig`;
-      const req = new Request('https://example.com/', {
+      const req = new Request('http://localhost/', {
         headers: {
           Cookie: `CF_Authorization=${mockJwt}`,
         },
       });
-      const email = await extractAccessEmail(req);
-      expect(email).toBeNull();
+      expect(await extractAccessEmail(req)).toBeNull();
+
+      const noExpPayload = btoa(JSON.stringify({ email: 'noexp@games.org' }));
+      const noExpReq = new Request('http://localhost/', {
+        headers: {
+          Cookie: `CF_Authorization=${headerB64}.${noExpPayload}.sig`,
+        },
+      });
+      expect(await extractAccessEmail(noExpReq)).toBeNull();
     });
 
     it('extracts email from ctx.access.getIdentity() when present', async () => {
@@ -145,6 +190,55 @@ describe('worker/auth', () => {
       const email = await extractAccessEmail(req, { ctx: mockCtx });
       expect(email).toBe('ctx_user@example.com');
       expect(mockCtx.access.getIdentity).toHaveBeenCalledTimes(1);
+    });
+
+    it('throttles JWKS refetches when an unknown kid is presented within cooldown window', async () => {
+      resetAccessJwksCache();
+      const keyPair = await crypto.subtle.generateKey(
+        {
+          name: 'RSASSA-PKCS1-v1_5',
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: 'SHA-256',
+        },
+        true,
+        ['sign', 'verify'],
+      );
+      const pubJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            keys: [{ ...pubJwk, kid: 'known-kid', kty: 'RSA' }],
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const header1 = btoa(JSON.stringify({ alg: 'RS256', kid: 'unknown-1' }));
+      const header2 = btoa(JSON.stringify({ alg: 'RS256', kid: 'unknown-2' }));
+      const payload = btoa(
+        JSON.stringify({
+          email: 'user@example.com',
+          iss: 'https://team.cloudflareaccess.com',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        }),
+      );
+
+      const now = 1_700_000_000_000;
+      await verifyAccessJwt(`${header1}.${payload}.sig`, {
+        teamDomain: 'team.cloudflareaccess.com',
+        fetchFn: mockFetch as unknown as typeof fetch,
+        nowMs: now,
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Second unknown kid 5 seconds later should NOT trigger another JWKS fetch
+      await verifyAccessJwt(`${header2}.${payload}.sig`, {
+        teamDomain: 'team.cloudflareaccess.com',
+        fetchFn: mockFetch as unknown as typeof fetch,
+        nowMs: now + 5000,
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
 });

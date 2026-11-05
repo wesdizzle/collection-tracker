@@ -52,6 +52,7 @@ export interface SendWebPushOptions {
   privateKey?: string;
   privateKeyJwk?: VapidJwk;
   fetchFn?: typeof fetch;
+  allowTestHost?: boolean;
 }
 
 export interface SendWebPushResult {
@@ -64,13 +65,44 @@ export interface SendWebPushResult {
 export const DEFAULT_VAPID_PUBLIC_KEY =
   'BCGrFeDrM518iDUIN5JmVLjL6ZvnxY72gPvM8V7azLh28SCHmvjOCVrbzy8R4qV4-dKSs3zDevg6dmOLbMJgcvk';
 
-export const DEFAULT_VAPID_JWK: VapidJwk = {
-  kty: 'EC',
-  crv: 'P-256',
-  d: 'Os98o3kTLG-DuhuH0BeUA5jfiPb-cqzS7-OCxiC4q20',
-  x: 'IasV4OsznXyINQg3kmZUuMvpm-fFjvaA-8zxXtrMuHY',
-  y: '8SCHmvjOCVrbzy8R4qV4-dKSs3zDevg6dmOLbMJgcvk',
-};
+const ALLOWED_PUSH_HOST_SUFFIXES = [
+  'fcm.googleapis.com',
+  '.fcm.googleapis.com',
+  '.mtalk.google.com',
+  '.push.services.mozilla.com',
+  '.autopush.stage.mozaws.net',
+  '.autopush.dev.mozaws.net',
+  '.notify.windows.com',
+  'web.push.apple.com',
+  '.push.apple.com',
+  '.push.samsungosp.com',
+  '.dbankcloud.cn',
+];
+
+/**
+ * Validates that a push subscription endpoint targets a trusted HTTPS Web Push service.
+ * Prevents SSRF to internal or arbitrary external origins.
+ */
+export function isAllowedPushEndpoint(
+  endpoint: string | null | undefined,
+  allowTestHost: boolean = false,
+): boolean {
+  if (!endpoint || typeof endpoint !== 'string') return false;
+  try {
+    const parsed = new URL(endpoint);
+    if (parsed.protocol !== 'https:') return false;
+    if (parsed.username || parsed.password) return false;
+    const host = parsed.hostname.toLowerCase();
+    if (allowTestHost && host === 'push.example.com') {
+      return true;
+    }
+    return ALLOWED_PUSH_HOST_SUFFIXES.some((suffix) =>
+      suffix.startsWith('.') ? host.endsWith(suffix) : host === suffix,
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Base64URL string to Uint8Array.
@@ -187,6 +219,7 @@ export function resolveVapidSubject(
 
 /**
  * Resolves or derives a valid P-256 JWK from private key options.
+ * Requires explicit VAPID key configuration; never falls back to a committed private key.
  */
 export function resolveVapidJwk(
   customPrivateKey?: string,
@@ -200,30 +233,36 @@ export function resolveVapidJwk(
     const trimmed = customPrivateKey.trim();
     if (trimmed.startsWith('{')) {
       try {
-        return JSON.parse(trimmed) as VapidJwk;
+        const parsed = JSON.parse(trimmed) as VapidJwk;
+        if (parsed.d && parsed.x && parsed.y) {
+          return parsed;
+        }
       } catch {
         // continue
       }
     }
-    const pubKeyToUse = customPublicKey || DEFAULT_VAPID_PUBLIC_KEY;
-    try {
-      const pubBytes = base64UrlToUint8Array(pubKeyToUse);
-      if (pubBytes.length === 65 && pubBytes[0] === 4) {
-        const x = uint8ArrayToBase64Url(pubBytes.subarray(1, 33));
-        const y = uint8ArrayToBase64Url(pubBytes.subarray(33, 65));
-        return {
-          kty: 'EC',
-          crv: 'P-256',
-          d: trimmed,
-          x,
-          y,
-        };
-      }
-    } catch {
-      // fallback
+    if (!customPublicKey) {
+      throw new Error(
+        'VAPID_PUBLIC_KEY is required when VAPID_PRIVATE_KEY is a raw scalar.',
+      );
     }
+    const pubBytes = base64UrlToUint8Array(customPublicKey.trim());
+    if (pubBytes.length === 65 && pubBytes[0] === 4) {
+      const x = uint8ArrayToBase64Url(pubBytes.subarray(1, 33));
+      const y = uint8ArrayToBase64Url(pubBytes.subarray(33, 65));
+      return {
+        kty: 'EC',
+        crv: 'P-256',
+        d: trimmed,
+        x,
+        y,
+      };
+    }
+    throw new Error('Invalid VAPID_PUBLIC_KEY format (expected 65-byte P-256 uncompressed point).');
   }
-  return DEFAULT_VAPID_JWK;
+  throw new Error(
+    'VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY must be configured to send Web Push notifications.',
+  );
 }
 
 /**
@@ -233,12 +272,21 @@ export async function createVapidAuthHeader(
   endpoint: string,
   options?: SendWebPushOptions,
 ): Promise<string> {
-  const publicKey = options?.publicKey || DEFAULT_VAPID_PUBLIC_KEY;
   const jwk = resolveVapidJwk(
     options?.privateKey,
     options?.publicKey,
     options?.privateKeyJwk,
   );
+  let publicKey = options?.publicKey;
+  if (!publicKey) {
+    const xBytes = base64UrlToUint8Array(jwk.x);
+    const yBytes = base64UrlToUint8Array(jwk.y);
+    const pubBytes = new Uint8Array(65);
+    pubBytes[0] = 4;
+    pubBytes.set(xBytes, 1);
+    pubBytes.set(yBytes, 33);
+    publicKey = uint8ArrayToBase64Url(pubBytes);
+  }
   const subject = resolveVapidSubject(options?.subject);
 
   const origin = new URL(endpoint).origin;
@@ -432,6 +480,15 @@ export async function sendWebPushNotification(
 ): Promise<SendWebPushResult> {
   const fetchFn = options?.fetchFn || fetch;
 
+  if (!isAllowedPushEndpoint(subscription.endpoint, options?.allowTestHost)) {
+    return {
+      success: false,
+      status: 400,
+      shouldDelete: true,
+      error: 'Unsupported or untrusted push endpoint host',
+    };
+  }
+
   try {
     const jsonBody = buildPushNotificationBody(payload);
     const encryptedBody = await encryptWebPushPayload(
@@ -463,12 +520,7 @@ export async function sendWebPushNotification(
 
     let errorDetail: string | undefined;
     if (!success) {
-      try {
-        const errorText = await response.text();
-        errorDetail = `Push service responded with status ${status}: ${errorText}`;
-      } catch {
-        errorDetail = `Push service responded with status ${status}`;
-      }
+      errorDetail = `Push service responded with status ${status}`;
     }
 
     return {

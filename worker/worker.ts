@@ -80,6 +80,7 @@ import {
   DEFAULT_VAPID_PUBLIC_KEY,
   sendWebPushNotification,
   resolveVapidSubject,
+  isAllowedPushEndpoint,
   WebPushNotificationPayload,
 } from './web_push';
 import {
@@ -93,6 +94,7 @@ import {
   buildSessionCookie,
   clearSessionCookie,
   isLoopbackRequest,
+  timingSafeEqualStrings,
   ALLOWED_HOME_REGIONS,
   normalizeHomeRegion,
 } from './auth';
@@ -350,28 +352,142 @@ export async function queryIGDBEdge(
 }
 
 /**
+ * Resolves the session signing secret.
+ * On non-loopback requests, requires an explicit SESSION_SECRET binding.
+ * On loopback requests, allows fallback to ADMIN_KEY or local dev secret.
+ */
+export function getSessionSecret(env: Env, url: URL): string | null {
+  if (env.SESSION_SECRET && env.SESSION_SECRET.trim().length > 0) {
+    return env.SESSION_SECRET;
+  }
+  if (isLoopbackRequest(url)) {
+    return env.ADMIN_KEY || 'dev-insecure-session-secret-change-me';
+  }
+  return null;
+}
+
+/**
+ * Applies standard security headers (and Content-Security-Policy on HTML responses)
+ * to outgoing Worker responses.
+ */
+export function withSecurityHeaders(res: Response): Response {
+  const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
+  const isHtml = contentType.includes('text/html');
+  const csp =
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'";
+  try {
+    res.headers.set('X-Content-Type-Options', 'nosniff');
+    res.headers.set('X-Frame-Options', 'DENY');
+    res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (isHtml && !res.headers.has('Content-Security-Policy')) {
+      res.headers.set('Content-Security-Policy', csp);
+    }
+    return res;
+  } catch {
+    const headers = new Headers(res.headers);
+    headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('X-Frame-Options', 'DENY');
+    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (isHtml && !headers.has('Content-Security-Policy')) {
+      headers.set('Content-Security-Policy', csp);
+    }
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers,
+    });
+  }
+}
+
+/**
+ * Looks up a user by email in D1, automatically claiming the initial
+ * '__ADMIN_EMAIL__' migration placeholder if the email matches env.ADMIN_EMAIL.
+ */
+async function lookupOrClaimUserByEmail(
+  env: Env,
+  rawEmail: string,
+): Promise<{
+  id: number;
+  email: string;
+  username: string;
+  role: 'admin' | 'user';
+  is_public: number;
+  home_region: string | null;
+  display_name: string | null;
+  bio: string | null;
+} | null> {
+  const email = rawEmail.toLowerCase().trim();
+  const selectSql =
+    'SELECT id, email, username, role, is_public, home_region, display_name, bio FROM users WHERE email = ? COLLATE NOCASE';
+  let user = (await env.DB.prepare(selectSql).bind(email).first()) as {
+    id: number;
+    email: string;
+    username: string;
+    role: 'admin' | 'user';
+    is_public: number;
+    home_region: string | null;
+    display_name: string | null;
+    bio: string | null;
+  } | null;
+
+  if (
+    !user &&
+    env.ADMIN_EMAIL &&
+    email === env.ADMIN_EMAIL.toLowerCase().trim()
+  ) {
+    await env.DB.prepare(
+      `UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE email = '__ADMIN_EMAIL__'`,
+    )
+      .bind(email)
+      .run();
+    user = (await env.DB.prepare(selectSql).bind(email).first()) as typeof user;
+  }
+
+  return user;
+}
+
+/**
  * Resolves the authenticated SessionUser from the signed session cookie (app_user_session),
- * or local dev environment fallback.
+ * verified Cloudflare Access identity, or local dev environment fallback.
  */
 export async function resolveSessionUser(
   request: Request,
   env: Env,
   ctx?: ExecutionContext,
 ): Promise<SessionUser | null> {
+  const url = new URL(request.url);
   const cookieHeader = request.headers.get('Cookie');
   const cookies = parseCookies(cookieHeader);
   const token = cookies[SESSION_COOKIE];
-  const secret =
-    env.SESSION_SECRET ||
-    env.ADMIN_KEY ||
-    'dev-insecure-session-secret-change-me';
+  const secret = getSessionSecret(env, url);
 
-  if (token) {
+  if (token && secret) {
     const user = await verifySession(token, secret);
-    if (user) return user;
+    if (user) {
+      if (
+        request.method !== 'GET' &&
+        request.method !== 'HEAD' &&
+        request.method !== 'OPTIONS' &&
+        user.role === 'admin'
+      ) {
+        try {
+          const dbRow = (await env.DB.prepare(
+            'SELECT role FROM users WHERE id = ?',
+          )
+            .bind(user.id)
+            .first()) as { role?: 'admin' | 'user' } | null;
+          if (dbRow && dbRow.role && dbRow.role !== user.role) {
+            user.role = dbRow.role;
+          }
+        } catch {
+          // Table may not exist yet in mocked tests or DB error
+        }
+      }
+      return user;
+    }
   }
 
-  // Cloudflare Access header or CF_Authorization cookie or ctx.access
+  // Cloudflare Access verified JWT or ctx.access (or loopback dev header)
   const accessEmail = await extractAccessEmail(request, {
     teamDomain: env.TEAM_DOMAIN,
     audience: env.ACCESS_AUDIENCE,
@@ -379,17 +495,7 @@ export async function resolveSessionUser(
   });
   if (accessEmail) {
     try {
-      const user = (await env.DB.prepare(
-        'SELECT id, username, role, home_region FROM users WHERE email = ? COLLATE NOCASE',
-      )
-        .bind(accessEmail)
-        .first()) as {
-        id: number;
-        username: string;
-        role: 'admin' | 'user';
-        home_region: string | null;
-      } | null;
-
+      const user = await lookupOrClaimUserByEmail(env, accessEmail);
       if (user) {
         return {
           id: user.id,
@@ -403,11 +509,12 @@ export async function resolveSessionUser(
     }
   }
 
-  const url = new URL(request.url);
   const adminKey = request.headers.get('x-admin-key');
-  // Admin key header or loopback dev bypass for local testing only
+  // Constant-time Admin key header or loopback dev bypass for local testing only
   if (
-    (env.ADMIN_KEY && adminKey && adminKey === env.ADMIN_KEY) ||
+    (env.ADMIN_KEY &&
+      adminKey &&
+      timingSafeEqualStrings(adminKey, env.ADMIN_KEY)) ||
     isLoopbackRequest(url)
   ) {
     return {
@@ -422,8 +529,8 @@ export async function resolveSessionUser(
 }
 
 /**
- * Validates whether the incoming request is authorized to execute mutation actions.
- * Supports explicit sessionUser role verification, custom admin key, and loopback localhost testing.
+ * Validates whether the incoming request is authorized to execute admin actions.
+ * Supports explicit sessionUser role verification, constant-time admin key, and loopback localhost testing.
  *
  * @param request The incoming HTTP Request
  * @param env Cloudflare worker environment bindings
@@ -440,61 +547,19 @@ export function isAuthorizedAdmin(
   }
   const url = new URL(request.url);
 
-  // 1. Explicit admin key header
+  // 1. Explicit admin key header (constant-time comparison)
   const adminKey = request.headers.get('x-admin-key');
-  if (env.ADMIN_KEY && adminKey && adminKey === env.ADMIN_KEY) {
+  if (
+    env.ADMIN_KEY &&
+    adminKey &&
+    timingSafeEqualStrings(adminKey, env.ADMIN_KEY)
+  ) {
     return true;
   }
 
   // 2. Loopback local dev bypass
   if (isLoopbackRequest(url)) {
     return true;
-  }
-
-  // 3. Direct header injected by Cloudflare Access matching ADMIN_EMAIL
-  const adminEmail = (env.ADMIN_EMAIL || '').toLowerCase();
-  const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
-  if (adminEmail && headerEmail && headerEmail.toLowerCase() === adminEmail) {
-    return true;
-  }
-
-  // 4. Fallback: Parse CF_Authorization cookie matching ADMIN_EMAIL
-  if (adminEmail) {
-    const cookieHeader = request.headers.get('Cookie') || '';
-    if (cookieHeader.includes('CF_Authorization=')) {
-      const cookies = parseCookies(cookieHeader);
-      const jwt = cookies['CF_Authorization'];
-      if (jwt && jwt.includes('.')) {
-        try {
-          const parts = jwt.split('.');
-          if (parts.length >= 2) {
-            let payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-            while (payloadBase64.length % 4 !== 0) payloadBase64 += '=';
-            const payload = JSON.parse(atob(payloadBase64)) as {
-              email?: string;
-              sub?: string;
-              exp?: number;
-            };
-            const now = Math.floor(Date.now() / 1000);
-            const candidateEmail =
-              payload.email ||
-              (typeof payload.sub === 'string' && payload.sub.includes('@')
-                ? payload.sub
-                : undefined);
-            if (
-              payload.exp &&
-              payload.exp > now &&
-              candidateEmail &&
-              candidateEmail.toLowerCase() === adminEmail
-            ) {
-              return true;
-            }
-          }
-        } catch {
-          // malformed JWT
-        }
-      }
-    }
   }
 
   return false;
@@ -711,15 +776,11 @@ export async function markDbDirty(
   }
 }
 
-export default {
-  /**
-   * Main fetch router handling edge API requests and falling back to static SPA assets.
-   */
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx?: ExecutionContext,
-  ): Promise<Response> {
+async function handleFetch(
+  request: Request,
+  env: Env,
+  ctx?: ExecutionContext,
+): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
     lastKnownOrigin = url.origin;
@@ -780,6 +841,22 @@ Disallow: /
     }
 
     try {
+      // Enforce same-origin Origin header check on state-changing requests
+      if (
+        (request.method === 'POST' ||
+          request.method === 'PUT' ||
+          request.method === 'DELETE') &&
+        !isLoopbackRequest(url)
+      ) {
+        const originHeader = request.headers.get('Origin');
+        if (originHeader && originHeader !== url.origin) {
+          return Response.json(
+            { error: 'Forbidden: Cross-origin state mutation blocked.' },
+            { status: 403 },
+          );
+        }
+      }
+
       const sessionUser = await resolveSessionUser(request, env, ctx);
 
       /**
@@ -794,16 +871,25 @@ Disallow: /
           path.startsWith('/api/u/'));
 
       const isNoCache =
-        url.searchParams.has('bust') ||
-        url.searchParams.has('purge') ||
-        url.searchParams.has('refresh') ||
-        request.headers.get('x-cache-purge') === 'true';
+        (url.searchParams.has('bust') ||
+          url.searchParams.has('purge') ||
+          url.searchParams.has('refresh') ||
+          request.headers.get('x-cache-purge') === 'true') &&
+        isAuthorizedAdmin(request, env, sessionUser);
 
       const edgeCache = await getEdgeCache();
-      const normalizedCacheUrl = new URL(request.url);
-      normalizedCacheUrl.searchParams.delete('bust');
-      normalizedCacheUrl.searchParams.delete('purge');
-      normalizedCacheUrl.searchParams.delete('refresh');
+      const normalizedCacheUrl = new URL(url.origin + path);
+      if (
+        path === '/api/games' ||
+        (path.startsWith('/api/u/') && path.endsWith('/games'))
+      ) {
+        const plat =
+          url.searchParams.get('platform') ||
+          url.searchParams.get('platform_id');
+        if (plat) {
+          normalizedCacheUrl.searchParams.set('platform_id', plat);
+        }
+      }
       const cacheKey = new Request(normalizedCacheUrl.toString());
       if (isPublicCacheable && !isNoCache && edgeCache) {
         const cached = await edgeCache.match(cacheKey);
@@ -815,7 +901,7 @@ Disallow: /
       const publicCacheHeaders = {
         'Content-Type': 'application/json',
         'Cache-Control':
-          'public, max-age=60, s-maxage=3600, stale-while-revalidate=86400',
+          'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400',
       };
       const platformsCacheHeaders = {
         'Content-Type': 'application/json',
@@ -865,19 +951,17 @@ Disallow: /
           }
         }
 
-        // Check if Cloudflare Access header is present but user not provisioned in users table
-        let candidateEmail = request.headers.get(
-          'Cf-Access-Authenticated-User-Email',
-        );
+        // Check if verified Cloudflare Access identity is present but user not provisioned in users table
+        let candidateEmail = await extractAccessEmail(request, {
+          teamDomain: env.TEAM_DOMAIN,
+          audience: env.ACCESS_AUDIENCE,
+          ctx,
+        });
         if (isLoopbackRequest(url) && !candidateEmail && env.DEV_AUTH_EMAIL) {
           candidateEmail = env.DEV_AUTH_EMAIL;
         }
         if (candidateEmail) {
-          const existing = await env.DB.prepare(
-            'SELECT id FROM users WHERE email = ? COLLATE NOCASE',
-          )
-            .bind(candidateEmail.toLowerCase().trim())
-            .first();
+          const existing = await lookupOrClaimUserByEmail(env, candidateEmail);
           if (!existing) {
             return new Response(
               JSON.stringify({
@@ -951,12 +1035,41 @@ Disallow: /
         }
 
         if (request.method === 'PUT') {
-          const body = (await request.json().catch(() => ({}))) as {
+          const body = (await request.json().catch(() => null)) as {
             isPublic?: boolean;
             homeRegion?: string;
-            displayName?: string | null;
-            bio?: string | null;
-          };
+            displayName?: unknown;
+            bio?: unknown;
+          } | null;
+
+          if (!body || typeof body !== 'object') {
+            return Response.json(
+              { error: 'Invalid JSON payload' },
+              { status: 400 },
+            );
+          }
+
+          if (
+            body.displayName !== undefined &&
+            body.displayName !== null &&
+            typeof body.displayName !== 'string'
+          ) {
+            return Response.json(
+              { error: 'displayName must be a string or null' },
+              { status: 400 },
+            );
+          }
+
+          if (
+            body.bio !== undefined &&
+            body.bio !== null &&
+            typeof body.bio !== 'string'
+          ) {
+            return Response.json(
+              { error: 'bio must be a string or null' },
+              { status: 400 },
+            );
+          }
 
           let normalizedRegion: string | undefined = undefined;
           if (body.homeRegion !== undefined) {
@@ -1031,22 +1144,21 @@ Disallow: /
 
           // If homeRegion changed, re-mint session cookie
           if (normalizedRegion !== undefined) {
-            const secret =
-              env.SESSION_SECRET ||
-              env.ADMIN_KEY ||
-              'dev-insecure-session-secret-change-me';
-            const updatedUser: SessionUser = {
-              id: profile.id,
-              username: profile.username,
-              role: profile.role,
-              homeRegion: profile.home_region || 'USA',
-            };
-            const token = await signSession(updatedUser, secret);
-            const isSecure = url.protocol === 'https:';
-            res.headers.set(
-              'Set-Cookie',
-              buildSessionCookie(token, 30 * 86400, isSecure),
-            );
+            const secret = getSessionSecret(env, url);
+            if (secret) {
+              const updatedUser: SessionUser = {
+                id: profile.id,
+                username: profile.username,
+                role: profile.role,
+                homeRegion: profile.home_region || 'USA',
+              };
+              const token = await signSession(updatedUser, secret);
+              const isSecure = url.protocol === 'https:';
+              res.headers.set(
+                'Set-Cookie',
+                buildSessionCookie(token, 30 * 86400, isSecure),
+              );
+            }
           }
 
           return res;
@@ -1560,6 +1672,12 @@ Disallow: /
 
       // Endpoint: GET /api/discovery/search
       else if (path === '/api/discovery/search') {
+        if (!sessionUser && !isAuthorizedAdmin(request, env, sessionUser)) {
+          return Response.json(
+            { error: 'Unauthorized: Authentication required.' },
+            { status: 401 },
+          );
+        }
         const query = url.searchParams.get('query') || '';
         const platformIdParam = url.searchParams.get('platformId');
         const platformId = platformIdParam ? parseInt(platformIdParam, 10) : 0;
@@ -2012,13 +2130,22 @@ Disallow: /
 
       // Endpoint: GET /api/discovery/matches
       else if (path === '/api/discovery/matches') {
+        if (!sessionUser && !isAuthorizedAdmin(request, env, sessionUser)) {
+          return Response.json(
+            { error: 'Unauthorized: Authentication required.' },
+            { status: 401 },
+          );
+        }
         const igdbIdParam = url.searchParams.get('igdbId');
         const platformIdParam = url.searchParams.get('platformId');
-        const cleanIgdbId = (igdbIdParam || '').replace('igdb-', '');
+        const cleanIgdbId = (igdbIdParam || '').replace('igdb-', '').trim();
         const platformId = platformIdParam ? parseInt(platformIdParam, 10) : 0;
 
         if (!cleanIgdbId) {
           return Response.json({ error: 'Missing igdbId' }, { status: 400 });
+        }
+        if (!/^\d+$/.test(cleanIgdbId)) {
+          return Response.json({ error: 'Invalid igdbId' }, { status: 400 });
         }
 
         try {
@@ -2861,12 +2988,10 @@ Disallow: /
           ctx,
         });
 
-        // Localhost loopback development or test environment fallback
-        if (!candidateEmail) {
+        // Strictly gate unauthenticated dev fallback to loopback requests only
+        if (!candidateEmail && isLoopbackRequest(url)) {
           candidateEmail =
-            env.DEV_AUTH_EMAIL ||
-            env.ADMIN_EMAIL ||
-            (isLoopbackRequest(url) ? 'admin@example.com' : null);
+            env.DEV_AUTH_EMAIL || env.ADMIN_EMAIL || 'admin@example.com';
           if (candidateEmail) {
             candidateEmail = candidateEmail.toLowerCase().trim();
           }
@@ -2882,22 +3007,16 @@ Disallow: /
         });
 
         const userRow = candidateEmail
-          ? ((await env.DB.prepare(
-              'SELECT id, email, username, role, home_region FROM users WHERE email = ? COLLATE NOCASE',
-            )
-              .bind(candidateEmail)
-              .first()) as {
-              id: number;
-              email: string;
-              username: string;
-              role: 'admin' | 'user';
-              home_region: string | null;
-            } | null)
+          ? await lookupOrClaimUserByEmail(env, candidateEmail)
           : null;
 
         if (!userRow) {
-          // If explicit debug parameter requested, output diagnostic JSON instead of redirecting
-          if (url.searchParams.get('debug') === '1') {
+          // Only allow diagnostic JSON on loopback or for authorized admins, redacting JWT assertions
+          if (
+            url.searchParams.get('debug') === '1' &&
+            (isLoopbackRequest(url) ||
+              isAuthorizedAdmin(request, env, sessionUser))
+          ) {
             return Response.json(
               {
                 status: 'error',
@@ -2907,9 +3026,14 @@ Disallow: /
                 cookieNames,
                 hasCtxAccess: Boolean((ctx as { access?: unknown })?.access),
                 headers: Object.fromEntries(
-                  [...request.headers.entries()].filter(([k]) =>
-                    k.toLowerCase().startsWith('cf-access-'),
-                  ),
+                  [...request.headers.entries()]
+                    .filter(([k]) => k.toLowerCase().startsWith('cf-access-'))
+                    .map(([k, v]) => [
+                      k,
+                      k.toLowerCase() === 'cf-access-jwt-assertion'
+                        ? '[REDACTED]'
+                        : v,
+                    ]),
                 ),
               },
               { status: 401 },
@@ -2928,6 +3052,14 @@ Disallow: /
           });
         }
 
+        const sessionSecret = getSessionSecret(env, url);
+        if (!sessionSecret) {
+          return Response.json(
+            { error: 'Server session secret not configured.' },
+            { status: 500 },
+          );
+        }
+
         const sessionDays = env.ADMIN_SESSION_DAYS
           ? parseInt(env.ADMIN_SESSION_DAYS, 10)
           : DEFAULT_SESSION_DAYS;
@@ -2940,10 +3072,6 @@ Disallow: /
           60;
         const isSecure = url.protocol === 'https:';
 
-        const sessionSecret =
-          env.SESSION_SECRET ||
-          env.ADMIN_KEY ||
-          'dev-insecure-session-secret-change-me';
         const sessionPayloadUser: SessionUser = {
           id: userRow.id,
           username: userRow.username,
@@ -2986,10 +3114,7 @@ Disallow: /
           returnUrl,
         )}`;
 
-        const isLocalDev =
-          url.hostname === 'localhost' ||
-          url.hostname === '127.0.0.1' ||
-          url.hostname === '0.0.0.0';
+        const isLocalDev = isLoopbackRequest(url);
         const targetRedirect = isLocalDev ? '/' : logoutUrl;
         const isSecure = url.protocol === 'https:';
 
@@ -3042,9 +3167,6 @@ Disallow: /
 
       // Endpoint: GET /api/admin/me
       else if (path === '/api/admin/me') {
-        const accessEmail = request.headers.get(
-          'Cf-Access-Authenticated-User-Email',
-        );
         const cookieHeader = request.headers.get('Cookie') || '';
         const hasCookie =
           cookieHeader.includes('CF_Authorization') ||
@@ -3056,8 +3178,7 @@ Disallow: /
           authenticated: Boolean(sessionUser || authorized),
           authorized,
           hasCookie,
-          email:
-            accessEmail || (authorized ? env.ADMIN_EMAIL || 'admin' : null),
+          email: authorized ? env.ADMIN_EMAIL || 'admin' : null,
         });
       }
 
@@ -3070,10 +3191,13 @@ Disallow: /
           );
         }
 
-        const limit = Math.min(
-          parseInt(url.searchParams.get('limit') || '50', 10),
-          200,
+        const parsedLimit = parseInt(
+          url.searchParams.get('limit') || '50',
+          10,
         );
+        const limit = Number.isNaN(parsedLimit)
+          ? 50
+          : Math.max(1, Math.min(parsedLimit, 200));
         const { results } = await env.DB.prepare(
           `SELECT id, job_name, status, duration_ms, summary, details_json, created_at
            FROM cron_execution_logs
@@ -3092,12 +3216,20 @@ Disallow: /
           }>();
 
         return Response.json({
-          logs: (results || []).map((row) => ({
-            ...row,
-            details: row.details_json
-              ? JSON.parse(String(row.details_json))
-              : null,
-          })),
+          logs: (results || []).map((row) => {
+            let details: unknown = null;
+            if (row.details_json) {
+              try {
+                details = JSON.parse(String(row.details_json));
+              } catch {
+                details = null;
+              }
+            }
+            return {
+              ...row,
+              details,
+            };
+          }),
         });
       }
 
@@ -3119,7 +3251,18 @@ Disallow: /
           specificToyStableId?: number;
           specificGameStableId?: number;
         };
-        const result = await syncWorkerGameyePricing(env, body);
+        const sanitizedOpts = {
+          ...body,
+          toyLimit:
+            typeof body.toyLimit === 'number' && !Number.isNaN(body.toyLimit)
+              ? Math.max(0, Math.min(Math.floor(body.toyLimit), 100))
+              : undefined,
+          gameLimit:
+            typeof body.gameLimit === 'number' && !Number.isNaN(body.gameLimit)
+              ? Math.max(0, Math.min(Math.floor(body.gameLimit), 100))
+              : undefined,
+        };
+        const result = await syncWorkerGameyePricing(env, sanitizedOpts);
         return Response.json(result);
       }
 
@@ -3129,13 +3272,28 @@ Disallow: /
 
       // Endpoint: POST /api/collection/toggle
       else if (request.method === 'POST' && path === '/api/collection/toggle') {
-        const body = (await request.json()) as {
-          id: string;
-          type: 'game' | 'toy';
-          status: number | string;
+        const body = (await request.json().catch(() => null)) as {
+          id?: string;
+          type?: 'game' | 'toy';
+          status?: number | string | boolean;
           field?: string;
-        };
+        } | null;
+
+        if (!body || typeof body !== 'object' || !body.id || !body.type) {
+          return Response.json(
+            { error: 'Invalid toggle payload' },
+            { status: 400 },
+          );
+        }
+
         const { id, type, status, field = 'ownership_status' } = body;
+
+        if (type !== 'game' && type !== 'toy') {
+          return Response.json(
+            { error: `Invalid item type: ${String(type)}` },
+            { status: 400 },
+          );
+        }
 
         const allowedFields = [
           'ownership_status',
@@ -3152,6 +3310,67 @@ Disallow: /
             { status: 400 },
           );
         }
+
+        if (type === 'toy' && field !== 'ownership_status') {
+          return Response.json(
+            { error: `Field ${field} is not supported for toys.` },
+            { status: 400 },
+          );
+        }
+
+        // Validate status domain by field
+        if (field === 'physical_status') {
+          const validPhysicalStatuses = [
+            'verified_physical',
+            'likely_physical',
+            'physical_pending',
+            'not_yet_physical',
+            'digital_only',
+            'unverified',
+          ];
+          if (
+            typeof status !== 'string' ||
+            !validPhysicalStatuses.includes(status)
+          ) {
+            return Response.json(
+              { error: `Invalid physical_status value: ${String(status)}` },
+              { status: 400 },
+            );
+          }
+        } else if (
+          field === 'ownership_status' ||
+          field === 'play_status' ||
+          field === 'backup_status'
+        ) {
+          const numStatus = Number(status);
+          if (
+            typeof status === 'boolean' ||
+            !Number.isInteger(numStatus) ||
+            numStatus < 0 ||
+            numStatus > 5
+          ) {
+            return Response.json(
+              { error: `Invalid ${field} value: ${String(status)}` },
+              { status: 400 },
+            );
+          }
+        } else {
+          // has_case, has_manual, queued
+          if (
+            status !== 0 &&
+            status !== 1 &&
+            status !== true &&
+            status !== false
+          ) {
+            return Response.json(
+              { error: `Invalid boolean/integer flag for ${field}` },
+              { status: 400 },
+            );
+          }
+        }
+
+        const normalizedStatus =
+          typeof status === 'boolean' ? (status ? 1 : 0) : status!;
 
         // Field permission check: physical_status is catalog-level and admin-only
         if (field === 'physical_status') {
@@ -3202,7 +3421,7 @@ Disallow: /
             await env.DB.prepare(
               `UPDATE games SET physical_status = ? WHERE stable_id = ?`,
             )
-              .bind(status, stableId)
+              .bind(normalizedStatus, stableId)
               .run();
           } else if (field === 'play_status' || field === 'queued') {
             let stableId: number | null = null;
@@ -3236,7 +3455,7 @@ Disallow: /
                  ${field} = excluded.${field},
                  updated_at = CURRENT_TIMESTAMP`,
             )
-              .bind(currentUserId, stableId, status)
+              .bind(currentUserId, stableId, normalizedStatus)
               .run();
           } else {
             // ownership_status, has_case, has_manual, or backup_status on user_game_releases
@@ -3285,7 +3504,7 @@ Disallow: /
                      VALUES (?, ?, ?)
                      ON CONFLICT(user_id, release_id) DO UPDATE SET
                        ${field} = excluded.${field}`,
-                  ).bind(currentUserId, r.id, status),
+                  ).bind(currentUserId, r.id, normalizedStatus),
                 );
                 if (statements.length > 0) {
                   await env.DB.batch(statements);
@@ -3297,7 +3516,7 @@ Disallow: /
                    ON CONFLICT(user_id, release_id) DO UPDATE SET
                      ${field} = excluded.${field}`,
                 )
-                  .bind(currentUserId, id, status)
+                  .bind(currentUserId, id, normalizedStatus)
                   .run();
               }
             } else {
@@ -3336,7 +3555,7 @@ Disallow: /
                        VALUES (?, ?, ?)
                        ON CONFLICT(user_id, release_id) DO UPDATE SET
                          ${field} = excluded.${field}`,
-                    ).bind(currentUserId, r.id, status),
+                    ).bind(currentUserId, r.id, normalizedStatus),
                   );
                   await env.DB.batch(statements);
                 } else {
@@ -3346,10 +3565,16 @@ Disallow: /
                      ON CONFLICT(user_id, release_id) DO UPDATE SET
                        ${field} = excluded.${field}`,
                   )
-                    .bind(currentUserId, typedReleases[0].id, status)
+                    .bind(currentUserId, typedReleases[0].id, normalizedStatus)
                     .run();
                 }
               } else {
+                if (!isAuthorizedAdmin(request, env, sessionUser)) {
+                  return Response.json(
+                    { error: `No physical releases found for game: ${id}` },
+                    { status: 404 },
+                  );
+                }
                 const releaseId = `${id}-default`;
                 await env.DB.prepare(
                   `INSERT INTO game_releases (id, game_id, region)
@@ -3364,13 +3589,25 @@ Disallow: /
                    ON CONFLICT(user_id, release_id) DO UPDATE SET
                      ${field} = excluded.${field}`,
                 )
-                  .bind(currentUserId, releaseId, status)
+                  .bind(currentUserId, releaseId, normalizedStatus)
                   .run();
               }
             }
           }
         } else {
-          // Toys update
+          // Toys update: verify toy exists in catalog first
+          const existingToy = await env.DB.prepare(
+            'SELECT 1 FROM toys WHERE id = ?',
+          )
+            .bind(id)
+            .first();
+          if (!existingToy) {
+            return Response.json(
+              { error: `Toy not found: ${id}` },
+              { status: 404 },
+            );
+          }
+
           await env.DB.prepare(
             `INSERT INTO user_toys (user_id, toy_id, ${field}, updated_at)
              VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -3378,7 +3615,7 @@ Disallow: /
                ${field} = excluded.${field},
                updated_at = CURRENT_TIMESTAMP`,
           )
-            .bind(currentUserId, id, status)
+            .bind(currentUserId, id, normalizedStatus)
             .run();
         }
 
@@ -3425,6 +3662,12 @@ Disallow: /
           env.DB.prepare(
             `DELETE FROM journal_entries WHERE item_type = 'game' AND item_id = ?`,
           ).bind(game.id),
+          env.DB.prepare(
+            `DELETE FROM user_game_releases WHERE release_id IN (SELECT id FROM game_releases WHERE game_id = ?)`,
+          ).bind(game.stable_id),
+          env.DB.prepare('DELETE FROM user_games WHERE game_id = ?').bind(
+            game.stable_id,
+          ),
           env.DB.prepare('DELETE FROM game_releases WHERE game_id = ?').bind(
             game.stable_id,
           ),
@@ -3459,6 +3702,12 @@ Disallow: /
           );
         }
 
+        await env.DB.prepare(
+          'DELETE FROM user_game_releases WHERE release_id = ?',
+        )
+          .bind(releaseId)
+          .run();
+
         const result = await env.DB.prepare(
           'DELETE FROM game_releases WHERE id = ?',
         )
@@ -3487,11 +3736,26 @@ Disallow: /
           );
         }
 
-        const body = (await request.json()) as {
-          id: string;
-          type: 'game' | 'toy';
-          sort_index: number;
-        };
+        const body = (await request.json().catch(() => null)) as {
+          id?: string;
+          type?: 'game' | 'toy';
+          sort_index?: number;
+        } | null;
+
+        if (
+          !body ||
+          typeof body !== 'object' ||
+          !body.id ||
+          (body.type !== 'game' && body.type !== 'toy') ||
+          typeof body.sort_index !== 'number' ||
+          Number.isNaN(body.sort_index)
+        ) {
+          return Response.json(
+            { error: 'Invalid sort payload' },
+            { status: 400 },
+          );
+        }
+
         const { id, type, sort_index } = body;
 
         if (type === 'game') {
@@ -3544,8 +3808,8 @@ Disallow: /
           );
         }
 
-        const body = (await request.json()) as {
-          game: {
+        const body = (await request.json().catch(() => null)) as {
+          game?: {
             title: string;
             platform_id: number;
             igdb_id?: number | null;
@@ -3576,9 +3840,9 @@ Disallow: /
             canonical_release_id?: number | null;
             barcode?: string | null;
           }>;
-        };
+        } | null;
 
-        const { game, releases } = body;
+        const { game, releases } = body || {};
         if (
           !game ||
           !game.title ||
@@ -3812,7 +4076,7 @@ Disallow: /
           );
         }
 
-        const toy = (await request.json()) as {
+        const toy = (await request.json().catch(() => null)) as {
           id?: string;
           name: string;
           line?: string;
@@ -3825,7 +4089,7 @@ Disallow: /
           amiibo_id?: string | null;
           metadata_json?: string | null;
           region?: string | null;
-        };
+        } | null;
 
         if (!toy || !toy.name) {
           return Response.json(
@@ -4046,7 +4310,7 @@ Disallow: /
           );
         }
 
-        const body = (await request.json()) as {
+        const body = (await request.json().catch(() => null)) as {
           item_type?: string;
           item_id?: string;
           purchase_date?: string | null;
@@ -4056,7 +4320,14 @@ Disallow: /
           gifted_by?: string | null;
           receipt_url?: string | null;
           notes?: string | null;
-        };
+        } | null;
+
+        if (!body || typeof body !== 'object') {
+          return Response.json(
+            { error: 'Invalid JSON payload' },
+            { status: 400 },
+          );
+        }
 
         const itemType = (body?.item_type || '').trim();
         const rawItemId = (body?.item_id || '').trim();
@@ -4201,11 +4472,11 @@ Disallow: /
           );
         }
 
-        const body = (await request.json()) as {
+        const body = (await request.json().catch(() => null)) as {
           endpoint?: string;
           keys?: { p256dh?: string; auth?: string };
           preferences?: Record<string, unknown>;
-        };
+        } | null;
 
         if (!body?.endpoint || !body?.keys?.p256dh || !body?.keys?.auth) {
           return Response.json(
@@ -4214,6 +4485,29 @@ Disallow: /
                 'Invalid subscription payload: endpoint and keys (p256dh, auth) are required.',
             },
             { status: 400 },
+          );
+        }
+
+        if (!isAllowedPushEndpoint(body.endpoint, isLoopbackRequest(url))) {
+          return Response.json(
+            {
+              error:
+                'Invalid push endpoint: must be a trusted HTTPS Web Push service.',
+            },
+            { status: 400 },
+          );
+        }
+
+        const existingOwner = await env.DB.prepare(
+          'SELECT user_id FROM push_subscriptions WHERE endpoint = ?',
+        )
+          .bind(body.endpoint)
+          .first<{ user_id: number } | null>();
+
+        if (existingOwner && existingOwner.user_id !== sessionUser.id) {
+          return Response.json(
+            { error: 'Forbidden: Subscription endpoint belongs to another user.' },
+            { status: 403 },
           );
         }
 
@@ -4227,12 +4521,12 @@ Disallow: /
              id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(endpoint) DO UPDATE SET
-             user_id = excluded.user_id,
              p256dh = excluded.p256dh,
              auth = excluded.auth,
              preferences_json = excluded.preferences_json,
              user_agent = excluded.user_agent,
-             updated_at = excluded.updated_at`,
+             updated_at = excluded.updated_at
+           WHERE push_subscriptions.user_id = excluded.user_id`,
         )
           .bind(
             id,
@@ -4262,15 +4556,25 @@ Disallow: /
           );
         }
 
-        const body = (await request.json()) as {
+        const body = (await request.json().catch(() => null)) as {
           endpoint?: string;
           preferences?: Record<string, unknown>;
-        };
+        } | null;
 
         if (!body?.endpoint || !body?.preferences) {
           return Response.json(
             {
               error: 'Invalid payload: endpoint and preferences are required.',
+            },
+            { status: 400 },
+          );
+        }
+
+        if (!isAllowedPushEndpoint(body.endpoint, isLoopbackRequest(url))) {
+          return Response.json(
+            {
+              error:
+                'Invalid push endpoint: must be a trusted HTTPS Web Push service.',
             },
             { status: 400 },
           );
@@ -4282,9 +4586,9 @@ Disallow: /
         await env.DB.prepare(
           `UPDATE push_subscriptions
            SET preferences_json = ?, updated_at = ?
-           WHERE endpoint = ?`,
+           WHERE endpoint = ? AND user_id = ?`,
         )
-          .bind(prefsJson, nowIso, body.endpoint)
+          .bind(prefsJson, nowIso, body.endpoint, sessionUser.id)
           .run();
 
         return Response.json({ success: true });
@@ -4302,7 +4606,9 @@ Disallow: /
           );
         }
 
-        const body = (await request.json()) as { endpoint?: string };
+        const body = (await request.json().catch(() => null)) as {
+          endpoint?: string;
+        } | null;
         if (!body?.endpoint) {
           return Response.json(
             { error: 'Endpoint is required.' },
@@ -4310,10 +4616,20 @@ Disallow: /
           );
         }
 
+        if (!isAllowedPushEndpoint(body.endpoint, isLoopbackRequest(url))) {
+          return Response.json(
+            {
+              error:
+                'Invalid push endpoint: must be a trusted HTTPS Web Push service.',
+            },
+            { status: 400 },
+          );
+        }
+
         await env.DB.prepare(
-          'DELETE FROM push_subscriptions WHERE endpoint = ?',
+          'DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?',
         )
-          .bind(body.endpoint)
+          .bind(body.endpoint, sessionUser.id)
           .run();
 
         return Response.json({ success: true });
@@ -4331,7 +4647,9 @@ Disallow: /
           );
         }
 
-        const body = (await request.json()) as { endpoint?: string };
+        const body = (await request.json().catch(() => null)) as {
+          endpoint?: string;
+        } | null;
         if (!body?.endpoint) {
           return Response.json(
             { error: 'Endpoint is required.' },
@@ -4339,10 +4657,20 @@ Disallow: /
           );
         }
 
+        if (!isAllowedPushEndpoint(body.endpoint, isLoopbackRequest(url))) {
+          return Response.json(
+            {
+              error:
+                'Invalid push endpoint: must be a trusted HTTPS Web Push service.',
+            },
+            { status: 400 },
+          );
+        }
+
         const sub = await env.DB.prepare(
-          'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE endpoint = ?',
+          'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE endpoint = ? AND user_id = ?',
         )
-          .bind(body.endpoint)
+          .bind(body.endpoint, sessionUser.id)
           .first<{ endpoint: string; p256dh: string; auth: string } | null>();
 
         if (!sub) {
@@ -4370,14 +4698,15 @@ Disallow: /
               env.ADMIN_EMAIL,
             ),
             fetchFn: fetch,
+            allowTestHost: isLoopbackRequest(url),
           },
         );
 
         if (result.shouldDelete) {
           await env.DB.prepare(
-            'DELETE FROM push_subscriptions WHERE endpoint = ?',
+            'DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?',
           )
-            .bind(body.endpoint)
+            .bind(body.endpoint, sessionUser.id)
             .run();
         }
 
@@ -4483,8 +4812,20 @@ Disallow: /
       const errorMessage =
         e instanceof Error ? e.message : 'Internal Server Error';
       console.error('Worker Error:', errorMessage);
-      return Response.json({ error: errorMessage }, { status: 500 });
+      return Response.json({ error: 'Internal Server Error' }, { status: 500 });
     }
+}
+
+export default {
+  /**
+   * Main fetch router handling edge API requests and falling back to static SPA assets.
+   */
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx?: ExecutionContext,
+  ): Promise<Response> {
+    return withSecurityHeaders(await handleFetch(request, env, ctx));
   },
 
   /**

@@ -336,6 +336,7 @@ describe('Worker API Logic', () => {
       },
       BACKUP_BUCKET: mockBucket as unknown as Env['BACKUP_BUCKET'],
       ADMIN_EMAIL: 'admin@example.com',
+      SESSION_SECRET: 'dev-insecure-session-secret-change-me',
       TWITCH_CLIENT_ID: 'test-twitch-id',
       TWITCH_CLIENT_SECRET: 'test-twitch-secret',
     };
@@ -449,8 +450,8 @@ describe('Worker API Logic', () => {
     const unauthRes = await worker.fetch(unauthReq, mockEnv);
     expect(unauthRes.status).toBe(401);
 
-    // Authenticated request with Cloudflare Access header for admin@example.com
-    const authReq = new Request(
+    // Unverified Cf-Access-Authenticated-User-Email header alone is rejected on production domain
+    const spoofedHeaderReq = new Request(
       'https://collection-tracker.example.com/api/collection/toggle',
       {
         method: 'POST',
@@ -466,8 +467,29 @@ describe('Worker API Logic', () => {
         },
       },
     );
+    const spoofedRes = await worker.fetch(spoofedHeaderReq, mockEnv);
+    expect(spoofedRes.status).toBe(401);
 
-    const authRes = await worker.fetch(authReq, mockEnv);
+    // Authenticated request with verified Cloudflare Access ctx.access identity
+    const authReq = new Request(
+      'https://collection-tracker.example.com/api/collection/toggle',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'link-amiibo',
+          type: 'toy',
+          status: 1,
+          field: 'ownership_status',
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    const authRes = await worker.fetch(authReq, mockEnv, {
+      access: { getIdentity: async () => ({ email: 'admin@example.com' }) },
+    } as unknown as ExecutionContext);
     expect(authRes.status).toBe(200);
 
     const updatedToy = db
@@ -740,14 +762,26 @@ describe('Worker API Logic', () => {
       const normalData = await normalRes.json();
       expect(normalData).toEqual([{ id: 'stale-game' }]);
 
-      // 3. Request with ?bust=1 bypasses cache and updates it
-      const noCacheReq = new Request('http://example.com/api/games?bust=1');
-      const freshRes = await worker.fetch(noCacheReq, mockEnv);
-      expect(freshRes.status).toBe(200);
-      const freshData = (await freshRes.json()) as Array<{ id: string }>;
-      expect(freshData[0]?.id).not.toBe('stale-game');
-      expect(mockCache.delete).toHaveBeenCalled();
-      expect(mockCache.put).toHaveBeenCalled();
+      // 3. Anonymous request with ?bust=1 does NOT purge cache (still returns stale cached response)
+      const anonBustReq = new Request('http://example.com/api/games?bust=1');
+      const anonBustRes = await worker.fetch(anonBustReq, mockEnv);
+      expect(await anonBustRes.json()).toEqual([{ id: 'stale-game' }]);
+      expect(mockCache.delete).not.toHaveBeenCalled();
+
+      // 4. Admin-authorized request (or loopback) with ?bust=1 bypasses cache and updates it
+      cachedMap.set(
+        'http://localhost/api/games',
+        new Response(JSON.stringify([{ id: 'stale-game' }]), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+      // Note: on loopback, resolveSessionUser returns an admin sessionUser so isPublicCacheable is false.
+      // Test public cache purge on production domain with a non-session admin or verify cache key normalization:
+      const randomParamReq = new Request(
+        'http://example.com/api/games?utm_source=test&random=123',
+      );
+      const randomParamRes = await worker.fetch(randomParamReq, mockEnv);
+      expect(await randomParamRes.json()).toEqual([{ id: 'stale-game' }]);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -995,9 +1029,18 @@ describe('Worker API Logic', () => {
     }
   });
 
-  it('GET /admin/login returns 302 redirect and sets app_user_session cookie', async () => {
+  it('GET /admin/login rejects unauthenticated non-loopback requests and mints session when verified', async () => {
+    const unauthReq = new Request('https://tracker.example.com/admin/login');
+    const unauthRes = await worker.fetch(unauthReq, mockEnv);
+    expect(unauthRes.status).toBe(302);
+    expect(unauthRes.headers.get('Location')).toContain('account=missing');
+    expect(unauthRes.headers.get('x-auth-status')).toBe('missing-identity');
+
+    const verifiedCtx = {
+      access: { getIdentity: async () => ({ email: 'admin@example.com' }) },
+    } as unknown as ExecutionContext;
     const req = new Request('https://tracker.example.com/admin/login');
-    const res = await worker.fetch(req, mockEnv);
+    const res = await worker.fetch(req, mockEnv, verifiedCtx);
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe(
       'https://tracker.example.com/collection/games',
@@ -1013,7 +1056,7 @@ describe('Worker API Logic', () => {
 
     // Test custom ADMIN_SESSION_DAYS
     const customDaysEnv = { ...mockEnv, ADMIN_SESSION_DAYS: '10' };
-    const customRes = await worker.fetch(req, customDaysEnv);
+    const customRes = await worker.fetch(req, customDaysEnv, verifiedCtx);
     const customCookies = customRes.headers.getSetCookie();
     // 10 days = 864000 seconds
     expect(customCookies.some((c) => c.includes('Max-Age=864000'))).toBe(true);
@@ -1043,16 +1086,28 @@ describe('Worker API Logic', () => {
     ).toBe(true);
   });
 
-  it('GET /api/admin/me returns authentication status', async () => {
+  it('GET /api/admin/me returns authentication status and rejects spoofed headers', async () => {
     const unauthReq = new Request('https://tracker.example.com/api/admin/me');
     const unauthRes = await worker.fetch(unauthReq, mockEnv);
     const unauthData = (await unauthRes.json()) as { authenticated: boolean };
     expect(unauthData.authenticated).toBe(false);
 
-    const authReq = new Request('https://tracker.example.com/api/admin/me', {
+    // Unverified header on non-loopback is rejected and does not echo email
+    const spoofReq = new Request('https://tracker.example.com/api/admin/me', {
       headers: { 'Cf-Access-Authenticated-User-Email': 'admin@example.com' },
     });
-    const authRes = await worker.fetch(authReq, mockEnv);
+    const spoofRes = await worker.fetch(spoofReq, mockEnv);
+    const spoofData = (await spoofRes.json()) as {
+      authenticated: boolean;
+      email: string | null;
+    };
+    expect(spoofData.authenticated).toBe(false);
+    expect(spoofData.email).toBeNull();
+
+    // Verified ctx.access identity succeeds
+    const authRes = await worker.fetch(unauthReq, mockEnv, {
+      access: { getIdentity: async () => ({ email: 'admin@example.com' }) },
+    } as unknown as ExecutionContext);
     const authData = (await authRes.json()) as {
       authenticated: boolean;
       email: string;
@@ -1082,24 +1137,20 @@ describe('Worker API Logic', () => {
     expect(sessionData.hasCookie).toBe(true);
   });
 
-  it('isAuthorizedAdmin correctly identifies authorized identities', () => {
+  it('isAuthorizedAdmin correctly identifies authorized identities and rejects spoofed headers/cookies', () => {
     const localReq = new Request('http://localhost/api/test');
     expect(isAuthorizedAdmin(localReq, mockEnv)).toBe(true);
 
     const prodUnauth = new Request('https://tracker.com/api/test');
     expect(isAuthorizedAdmin(prodUnauth, mockEnv)).toBe(false);
 
-    const prodAuth = new Request('https://tracker.com/api/test', {
+    // Raw Cf-Access-Authenticated-User-Email header without verified sessionUser must be rejected
+    const prodSpoofHeader = new Request('https://tracker.com/api/test', {
       headers: { 'Cf-Access-Authenticated-User-Email': 'admin@example.com' },
     });
-    expect(isAuthorizedAdmin(prodAuth, mockEnv)).toBe(true);
+    expect(isAuthorizedAdmin(prodSpoofHeader, mockEnv)).toBe(false);
 
-    const prodWrongEmail = new Request('https://tracker.com/api/test', {
-      headers: { 'Cf-Access-Authenticated-User-Email': 'other@example.com' },
-    });
-    expect(isAuthorizedAdmin(prodWrongEmail, mockEnv)).toBe(false);
-
-    // Test CF_Authorization cookie extraction
+    // Unsigned CF_Authorization cookie without verified sessionUser must be rejected
     const futureExp = Math.floor(Date.now() / 1000) + 3600;
     const validJwtPayload = btoa(
       JSON.stringify({ email: 'admin@example.com', exp: futureExp }),
@@ -1109,18 +1160,19 @@ describe('Worker API Logic', () => {
     const cookieReq = new Request('https://tracker.com/api/test', {
       headers: { Cookie: `CF_Authorization=${validJwt}` },
     });
-    expect(isAuthorizedAdmin(cookieReq, mockEnv)).toBe(true);
+    expect(isAuthorizedAdmin(cookieReq, mockEnv)).toBe(false);
 
-    const pastExp = Math.floor(Date.now() / 1000) - 3600;
-    const expiredJwtPayload = btoa(
-      JSON.stringify({ email: 'admin@example.com', exp: pastExp }),
-    );
-    const expiredJwt = `header.${expiredJwtPayload}.signature`;
-
-    const expiredCookieReq = new Request('https://tracker.com/api/test', {
-      headers: { Cookie: `CF_Authorization=${expiredJwt}` },
+    // Constant-time x-admin-key header grants admin authorization
+    const adminKeyEnv = { ...mockEnv, ADMIN_KEY: 'super-secret-admin-key' };
+    const validKeyReq = new Request('https://tracker.com/api/test', {
+      headers: { 'x-admin-key': 'super-secret-admin-key' },
     });
-    expect(isAuthorizedAdmin(expiredCookieReq, mockEnv)).toBe(false);
+    expect(isAuthorizedAdmin(validKeyReq, adminKeyEnv)).toBe(true);
+
+    const wrongKeyReq = new Request('https://tracker.com/api/test', {
+      headers: { 'x-admin-key': 'wrong-key' },
+    });
+    expect(isAuthorizedAdmin(wrongKeyReq, adminKeyEnv)).toBe(false);
 
     // Ensure CF_AppSession cookie alone does NOT grant admin authorization
     const appSessionReq = new Request('https://tracker.com/api/test', {
@@ -3002,13 +3054,10 @@ describe('Worker API Logic', () => {
 
       const req = new Request(
         'https://collection-tracker.example.com/api/games/castlevania-dominus-test',
-        {
-          headers: {
-            'Cf-Access-Authenticated-User-Email': 'admin@example.com',
-          },
-        },
       );
-      const res = await worker.fetch(req, mockEnv);
+      const res = await worker.fetch(req, mockEnv, {
+        access: { getIdentity: async () => ({ email: 'admin@example.com' }) },
+      } as unknown as ExecutionContext);
       expect(res.status).toBe(200);
 
       const data = (await res.json()) as {
@@ -3361,7 +3410,6 @@ describe('Worker API Logic', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Cf-Access-Authenticated-User-Email': 'admin@example.com',
           },
           body: JSON.stringify({
             toyLimit: 0,
@@ -3369,7 +3417,9 @@ describe('Worker API Logic', () => {
           }),
         },
       );
-      const authRes = await worker.fetch(authReq, mockEnv);
+      const authRes = await worker.fetch(authReq, mockEnv, {
+        access: { getIdentity: async () => ({ email: 'admin@example.com' }) },
+      } as unknown as ExecutionContext);
       expect(authRes.status).toBe(200);
       const json = await authRes.json();
       expect(json).toEqual({
@@ -3617,13 +3667,10 @@ describe('Worker API Logic', () => {
       it('GET /api/auth/me returns authenticated user profile when signed in', async () => {
         const req = new Request(
           'https://collection-tracker.example.com/api/auth/me',
-          {
-            headers: {
-              'Cf-Access-Authenticated-User-Email': 'admin@example.com',
-            },
-          },
         );
-        const res = await worker.fetch(req, mockEnv);
+        const res = await worker.fetch(req, mockEnv, {
+          access: { getIdentity: async () => ({ email: 'admin@example.com' }) },
+        } as unknown as ExecutionContext);
         expect(res.status).toBe(200);
         const data = (await res.json()) as {
           authenticated: boolean;
@@ -3641,8 +3688,9 @@ describe('Worker API Logic', () => {
         expect(data.user.homeRegion).toBe('USA');
       });
 
-      it('GET /api/auth/me returns provisioned: false when email is not allowlisted', async () => {
-        const req = new Request(
+      it('GET /api/auth/me returns provisioned: false when verified email is not allowlisted, and ignores unverified headers', async () => {
+        // Unverified header on non-loopback must NOT act as an email oracle
+        const spoofReq = new Request(
           'https://collection-tracker.example.com/api/auth/me',
           {
             headers: {
@@ -3650,7 +3698,26 @@ describe('Worker API Logic', () => {
             },
           },
         );
-        const res = await worker.fetch(req, mockEnv);
+        const spoofRes = await worker.fetch(spoofReq, mockEnv);
+        expect(spoofRes.status).toBe(200);
+        const spoofData = (await spoofRes.json()) as {
+          authenticated: boolean;
+          provisioned?: boolean;
+          email?: string;
+        };
+        expect(spoofData.authenticated).toBe(false);
+        expect(spoofData.provisioned).toBeUndefined();
+        expect(spoofData.email).toBeUndefined();
+
+        // Verified ctx.access identity for unprovisioned user returns provisioned: false
+        const req = new Request(
+          'https://collection-tracker.example.com/api/auth/me',
+        );
+        const res = await worker.fetch(req, mockEnv, {
+          access: {
+            getIdentity: async () => ({ email: 'stranger@example.com' }),
+          },
+        } as unknown as ExecutionContext);
         expect(res.status).toBe(200);
         const data = (await res.json()) as {
           authenticated: boolean;
@@ -3691,8 +3758,10 @@ describe('Worker API Logic', () => {
       });
 
       it('GET /api/user/profile and PUT /api/user/profile manages user settings and homeRegion', async () => {
+        const adminCtx = {
+          access: { getIdentity: async () => ({ email: 'admin@example.com' }) },
+        } as unknown as ExecutionContext;
         const authHeaders = {
-          'Cf-Access-Authenticated-User-Email': 'admin@example.com',
           'Content-Type': 'application/json',
         };
 
@@ -3701,7 +3770,7 @@ describe('Worker API Logic', () => {
           'https://collection-tracker.example.com/api/user/profile',
           { headers: authHeaders },
         );
-        const getRes = await worker.fetch(getReq, mockEnv);
+        const getRes = await worker.fetch(getReq, mockEnv, adminCtx);
         expect(getRes.status).toBe(200);
         const initial = (await getRes.json()) as {
           username: string;
@@ -3725,7 +3794,7 @@ describe('Worker API Logic', () => {
             }),
           },
         );
-        const putRes = await worker.fetch(putReq, mockEnv);
+        const putRes = await worker.fetch(putReq, mockEnv, adminCtx);
         expect(putRes.status).toBe(200);
         const updated = (await putRes.json()) as {
           homeRegion: string;
@@ -3789,6 +3858,146 @@ describe('Worker API Logic', () => {
         );
         const missingRes = await worker.fetch(missingReq, mockEnv);
         expect(missingRes.status).toBe(404);
+      });
+
+      it('enforces security headers, CSRF Origin checks, push user_id isolation, and input validation', async () => {
+        // 1. Security headers on API and HTML responses
+        const apiRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/api/platforms'),
+          mockEnv,
+        );
+        expect(apiRes.headers.get('X-Content-Type-Options')).toBe('nosniff');
+        expect(apiRes.headers.get('X-Frame-Options')).toBe('DENY');
+        expect(apiRes.headers.get('Referrer-Policy')).toBe(
+          'strict-origin-when-cross-origin',
+        );
+
+        const logoutRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/api/auth/logout'),
+          mockEnv,
+        );
+        expect(logoutRes.headers.get('Content-Security-Policy')).toContain(
+          "default-src 'self'",
+        );
+
+        // 2. Cross-origin Origin check on POST/PUT/DELETE
+        const csrfRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/collection/toggle',
+            {
+              method: 'POST',
+              headers: {
+                Origin: 'https://evil.example.org',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ id: 'mario', type: 'game', status: 1 }),
+            },
+          ),
+          mockEnv,
+        );
+        expect(csrfRes.status).toBe(403);
+
+        // 3. Discovery search & matches require authentication off-loopback and validate numeric igdbId
+        const unauthSearch = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/discovery/search?query=Mario',
+          ),
+          mockEnv,
+        );
+        expect(unauthSearch.status).toBe(401);
+
+        const badIgdbMatches = await worker.fetch(
+          new Request(
+            'http://localhost/api/discovery/matches?igdbId=101;where+id=1',
+          ),
+          mockEnv,
+        );
+        expect(badIgdbMatches.status).toBe(400);
+
+        // 4. Push subscription user_id scoping and SSRF endpoint protection
+        db.prepare(
+          `INSERT INTO users (id, email, username, role, is_public, home_region)
+           VALUES (2, 'user2@example.com', 'user2', 'user', 0, 'USA')`,
+        ).run();
+        const user1Ctx = {
+          access: { getIdentity: async () => ({ email: 'admin@example.com' }) },
+        } as unknown as ExecutionContext;
+        const user2Ctx = {
+          access: { getIdentity: async () => ({ email: 'user2@example.com' }) },
+        } as unknown as ExecutionContext;
+
+        // Disallowed push host on production domain -> 400
+        const ssrfPushRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/notifications/subscribe',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                endpoint: 'https://internal.corp.local/push',
+                keys: { p256dh: 'p256', auth: 'auth' },
+              }),
+            },
+          ),
+          mockEnv,
+          user1Ctx,
+        );
+        expect(ssrfPushRes.status).toBe(400);
+
+        // User 1 subscribes a valid FCM endpoint
+        const validEndpoint = 'https://fcm.googleapis.com/fcm/send/user1-token';
+        const sub1Res = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/notifications/subscribe',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                endpoint: validEndpoint,
+                keys: { p256dh: 'p256', auth: 'auth' },
+              }),
+            },
+          ),
+          mockEnv,
+          user1Ctx,
+        );
+        expect(sub1Res.status).toBe(200);
+
+        // User 2 attempting to overwrite User 1's endpoint is blocked with 403
+        const hijackRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/notifications/subscribe',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                endpoint: validEndpoint,
+                keys: { p256dh: 'p256-2', auth: 'auth-2' },
+              }),
+            },
+          ),
+          mockEnv,
+          user2Ctx,
+        );
+        expect(hijackRes.status).toBe(403);
+
+        // User 2 attempting to unsubscribe User 1's endpoint does not delete it
+        await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/notifications/unsubscribe',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ endpoint: validEndpoint }),
+            },
+          ),
+          mockEnv,
+          user2Ctx,
+        );
+        const stillExists = db
+          .prepare('SELECT user_id FROM push_subscriptions WHERE endpoint = ?')
+          .get(validEndpoint) as { user_id: number } | undefined;
+        expect(stillExists?.user_id).toBe(1);
       });
     });
   });

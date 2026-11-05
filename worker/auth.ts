@@ -179,6 +179,20 @@ export function isLoopbackRequest(url: URL): boolean {
   );
 }
 
+/**
+ * Constant-time string comparison to prevent timing side-channel leaks on secrets (e.g. ADMIN_KEY).
+ */
+export function timingSafeEqualStrings(a: string, b: string): boolean {
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+  let diff = aBytes.length ^ bBytes.length;
+  const maxLen = Math.max(aBytes.length, bBytes.length);
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
+  }
+  return diff === 0 && aBytes.length > 0;
+}
+
 // ---------------------------------------------------------------------------
 // Cloudflare Access JWT verification
 // ---------------------------------------------------------------------------
@@ -191,9 +205,12 @@ interface Jwk {
   alg?: string;
 }
 
+const JWKS_REFETCH_COOLDOWN_MS = 60 * 1000;
+
 let jwksCache: {
   teamDomain: string;
   keys: Map<string, CryptoKey>;
+  fetchedAt: number;
   expiresAt: number;
 } | null = null;
 
@@ -201,31 +218,47 @@ async function getAccessSigningKey(
   teamDomain: string,
   kid: string,
   fetchFn: typeof fetch,
+  nowMs?: number,
 ): Promise<CryptoKey | null> {
-  const now = Date.now();
-  if (
-    !jwksCache ||
-    jwksCache.teamDomain !== teamDomain ||
-    jwksCache.expiresAt < now ||
-    !jwksCache.keys.has(kid)
-  ) {
-    const res = await fetchFn(`https://${teamDomain}/cdn-cgi/access/certs`);
-    if (!res.ok) throw new Error(`Failed to fetch Access certs: ${res.status}`);
-    const data = (await res.json()) as { keys?: Jwk[] };
-    const keys = new Map<string, CryptoKey>();
-    for (const jwk of data.keys || []) {
-      if (jwk.kty !== 'RSA' || !jwk.kid) continue;
-      const key = await crypto.subtle.importKey(
-        'jwk',
-        { kty: 'RSA', n: jwk.n, e: jwk.e, alg: 'RS256', ext: true },
-        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-        false,
-        ['verify'],
-      );
-      keys.set(jwk.kid, key);
-    }
-    jwksCache = { teamDomain, keys, expiresAt: now + 60 * 60 * 1000 };
+  const now = nowMs ?? Date.now();
+  const cacheHitSameDomain =
+    jwksCache !== null &&
+    jwksCache.teamDomain === teamDomain &&
+    jwksCache.expiresAt >= now;
+
+  if (cacheHitSameDomain && jwksCache!.keys.has(kid)) {
+    return jwksCache!.keys.get(kid) || null;
   }
+
+  // Throttle refetches on unknown kid to at most once per cooldown window
+  if (
+    cacheHitSameDomain &&
+    now - jwksCache!.fetchedAt < JWKS_REFETCH_COOLDOWN_MS
+  ) {
+    return null;
+  }
+
+  const res = await fetchFn(`https://${teamDomain}/cdn-cgi/access/certs`);
+  if (!res.ok) throw new Error(`Failed to fetch Access certs: ${res.status}`);
+  const data = (await res.json()) as { keys?: Jwk[] };
+  const keys = new Map<string, CryptoKey>();
+  for (const jwk of data.keys || []) {
+    if (jwk.kty !== 'RSA' || !jwk.kid) continue;
+    const key = await crypto.subtle.importKey(
+      'jwk',
+      { kty: 'RSA', n: jwk.n, e: jwk.e, alg: 'RS256', ext: true },
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    keys.set(jwk.kid, key);
+  }
+  jwksCache = {
+    teamDomain,
+    keys,
+    fetchedAt: now,
+    expiresAt: now + 60 * 60 * 1000,
+  };
   return jwksCache.keys.get(kid) || null;
 }
 
@@ -263,6 +296,7 @@ export async function verifyAccessJwt(
       opts.teamDomain,
       header.kid,
       opts.fetchFn || fetch,
+      opts.nowMs,
     );
     if (!key) return null;
     const valid = await crypto.subtle.verify(
@@ -300,10 +334,10 @@ export async function verifyAccessJwt(
 
 /**
  * Extracts verified user email from Cloudflare Access headers or cookie JWT.
- * 1. Checks Cf-Access-Authenticated-User-Email header directly.
+ * 1. Checks ctx.access.getIdentity() when running natively under Cloudflare Workers Access.
  * 2. If teamDomain is provided and valid JWT present, cryptographically validates against JWKS.
- * 3. Fallback: parses payload of CF_Authorization cookie or Cf-Access-Jwt-Assertion header via atob
- *    verifying expiration (exp > now).
+ * 3. On loopback requests (or when allowUnverifiedFallback is explicitly enabled), accepts
+ *    Cf-Access-Authenticated-User-Email or an unexpired CF_Authorization payload for local dev.
  */
 export async function extractAccessEmail(
   request: Request,
@@ -312,6 +346,7 @@ export async function extractAccessEmail(
     audience?: string;
     nowMs?: number;
     ctx?: unknown;
+    allowUnverifiedFallback?: boolean;
   },
 ): Promise<string | null> {
   // Check ctx.access.getIdentity() when running natively under Cloudflare Workers Access
@@ -349,7 +384,19 @@ export async function extractAccessEmail(
     });
   }
 
-  // Fallback for dev / unconfigured teamDomain:
+  // Fail closed on non-loopback requests when teamDomain is not configured
+  let isLoopback: boolean;
+  try {
+    isLoopback = isLoopbackRequest(new URL(request.url));
+  } catch {
+    isLoopback = false;
+  }
+  const allowFallback = opts?.allowUnverifiedFallback ?? isLoopback;
+  if (!allowFallback) {
+    return null;
+  }
+
+  // Fallback for local loopback development:
   const headerEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
   if (headerEmail && headerEmail.includes('@')) {
     return headerEmail.toLowerCase().trim();
@@ -375,7 +422,11 @@ export async function extractAccessEmail(
         (typeof payload.sub === 'string' && payload.sub.includes('@')
           ? payload.sub
           : undefined);
-      if (candidateEmail && (!payload.exp || payload.exp > nowSec)) {
+      if (
+        candidateEmail &&
+        typeof payload.exp === 'number' &&
+        payload.exp > nowSec
+      ) {
         return candidateEmail.toLowerCase().trim();
       }
     }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import {
   base64UrlToUint8Array,
   uint8ArrayToBase64Url,
@@ -8,12 +8,38 @@ import {
   buildPushNotificationBody,
   resolveVapidSubject,
   resolveVapidJwk,
-  DEFAULT_VAPID_PUBLIC_KEY,
-  DEFAULT_VAPID_JWK,
+  isAllowedPushEndpoint,
+  VapidJwk,
   WebPushSubscription,
 } from './web_push';
 
 describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
+  let testVapidPublicKey = '';
+  let testVapidJwk: VapidJwk;
+
+  beforeAll(async () => {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify'],
+    );
+    const rawPub = new Uint8Array(
+      await crypto.subtle.exportKey('raw', keyPair.publicKey),
+    );
+    testVapidPublicKey = uint8ArrayToBase64Url(rawPub);
+    const exportedJwk = await crypto.subtle.exportKey(
+      'jwk',
+      keyPair.privateKey,
+    );
+    testVapidJwk = {
+      kty: 'EC',
+      crv: 'P-256',
+      d: exportedJwk.d!,
+      x: exportedJwk.x!,
+      y: exportedJwk.y!,
+    };
+  });
+
   it('should round-trip base64url encode and decode', () => {
     const raw = new Uint8Array([0, 1, 2, 250, 255, 128, 64]);
     const encoded = uint8ArrayToBase64Url(raw);
@@ -25,12 +51,12 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     const endpoint = 'https://fcm.googleapis.com/fcm/send/fake-sub-token';
     const authHeader = await createVapidAuthHeader(endpoint, {
       subject: 'mailto:test@example.com',
-      publicKey: DEFAULT_VAPID_PUBLIC_KEY,
-      privateKeyJwk: DEFAULT_VAPID_JWK,
+      publicKey: testVapidPublicKey,
+      privateKeyJwk: testVapidJwk,
     });
 
     expect(authHeader.startsWith('vapid t=')).toBe(true);
-    expect(authHeader.includes(`, k=${DEFAULT_VAPID_PUBLIC_KEY}`)).toBe(true);
+    expect(authHeader.includes(`, k=${testVapidPublicKey}`)).toBe(true);
 
     const match = authHeader.match(/^vapid t=([^,]+), k=(.+)$/);
     expect(match).not.toBeNull();
@@ -207,7 +233,11 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
         title: 'Deal Alert',
         body: 'Game on sale!',
       },
-      { fetchFn: mockFetch as unknown as typeof fetch },
+      {
+        fetchFn: mockFetch as unknown as typeof fetch,
+        publicKey: testVapidPublicKey,
+        privateKeyJwk: testVapidJwk,
+      },
     );
 
     expect(result.success).toBe(true);
@@ -247,7 +277,11 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     const result = await sendWebPushNotification(
       sub,
       { title: 'Expired', body: 'Test' },
-      { fetchFn: mockFetch as unknown as typeof fetch },
+      {
+        fetchFn: mockFetch as unknown as typeof fetch,
+        publicKey: testVapidPublicKey,
+        privateKeyJwk: testVapidJwk,
+      },
     );
 
     expect(result.success).toBe(false);
@@ -307,8 +341,38 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     expect(withReq).toBe('https://gagglog.example.com');
   });
 
-  it('should resolve VAPID JWK from base64url private key and public key', () => {
-    const jwk = resolveVapidJwk(DEFAULT_VAPID_JWK.d, DEFAULT_VAPID_PUBLIC_KEY);
-    expect(jwk).toEqual(DEFAULT_VAPID_JWK);
+  it('should resolve VAPID JWK from base64url private key and public key and reject missing keys', () => {
+    const jwk = resolveVapidJwk(testVapidJwk.d, testVapidPublicKey);
+    expect(jwk).toEqual(testVapidJwk);
+    expect(() => resolveVapidJwk()).toThrow(/VAPID_PRIVATE_KEY/);
+    expect(() => resolveVapidJwk(testVapidJwk.d)).toThrow(/VAPID_PUBLIC_KEY/);
+  });
+
+  it('should validate push endpoints against trusted Web Push domains', () => {
+    expect(
+      isAllowedPushEndpoint('https://fcm.googleapis.com/fcm/send/abc'),
+    ).toBe(true);
+    expect(
+      isAllowedPushEndpoint(
+        'https://updates.push.services.mozilla.com/wpush/v2/abc',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedPushEndpoint('https://wns2-bn2p.notify.windows.com/?token=abc'),
+    ).toBe(true);
+    expect(isAllowedPushEndpoint('https://web.push.apple.com/abc')).toBe(true);
+    expect(isAllowedPushEndpoint('http://fcm.googleapis.com/fcm/send/abc')).toBe(
+      false,
+    );
+    expect(isAllowedPushEndpoint('https://127.0.0.1/internal')).toBe(false);
+    expect(isAllowedPushEndpoint('https://attacker.example.com/ssrf')).toBe(
+      false,
+    );
+    expect(isAllowedPushEndpoint('https://push.example.com/sub', false)).toBe(
+      false,
+    );
+    expect(isAllowedPushEndpoint('https://push.example.com/sub', true)).toBe(
+      true,
+    );
   });
 });
