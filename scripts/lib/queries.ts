@@ -77,7 +77,6 @@ export function buildGamesListQuery(userId?: number | null): string {
            ) as verification_tier,
            g.barcode,
            g.release_medium,
-           g.origin_metadata,
            g.bundle_parent_id,
            g.bundle_disc_number,
            COALESCE(bc.bundle_count, 0) as bundle_count,
@@ -625,6 +624,31 @@ export function buildTargetedCompanionByCrcQuery(
 
 export const TARGETED_COMPANION_BY_CRC_QUERY =
   buildTargetedCompanionByCrcQuery(null);
+
+export function buildTargetedCompanionByCrcBatchQuery(
+  userId?: number | null,
+  crcCount: number = 1,
+): string {
+  const safeCount = Math.max(1, Math.floor(crcCount));
+  const placeholders = Array.from({ length: safeCount }, () => '?').join(', ');
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
+    : '';
+  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+  return `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           ${backupCol} as backup_status, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
+           g.title as game_title, g.platform_id
+    FROM game_releases r
+    ${userJoin}
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE r.rom_crc IN (${placeholders}) AND r.rom_crc IS NOT NULL AND r.rom_crc != ''
+  `;
+}
 
 export function buildTargetedCompanionByGameIdQuery(
   userId?: number | null,
@@ -1949,4 +1973,62 @@ export function resolveLocalizedReleaseTitle(
     return canonicalTitle.trim();
   }
   return gameTitle;
+}
+
+/**
+ * Enriches a game list row with its localized release title, extracts any
+ * distinct cross-language search names into `searchableNames`, and strips
+ * bulky `metadata_json`, `origin_metadata`, and `raw_title` fields before
+ * serializing the `/api/games` or `/api/u/:username/games` payload.
+ */
+export function enrichAndStripGameListRow(
+  row: Record<string, unknown>,
+  homeRegion?: string | null,
+): void {
+  const metadataJson = (row['metadata_json'] as string) || null;
+  if (row['region'] && (metadataJson || row['raw_title'])) {
+    row['title'] = resolveLocalizedReleaseTitle(
+      (row['base_title'] || row['title'] || '') as string,
+      row['region'] as string | null,
+      metadataJson,
+      (row['raw_title'] || row['title'] || '') as string,
+      homeRegion || undefined,
+    );
+  }
+  if (metadataJson) {
+    try {
+      const parsed = JSON.parse(metadataJson) as {
+        alternative_names?: Array<{ name?: string }>;
+        game_localizations?: Array<{ name?: string }>;
+      };
+      const titleLower = String(row['title'] || '')
+        .trim()
+        .toLowerCase();
+      const baseLower = String(row['base_title'] || '')
+        .trim()
+        .toLowerCase();
+      const extraNames = new Set<string>();
+      const collect = (items?: Array<{ name?: string }>) => {
+        if (!Array.isArray(items)) return;
+        for (const item of items) {
+          const n = item?.name?.trim();
+          if (!n) continue;
+          const lower = n.toLowerCase();
+          if (lower !== titleLower && lower !== baseLower) {
+            extraNames.add(n);
+          }
+        }
+      };
+      collect(parsed.alternative_names);
+      collect(parsed.game_localizations);
+      if (extraNames.size > 0) {
+        row['searchableNames'] = Array.from(extraNames);
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+  delete row['metadata_json'];
+  delete row['origin_metadata'];
+  delete row['raw_title'];
 }

@@ -3999,6 +3999,141 @@ describe('Worker API Logic', () => {
           .get(validEndpoint) as { user_id: number } | undefined;
         expect(stillExists?.user_id).toBe(1);
       });
+
+      it('aborts performScheduledBackup if any table query throws so latest.json is not overwritten with partial data', async () => {
+        mockBucket.storage.set(
+          'snapshots/latest.json',
+          JSON.stringify({ intact: true }),
+        );
+        const brokenEnv: Env = {
+          ...mockEnv,
+          DB: {
+            prepare: (q: string) => ({
+              all: async () => {
+                if (q.includes('FROM games')) {
+                  throw new Error('Simulated D1 read error');
+                }
+                return { results: [] };
+              },
+            }),
+          } as unknown as Env['DB'],
+        };
+
+        await expect(performScheduledBackup(brokenEnv, false)).rejects.toThrow(
+          /Aborted backup/,
+        );
+        expect(mockBucket.storage.get('snapshots/latest.json')).toBe(
+          JSON.stringify({ intact: true }),
+        );
+      });
+
+      it('does not advance price_updated_at when GAMEYE HTTP lookup throws a network error', async () => {
+        db.prepare(
+          `INSERT INTO toys (stable_id, id, name, line, price_loose, price_updated_at)
+           VALUES (299, 'net-err-toy', 'Net Err Toy', 'amiibo', 1200, '2026-08-01T00:00:00Z')`,
+        ).run();
+
+        const failingClient = {
+          get: vi.fn(async () => {
+            throw new Error('Upstream 503');
+          }),
+        };
+
+        const res = await syncWorkerGameyePricing(mockEnv, {
+          specificToyStableId: 299,
+          gameLimit: 0,
+          client: failingClient,
+        });
+        expect(res.toysChecked).toBe(1);
+        expect(res.toysUpdated).toBe(0);
+
+        const row = db
+          .prepare('SELECT price_updated_at FROM toys WHERE stable_id = 299')
+          .get() as { price_updated_at: string };
+        expect(row.price_updated_at).toBe('2026-08-01T00:00:00Z');
+      });
+
+      it('evaluates boutique pre-order ownership per subscriber user_id and coalesces >3 announcements', async () => {
+        // Seed 4 digital_only games on Switch (26); User 1 owns game 1, User 2 owns none
+        db.prepare(
+          `INSERT INTO users (id, email, username, role, is_public, home_region)
+           VALUES (2, 'sub2@example.com', 'sub2', 'user', 0, 'USA')`,
+        ).run();
+        for (let i = 1; i <= 4; i++) {
+          db.prepare(
+            `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+             VALUES (?, ?, ?, 26, 'digital_only')`,
+          ).run(960 + i, `coalesce-game-${i}`, `Coalesce Game ${i}`);
+          db.prepare(
+            `INSERT INTO game_releases (id, game_id, region, is_physical)
+             VALUES (?, ?, 'USA', 1)`,
+          ).run(`coalesce-rel-${i}`, 960 + i);
+        }
+        // User 1 owns all 4 games physically; User 2 owns none
+        for (let i = 1; i <= 4; i++) {
+          db.prepare(
+            `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+             VALUES (1, ?, 1)`,
+          ).run(`coalesce-rel-${i}`);
+        }
+
+        db.prepare(
+          `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, created_at, updated_at)
+           VALUES ('sub-u1', 1, 'https://fcm.googleapis.com/fcm/send/u1', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', datetime('now'), datetime('now')),
+                  ('sub-u2', 2, 'https://fcm.googleapis.com/fcm/send/u2', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', datetime('now'), datetime('now'))`,
+        ).run();
+
+        const mockShopify = {
+          products: [1, 2, 3, 4].map((i) => ({
+            id: 880000 + i,
+            title: `Coalesce Game ${i} - Nintendo Switch`,
+            handle: `coalesce-game-${i}-switch`,
+            tags: ['game', 'pre-order'],
+            variants: [{ price: '34.99' }],
+          })),
+        };
+
+        const webPushSpy = vi
+          .spyOn(webPush, 'sendWebPushNotification')
+          .mockResolvedValue({
+            success: true,
+            status: 201,
+            shouldDelete: false,
+          });
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input) => {
+            if (typeof input === 'string' && input.includes('fangamer.com')) {
+              return {
+                ok: true,
+                json: async () => mockShopify,
+              } as unknown as Response;
+            }
+            return {
+              ok: true,
+              json: async () => ({ products: [] }),
+            } as unknown as Response;
+          });
+
+        try {
+          const result = await syncWorkerBoutiquePreOrders(mockEnv);
+          // User 1 owns all 4 -> 0 notifications; User 2 owns 0 of the 4 -> coalesced into 1 summary notification!
+          expect(result.notifications.dispatchedCount).toBe(1);
+          expect(webPushSpy).toHaveBeenCalledTimes(1);
+          expect(webPushSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              endpoint: 'https://fcm.googleapis.com/fcm/send/u2',
+            }),
+            expect.objectContaining({
+              title: '📦 4 Physical Editions Announced',
+            }),
+            expect.anything(),
+          );
+        } finally {
+          fetchSpy.mockRestore();
+          webPushSpy.mockRestore();
+        }
+      });
     });
   });
 });

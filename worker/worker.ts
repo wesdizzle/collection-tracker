@@ -22,7 +22,7 @@ import {
   GAMES_ORDER_BY,
   getRomGroupingKey,
   PLATFORM_MAP,
-  buildTargetedCompanionByCrcQuery,
+  buildTargetedCompanionByCrcBatchQuery,
   buildTargetedCompanionByGameIdQuery,
   buildTargetedCompanionByTitleQuery,
   getRelatedGameIdsForCompanion,
@@ -42,6 +42,7 @@ import {
   normalizeMerchantName,
   normalizeReceiptUrl,
   resolveLocalizedReleaseTitle,
+  enrichAndStripGameListRow,
   buildGamesListQuery,
   buildGameDetailQuery,
   getGameDetailQueryParams,
@@ -178,6 +179,22 @@ export async function getEdgeCache(): Promise<Cache | null> {
 }
 
 let lastKnownOrigin: string | null = null;
+const trackedEdgeCacheUrls = new Set<string>();
+
+async function putEdgeCacheEntry(
+  edgeCache: Cache,
+  cacheKey: Request,
+  response: Response,
+  isNoCache: boolean,
+): Promise<void> {
+  if (isNoCache) {
+    await edgeCache.delete(cacheKey).catch(() => {});
+  }
+  if (trackedEdgeCacheUrls.size < 250) {
+    trackedEdgeCacheUrls.add(cacheKey.url);
+  }
+  await edgeCache.put(cacheKey, response.clone()).catch(() => {});
+}
 
 /**
  * Invalidates Cloudflare Edge Cache entries for public collection endpoints
@@ -203,6 +220,10 @@ export async function invalidateEdgeApiCache(
         // ignoreSearch may not be supported in all environments
       }
     }
+    for (const urlStr of trackedEdgeCacheUrls) {
+      await edgeCache.delete(new Request(urlStr)).catch(() => {});
+    }
+    trackedEdgeCacheUrls.clear();
   } catch (err) {
     console.warn('[invalidateEdgeApiCache] Failed to purge edge cache:', err);
   }
@@ -638,7 +659,10 @@ export async function performScheduledBackup(
       totalRows += (results || []).length;
     } catch (err) {
       console.error(`[WorkerBackup] Failed to dump table ${table}:`, err);
-      backupData[table] = [];
+      throw new Error(
+        `Aborted backup to prevent partial overwrite: failed dumping table ${table}`,
+        { cause: err },
+      );
     }
   }
 
@@ -728,12 +752,11 @@ export async function performScheduledBackup(
 
 /**
  * Flags the database as dirty in sync_state so the scheduled cron creates a fresh snapshot.
- * Optionally records the touched primary key ('<table>:<id>') for zero-scan post-backup reconciliation.
  */
 export async function markDbDirty(
   env: Env,
-  table?: string,
-  id?: string | number,
+  _table?: string,
+  _id?: string | number,
 ): Promise<void> {
   try {
     await env.DB.prepare(
@@ -741,36 +764,6 @@ export async function markDbDirty(
        VALUES ('db_dirty', '1', datetime('now'))
        ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = datetime('now')`,
     ).run();
-
-    if (table && id !== undefined) {
-      try {
-        const row = await env.DB.prepare(
-          `SELECT value FROM sync_state WHERE key = 'dirty_keys'`,
-        ).first<{ value: string }>();
-        let keys: string[] = [];
-        if (row?.value) {
-          try {
-            keys = JSON.parse(row.value);
-          } catch {
-            keys = [];
-          }
-        }
-        const itemKey = `${table}:${id}`;
-        if (!keys.includes(itemKey)) {
-          keys.push(itemKey);
-          if (keys.length > 500) keys.shift();
-          await env.DB.prepare(
-            `INSERT INTO sync_state (key, value, updated_at)
-             VALUES ('dirty_keys', ?, datetime('now'))
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
-          )
-            .bind(JSON.stringify(keys))
-            .run();
-        }
-      } catch (keyErr) {
-        console.warn('[WorkerBackup] Failed to append dirty key:', keyErr);
-      }
-    }
   } catch (err) {
     console.warn('[WorkerBackup] Failed to mark db dirty:', err);
   }
@@ -1131,6 +1124,9 @@ Disallow: /
             return Response.json({ error: 'User not found' }, { status: 404 });
           }
 
+          await invalidateEdgeApiCache(request.url);
+          await markDbDirty(env);
+
           const res = Response.json({
             id: profile.id,
             email: profile.email,
@@ -1208,19 +1204,11 @@ Disallow: /
         const homeRegion = user.home_region || 'USA';
         if (results && results.length > 0) {
           for (const row of results as Record<string, unknown>[]) {
-            if (row['region'] && (row['metadata_json'] || row['raw_title'])) {
-              row['title'] = resolveLocalizedReleaseTitle(
-                (row['base_title'] || row['title'] || '') as string,
-                row['region'] as string | null,
-                (row['metadata_json'] as string) || null,
-                (row['raw_title'] || row['title'] || '') as string,
-                homeRegion,
-              );
-            }
+            enrichAndStripGameListRow(row, homeRegion);
           }
         }
 
-        return Response.json(results || [], {
+        const res = Response.json(results || [], {
           headers: {
             'Content-Type': 'application/json',
             'Cache-Control': user.is_public
@@ -1228,6 +1216,10 @@ Disallow: /
               : 'private, no-cache, no-store, must-revalidate',
           },
         });
+        if (user.is_public && isPublicCacheable && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+        }
+        return res;
       }
 
       // Endpoint: GET /api/u/:username/toys
@@ -1254,7 +1246,7 @@ Disallow: /
         const query = buildToysListQuery(user.id);
         const { results } = await env.DB.prepare(query).bind(user.id).all();
 
-        return Response.json(results || [], {
+        const res = Response.json(results || [], {
           headers: {
             'Content-Type': 'application/json',
             'Cache-Control': user.is_public
@@ -1262,6 +1254,10 @@ Disallow: /
               : 'private, no-cache, no-store, must-revalidate',
           },
         });
+        if (user.is_public && isPublicCacheable && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+        }
+        return res;
       }
 
       // Endpoint: GET /api/u/:username
@@ -1287,7 +1283,7 @@ Disallow: /
           return Response.json({ error: 'User not found' }, { status: 404 });
         }
 
-        return Response.json(
+        const res = Response.json(
           {
             username: user.username,
             displayName: user.display_name,
@@ -1303,6 +1299,10 @@ Disallow: /
             },
           },
         );
+        if (user.is_public && isPublicCacheable && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+        }
+        return res;
       }
 
       // Endpoint: GET /api/games
@@ -1333,15 +1333,7 @@ Disallow: /
           : DEFAULT_USER_HOME_REGION;
         if (results && results.length > 0) {
           for (const row of results as Record<string, unknown>[]) {
-            if (row['region'] && (row['metadata_json'] || row['raw_title'])) {
-              row['title'] = resolveLocalizedReleaseTitle(
-                (row['base_title'] || row['title'] || '') as string,
-                row['region'] as string | null,
-                (row['metadata_json'] as string) || null,
-                (row['raw_title'] || row['title'] || '') as string,
-                effectiveHomeRegion,
-              );
-            }
+            enrichAndStripGameListRow(row, effectiveHomeRegion);
           }
         }
         if (sessionUser) {
@@ -1355,10 +1347,7 @@ Disallow: /
           headers: publicCacheHeaders,
         });
         if (isPublicCacheable && edgeCache) {
-          if (isNoCache) {
-            await edgeCache.delete(cacheKey).catch(() => {});
-          }
-          await edgeCache.put(cacheKey, res.clone()).catch(() => {});
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
         }
         return res;
       }
@@ -1508,33 +1497,45 @@ Disallow: /
           const candidateReleases: CompanionDiscCandidateRow[] = [];
           const seenCandidateIds = new Set<string>();
 
-          const companionCrcQuery = buildTargetedCompanionByCrcQuery(userId);
           const companionGameIdQuery =
             buildTargetedCompanionByGameIdQuery(userId);
           const companionTitleQuery =
             buildTargetedCompanionByTitleQuery(userId);
 
-          // 1. Target companion releases by rom_crc across all releases in this game
+          // 1. Target companion releases by rom_crc across all releases in this game in a single batch query
           const releasesToCheck =
             game.releases && game.releases.length > 0 ? game.releases : [game];
+          const primaryReleaseIds = new Set<string>();
+          const distinctCrcs: string[] = [];
+          const seenCrcs = new Set<string>();
           for (const rel of releasesToCheck) {
-            const relCrc = (rel['rom_crc'] as string | null) || null;
             const relId = (rel['id'] as string | null) || null;
-            if (relCrc) {
-              const bindParams = userId
-                ? [userId, relCrc, relId || '']
-                : [relCrc, relId || ''];
-              const { results: crcRows } = await env.DB.prepare(
-                companionCrcQuery,
-              )
-                .bind(...bindParams)
-                .all();
-              for (const r of (crcRows ||
-                []) as unknown as CompanionDiscCandidateRow[]) {
-                if (!seenCandidateIds.has(r.id)) {
-                  seenCandidateIds.add(r.id);
-                  candidateReleases.push(r);
-                }
+            if (relId) primaryReleaseIds.add(relId);
+            const relCrc = (rel['rom_crc'] as string | null)?.trim() || '';
+            if (relCrc && !seenCrcs.has(relCrc)) {
+              seenCrcs.add(relCrc);
+              distinctCrcs.push(relCrc);
+            }
+          }
+          if (distinctCrcs.length > 0) {
+            const companionCrcBatchQuery =
+              buildTargetedCompanionByCrcBatchQuery(
+                userId,
+                distinctCrcs.length,
+              );
+            const bindParams = userId
+              ? [userId, ...distinctCrcs]
+              : [...distinctCrcs];
+            const { results: crcRows } = await env.DB.prepare(
+              companionCrcBatchQuery,
+            )
+              .bind(...bindParams)
+              .all();
+            for (const r of (crcRows ||
+              []) as unknown as CompanionDiscCandidateRow[]) {
+              if (!primaryReleaseIds.has(r.id) && !seenCandidateIds.has(r.id)) {
+                seenCandidateIds.add(r.id);
+                candidateReleases.push(r);
               }
             }
           }
@@ -1625,10 +1626,7 @@ Disallow: /
           headers: publicCacheHeaders,
         });
         if (isPublicCacheable && edgeCache) {
-          if (isNoCache) {
-            await edgeCache.delete(cacheKey).catch(() => {});
-          }
-          await edgeCache.put(cacheKey, res.clone()).catch(() => {});
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
         }
         return res;
       }
@@ -1662,10 +1660,7 @@ Disallow: /
           headers: platformsCacheHeaders,
         });
         if (isPublicCacheable && edgeCache) {
-          if (isNoCache) {
-            await edgeCache.delete(cacheKey).catch(() => {});
-          }
-          await edgeCache.put(cacheKey, res.clone()).catch(() => {});
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
         }
         return res;
       }
@@ -4144,6 +4139,8 @@ Disallow: /
             .bind(currentUserId, existingToy.id, ownStatus)
             .run();
 
+          await invalidateEdgeApiCache(request.url);
+          await markDbDirty(env);
           return Response.json({ success: true, id: existingToy.id });
         }
 
@@ -5019,11 +5016,6 @@ export default {
              VALUES ('db_dirty', '0', datetime('now'))
              ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')`,
           ).run();
-          await env.DB.prepare(
-            `INSERT INTO sync_state (key, value, updated_at)
-             VALUES ('dirty_keys', '[]', datetime('now'))
-             ON CONFLICT(key) DO UPDATE SET value = '[]', updated_at = datetime('now')`,
-          ).run();
           await logCronExecution(
             env,
             'scheduled_backup',
@@ -5295,9 +5287,10 @@ export async function dispatchDealPushNotifications(
 ): Promise<{ dispatchedCount: number; purgedCount: number }> {
   try {
     const { results } = await env.DB.prepare(
-      `SELECT id, endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
+      `SELECT id, COALESCE(user_id, 1) as user_id, endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
     ).all<{
       id: string;
+      user_id: number;
       endpoint: string;
       p256dh: string;
       auth: string;
@@ -5309,10 +5302,29 @@ export async function dispatchDealPushNotifications(
       return { dispatchedCount: 0, purgedCount: 0 };
     }
 
+    const userOwnershipMap = new Map<string, number>();
+    try {
+      const ugrRows = await env.DB.prepare(
+        `SELECT ugr.user_id, r.game_id as stable_id, MAX(ugr.ownership_status) as ownership_status
+         FROM user_game_releases ugr
+         JOIN game_releases r ON r.id = ugr.release_id
+         GROUP BY ugr.user_id, r.game_id`,
+      ).all<{ user_id: number; stable_id: number; ownership_status: number }>();
+      for (const row of ugrRows.results || []) {
+        userOwnershipMap.set(
+          `${row.user_id}:${row.stable_id}`,
+          row.ownership_status ?? 0,
+        );
+      }
+    } catch {
+      // Fallback to gameLookup.ownership_status if user_game_releases is unavailable
+    }
+
     let dispatchedCount = 0;
     let purgedCount = 0;
 
     for (const sub of subscriptions) {
+      const subUserId = sub.user_id || 1;
       let prefs: {
         enabled?: boolean;
         scope?: 'seeking_only' | 'seeking_and_unowned' | 'all';
@@ -5355,12 +5367,19 @@ export async function dispatchDealPushNotifications(
         const game = gameLookup.get(stableId);
         if (!game) continue;
 
-        if (scope === 'seeking_only' && game.ownership_status !== 2) {
+        const userKey = `${subUserId}:${stableId}`;
+        const effectiveOwnership = userOwnershipMap.has(userKey)
+          ? userOwnershipMap.get(userKey)!
+          : subUserId === 1
+            ? game.ownership_status
+            : 0;
+
+        if (scope === 'seeking_only' && effectiveOwnership !== 2) {
           continue;
         } else if (
           scope === 'seeking_and_unowned' &&
-          game.ownership_status !== 2 &&
-          game.ownership_status !== 0
+          effectiveOwnership !== 2 &&
+          effectiveOwnership !== 0
         ) {
           continue;
         }
@@ -5841,27 +5860,15 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
       // Evaluate announcement notification criteria (Proposal 3):
       // - Standard games already physical MUST NOT alert on mere retail_url change!
       // - Alert ONLY if transitioning from digital/unverified/pending to likely_physical, OR
-      // - An unowned special edition announced for the first time.
+      // - A special edition announced for the first time.
+      // Per-user ownership suppression is evaluated per subscriber in dispatchPhysicalAnnouncementNotifications.
       const isSpecialEdition = Boolean(po.edition);
-      const variantAlreadyOwned = Boolean(
-        isSpecialEdition &&
-        match.owned_variants &&
-        match.owned_variants.toLowerCase().includes(po.edition!.toLowerCase()),
-      );
-
-      const isStandardPhysicalOwned = match.has_owned_physical === 1;
-      const shouldSuppressOwned =
-        isStandardPhysicalOwned &&
-        (!isSpecialEdition || variantAlreadyOwned || !isActionableAnnouncement);
-
       const isUnannouncedSpecialEdition =
         isSpecialEdition &&
-        !variantAlreadyOwned &&
         isActionableAnnouncement &&
         !announcedUrls.has(po.productUrl);
 
       const shouldNotify =
-        !shouldSuppressOwned &&
         !isColdStartSeed &&
         ((shouldUpdatePhysicalStatus && isActionableAnnouncement) ||
           isUnannouncedSpecialEdition);
@@ -5975,9 +5982,12 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 async function dispatchPhysicalAnnouncementNotifications(
   items: Array<{
     game: {
+      stable_id?: number;
       id: string;
       title: string;
       ownership_status: number;
+      has_owned_physical?: number;
+      owned_variants?: string | null;
       platform_id: number;
       physical_status?: string;
     };
@@ -5992,15 +6002,52 @@ async function dispatchPhysicalAnnouncementNotifications(
 
   try {
     const subRows = await env.DB.prepare(
-      `SELECT endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
+      `SELECT COALESCE(user_id, 1) as user_id, endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
     ).all<{
+      user_id: number;
       endpoint: string;
       p256dh: string;
       auth: string;
       preferences_json: string | null;
     }>();
 
+    const userOwnershipByGame = new Map<
+      string,
+      {
+        ownership_status: number;
+        has_owned_physical: number;
+        owned_variants: string | null;
+      }
+    >();
+    try {
+      const ugrRows = await env.DB.prepare(
+        `SELECT ugr.user_id, r.game_id as stable_id,
+                MAX(ugr.ownership_status) as ownership_status,
+                MAX(CASE WHEN ugr.ownership_status = 1 THEN 1 ELSE 0 END) as has_owned_physical,
+                GROUP_CONCAT(CASE WHEN ugr.ownership_status = 1 THEN COALESCE(r.variants, '') ELSE NULL END) as owned_variants
+         FROM user_game_releases ugr
+         JOIN game_releases r ON r.id = ugr.release_id
+         GROUP BY ugr.user_id, r.game_id`,
+      ).all<{
+        user_id: number;
+        stable_id: number;
+        ownership_status: number;
+        has_owned_physical: number;
+        owned_variants: string | null;
+      }>();
+      for (const row of ugrRows.results || []) {
+        userOwnershipByGame.set(`${row.user_id}:${row.stable_id}`, {
+          ownership_status: row.ownership_status ?? 0,
+          has_owned_physical: row.has_owned_physical ?? 0,
+          owned_variants: row.owned_variants ?? null,
+        });
+      }
+    } catch {
+      // Fallback to item.game fields if user_game_releases query fails
+    }
+
     for (const sub of subRows.results || []) {
+      const subUserId = sub.user_id || 1;
       let prefs: Partial<DealNotificationPreferences> = {};
       try {
         if (sub.preferences_json) {
@@ -6032,7 +6079,7 @@ async function dispatchPhysicalAnnouncementNotifications(
         (prefs.scope === 'all' || prefs.scope === 'seeking_and_unowned');
 
       const matchedForSub = items.filter(
-        ({ game, isSpecialEdition, isUncataloged }) => {
+        ({ game, preOrder, isSpecialEdition, isUncataloged }) => {
           if (
             userPlatforms &&
             game.platform_id &&
@@ -6044,10 +6091,46 @@ async function dispatchPhysicalAnnouncementNotifications(
           if (isUncataloged) {
             return scopeUncataloged;
           }
+
+          const userState =
+            game.stable_id !== undefined
+              ? userOwnershipByGame.get(`${subUserId}:${game.stable_id}`)
+              : undefined;
+          const subOwnershipStatus = userState
+            ? userState.ownership_status
+            : subUserId === 1
+              ? game.ownership_status
+              : 0;
+          const subHasOwnedPhysical = userState
+            ? userState.has_owned_physical
+            : subUserId === 1
+              ? (game.has_owned_physical ?? 0)
+              : 0;
+          const subOwnedVariants = userState
+            ? userState.owned_variants
+            : subUserId === 1
+              ? (game.owned_variants ?? null)
+              : null;
+
+          const variantAlreadyOwned = Boolean(
+            isSpecialEdition &&
+            preOrder.edition &&
+            subOwnedVariants &&
+            subOwnedVariants
+              .toLowerCase()
+              .includes(preOrder.edition.toLowerCase()),
+          );
+          if (
+            subHasOwnedPhysical === 1 &&
+            (!isSpecialEdition || variantAlreadyOwned)
+          ) {
+            return false;
+          }
+
           if (isSpecialEdition) {
             return scopeSpecialEditions;
           }
-          if (game.ownership_status === 2) {
+          if (subOwnershipStatus === 2) {
             return scopeSeeking;
           }
           if (
@@ -6062,27 +6145,47 @@ async function dispatchPhysicalAnnouncementNotifications(
 
       if (matchedForSub.length === 0) continue;
 
-      for (const top of matchedForSub) {
+      // Coalesce into a single summary notification when >3 items trigger for a subscriber
+      const payloadsToSend: WebPushNotificationPayload[] = [];
+      if (matchedForSub.length > 3) {
+        const top = matchedForSub[0];
         const titleEdition = top.preOrder.edition
           ? ` (${top.preOrder.edition})`
           : '';
-        const title = `📦 Physical Edition Announced: ${top.game.title}${titleEdition}`;
-        const body = `Pre-order now available at ${top.preOrder.store}!`;
-
-        const url = top.isUncataloged
-          ? `/collection/games?search=${encodeURIComponent(top.preOrder.cleanTitle)}`
-          : `/collection/game/${top.game.id}`;
-
-        const payload: WebPushNotificationPayload = {
-          title,
-          body,
+        payloadsToSend.push({
+          title: `📦 ${matchedForSub.length} Physical Editions Announced`,
+          body: `${top.game.title}${titleEdition} at ${top.preOrder.store} & ${matchedForSub.length - 1} more!`,
           icon: '/icons/icon-192.png',
           badge: '/icons/badge-96.png',
           data: {
-            url,
+            url: '/collection/games',
           },
-        };
+        });
+      } else {
+        for (const top of matchedForSub) {
+          const titleEdition = top.preOrder.edition
+            ? ` (${top.preOrder.edition})`
+            : '';
+          const title = `📦 Physical Edition Announced: ${top.game.title}${titleEdition}`;
+          const body = `Pre-order now available at ${top.preOrder.store}!`;
 
+          const url = top.isUncataloged
+            ? `/collection/games?search=${encodeURIComponent(top.preOrder.cleanTitle)}`
+            : `/collection/game/${top.game.id}`;
+
+          payloadsToSend.push({
+            title,
+            body,
+            icon: '/icons/icon-192.png',
+            badge: '/icons/badge-96.png',
+            data: {
+              url,
+            },
+          });
+        }
+      }
+
+      for (const payload of payloadsToSend) {
         const result = await sendWebPushNotification(
           { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
           payload,
@@ -6103,6 +6206,7 @@ async function dispatchPhysicalAnnouncementNotifications(
             .bind(sub.endpoint)
             .run();
           purgedCount++;
+          break;
         }
       }
     }
@@ -6669,6 +6773,7 @@ export async function syncWorkerGameyePricing(
           seriesId: toy.series_id,
           toyType: toy.type,
           client,
+          throwOnError: true,
         });
 
         if (match) {
@@ -6786,10 +6891,12 @@ export async function syncWorkerGameyePricing(
         `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
                 g.price_loose, g.price_cib, g.price_new, g.price_updated_at
          FROM games g
-         JOIN game_releases r ON r.game_id = g.stable_id
-         JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.ownership_status > 0
          WHERE g.stable_id > ?
-         GROUP BY g.stable_id
+           AND EXISTS (
+             SELECT 1 FROM game_releases r
+             JOIN user_game_releases ugr ON ugr.release_id = r.id
+             WHERE r.game_id = g.stable_id AND ugr.ownership_status > 0
+           )
          ORDER BY g.stable_id ASC
          LIMIT ?`,
       )
@@ -6815,10 +6922,12 @@ export async function syncWorkerGameyePricing(
           `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.gameye_id, g.gameye_platform_id,
                   g.price_loose, g.price_cib, g.price_new, g.price_updated_at
            FROM games g
-           JOIN game_releases r ON r.game_id = g.stable_id
-           JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.ownership_status > 0
            WHERE g.stable_id > 0
-           GROUP BY g.stable_id
+             AND EXISTS (
+               SELECT 1 FROM game_releases r
+               JOIN user_game_releases ugr ON ugr.release_id = r.id
+               WHERE r.game_id = g.stable_id AND ugr.ownership_status > 0
+             )
            ORDER BY g.stable_id ASC
            LIMIT ?`,
         )
@@ -6868,6 +6977,7 @@ export async function syncWorkerGameyePricing(
           game.platform_id,
           game.region,
           client,
+          { throwOnError: true },
         );
 
         if (match) {

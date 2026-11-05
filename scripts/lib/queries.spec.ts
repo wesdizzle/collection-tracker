@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { resolveLocalizedReleaseTitle } from './queries.js';
+import {
+  resolveLocalizedReleaseTitle,
+  buildTargetedCompanionByCrcBatchQuery,
+  enrichAndStripGameListRow,
+} from './queries.js';
 
 describe('resolveLocalizedReleaseTitle', () => {
   const apeEscapeMetadata = JSON.stringify({
@@ -143,5 +147,34 @@ describe('resolveLocalizedReleaseTitle', () => {
       'Ape Escape',
     );
     expect(title).toBe('Ape Escape');
+  });
+
+  it('builds a batch CRC companion query with placeholders', () => {
+    const qAnon = buildTargetedCompanionByCrcBatchQuery(null, 3);
+    expect(qAnon).toContain('WHERE r.rom_crc IN (?, ?, ?)');
+    expect(qAnon).not.toContain('user_game_releases');
+
+    const qUser = buildTargetedCompanionByCrcBatchQuery(7, 2);
+    expect(qUser).toContain('WHERE r.rom_crc IN (?, ?)');
+    expect(qUser).toContain('user_game_releases');
+  });
+
+  it('enriches localized title, extracts searchableNames, and strips bulky metadata fields on list rows', () => {
+    const row: Record<string, unknown> = {
+      title: 'Ape Escape',
+      base_title: 'Ape Escape',
+      raw_title: 'Saru! Get You!',
+      region: 'Japan',
+      metadata_json: apeEscapeMetadata,
+      origin_metadata: '{"raw":true}',
+    };
+    enrichAndStripGameListRow(row, 'USA');
+    expect(row['title']).toBe('サルゲッチュ');
+    expect(row['searchableNames']).toContain(
+      'Ape Escape: La Invasión de los Monos',
+    );
+    expect(row['metadata_json']).toBeUndefined();
+    expect(row['origin_metadata']).toBeUndefined();
+    expect(row['raw_title']).toBeUndefined();
   });
 });

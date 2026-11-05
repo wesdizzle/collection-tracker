@@ -607,6 +607,7 @@ export async function searchGameyeGame(
   gagglogPlatformId: number,
   region?: string | null,
   client: GameyeHttpClient | { get: typeof axios.get } = axios,
+  options?: { throwOnError?: boolean },
 ): Promise<GameyeSearchResult | null> {
   const gameyePlatformId = GAGGLOG_TO_GAMEYE_PLATFORM[gagglogPlatformId];
   if (!gameyePlatformId) {
@@ -641,7 +642,10 @@ export async function searchGameyeGame(
     }
 
     return pickBestRecord(queryTitle, records, gameyePlatformId);
-  } catch {
+  } catch (err) {
+    if (options?.throwOnError) {
+      throw err;
+    }
     return null;
   }
 }
@@ -650,6 +654,7 @@ export interface ToySearchOptions {
   seriesId?: string | null;
   toyType?: string | null;
   client?: GameyeHttpClient | { get: typeof axios.get };
+  throwOnError?: boolean;
 }
 
 /**
@@ -783,7 +788,10 @@ export async function searchGameyeToy(
       platformId,
       options.seriesId,
     );
-  } catch {
+  } catch (err) {
+    if (options.throwOnError) {
+      throw err;
+    }
     return null;
   }
 }
