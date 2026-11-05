@@ -61,6 +61,7 @@ export async function getAccessToken(): Promise<string> {
           client_secret: clientSecret,
           grant_type: 'client_credentials',
         },
+        timeout: 15000,
       },
     );
 

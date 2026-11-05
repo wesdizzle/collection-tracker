@@ -298,6 +298,7 @@ export async function queryIGDB(
           Authorization: `Bearer ${token}`,
           'Content-Type': 'text/plain',
         },
+        timeout: 15000,
       });
       // 500ms delay to safely stay under 4 RPS (targeting 2 RPS)
       await new Promise((resolve) => setTimeout(resolve, 500));

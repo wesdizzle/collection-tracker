@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
   stripEditionSuffix,
   selectBestRegionalCandidate,
   reconcileGameReleasesWithCanonical,
 } from './reconcile_releases.js';
+import { auditSqlCost } from './d1_cost_guard.js';
 
 describe('reconcile_releases', () => {
   describe('stripEditionSuffix', () => {
@@ -69,7 +71,7 @@ describe('reconcile_releases', () => {
 
   describe('reconcileGameReleasesWithCanonical', () => {
     let db: Database.Database;
-    const testSqlPath = path.resolve('scripts/temp/test_reconcile_output.sql');
+    const testSqlPath = path.join(os.tmpdir(), 'test_reconcile_output.sql');
 
     beforeEach(() => {
       db = new Database(':memory:');
@@ -250,6 +252,77 @@ describe('reconcile_releases', () => {
       expect(threeHopes.id).toBe('1572-b1765d12');
       expect(threeHopes.canonical_release_id).toBe(999002);
       expect(threeHopes.rom_name).toBe('Fire Emblem - Three Hopes (USA).xci');
+    });
+
+    it('should cascade game_releases primary key renames to user_game_releases.release_id', () => {
+      db.exec(`
+        CREATE TABLE user_game_releases (
+          user_id INTEGER,
+          release_id TEXT,
+          game_id INTEGER,
+          status TEXT,
+          PRIMARY KEY (user_id, release_id)
+        );
+        INSERT INTO user_game_releases (user_id, release_id, game_id, status)
+        VALUES (1, '1873-default', 1873, 'owned');
+      `);
+
+      reconcileGameReleasesWithCanonical(db, {
+        dryRun: false,
+        sqlOutputPath: testSqlPath,
+      });
+
+      const userRel = db
+        .prepare('SELECT release_id FROM user_game_releases WHERE game_id = ?')
+        .get(1873) as { release_id: string };
+      expect(userRel.release_id).toBe('1873-a95adadb');
+
+      const sqlContent = fs.readFileSync(testSqlPath, 'utf8');
+      expect(sqlContent).toContain(
+        "UPDATE user_game_releases SET release_id = '1873-a95adadb' WHERE release_id = '1873-default';",
+      );
+    });
+  });
+
+  describe('auditSqlCost (D1 Cost Guard)', () => {
+    it('accounts for CREATE INDEX N-row B-Tree population and INSERT OR REPLACE 2*(1+K) amplification', () => {
+      const tmpBaselinePath = path.join(
+        os.tmpdir(),
+        `test_cost_guard_baseline_${Date.now()}.db`,
+      );
+      const tmpSqlPath = path.join(
+        os.tmpdir(),
+        `test_cost_guard_${Date.now()}.sql`,
+      );
+      const db = new Database(tmpBaselinePath);
+      db.exec(`
+        CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, category TEXT);
+        CREATE INDEX idx_items_name ON items(name);
+        INSERT INTO items (id, name, category) VALUES (1, 'A', 'X'), (2, 'B', 'Y'), (3, 'C', 'Z');
+      `);
+      db.close();
+
+      fs.writeFileSync(
+        tmpSqlPath,
+        `
+        CREATE INDEX idx_items_category ON items(category);
+        INSERT OR REPLACE INTO items (id, name, category) VALUES (1, 'A2', 'X2');
+      `,
+        'utf8',
+      );
+
+      try {
+        const report = auditSqlCost(tmpSqlPath, 5000, tmpBaselinePath);
+        // CREATE INDEX on 3 existing rows = 3 billable writes, and K becomes 2 (idx_items_name + idx_items_category).
+        // INSERT OR REPLACE of existing row id=1 incurs 2 * (1 + K) = 2 * (1 + 2) = 6 billable writes.
+        expect(report.tableBreakdown['items']?.rowsChanged).toBe(5);
+        expect(report.tableBreakdown['items']?.billableWrites).toBe(9);
+        expect(report.totalBillableWrites).toBe(9);
+        expect(report.isWithinBudget).toBe(true);
+      } finally {
+        if (fs.existsSync(tmpBaselinePath)) fs.unlinkSync(tmpBaselinePath);
+        if (fs.existsSync(tmpSqlPath)) fs.unlinkSync(tmpSqlPath);
+      }
     });
   });
 });

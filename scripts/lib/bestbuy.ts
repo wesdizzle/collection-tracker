@@ -271,6 +271,7 @@ export async function fetchCadToUsdRate(
   try {
     const res = await fetchFn('https://open.er-api.com/v6/latest/CAD', {
       headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return DEFAULT_CAD_TO_USD_RATE;
     const data = (await res.json()) as { rates?: { USD?: number } };
@@ -315,6 +316,7 @@ export async function fetchBestBuyDeals(
         Accept: 'application/json',
         'User-Agent': 'CollectionTracker/1.0',
       },
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) {
@@ -372,6 +374,7 @@ export async function fetchVgpDeals(
         Accept: 'application/json',
         'User-Agent': 'CollectionTracker/1.0',
       },
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) {
@@ -474,6 +477,7 @@ export async function fetchPnpDeals(
         Accept: 'application/json',
         'User-Agent': 'CollectionTracker/1.0',
       },
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) {

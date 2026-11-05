@@ -390,6 +390,7 @@ export async function fetchBoutiquePreOrders(
           'User-Agent': 'CollectionTracker/2.0 (BoutiqueCatalogSync)',
           Accept: 'application/json',
         },
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!resp.ok) {

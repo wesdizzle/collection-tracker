@@ -56,7 +56,10 @@ export async function scrapePriceCharting(
     const searchUrl = `https://www.pricecharting.com/search-products?q=${query}&type=videogames`;
     console.log(`  Search URL: ${searchUrl}`);
 
-    const response = await axios.get(searchUrl, { headers: HEADERS });
+    const response = await axios.get(searchUrl, {
+      headers: HEADERS,
+      timeout: 15000,
+    });
     console.log(`  Status: ${response.status}`);
     const dataStr =
       typeof response.data === 'string'
@@ -154,7 +157,10 @@ export async function scrapePriceCharting(
     if (productUrl !== searchUrl && !productUrl.includes('search-products')) {
       console.log(`  Fetching Product Page: ${productUrl}`);
       await delay(500);
-      const productResponse = await axios.get(productUrl, { headers: HEADERS });
+      const productResponse = await axios.get(productUrl, {
+        headers: HEADERS,
+        timeout: 15000,
+      });
       const productHtml =
         typeof productResponse.data === 'string'
           ? productResponse.data
@@ -212,7 +218,10 @@ export async function scrapePlayStationStore(
     const query = encodeURIComponent(title);
     const searchUrl = `https://store.playstation.com/en-us/search/${query}`;
 
-    const response = await axios.get(searchUrl, { headers: HEADERS });
+    const response = await axios.get(searchUrl, {
+      headers: HEADERS,
+      timeout: 15000,
+    });
     const $ = cheerio.load(response.data as string);
 
     // Pick the first result link
@@ -265,6 +274,7 @@ export async function downloadCoverImage(
     const response = await axios.get(url, {
       responseType: 'stream',
       headers: HEADERS,
+      timeout: 15000,
     });
     const writer = fs.createWriteStream(targetPath);
 

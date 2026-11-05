@@ -11,7 +11,6 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **Collection Journal (Provenance & Cost Basis)**: Records acquisition date (with approximate date flags), purchase price / cost basis, merchant attribution, gift provenance, receipt verification URLs, and private notes behind authenticated access.
 - **Toy Collection**: Supports amiibo, Skylanders, and Starlink figures and cards with series tracking, variant classification, and metadata from AmiiboAPI and SCL.
 - **Discovery Pipeline**: Integrated search across IGDB and AmiiboAPI to identify uncollected titles, sequels, and figures with automated variant matching.
-- **Model Context Protocol (MCP) Server**: Edge-native Streamable HTTP JSON-RPC 2.0 server (`/mcp` and `/api/mcp`) exposing 8 read-only tools for AI assistants (Google Gemini, Claude, Cursor) to quickly query game and toy ownership, physical completeness, market valuations, and deals with sub-millisecond indexed responses.
 - **Pricing & Market Valuations**: Tracks loose, CIB (Complete in Box), and new market values for games and toys with aggregate collection valuation metrics and direct PriceCharting links.
 - **Boutique Physical Announcements & Deal Alerts**: Monitors limited-print boutique distributors (Limited Run Games, Super Rare Games, iam8bit, Fangamer, Strictly Limited Games) and retail price drops (Best Buy, VGP, PNP Games), dispatching Web Push notifications (RFC 8291 / RFC 8292) with region awareness, stock availability gating, and ownership suppression.
 - **Command Palette & Mobile Gestures**: Global Command Palette (`Ctrl+K` / `Cmd+K`) for rapid title search, view switching, and quick actions; touch-driven swipeable bottom-sheet modal drawer with velocity physics, rubber-banding, and drag-to-dismiss; independent scroll, filter, and sort state isolation between Games and Toys tabs.
@@ -23,8 +22,8 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **Styling**: Modern CSS using Material 3 design tokens (`--m3-*`)
 - **Testing**: Vitest
 - **Build**: Angular CLI (`ng build` with esbuild)
-- **Edge API & Hosting**: Cloudflare Workers
-- **Database**: Cloudflare D1 (SQLite-compatible) in production; SQLite (`better-sqlite3`) for local staging
+- **Edge API & Hosting**: Cloudflare Workers (`worker/worker.ts`), unified across production edge and local development via a `better-sqlite3` `D1Database` adapter (`scripts/local_server.ts`)
+- **Database**: Cloudflare D1 (SQLite-compatible) in production; Wrangler local D1 SQLite (`better-sqlite3`) for local staging and development
 - **Storage**: Cloudflare R2 for automated daily snapshots
 
 ## Architecture & Data Model
@@ -100,7 +99,7 @@ Managed serverless databases enforce daily read and write limits (e.g. Cloudflar
 
 - **Zero-Cost R2 Baseline Hydration (`npm run db:pull-r2`)**: Downloads automated R2 snapshots (`snapshots/latest.json`) to hydrate a local clone (`data/remote_baseline.db`) without consuming any D1 read or write quota.
 - **Index Write Amplification Accounting ($1 + K$)**: Every inserted, updated, or deleted row in a table with $K$ secondary indexes incurs $1 + K$ billable writes. For example, modifying a row in `game_releases` ($K=8$) incurs 9 billable writes; `games` ($K=11$) incurs 12 billable writes.
-- **Standalone Pre-Flight Cost Guard (`scripts/lib/d1_cost_guard.ts`)**: Standalone runner that parses candidate migration SQL, audits `EXPLAIN QUERY PLAN` for unindexed table scans on large tables, dry-runs execution in a sandbox clone to calculate exact $\sum (\Delta \text{rows} \times (1 + K))$ write costs, and hard-aborts if projected writes exceed `--max-writes`. Remote execution occurs only when explicitly confirmed via `--confirm`.
+- **Standalone Pre-Flight Cost Guard (`scripts/lib/d1_cost_guard.ts`)**: Standalone runner that parses candidate migration SQL, audits `EXPLAIN QUERY PLAN` for unindexed table scans on large tables, dry-runs execution in a sandbox clone to calculate exact $\sum (\Delta \text{rows} \times (1 + K))$ write costs (including `CREATE INDEX` $N$-row B-Tree population and `INSERT OR REPLACE` $2 \times (1 + K)$ delete+insert amplification), and hard-aborts if projected writes exceed `--max-writes`. Remote execution occurs only when explicitly confirmed via `--confirm`.
 
 ### Edge Background Automation Engine
 
@@ -112,38 +111,9 @@ The Cloudflare Worker implements an edge-native background engine (`worker/worke
 4. **Automated Daily R2 Snapshots**: Dumps all D1 tables—including `users`, `user_game_releases`, `user_games`, and `user_toys`—into structured, timestamped JSON backups in Cloudflare R2 at 23:30 UTC whenever data has changed, automatically pruning snapshots older than 30 days.
 5. **Launch-Day Transitions**: Automatically transitions announced titles (`announced_unreleased`, `physical_pending`) whose release date has arrived into the active catalog.
 
-### Model Context Protocol (MCP) Edge Server
-
-The application implements an edge-native **Model Context Protocol (MCP)** server over **Streamable HTTP** (JSON-RPC 2.0) at `/mcp` and `/api/mcp` without external runtime dependencies:
-
-- **Read-Only Conversational Tools**:
-  1. `check_game_ownership`: Checks if a game is owned, returning region, completeness (CIB vs Loose vs Digital), backup status, estimated USD market value, and direct clickable web URL.
-  2. `search_collection`: Multi-criteria search across games by title, series, platform, ownership, or backup status.
-  3. `get_game_details`: Deep inspection of physical media, multi-disc layouts, demo discs, voucher pack-ins, and price guide.
-  4. `check_toy_ownership`: Quick verification of amiibo, Skylander, or Starlink figure/card ownership with web detail URL.
-  5. `search_toys`: Filters figures and cards by product line, series, and ownership.
-  6. `get_collection_stats`: Returns total games, owned count, backed up count, missing backups, backup completion %, total toys, and total estimated collection value in USD.
-  7. `get_platforms`: Primary platforms catalog (child platforms like PSVR and 64DD are subsumed into parent platforms).
-  8. `get_active_deals`: Current retail price cuts from Best Buy, VGP, and PNP Games with store and collection URLs.
-- **Cloudflare Free Tier Preservation**:
-  - Queries leverage case-insensitive B-Tree indexes (`idx_games_title_nocase`, `idx_toys_name_nocase`) reading only **1 to 5 rows** per query instead of performing full table scans.
-  - Strict parameterized queries with hard `LIMIT` clauses prevent churn and read amplification.
-  - Worker CPU execution time stays below $\approx 2\text{ ms}$ (well within the 10 ms free tier ceiling).
-- **Client Configuration (`mcp_config.json`)**:
-  ```json
-  {
-    "mcpServers": {
-      "collection-tracker": {
-        "url": "https://<your-worker-domain>/mcp"
-      }
-    }
-  }
-  ```
-- **Authentication**: Publicly readable by default for zero-friction AI assistant integration. If an `MCP_AUTH_KEY` secret is set on Cloudflare, it automatically enforces `Authorization: Bearer <key>` or `?token=<key>`.
-
 ### Web Push Notifications Engine
 
-- **Web Crypto Standards**: Push payload encryption (`aes128gcm`) is implemented natively in `worker/web_push.ts` using the W3C Web Cryptography API (`crypto.subtle`) with ECDH key agreement (P-256) and RFC 8292 VAPID authorization.
+- **Web Crypto Standards**: Push payload encryption (`aes128gcm`) is implemented natively in `worker/web_push.ts` using the W3C Web Cryptography API (`crypto.subtle`) with ECDH key agreement (P-256) and RFC 8292 VAPID authorization, guarded by an explicit HTTPS push-service hostname allowlist to prevent SSRF.
 - **Granular Notification Settings**: Users can configure push alert preferences via an interactive modal:
   - **Retail Deals**: Minimum discount threshold percentage, store toggles (Best Buy, VGP, PNP Games), and platform selection.
   - **Physical Announcements**: Scope filters (`all_unowned`, `uncataloged_only`, `wishlist_only`) for boutique storefront pre-orders (Limited Run Games, Super Rare Games, iam8bit, Fangamer, Strictly Limited Games) and new physical edition drops.
@@ -166,7 +136,7 @@ The application implements an edge-native **Model Context Protocol (MCP)** serve
    ```bash
    npm run db:init
    ```
-   Creates local `collection.sqlite` with canonical schema, platforms, and default taxonomies.
+   Creates local Wrangler D1 SQLite database with canonical schema, platforms, and default taxonomies.
 4. **Configure environment variables**:
    Create a `.dev.vars` file in the root directory:
    ```env
@@ -175,11 +145,13 @@ The application implements an edge-native **Model Context Protocol (MCP)** serve
    VAPID_PUBLIC_KEY=your_vapid_public_key
    VAPID_PRIVATE_KEY=your_vapid_private_key
    ADMIN_EMAIL=admin@example.com
+   SESSION_SECRET=your_random_32_byte_session_secret
    ```
 5. **Start local development server**:
    ```bash
    npm run dev
    ```
+   Starts the Angular dev server alongside `scripts/local_server.ts`, which executes the production Cloudflare Worker (`worker/worker.ts`) directly in Node.js backed by Wrangler's local D1 SQLite database via a `better-sqlite3` `D1Database` adapter.
 
 ### Clean Fork Setup (Populating Catalog from Public Sources)
 
@@ -225,6 +197,7 @@ npm run scrape -- --discovery
    npx wrangler secret put VAPID_PUBLIC_KEY
    npx wrangler secret put VAPID_PRIVATE_KEY
    npx wrangler secret put ADMIN_EMAIL
+   npx wrangler secret put SESSION_SECRET
    ```
 6. **Deploy**:
    ```bash
@@ -237,8 +210,8 @@ npm run scrape -- --discovery
 
 | Command                                                  | Description                                                                             |
 | :------------------------------------------------------- | :-------------------------------------------------------------------------------------- |
-| `npm run db:init`                                        | Initializes fresh local `collection.sqlite` from schema and migrations                  |
-| `npm run db:backup`                                      | Exports binary, SQL, and JSON backups locally                                           |
+| `npm run db:init`                                        | Initializes fresh local Wrangler D1 SQLite database from schema and migrations          |
+| `npm run db:backup`                                      | Exports atomic WAL-safe binary, SQL, and JSON backups locally                           |
 | `npm run db:pull`                                        | Pulls latest production snapshot from Cloudflare R2 into local staging SQLite           |
 | `npm run db:pull-r2`                                     | Downloads latest R2 snapshot and constructs `data/remote_baseline.db` (0 D1 quota cost) |
 | `npm run sources:download`                               | Downloads latest official No-Intro Datomatic v4 XMLs and Redump DATs into `dats/`       |
@@ -252,42 +225,44 @@ npm run scrape -- --discovery
 | `npm run scrape`                                         | Runs multi-tier IGDB and PriceCharting reconciliation against local collection          |
 | `npm run scrape -- --discovery`                          | Discovers missing games and all toy lines (Amiibo, Skylanders, Starlink) as Wanted      |
 | `npm run scan-backups`                                   | Scans local backup directories to detect ROM files and match against games              |
-| `npm run local-api`                                      | Runs standalone local Express API server proxying collection requests                   |
-| `npm run sync:bestbuy`                                   | Manually scrapes current retail game deals from Best Buy                                |
+| `npm run local-api`                                      | Runs local Express adapter forwarding `/api/*` requests to the Cloudflare Worker        |
+| `npm run sync:bestbuy`                                   | Manually scrapes current retail game deals from Best Buy, VGP, and PNP Games            |
 | `npx tsx scripts/reconcile_toy_pricing.ts`               | Manually reconciles toy pricing and GAMEYE IDs                                          |
 
 ### Development & Quality Gates
 
-| Command              | Description                                                                     |
-| :------------------- | :------------------------------------------------------------------------------ |
-| `npm start`          | Runs Angular dev server via `ng serve`                                          |
-| `npm run dev`        | Runs local API proxy and frontend concurrently                                  |
-| `npm run build`      | Compiles production Angular bundle to `dist/tracker`                            |
-| `npm test`           | Runs frontend (`test:ng`) and script/worker (`test:node`) test suites           |
-| `npm run test:ng`    | Runs frontend unit tests via Vitest                                             |
-| `npm run test:node`  | Runs backend worker, scraper, and MCP tests                                     |
-| `npm run type-check` | Runs TypeScript compiler checks (`tsc --noEmit`)                                |
-| `npm run lint`       | Runs ESLint                                                                     |
-| `npm run ci-check`   | Runs lint, type-check, tests, and build sequentially (used by pre-commit hooks) |
+| Command                | Description                                                           |
+| :--------------------- | :-------------------------------------------------------------------- |
+| `npm start`            | Runs Angular dev server via `ng serve`                                |
+| `npm run dev`          | Runs local Worker API server and Angular frontend concurrently        |
+| `npm run build`        | Compiles production Angular bundle to `dist/tracker`                  |
+| `npm test`             | Runs frontend (`test:ng`) and script/worker (`test:node`) test suites |
+| `npm run test:ng`      | Runs frontend unit tests via Vitest                                   |
+| `npm run test:node`    | Runs backend worker and scraper tests via Vitest                      |
+| `npm run type-check`   | Runs TypeScript compiler checks (`tsc --noEmit`)                      |
+| `npm run lint`         | Runs ESLint                                                           |
+| `npm run format:check` | Verifies codebase formatting via Prettier                             |
+| `npm run ci-check`     | Runs lint, type-check, tests, and production build sequentially       |
 
 ## Custom Branding & Environment Configuration
 
 The app defaults to **Collection Tracker** as a neutral instance name. Deployers can customize branding, authentication, and notifications via environment variables or Cloudflare Worker secrets:
 
-| Variable               | Description                                                  | Default                                  |
-| :--------------------- | :----------------------------------------------------------- | :--------------------------------------- |
-| `APP_NAME`             | Title shown in header, page titles, and exports              | `Collection Tracker`                     |
-| `APP_SHORT_NAME`       | Short name for PWA home screen tiles                         | `Tracker`                                |
-| `APP_TAGLINE`          | Tagline for SEO and metadata                                 | `Physical Game & Toy Collection Tracker` |
-| `APP_AUTHOR`           | Author credit in exported CSV and DAT files                  | `Collection Tracker`                     |
-| `CUSTOM_FAVICON_SVG`   | Optional raw SVG string served at `/favicon.svg`             | Cartridge emblem (`/favicon.svg`)        |
-| `MCP_AUTH_KEY`         | Optional Bearer / query token to protect the `/mcp` endpoint | _(None - public read-only)_              |
-| `TWITCH_CLIENT_ID`     | Twitch Client ID for real-time IGDB metadata discovery       | _(Optional)_                             |
-| `TWITCH_CLIENT_SECRET` | Twitch Client Secret for IGDB OAuth authentication           | _(Optional)_                             |
-| `BESTBUY_API_KEY`      | Optional Best Buy API key for enhanced deal scanning         | _(Optional)_                             |
-| `VAPID_PUBLIC_KEY`     | Web Push VAPID application public key (RFC 8292)             | _(Built-in default)_                     |
-| `VAPID_PRIVATE_KEY`    | Web Push VAPID private key (secret)                          | _(Optional)_                             |
-| `ADMIN_EMAIL`          | Contact email used in VAPID `mailto:` claim and admin checks | _(Optional)_                             |
-| `ADMIN_KEY`            | Secret token for direct administrative access                | _(Optional)_                             |
-| `ADMIN_SESSION_DAYS`   | Duration in days for admin authentication cookies            | `30`                                     |
-| `TEAM_DOMAIN`          | Cloudflare Access team domain for edge role authentication   | _(Optional)_                             |
+| Variable               | Description                                                                       | Default                                  |
+| :--------------------- | :-------------------------------------------------------------------------------- | :--------------------------------------- |
+| `APP_NAME`             | Title shown in header, page titles, and exports                                   | `Collection Tracker`                     |
+| `APP_SHORT_NAME`       | Short name for PWA home screen tiles                                              | `Tracker`                                |
+| `APP_TAGLINE`          | Tagline for SEO and metadata                                                      | `Physical Game & Toy Collection Tracker` |
+| `APP_AUTHOR`           | Author credit in exported CSV and DAT files                                       | `Collection Tracker`                     |
+| `CUSTOM_FAVICON_SVG`   | Optional raw SVG string served at `/favicon.svg`                                  | Cartridge emblem (`/favicon.svg`)        |
+| `TWITCH_CLIENT_ID`     | Twitch Client ID for real-time IGDB metadata discovery                            | _(Optional)_                             |
+| `TWITCH_CLIENT_SECRET` | Twitch Client Secret for IGDB OAuth authentication                                | _(Optional)_                             |
+| `BESTBUY_API_KEY`      | Optional Best Buy API key for enhanced deal scanning                              | _(Optional)_                             |
+| `VAPID_PUBLIC_KEY`     | Web Push VAPID application public key (RFC 8292)                                  | _(Built-in default)_                     |
+| `VAPID_PRIVATE_KEY`    | Web Push VAPID private key (secret)                                               | _(Optional)_                             |
+| `ADMIN_EMAIL`          | Contact email used in VAPID `mailto:` claim and admin checks                      | _(Optional)_                             |
+| `ADMIN_KEY`            | Secret token for direct administrative access                                     | _(Optional)_                             |
+| `SESSION_SECRET`       | Dedicated HMAC secret for signing session cookies (falls back to `ADMIN_KEY`)     | _(Recommended)_                          |
+| `ADMIN_SESSION_DAYS`   | Duration in days for admin authentication cookies                                 | `30`                                     |
+| `TEAM_DOMAIN`          | Cloudflare Access team domain for edge JWT verification (`/cdn-cgi/access/certs`) | _(Optional)_                             |
+| `ACCESS_AUDIENCE`      | Cloudflare Access Application Audience (`AUD`) tag required with `TEAM_DOMAIN`    | _(Optional)_                             |

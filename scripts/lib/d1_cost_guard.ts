@@ -15,6 +15,7 @@
 import Database from 'better-sqlite3';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -136,14 +137,33 @@ export function splitSqlStatements(sql: string): string[] {
 }
 
 /**
- * Identifies the primary table targeted by an INSERT, UPDATE, or DELETE statement.
+ * Identifies the primary table targeted by an INSERT, UPDATE, DELETE, or CREATE INDEX statement.
  */
 export function extractTargetTable(sql: string): string | null {
   const normalized = sql.replace(/\s+/g, ' ').trim();
-  const match = normalized.match(
-    /^(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+[`"']?([a-zA-Z0-9_]+)[`"']?/i,
+  const dmlMatch = normalized.match(
+    /^(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+[`"']?([a-zA-Z0-9_]+)[`"']?/i,
   );
-  return match ? match[1].toLowerCase() : null;
+  if (dmlMatch) {
+    return dmlMatch[1].toLowerCase();
+  }
+  const createIndexMatch = normalized.match(
+    /^CREATE(?:\s+UNIQUE)?\s+INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+[`"']?[a-zA-Z0-9_]+[`"']?\s+ON\s+[`"']?([a-zA-Z0-9_]+)[`"']?/i,
+  );
+  if (createIndexMatch) {
+    return createIndexMatch[1].toLowerCase();
+  }
+  return null;
+}
+
+function isCreateIndexStatement(sql: string): boolean {
+  return /^CREATE(?:\s+UNIQUE)?\s+INDEX\b/i.test(sql.trim());
+}
+
+function isInsertOrReplaceStatement(sql: string): boolean {
+  return /^(?:INSERT\s+OR\s+REPLACE\s+INTO|REPLACE\s+INTO)\b/i.test(
+    sql.replace(/\s+/g, ' ').trim(),
+  );
 }
 
 /**
@@ -168,10 +188,10 @@ export function auditSqlCost(
     throw new Error(`SQL file not found at ${sqlFilePath}`);
   }
 
-  const tempDir = path.join(rootDir, 'scripts', 'temp');
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-  const sandboxDbPath = path.join(tempDir, '_cost_guard_sandbox.db');
+  const sandboxDbPath = path.join(
+    os.tmpdir(),
+    `_cost_guard_sandbox_${process.pid}_${Date.now()}.db`,
+  );
   if (fs.existsSync(sandboxDbPath)) fs.unlinkSync(sandboxDbPath);
 
   // Copy baseline to sandbox
@@ -218,24 +238,92 @@ export function auditSqlCost(
   try {
     for (const stmt of statements) {
       const targetTable = extractTargetTable(stmt);
+      const isCreateIdx = isCreateIndexStatement(stmt);
+      const isReplace = isInsertOrReplaceStatement(stmt);
 
-      // Audit query plan for unindexed scans on large tables
-      try {
-        const planRows = sandboxDb
-          .prepare(`EXPLAIN QUERY PLAN ${stmt}`)
-          .all() as Array<{ detail: string }>;
-        for (const row of planRows) {
-          const detail = row.detail.toUpperCase();
-          if (
-            /\bSCAN\s+(?:TABLE\s+)?(GAMES|GAME_RELEASES|CANONICAL_RELEASES|TOYS)\b/i.test(
-              detail,
-            )
-          ) {
-            unindexedScans.push({ statement: stmt, plan: row.detail });
+      // Audit query plan for unindexed scans on large tables (skip CREATE INDEX DDL)
+      if (!isCreateIdx) {
+        try {
+          const planRows = sandboxDb
+            .prepare(`EXPLAIN QUERY PLAN ${stmt}`)
+            .all() as Array<{ detail: string }>;
+          for (const row of planRows) {
+            const detail = row.detail.toUpperCase();
+            if (
+              /\bSCAN\s+(?:TABLE\s+)?(GAMES|GAME_RELEASES|CANONICAL_RELEASES|TOYS)\b/i.test(
+                detail,
+              )
+            ) {
+              unindexedScans.push({ statement: stmt, plan: row.detail });
+            }
+          }
+        } catch {
+          // Some statements (e.g. PRAGMA) might not support EXPLAIN QUERY PLAN
+        }
+      }
+
+      if (isCreateIdx && targetTable) {
+        // Measure index count before and after to see if the index was newly created
+        const indexesBefore = (
+          sandboxDb
+            .prepare(`PRAGMA index_list("${targetTable}")`)
+            .all() as Array<{
+            name: string;
+            origin: string;
+          }>
+        ).filter((idx) => idx.origin === 'c').length;
+
+        sandboxDb.exec(stmt);
+
+        const indexesAfter = (
+          sandboxDb
+            .prepare(`PRAGMA index_list("${targetTable}")`)
+            .all() as Array<{
+            name: string;
+            origin: string;
+          }>
+        ).filter((idx) => idx.origin === 'c').length;
+
+        if (indexesAfter > indexesBefore) {
+          const tableRows = sandboxDb
+            .prepare(`SELECT COUNT(*) FROM "${targetTable}"`)
+            .pluck()
+            .get() as number;
+
+          indexMultipliers[targetTable] = {
+            secondaryIndexes: indexesAfter,
+            multiplier: 1 + indexesAfter,
+          };
+
+          if (tableRows > 0) {
+            if (!tableBreakdown[targetTable]) {
+              tableBreakdown[targetTable] = {
+                rowsChanged: 0,
+                secondaryIndexes: indexesAfter,
+                multiplier: 1 + indexesAfter,
+                billableWrites: 0,
+              };
+            }
+            // Populating a new B-Tree index writes 1 index entry per existing table row (N writes)
+            tableBreakdown[targetTable].rowsChanged += tableRows;
+            tableBreakdown[targetTable].billableWrites += tableRows;
+            totalRowsChanged += tableRows;
+            totalBillableWrites += tableRows;
           }
         }
-      } catch {
-        // Some statements (e.g. PRAGMA) might not support EXPLAIN QUERY PLAN
+        continue;
+      }
+
+      let countBefore = 0;
+      if (isReplace && targetTable) {
+        try {
+          countBefore = sandboxDb
+            .prepare(`SELECT COUNT(*) FROM "${targetTable}"`)
+            .pluck()
+            .get() as number;
+        } catch {
+          countBefore = 0;
+        }
       }
 
       // Execute statement and measure changes
@@ -250,7 +338,24 @@ export function auditSqlCost(
           secondaryIndexes: 0,
           multiplier: 1,
         };
-        const billable = changes * idxInfo.multiplier;
+
+        let effectiveRowsChanged = changes;
+        if (isReplace) {
+          try {
+            const countAfter = sandboxDb
+              .prepare(`SELECT COUNT(*) FROM "${targetTable}"`)
+              .pluck()
+              .get() as number;
+            const netInserted = Math.max(0, countAfter - countBefore);
+            const replacedCount = Math.max(0, changes - netInserted);
+            // Each replaced row performs a DELETE + INSERT (2x row mutations)
+            effectiveRowsChanged = netInserted + replacedCount * 2;
+          } catch {
+            effectiveRowsChanged = changes;
+          }
+        }
+
+        const billable = effectiveRowsChanged * idxInfo.multiplier;
 
         if (!tableBreakdown[targetTable]) {
           tableBreakdown[targetTable] = {
@@ -261,9 +366,9 @@ export function auditSqlCost(
           };
         }
 
-        tableBreakdown[targetTable].rowsChanged += changes;
+        tableBreakdown[targetTable].rowsChanged += effectiveRowsChanged;
         tableBreakdown[targetTable].billableWrites += billable;
-        totalRowsChanged += changes;
+        totalRowsChanged += effectiveRowsChanged;
         totalBillableWrites += billable;
       }
     }

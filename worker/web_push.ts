@@ -258,7 +258,9 @@ export function resolveVapidJwk(
         y,
       };
     }
-    throw new Error('Invalid VAPID_PUBLIC_KEY format (expected 65-byte P-256 uncompressed point).');
+    throw new Error(
+      'Invalid VAPID_PUBLIC_KEY format (expected 65-byte P-256 uncompressed point).',
+    );
   }
   throw new Error(
     'VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY must be configured to send Web Push notifications.',

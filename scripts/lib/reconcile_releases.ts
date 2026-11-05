@@ -473,6 +473,9 @@ export function reconcileGameReleasesWithCanonical(
       sqlStatements.push(
         `UPDATE game_releases SET id = ${escapeSql(newId)}, canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)}) WHERE id = ${escapeSql(rel.id)};`,
       );
+      sqlStatements.push(
+        `UPDATE user_game_releases SET release_id = ${escapeSql(newId)} WHERE release_id = ${escapeSql(rel.id)};`,
+      );
     } else {
       sqlStatements.push(
         `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)}) WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
@@ -681,6 +684,19 @@ export function reconcileGameReleasesWithCanonical(
         `)
       : null;
 
+    // Check if user_game_releases table exists to cascade primary key renames
+    const ugrTableInfo = db.pragma('table_info(user_game_releases)') as Array<{
+      name: string;
+    }>;
+    const cascadeUserReleaseStmt =
+      ugrTableInfo.length > 0
+        ? db.prepare(`
+            UPDATE user_game_releases
+            SET release_id = ?
+            WHERE release_id = ?
+          `)
+        : null;
+
     const applyTx = db.transaction(() => {
       for (const u of updates) {
         if (hasAlsoReleasedAs) {
@@ -702,6 +718,13 @@ export function reconcileGameReleasesWithCanonical(
             u.variants || null,
             u.releaseId,
           );
+        }
+        if (
+          cascadeUserReleaseStmt &&
+          u.newReleaseId &&
+          u.newReleaseId !== u.releaseId
+        ) {
+          cascadeUserReleaseStmt.run(u.newReleaseId, u.releaseId);
         }
         if (graduateStmt) {
           graduateStmt.run(u.gameId);

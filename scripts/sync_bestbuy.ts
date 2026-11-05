@@ -15,7 +15,6 @@
  *   npx tsx scripts/sync_bestbuy.ts
  */
 
-import { execSync } from 'child_process';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -26,6 +25,7 @@ import {
   CandidateGame,
   RetailDealItem,
 } from './lib/bestbuy.js';
+import { runWithD1CostGuard } from './lib/d1_cost_guard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +44,8 @@ if (fs.existsSync(path.join(rootDir, '.dev.vars'))) {
 
 const apiKey = process.env['BESTBUY_API_KEY'];
 const syncRemote = process.argv.includes('--remote');
+const confirmRemote =
+  process.argv.includes('--confirm') || process.argv.includes('--yes');
 
 if (!apiKey) {
   console.log(
@@ -106,6 +108,14 @@ async function run() {
       }
     }
 
+    // Identify previously on-sale games by primary key so remote resets use PK lookup
+    const prevOnSaleIds = db
+      .prepare(
+        `SELECT stable_id FROM games WHERE retail_on_sale = 1 AND retail_store IN ('Best Buy', 'VGP', 'PNP Games')`,
+      )
+      .pluck()
+      .all() as number[];
+
     // Reset previous retail sales flags before applying fresh state
     db.prepare(
       `UPDATE games SET retail_on_sale = 0 WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games')`,
@@ -124,9 +134,13 @@ async function run() {
     `);
 
     const nowIso = new Date().toISOString();
-    const remoteSqlStatements: string[] = [
-      `UPDATE games SET retail_on_sale = 0 WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games');`,
-    ];
+    const remoteSqlStatements: string[] = [];
+    const staleSaleIds = prevOnSaleIds.filter((id) => !bestDealByGame.has(id));
+    if (staleSaleIds.length > 0) {
+      remoteSqlStatements.push(
+        `UPDATE games SET retail_on_sale = 0 WHERE stable_id IN (${staleSaleIds.join(',')}) AND retail_on_sale = 1;`,
+      );
+    }
 
     const updateBatch = db.transaction(() => {
       for (const [stableId, deal] of bestDealByGame.entries()) {
@@ -161,23 +175,25 @@ async function run() {
     );
 
     if (syncRemote && remoteSqlStatements.length > 0) {
-      console.log(
-        `\n[RetailSync] Pushing ${bestDealByGame.size} matched deals to remote Cloudflare D1 (collection-db)...`,
-      );
-      const BATCH_SIZE = 20;
-      for (let i = 0; i < remoteSqlStatements.length; i += BATCH_SIZE) {
-        const batchSql = remoteSqlStatements
-          .slice(i, i + BATCH_SIZE)
-          .join(' ')
-          .replace(/"/g, '\\"');
-        execSync(
-          `npx wrangler d1 execute collection-db --remote --command "${batchSql}"`,
-          { stdio: 'inherit' },
-        );
+      const tempDir = path.join(rootDir, 'scripts', 'temp');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
       }
-      console.log(
-        '✅ [RetailSync] Successfully synced active deals to remote Cloudflare D1!',
+      const sqlFilePath = path.join(tempDir, 'sync_bestbuy.sql');
+      fs.writeFileSync(
+        sqlFilePath,
+        remoteSqlStatements.join('\n') + '\n',
+        'utf8',
       );
+      console.log(
+        `\n[RetailSync] Validating ${remoteSqlStatements.length} deal update statement(s) via Pre-Flight Cost Guard...`,
+      );
+      runWithD1CostGuard({
+        sqlFilePath,
+        maxWrites: 15000,
+        confirm: confirmRemote,
+        isDryRun: !confirmRemote,
+      });
     }
   } catch (err) {
     console.error('[RetailSync] Failed to sync deals:', err);
