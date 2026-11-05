@@ -1,9 +1,9 @@
 /**
  * HYBRID DEVELOPMENT ORCHESTRATOR (TS)
  *
- * This script is the single entry point for local development. It manages the
- * lifecycle of three concurrent servers and ensures the database is correctly
- * synchronized before the API becomes active.
+ * This script is the single entry point for local development. It verifies
+ * the local Wrangler D1 SQLite database health and manages the lifecycle of
+ * the unified local Worker API server (`local_server.ts`) and Angular dev server.
  */
 
 import { spawn, execSync, ChildProcess } from 'child_process';

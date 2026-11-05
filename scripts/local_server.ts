@@ -1,99 +1,384 @@
 /**
  * LOCAL DEVELOPMENT API & DISCOVERY SERVER (TS)
  *
- * This server serves as the backend for the local development environment.
- * It directly queries the 'collection.sqlite' source-of-truth database.
+ * Thin Node.js HTTP wrapper around the Cloudflare Worker (`worker/worker.ts`)
+ * backed by a `better-sqlite3` D1Database-compatible adapter over the unified
+ * local D1 SQLite database.
  *
- * It handles:
- * 1. Collection API: Games, Toys, and Platforms (mirroring worker/worker.ts)
- * 2. Discovery API: Reading and applying scraping reconciliation reports.
+ * Delegating all route handling to `worker.fetch()` guarantees 100% behavioral
+ * parity between `npm run dev` (`local_server.ts`) and production (`worker.ts`).
  */
 
+import 'dotenv/config';
 import * as http from 'http';
-import axios from 'axios';
 import Database from 'better-sqlite3';
-import { execSync } from 'child_process';
-import {
-  PLATFORM_MAP,
-  findGame,
-  getGameById,
-  getCollectionGames,
-  queryIGDB,
-  getGamesByIds,
-  IGDBGame,
-} from './lib/igdb.js';
-import { PlatformRecord } from './lib/dat_cache.js';
-import {
-  detectPhysicalReleaseStatus,
-  isPlatformSourceComplete,
-  CanonicalRelease,
-} from './lib/canonical_releases.js';
-import { normalizeTitleForMatching } from './lib/title_matching.js';
-import { findVerifiedRegionalPhysicalReleases } from './lib/gameye.js';
-import { computeGameCanonicalSeries } from './lib/canonical_series.js';
+import { fileURLToPath } from 'url';
+import worker, { Env, invalidateSeriesScanCache } from '../worker/worker.js';
 import { recomputeCanonicalSeries } from './compute_canonical_series.js';
-import {
-  PLATFORMS_LIST_QUERY,
-  GAMES_ORDER_BY,
-  getRomGroupingKey,
-  buildTargetedCompanionByCrcQuery,
-  buildTargetedCompanionByGameIdQuery,
-  buildTargetedCompanionByTitleQuery,
-  buildGamesListQuery,
-  buildGameDetailQuery,
-  getGameDetailQueryParams,
-  buildGameReleasesByGameIdQuery,
-  buildBundledGamesByParentQuery,
-  buildToysListQuery,
-  buildToyDetailQuery,
-  getRelatedGameIdsForCompanion,
-  getRelatedGameTitlesForCompanion,
-  CompanionDiscCandidateRow,
-  enrichGameDetailWithCompanionsAndVouchers,
-  resolveRegionalCoverUrl,
-  JournalEntryRow,
-  RESOLVE_CANONICAL_GAME_ID_QUERY,
-  JOURNAL_ENTRY_BY_ITEM_QUERY,
-  JOURNAL_ENTRIES_ALL_QUERY,
-  UPSERT_JOURNAL_ENTRY_QUERY,
-  DELETE_JOURNAL_ENTRY_QUERY,
-  normalizeJournalDatePayload,
-  normalizeMerchantName,
-  normalizeReceiptUrl,
-  resolveLocalizedReleaseTitle,
-} from './lib/queries.js';
-import {
-  fetchAllRetailDeals,
-  matchBestBuyProduct,
-  CandidateGame,
-  RetailDealItem,
-} from './lib/bestbuy.js';
-
 import { getDatabase } from './lib/db.js';
-import {
-  DEFAULT_VAPID_PUBLIC_KEY,
-  sendWebPushNotification,
-} from '../worker/web_push.js';
 
-const PORT = 3000;
+export const PORT = Number(process.env['PORT'] || 3000);
+export const HOST = process.env['HOST'] || '127.0.0.1';
+
+const initializedDatabases = new WeakSet<Database.Database>();
+
+/**
+ * Ensures multi-user and auxiliary tables exist on the target SQLite database
+ * (including in-memory unit test databases) and installs lightweight triggers
+ * so legacy single-user columns (`game_releases.ownership_status`, `games.play_status`,
+ * `toys.ownership_status`) stay bidirectionally synchronized with `user_*` tables
+ * for the default local admin user (`user_id = 1`).
+ */
+function ensureLocalSchemaAndSync(db: Database.Database): void {
+  if (initializedDatabases.has(db)) {
+    return;
+  }
+  initializedDatabases.add(db);
+  invalidateSeriesScanCache();
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin', 'user')),
+      is_public INTEGER NOT NULL DEFAULT 0,
+      home_region TEXT NOT NULL DEFAULT 'USA',
+      display_name TEXT,
+      bio TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT OR IGNORE INTO users (id, email, username, role, is_public, home_region, display_name)
+    VALUES (1, 'admin@example.com', 'wesley', 'admin', 1, 'USA', 'Wesley');
+
+    CREATE TABLE IF NOT EXISTS user_games (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
+      play_status INTEGER NOT NULL DEFAULT 0,
+      queued BOOLEAN NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, game_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_game_releases (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      release_id TEXT NOT NULL REFERENCES game_releases(id) ON DELETE CASCADE,
+      ownership_status INTEGER NOT NULL DEFAULT 0,
+      backup_status INTEGER NOT NULL DEFAULT 0,
+      has_case INTEGER NOT NULL DEFAULT 0,
+      has_manual INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, release_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_toys (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      toy_id TEXT NOT NULL REFERENCES toys(id) ON DELETE CASCADE,
+      ownership_status INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, toy_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS toy_series (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      line TEXT NOT NULL,
+      sort_index INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      preferences_json TEXT NOT NULL DEFAULT '{}',
+      user_agent TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_state (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS cron_execution_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      summary TEXT,
+      details_json TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS journal_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+      item_type TEXT NOT NULL CHECK(item_type IN ('game', 'toy')),
+      item_id TEXT NOT NULL,
+      purchase_date TEXT,
+      is_approximate_date INTEGER NOT NULL DEFAULT 0,
+      price_paid REAL,
+      merchant TEXT,
+      gifted_by TEXT,
+      receipt_url TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, item_type, item_id)
+    );
+  `);
+
+  const releaseCols = new Set(
+    (
+      db.prepare('PRAGMA table_info(game_releases)').all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name),
+  );
+  if (releaseCols.has('ownership_status') && releaseCols.has('backup_status')) {
+    const hasCaseExpr = releaseCols.has('has_case') ? 'has_case' : '0';
+    const hasManualExpr = releaseCols.has('has_manual') ? 'has_manual' : '0';
+    db.exec(`
+      INSERT OR IGNORE INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+      SELECT 1, id, COALESCE(ownership_status, 0), COALESCE(backup_status, 0), COALESCE(${hasCaseExpr}, 0), COALESCE(${hasManualExpr}, 0)
+      FROM game_releases
+      WHERE COALESCE(ownership_status, 0) > 0 OR COALESCE(backup_status, 0) > 0;
+
+      CREATE TRIGGER IF NOT EXISTS trg_local_sync_gr_after_insert
+      AFTER INSERT ON game_releases
+      WHEN COALESCE(NEW.ownership_status, 0) > 0 OR COALESCE(NEW.backup_status, 0) > 0
+      BEGIN
+        INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+        VALUES (1, NEW.id, COALESCE(NEW.ownership_status, 0), COALESCE(NEW.backup_status, 0), COALESCE(NEW.${hasCaseExpr}, 0), COALESCE(NEW.${hasManualExpr}, 0))
+        ON CONFLICT(user_id, release_id) DO UPDATE SET
+          ownership_status = excluded.ownership_status,
+          backup_status = excluded.backup_status,
+          has_case = excluded.has_case,
+          has_manual = excluded.has_manual;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_local_sync_ugr_after_insert
+      AFTER INSERT ON user_game_releases
+      WHEN NEW.user_id = 1
+      BEGIN
+        UPDATE game_releases
+        SET ownership_status = NEW.ownership_status,
+            backup_status = NEW.backup_status
+        WHERE id = NEW.release_id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_local_sync_ugr_after_update
+      AFTER UPDATE ON user_game_releases
+      WHEN NEW.user_id = 1
+      BEGIN
+        UPDATE game_releases
+        SET ownership_status = NEW.ownership_status,
+            backup_status = NEW.backup_status
+        WHERE id = NEW.release_id;
+      END;
+    `);
+  }
+
+  const gameCols = new Set(
+    (
+      db.prepare('PRAGMA table_info(games)').all() as Array<{ name: string }>
+    ).map((c) => c.name),
+  );
+  if (gameCols.has('play_status')) {
+    db.exec(`
+      INSERT OR IGNORE INTO user_games (user_id, game_id, play_status, queued)
+      SELECT 1, stable_id, COALESCE(CAST(play_status AS INTEGER), 0), COALESCE(queued, 0)
+      FROM games
+      WHERE COALESCE(CAST(play_status AS INTEGER), 0) > 0 OR COALESCE(queued, 0) > 0;
+
+      CREATE TRIGGER IF NOT EXISTS trg_local_sync_ug_after_insert
+      AFTER INSERT ON user_games
+      WHEN NEW.user_id = 1
+      BEGIN
+        UPDATE games
+        SET play_status = NEW.play_status,
+            queued = NEW.queued
+        WHERE stable_id = NEW.game_id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_local_sync_ug_after_update
+      AFTER UPDATE ON user_games
+      WHEN NEW.user_id = 1
+      BEGIN
+        UPDATE games
+        SET play_status = NEW.play_status,
+            queued = NEW.queued
+        WHERE stable_id = NEW.game_id;
+      END;
+    `);
+  }
+
+  const toyCols = new Set(
+    (
+      db.prepare('PRAGMA table_info(toys)').all() as Array<{ name: string }>
+    ).map((c) => c.name),
+  );
+  if (toyCols.has('ownership_status')) {
+    db.exec(`
+      INSERT OR IGNORE INTO user_toys (user_id, toy_id, ownership_status)
+      SELECT 1, id, COALESCE(ownership_status, 0)
+      FROM toys
+      WHERE id IS NOT NULL AND COALESCE(ownership_status, 0) > 0;
+
+      CREATE TRIGGER IF NOT EXISTS trg_local_sync_ut_after_insert
+      AFTER INSERT ON user_toys
+      WHEN NEW.user_id = 1
+      BEGIN
+        UPDATE toys
+        SET ownership_status = NEW.ownership_status
+        WHERE id = NEW.toy_id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_local_sync_ut_after_update
+      AFTER UPDATE ON user_toys
+      WHEN NEW.user_id = 1
+      BEGIN
+        UPDATE toys
+        SET ownership_status = NEW.ownership_status
+        WHERE id = NEW.toy_id;
+      END;
+    `);
+  }
+}
+
+function normalizeSqliteParam(val: unknown): unknown {
+  if (val === undefined) return null;
+  if (typeof val === 'boolean') return val ? 1 : 0;
+  return val;
+}
+
+/**
+ * Wraps a synchronous `better-sqlite3` Database instance in a Cloudflare
+ * `D1Database`-compatible async interface so `worker/worker.ts` can execute
+ * directly against local SQLite without duplicating route handlers.
+ */
+export function createLocalD1Adapter(db: Database.Database): D1Database {
+  ensureLocalSchemaAndSync(db);
+
+  const createStatement = (
+    query: string,
+    boundParams: unknown[] = [],
+  ): D1PreparedStatement => {
+    const normalizedParams = boundParams.map(normalizeSqliteParam);
+    const statement: D1PreparedStatement = {
+      bind: (...params: unknown[]) => createStatement(query, params),
+      all: async <T = Record<string, unknown>>() => {
+        const stmt = db.prepare(query);
+        const results = (
+          stmt.reader ? stmt.all(...normalizedParams) : []
+        ) as T[];
+        if (!stmt.reader) {
+          stmt.run(...normalizedParams);
+        }
+        return {
+          results,
+          success: true,
+          meta: {
+            duration: 0,
+            size_after: 0,
+            rows_read: results.length,
+            rows_written: 0,
+            last_row_id: 0,
+            changed_db: false,
+            changes: 0,
+          },
+        };
+      },
+      first: async <T = unknown>(colName?: string): Promise<T | null> => {
+        const stmt = db.prepare(query);
+        const row = stmt.get(...normalizedParams) as
+          | Record<string, unknown>
+          | undefined;
+        if (!row) return null;
+        if (colName !== undefined) {
+          return ((row[colName] as T) ?? null) as T | null;
+        }
+        return row as unknown as T;
+      },
+      run: async <T = Record<string, unknown>>() => {
+        const info = db.prepare(query).run(...normalizedParams);
+        return {
+          results: [] as T[],
+          success: true,
+          meta: {
+            duration: 0,
+            size_after: 0,
+            rows_read: 0,
+            rows_written: info.changes,
+            last_row_id: Number(info.lastInsertRowid || 0),
+            changed_db: info.changes > 0,
+            changes: info.changes,
+          },
+        };
+      },
+      raw: (async <T = unknown[]>(options?: { columnNames?: boolean }) => {
+        const stmt = db.prepare(query);
+        const rows = stmt.raw(true).all(...normalizedParams) as T[];
+        if (options?.columnNames) {
+          const cols = stmt.columns().map((c) => c.name);
+          return [cols, ...rows];
+        }
+        return rows;
+      }) as D1PreparedStatement['raw'],
+    };
+    return statement;
+  };
+
+  return {
+    prepare: (query: string) => createStatement(query),
+    batch: async <T = unknown>(
+      statements: D1PreparedStatement[],
+    ): Promise<D1Result<T>[]> => {
+      const results: D1Result<T>[] = [];
+      for (const stmt of statements) {
+        const res = (await stmt.run()) as D1Result<T>;
+        results.push(res);
+      }
+      return results;
+    },
+    exec: async (query: string): Promise<D1ExecResult> => {
+      db.exec(query);
+      return { count: 1, duration: 0 };
+    },
+    withSession: () => {
+      throw new Error('D1 sessions are not supported in local adapter');
+    },
+    dump: async (): Promise<ArrayBuffer> => new ArrayBuffer(0),
+  };
+}
 
 /**
  * CORE REQUEST HANDLER
- * Extracted for unit testing with dependency injection (db).
+ * Converts Node.js `http.IncomingMessage` into a Web `Request`, delegates to
+ * `worker.fetch()`, and streams the Web `Response` back to `http.ServerResponse`.
  */
-export const handleRequest =
-  (db: Database.Database) =>
-  async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    const url = new URL(req.url || '/', `http://localhost:${PORT}`);
-    const pathname = url.pathname;
+export const handleRequest = (db: Database.Database) => {
+  const d1 = createLocalD1Adapter(db);
 
-    // Enable cross-origin requests for the frontend (running on Port 4200)
+  return async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    // Enable cross-origin requests for the local Angular dev server (Port 4200)
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader(
+      'Access-Control-Allow-Methods',
+      'GET, POST, PUT, DELETE, OPTIONS',
+    );
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-Admin-Key',
+    );
 
-    // Handle Pre-flight options
     if (req.method === 'OPTIONS') {
       res.statusCode = 204;
       res.end();
@@ -101,2956 +386,130 @@ export const handleRequest =
     }
 
     try {
-      // GET /api/auth/me
-      if (req.method === 'GET' && pathname === '/api/auth/me') {
-        let user = {
-          id: 1,
-          username: 'admin',
-          role: 'admin',
-          homeRegion: 'USA',
-        };
-        try {
-          const row = db
-            .prepare(
-              'SELECT id, username, role, home_region FROM users WHERE id = 1',
-            )
-            .get() as
-            | {
-                id: number;
-                username: string;
-                role: string;
-                home_region: string | null;
-              }
-            | undefined;
-          if (row) {
-            user = {
-              id: row.id,
-              username: row.username,
-              role: row.role as 'admin',
-              homeRegion: row.home_region || 'USA',
-            };
-          }
-        } catch {
-          // Table might not exist in mocked tests
-        }
-        res.end(JSON.stringify({ user }));
-        return;
-      }
+      const method = req.method || 'GET';
+      const url = new URL(req.url || '/', `http://127.0.0.1:${PORT}`);
 
-      // POST /api/auth/login
-      else if (req.method === 'POST' && pathname === '/api/auth/login') {
-        res.end(JSON.stringify({ success: true }));
-        return;
-      }
-
-      // POST /api/auth/logout
-      else if (req.method === 'POST' && pathname === '/api/auth/logout') {
-        res.end(JSON.stringify({ success: true }));
-        return;
-      }
-
-      // GET /api/u/:username/games
-      else if (
-        req.method === 'GET' &&
-        pathname.startsWith('/api/u/') &&
-        pathname.endsWith('/games')
+      let bodyBuffer: Buffer | undefined;
+      const hasBodyHeader = Boolean(
+        req.headers?.['content-length'] ||
+        req.headers?.['content-type'] ||
+        req.headers?.['transfer-encoding'],
+      );
+      if (
+        method !== 'GET' &&
+        method !== 'HEAD' &&
+        (method !== 'DELETE' || hasBodyHeader)
       ) {
-        const parts = pathname.split('/');
-        const username = decodeURIComponent(parts[3] || '').trim();
-        let user:
-          | {
-              id: number;
-              username: string;
-              home_region: string | null;
-              is_public: number;
-            }
-          | undefined;
-        try {
-          user = db
-            .prepare(
-              'SELECT id, username, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
-            )
-            .get(username) as typeof user;
-        } catch {
-          // table might not exist
-        }
-        if (!user) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'User not found' }));
-          return;
-        }
-
-        const platformId =
-          url.searchParams.get('platform') ||
-          url.searchParams.get('platform_id');
-        let query = buildGamesListQuery(user.id);
-        const params: unknown[] = [user.id, user.id];
-
-        if (platformId) {
-          query += ' AND (g.platform_id = ? OR p.parent_platform_id = ?)';
-          params.push(platformId, platformId);
-        }
-
-        query += GAMES_ORDER_BY;
-
-        const games = db.prepare(query).all(...params) as Record<
-          string,
-          unknown
-        >[];
-        const homeRegion = user.home_region || 'USA';
-        for (const row of games) {
-          if (row['region'] && (row['metadata_json'] || row['raw_title'])) {
-            row['title'] = resolveLocalizedReleaseTitle(
-              (row['base_title'] || row['title'] || '') as string,
-              row['region'] as string | null,
-              (row['metadata_json'] as string) || null,
-              (row['raw_title'] || row['title'] || '') as string,
-              homeRegion,
-            );
-          }
-        }
-        res.end(JSON.stringify(games || []));
-        return;
-      }
-
-      // GET /api/u/:username/toys
-      else if (
-        req.method === 'GET' &&
-        pathname.startsWith('/api/u/') &&
-        pathname.endsWith('/toys')
-      ) {
-        const parts = pathname.split('/');
-        const username = decodeURIComponent(parts[3] || '').trim();
-        let user:
-          | { id: number; username: string; is_public: number }
-          | undefined;
-        try {
-          user = db
-            .prepare(
-              'SELECT id, username, is_public FROM users WHERE username = ? COLLATE NOCASE',
-            )
-            .get(username) as typeof user;
-        } catch {
-          // table might not exist
-        }
-        if (!user) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'User not found' }));
-          return;
-        }
-
-        const query = buildToysListQuery(user.id);
-        const toys = db.prepare(query).all(user.id);
-        res.end(JSON.stringify(toys || []));
-        return;
-      }
-
-      // GET /api/u/:username
-      else if (
-        req.method === 'GET' &&
-        pathname.startsWith('/api/u/') &&
-        !pathname.slice(7).includes('/')
-      ) {
-        const username = decodeURIComponent(pathname.slice(7)).trim();
-        let user:
-          | {
-              id: number;
-              username: string;
-              display_name: string | null;
-              bio: string | null;
-              home_region: string | null;
-              is_public: number;
-            }
-          | undefined;
-        try {
-          user = db
-            .prepare(
-              'SELECT id, username, display_name, bio, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
-            )
-            .get(username) as typeof user;
-        } catch {
-          // table might not exist
-        }
-        if (!user) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'User not found' }));
-          return;
-        }
-
-        res.end(
-          JSON.stringify({
-            username: user.username,
-            displayName: user.display_name,
-            bio: user.bio,
-            homeRegion: user.home_region || 'USA',
-          }),
-        );
-        return;
-      } else if (
-        /**
-         * ROUTE: GET /api/discovery/scan-amiibo
-         */
-        req.method === 'GET' &&
-        pathname === '/api/discovery/scan-amiibo'
-      ) {
-        try {
-          const response = await axios.get(
-            'https://amiiboapi.org/api/amiibo/',
-            {
-              headers: { 'User-Agent': 'CollectionTracker/1.0' },
-              timeout: 10000,
-            },
+        bodyBuffer = await new Promise<Buffer>((resolve, reject) => {
+          const chunks: Buffer[] = [];
+          req.on('data', (chunk) =>
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
           );
-          const data = response.data as {
-            amiibo: Array<{
-              head: string;
-              tail: string;
-              name: string;
-              amiiboSeries: string;
-              gameSeries?: string;
-              type: string;
-              image: string;
-              release?: { na?: string; jp?: string; eu?: string };
-            }>;
-          };
-
-          const existingRows = db
-            .prepare(
-              `SELECT id, name, amiibo_id FROM toys WHERE line = 'amiibo'`,
-            )
-            .all() as { id: string; name: string; amiibo_id?: string | null }[];
-
-          const existingIds = new Set<string>();
-          const existingNames = new Set<string>();
-          existingRows.forEach((r) => {
-            if (r.amiibo_id) existingIds.add(r.amiibo_id);
-            if (r.id) existingIds.add(r.id);
-            if (r.name) existingNames.add(r.name.toLowerCase().trim());
-          });
-
-          const missingAmiibo: unknown[] = [];
-          for (const a of data.amiibo || []) {
-            const amiiboId = `${a.head}${a.tail}`;
-            const cleanName = (a.name || '').toLowerCase().trim();
-            const lowerSeries = (a.amiiboSeries || '').toLowerCase();
-            const lowerGame = (a.gameSeries || '').toLowerCase();
-            if (
-              lowerSeries.includes('skylanders') ||
-              lowerGame.includes('skylanders') ||
-              cleanName.includes('hammer slam bowser') ||
-              cleanName.includes('turbo charge donkey kong')
-            ) {
-              continue;
-            }
-
-            if (existingIds.has(amiiboId) || existingNames.has(cleanName)) {
-              continue;
-            }
-
-            const effectiveSeries =
-              a.amiiboSeries === 'Others' && a.gameSeries
-                ? a.gameSeries
-                : a.amiiboSeries || 'Other';
-
-            missingAmiibo.push({
-              id: amiiboId,
-              amiibo_id: amiiboId,
-              name: a.name,
-              line: 'amiibo',
-              series_name: effectiveSeries,
-              game_series: a.gameSeries || null,
-              type: a.type || 'Figure',
-              image_url: a.image,
-              release_date:
-                a.release?.na || a.release?.jp || a.release?.eu || null,
-              region: a.release?.na
-                ? 'USA'
-                : a.release?.jp
-                  ? 'Japan'
-                  : a.release?.eu
-                    ? 'Europe'
-                    : 'USA',
-            });
-          }
-
-          res.end(JSON.stringify(missingAmiibo));
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: msg }));
-        }
-      } else if (
-        req.method === 'POST' &&
-        pathname === '/api/discovery/add-toy'
-      ) {
-        /**
-         * ROUTE: POST /api/discovery/add-toy
-         */
-        try {
-          const body = await new Promise<string>((resolve, reject) => {
-            let data = '';
-            req.on('data', (chunk) => (data += chunk));
-            req.on('end', () => resolve(data));
-            req.on('error', (err) => reject(err));
-          });
-
-          const toy = JSON.parse(body);
-          if (!toy || !toy.name) {
-            res.statusCode = 400;
-            res.end(JSON.stringify({ error: 'Invalid toy payload' }));
-            return;
-          }
-
-          const slugify = (s: string) =>
-            (s || '')
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-+|-+$/g, '');
-
-          const candidateId =
-            toy.id ||
-            `amiibo-${slugify(toy.name)}-${slugify(toy.series_name || 'amiibo')}`;
-
-          const existingToy = db
-            .prepare(
-              `SELECT id, stable_id FROM toys WHERE (amiibo_id IS NOT NULL AND amiibo_id = ?) OR id = ? OR name = ?`,
-            )
-            .get(toy.amiibo_id || candidateId, candidateId, toy.name) as
-            | { id: string; stable_id: number }
-            | undefined;
-
-          if (existingToy) {
-            db.prepare(
-              `UPDATE toys 
-               SET ownership_status = COALESCE(?, ownership_status),
-                   verified = 1,
-                   image_url = COALESCE(?, image_url),
-                   metadata_json = COALESCE(?, metadata_json),
-                   amiibo_id = COALESCE(?, amiibo_id)
-               WHERE stable_id = ?`,
-            ).run(
-              toy.ownership_status ?? 0,
-              toy.image_url || null,
-              toy.metadata_json || null,
-              toy.amiibo_id || null,
-              existingToy.stable_id,
-            );
-            res.end(JSON.stringify({ success: true, id: existingToy.id }));
-            return;
-          }
-
-          const maxSortIndexRow = db
-            .prepare(
-              'SELECT MAX(sort_index) as max_idx FROM toys WHERE line = ?',
-            )
-            .get(toy.line || 'amiibo') as { max_idx: number | null };
-
-          const sortIndex =
-            (maxSortIndexRow?.max_idx !== null &&
-            maxSortIndexRow?.max_idx !== undefined
-              ? maxSortIndexRow.max_idx
-              : 0) + 1;
-
-          const toyColumns = new Set(
-            (
-              db.prepare('PRAGMA table_info(toys)').all() as Array<{
-                name: string;
-              }>
-            ).map((c) => c.name),
-          );
-          const hasUserToys = !!db
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_toys'",
-            )
-            .get();
-
-          if (toyColumns.has('ownership_status')) {
-            db.prepare(
-              `
-              INSERT INTO toys (
-                id, name, line, series_name, series_line, series, type, release_date,
-                ownership_status, image_url, amiibo_id, verified, metadata_json, sort_index, region
-              ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, 1, ?, ?, ?
-              )
-            `,
-            ).run(
-              candidateId,
-              toy.name,
-              toy.line || 'amiibo',
-              toy.series_name || 'Other',
-              toy.line || 'amiibo',
-              toy.series || toy.series_name || 'Other',
-              toy.type || 'Figure',
-              toy.release_date || null,
-              toy.ownership_status ?? 0,
-              toy.image_url || null,
-              toy.amiibo_id || null,
-              toy.metadata_json || null,
-              sortIndex,
-              toy.region || 'USA',
-            );
-          } else {
-            db.prepare(
-              `
-              INSERT INTO toys (
-                id, name, line, series_name, series_line, series, type, release_date,
-                image_url, amiibo_id, verified, metadata_json, sort_index, region
-              ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, 1, ?, ?, ?
-              )
-            `,
-            ).run(
-              candidateId,
-              toy.name,
-              toy.line || 'amiibo',
-              toy.series_name || 'Other',
-              toy.line || 'amiibo',
-              toy.series || toy.series_name || 'Other',
-              toy.type || 'Figure',
-              toy.release_date || null,
-              toy.image_url || null,
-              toy.amiibo_id || null,
-              toy.metadata_json || null,
-              sortIndex,
-              toy.region || 'USA',
-            );
-          }
-
-          if (hasUserToys) {
-            db.prepare(
-              `INSERT INTO user_toys (user_id, toy_id, ownership_status)
-               VALUES (1, ?, ?)
-               ON CONFLICT(user_id, toy_id) DO UPDATE SET ownership_status = excluded.ownership_status`,
-            ).run(candidateId, toy.ownership_status ?? 0);
-          }
-
-          res.end(JSON.stringify({ success: true, id: candidateId }));
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: msg }));
-        }
-      } else if (
-        req.method === 'POST' &&
-        pathname === '/api/collection/toggle'
-      ) {
-        /**
-         * ROUTE: POST /api/collection/toggle
-         */
-        try {
-          const body = await new Promise<string>((resolve, reject) => {
-            let data = '';
-            req.on('data', (chunk) => (data += chunk));
-            req.on('end', () => resolve(data));
-            req.on('error', (err) => reject(err));
-          });
-
-          const {
-            id,
-            type,
-            status,
-            field = 'ownership_status',
-          } = JSON.parse(body);
-
-          const allowedFields = [
-            'ownership_status',
-            'play_status',
-            'backup_status',
-            'has_case',
-            'has_manual',
-          ];
-          if (!allowedFields.includes(field)) {
-            throw new Error(`Invalid field: ${field}`);
-          }
-
-          const gameColumns = new Set(
-            (
-              db.prepare('PRAGMA table_info(games)').all() as Array<{
-                name: string;
-              }>
-            ).map((c) => c.name),
-          );
-          const releaseColumns = new Set(
-            (
-              db.prepare('PRAGMA table_info(game_releases)').all() as Array<{
-                name: string;
-              }>
-            ).map((c) => c.name),
-          );
-          const toyColumns = new Set(
-            (
-              db.prepare('PRAGMA table_info(toys)').all() as Array<{
-                name: string;
-              }>
-            ).map((c) => c.name),
-          );
-          const hasUserGames = !!db
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_games'",
-            )
-            .get();
-          const hasUserGameReleases = !!db
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_game_releases'",
-            )
-            .get();
-          const hasUserToys = !!db
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_toys'",
-            )
-            .get();
-
-          const updateReleaseField = (relId: string) => {
-            if (releaseColumns.has(field)) {
-              db.prepare(
-                `UPDATE game_releases SET ${field} = ? WHERE id = ?`,
-              ).run(status, relId);
-            }
-            if (hasUserGameReleases) {
-              db.prepare(
-                `
-                INSERT INTO user_game_releases (user_id, release_id, ${field})
-                VALUES (1, ?, ?)
-                ON CONFLICT(user_id, release_id) DO UPDATE SET ${field} = excluded.${field}
-              `,
-              ).run(relId, status);
-            }
-          };
-
-          if (type === 'game') {
-            if (field === 'play_status') {
-              // play_status: update games table
-              let stableId: number | null = null;
-              const release = db
-                .prepare('SELECT game_id FROM game_releases WHERE id = ?')
-                .get(id) as { game_id: number } | undefined;
-              if (release) {
-                stableId = release.game_id;
-              } else {
-                const game = db
-                  .prepare('SELECT stable_id FROM games WHERE id = ?')
-                  .get(id) as { stable_id: number } | undefined;
-                if (game) {
-                  stableId = game.stable_id;
-                }
-              }
-              if (stableId === null) {
-                throw new Error(`Could not find game/release with ID: ${id}`);
-              }
-              if (gameColumns.has('play_status')) {
-                db.prepare(
-                  'UPDATE games SET play_status = ? WHERE stable_id = ?',
-                ).run(status, stableId);
-              }
-              if (hasUserGames) {
-                db.prepare(
-                  `
-                  INSERT INTO user_games (user_id, game_id, play_status)
-                  VALUES (1, ?, ?)
-                  ON CONFLICT(user_id, game_id) DO UPDATE SET play_status = excluded.play_status
-                `,
-                ).run(stableId, status);
-              }
-            } else {
-              // ownership_status, has_case, has_manual, or backup_status: update game_releases table
-              const release = db
-                .prepare(
-                  'SELECT game_id, region, variants, rom_name FROM game_releases WHERE id = ?',
-                )
-                .get(id) as
-                | {
-                    game_id: number;
-                    region: string | null;
-                    variants: string | null;
-                    rom_name: string | null;
-                  }
-                | undefined;
-
-              if (release) {
-                if (
-                  field === 'ownership_status' ||
-                  field === 'has_case' ||
-                  field === 'has_manual'
-                ) {
-                  // We update all releases in the same group (matching region, variants, and base rom name group)
-                  // because ownership and completeness are logically release-wide settings rather than disc-level.
-                  const allReleases = db
-                    .prepare(
-                      'SELECT id, region, variants, rom_name FROM game_releases WHERE game_id = ?',
-                    )
-                    .all(release.game_id) as {
-                    id: string;
-                    region: string | null;
-                    variants: string | null;
-                    rom_name: string | null;
-                  }[];
-
-                  const targetKey = getRomGroupingKey(release.rom_name);
-                  const matchingReleases = allReleases.filter(
-                    (r) =>
-                      r.region === release.region &&
-                      r.variants === release.variants &&
-                      getRomGroupingKey(r.rom_name) === targetKey,
-                  );
-
-                  db.transaction(() => {
-                    for (const r of matchingReleases) {
-                      updateReleaseField(r.id);
-                    }
-                  })();
-                } else {
-                  // backup_status: update only the specific targeted disc release to allow individual tracking
-                  updateReleaseField(id);
-                }
-              } else {
-                // Not a release ID; find game first by game ID
-                const game = db
-                  .prepare('SELECT stable_id, region FROM games WHERE id = ?')
-                  .get(id) as
-                  | { stable_id: number; region: string | null }
-                  | undefined;
-                if (!game) {
-                  throw new Error(`Game or Release not found: ${id}`);
-                }
-
-                // First, check if there's already a release for this game. If so, update.
-                const releases = db
-                  .prepare(
-                    'SELECT id FROM game_releases WHERE game_id = ? ORDER BY id ASC',
-                  )
-                  .all(game.stable_id) as { id: string }[];
-                if (releases.length > 0) {
-                  if (
-                    field === 'ownership_status' ||
-                    field === 'has_case' ||
-                    field === 'has_manual'
-                  ) {
-                    // Update all releases of this game
-                    db.transaction(() => {
-                      for (const r of releases) {
-                        updateReleaseField(r.id);
-                      }
-                    })();
-                  } else {
-                    updateReleaseField(releases[0].id);
-                  }
-                } else {
-                  // Create default virtual release if it somehow doesn't exist
-                  const releaseId = `${id}-default`;
-                  if (releaseColumns.has('ownership_status')) {
-                    db.prepare(
-                      `
-                      INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, has_case, has_manual)
-                      VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, 0, 0)
-                    `,
-                    ).run(releaseId, game.stable_id, game.region);
-                  } else {
-                    db.prepare(
-                      `
-                      INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc)
-                      VALUES (?, ?, ?, NULL, NULL, NULL)
-                    `,
-                    ).run(releaseId, game.stable_id, game.region);
-                  }
-                  updateReleaseField(releaseId);
-                }
-              }
-            }
-            console.log(`Updated game status: ${id} -> ${field}=${status}`);
-          } else {
-            // Toys update
-            if (toyColumns.has(field)) {
-              db.prepare(`UPDATE toys SET ${field} = ? WHERE id = ?`).run(
-                status,
-                id,
-              );
-            }
-            if (hasUserToys && field === 'ownership_status') {
-              db.prepare(
-                `
-                INSERT INTO user_toys (user_id, toy_id, ownership_status)
-                VALUES (1, ?, ?)
-                ON CONFLICT(user_id, toy_id) DO UPDATE SET ownership_status = excluded.ownership_status
-              `,
-              ).run(id, status);
-            }
-            console.log(`Updated toy status: ${id} -> ${field}=${status}`);
-          }
-
-          // Sync to Local D1 Instance
-          if (!process.env['VITEST']) {
-            try {
-              const syncCmd =
-                process.platform === 'win32'
-                  ? 'npm.cmd run sync-db'
-                  : 'npm run sync-db';
-              execSync(syncCmd, { stdio: 'inherit' });
-            } catch (syncErr) {
-              console.error('D1 Sync Error:', syncErr);
-            }
-          }
-
-          res.end(JSON.stringify({ success: true }));
-        } catch (err: unknown) {
-          console.error('Toggle status failed:', err);
-          const error = err instanceof Error ? err : new Error('Unknown error');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: error.message }));
-        }
-      } else if (req.method === 'POST' && pathname === '/api/collection/sort') {
-        /**
-         * ROUTE: POST /api/collection/sort
-         */
-        try {
-          const body = await new Promise<string>((resolve, reject) => {
-            let data = '';
-            req.on('data', (chunk) => (data += chunk));
-            req.on('end', () => resolve(data));
-            req.on('error', (err) => reject(err));
-          });
-
-          const { id, type, sort_index } = JSON.parse(body);
-          if (type === 'game') {
-            let stableId: number | null = null;
-            const release = db
-              .prepare('SELECT game_id FROM game_releases WHERE id = ?')
-              .get(id) as { game_id: number } | undefined;
-            if (release) {
-              stableId = release.game_id;
-            } else {
-              const game = db
-                .prepare('SELECT stable_id FROM games WHERE id = ?')
-                .get(id) as { stable_id: number } | undefined;
-              if (game) {
-                stableId = game.stable_id;
-              }
-            }
-            if (stableId === null) {
-              throw new Error(`Could not find game/release with ID: ${id}`);
-            }
-            db.prepare(
-              'UPDATE games SET sort_index = ? WHERE stable_id = ?',
-            ).run(sort_index, stableId);
-            console.log(
-              `Updated game sort_index: ${id} (stable_id: ${stableId}) -> sort_index=${sort_index}`,
-            );
-          } else {
-            db.prepare('UPDATE toys SET sort_index = ? WHERE id = ?').run(
-              sort_index,
-              id,
-            );
-            console.log(
-              `Updated toy sort_index: ${id} -> sort_index=${sort_index}`,
-            );
-          }
-
-          // Sync to Local D1 Instance
-          if (!process.env['VITEST']) {
-            try {
-              const syncCmd =
-                process.platform === 'win32'
-                  ? 'npm.cmd run sync-db'
-                  : 'npm run sync-db';
-              execSync(syncCmd, { stdio: 'inherit' });
-            } catch (syncErr) {
-              console.error('D1 Sync Error:', syncErr);
-            }
-          }
-
-          res.end(JSON.stringify({ success: true }));
-        } catch (err: unknown) {
-          console.error('Update sort index failed:', err);
-          const error = err instanceof Error ? err : new Error('Unknown error');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: error.message }));
-        }
-      } else if (req.method === 'GET' && pathname === '/api/discovery/search') {
-        /**
-         * ROUTE: GET /api/discovery/search
-         */
-        const query = url.searchParams.get('query');
-        const platformId = url.searchParams.get('platformId');
-        if (!query) {
-          res.statusCode = 400;
-          res.end(JSON.stringify({ error: 'Query parameter is required' }));
-          return;
-        }
-        const localPid = Number(platformId || 0);
-        let igdbPlatformId = 0;
-        if (localPid) {
-          const plat = db
-            .prepare('SELECT name, display_name FROM platforms WHERE id = ?')
-            .get(localPid) as
-            | { name: string; display_name: string }
-            | undefined;
-          if (plat) {
-            igdbPlatformId =
-              PLATFORM_MAP[plat.display_name] || PLATFORM_MAP[plat.name] || 0;
-          }
-        }
-        const matches = await findGame(query, igdbPlatformId);
-
-        const filterDigitalParam = url.searchParams.get('filterDigital');
-        const hideDigitalParam = url.searchParams.get('hideDigital');
-        const filterDigital =
-          filterDigitalParam !== null
-            ? filterDigitalParam === 'true' || filterDigitalParam === '1'
-            : hideDigitalParam !== null
-              ? hideDigitalParam === 'true' || hideDigitalParam === '1'
-              : true;
-        const platformRows = db
-          .prepare('SELECT id, display_name, name, launch_date FROM platforms')
-          .all() as Array<{
-          id: number;
-          display_name: string;
-          name: string;
-          launch_date: string | null;
-        }>;
-        const platformMapById = new Map<
-          number,
-          {
-            id: number;
-            display_name: string;
-            name: string;
-            launch_date: string | null;
-          }
-        >();
-        const igdbToLocalPlatform = new Map<number, number>();
-        platformRows.forEach((p) => {
-          platformMapById.set(p.id, p);
-          const igdbId = PLATFORM_MAP[p.display_name] || PLATFORM_MAP[p.name];
-          if (igdbId) {
-            igdbToLocalPlatform.set(igdbId, p.id);
-          }
-        });
-        // Map regional/VR IGDB platform IDs to unified parent local platforms
-        const nesLocalId = igdbToLocalPlatform.get(18);
-        if (nesLocalId) igdbToLocalPlatform.set(99, nesLocalId);
-        const snesLocalId = igdbToLocalPlatform.get(19);
-        if (snesLocalId) igdbToLocalPlatform.set(58, snesLocalId);
-        const ps4LocalId = igdbToLocalPlatform.get(48);
-        if (ps4LocalId) igdbToLocalPlatform.set(165, ps4LocalId);
-        const ps5LocalId = igdbToLocalPlatform.get(167);
-        if (ps5LocalId) igdbToLocalPlatform.set(390, ps5LocalId);
-
-        const canonicalRows = db
-          .prepare(
-            `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-             FROM canonical_releases`,
-          )
-          .all() as CanonicalRelease[];
-
-        const existing = db
-          .prepare('SELECT igdb_id, platform_id, title FROM games')
-          .all() as Array<{
-          igdb_id: number | null;
-          platform_id: number;
-          title: string;
-        }>;
-        const existingSet = new Set<string>();
-        existing.forEach((g) => {
-          if (g.igdb_id) existingSet.add(`igdb-${g.igdb_id}-${g.platform_id}`);
-          if (g.title) {
-            existingSet.add(
-              `title-${g.title.toLowerCase().replace(/[^a-z0-9]/g, '')}-${g.platform_id}`,
-            );
-            existingSet.add(
-              `norm-${normalizeTitleForMatching(g.title)}-${g.platform_id}`,
-            );
-          }
-        });
-
-        const filteredMatches = (matches || [])
-          .map((m) => {
-            const cleanTitle = (m.name || '')
-              .toLowerCase()
-              .replace(/[^a-z0-9]/g, '');
-            const normTitle = normalizeTitleForMatching(m.name || '');
-            const cleanIgdbId = Number(m.id.toString().replace('igdb-', ''));
-
-            // Collect all candidate local platform IDs
-            const targetPlatformIds = new Set<number>();
-
-            if (Array.isArray(m.platform_ids)) {
-              for (const pid of m.platform_ids) {
-                const localPid = igdbToLocalPlatform.get(pid);
-                if (localPid) targetPlatformIds.add(localPid);
-              }
-            }
-
-            if (Array.isArray(m.platforms)) {
-              for (const p of m.platforms) {
-                if (typeof p.id === 'number') {
-                  const localPid = igdbToLocalPlatform.get(p.id);
-                  if (localPid) targetPlatformIds.add(localPid);
-                }
-              }
-            }
-
-            if (m.platform) {
-              const igdbPid = PLATFORM_MAP[m.platform];
-              if (igdbPid) {
-                const localPid = igdbToLocalPlatform.get(igdbPid);
-                if (localPid) targetPlatformIds.add(localPid);
-              }
-              const directMatch = platformRows.find(
-                (p) =>
-                  (p.display_name &&
-                    p.display_name.toLowerCase() ===
-                      m.platform.toLowerCase()) ||
-                  (p.name && p.name.toLowerCase() === m.platform.toLowerCase()),
-              );
-              if (directMatch) {
-                targetPlatformIds.add(directMatch.id);
-              }
-            }
-
-            if (localPid) {
-              targetPlatformIds.clear();
-              targetPlatformIds.add(localPid);
-            }
-
-            if (targetPlatformIds.size === 0) {
-              const isOwnedGlobally = Array.from(existingSet).some((key) =>
-                key.startsWith(`igdb-${cleanIgdbId}-`),
-              );
-              if (isOwnedGlobally) return null;
-            }
-
-            const physicalPlatformOptions: Array<{
-              platform_id: number;
-              platform_name: string;
-              physical_status: ReturnType<
-                typeof detectPhysicalReleaseStatus
-              >['physical_status'];
-              is_physical: boolean;
-              is_owned: boolean;
-              matched_releases_count: number;
-              matched_releases: Array<{
-                name: string;
-                romName: string;
-                romCrc: string | null;
-                region: string | null;
-                variants: string | null;
-                releaseDate: string | null;
-                canonical_release_id: number | null;
-                serial_code: string | null;
-                barcode: string | null;
-                is_physical: boolean | number;
-              }>;
-              verification: ReturnType<typeof detectPhysicalReleaseStatus>;
-            }> = [];
-
-            for (const candidatePid of targetPlatformIds) {
-              const chosenPlatformRow = platformMapById.get(candidatePid);
-              if (!chosenPlatformRow) continue;
-
-              const isOwned =
-                existingSet.has(`igdb-${cleanIgdbId}-${candidatePid}`) ||
-                existingSet.has(`title-${cleanTitle}-${candidatePid}`) ||
-                existingSet.has(`norm-${normTitle}-${candidatePid}`);
-
-              const verification = detectPhysicalReleaseStatus({
-                platformId: candidatePid,
-                gameTitle: m.name,
-                alternativeNames: m.alternative_names,
-                firstReleaseDate: m.release_date || null,
-                platformLaunchDate: chosenPlatformRow?.launch_date || null,
-                igdbCategory:
-                  m.game_type ??
-                  (m as unknown as { category?: number }).category,
-                canonicalReleases: canonicalRows,
-              });
-
-              if (
-                filterDigital &&
-                verification.physical_status === 'digital_only'
-              ) {
-                continue;
-              }
-
-              const matchedReleasesFormatted =
-                verification.matched_releases.map((mr) => ({
-                  name: mr.raw_title,
-                  romName: mr.rom_name || mr.raw_title,
-                  romCrc: mr.rom_crc || null,
-                  region: mr.region || null,
-                  variants: mr.variants || null,
-                  releaseDate: null,
-                  canonical_release_id: mr.id || null,
-                  serial_code: mr.serial_code || null,
-                  barcode: mr.barcode || null,
-                  is_physical: mr.is_verified_physical,
-                }));
-
-              physicalPlatformOptions.push({
-                platform_id: candidatePid,
-                platform_name:
-                  chosenPlatformRow.display_name || chosenPlatformRow.name,
-                physical_status: verification.physical_status,
-                is_physical: verification.is_physical,
-                is_owned: isOwned,
-                matched_releases_count: matchedReleasesFormatted.length,
-                matched_releases: matchedReleasesFormatted,
-                verification,
-              });
-            }
-
-            if (physicalPlatformOptions.length === 0) return null;
-
-            const unownedOptions = physicalPlatformOptions.filter(
-              (po) => !po.is_owned,
-            );
-            if (unownedOptions.length === 0) return null;
-
-            const primary = unownedOptions[0] || physicalPlatformOptions[0];
-
-            return {
-              ...m,
-              platform: primary.platform_name,
-              platform_id: primary.platform_id,
-              physical_status: primary.physical_status,
-              verification_tier: primary.verification.verification_tier,
-              is_physical: primary.is_physical,
-              physical_regions: primary.verification.physical_regions,
-              verification_reasons: primary.verification.reasons,
-              matched_releases: primary.matched_releases,
-              physical_platforms: physicalPlatformOptions.map((po) => ({
-                platform_id: po.platform_id,
-                platform_name: po.platform_name,
-                physical_status: po.physical_status,
-                is_physical: po.is_physical,
-                is_owned: po.is_owned,
-                matched_releases_count: po.matched_releases_count,
-                matched_releases: po.matched_releases,
-              })),
-            };
-          })
-          .filter(Boolean);
-
-        res.end(JSON.stringify(filteredMatches));
-      } else if (
-        /**
-         * ROUTE: GET /api/discovery/matches
-         */
-        req.method === 'GET' &&
-        pathname === '/api/discovery/matches'
-      ) {
-        const igdbId = url.searchParams.get('igdbId');
-        const platformId = url.searchParams.get('platformId');
-        if (!igdbId || !platformId) {
-          res.statusCode = 400;
-          res.end(
-            JSON.stringify({
-              error: 'igdbId and platformId parameters are required',
-            }),
-          );
-          return;
-        }
-        const localPid = Number(platformId);
-        let igdbPlatformId = 0;
-        const plat = db
-          .prepare('SELECT name, display_name FROM platforms WHERE id = ?')
-          .get(localPid) as { name: string; display_name: string } | undefined;
-        if (plat) {
-          igdbPlatformId =
-            PLATFORM_MAP[plat.display_name] || PLATFORM_MAP[plat.name] || 0;
-        }
-        const cleanIgdbId = igdbId.replace('igdb-', '');
-        const game = await getGameById(Number(cleanIgdbId), igdbPlatformId);
-        if (!game) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'Game not found on IGDB' }));
-          return;
-        }
-
-        const platformRow = db
-          .prepare('SELECT launch_date FROM platforms WHERE id = ?')
-          .get(localPid) as { launch_date: string | null } | undefined;
-
-        let canonicalRows = db
-          .prepare(
-            `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-             FROM canonical_releases WHERE platform_id = ?`,
-          )
-          .all(localPid) as CanonicalRelease[];
-
-        if (!isPlatformSourceComplete(localPid) && !process.env['VITEST']) {
-          const verifiedRegional = await findVerifiedRegionalPhysicalReleases(
-            game.name,
-            localPid,
-            game.alternative_names,
-          );
-          if (verifiedRegional.length > 0) {
-            const findStmt = db.prepare(
-              `SELECT id FROM canonical_releases WHERE platform_id = ? AND normalized_title = ? AND region = ? LIMIT 1`,
-            );
-            const insertStmt = db.prepare(
-              `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical)
-               VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 'gameye_vgpc', 1)`,
-            );
-            let insertedAny = false;
-            for (const vr of verifiedRegional) {
-              const norm = normalizeTitleForMatching(vr.clean_title);
-              const existingRow = findStmt.get(localPid, norm, vr.region);
-              if (!existingRow) {
-                insertStmt.run(localPid, vr.clean_title, norm, vr.region);
-                insertedAny = true;
-              }
-            }
-            if (insertedAny) {
-              canonicalRows = db
-                .prepare(
-                  `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-                   FROM canonical_releases WHERE platform_id = ?`,
-                )
-                .all(localPid) as CanonicalRelease[];
-            }
-          }
-        }
-
-        const verification = detectPhysicalReleaseStatus({
-          platformId: localPid,
-          gameTitle: game.name,
-          alternativeNames: game.alternative_names,
-          firstReleaseDate: game.release_date || null,
-          platformLaunchDate: platformRow?.launch_date || null,
-          igdbCategory:
-            game.game_type ??
-            (game as unknown as { category?: number }).category,
-          canonicalReleases: canonicalRows,
-        });
-
-        const matchedReleases = verification.matched_releases.map((mr) => ({
-          name: mr.raw_title,
-          romName: mr.rom_name || mr.raw_title,
-          romCrc: mr.rom_crc || null,
-          region: mr.region || null,
-          variants: mr.variants || null,
-          releaseDate: null,
-          canonical_release_id: mr.id || null,
-          serial_code: mr.serial_code || null,
-          barcode: mr.barcode || null,
-          is_physical: mr.is_verified_physical,
-          image_url:
-            resolveRegionalCoverUrl(
-              { game_localizations: game.game_localizations },
-              mr.region,
-            ) || null,
-        }));
-
-        res.end(
-          JSON.stringify({
-            game: {
-              ...game,
-              physical_status: verification.physical_status,
-              verification_tier: verification.verification_tier,
-              is_physical: verification.is_physical,
-              physical_regions: verification.physical_regions,
-              verification_reasons: verification.reasons,
-            },
-            matchedReleases,
-            physical_status: verification.physical_status,
-            verification_tier: verification.verification_tier,
-            physical_regions: verification.physical_regions,
-            verification_reasons: verification.reasons,
-          }),
-        );
-      } else if (req.method === 'POST' && pathname === '/api/discovery/add') {
-        /**
-         * ROUTE: POST /api/discovery/add
-         */
-        try {
-          const body = await new Promise<string>((resolve, reject) => {
-            let data = '';
-            req.on('data', (chunk) => (data += chunk));
-            req.on('end', () => resolve(data));
-            req.on('error', (err) => reject(err));
-          });
-
-          const { game, releases } = JSON.parse(body);
-          if (!game || !game.title || !game.platform_id) {
-            res.statusCode = 400;
-            res.end(JSON.stringify({ error: 'Invalid game payload' }));
-            return;
-          }
-
-          const slugify = (s: string) =>
-            (s || '')
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-+|-+$/g, '');
-
-          // Helper to generate a unique game slug
-          const generateUniqueSlug = (baseId: string) => {
-            let candidate = baseId;
-            let counter = 1;
-            const checkStmt = db.prepare('SELECT 1 FROM games WHERE id = ?');
-            while (true) {
-              const exists = checkStmt.get(candidate);
-              if (!exists) return candidate;
-              candidate = `${baseId}-${counter}`;
-              counter++;
-            }
-          };
-
-          // Helper to generate a unique release ID slug
-          const generateUniqueReleaseId = (baseId: string) => {
-            let candidate = baseId;
-            let counter = 1;
-            const checkStmt = db.prepare(
-              'SELECT 1 FROM game_releases WHERE id = ?',
-            );
-            while (true) {
-              const exists = checkStmt.get(candidate);
-              if (!exists) return candidate;
-              candidate = `${baseId}-${counter}`;
-              counter++;
-            }
-          };
-
-          const platformRow = db
-            .prepare('SELECT display_name FROM platforms WHERE id = ?')
-            .get(game.platform_id) as { display_name: string } | undefined;
-          const platformName = platformRow
-            ? platformRow.display_name
-            : 'Unknown';
-
-          const baseSlug = `${slugify(game.title)}-${slugify(platformName)}`;
-          const newGameId = generateUniqueSlug(baseSlug);
-
-          const maxSortIndexRow = db
-            .prepare(
-              'SELECT MAX(sort_index) as max_idx FROM games WHERE platform_id = ?',
-            )
-            .get(game.platform_id) as { max_idx: number | null };
-          const sortIndex =
-            (maxSortIndexRow.max_idx !== null ? maxSortIndexRow.max_idx : 0) +
-            1;
-
-          const canonicalSeries = computeGameCanonicalSeries({
-            title: game.title,
-            collections: game.collections || undefined,
-            franchises: game.franchises || undefined,
-          });
-
-          const normalizeRegionStr = (r: string | null | undefined): string => {
-            if (!r) return 'USA';
-            if (r === 'NA') return 'USA';
-            if (r === 'JP') return 'Japan';
-            if (r === 'EU') return 'Europe';
-            return r;
-          };
-          const gameRegion = normalizeRegionStr(
-            game.region || (releases && releases[0]?.region),
-          );
-
-          const gameColumns = new Set(
-            (
-              db.prepare('PRAGMA table_info(games)').all() as Array<{
-                name: string;
-              }>
-            ).map((c) => c.name),
-          );
-          const releaseColumns = new Set(
-            (
-              db.prepare('PRAGMA table_info(game_releases)').all() as Array<{
-                name: string;
-              }>
-            ).map((c) => c.name),
-          );
-          const hasUserGames = !!db
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_games'",
-            )
-            .get();
-          const hasUserGameReleases = !!db
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_game_releases'",
-            )
-            .get();
-
-          let stableId: number;
-          db.transaction(() => {
-            if (gameColumns.has('play_status')) {
-              const insertGame = db.prepare(`
-                INSERT INTO games (
-                  id, title, platform_id, queued, sort_index, image_url, play_status,
-                  igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
-                  physical_status, verification_tier, barcode, canonical_series
-                ) VALUES (
-                  ?, ?, ?, 0, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, 1,
-                  ?, ?, ?, ?
-                )
-              `);
-
-              const result = insertGame.run(
-                newGameId,
-                game.title,
-                game.platform_id,
-                sortIndex,
-                game.image_url || null,
-                game.play_status || 0,
-                game.igdb_id || null,
-                game.igdb_url || null,
-                game.summary || null,
-                game.genres || null,
-                gameRegion,
-                game.collections || null,
-                game.franchises || null,
-                game.physical_status || 'unverified',
-                game.verification_tier || 0,
-                game.barcode || null,
-                canonicalSeries,
-              );
-              stableId = Number(result.lastInsertRowid);
-            } else {
-              const insertGame = db.prepare(`
-                INSERT INTO games (
-                  id, title, platform_id, sort_index, image_url,
-                  igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
-                  physical_status, verification_tier, barcode, canonical_series
-                ) VALUES (
-                  ?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, 1,
-                  ?, ?, ?, ?
-                )
-              `);
-
-              const result = insertGame.run(
-                newGameId,
-                game.title,
-                game.platform_id,
-                sortIndex,
-                game.image_url || null,
-                game.igdb_id || null,
-                game.igdb_url || null,
-                game.summary || null,
-                game.genres || null,
-                gameRegion,
-                game.collections || null,
-                game.franchises || null,
-                game.physical_status || 'unverified',
-                game.verification_tier || 0,
-                game.barcode || null,
-                canonicalSeries,
-              );
-              stableId = Number(result.lastInsertRowid);
-            }
-
-            if (hasUserGames && game.play_status) {
-              db.prepare(
-                `INSERT INTO user_games (user_id, game_id, play_status, queued)
-                 VALUES (1, ?, ?, 0)
-                 ON CONFLICT(user_id, game_id) DO UPDATE SET play_status = excluded.play_status`,
-              ).run(stableId, game.play_status);
-            }
-
-            if (releases && releases.length > 0) {
-              const hasRelOwnership = releaseColumns.has('ownership_status');
-              const hasRelPhysical = releaseColumns.has('is_physical');
-
-              let insertReleaseSql: string;
-              if (hasRelOwnership && hasRelPhysical) {
-                insertReleaseSql = `
-                  INSERT INTO game_releases (
-                    id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
-                    canonical_release_id, barcode, is_physical
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `;
-              } else if (hasRelOwnership) {
-                insertReleaseSql = `
-                  INSERT INTO game_releases (
-                    id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date,
-                    canonical_release_id, barcode
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `;
-              } else if (hasRelPhysical) {
-                insertReleaseSql = `
-                  INSERT INTO game_releases (
-                    id, game_id, region, variants, rom_name, rom_crc, release_date,
-                    canonical_release_id, barcode, is_physical
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `;
-              } else {
-                insertReleaseSql = `
-                  INSERT INTO game_releases (
-                    id, game_id, region, variants, rom_name, rom_crc, release_date,
-                    canonical_release_id, barcode
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `;
-              }
-              const insertRelease = db.prepare(insertReleaseSql);
-
-              for (const rel of releases) {
-                const baseRelSlug = `${newGameId}-${rel.rom_crc || slugify(rel.rom_name || 'release')}`;
-                const uniqueRelId = generateUniqueReleaseId(baseRelSlug);
-
-                const params: unknown[] = [
-                  uniqueRelId,
-                  stableId,
-                  rel.region ? normalizeRegionStr(rel.region) : null,
-                  rel.variants || null,
-                  rel.rom_name || null,
-                  rel.rom_crc || null,
-                ];
-                if (hasRelOwnership) {
-                  params.push(
-                    rel.ownership_status || 0,
-                    rel.backup_status || 0,
-                  );
-                }
-                params.push(
-                  rel.release_date || null,
-                  rel.canonical_release_id || null,
-                  rel.barcode || null,
-                );
-                if (hasRelPhysical) {
-                  params.push(rel.is_physical ?? 1);
-                }
-                insertRelease.run(...params);
-
-                if (
-                  hasUserGameReleases &&
-                  ((rel.ownership_status !== undefined &&
-                    rel.ownership_status > 0) ||
-                    (rel.backup_status !== undefined && rel.backup_status > 0))
-                ) {
-                  db.prepare(
-                    `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
-                     VALUES (1, ?, ?, ?, 0, 0)
-                     ON CONFLICT(user_id, release_id) DO UPDATE SET
-                       ownership_status = excluded.ownership_status,
-                       backup_status = excluded.backup_status`,
-                  ).run(
-                    uniqueRelId,
-                    rel.ownership_status || 0,
-                    rel.backup_status || 0,
-                  );
-                }
-              }
-            } else {
-              const virtualId = `${newGameId}-default`;
-              const hasRelOwnership = releaseColumns.has('ownership_status');
-              const hasRelPhysical = releaseColumns.has('is_physical');
-
-              if (hasRelOwnership && hasRelPhysical) {
-                db.prepare(
-                  `
-                  INSERT INTO game_releases (
-                    id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date, is_physical
-                  ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, NULL, ?)
-                `,
-                ).run(
-                  virtualId,
-                  stableId,
-                  gameRegion,
-                  game.physical_status === 'digital_only' ? 0 : 1,
-                );
-              } else if (hasRelOwnership) {
-                db.prepare(
-                  `
-                  INSERT INTO game_releases (
-                    id, game_id, region, variants, rom_name, rom_crc, ownership_status, backup_status, release_date
-                  ) VALUES (?, ?, ?, NULL, NULL, NULL, 0, 0, NULL)
-                `,
-                ).run(virtualId, stableId, gameRegion);
-              } else if (hasRelPhysical) {
-                db.prepare(
-                  `
-                  INSERT INTO game_releases (
-                    id, game_id, region, variants, rom_name, rom_crc, release_date, is_physical
-                  ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, ?)
-                `,
-                ).run(
-                  virtualId,
-                  stableId,
-                  gameRegion,
-                  game.physical_status === 'digital_only' ? 0 : 1,
-                );
-              } else {
-                db.prepare(
-                  `
-                  INSERT INTO game_releases (
-                    id, game_id, region, variants, rom_name, rom_crc, release_date
-                  ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL)
-                `,
-                ).run(virtualId, stableId, gameRegion);
-              }
-            }
-          })();
-
-          // Recompute Canonical Series and Sync to Local D1
-          if (!process.env['VITEST']) {
-            await recomputeCanonicalSeries();
-          }
-
-          if (!process.env['VITEST']) {
-            try {
-              const syncCmd =
-                process.platform === 'win32'
-                  ? 'npm.cmd run sync-db'
-                  : 'npm run sync-db';
-              execSync(syncCmd, { stdio: 'inherit' });
-            } catch (syncErr) {
-              console.error('D1 Sync Error:', syncErr);
-            }
-          }
-
-          try {
-            db.pragma('wal_checkpoint(FULL)');
-          } catch (checkpointErr) {
-            console.error('Checkpoint Error:', checkpointErr);
-          }
-
-          res.end(JSON.stringify({ success: true, gameId: newGameId }));
-        } catch (err: unknown) {
-          console.error('Add game failed:', err);
-          const error = err instanceof Error ? err : new Error('Unknown error');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: error.message }));
-        }
-      } else if (
-        /**
-         * ROUTE: GET /api/discovery/scan-series
-         */
-        req.method === 'GET' &&
-        pathname === '/api/discovery/scan-series'
-      ) {
-        try {
-          const filterDigitalParam = url.searchParams.get('filterDigital');
-          const hideDigitalParam = url.searchParams.get('hideDigital');
-          const filterDigital =
-            filterDigitalParam !== null
-              ? filterDigitalParam === 'true' || filterDigitalParam === '1'
-              : hideDigitalParam !== null
-                ? hideDigitalParam === 'true' || hideDigitalParam === '1'
-                : true;
-
-          const specificSeries = url.searchParams.get('series');
-          const offsetParam = url.searchParams.get('offset');
-          const limitParam = url.searchParams.get('limit');
-          const isPaged = offsetParam !== null;
-          const offset = offsetParam
-            ? Math.max(0, parseInt(offsetParam, 10))
-            : 0;
-          const limit = limitParam
-            ? Math.min(40, Math.max(1, parseInt(limitParam, 10)))
-            : 30;
-
-          let seriesNames: string[] = [];
-          let totalSeriesCount = 0;
-
-          if (specificSeries && specificSeries.trim()) {
-            seriesNames = [specificSeries.trim()];
-            totalSeriesCount = 1;
-          } else {
-            const allSeriesRows = db
-              .prepare(
-                `SELECT canonical_series, COUNT(*) as c FROM games
-                 WHERE canonical_series IS NOT NULL AND canonical_series != ''
-                 GROUP BY canonical_series
-                 ORDER BY c DESC, canonical_series ASC`,
-              )
-              .all() as Array<{ canonical_series: string }>;
-
-            const allSeries = (allSeriesRows || [])
-              .map((r) => r.canonical_series)
-              .filter(Boolean);
-
-            totalSeriesCount = allSeries.length;
-
-            if (isPaged) {
-              seriesNames = allSeries.slice(offset, offset + limit);
-            } else {
-              seriesNames = allSeries.slice(0, 30);
-            }
-          }
-
-          if (seriesNames.length === 0) {
-            res.setHeader('Content-Type', 'application/json');
-            if (isPaged) {
-              res.end(
-                JSON.stringify({
-                  suggestions: [],
-                  offset,
-                  limit,
-                  totalSeries: totalSeriesCount,
-                  hasMore: false,
-                }),
-              );
-            } else {
-              res.end(JSON.stringify([]));
-            }
-            return;
-          }
-
-          const platColumns = db
-            .prepare('PRAGMA table_info(platforms)')
-            .all() as Array<{ name: string }>;
-          const hasParentPlatformCol = platColumns.some(
-            (c) => c.name === 'parent_platform_id',
-          );
-
-          const dbPlatforms = db
-            .prepare(
-              hasParentPlatformCol
-                ? 'SELECT id, name, display_name, launch_date, parent_platform_id FROM platforms'
-                : 'SELECT id, name, display_name, launch_date FROM platforms',
-            )
-            .all() as Array<
-            PlatformRecord & {
-              launch_date?: string | null;
-              parent_platform_id?: number | null;
-            }
-          >;
-
-          const trackedIgdbPlatformIds = new Set<number>();
-          const igdbToLocalPlatformId: Record<number, number> = {};
-          const igdbToLocalPlatformName: Record<number, string> = {};
-
-          for (const p of dbPlatforms) {
-            if (p.parent_platform_id) continue;
-            const igdbPid =
-              PLATFORM_MAP[p.display_name] || PLATFORM_MAP[p.name];
-            if (igdbPid) {
-              trackedIgdbPlatformIds.add(igdbPid);
-              igdbToLocalPlatformId[igdbPid] = p.id;
-              igdbToLocalPlatformName[igdbPid] = p.display_name || p.name;
-            }
-          }
-
-          // Map regional/VR IGDB platform IDs to unified parent local platforms
-          if (igdbToLocalPlatformId[18]) {
-            trackedIgdbPlatformIds.add(99);
-            igdbToLocalPlatformId[99] = igdbToLocalPlatformId[18];
-            igdbToLocalPlatformName[99] = igdbToLocalPlatformName[18];
-          }
-          if (igdbToLocalPlatformId[19]) {
-            trackedIgdbPlatformIds.add(58);
-            igdbToLocalPlatformId[58] = igdbToLocalPlatformId[19];
-            igdbToLocalPlatformName[58] = igdbToLocalPlatformName[19];
-          }
-          if (igdbToLocalPlatformId[48]) {
-            trackedIgdbPlatformIds.add(165);
-            igdbToLocalPlatformId[165] = igdbToLocalPlatformId[48];
-            igdbToLocalPlatformName[165] = igdbToLocalPlatformName[48];
-          }
-          if (igdbToLocalPlatformId[167]) {
-            trackedIgdbPlatformIds.add(390);
-            igdbToLocalPlatformId[390] = igdbToLocalPlatformId[167];
-            igdbToLocalPlatformName[390] = igdbToLocalPlatformName[167];
-          }
-
-          const parentMap = new Map<number, number>();
-          for (const p of dbPlatforms) {
-            if (p.parent_platform_id) {
-              parentMap.set(p.id, p.parent_platform_id);
-            }
-          }
-
-          const existingGames = db
-            .prepare('SELECT igdb_id, platform_id, title FROM games')
-            .all() as Array<{
-            igdb_id: number | null;
-            platform_id: number;
-            title: string | null;
-          }>;
-          const ownedKeys = new Set<string>();
-          for (const g of existingGames) {
-            const effPid = parentMap.get(g.platform_id) || g.platform_id;
-            if (g.igdb_id) {
-              ownedKeys.add(`igdb:${g.igdb_id}:${effPid}`);
-            }
-            if (g.title) {
-              ownedKeys.add(
-                `raw:${g.title.toLowerCase().replace(/[^a-z0-9]/g, '')}:${effPid}`,
-              );
-              ownedKeys.add(
-                `norm:${normalizeTitleForMatching(g.title)}:${effPid}`,
-              );
-            }
-          }
-
-          const canonicalRows = db
-            .prepare(
-              `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-               FROM canonical_releases`,
-            )
-            .all() as CanonicalRelease[];
-
-          const scanResults: unknown[] = [];
-
-          if (process.env['VITEST']) {
-            const gameIdToPlatforms = new Map<number, Set<number>>();
-            for (const seriesName of seriesNames) {
-              const collections = (await queryIGDB(
-                'collections',
-                `fields id, name; search "${seriesName.replace(/"/g, '')}"; limit 3;`,
-              )) as { id: number; name: string }[];
-
-              for (const col of collections || []) {
-                if (
-                  col.name.toLowerCase().includes(seriesName.toLowerCase()) ||
-                  seriesName.toLowerCase().includes(col.name.toLowerCase())
-                ) {
-                  const collectionGames = await getCollectionGames(col.id);
-                  for (const game of collectionGames) {
-                    const gamePlatforms = game.platforms || [];
-                    const matchingPlatforms = gamePlatforms.filter((p) => {
-                      const localPid = igdbToLocalPlatformId[p.id];
-                      return (
-                        localPid &&
-                        !ownedKeys.has(`igdb:${game.id}:${localPid}`)
-                      );
-                    });
-
-                    if (matchingPlatforms.length > 0) {
-                      if (!gameIdToPlatforms.has(game.id)) {
-                        gameIdToPlatforms.set(game.id, new Set());
-                      }
-                      const platformsSet = gameIdToPlatforms.get(game.id)!;
-                      for (const mp of matchingPlatforms) {
-                        platformsSet.add(mp.id);
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-            const uniqueGameIds = Array.from(gameIdToPlatforms.keys());
-            if (uniqueGameIds.length > 0) {
-              const hydratedGames = await getGamesByIds(uniqueGameIds);
-              const emittedKeys = new Set<string>();
-
-              for (const game of hydratedGames) {
-                const numericId = Number(game.id.replace('igdb-', ''));
-                const platformIds = Array.from(
-                  gameIdToPlatforms.get(numericId) || [],
-                );
-
-                for (const igdbPlatformId of platformIds) {
-                  const localPlatformId = igdbToLocalPlatformId[igdbPlatformId];
-                  const platformName = igdbToLocalPlatformName[igdbPlatformId];
-                  if (!localPlatformId) continue;
-
-                  const emitKey = `${numericId}:${localPlatformId}`;
-                  if (emittedKeys.has(emitKey)) continue;
-
-                  if (ownedKeys.has(`igdb:${numericId}:${localPlatformId}`)) {
-                    continue;
-                  }
-                  emittedKeys.add(emitKey);
-
-                  const localPlatformRow = dbPlatforms.find(
-                    (p) => p.id === localPlatformId,
-                  );
-
-                  const verification = detectPhysicalReleaseStatus({
-                    platformId: localPlatformId,
-                    gameTitle: game.name,
-                    alternativeNames: game.alternative_names,
-                    firstReleaseDate: game.release_date || null,
-                    platformLaunchDate: localPlatformRow?.launch_date || null,
-                    igdbCategory:
-                      game.game_type ??
-                      (game as unknown as { category?: number }).category,
-                    canonicalReleases: canonicalRows,
-                  });
-
-                  if (
-                    filterDigital &&
-                    verification.physical_status === 'digital_only'
-                  ) {
-                    continue;
-                  }
-
-                  const matchedReleasesFormatted =
-                    verification.matched_releases.map((mr) => ({
-                      name: mr.raw_title,
-                      romName: mr.rom_name || mr.raw_title,
-                      romCrc: mr.rom_crc || null,
-                      region: mr.region || null,
-                      variants: mr.variants || null,
-                      releaseDate: null,
-                      canonical_release_id: mr.id || null,
-                      serial_code: mr.serial_code || null,
-                      barcode: mr.barcode || null,
-                      is_physical: mr.is_verified_physical,
-                    }));
-
-                  scanResults.push({
-                    id: game.id,
-                    title: game.name,
-                    summary: game.summary || null,
-                    image_url: game.image_url || null,
-                    platform: platformName,
-                    platform_id: localPlatformId,
-                    genres: game.genres || null,
-                    collections: game.collections || null,
-                    franchises: game.franchises || null,
-                    region: game.region || 'USA',
-                    release_date: game.release_date || null,
-                    releases: matchedReleasesFormatted,
-                    physical_status: verification.physical_status,
-                    verification_tier: verification.verification_tier,
-                    is_physical: verification.is_physical,
-                    physical_regions: verification.physical_regions,
-                    verification_reasons: verification.reasons,
-                  });
-                }
-              }
-            }
-          } else {
-            const SERIES_PER_BLOCK = 15;
-            const BLOCKS_PER_MULTIQUERY = 10;
-            const seriesBlocks: string[][] = [];
-            for (let i = 0; i < seriesNames.length; i += SERIES_PER_BLOCK) {
-              seriesBlocks.push(seriesNames.slice(i, i + SERIES_PER_BLOCK));
-            }
-
-            const emittedKeys = new Set<string>();
-            const igdbFields =
-              'id, name, cover.url, first_release_date, summary, genres.name, url, collections.name, franchises.name, platforms.id, platforms.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher';
-
-            for (
-              let b = 0;
-              b < seriesBlocks.length;
-              b += BLOCKS_PER_MULTIQUERY
-            ) {
-              const group = seriesBlocks.slice(b, b + BLOCKS_PER_MULTIQUERY);
-              const multiqueryBody = group
-                .map((names, idx) => {
-                  const quoted = names
-                    .map((n) => `"${n.replace(/["\\]/g, '')}"`)
-                    .join(',');
-                  return `query games "b${idx}" { fields ${igdbFields}; where collections.name = (${quoted}) | franchises.name = (${quoted}); limit 500; };`;
-                })
-                .join('\n');
-
-              const mqResult = (await queryIGDB(
-                'multiquery',
-                multiqueryBody,
-              )) as Array<{ name: string; result?: IGDBGame[] }>;
-
-              for (const block of mqResult || []) {
-                for (const g of block.result || []) {
-                  if (!g.platforms) continue;
-                  for (const plat of g.platforms) {
-                    const localPlatformId = igdbToLocalPlatformId[plat.id];
-                    const platformName = igdbToLocalPlatformName[plat.id];
-                    if (!localPlatformId) continue;
-
-                    const emitKey = `${g.id}:${localPlatformId}`;
-                    if (emittedKeys.has(emitKey)) continue;
-
-                    const rawKey = `raw:${(g.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')}:${localPlatformId}`;
-                    const normKey = `norm:${normalizeTitleForMatching(g.name || '')}:${localPlatformId}`;
-                    if (
-                      ownedKeys.has(`igdb:${g.id}:${localPlatformId}`) ||
-                      ownedKeys.has(rawKey) ||
-                      ownedKeys.has(normKey)
-                    ) {
-                      continue;
-                    }
-                    emittedKeys.add(emitKey);
-
-                    const localPlatformRow = dbPlatforms.find(
-                      (p) => p.id === localPlatformId,
-                    );
-                    const publisherName =
-                      (
-                        g as unknown as {
-                          involved_companies?: Array<{
-                            company?: { name: string };
-                            publisher?: boolean;
-                          }>;
-                        }
-                      ).involved_companies?.find((ic) => ic.publisher)?.company
-                        ?.name || null;
-
-                    const verification = detectPhysicalReleaseStatus({
-                      platformId: localPlatformId,
-                      gameTitle: g.name,
-                      alternativeNames: g.alternative_names,
-                      firstReleaseDate: g.first_release_date || null,
-                      platformLaunchDate: localPlatformRow?.launch_date || null,
-                      publisher: publisherName,
-                      igdbCategory: g.game_type ?? g.category,
-                      canonicalReleases: canonicalRows,
-                    });
-
-                    if (
-                      filterDigital &&
-                      verification.physical_status === 'digital_only'
-                    ) {
-                      continue;
-                    }
-
-                    let imageUrl: string | null = null;
-                    if (g.cover?.url) {
-                      imageUrl = g.cover.url.startsWith('//')
-                        ? `https:${g.cover.url}`
-                        : g.cover.url;
-                      imageUrl = imageUrl.replace('/t_thumb/', '/t_cover_big/');
-                    }
-
-                    const matchedReleasesFormatted =
-                      verification.matched_releases.map((mr) => ({
-                        name: mr.raw_title,
-                        romName: mr.rom_name || mr.raw_title,
-                        romCrc: mr.rom_crc || null,
-                        region: mr.region || null,
-                        variants: mr.variants || null,
-                        releaseDate: null,
-                        canonical_release_id: mr.id || null,
-                        serial_code: mr.serial_code || null,
-                        barcode: mr.barcode || null,
-                        is_physical: mr.is_verified_physical,
-                        image_url:
-                          resolveRegionalCoverUrl(
-                            { game_localizations: g.game_localizations },
-                            mr.region,
-                          ) || null,
-                      }));
-
-                    const releaseDateStr = g.first_release_date
-                      ? new Date(g.first_release_date * 1000)
-                          .toISOString()
-                          .split('T')[0]
-                      : null;
-
-                    scanResults.push({
-                      id: `igdb-${g.id}`,
-                      title: g.name,
-                      summary: g.summary || null,
-                      image_url: imageUrl,
-                      platform: platformName,
-                      platform_id: localPlatformId,
-                      genres: g.genres?.map((ge) => ge.name).join(', ') || null,
-                      collections:
-                        g.collections?.map((c) => c.name).join(', ') || null,
-                      franchises:
-                        g.franchises?.map((f) => f.name).join(', ') || null,
-                      region:
-                        verification.physical_regions.length === 1 &&
-                        verification.physical_regions[0] === 'Japan'
-                          ? 'Japan'
-                          : 'USA',
-                      release_date: releaseDateStr,
-                      releases: matchedReleasesFormatted,
-                      physical_status: verification.physical_status,
-                      verification_tier: verification.verification_tier,
-                      is_physical: verification.is_physical,
-                      physical_regions: verification.physical_regions,
-                      verification_reasons: verification.reasons,
-                    });
-                  }
-                }
-              }
-            }
-          }
-
-          res.setHeader('Content-Type', 'application/json');
-          if (isPaged) {
-            res.end(
-              JSON.stringify({
-                suggestions: scanResults,
-                offset,
-                limit,
-                totalSeries: totalSeriesCount,
-                hasMore: offset + limit < totalSeriesCount,
-              }),
-            );
-          } else {
-            res.end(JSON.stringify(scanResults));
-          }
-        } catch (err: unknown) {
-          console.error('Scan series failed:', err);
-          const error = err instanceof Error ? err : new Error('Unknown error');
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: error.message }));
-        }
-      }
-
-      /**
-       * STANDALONE COLLECTION API HANDLERS
-       * (Migrated from worker/worker.ts to ensure stability during local dev)
-       */
-
-      // GET /api/platforms
-      else if (req.method === 'GET' && pathname === '/api/platforms') {
-        const query = PLATFORMS_LIST_QUERY;
-        const platforms = db.prepare(query).all();
-        res.end(JSON.stringify(platforms));
-      }
-
-      // GET /api/games
-      else if (req.method === 'GET' && pathname === '/api/games') {
-        const platformId =
-          url.searchParams.get('platform') ||
-          url.searchParams.get('platform_id');
-        const hasUserGameReleases = !!db
-          .prepare(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_game_releases'",
-          )
-          .get();
-        const userId = hasUserGameReleases ? 1 : null;
-        let query = buildGamesListQuery(userId);
-        const params: unknown[] = userId ? [userId, userId] : [];
-
-        if (platformId) {
-          query += ' AND (g.platform_id = ? OR p.parent_platform_id = ?)';
-          params.push(platformId, platformId);
-        }
-
-        query += GAMES_ORDER_BY;
-
-        const games = db.prepare(query).all(...params) as Record<
-          string,
-          unknown
-        >[];
-        if (games && games.length > 0) {
-          for (const row of games) {
-            if (row['region'] && (row['metadata_json'] || row['raw_title'])) {
-              row['title'] = resolveLocalizedReleaseTitle(
-                (row['base_title'] || row['title'] || '') as string,
-                row['region'] as string | null,
-                (row['metadata_json'] as string) || null,
-                (row['raw_title'] || row['title'] || '') as string,
-              );
-            }
-          }
-        }
-        res.end(JSON.stringify(games));
-      } else if (req.method === 'GET' && pathname.startsWith('/api/games/')) {
-        const id = pathname.split('/').pop() || '';
-        const hasUserGameReleases = !!db
-          .prepare(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_game_releases'",
-          )
-          .get();
-        const userId = hasUserGameReleases ? 1 : null;
-        const query = buildGameDetailQuery(userId);
-        const params = getGameDetailQueryParams(id, userId);
-        const game = db.prepare(query).get(...params) as
-          | (Record<string, unknown> & {
-              releases?: Array<Record<string, unknown>>;
-              other_releases?: Array<Record<string, unknown>>;
-              rom_name?: string | null;
-              rom_crc?: string | null;
-              stable_id?: number;
-              title?: string;
-              platform_id?: number;
-              region?: string | null;
-              variants?: string | null;
-              id?: string;
-              backup_status?: number;
-              ownership_status?: number;
-              release_date?: string | null;
-              metadata_json?: string | null;
-            })
-          | undefined;
-
-        if (!game) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'Not found' }));
-        } else {
-          const targetKey = getRomGroupingKey(game.rom_name);
-          const isMulti = targetKey.startsWith('multi:');
-          const releaseParams = userId
-            ? isMulti
-              ? [userId, game.stable_id]
-              : [userId, game.stable_id, game.region]
-            : isMulti
-              ? [game.stable_id]
-              : [game.stable_id, game.region];
-          const releaseQuery = buildGameReleasesByGameIdQuery(userId, isMulti);
-          const releases = db
-            .prepare(releaseQuery)
-            .all(...releaseParams) as Array<
-            Record<string, unknown> & {
-              id?: string;
-              rom_name?: string | null;
-              region?: string | null;
-              variants?: string | null;
-            }
-          >;
-          if (isMulti) {
-            game.releases = releases.filter(
-              (r) => getRomGroupingKey(r.rom_name) === targetKey,
-            );
-            game.other_releases = releases.filter(
-              (r) => getRomGroupingKey(r.rom_name) !== targetKey,
-            );
-          } else {
-            let primaryReleases = releases.filter((r) => r.id === game.id);
-            if (primaryReleases.length === 0) {
-              primaryReleases = releases.filter(
-                (r) => r.region === game.region && r.variants === game.variants,
-              );
-            }
-            if (primaryReleases.length === 0 && releases.length > 0) {
-              primaryReleases = [releases[0]];
-            }
-            game.releases = primaryReleases;
-            game.other_releases = releases.filter(
-              (r) => !primaryReleases.some((pr) => pr.id === r.id),
-            );
-          }
-
-          const extractDiscOrder = (rel: Record<string, unknown>): number => {
-            const label = String(rel['disc_label'] || '');
-            let m = label.match(/^(?:disc|disco|disque|disk)\s+(\d+)/i);
-            if (m) return parseInt(m[1], 10);
-            const rom = String(rel['rom_name'] || '');
-            m = rom.match(/\b(?:disc|disco|disque|disk)\s*(\d+)/i);
-            if (m) return parseInt(m[1], 10);
-            return 99;
-          };
-          if (game.releases.length > 1) {
-            game.releases.sort(
-              (a, b) =>
-                extractDiscOrder(a) - extractDiscOrder(b) ||
-                String(a['rom_name'] || '').localeCompare(
-                  String(b['rom_name'] || ''),
-                ),
-            );
-          }
-          const baseTitle = (game['base_title'] || game.title || '') as string;
-          game.title = resolveLocalizedReleaseTitle(
-            baseTitle,
-            game.region as string | null,
-            game.metadata_json as string | null,
-            (game['raw_title'] || game.title || '') as string,
-          );
-          if (game.releases && game.releases.length > 0) {
-            for (const rel of game.releases) {
-              rel['title'] = resolveLocalizedReleaseTitle(
-                baseTitle,
-                rel['region'] as string | null,
-                game.metadata_json as string | null,
-                rel['title'] as string | null,
-              );
-            }
-          }
-          if (game.other_releases && game.other_releases.length > 0) {
-            for (const rel of game.other_releases) {
-              rel['title'] = resolveLocalizedReleaseTitle(
-                baseTitle,
-                rel['region'] as string | null,
-                game.metadata_json as string | null,
-                rel['title'] as string | null,
-              );
-            }
-          }
-
-          if (!game.releases || game.releases.length === 0) {
-            game.releases = [
-              {
-                id: game.id,
-                game_id: game.stable_id,
-                region: game.region || null,
-                variants: game.variants || null,
-                rom_name: game.rom_name || null,
-                rom_crc: game.rom_crc || null,
-                backup_status: game.backup_status || 0,
-                ownership_status: game.ownership_status || 0,
-                release_date: game.release_date || null,
-              },
-            ];
-          }
-
-          if (game.platform_id) {
-            const candidateReleases: CompanionDiscCandidateRow[] = [];
-            const seenCandidateIds = new Set<string>();
-
-            const companionCrcQuery = buildTargetedCompanionByCrcQuery(userId);
-            const companionGameIdQuery =
-              buildTargetedCompanionByGameIdQuery(userId);
-            const companionTitleQuery =
-              buildTargetedCompanionByTitleQuery(userId);
-
-            // 1. Target companion releases by rom_crc across all releases in this game
-            const releasesToCheck =
-              game.releases && game.releases.length > 0
-                ? game.releases
-                : [game];
-            for (const rel of releasesToCheck) {
-              const relCrc = (rel['rom_crc'] as string | null) || null;
-              const relId = (rel['id'] as string | null) || null;
-              if (relCrc) {
-                const bindParams = userId
-                  ? [userId, relCrc, relId || '']
-                  : [relCrc, relId || ''];
-                const rows = db
-                  .prepare(companionCrcQuery)
-                  .all(...bindParams) as CompanionDiscCandidateRow[];
-                for (const r of rows) {
-                  if (!seenCandidateIds.has(r.id)) {
-                    seenCandidateIds.add(r.id);
-                    candidateReleases.push(r);
-                  }
-                }
-              }
-            }
-
-            // 2. Target companion releases by related game IDs (e.g. Superseded pairs)
-            const relatedIds = getRelatedGameIdsForCompanion(game);
-            for (const relStableId of relatedIds) {
-              const bindParams = userId ? [userId, relStableId] : [relStableId];
-              const rows = db
-                .prepare(companionGameIdQuery)
-                .all(...bindParams) as CompanionDiscCandidateRow[];
-              for (const r of rows) {
-                if (!seenCandidateIds.has(r.id)) {
-                  seenCandidateIds.add(r.id);
-                  candidateReleases.push(r);
-                }
-              }
-            }
-
-            // 3. Target companion releases by related game titles (e.g. Box sets and standalone counterparts)
-            const relatedTitles = getRelatedGameTitlesForCompanion(game);
-            for (const title of relatedTitles) {
-              const bindParams = userId
-                ? [userId, game.platform_id, title]
-                : [game.platform_id, title];
-              const rows = db
-                .prepare(companionTitleQuery)
-                .all(...bindParams) as CompanionDiscCandidateRow[];
-              for (const r of rows) {
-                if (!seenCandidateIds.has(r.id)) {
-                  seenCandidateIds.add(r.id);
-                  candidateReleases.push(r);
-                }
-              }
-            }
-
-            enrichGameDetailWithCompanionsAndVouchers(game, candidateReleases);
-          }
-
-          if (game.stable_id) {
-            const bundledQuery = buildBundledGamesByParentQuery(userId);
-            const bundledParams = userId
-              ? [userId, game.stable_id]
-              : [game.stable_id];
-            const bundled = db.prepare(bundledQuery).all(...bundledParams);
-            game['bundled_games'] = bundled;
-          }
-
-          res.end(JSON.stringify(game));
-        }
-      }
-
-      // GET /api/toys
-      else if (req.method === 'GET' && pathname === '/api/toys') {
-        const hasUserToys = !!db
-          .prepare(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_toys'",
-          )
-          .get();
-        const userId = hasUserToys ? 1 : null;
-        const query = buildToysListQuery(userId);
-        const toys = userId
-          ? db.prepare(query).all(userId)
-          : db.prepare(query).all();
-        res.end(JSON.stringify(toys));
-      }
-
-      // GET /api/toys/:id
-      else if (req.method === 'GET' && pathname.startsWith('/api/toys/')) {
-        const id = pathname.split('/').pop();
-        const hasUserToys = !!db
-          .prepare(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_toys'",
-          )
-          .get();
-        const userId = hasUserToys ? 1 : null;
-        const query = buildToyDetailQuery(userId);
-        const toy = userId
-          ? db.prepare(query).get(userId, id)
-          : db.prepare(query).get(id);
-        if (!toy) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: 'Not found' }));
-        } else {
-          res.end(JSON.stringify(toy));
-        }
-      }
-
-      // POST /api/retail/sync-deals
-      else if (req.method === 'POST' && pathname === '/api/retail/sync-deals') {
-        try {
-          const apiKey = process.env['BESTBUY_API_KEY'];
-          const { deals, sources } = await fetchAllRetailDeals({
-            bestBuyApiKey: apiKey,
-          });
-          const candidates = db
-            .prepare(
-              `SELECT g.stable_id, g.title, g.platform_id, COALESCE(r.barcode, g.barcode) as barcode
-               FROM games g
-               LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
-            )
-            .all() as CandidateGame[];
-
-          const bestDealByGame = new Map<number, RetailDealItem>();
-          for (const deal of deals) {
-            const stableId = matchBestBuyProduct(deal, candidates);
-            if (stableId !== null) {
-              const existing = bestDealByGame.get(stableId);
-              if (!existing || deal.salePrice < existing.salePrice) {
-                bestDealByGame.set(stableId, deal);
-              }
-            }
-          }
-
-          db.prepare(
-            `UPDATE games SET retail_on_sale = 0 WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games')`,
-          ).run();
-
-          const updateStmt = db.prepare(`
-            UPDATE games
-            SET retail_price = ?,
-                retail_regular_price = ?,
-                retail_discount_pct = ?,
-                retail_on_sale = 1,
-                retail_store = ?,
-                retail_url = ?,
-                retail_updated_at = ?
-            WHERE stable_id = ?
-          `);
-
-          const nowIso = new Date().toISOString();
-
-          const batch = db.transaction(() => {
-            for (const [stableId, deal] of bestDealByGame.entries()) {
-              updateStmt.run(
-                Math.round(deal.salePrice * 100),
-                Math.round(deal.regularPrice * 100),
-                Math.round(Number(deal.percentSavings) || 0),
-                deal.store,
-                deal.url,
-                nowIso,
-                stableId,
-              );
-            }
-          });
-          batch();
-
-          res.end(
-            JSON.stringify({
-              success: true,
-              matchedCount: bestDealByGame.size,
-              totalDeals: deals.length,
-              sources,
-            }),
-          );
-        } catch (syncErr: unknown) {
-          const msg =
-            syncErr instanceof Error ? syncErr.message : String(syncErr);
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: msg }));
-        }
-      }
-
-      // GET /api/config
-      else if (req.method === 'GET' && pathname === '/api/config') {
-        const appName = process.env['APP_NAME'] || 'Collection Tracker';
-        const shortName =
-          process.env['APP_SHORT_NAME'] || process.env['APP_NAME'] || 'Tracker';
-        const tagline =
-          process.env['APP_TAGLINE'] ||
-          'Physical Game & Toy Collection Tracker';
-        const authorName = process.env['APP_AUTHOR'] || appName;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(
-          JSON.stringify({
-            appName,
-            shortName,
-            tagline,
-            authorName,
-            logoUrl: '/favicon.svg',
-          }),
-        );
-      }
-
-      // GET /manifest.webmanifest
-      else if (req.method === 'GET' && pathname === '/manifest.webmanifest') {
-        const appName = process.env['APP_NAME'] || 'Collection Tracker';
-        const shortName =
-          process.env['APP_SHORT_NAME'] || process.env['APP_NAME'] || 'Tracker';
-        res.setHeader(
-          'Content-Type',
-          'application/manifest+json; charset=utf-8',
-        );
-        res.end(
-          JSON.stringify({
-            name: appName,
-            short_name: shortName,
-            start_url: '/',
-            display: 'standalone',
-            background_color: '#121214',
-            theme_color: '#121214',
-            icons: [
-              {
-                src: '/favicon.svg',
-                sizes: 'any',
-                type: 'image/svg+xml',
-                purpose: 'any',
-              },
-              {
-                src: '/icons/icon-192.png',
-                sizes: '192x192',
-                type: 'image/png',
-                purpose: 'any',
-              },
-              {
-                src: '/icons/icon-512.png',
-                sizes: '512x512',
-                type: 'image/png',
-                purpose: 'any',
-              },
-              {
-                src: '/icons/icon-maskable-512.png',
-                sizes: '512x512',
-                type: 'image/png',
-                purpose: 'maskable',
-              },
-              {
-                src: '/icons/badge-96.png',
-                sizes: '96x96',
-                type: 'image/png',
-                purpose: 'monochrome',
-              },
-            ],
-          }),
-        );
-      }
-
-      // GET /api/notifications/vapid-public-key
-      else if (
-        req.method === 'GET' &&
-        pathname === '/api/notifications/vapid-public-key'
-      ) {
-        res.setHeader('Content-Type', 'application/json');
-        res.end(
-          JSON.stringify({
-            publicKey:
-              process.env['VAPID_PUBLIC_KEY'] || DEFAULT_VAPID_PUBLIC_KEY,
-          }),
-        );
-      }
-
-      // POST /api/notifications/subscribe
-      else if (
-        req.method === 'POST' &&
-        pathname === '/api/notifications/subscribe'
-      ) {
-        try {
-          const body = await new Promise<string>((resolve, reject) => {
-            let data = '';
-            req.on('data', (chunk) => (data += chunk));
-            req.on('end', () => resolve(data));
-            req.on('error', (err) => reject(err));
-          });
-
-          const payload = JSON.parse(body);
-          if (
-            !payload?.endpoint ||
-            !payload?.keys?.p256dh ||
-            !payload?.keys?.auth
-          ) {
-            res.statusCode = 400;
-            res.end(
-              JSON.stringify({
-                error:
-                  'Invalid payload: endpoint and keys (p256dh, auth) are required.',
-              }),
-            );
-            return;
-          }
-
-          const id = crypto.randomUUID();
-          const nowIso = new Date().toISOString();
-          const userAgent = req.headers['user-agent'] || null;
-          const prefsJson = JSON.stringify(payload.preferences || {});
-
-          const subCols = new Set(
-            (
-              db
-                .prepare('PRAGMA table_info(push_subscriptions)')
-                .all() as Array<{
-                name: string;
-              }>
-            ).map((c) => c.name),
-          );
-          if (subCols.has('user_id')) {
-            db.prepare(
-              `INSERT INTO push_subscriptions (
-                 id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at
-               ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(endpoint) DO UPDATE SET
-                 user_id = excluded.user_id,
-                 p256dh = excluded.p256dh,
-                 auth = excluded.auth,
-                 preferences_json = excluded.preferences_json,
-                 user_agent = excluded.user_agent,
-                 updated_at = excluded.updated_at`,
-            ).run(
-              id,
-              payload.endpoint,
-              payload.keys.p256dh,
-              payload.keys.auth,
-              prefsJson,
-              userAgent,
-              nowIso,
-              nowIso,
-            );
-          } else {
-            db.prepare(
-              `INSERT INTO push_subscriptions (
-                 id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(endpoint) DO UPDATE SET
-                 p256dh = excluded.p256dh,
-                 auth = excluded.auth,
-                 preferences_json = excluded.preferences_json,
-                 user_agent = excluded.user_agent,
-                 updated_at = excluded.updated_at`,
-            ).run(
-              id,
-              payload.endpoint,
-              payload.keys.p256dh,
-              payload.keys.auth,
-              prefsJson,
-              userAgent,
-              nowIso,
-              nowIso,
-            );
-          }
-
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ success: true, id }));
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: msg }));
-        }
-      }
-
-      // PUT /api/notifications/preferences
-      else if (
-        req.method === 'PUT' &&
-        pathname === '/api/notifications/preferences'
-      ) {
-        try {
-          const body = await new Promise<string>((resolve, reject) => {
-            let data = '';
-            req.on('data', (chunk) => (data += chunk));
-            req.on('end', () => resolve(data));
-            req.on('error', (err) => reject(err));
-          });
-
-          const payload = JSON.parse(body);
-          if (!payload?.endpoint || !payload?.preferences) {
-            res.statusCode = 400;
-            res.end(
-              JSON.stringify({
-                error: 'Invalid payload: endpoint and preferences required.',
-              }),
-            );
-            return;
-          }
-
-          const nowIso = new Date().toISOString();
-          const prefsJson = JSON.stringify(payload.preferences);
-
-          db.prepare(
-            `UPDATE push_subscriptions
-             SET preferences_json = ?, updated_at = ?
-             WHERE endpoint = ?`,
-          ).run(prefsJson, nowIso, payload.endpoint);
-
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ success: true }));
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: msg }));
-        }
-      }
-
-      // POST /api/notifications/unsubscribe
-      else if (
-        req.method === 'POST' &&
-        pathname === '/api/notifications/unsubscribe'
-      ) {
-        try {
-          const body = await new Promise<string>((resolve, reject) => {
-            let data = '';
-            req.on('data', (chunk) => (data += chunk));
-            req.on('end', () => resolve(data));
-            req.on('error', (err) => reject(err));
-          });
-
-          const { endpoint } = JSON.parse(body);
-          if (!endpoint) {
-            res.statusCode = 400;
-            res.end(JSON.stringify({ error: 'Endpoint is required.' }));
-            return;
-          }
-
-          db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(
-            endpoint,
-          );
-
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ success: true }));
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: msg }));
-        }
-      }
-
-      // POST /api/notifications/test
-      else if (
-        req.method === 'POST' &&
-        pathname === '/api/notifications/test'
-      ) {
-        try {
-          const body = await new Promise<string>((resolve, reject) => {
-            let data = '';
-            req.on('data', (chunk) => (data += chunk));
-            req.on('end', () => resolve(data));
-            req.on('error', (err) => reject(err));
-          });
-
-          const { endpoint } = JSON.parse(body);
-          if (!endpoint) {
-            res.statusCode = 400;
-            res.end(JSON.stringify({ error: 'Endpoint is required.' }));
-            return;
-          }
-
-          const sub = db
-            .prepare(
-              'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE endpoint = ?',
-            )
-            .get(endpoint) as
-            | { endpoint: string; p256dh: string; auth: string }
-            | undefined;
-
-          if (!sub) {
-            res.statusCode = 404;
-            res.end(JSON.stringify({ error: 'Subscription not found.' }));
-            return;
-          }
-
-          const result = await sendWebPushNotification(
-            sub,
-            {
-              title: '🔔 Deal Alerts Active',
-              body: 'Push notifications are successfully configured for your device!',
-              icon: '/icons/icon-192.png',
-              badge: '/icons/badge-96.png',
-              data: { url: '/' },
-            },
-            {
-              publicKey: process.env['VAPID_PUBLIC_KEY'],
-            },
-          );
-
-          if (result.shouldDelete) {
-            db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(
-              endpoint,
-            );
-          }
-
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify(result));
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: msg }));
-        }
-      }
-
-      // GET /api/journal?item_type=game|toy&item_id=:id
-      else if (req.method === 'GET' && pathname === '/api/journal') {
-        const itemType = (url.searchParams.get('item_type') || 'game').trim();
-        const itemId = (url.searchParams.get('item_id') || '').trim();
-        if ((itemType !== 'game' && itemType !== 'toy') || !itemId) {
-          res.statusCode = 400;
-          res.end(
-            JSON.stringify({
-              error: 'Valid item_type (game|toy) and item_id are required.',
-            }),
-          );
-          return;
-        }
-
-        let canonicalId = itemId;
-        if (itemType === 'game') {
-          const resolved = db
-            .prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
-            .get(itemId, itemId) as { game_id?: string } | undefined;
-          if (resolved?.game_id) {
-            canonicalId = resolved.game_id;
-          }
-        }
-
-        const entry = db
-          .prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
-          .get(1, itemType, itemId, canonicalId) as JournalEntryRow | undefined;
-
-        res.end(
-          JSON.stringify({
-            authorized: true,
-            entry: entry || null,
-          }),
-        );
-      }
-
-      // GET /api/journal/entries
-      else if (req.method === 'GET' && pathname === '/api/journal/entries') {
-        const entries = db.prepare(JOURNAL_ENTRIES_ALL_QUERY).all(1);
-        res.end(
-          JSON.stringify({
-            authorized: true,
-            entries: entries || [],
-          }),
-        );
-      }
-
-      // POST /api/journal
-      else if (req.method === 'POST' && pathname === '/api/journal') {
-        const bodyStr = await new Promise<string>((resolve, reject) => {
-          let data = '';
-          req.on('data', (chunk) => (data += chunk));
-          req.on('end', () => resolve(data));
+          req.on('end', () => resolve(Buffer.concat(chunks)));
           req.on('error', (err) => reject(err));
         });
+      }
 
-        const body = JSON.parse(bodyStr || '{}') as {
-          item_type?: string;
-          item_id?: string;
-          purchase_date?: string | null;
-          is_approximate_date?: number | boolean | null;
-          price_paid?: number | string | null;
-          merchant?: string | null;
-          gifted_by?: string | null;
-          receipt_url?: string | null;
-          notes?: string | null;
-        };
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(req.headers || {})) {
+        if (Array.isArray(value)) {
+          for (const v of value) headers.append(key, v);
+        } else if (typeof value === 'string') {
+          headers.set(key, value);
+        }
+      }
 
-        const itemType = (body?.item_type || '').trim();
-        const rawItemId = (body?.item_id || '').trim();
-        if ((itemType !== 'game' && itemType !== 'toy') || !rawItemId) {
-          res.statusCode = 400;
-          res.end(
-            JSON.stringify({
-              error: 'Valid item_type (game|toy) and item_id are required.',
+      const webReq = new Request(url.toString(), {
+        method,
+        headers,
+        body:
+          bodyBuffer && bodyBuffer.length > 0
+            ? new Uint8Array(bodyBuffer)
+            : undefined,
+      });
+
+      const env: Env = {
+        DB: d1,
+        ASSETS: {
+          fetch: async () =>
+            new Response(JSON.stringify({ error: 'Not found' }), {
+              status: 404,
+              headers: { 'Content-Type': 'application/json' },
             }),
-          );
-          return;
-        }
+        } as unknown as Fetcher,
+        BACKUP_BUCKET: {
+          put: async () => null,
+          get: async () => null,
+          list: async () => ({ objects: [] }),
+          delete: async () => {},
+        } as unknown as R2Bucket,
+        TWITCH_CLIENT_ID:
+          process.env['TWITCH_CLIENT_ID'] || 'local-dev-client-id',
+        TWITCH_CLIENT_SECRET:
+          process.env['TWITCH_CLIENT_SECRET'] || 'local-dev-client-secret',
+        BESTBUY_API_KEY: process.env['BESTBUY_API_KEY'],
+        VAPID_PUBLIC_KEY: process.env['VAPID_PUBLIC_KEY'],
+        VAPID_PRIVATE_KEY:
+          process.env['VAPID_PRIVATE_KEY'] || process.env['VAPID_PRIVATE_JWK'],
+        ADMIN_KEY: process.env['ADMIN_KEY'],
+        ADMIN_EMAIL: process.env['ADMIN_EMAIL'] || 'admin@example.com',
+        DEV_AUTH_EMAIL: process.env['DEV_AUTH_EMAIL'] || 'admin@example.com',
+        SESSION_SECRET:
+          process.env['SESSION_SECRET'] ||
+          'dev-insecure-session-secret-change-me',
+        APP_NAME: process.env['APP_NAME'],
+        APP_SHORT_NAME: process.env['APP_SHORT_NAME'],
+        APP_TAGLINE: process.env['APP_TAGLINE'],
+        APP_AUTHOR: process.env['APP_AUTHOR'],
+      };
 
-        let canonicalId = rawItemId;
-        if (itemType === 'game') {
-          const resolved = db
-            .prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
-            .get(rawItemId, rawItemId) as { game_id?: string } | undefined;
-          if (resolved?.game_id) {
-            canonicalId = resolved.game_id;
-          }
-        }
+      const ctx = {
+        waitUntil: () => {},
+        passThroughOnException: () => {},
+      } as unknown as ExecutionContext;
 
-        const { purchaseDate, isApproximateDate } = normalizeJournalDatePayload(
-          body.purchase_date,
-          body.is_approximate_date,
-        );
+      const webRes = await worker.fetch(webReq, env, ctx);
 
-        let pricePaid: number | null = null;
-        if (
-          body.price_paid !== null &&
-          body.price_paid !== undefined &&
-          String(body.price_paid).trim() !== ''
-        ) {
-          const parsed = Number(body.price_paid);
-          if (Number.isNaN(parsed) || parsed < 0) {
-            res.statusCode = 400;
-            res.end(
-              JSON.stringify({
-                error: 'price_paid must be a non-negative number.',
-              }),
-            );
-            return;
-          }
-          pricePaid = Math.round(parsed * 100) / 100;
-        }
-
-        const merchant = normalizeMerchantName(body.merchant);
-        const giftedBy = body.gifted_by
-          ? String(body.gifted_by).trim() || null
-          : null;
-        const receiptUrl = normalizeReceiptUrl(body.receipt_url);
-        const notes = body.notes ? String(body.notes).trim() || null : null;
-
-        db.prepare(UPSERT_JOURNAL_ENTRY_QUERY).run(
-          1,
-          itemType,
-          canonicalId,
-          purchaseDate,
-          isApproximateDate,
-          pricePaid,
-          merchant,
-          giftedBy,
-          receiptUrl,
-          notes,
-        );
-
-        if (canonicalId !== rawItemId) {
-          db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(1, itemType, rawItemId);
-        }
-
-        const savedEntry = db
-          .prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
-          .get(1, itemType, canonicalId, canonicalId) as
-          | JournalEntryRow
-          | undefined;
-
-        res.end(JSON.stringify({ success: true, entry: savedEntry || null }));
-      }
-
-      // DELETE /api/journal?item_type=game|toy&item_id=:id
-      else if (req.method === 'DELETE' && pathname === '/api/journal') {
-        const itemType = (url.searchParams.get('item_type') || 'game').trim();
-        const rawItemId = (url.searchParams.get('item_id') || '').trim();
-        if ((itemType !== 'game' && itemType !== 'toy') || !rawItemId) {
-          res.statusCode = 400;
-          res.end(
-            JSON.stringify({
-              error: 'Valid item_type (game|toy) and item_id are required.',
-            }),
-          );
-          return;
-        }
-
-        let canonicalId = rawItemId;
-        if (itemType === 'game') {
-          const resolved = db
-            .prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
-            .get(rawItemId, rawItemId) as { game_id?: string } | undefined;
-          if (resolved?.game_id) {
-            canonicalId = resolved.game_id;
-          }
-        }
-
-        db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(1, itemType, canonicalId);
-        if (canonicalId !== rawItemId) {
-          db.prepare(DELETE_JOURNAL_ENTRY_QUERY).run(1, itemType, rawItemId);
-        }
-
-        res.end(JSON.stringify({ success: true }));
-      }
-
-      // DELETE /api/collection/game?id=<game id | release id>
-      else if (req.method === 'DELETE' && pathname === '/api/collection/game') {
-        const rawId = (url.searchParams.get('id') || '').trim();
-        if (!rawId) {
-          res.statusCode = 400;
-          res.end(JSON.stringify({ error: 'Game id is required.' }));
-          return;
-        }
-
-        const game = db
-          .prepare(
-            `SELECT stable_id, id FROM games WHERE id = ?
-             UNION ALL
-             SELECT g.stable_id, g.id FROM games g
-               JOIN game_releases r ON r.game_id = g.stable_id WHERE r.id = ?
-             LIMIT 1`,
-          )
-          .get(rawId, rawId) as { stable_id: number; id: string } | undefined;
-
-        if (!game) {
-          res.statusCode = 404;
-          res.end(
-            JSON.stringify({ error: `Could not find game with ID: ${rawId}` }),
-          );
-          return;
-        }
-
-        db.transaction(() => {
-          db.prepare(
-            `DELETE FROM journal_entries WHERE item_type = 'game' AND item_id = ?`,
-          ).run(game.id);
-          db.prepare('DELETE FROM game_releases WHERE game_id = ?').run(
-            game.stable_id,
-          );
-          db.prepare('DELETE FROM games WHERE stable_id = ?').run(
-            game.stable_id,
-          );
-        })();
-
-        res.end(JSON.stringify({ success: true, deletedGameId: game.id }));
-      }
-
-      // DELETE /api/collection/release?id=<release id>
-      else if (
-        req.method === 'DELETE' &&
-        pathname === '/api/collection/release'
+      if (
+        method === 'POST' &&
+        url.pathname === '/api/discovery/add' &&
+        webRes.ok &&
+        !process.env['VITEST']
       ) {
-        const releaseId = (url.searchParams.get('id') || '').trim();
-        if (!releaseId) {
-          res.statusCode = 400;
-          res.end(JSON.stringify({ error: 'Release id is required.' }));
-          return;
-        }
-
-        const result = db
-          .prepare('DELETE FROM game_releases WHERE id = ?')
-          .run(releaseId);
-        if (result.changes === 0) {
-          res.statusCode = 404;
-          res.end(
-            JSON.stringify({
-              error: `Could not find release with ID: ${releaseId}`,
-            }),
+        try {
+          await recomputeCanonicalSeries();
+          db.pragma('wal_checkpoint(FULL)');
+        } catch (postAddErr) {
+          console.warn(
+            '[LocalServer] Post-discovery series recompute warning:',
+            postAddErr,
           );
-          return;
         }
-
-        res.end(JSON.stringify({ success: true, deletedReleaseId: releaseId }));
       }
 
-      // Default fallback
-      else {
-        res.statusCode = 404;
-        res.end(JSON.stringify({ error: 'Not found' }));
-      }
+      res.statusCode = webRes.status;
+      webRes.headers.forEach((value, key) => {
+        res.setHeader(key, value);
+      });
+      res.setHeader('Access-Control-Allow-Origin', '*');
+
+      const responseText = await webRes.text();
+      res.end(responseText);
     } catch (err) {
       console.error('Server Error:', err);
       res.statusCode = 500;
       res.end(JSON.stringify({ error: 'Internal Server Error' }));
     }
   };
+};
 
 // Only start the server if this file is run directly
-import { fileURLToPath } from 'url';
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const db = getDatabase();
   const server = http.createServer(handleRequest(db));
-  server.listen(PORT, () => {
+  server.listen(PORT, HOST, () => {
     console.log(
-      `Standalone Local API Server running at http://localhost:${PORT}`,
+      `Standalone Local API Server (unified Worker runtime) running at http://${HOST}:${PORT}`,
     );
   });
 }

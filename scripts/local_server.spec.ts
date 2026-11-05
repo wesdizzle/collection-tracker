@@ -244,6 +244,79 @@ describe('Local Server API Logic', () => {
         `);
 
     // Seed data
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : input.toString();
+        if (urlStr.includes('amiiboapi.org')) {
+          const axiosRes = await mockedAxios.get(urlStr);
+          return new Response(
+            JSON.stringify(axiosRes?.data || { amiibo: [] }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+        if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+          return new Response(
+            JSON.stringify({
+              access_token: 'mock-twitch-token',
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+          return new Response(
+            JSON.stringify([
+              {
+                name: 'b0',
+                result: [
+                  {
+                    id: 101,
+                    name: 'Bloodborne',
+                    summary: 'A dark action RPG.',
+                    cover: {
+                      url: '//images.igdb.com/igdb/image/upload/t_thumb/co1rba.jpg',
+                    },
+                    platforms: [{ id: 48, name: 'PlayStation 4' }],
+                    first_release_date: 1427155200,
+                    collections: [{ name: 'Bloodborne Series' }],
+                    genres: [{ name: 'Role-playing (RPG)' }],
+                  },
+                ],
+              },
+            ]),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (urlStr.includes('api.igdb.com/v4/games')) {
+          const bodyStr = String(init?.body || '');
+          const isEldenRing = bodyStr.includes('Elden Ring');
+          return new Response(
+            JSON.stringify([
+              {
+                id: isEldenRing ? 999 : 101,
+                name: isEldenRing ? 'Elden Ring' : 'Bloodborne',
+                summary: 'A dark action RPG.',
+                cover: {
+                  url: '//images.igdb.com/igdb/image/upload/t_thumb/co1rba.jpg',
+                },
+                platforms: [{ id: 48, name: 'PlayStation 4' }],
+                first_release_date: 1427155200,
+                collections: [{ name: 'Bloodborne Series' }],
+                genres: [{ name: 'Role-playing (RPG)' }],
+              },
+            ]),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    );
     mockDb
       .prepare(
         'INSERT INTO platforms (id, name, display_name, brand, launch_date, parent_platform_id) VALUES (?, ?, ?, ?, ?, ?)',
@@ -742,7 +815,7 @@ describe('Local Server API Logic', () => {
       // Seed a game with canonical_series 'Bloodborne Series'
       mockDb
         .prepare(
-          "UPDATE games SET canonical_series = 'Bloodborne Series' WHERE stable_id = 1",
+          "UPDATE games SET title = 'Bloodborne Prelude', canonical_series = 'Bloodborne Series' WHERE stable_id = 1",
         )
         .run();
 
