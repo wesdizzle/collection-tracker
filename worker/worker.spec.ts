@@ -1425,7 +1425,7 @@ describe('Worker API Logic', () => {
       expect(indieResults).toHaveLength(1);
       expect(indieResults[0].name).toBe('Mushroom 11');
       expect(indieResults[0].platform_id).toBe(0);
-      expect(indieResults[0].platform).toBe('No Platform');
+      expect(indieResults[0].platform).toBe('Physical Watch');
       expect(indieResults[0].physical_status).toBe('not_yet_physical');
       expect(indieResults[0].untracked_platforms).toContain('PC');
     } finally {

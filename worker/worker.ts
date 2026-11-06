@@ -1939,7 +1939,7 @@ Disallow: /
                 return {
                   id: `igdb-${g.id}`,
                   name: g.name,
-                  platform: 'No Platform',
+                  platform: 'Physical Watch',
                   platform_id: 0,
                   image_url: imageUrl,
                   summary: g.summary || null,
@@ -1966,7 +1966,7 @@ Disallow: /
                   physical_platforms: [
                     {
                       platform_id: 0,
-                      platform_name: 'No Platform',
+                      platform_name: 'Physical Watch',
                       physical_status: 'not_yet_physical' as const,
                       is_physical: false,
                       is_owned: false,

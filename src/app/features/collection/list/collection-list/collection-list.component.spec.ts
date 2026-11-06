@@ -2188,4 +2188,74 @@ describe('CollectionListComponent', () => {
     );
     expect(badge).toBeNull();
   });
+
+  it('should exclude Platform 0 from platformGroups and sort Physical Watch games at the end', async () => {
+    component.currentTab.set('games');
+    component.filters.set({ ownership: 'all' });
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'watch-game',
+        title: 'Indie Watch Game',
+        platform: 'No Platform',
+        display_name: 'No Platform',
+        platform_id: 0,
+        ownership_status: 2,
+        physical_status: 'not_yet_physical',
+      },
+      {
+        id: 'switch-game',
+        title: 'Switch Release',
+        platform: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        platform_id: 26,
+        platform_launch_date: '2017-03-03',
+        brand: 'Nintendo',
+        ownership_status: 1,
+        physical_status: 'verified_physical',
+      },
+      {
+        id: 'undated-hw-game',
+        title: 'Undated Console Release',
+        platform: 'Future Console',
+        display_name: 'Future Console',
+        platform_id: 99,
+        platform_launch_date: null,
+        brand: 'Sony',
+        ownership_status: 1,
+        physical_status: 'verified_physical',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([
+      {
+        id: 0,
+        name: 'No Platform',
+        display_name: 'No Platform',
+        brand: 'Other',
+      },
+      {
+        id: 26,
+        name: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        brand: 'Nintendo',
+      },
+    ]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const pGroups = component.platformGroups();
+    expect(pGroups.map((g) => g.brand)).toEqual(['Nintendo']);
+    expect(pGroups[0].platforms.map((p) => p.id)).toEqual([26]);
+
+    const grouped = component.groupedGames();
+    expect(grouped.map((g) => g.platformName)).toEqual([
+      'Nintendo Switch',
+      'Future Console',
+      'Physical Watch',
+    ]);
+  });
 });

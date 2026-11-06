@@ -244,6 +244,15 @@ export class CollectionListComponent
     const grouped = new Map<string, Platform[]>();
 
     [...data].forEach((p) => {
+      if (
+        p.id === 0 ||
+        p.name === 'No Platform' ||
+        p.name === 'Physical Watch' ||
+        p.display_name === 'No Platform' ||
+        p.display_name === 'Physical Watch'
+      ) {
+        return;
+      }
       const b = p.brand || 'Other';
       if (!grouped.has(b)) grouped.set(b, []);
       grouped.get(b)!.push(p);
@@ -251,7 +260,11 @@ export class CollectionListComponent
 
     return Array.from(grouped.entries())
       .map(([brand, platforms]) => ({ brand, platforms }))
-      .sort((a, b) => a.brand.localeCompare(b.brand));
+      .sort((a, b) => {
+        if (a.brand === 'Other' && b.brand !== 'Other') return 1;
+        if (b.brand === 'Other' && a.brand !== 'Other') return -1;
+        return a.brand.localeCompare(b.brand);
+      });
   });
 
   private readonly COMPANION_DISC1_PAIRS = COMPANION_DISC1_PAIRS;
@@ -808,6 +821,12 @@ export class CollectionListComponent
       retailPrice: g.retail_price ?? g.price_new ?? null,
       discountPct: g.retail_discount_pct ?? 0,
       effectivePrice: this.getEffectiveGamePrice(g),
+      isPhysicalWatch:
+        g.platform_id === 0 ||
+        g.platform === 'Physical Watch' ||
+        g.platform === 'No Platform' ||
+        g.display_name === 'Physical Watch' ||
+        g.display_name === 'No Platform',
       platformLaunchDate: g.platform_launch_date || '9999-99-99',
       normBrand: this.normalizeForSort(g.brand || ''),
       normSeries: this.normalizeForSort(g.canonical_series || g.title),
@@ -877,6 +896,11 @@ export class CollectionListComponent
         f.sortBy === 'release_asc';
 
       if (!isBypassPlatformGroupSort) {
+        // 0. Always sort Platform 0 ('Physical Watch') after all hardware platforms
+        if (a.isPhysicalWatch !== b.isPhysicalWatch) {
+          return a.isPhysicalWatch ? 1 : -1;
+        }
+
         // 1. Platform Launch Date (ASC)
         if (a.platformLaunchDate !== b.platformLaunchDate) {
           return a.platformLaunchDate.localeCompare(b.platformLaunchDate);
@@ -1071,7 +1095,11 @@ export class CollectionListComponent
     const counts = new Map<string, number>();
     const values = new Map<string, number>();
     for (const g of allFiltered) {
-      const p = g.display_name || g.platform;
+      const rawPlat = g.display_name || g.platform;
+      const p =
+        g.platform_id === 0 || rawPlat === 'No Platform'
+          ? 'Physical Watch'
+          : rawPlat;
       counts.set(p, (counts.get(p) || 0) + 1);
       const val = this.getEffectiveGamePrice(g) || 0;
       values.set(p, (values.get(p) || 0) + val);
@@ -1082,7 +1110,11 @@ export class CollectionListComponent
     const groupMap = new Map<string, GameGroup>();
 
     for (const game of displayed) {
-      const p = game.display_name || game.platform;
+      const rawPlat = game.display_name || game.platform;
+      const p =
+        game.platform_id === 0 || rawPlat === 'No Platform'
+          ? 'Physical Watch'
+          : rawPlat;
       let group = groupMap.get(p);
       if (!group) {
         group = {

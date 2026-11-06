@@ -156,6 +156,15 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     const grouped = new Map<string, Platform[]>();
 
     [...data].forEach((p) => {
+      if (
+        p.id === 0 ||
+        p.name === 'No Platform' ||
+        p.name === 'Physical Watch' ||
+        p.display_name === 'No Platform' ||
+        p.display_name === 'Physical Watch'
+      ) {
+        return;
+      }
       const b = p.brand || 'Other';
       if (!grouped.has(b)) grouped.set(b, []);
       grouped.get(b)!.push(p);
@@ -163,7 +172,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
 
     return Array.from(grouped.entries())
       .map(([brand, platforms]) => ({ brand, platforms }))
-      .sort((a, b) => a.brand.localeCompare(b.brand));
+      .sort((a, b) => {
+        if (a.brand === 'Other' && b.brand !== 'Other') return 1;
+        if (b.brand === 'Other' && a.brand !== 'Other') return -1;
+        return a.brand.localeCompare(b.brand);
+      });
   });
 
   /** Computes unique Amiibo series options for filtering. */

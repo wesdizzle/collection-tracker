@@ -102,9 +102,9 @@ export function buildGamesListQuery(userId?: number | null): string {
            g.retail_store,
            g.retail_url,
            g.retail_updated_at,
-           COALESCE(pp.display_name, p.display_name) as display_name, 
-           COALESCE(pp.display_name, p.display_name) as platform, 
-           COALESCE(pp.brand, p.brand) as brand, 
+           CASE WHEN g.platform_id = 0 THEN 'Physical Watch' ELSE COALESCE(pp.display_name, p.display_name) END as display_name, 
+           CASE WHEN g.platform_id = 0 THEN 'Physical Watch' ELSE COALESCE(pp.display_name, p.display_name) END as platform, 
+           CASE WHEN g.platform_id = 0 THEN NULL ELSE COALESCE(pp.brand, p.brand) END as brand, 
            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
            COALESCE(pp.image_url, p.image_url) as platform_logo,
            p.parent_platform_id,
@@ -212,9 +212,9 @@ export function buildGameDetailQuery(userId?: number | null): string {
             g.retail_store,
             g.retail_url,
             g.retail_updated_at,
-            COALESCE(pp.display_name, p.display_name) as display_name, 
-            COALESCE(pp.display_name, p.display_name) as platform, 
-            COALESCE(pp.brand, p.brand) as brand, 
+            CASE WHEN g.platform_id = 0 THEN 'Physical Watch' ELSE COALESCE(pp.display_name, p.display_name) END as display_name, 
+            CASE WHEN g.platform_id = 0 THEN 'Physical Watch' ELSE COALESCE(pp.display_name, p.display_name) END as platform, 
+            CASE WHEN g.platform_id = 0 THEN NULL ELSE COALESCE(pp.brand, p.brand) END as brand, 
             COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
             COALESCE(pp.image_url, p.image_url) as platform_logo,
             p.parent_platform_id,
@@ -370,7 +370,8 @@ export const PLATFORMS_LIST_QUERY = `
         )
     )
     AND p.parent_platform_id IS NULL
-    ORDER BY p.launch_date ASC, p.id ASC
+    AND p.id != 0
+    ORDER BY p.launch_date IS NULL ASC, p.launch_date ASC, p.id ASC
 `;
 
 export function buildToysListQuery(userId?: number | null): string {
@@ -444,7 +445,9 @@ export const TOY_DETAIL_QUERY = buildToyDetailQuery(null);
  * Common Sorters and Filters can also be added here if they share SQL syntax.
  */
 export const GAMES_ORDER_BY = `
-    ORDER BY COALESCE(pp.launch_date, p.launch_date) ASC, 
+    ORDER BY CASE WHEN g.platform_id = 0 THEN 1 ELSE 0 END ASC,
+             COALESCE(pp.launch_date, p.launch_date) IS NULL ASC,
+             COALESCE(pp.launch_date, p.launch_date) ASC, 
              COALESCE(p.parent_platform_id, p.id) ASC, 
              g.platform_id ASC, 
              CASE WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 5) WHEN COALESCE(g.canonical_series, g.title) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(g.canonical_series, g.title), 3) ELSE COALESCE(g.canonical_series, g.title) END COLLATE NOCASE ASC, 

@@ -371,7 +371,16 @@ export class CommandPaletteComponent implements AfterViewInit {
 
   public readonly flatResults = computed<CommandPaletteItem[]>(() => {
     const rawQuery = this.query().trim().toLowerCase();
-    const platforms = this.collectionService.platforms();
+    const platforms = this.collectionService
+      .platforms()
+      .filter(
+        (p) =>
+          p.id !== 0 &&
+          p.name !== 'No Platform' &&
+          p.name !== 'Physical Watch' &&
+          p.display_name !== 'No Platform' &&
+          p.display_name !== 'Physical Watch',
+      );
     const games = this.collectionService.games();
 
     const ownedCountsByPlatform = new Map<number, number>();

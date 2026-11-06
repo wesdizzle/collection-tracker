@@ -812,9 +812,14 @@ export class CollectionService {
                 payload.game.title ||
                 'Unknown',
               platform_id: payload.game.platform_id ?? 0,
-              platform: platform?.name || 'Unknown',
+              platform:
+                (payload.game.platform_id ?? 0) === 0
+                  ? 'Physical Watch'
+                  : platform?.name || 'Unknown',
               display_name:
-                platform?.display_name || platform?.name || 'Unknown',
+                (payload.game.platform_id ?? 0) === 0
+                  ? 'Physical Watch'
+                  : platform?.display_name || platform?.name || 'Unknown',
               image_url: payload.game.image_url || null,
               ownership_status:
                 (payload.game.ownership_status as OwnershipStatus) ?? 0,
@@ -1626,7 +1631,18 @@ export class CollectionService {
    * @param game The source Game object to enrich.
    * @returns A new Game object with the appropriately formatted title.
    */
-  private enrichGameTitle(game: Game): Game {
+  private enrichGameTitle(rawGame: Game): Game {
+    const game =
+      rawGame.platform_id === 0 ||
+      rawGame.platform === 'No Platform' ||
+      rawGame.display_name === 'No Platform'
+        ? {
+            ...rawGame,
+            platform: 'Physical Watch',
+            display_name: 'Physical Watch',
+            brand: undefined,
+          }
+        : rawGame;
     const baseTitle = this.formatTitle(game.title || '');
     if (!game.rom_name) {
       return {

@@ -290,6 +290,15 @@ export class CollectionInsightsComponent implements OnInit {
     const stats: PlatformCompletionStat[] = [];
 
     for (const p of platforms) {
+      if (
+        p.id === 0 ||
+        p.name === 'No Platform' ||
+        p.name === 'Physical Watch' ||
+        p.display_name === 'No Platform' ||
+        p.display_name === 'Physical Watch'
+      ) {
+        continue;
+      }
       // Catalog games belonging to this platform or children
       const catalog = games.filter(
         (g) => g.platform_id === p.id || g.parent_platform_id === p.id,
