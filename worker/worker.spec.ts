@@ -1097,8 +1097,32 @@ describe('Worker API Logic', () => {
     const unauthReq = new Request('https://tracker.example.com/admin/login');
     const unauthRes = await worker.fetch(unauthReq, mockEnv);
     expect(unauthRes.status).toBe(302);
-    expect(unauthRes.headers.get('Location')).toContain('account=missing');
+    expect(unauthRes.headers.get('Location')).toBe(
+      'https://tracker.example.com/',
+    );
     expect(unauthRes.headers.get('x-auth-status')).toBe('missing-identity');
+
+    // Direct unauthenticated /api/auth/login redirects to /admin/login so Cloudflare Access engages
+    const apiLoginReq = new Request(
+      'https://tracker.example.com/api/auth/login',
+    );
+    const apiLoginRes = await worker.fetch(apiLoginReq, mockEnv);
+    expect(apiLoginRes.status).toBe(302);
+    expect(apiLoginRes.headers.get('Location')).toBe(
+      'https://tracker.example.com/admin/login',
+    );
+    expect(apiLoginRes.headers.get('x-auth-status')).toBe('redirect-to-access');
+
+    // Verified Cloudflare Access user not in allowlist redirects to /?account=missing
+    const unknownCtx = {
+      access: { getIdentity: async () => ({ email: 'stranger@example.com' }) },
+    } as unknown as ExecutionContext;
+    const unknownRes = await worker.fetch(unauthReq, mockEnv, unknownCtx);
+    expect(unknownRes.status).toBe(302);
+    expect(unknownRes.headers.get('Location')).toBe(
+      'https://tracker.example.com/?account=missing',
+    );
+    expect(unknownRes.headers.get('x-auth-status')).toBe('user-not-found');
 
     const verifiedCtx = {
       access: { getIdentity: async () => ({ email: 'admin@example.com' }) },

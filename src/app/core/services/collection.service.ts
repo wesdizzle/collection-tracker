@@ -958,7 +958,7 @@ export class CollectionService {
       'Sign in with Cloudflare Access (Email OTP) to manage and update your collection?',
       () => {
         if (typeof window !== 'undefined') {
-          window.location.assign('/api/auth/login');
+          window.location.assign('/admin/login');
         }
       },
     );
@@ -1466,12 +1466,12 @@ export class CollectionService {
 
   /**
    * Toggles the visibility of private acquisition journal data.
-   * If the user is not authenticated, redirects to /api/auth/login (Cloudflare Access).
+   * If the user is not authenticated, redirects to /admin/login (Cloudflare Access).
    */
   public toggleJournalVisibility(): void {
     if (!this.isAuthenticated()) {
       if (typeof window !== 'undefined') {
-        window.location.href = '/api/auth/login';
+        window.location.href = '/admin/login';
       }
       return;
     }

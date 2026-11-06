@@ -182,15 +182,7 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters?.budget_label).toBe('budget_only');
   });
 
-  it('should toggle notification settings modal', () => {
-    expect(component.showNotificationModal()).toBe(false);
-    component.openNotificationSettings();
-    expect(component.showNotificationModal()).toBe(true);
-    component.closeNotificationSettings();
-    expect(component.showNotificationModal()).toBe(false);
-  });
-
-  it('should render deals and alerts buttons with icon elements', () => {
+  it('should render deals button with icon element and omit alerts button from filter bar', () => {
     const dealsBtn = fixture.nativeElement.querySelector('#filter-deals-only');
     expect(dealsBtn).toBeTruthy();
     expect(dealsBtn.querySelector('.deals-icon')).toBeTruthy();
@@ -198,8 +190,7 @@ describe('CollectionFiltersComponent', () => {
     const alertsBtn = fixture.nativeElement.querySelector(
       '#filter-deal-alerts',
     );
-    expect(alertsBtn).toBeTruthy();
-    expect(alertsBtn.querySelector('.alerts-icon')).toBeTruthy();
+    expect(alertsBtn).toBeNull();
   });
 
   it('should render view mode toggle buttons and emit viewModeChange on click', () => {
@@ -231,16 +222,10 @@ describe('CollectionFiltersComponent', () => {
     expect(gridBtn.classList.contains('active')).toBe(false);
   });
 
-  it('should render quick toolbar and deal alerts button in main row', () => {
+  it('should render quick toolbar in main row', () => {
     fixture.detectChanges();
     const toolbar = fixture.nativeElement.querySelector('.quick-toolbar');
     expect(toolbar).toBeTruthy();
-
-    const alertsBtn = fixture.nativeElement.querySelector(
-      '#filter-deal-alerts',
-    );
-    expect(alertsBtn).toBeTruthy();
-    expect(alertsBtn.querySelector('.alerts-icon')).toBeTruthy();
   });
 
   it('should render quick status segmented buttons and activate Owned by default', () => {

@@ -201,22 +201,6 @@
           <span class="filter-count-badge">{{ activeFilterCount() }}</span>
         }
       </button>
-
-      <!-- Deal Notifications Button -->
-      @if (currentTab() === 'games') {
-        <button
-          type="button"
-          class="m3-button m3-button-outlined alerts-toolbar-btn state-layer"
-          [class.active]="isNotificationSubscribed()"
-          (click)="openNotificationSettings()"
-          id="filter-deal-alerts"
-          title="Configure notifications & alerts"
-          aria-label="Configure notifications & alerts"
-        >
-          <span class="alerts-icon"><app-icon name="bell" [size]="16" /></span>
-          <span class="alerts-label">Alerts</span>
-        </button>
-      }
     </div>
 
     <!-- Auxiliary Row: Count/Valuation & Layout Toggle -->

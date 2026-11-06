@@ -34,7 +34,6 @@ import {
   PlatformGroup,
   ViewMode,
 } from '../../../../core/models/collection.models';
-import { NotificationService } from '../../../../core/services/notification.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
@@ -46,8 +45,6 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CollectionFiltersComponent implements OnDestroy {
-  public readonly notificationService = inject(NotificationService);
-
   private quickSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private seriesDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private tagDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -71,11 +68,6 @@ export class CollectionFiltersComponent implements OnDestroy {
   public showFilters = signal(false);
   public showDrawer = signal(false);
   public activeDropdown = signal<string | null>(null);
-  public readonly showNotificationModal =
-    this.notificationService.isSettingsModalOpen;
-  public readonly isNotificationSubscribed = computed(() =>
-    this.notificationService.isSubscribed(),
-  );
 
   /** Quick Status Helpers */
   public readonly isOwnedActive = computed(() => {
@@ -258,14 +250,6 @@ export class CollectionFiltersComponent implements OnDestroy {
       name: '',
       seriesOrName: undefined,
     });
-  }
-
-  public openNotificationSettings(): void {
-    this.notificationService.openSettingsModal();
-  }
-
-  public closeNotificationSettings(): void {
-    this.notificationService.closeSettingsModal();
   }
 
   /** Backward-compatible computed for region dropdown open state */

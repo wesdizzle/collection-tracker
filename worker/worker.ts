@@ -3019,11 +3019,26 @@ Disallow: /
           );
         }
 
-        // User is not in allowlist! Redirect to landing page with account=missing
+        if (
+          !candidateEmail &&
+          !isLoopbackRequest(url) &&
+          (path === '/api/auth/login' || path === '/api/admin/login')
+        ) {
+          return new Response(null, {
+            status: 302,
+            headers: {
+              Location: new URL('/admin/login', request.url).toString(),
+              'x-auth-status': 'redirect-to-access',
+            },
+          });
+        }
+
+        // Only flag account=missing when a Cloudflare Access identity was verified but not found in D1
+        const redirectPath = candidateEmail ? '/?account=missing' : '/';
         return new Response(null, {
           status: 302,
           headers: {
-            Location: new URL('/?account=missing', request.url).toString(),
+            Location: new URL(redirectPath, request.url).toString(),
             'x-auth-status': candidateEmail
               ? 'user-not-found'
               : 'missing-identity',

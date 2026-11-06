@@ -16,13 +16,20 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CollectionService } from '../../core/services/collection.service';
 import { ProfileModalService } from '../../core/services/profile-modal.service';
+import { NotificationService } from '../../core/services/notification.service';
 import { IconComponent } from '../../shared/components/icon/icon.component';
+import { NotificationSettingsModalComponent } from '../collection/notifications/notification-settings-modal/notification-settings-modal.component';
 import { UserProfile } from '../../core/models/collection.models';
 
 @Component({
   selector: 'app-profile-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, IconComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    IconComponent,
+    NotificationSettingsModalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog
@@ -52,159 +59,216 @@ import { UserProfile } from '../../core/models/collection.models';
         </div>
       </div>
 
-      <!-- Header -->
-      <header class="modal-header">
-        <div class="header-left">
-          <div class="avatar-circle">
-            <app-icon name="user" [size]="24" />
-          </div>
-          <div class="header-user-info">
-            <div class="user-row">
-              <span class="user-handle"
-                >&#64;{{ profile()?.username || 'collector' }}</span
-              >
-              <span
-                class="role-badge"
-                [class.role-admin]="profile()?.role === 'admin'"
-              >
-                {{ profile()?.role === 'admin' ? 'Admin' : 'Collector' }}
-              </span>
+      @if (modalService.activeView() === 'notifications') {
+        <app-notification-settings-modal
+          [embedded]="true"
+          (back)="modalService.setView('profile')"
+          (close)="requestClose()"
+        />
+      } @else {
+        <!-- Header -->
+        <header class="modal-header">
+          <div class="header-left">
+            <div class="avatar-circle">
+              <app-icon name="user" [size]="24" />
             </div>
-            <span class="user-email">{{ profile()?.email }}</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          class="btn-close state-layer"
-          (click)="requestClose()"
-          aria-label="Close Profile"
-          data-testid="profile-modal-close-btn"
-        >
-          <app-icon name="close" [size]="18" />
-        </button>
-      </header>
-
-      <!-- Content / Form -->
-      <div class="modal-body">
-        @if (statusMessage()) {
-          <div
-            class="status-banner"
-            [class.status-error]="isError()"
-            data-testid="profile-status-banner"
-          >
-            <span>{{ statusMessage() }}</span>
-          </div>
-        }
-
-        <form (ngSubmit)="saveProfile()" class="profile-form">
-          <div class="form-group">
-            <label for="displayName">Display Name</label>
-            <input
-              type="text"
-              id="displayName"
-              name="displayName"
-              [(ngModel)]="displayName"
-              placeholder="e.g. Retro Gamer"
-              maxlength="100"
-              class="form-input"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="bio">Bio</label>
-            <textarea
-              id="bio"
-              name="bio"
-              [(ngModel)]="bio"
-              placeholder="A short note about your personal collection..."
-              rows="2"
-              maxlength="300"
-              class="form-textarea"
-            ></textarea>
-          </div>
-
-          <div class="form-group">
-            <label for="homeRegion">Home Region</label>
-            <select
-              id="homeRegion"
-              name="homeRegion"
-              [(ngModel)]="homeRegion"
-              class="form-select"
-            >
-              @for (r of homeRegions(); track r) {
-                <option [value]="r">{{ r }}</option>
-              }
-            </select>
-            <p class="field-hint">
-              Controls your default regional library filter and localized game
-              title matching.
-            </p>
-          </div>
-
-          <div class="setting-toggle-box">
-            <div class="toggle-info">
-              <span class="toggle-title">Public Collection</span>
-              <span class="toggle-desc">
-                Allow anyone with your public link to browse your library
-                without personal acquisition notes or spend figures.
-              </span>
-            </div>
-            <label class="switch">
-              <input
-                type="checkbox"
-                name="isPublic"
-                [(ngModel)]="isPublic"
-                data-testid="profile-public-switch"
-              />
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          @if (isPublic) {
-            <div class="public-link-box animate-fade-in">
-              <label class="public-link-label">Your Public Library Link</label>
-              <div class="link-input-group">
-                <input
-                  type="text"
-                  readonly
-                  [value]="publicUrl()"
-                  class="link-input"
-                  data-testid="profile-public-url-input"
-                />
-                <button
-                  type="button"
-                  (click)="copyLink()"
-                  class="btn-copy"
-                  data-testid="profile-copy-link-btn"
+            <div class="header-user-info">
+              <div class="user-row">
+                <span class="user-handle"
+                  >&#64;{{ profile()?.username || 'collector' }}</span
                 >
-                  <app-icon [name]="copied() ? 'check' : 'copy'" [size]="14" />
-                  <span>{{ copied() ? 'Copied' : 'Copy' }}</span>
-                </button>
+                <span
+                  class="role-badge"
+                  [class.role-admin]="profile()?.role === 'admin'"
+                >
+                  {{ profile()?.role === 'admin' ? 'Admin' : 'Collector' }}
+                </span>
               </div>
+              <span class="user-email">{{ profile()?.email }}</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="btn-close state-layer"
+            (click)="requestClose()"
+            aria-label="Close Profile"
+            data-testid="profile-modal-close-btn"
+          >
+            <app-icon name="close" [size]="18" />
+          </button>
+        </header>
+
+        <!-- Content / Form -->
+        <div class="modal-body">
+          @if (statusMessage()) {
+            <div
+              class="status-banner"
+              [class.status-error]="isError()"
+              data-testid="profile-status-banner"
+            >
+              <span>{{ statusMessage() }}</span>
             </div>
           }
 
-          <div class="form-actions">
-            <button
-              type="submit"
-              class="btn-primary"
-              [disabled]="isSaving()"
-              data-testid="profile-save-btn"
-            >
-              {{ isSaving() ? 'Saving...' : 'Save Changes' }}
-            </button>
+          <form (ngSubmit)="saveProfile()" class="profile-form">
+            <div class="form-group">
+              <label for="displayName">Display Name</label>
+              <input
+                type="text"
+                id="displayName"
+                name="displayName"
+                [(ngModel)]="displayName"
+                placeholder="e.g. Retro Gamer"
+                maxlength="100"
+                class="form-input"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="bio">Bio</label>
+              <textarea
+                id="bio"
+                name="bio"
+                [(ngModel)]="bio"
+                placeholder="A short note about your personal collection..."
+                rows="2"
+                maxlength="300"
+                class="form-textarea"
+              ></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="homeRegion">Home Region</label>
+              <select
+                id="homeRegion"
+                name="homeRegion"
+                [(ngModel)]="homeRegion"
+                class="form-select"
+              >
+                @for (r of homeRegions(); track r) {
+                  <option [value]="r">{{ r }}</option>
+                }
+              </select>
+              <p class="field-hint">
+                Controls your default regional library filter and localized game
+                title matching.
+              </p>
+            </div>
+
+            <div class="setting-toggle-box">
+              <div class="toggle-info">
+                <span class="toggle-title">Public Collection</span>
+                <span class="toggle-desc">
+                  Allow anyone with your public link to browse your library
+                  without personal acquisition notes or spend figures.
+                </span>
+              </div>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  name="isPublic"
+                  [(ngModel)]="isPublic"
+                  data-testid="profile-public-switch"
+                />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            @if (isPublic) {
+              <div class="public-link-box animate-fade-in">
+                <label class="public-link-label"
+                  >Your Public Library Link</label
+                >
+                <div class="link-input-group">
+                  <input
+                    type="text"
+                    readonly
+                    [value]="publicUrl()"
+                    class="link-input"
+                    data-testid="profile-public-url-input"
+                  />
+                  <button
+                    type="button"
+                    (click)="copyLink()"
+                    class="btn-copy"
+                    data-testid="profile-copy-link-btn"
+                  >
+                    <app-icon
+                      [name]="copied() ? 'check' : 'copy'"
+                      [size]="14"
+                    />
+                    <span>{{ copied() ? 'Copied' : 'Copy' }}</span>
+                  </button>
+                </div>
+              </div>
+            }
+
             <button
               type="button"
-              class="btn-secondary"
-              (click)="signOut()"
-              data-testid="profile-signout-btn"
+              class="setting-nav-box state-layer"
+              (click)="openNotifications()"
+              data-testid="profile-notifications-btn"
             >
-              Sign Out
+              <div class="setting-nav-left">
+                <div class="setting-nav-icon">
+                  <app-icon name="bell" [size]="18" />
+                </div>
+                <div class="toggle-info">
+                  <span class="toggle-title">Notifications & Alerts</span>
+                  <span class="toggle-desc">
+                    Configure push alerts for physical pre-orders, launch days,
+                    and retail deals.
+                  </span>
+                </div>
+              </div>
+              <div class="setting-nav-right">
+                <span
+                  class="notif-status-badge"
+                  [class.active]="notificationService.isSubscribed()"
+                >
+                  {{
+                    notificationService.isSubscribed() ? 'Active' : 'Disabled'
+                  }}
+                </span>
+                <svg
+                  class="nav-chevron"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </div>
             </button>
-          </div>
-        </form>
-      </div>
+
+            <div class="form-actions">
+              <button
+                type="submit"
+                class="btn-primary"
+                [disabled]="isSaving()"
+                data-testid="profile-save-btn"
+              >
+                {{ isSaving() ? 'Saving...' : 'Save Changes' }}
+              </button>
+              <button
+                type="button"
+                class="btn-secondary"
+                (click)="signOut()"
+                data-testid="profile-signout-btn"
+              >
+                Sign Out
+              </button>
+            </div>
+          </form>
+        </div>
+      }
     </dialog>
   `,
   styles: [
@@ -534,6 +598,78 @@ import { UserProfile } from '../../core/models/collection.models';
         opacity: 0.85;
       }
 
+      .setting-nav-box {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem;
+        background: var(--m3-surface-container);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-md);
+        color: inherit;
+        font-family: inherit;
+        text-align: left;
+        cursor: pointer;
+        width: 100%;
+        transition:
+          border-color 0.2s,
+          background-color 0.2s;
+      }
+
+      .setting-nav-box:hover {
+        border-color: var(--m3-outline);
+        background: var(--m3-surface-container-highest);
+      }
+
+      .setting-nav-left {
+        display: flex;
+        align-items: center;
+        gap: 0.875rem;
+        min-width: 0;
+      }
+
+      .setting-nav-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: var(--radius-full);
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .setting-nav-right {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+      }
+
+      .notif-status-badge {
+        font-size: 0.6875rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 0.175rem 0.5rem;
+        border-radius: var(--radius-full);
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface-variant);
+        border: 1px solid var(--m3-outline-variant);
+      }
+
+      .notif-status-badge.active {
+        background: rgba(34, 197, 94, 0.15);
+        color: #4ade80;
+        border-color: rgba(34, 197, 94, 0.35);
+      }
+
+      .nav-chevron {
+        color: var(--m3-on-surface-variant);
+      }
+
       .form-actions {
         display: flex;
         align-items: center;
@@ -662,6 +798,7 @@ export class ProfileModalComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private collectionService = inject(CollectionService);
   public modalService = inject(ProfileModalService);
+  public notificationService = inject(NotificationService);
 
   public profile = signal<UserProfile | null>(null);
   public homeRegions = signal<string[]>([
@@ -813,7 +950,15 @@ export class ProfileModalComponent implements OnInit, AfterViewInit, OnDestroy {
 
   public onDialogCancel(event: Event): void {
     event.preventDefault();
+    if (this.modalService.activeView() === 'notifications') {
+      this.modalService.setView('profile');
+      return;
+    }
     this.requestClose();
+  }
+
+  public openNotifications(): void {
+    this.modalService.setView('notifications');
   }
 
   public onTouchStart(event: TouchEvent): void {

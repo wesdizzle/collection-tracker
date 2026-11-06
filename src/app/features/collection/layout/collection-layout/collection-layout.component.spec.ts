@@ -125,40 +125,22 @@ describe('CollectionLayoutComponent', () => {
     });
   });
 
-  describe('Notification Settings Modal Rendering', () => {
-    it('should not render notification modal by default', () => {
-      const modal = fixture.nativeElement.querySelector(
-        'app-notification-settings-modal',
-      );
-      expect(modal).toBeNull();
-    });
-
-    it('should render notification modal outside layout-container when open', () => {
-      component.notificationService.openSettingsModal();
-      fixture.detectChanges();
-
-      const modal = fixture.nativeElement.querySelector(
-        'app-notification-settings-modal',
-      );
-      expect(modal).toBeTruthy();
-
-      const layoutContainer =
-        fixture.nativeElement.querySelector('.layout-container');
-      expect(layoutContainer.contains(modal)).toBe(false);
-
-      component.notificationService.closeSettingsModal();
-      fixture.detectChanges();
-
-      expect(
-        fixture.nativeElement.querySelector('app-notification-settings-modal'),
-      ).toBeNull();
-    });
-  });
-
-  describe('Profile Modal Rendering', () => {
+  describe('Profile Modal & User Icon Routing', () => {
     it('should not render profile modal by default', () => {
       const modal = fixture.nativeElement.querySelector('app-profile-modal');
       expect(modal).toBeNull();
+    });
+
+    it('should not render profile modal when signed out even if service isOpen is true', () => {
+      const cs = TestBed.inject(CollectionService);
+      cs.setAdminForTesting(false);
+      component.profileModalService.open();
+      fixture.detectChanges();
+
+      expect(
+        fixture.nativeElement.querySelector('app-profile-modal'),
+      ).toBeNull();
+      component.profileModalService.close();
     });
 
     it('should render profile modal when open and trigger via header user button when authenticated', () => {

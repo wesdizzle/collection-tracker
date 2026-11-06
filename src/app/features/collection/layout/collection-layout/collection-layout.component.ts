@@ -8,22 +8,15 @@ import {
 import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { BrandingService } from '../../../../core/services/branding.service';
-import { NotificationService } from '../../../../core/services/notification.service';
 import { CommandPaletteService } from '../../../../core/services/command-palette.service';
 import { ProfileModalService } from '../../../../core/services/profile-modal.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
-import { NotificationSettingsModalComponent } from '../../notifications/notification-settings-modal/notification-settings-modal.component';
 import { ProfileModalComponent } from '../../../profile/profile-modal.component';
 
 @Component({
   selector: 'app-collection-layout',
   standalone: true,
-  imports: [
-    RouterModule,
-    IconComponent,
-    NotificationSettingsModalComponent,
-    ProfileModalComponent,
-  ],
+  imports: [RouterModule, IconComponent, ProfileModalComponent],
   template: `
     <header class="main-header">
       <div class="header-inner">
@@ -166,13 +159,7 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
       </footer>
     </div>
 
-    @if (notificationService.isSettingsModalOpen()) {
-      <app-notification-settings-modal
-        (close)="notificationService.closeSettingsModal()"
-      />
-    }
-
-    @if (profileModalService.isOpen()) {
+    @if (isAuthenticated() && profileModalService.isOpen()) {
       <app-profile-modal />
     }
   `,
@@ -430,7 +417,6 @@ export class CollectionLayoutComponent implements OnDestroy {
   private route = inject(ActivatedRoute);
   private collectionService = inject(CollectionService);
   private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
-  public readonly notificationService = inject(NotificationService);
   public readonly commandPalette = inject(CommandPaletteService);
   public readonly profileModalService = inject(ProfileModalService);
   public readonly branding = inject(BrandingService);
@@ -523,7 +509,7 @@ export class CollectionLayoutComponent implements OnDestroy {
       this.profileModalService.open();
     } else {
       if (typeof window !== 'undefined') {
-        window.location.assign('/api/auth/login');
+        window.location.assign('/admin/login');
       }
     }
   }

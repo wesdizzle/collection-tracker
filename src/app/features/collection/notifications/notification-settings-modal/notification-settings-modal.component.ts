@@ -1,6 +1,7 @@
 import {
   Component,
   signal,
+  input,
   output,
   inject,
   HostListener,
@@ -33,15 +34,39 @@ const COMMON_PLATFORMS: PlatformOption[] = [
   template: `
     <div
       class="modal-backdrop fade-in"
+      [class.embedded-backdrop]="embedded()"
       (click)="onBackdropClick($event)"
-      role="dialog"
-      aria-modal="true"
+      [attr.role]="embedded() ? null : 'dialog'"
+      [attr.aria-modal]="embedded() ? null : 'true'"
       aria-labelledby="modal-title"
     >
-      <div class="modal-card state-layer">
+      <div class="modal-card state-layer" [class.embedded-card]="embedded()">
         <!-- Header -->
         <div class="modal-header">
           <div class="flex items-center gap-xs">
+            @if (embedded()) {
+              <button
+                type="button"
+                class="back-button state-layer"
+                (click)="back.emit()"
+                aria-label="Back to Profile"
+                data-testid="notifications-back-btn"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M19 12H5M12 19l-7-7 7-7" />
+                </svg>
+              </button>
+            }
             <span class="header-icon"
               ><app-icon name="bell" [size]="20"
             /></span>
@@ -516,8 +541,12 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             </span>
           }
           <div class="flex gap-xs items-center ml-auto">
-            <button type="button" class="btn-secondary" (click)="close.emit()">
-              Cancel
+            <button
+              type="button"
+              class="btn-secondary"
+              (click)="embedded() ? back.emit() : close.emit()"
+            >
+              {{ embedded() ? 'Back' : 'Cancel' }}
             </button>
             <button
               type="button"
@@ -534,6 +563,13 @@ const COMMON_PLATFORMS: PlatformOption[] = [
   `,
   styles: [
     `
+      :host {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+
       .modal-backdrop {
         position: fixed;
         inset: 0;
@@ -546,6 +582,18 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         z-index: 2000;
         padding: 1rem;
         overscroll-behavior: contain;
+      }
+
+      .modal-backdrop.embedded-backdrop {
+        position: static;
+        inset: auto;
+        background: transparent;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        padding: 0;
+        flex: 1;
+        min-height: 0;
+        width: 100%;
       }
 
       .modal-card {
@@ -561,7 +609,19 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         color: var(--m3-on-surface);
       }
 
-      :host-context(.theme-light) .modal-card {
+      .modal-card.embedded-card {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        max-width: none;
+        max-height: none;
+        height: 100%;
+        flex: 1;
+        min-height: 0;
+        box-shadow: none;
+      }
+
+      :host-context(.theme-light) .modal-card:not(.embedded-card) {
         background: #ffffff;
         box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
       }
@@ -572,6 +632,33 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         justify-content: space-between;
         padding: 1.25rem 1.5rem 0.75rem;
         border-bottom: 1px solid var(--m3-outline-variant);
+      }
+
+      .embedded-card .modal-header {
+        padding: 1.25rem 1.5rem;
+        background: var(--m3-surface-container);
+      }
+
+      .back-button {
+        background: transparent;
+        border: none;
+        color: var(--m3-on-surface-variant);
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        margin-left: -0.25rem;
+        transition:
+          color 0.15s ease,
+          background-color 0.15s ease;
+      }
+
+      .back-button:hover {
+        color: var(--m3-on-surface);
+        background: var(--m3-surface-container-highest);
       }
 
       .modal-title {
@@ -951,6 +1038,8 @@ const COMMON_PLATFORMS: PlatformOption[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NotificationSettingsModalComponent {
+  public readonly embedded = input<boolean>(false);
+  public readonly back = output<void>();
   public readonly close = output<void>();
 
   public readonly notificationService = inject(NotificationService);
@@ -992,14 +1081,16 @@ export class NotificationSettingsModalComponent {
   }
 
   public onBackdropClick(event: MouseEvent): void {
-    if (event.target === event.currentTarget) {
+    if (!this.embedded() && event.target === event.currentTarget) {
       this.close.emit();
     }
   }
 
   @HostListener('window:keydown.escape')
   public onEscapeKey(): void {
-    this.close.emit();
+    if (!this.embedded()) {
+      this.close.emit();
+    }
   }
 
   public async onToggleMaster(enable: boolean): Promise<void> {
@@ -1154,7 +1245,11 @@ export class NotificationSettingsModalComponent {
       this.saveMessage.set('✓ Saved!');
       setTimeout(() => {
         this.saveMessage.set(null);
-        this.close.emit();
+        if (this.embedded()) {
+          this.back.emit();
+        } else {
+          this.close.emit();
+        }
       }, 700);
     } else {
       this.saveMessage.set('Failed to save preferences.');

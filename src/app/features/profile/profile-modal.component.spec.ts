@@ -164,4 +164,54 @@ describe('ProfileModalComponent', () => {
     component.onTouchEnd();
     expect(closeSpy).toHaveBeenCalled();
   });
+
+  it('should transition in-place to notifications view and back to profile view', () => {
+    modalService.open();
+    fixture.detectChanges();
+
+    expect(modalService.activeView()).toBe('profile');
+    expect(
+      fixture.nativeElement.querySelector('app-notification-settings-modal'),
+    ).toBeNull();
+
+    const notifBtn = fixture.nativeElement.querySelector(
+      '[data-testid="profile-notifications-btn"]',
+    ) as HTMLButtonElement;
+    expect(notifBtn).toBeTruthy();
+
+    notifBtn.click();
+    fixture.detectChanges();
+
+    expect(modalService.activeView()).toBe('notifications');
+    const embeddedNotif = fixture.nativeElement.querySelector(
+      'app-notification-settings-modal',
+    );
+    expect(embeddedNotif).toBeTruthy();
+
+    const backBtn = fixture.nativeElement.querySelector(
+      '[data-testid="notifications-back-btn"]',
+    ) as HTMLButtonElement;
+    expect(backBtn).toBeTruthy();
+
+    backBtn.click();
+    fixture.detectChanges();
+
+    expect(modalService.activeView()).toBe('profile');
+    expect(
+      fixture.nativeElement.querySelector('app-notification-settings-modal'),
+    ).toBeNull();
+  });
+
+  it('should return to profile view on Escape cancel event when in notifications view', () => {
+    modalService.open('notifications');
+    fixture.detectChanges();
+
+    const closeSpy = vi.spyOn(component, 'requestClose');
+    const cancelEvent = new Event('cancel', { cancelable: true });
+    component.onDialogCancel(cancelEvent);
+    fixture.detectChanges();
+
+    expect(modalService.activeView()).toBe('profile');
+    expect(closeSpy).not.toHaveBeenCalled();
+  });
 });
