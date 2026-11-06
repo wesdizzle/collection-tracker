@@ -577,7 +577,11 @@
                     </div>
                   }
                 </div>
-              } @else if (!g.rom_name) {
+              } @else if (
+                !g.rom_name &&
+                g.platform_id !== 0 &&
+                g.physical_status !== 'not_yet_physical'
+              ) {
                 <div class="meta-box full-width">
                   <span class="label">Release Catalog</span>
                   <span

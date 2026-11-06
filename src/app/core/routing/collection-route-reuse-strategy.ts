@@ -93,8 +93,10 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
       this.pendingScroll.delete(key);
       this.storedHandles.set(key, { handle, scrollX, scrollY });
     } else {
-      const existing = this.storedHandles.get(key);
-      this.destroyHandle(existing);
+      // Note: Angular Router calls `store(future.snapshot, null)` immediately after
+      // `retrieve(future.snapshot)` and right BEFORE `outlet.attach(stored.componentRef)`.
+      // Never call `destroyHandle()` here, as doing so destroys the live ComponentRef
+      // being reattached (stripping component styles from <head> and freezing signals).
       this.storedHandles.delete(key);
       this.pendingScroll.delete(key);
     }

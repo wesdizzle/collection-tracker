@@ -97,7 +97,7 @@ describe('CollectionRouteReuseStrategy', () => {
       });
     });
 
-    it('should remove handle and destroy its componentRef when storing null', () => {
+    it('should remove handle without destroying its live componentRef when Angular Router stores null on reattach', () => {
       const destroySpy = vi.fn();
       const handle = {
         componentRef: { destroy: destroySpy },
@@ -105,10 +105,14 @@ describe('CollectionRouteReuseStrategy', () => {
       strategy.store(createSnapshot('games'), handle);
       expect(strategy.shouldAttach(createSnapshot('games'))).toBe(true);
 
+      const retrieved = strategy.retrieve(createSnapshot('games'));
+      expect(retrieved).toBe(handle);
+
+      // Angular Router calls store(snapshot, null) right after retrieve() and before outlet.attach()
       strategy.store(createSnapshot('games'), null);
       expect(strategy.shouldAttach(createSnapshot('games'))).toBe(false);
       expect(strategy.hasStoredRoute('games')).toBe(false);
-      expect(destroySpy).toHaveBeenCalledTimes(1);
+      expect(destroySpy).not.toHaveBeenCalled();
     });
 
     it('should destroy previous componentRef when replacing a stored handle with a new one', () => {

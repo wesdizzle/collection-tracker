@@ -559,7 +559,9 @@ export class CollectionService {
         );
         if (cached) {
           let releases = cached.releases;
-          if (!releases || releases.length === 0) {
+          if (cached.platform_id === 0) {
+            releases = [];
+          } else if (!releases || releases.length === 0) {
             const matchingReleases = this._games()
               .filter(
                 (g) =>
@@ -707,6 +709,7 @@ export class CollectionService {
             };
             this._toys.update((toys) => [newToy, ...toys]);
             this._refreshTrigger.update((v) => v + 1);
+            void this.clearServiceWorkerDataCaches();
           }
         }),
         catchError(this.handleMutationError),
@@ -850,8 +853,19 @@ export class CollectionService {
               })),
             };
 
-            this._games.update((games) => [newGame, ...games]);
+            this._games.update((games) => {
+              const existingIdx = games.findIndex(
+                (g) => g.id === res.gameId || g.game_id === res.gameId,
+              );
+              if (existingIdx !== -1) {
+                const next = [...games];
+                next[existingIdx] = newGame;
+                return next;
+              }
+              return [newGame, ...games];
+            });
             this._refreshTrigger.update((v) => v + 1);
+            void this.clearServiceWorkerDataCaches();
           }
         }),
         catchError(this.handleMutationError),
@@ -1052,6 +1066,7 @@ export class CollectionService {
               ),
             );
           }
+          void this.clearServiceWorkerDataCaches();
         }),
         catchError(this.handleMutationError),
       );
@@ -1086,6 +1101,7 @@ export class CollectionService {
                 : g,
             ),
           );
+          void this.clearServiceWorkerDataCaches();
         }),
         catchError(this.handleMutationError),
       );
@@ -1141,6 +1157,7 @@ export class CollectionService {
               return g;
             }),
           );
+          void this.clearServiceWorkerDataCaches();
         }),
         catchError(this.handleMutationError),
       );
@@ -1173,6 +1190,7 @@ export class CollectionService {
               g.id === id || g.game_id === id ? { ...g, has_case: status } : g,
             ),
           );
+          void this.clearServiceWorkerDataCaches();
         }),
         catchError(this.handleMutationError),
       );
@@ -1207,6 +1225,7 @@ export class CollectionService {
                 : g,
             ),
           );
+          void this.clearServiceWorkerDataCaches();
         }),
         catchError(this.handleMutationError),
       );
@@ -1241,6 +1260,7 @@ export class CollectionService {
                 : g,
             ),
           );
+          void this.clearServiceWorkerDataCaches();
         }),
         catchError(this.handleMutationError),
       );
@@ -1266,6 +1286,7 @@ export class CollectionService {
           this._games.update((games) =>
             games.filter((g) => g.id !== id && g.game_id !== id),
           );
+          void this.clearServiceWorkerDataCaches();
         }),
         catchError(this.handleMutationError),
       );
@@ -1285,8 +1306,22 @@ export class CollectionService {
     return this.http
       .delete<{
         success: boolean;
+        deletedGameId?: string;
       }>(`/api/collection/release?id=${encodeURIComponent(releaseId)}`)
-      .pipe(catchError(this.handleMutationError));
+      .pipe(
+        tap((res) => {
+          if (res?.deletedGameId) {
+            this._games.update((games) =>
+              games.filter(
+                (g) =>
+                  g.id !== res.deletedGameId && g.game_id !== res.deletedGameId,
+              ),
+            );
+          }
+          void this.clearServiceWorkerDataCaches();
+        }),
+        catchError(this.handleMutationError),
+      );
   }
 
   /**

@@ -632,7 +632,15 @@ export class ItemDetailComponent {
    * matched ROM/catalog signature, physical retail medium, or physical releases list).
    */
   public hasPhysicalRelease(game?: Game | null): boolean {
-    if (!game) return false;
+    if (!game || game.platform_id === 0) return false;
+    if (
+      !game.rom_name &&
+      (game.physical_status === 'not_yet_physical' ||
+        game.physical_status === 'physical_pending' ||
+        game.physical_status === 'digital_only')
+    ) {
+      return false;
+    }
     if (
       game.physical_status === 'verified_physical' ||
       game.physical_status === 'likely_physical'

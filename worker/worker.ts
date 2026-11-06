@@ -1382,7 +1382,13 @@ Disallow: /
           variants?: string | null;
         }
       >;
-      if (isMulti) {
+      if (game.platform_id === 0) {
+        // Virtual Platform 0 ("No Platform") represents untracked / physical watch list games
+        // that have not yet released on a physical console. They must never expose synthetic
+        // or placeholder physical release rows.
+        game.releases = [];
+        game.other_releases = [];
+      } else if (isMulti) {
         game.releases = typedResults.filter(
           (r) => getRomGroupingKey(r.rom_name) === targetKey,
         );
@@ -1473,7 +1479,10 @@ Disallow: /
         }
       }
 
-      if (!game.releases || game.releases.length === 0) {
+      if (
+        (!game.releases || game.releases.length === 0) &&
+        game.platform_id !== 0
+      ) {
         game.releases = [
           {
             id: game.id,
@@ -1996,14 +2005,14 @@ Disallow: /
               verification: ReturnType<typeof detectPhysicalReleaseStatus>;
             }> = [];
 
+            const isWatchedOnNoPlatform =
+              existingSet.has(`igdb-${g.id}-0`) ||
+              existingSet.has(`title-${cleanTitle}-0`) ||
+              existingSet.has(`norm-${normTitle}-0`);
+
             for (const p of candidatePlatforms) {
               const localPlat = igdbToPlatform.get(p.id);
               if (!localPlat) continue;
-
-              const isAlreadyOwned =
-                existingSet.has(`igdb-${g.id}-${localPlat.id}`) ||
-                existingSet.has(`title-${cleanTitle}-${localPlat.id}`) ||
-                existingSet.has(`norm-${normTitle}-${localPlat.id}`);
 
               const verification = detectPhysicalReleaseStatus({
                 platformId: localPlat.id,
@@ -2022,6 +2031,12 @@ Disallow: /
               ) {
                 continue;
               }
+
+              const isAlreadyOwned =
+                existingSet.has(`igdb-${g.id}-${localPlat.id}`) ||
+                existingSet.has(`title-${cleanTitle}-${localPlat.id}`) ||
+                existingSet.has(`norm-${normTitle}-${localPlat.id}`) ||
+                (!verification.is_physical && isWatchedOnNoPlatform);
 
               const matchedReleasesFormatted =
                 verification.matched_releases.map((mr) => ({
@@ -3663,6 +3678,16 @@ Disallow: /
         );
       }
 
+      const existingRelease = (await env.DB.prepare(
+        'SELECT r.game_id, g.id as parent_slug, g.platform_id FROM game_releases r JOIN games g ON g.stable_id = r.game_id WHERE r.id = ? LIMIT 1',
+      )
+        .bind(releaseId)
+        .first()) as {
+        game_id: number;
+        parent_slug: string;
+        platform_id: number;
+      } | null;
+
       await env.DB.prepare(
         'DELETE FROM user_game_releases WHERE release_id = ?',
       )
@@ -3676,10 +3701,70 @@ Disallow: /
         .run();
 
       if (!result.meta || result.meta.changes === 0) {
-        return Response.json(
-          { error: `Could not find release with ID: ${releaseId}` },
-          { status: 404 },
-        );
+        // Fallback: if releaseId refers directly to a Virtual Platform 0 ("No Platform")
+        // game that has no physical release rows, delete the Platform 0 game cleanly.
+        const noPlatGame = (await env.DB.prepare(
+          'SELECT stable_id, id FROM games WHERE id = ? AND platform_id = 0 LIMIT 1',
+        )
+          .bind(releaseId)
+          .first()) as { stable_id: number; id: string } | null;
+
+        if (!noPlatGame) {
+          return Response.json(
+            { error: `Could not find release with ID: ${releaseId}` },
+            { status: 404 },
+          );
+        }
+
+        await env.DB.batch([
+          env.DB.prepare(
+            `DELETE FROM journal_entries WHERE item_type = 'game' AND item_id = ?`,
+          ).bind(noPlatGame.id),
+          env.DB.prepare(
+            `DELETE FROM user_game_releases WHERE release_id IN (SELECT id FROM game_releases WHERE game_id = ?)`,
+          ).bind(noPlatGame.stable_id),
+          env.DB.prepare('DELETE FROM user_games WHERE game_id = ?').bind(
+            noPlatGame.stable_id,
+          ),
+          env.DB.prepare('DELETE FROM game_releases WHERE game_id = ?').bind(
+            noPlatGame.stable_id,
+          ),
+          env.DB.prepare('DELETE FROM games WHERE stable_id = ?').bind(
+            noPlatGame.stable_id,
+          ),
+        ]);
+
+        invalidateSeriesScanCache();
+        await invalidateEdgeApiCache(request.url);
+        await markDbDirty(env, 'games', noPlatGame.stable_id);
+        return Response.json({
+          success: true,
+          deletedReleaseId: releaseId,
+          deletedGameId: noPlatGame.id,
+        });
+      }
+
+      // If deleting a placeholder release from a Platform 0 game leaves it with 0 releases,
+      // remove the orphaned Platform 0 game row as well.
+      if (existingRelease && existingRelease.platform_id === 0) {
+        const remaining = await env.DB.prepare(
+          'SELECT 1 FROM game_releases WHERE game_id = ? LIMIT 1',
+        )
+          .bind(existingRelease.game_id)
+          .first();
+        if (!remaining) {
+          await env.DB.batch([
+            env.DB.prepare(
+              `DELETE FROM journal_entries WHERE item_type = 'game' AND item_id = ?`,
+            ).bind(existingRelease.parent_slug),
+            env.DB.prepare('DELETE FROM user_games WHERE game_id = ?').bind(
+              existingRelease.game_id,
+            ),
+            env.DB.prepare('DELETE FROM games WHERE stable_id = ?').bind(
+              existingRelease.game_id,
+            ),
+          ]);
+        }
       }
 
       invalidateSeriesScanCache();
@@ -3831,29 +3916,6 @@ Disallow: /
       const platformName = platformRow ? platformRow.display_name : 'unknown';
       const baseSlug = `${slugify(game.title)}-${slugify(platformName)}`;
 
-      let candidateGameId = baseSlug;
-      let counter = 1;
-      while (true) {
-        const exists = await env.DB.prepare('SELECT 1 FROM games WHERE id = ?')
-          .bind(candidateGameId)
-          .first();
-        if (!exists) break;
-        candidateGameId = `${baseSlug}-${counter}`;
-        counter++;
-      }
-
-      const maxSortIndexRow = (await env.DB.prepare(
-        'SELECT MAX(sort_index) as max_idx FROM games WHERE platform_id = ?',
-      )
-        .bind(game.platform_id)
-        .first()) as { max_idx: number | null } | null;
-
-      const sortIndex =
-        (maxSortIndexRow?.max_idx !== null &&
-        maxSortIndexRow?.max_idx !== undefined
-          ? maxSortIndexRow.max_idx
-          : 0) + 1;
-
       const canonicalSeries = computeGameCanonicalSeries({
         title: game.title,
         collections: game.collections || undefined,
@@ -3873,46 +3935,138 @@ Disallow: /
 
       const currentUserId = sessionUser ? sessionUser.id : 1;
 
-      await env.DB.prepare(
-        `
-          INSERT INTO games (
-            id, title, platform_id, sort_index, image_url,
-            igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
-            physical_status, verification_tier, barcode, canonical_series
-          ) VALUES (
-            ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?, ?, 1,
-            ?, ?, ?, ?
-          )
-        `,
-      )
-        .bind(
-          candidateGameId,
-          game.title,
-          game.platform_id,
-          sortIndex,
-          game.image_url || null,
-          game.igdb_id || null,
-          game.igdb_url || null,
-          game.summary || null,
-          game.genres || null,
-          gameRegion,
-          game.collections || null,
-          game.franchises || null,
-          game.physical_status || 'unverified',
-          game.verification_tier || 0,
-          game.barcode || null,
-          canonicalSeries,
+      // Deduplicate: check if this game already exists on the same platform_id
+      // (by igdb_id when present, or by case-insensitive title) so repeated adds
+      // update in place rather than minting -1, -2 duplicate rows.
+      let existingGame: { id: string; stable_id: number } | null = null;
+      if (game.igdb_id) {
+        existingGame = (await env.DB.prepare(
+          'SELECT id, stable_id FROM games WHERE igdb_id = ? AND platform_id = ? ORDER BY stable_id ASC LIMIT 1',
         )
-        .run();
+          .bind(game.igdb_id, game.platform_id)
+          .first()) as { id: string; stable_id: number } | null;
+      }
+      if (!existingGame) {
+        existingGame = (await env.DB.prepare(
+          'SELECT id, stable_id FROM games WHERE LOWER(title) = LOWER(?) AND platform_id = ? AND (igdb_id IS NULL OR ? IS NULL OR igdb_id = ?) ORDER BY stable_id ASC LIMIT 1',
+        )
+          .bind(
+            game.title.trim(),
+            game.platform_id,
+            game.igdb_id || null,
+            game.igdb_id || null,
+          )
+          .first()) as { id: string; stable_id: number } | null;
+      }
 
-      const insertedGame = (await env.DB.prepare(
-        'SELECT stable_id FROM games WHERE id = ?',
-      )
-        .bind(candidateGameId)
-        .first()) as { stable_id: number } | null;
+      let candidateGameId = baseSlug;
+      let finalStableId = 0;
 
-      const finalStableId = insertedGame?.stable_id || 0;
+      if (existingGame) {
+        candidateGameId = existingGame.id;
+        finalStableId = existingGame.stable_id;
+        await env.DB.prepare(
+          `
+            UPDATE games
+            SET image_url = COALESCE(?, image_url),
+                igdb_id = COALESCE(?, igdb_id),
+                igdb_url = COALESCE(?, igdb_url),
+                summary = COALESCE(?, summary),
+                genres = COALESCE(?, genres),
+                region = COALESCE(?, region),
+                collections = COALESCE(?, collections),
+                franchises = COALESCE(?, franchises),
+                manually_verified = 1,
+                physical_status = COALESCE(?, physical_status),
+                verification_tier = CASE WHEN ? > COALESCE(verification_tier, 0) THEN ? ELSE COALESCE(verification_tier, 0) END,
+                barcode = COALESCE(?, barcode),
+                canonical_series = COALESCE(?, canonical_series)
+            WHERE stable_id = ?
+          `,
+        )
+          .bind(
+            game.image_url || null,
+            game.igdb_id || null,
+            game.igdb_url || null,
+            game.summary || null,
+            game.genres || null,
+            gameRegion,
+            game.collections || null,
+            game.franchises || null,
+            game.physical_status || null,
+            game.verification_tier || 0,
+            game.verification_tier || 0,
+            game.barcode || null,
+            canonicalSeries,
+            finalStableId,
+          )
+          .run();
+      } else {
+        let counter = 1;
+        while (true) {
+          const exists = await env.DB.prepare(
+            'SELECT 1 FROM games WHERE id = ?',
+          )
+            .bind(candidateGameId)
+            .first();
+          if (!exists) break;
+          candidateGameId = `${baseSlug}-${counter}`;
+          counter++;
+        }
+
+        const maxSortIndexRow = (await env.DB.prepare(
+          'SELECT MAX(sort_index) as max_idx FROM games WHERE platform_id = ?',
+        )
+          .bind(game.platform_id)
+          .first()) as { max_idx: number | null } | null;
+
+        const sortIndex =
+          (maxSortIndexRow?.max_idx !== null &&
+          maxSortIndexRow?.max_idx !== undefined
+            ? maxSortIndexRow.max_idx
+            : 0) + 1;
+
+        await env.DB.prepare(
+          `
+            INSERT INTO games (
+              id, title, platform_id, sort_index, image_url,
+              igdb_id, igdb_url, summary, genres, region, collections, franchises, manually_verified,
+              physical_status, verification_tier, barcode, canonical_series
+            ) VALUES (
+              ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?, 1,
+              ?, ?, ?, ?
+            )
+          `,
+        )
+          .bind(
+            candidateGameId,
+            game.title,
+            game.platform_id,
+            sortIndex,
+            game.image_url || null,
+            game.igdb_id || null,
+            game.igdb_url || null,
+            game.summary || null,
+            game.genres || null,
+            gameRegion,
+            game.collections || null,
+            game.franchises || null,
+            game.physical_status || 'unverified',
+            game.verification_tier || 0,
+            game.barcode || null,
+            canonicalSeries,
+          )
+          .run();
+
+        const insertedGame = (await env.DB.prepare(
+          'SELECT stable_id FROM games WHERE id = ?',
+        )
+          .bind(candidateGameId)
+          .first()) as { stable_id: number } | null;
+
+        finalStableId = insertedGame?.stable_id || 0;
+      }
 
       if (game.play_status) {
         await env.DB.prepare(

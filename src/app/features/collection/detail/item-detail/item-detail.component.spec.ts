@@ -788,6 +788,39 @@ describe('ItemDetailComponent', () => {
       expect(component.hasPhysicalRelease(asteroidsUnowned)).toBe(true);
     });
 
+    it('should treat Platform 0 (No Platform) games as having no physical release and display the Awaiting Physical Edition pill', async () => {
+      const echoWeaverWatched: Game = {
+        ...mockGame,
+        id: 'echo-weaver-no-platform',
+        title: 'Echo Weaver',
+        platform: 'No Platform',
+        platform_id: 0,
+        ownership_status: 0,
+        physical_status: 'not_yet_physical',
+        rom_name: null,
+        releases: [],
+      };
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of(echoWeaverWatched),
+      );
+      paramMapSubject.next(
+        convertToParamMap({ id: 'echo-weaver-no-platform', type: 'game' }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(component.hasPhysicalRelease(echoWeaverWatched)).toBe(false);
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.textContent).toContain(
+        'Awaiting Physical Edition (Watching)',
+      );
+      expect(compiled.textContent).not.toContain(
+        'No dump exists in community DAT files',
+      );
+    });
+
     it('should render other releases without exposing raw rom filenames and display alternate titles', async () => {
       const apeEscapeGame: Game = {
         ...mockGame,

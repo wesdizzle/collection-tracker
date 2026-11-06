@@ -927,6 +927,70 @@ describe('Worker API Logic', () => {
       .prepare('SELECT id FROM game_releases WHERE game_id = ?')
       .all(insertedGame.stable_id);
     expect(releases).toHaveLength(0);
+
+    // Verify GET /api/games/:id does NOT synthesize a fake physical release for Platform 0
+    const getRes = await worker.fetch(
+      new Request(`http://localhost/api/games/${data.gameId}`),
+      mockEnv,
+    );
+    expect(getRes.status).toBe(200);
+    const detail = (await getRes.json()) as {
+      id: string;
+      platform_id: number;
+      releases: unknown[];
+    };
+    expect(detail.platform_id).toBe(0);
+    expect(detail.releases).toEqual([]);
+
+    // Verify re-adding the same Platform 0 game is idempotent (no -1 duplicate)
+    const dupRes = await worker.fetch(
+      new Request('http://localhost/api/discovery/add', {
+        method: 'POST',
+        body: JSON.stringify({
+          game: {
+            title: 'Mushroom 11',
+            platform_id: 0,
+            igdb_id: 9999,
+            physical_status: 'not_yet_physical',
+            ownership_status: 2,
+          },
+          releases: [],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      mockEnv,
+    );
+    expect(dupRes.status).toBe(200);
+    const dupData = (await dupRes.json()) as {
+      success: boolean;
+      gameId: string;
+      stableId: number;
+    };
+    expect(dupData.gameId).toBe(data.gameId);
+    expect(dupData.stableId).toBe(insertedGame.stable_id);
+
+    const countRow = db
+      .prepare(
+        "SELECT COUNT(*) as cnt FROM games WHERE title = 'Mushroom 11' AND platform_id = 0",
+      )
+      .get() as { cnt: number };
+    expect(countRow.cnt).toBe(1);
+
+    // Verify DELETE /api/collection/release cleanly removes a release-less Platform 0 game
+    const delRes = await worker.fetch(
+      new Request(
+        `http://localhost/api/collection/release?id=${encodeURIComponent(data.gameId)}`,
+        { method: 'DELETE' },
+      ),
+      mockEnv,
+    );
+    expect(delRes.status).toBe(200);
+    const afterDelCount = db
+      .prepare(
+        "SELECT COUNT(*) as cnt FROM games WHERE title = 'Mushroom 11' AND platform_id = 0",
+      )
+      .get() as { cnt: number };
+    expect(afterDelCount.cnt).toBe(0);
   });
 
   it('POST /api/discovery/add-toy inserts or updates amiibo toys', async () => {
