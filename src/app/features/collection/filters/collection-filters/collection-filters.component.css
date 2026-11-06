@@ -824,6 +824,10 @@
     color: #ffffff;
     border-color: #dc2626;
   }
+  .quick-sort-wrapper {
+    flex: 1 1 0;
+    min-width: 0;
+  }
   .filter-group {
     min-width: 0;
     flex: 1 1 calc(50% - var(--spacing-8));
@@ -835,9 +839,6 @@
 }
 
 @media (max-width: 480px) {
-  .quick-sort-wrapper {
-    flex: 1 1 100%;
-  }
   .filter-group {
     flex: 1 1 100%;
   }

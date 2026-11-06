@@ -131,15 +131,21 @@ describe('CollectionLayoutComponent', () => {
       expect(modal).toBeNull();
     });
 
-    it('should not render profile modal when signed out even if service isOpen is true', () => {
+    it('should open profile modal when clicking header user button while signed out', () => {
       const cs = TestBed.inject(CollectionService);
       cs.setAdminForTesting(false);
-      component.profileModalService.open();
       fixture.detectChanges();
 
+      const userBtn = fixture.nativeElement.querySelector(
+        '[data-testid="header-user-btn"]',
+      ) as HTMLButtonElement;
+      userBtn.click();
+      fixture.detectChanges();
+
+      expect(component.profileModalService.isOpen()).toBe(true);
       expect(
         fixture.nativeElement.querySelector('app-profile-modal'),
-      ).toBeNull();
+      ).toBeTruthy();
       component.profileModalService.close();
     });
 

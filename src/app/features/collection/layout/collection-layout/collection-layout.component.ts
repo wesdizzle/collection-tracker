@@ -159,7 +159,7 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
       </footer>
     </div>
 
-    @if (isAuthenticated() && profileModalService.isOpen()) {
+    @if (profileModalService.isOpen()) {
       <app-profile-modal />
     }
   `,
@@ -505,13 +505,7 @@ export class CollectionLayoutComponent implements OnDestroy {
   }
 
   onUserIconClick() {
-    if (this.isAuthenticated()) {
-      this.profileModalService.open();
-    } else {
-      if (typeof window !== 'undefined') {
-        window.location.assign('/admin/login');
-      }
-    }
+    this.profileModalService.open();
   }
 
   onAdminClick() {

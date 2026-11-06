@@ -59,7 +59,70 @@ import { UserProfile } from '../../core/models/collection.models';
         </div>
       </div>
 
-      @if (modalService.activeView() === 'notifications') {
+      @if (!isAuthenticated()) {
+        <!-- Guest / Signed-Out Header -->
+        <header class="modal-header">
+          <div class="header-left">
+            <div class="avatar-circle">
+              <app-icon name="user" [size]="24" />
+            </div>
+            <div class="header-user-info">
+              <div class="user-row">
+                <span class="user-handle">Collector Account</span>
+                <span class="role-badge">Guest</span>
+              </div>
+              <span class="user-email">Not signed in</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="btn-close state-layer"
+            (click)="requestClose()"
+            aria-label="Close Profile"
+            data-testid="profile-modal-close-btn"
+          >
+            <app-icon name="close" [size]="18" />
+          </button>
+        </header>
+
+        <!-- Guest / Signed-Out Body -->
+        <div class="modal-body guest-body" data-testid="profile-guest-view">
+          <div class="guest-prompt-card">
+            <div class="guest-icon-badge">
+              <app-icon name="lock" [size]="24" />
+            </div>
+            <h3 class="guest-title">Sign in to manage your collection</h3>
+            <p class="guest-desc">
+              @if (publicProfile(); as pub) {
+                You are currently browsing
+                <strong>{{ pub.displayName || pub.username }}</strong
+                >'s public library as a guest.
+              }
+              Authentication is handled via Cloudflare Access (Email OTP) for
+              provisioned collector accounts.
+            </p>
+            <div class="guest-actions">
+              <a
+                href="/admin/login"
+                class="btn-primary btn-signin-full"
+                data-testid="profile-guest-signin-btn"
+              >
+                <app-icon name="user" [size]="16" />
+                <span>Sign In with Cloudflare Access</span>
+              </a>
+              <button
+                type="button"
+                class="btn-guest-cancel state-layer"
+                (click)="requestClose()"
+                data-testid="profile-guest-continue-btn"
+              >
+                Continue Browsing
+              </button>
+            </div>
+          </div>
+        </div>
+      } @else if (modalService.activeView() === 'notifications') {
         <app-notification-settings-modal
           [embedded]="true"
           (back)="modalService.setView('profile')"
@@ -720,6 +783,81 @@ import { UserProfile } from '../../core/models/collection.models';
         color: #ffffff;
       }
 
+      .guest-prompt-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 0.875rem;
+        padding: 1.25rem 1rem 0.5rem;
+      }
+
+      .guest-icon-badge {
+        width: 52px;
+        height: 52px;
+        border-radius: var(--radius-full);
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .guest-title {
+        margin: 0;
+        font-size: 1.125rem;
+        font-weight: 700;
+        color: var(--m3-on-surface);
+      }
+
+      .guest-desc {
+        margin: 0;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        color: var(--m3-on-surface-variant);
+        max-width: 420px;
+      }
+
+      .guest-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        width: 100%;
+        margin-top: 0.5rem;
+      }
+
+      .btn-signin-full {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        width: 100%;
+        text-decoration: none;
+        padding: 0.75rem 1.25rem;
+        font-size: 0.9375rem;
+        box-sizing: border-box;
+      }
+
+      .btn-guest-cancel {
+        background: var(--m3-surface-container);
+        color: var(--m3-on-surface-variant);
+        border: 1px solid var(--m3-outline-variant);
+        border-radius: var(--radius-full);
+        padding: 0.625rem 1.25rem;
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+        width: 100%;
+        transition:
+          background-color 0.2s,
+          color 0.2s;
+      }
+
+      .btn-guest-cancel:hover {
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface);
+      }
+
       /* Mobile Bottom Sheet */
       @media (max-width: 768px) {
         .profile-dialog {
@@ -800,6 +938,9 @@ export class ProfileModalComponent implements OnInit, AfterViewInit, OnDestroy {
   public modalService = inject(ProfileModalService);
   public notificationService = inject(NotificationService);
 
+  public isAuthenticated = this.collectionService.isAuthenticated;
+  public publicProfile = this.collectionService.publicProfile;
+
   public profile = signal<UserProfile | null>(null);
   public homeRegions = signal<string[]>([
     'USA',
@@ -854,10 +995,12 @@ export class ProfileModalComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.collectionService.getHomeRegions().subscribe({
-      next: (regions) => this.homeRegions.set(regions),
-      error: () => {},
-    });
+    if (this.isAuthenticated()) {
+      this.collectionService.getHomeRegions().subscribe({
+        next: (regions) => this.homeRegions.set(regions),
+        error: () => {},
+      });
+    }
   }
 
   ngAfterViewInit(): void {
@@ -874,7 +1017,9 @@ export class ProfileModalComponent implements OnInit, AfterViewInit, OnDestroy {
     const dialog = this.dialogEl?.nativeElement;
     if (!dialog) return;
 
-    this.loadProfileData();
+    if (this.isAuthenticated()) {
+      this.loadProfileData();
+    }
 
     if (!dialog.open) {
       this.isEntering.set(true);

@@ -54,6 +54,7 @@ describe('ProfileModalComponent', () => {
 
     modalService = TestBed.inject(ProfileModalService);
     collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(true);
 
     vi.spyOn(collectionService, 'getProfile').mockReturnValue(of(mockUser));
     vi.spyOn(collectionService, 'getHomeRegions').mockReturnValue(
@@ -213,5 +214,31 @@ describe('ProfileModalComponent', () => {
 
     expect(modalService.activeView()).toBe('profile');
     expect(closeSpy).not.toHaveBeenCalled();
+  });
+
+  it('should render guest sign-in prompt when user is not authenticated', () => {
+    collectionService.setAdminForTesting(false);
+    modalService.open();
+    fixture.detectChanges();
+
+    const guestView = fixture.nativeElement.querySelector(
+      '[data-testid="profile-guest-view"]',
+    );
+    expect(guestView).toBeTruthy();
+
+    const signInLink = fixture.nativeElement.querySelector(
+      '[data-testid="profile-guest-signin-btn"]',
+    ) as HTMLAnchorElement;
+    expect(signInLink).toBeTruthy();
+    expect(signInLink.getAttribute('href')).toBe('/admin/login');
+
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="profile-save-btn"]'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="profile-notifications-btn"]',
+      ),
+    ).toBeNull();
   });
 });
