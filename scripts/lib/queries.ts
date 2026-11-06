@@ -51,10 +51,7 @@ export function buildGamesListQuery(userId?: number | null): string {
            cr.raw_title,
            g.series,
            g.canonical_series,
-           COALESCE(
-             r.release_date,
-             (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = g.stable_id AND r2.release_date IS NOT NULL LIMIT 1)
-           ) as release_date,
+           r.release_date as release_date,
            g.platform_id,
            ${queuedCol} as queued,
            g.sort_index,
@@ -389,32 +386,6 @@ export function buildToysListQuery(userId?: number | null): string {
     FROM toys f
     ${userJoin}
     LEFT JOIN toy_series fs ON f.series_id = fs.id
-    ORDER BY 
-             CASE WHEN fs.line COLLATE NOCASE LIKE 'the %' THEN SUBSTR(fs.line, 5) WHEN fs.line COLLATE NOCASE LIKE 'a %' THEN SUBSTR(fs.line, 3) ELSE fs.line END COLLATE NOCASE ASC, 
-             fs.sort_index IS NULL ASC, fs.sort_index ASC, 
-             CASE WHEN COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) COLLATE NOCASE LIKE 'the %' THEN SUBSTR(COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name), 5) WHEN COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) COLLATE NOCASE LIKE 'a %' THEN SUBSTR(COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name), 3) ELSE COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) END COLLATE NOCASE ASC, 
-             -- 1. Amiibo Type (Figures first, Cards last)
-             CASE 
-               WHEN f.line = 'amiibo' THEN 
-                 CASE f.type 
-                   WHEN 'Figure' THEN 1 
-                   WHEN 'Yarn' THEN 2 
-                   WHEN 'Block' THEN 3 
-                   WHEN 'Band' THEN 4 
-                   ELSE 5 
-                 END 
-               ELSE 1 
-             END ASC,
-             -- 2. Non-Amiibo Sort Index (since non-amiibos sort by sort_index first)
-             CASE WHEN f.line = 'amiibo' THEN 1 ELSE (CASE WHEN f.sort_index IS NULL THEN 1 ELSE 0 END) END ASC,
-             CASE WHEN f.line = 'amiibo' THEN 1 ELSE f.sort_index END ASC,
-             -- 3. Release Date
-             f.release_date IS NULL ASC, f.release_date ASC, 
-             -- 4. Amiibo Sort Index (since amiibos sort by type -> release_date -> sort_index)
-             CASE WHEN f.line = 'amiibo' THEN (CASE WHEN f.sort_index IS NULL THEN 1 ELSE 0 END) ELSE 1 END ASC,
-             CASE WHEN f.line = 'amiibo' THEN f.sort_index ELSE 1 END ASC,
-             -- 5. Fallback Name
-             CASE WHEN f.name COLLATE NOCASE LIKE 'the %' THEN SUBSTR(f.name, 5) WHEN f.name COLLATE NOCASE LIKE 'a %' THEN SUBSTR(f.name, 3) ELSE f.name END COLLATE NOCASE ASC
   `;
 }
 
@@ -2034,4 +2005,257 @@ export function enrichAndStripGameListRow(
   delete row['metadata_json'];
   delete row['origin_metadata'];
   delete row['raw_title'];
+}
+
+function stripLeadingArticleLower(str: string): string {
+  const lower = str.toLowerCase();
+  if (lower.startsWith('the ')) return lower.slice(4);
+  if (lower.startsWith('a ')) return lower.slice(2);
+  return lower;
+}
+
+function getGameListVariantPriority(variants: unknown): number {
+  if (variants == null || variants === '') return 0;
+  const lower = String(variants).toLowerCase();
+  if (
+    lower.includes('beta') ||
+    lower.includes('proto') ||
+    lower.includes('demo') ||
+    lower.includes('kiosk') ||
+    lower.includes('sample') ||
+    lower.includes('promo')
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+/**
+ * Post-processes game list rows in JavaScript:
+ * 1. Resolves fallback sibling `release_date` per `stable_id` without a correlated SQL subquery.
+ * 2. Enriches localized titles and strips bulky metadata columns via `enrichAndStripGameListRow`.
+ * 3. Sorts rows in-place using the canonical `GAMES_ORDER_BY` ordering, avoiding SQLite's
+ *    `USE TEMP B-TREE FOR ORDER BY` (+12,461 D1 `rows_read` per call).
+ */
+export function postProcessGameListRows(
+  rows: Record<string, unknown>[],
+  homeRegion?: string | null,
+): void {
+  if (!rows || rows.length === 0) return;
+
+  const fallbackReleaseByStableId = new Map<number, string>();
+  for (const row of rows) {
+    const stableId = row['stable_id'] as number | undefined;
+    const relDate = row['release_date'] as string | null | undefined;
+    if (
+      stableId !== undefined &&
+      relDate &&
+      !fallbackReleaseByStableId.has(stableId)
+    ) {
+      fallbackReleaseByStableId.set(stableId, relDate);
+    }
+  }
+
+  for (const row of rows) {
+    if (!row['release_date'] && row['stable_id'] !== undefined) {
+      row['release_date'] =
+        fallbackReleaseByStableId.get(Number(row['stable_id'])) ?? null;
+    }
+    enrichAndStripGameListRow(row, homeRegion);
+  }
+
+  rows.sort((a, b) => {
+    const aPlat0 = a['platform_id'] === 0 ? 1 : 0;
+    const bPlat0 = b['platform_id'] === 0 ? 1 : 0;
+    if (aPlat0 !== bPlat0) return aPlat0 - bPlat0;
+
+    const aLaunch = (a['platform_launch_date'] as string | null) || null;
+    const bLaunch = (b['platform_launch_date'] as string | null) || null;
+    const aLaunchNull = aLaunch === null ? 1 : 0;
+    const bLaunchNull = bLaunch === null ? 1 : 0;
+    if (aLaunchNull !== bLaunchNull) return aLaunchNull - bLaunchNull;
+    if (aLaunch !== null && bLaunch !== null && aLaunch !== bLaunch) {
+      return aLaunch < bLaunch ? -1 : 1;
+    }
+
+    const aParentPlat = Number(
+      a['parent_platform_id'] ?? a['platform_id'] ?? 0,
+    );
+    const bParentPlat = Number(
+      b['parent_platform_id'] ?? b['platform_id'] ?? 0,
+    );
+    if (aParentPlat !== bParentPlat) return aParentPlat - bParentPlat;
+
+    const aPlat = Number(a['platform_id'] ?? 0);
+    const bPlat = Number(b['platform_id'] ?? 0);
+    if (aPlat !== bPlat) return aPlat - bPlat;
+
+    const aSeriesKey = stripLeadingArticleLower(
+      String(a['canonical_series'] || a['base_title'] || a['title'] || ''),
+    );
+    const bSeriesKey = stripLeadingArticleLower(
+      String(b['canonical_series'] || b['base_title'] || b['title'] || ''),
+    );
+    if (aSeriesKey !== bSeriesKey) return aSeriesKey < bSeriesKey ? -1 : 1;
+
+    const aRel = (a['release_date'] as string | null) || null;
+    const bRel = (b['release_date'] as string | null) || null;
+    const aRelNull = aRel === null ? 1 : 0;
+    const bRelNull = bRel === null ? 1 : 0;
+    if (aRelNull !== bRelNull) return aRelNull - bRelNull;
+    if (aRel !== null && bRel !== null && aRel !== bRel) {
+      return aRel < bRel ? -1 : 1;
+    }
+
+    const aSort = a['sort_index'] as number | null | undefined;
+    const bSort = b['sort_index'] as number | null | undefined;
+    const aSortNull = aSort === null || aSort === undefined ? 1 : 0;
+    const bSortNull = bSort === null || bSort === undefined ? 1 : 0;
+    if (aSortNull !== bSortNull) return aSortNull - bSortNull;
+    if (
+      aSort !== null &&
+      aSort !== undefined &&
+      bSort !== null &&
+      bSort !== undefined &&
+      aSort !== bSort
+    ) {
+      return aSort - bSort;
+    }
+
+    const aTitleKey = stripLeadingArticleLower(
+      String(a['base_title'] || a['title'] || ''),
+    );
+    const bTitleKey = stripLeadingArticleLower(
+      String(b['base_title'] || b['title'] || ''),
+    );
+    if (aTitleKey !== bTitleKey) return aTitleKey < bTitleKey ? -1 : 1;
+
+    const aVarPrio = getGameListVariantPriority(a['variants']);
+    const bVarPrio = getGameListVariantPriority(b['variants']);
+    if (aVarPrio !== bVarPrio) return aVarPrio - bVarPrio;
+
+    const aReg = String(a['region'] ?? '');
+    const bReg = String(b['region'] ?? '');
+    if (aReg !== bReg) return aReg < bReg ? -1 : 1;
+
+    const aId = String(a['id'] ?? '');
+    const bId = String(b['id'] ?? '');
+    if (aId !== bId) return aId < bId ? -1 : 1;
+    return 0;
+  });
+}
+
+function getToyAmiiboTypeOrder(line: unknown, type: unknown): number {
+  if (line !== 'amiibo') return 1;
+  switch (type) {
+    case 'Figure':
+      return 1;
+    case 'Yarn':
+      return 2;
+    case 'Block':
+      return 3;
+    case 'Band':
+      return 4;
+    default:
+      return 5;
+  }
+}
+
+/**
+ * Sorts toy list rows in-place in JavaScript using the canonical toy list ordering,
+ * avoiding SQLite's `USE TEMP B-TREE FOR ORDER BY` (+1,490 D1 `rows_read` per call).
+ */
+export function postProcessToyListRows(rows: Record<string, unknown>[]): void {
+  if (!rows || rows.length === 0) return;
+
+  rows.sort((a, b) => {
+    const aLineKey = stripLeadingArticleLower(
+      String(a['series_line'] || a['line'] || ''),
+    );
+    const bLineKey = stripLeadingArticleLower(
+      String(b['series_line'] || b['line'] || ''),
+    );
+    if (aLineKey !== bLineKey) return aLineKey < bLineKey ? -1 : 1;
+
+    const aSeriesIdx = a['series_index'] as number | null | undefined;
+    const bSeriesIdx = b['series_index'] as number | null | undefined;
+    const aSeriesIdxNull =
+      aSeriesIdx === null || aSeriesIdx === undefined ? 1 : 0;
+    const bSeriesIdxNull =
+      bSeriesIdx === null || bSeriesIdx === undefined ? 1 : 0;
+    if (aSeriesIdxNull !== bSeriesIdxNull)
+      return aSeriesIdxNull - bSeriesIdxNull;
+    if (
+      aSeriesIdx !== null &&
+      aSeriesIdx !== undefined &&
+      bSeriesIdx !== null &&
+      bSeriesIdx !== undefined &&
+      aSeriesIdx !== bSeriesIdx
+    ) {
+      return aSeriesIdx - bSeriesIdx;
+    }
+
+    const aSeriesNameKey = stripLeadingArticleLower(
+      String(a['series_name'] || ''),
+    );
+    const bSeriesNameKey = stripLeadingArticleLower(
+      String(b['series_name'] || ''),
+    );
+    if (aSeriesNameKey !== bSeriesNameKey) {
+      return aSeriesNameKey < bSeriesNameKey ? -1 : 1;
+    }
+
+    const aTypeOrd = getToyAmiiboTypeOrder(a['line'], a['type']);
+    const bTypeOrd = getToyAmiiboTypeOrder(b['line'], b['type']);
+    if (aTypeOrd !== bTypeOrd) return aTypeOrd - bTypeOrd;
+
+    const aIsAmiibo = a['line'] === 'amiibo';
+    const bIsAmiibo = b['line'] === 'amiibo';
+    const aSort = a['sort_index'] as number | null | undefined;
+    const bSort = b['sort_index'] as number | null | undefined;
+
+    if (!aIsAmiibo && !bIsAmiibo) {
+      const aSortNull = aSort === null || aSort === undefined ? 1 : 0;
+      const bSortNull = bSort === null || bSort === undefined ? 1 : 0;
+      if (aSortNull !== bSortNull) return aSortNull - bSortNull;
+      if (
+        aSort !== null &&
+        aSort !== undefined &&
+        bSort !== null &&
+        bSort !== undefined &&
+        aSort !== bSort
+      ) {
+        return aSort - bSort;
+      }
+    }
+
+    const aRel = (a['release_date'] as string | null) || null;
+    const bRel = (b['release_date'] as string | null) || null;
+    const aRelNull = aRel === null ? 1 : 0;
+    const bRelNull = bRel === null ? 1 : 0;
+    if (aRelNull !== bRelNull) return aRelNull - bRelNull;
+    if (aRel !== null && bRel !== null && aRel !== bRel) {
+      return aRel < bRel ? -1 : 1;
+    }
+
+    if (aIsAmiibo && bIsAmiibo) {
+      const aSortNull = aSort === null || aSort === undefined ? 1 : 0;
+      const bSortNull = bSort === null || bSort === undefined ? 1 : 0;
+      if (aSortNull !== bSortNull) return aSortNull - bSortNull;
+      if (
+        aSort !== null &&
+        aSort !== undefined &&
+        bSort !== null &&
+        bSort !== undefined &&
+        aSort !== bSort
+      ) {
+        return aSort - bSort;
+      }
+    }
+
+    const aNameKey = stripLeadingArticleLower(String(a['name'] || ''));
+    const bNameKey = stripLeadingArticleLower(String(b['name'] || ''));
+    if (aNameKey !== bNameKey) return aNameKey < bNameKey ? -1 : 1;
+    return 0;
+  });
 }

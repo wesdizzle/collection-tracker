@@ -1713,7 +1713,6 @@ export class CollectionListComponent
 
     if (hasData) {
       this.restoreScroll();
-      await this.collectionService.refreshAll();
     } else {
       await this.collectionService.refreshAll();
       this.restoreScroll();

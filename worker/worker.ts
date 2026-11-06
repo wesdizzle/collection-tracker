@@ -19,7 +19,6 @@
 
 import {
   PLATFORMS_LIST_QUERY,
-  GAMES_ORDER_BY,
   getRomGroupingKey,
   PLATFORM_MAP,
   buildTargetedCompanionByCrcBatchQuery,
@@ -42,7 +41,8 @@ import {
   normalizeMerchantName,
   normalizeReceiptUrl,
   resolveLocalizedReleaseTitle,
-  enrichAndStripGameListRow,
+  postProcessGameListRows,
+  postProcessToyListRows,
   buildGamesListQuery,
   buildGameDetailQuery,
   getGameDetailQueryParams,
@@ -219,6 +219,15 @@ export async function invalidateEdgeApiCache(
       } catch {
         // ignoreSearch may not be supported in all environments
       }
+    }
+    // Also deterministically purge primary user-scoped edge cache keys across isolates
+    await edgeCache
+      .delete(new Request(`${origin}/api/toys?__uid=1`))
+      .catch(() => {});
+    for (const reg of ALLOWED_HOME_REGIONS) {
+      await edgeCache
+        .delete(new Request(`${origin}/api/games?__uid=1&__reg=${reg}`))
+        .catch(() => {});
     }
     for (const urlStr of trackedEdgeCacheUrls) {
       await edgeCache.delete(new Request(urlStr)).catch(() => {});
@@ -764,6 +773,9 @@ export async function markDbDirty(
        VALUES ('db_dirty', '1', datetime('now'))
        ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = datetime('now')`,
     ).run();
+    await env.DB.prepare(
+      `DELETE FROM sync_state WHERE key = 'boutique_feed_hash'`,
+    ).run();
   } catch (err) {
     console.warn('[WorkerBackup] Failed to mark db dirty:', err);
   }
@@ -853,7 +865,8 @@ Disallow: /
     const sessionUser = await resolveSessionUser(request, env, ctx);
 
     /**
-     * PUBLIC READ-ONLY API ENDPOINTS (Cacheable for anonymous callers and public profiles)
+     * READ-ONLY API ENDPOINTS (Edge-cacheable for anonymous callers, public profiles,
+     * and user-scoped internal keys for authenticated sessions on non-loopback origins)
      */
     const isPublicCacheable =
       !sessionUser &&
@@ -862,6 +875,14 @@ Disallow: /
         path === '/api/toys' ||
         path === '/api/platforms' ||
         path.startsWith('/api/u/'));
+
+    const isUserEdgeCacheable =
+      Boolean(sessionUser) &&
+      !isLoopbackRequest(url) &&
+      request.method === 'GET' &&
+      (path === '/api/games' ||
+        path === '/api/toys' ||
+        path === '/api/platforms');
 
     const isNoCache =
       (url.searchParams.has('bust') ||
@@ -882,10 +903,28 @@ Disallow: /
         normalizedCacheUrl.searchParams.set('platform_id', plat);
       }
     }
+    if (sessionUser && path === '/api/games') {
+      normalizedCacheUrl.searchParams.set('__uid', String(sessionUser.id));
+      normalizedCacheUrl.searchParams.set(
+        '__reg',
+        sessionUser.homeRegion || DEFAULT_USER_HOME_REGION,
+      );
+    } else if (sessionUser && path === '/api/toys') {
+      normalizedCacheUrl.searchParams.set('__uid', String(sessionUser.id));
+    }
     const cacheKey = new Request(normalizedCacheUrl.toString());
-    if (isPublicCacheable && !isNoCache && edgeCache) {
+    if ((isPublicCacheable || isUserEdgeCacheable) && !isNoCache && edgeCache) {
       const cached = await edgeCache.match(cacheKey);
       if (cached) {
+        if (sessionUser && (path === '/api/games' || path === '/api/toys')) {
+          return new Response(cached.body, {
+            status: cached.status,
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            },
+          });
+        }
         return cached;
       }
     }
@@ -1190,20 +1229,20 @@ Disallow: /
       const params: (string | number)[] = [user.id, user.id];
 
       if (platformId) {
-        query += ' AND (g.platform_id = ? OR p.parent_platform_id = ?)';
+        query +=
+          ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
         params.push(platformId, platformId);
       }
-
-      query += GAMES_ORDER_BY;
 
       const { results } = await env.DB.prepare(query)
         .bind(...params)
         .all();
       const homeRegion = user.home_region || 'USA';
       if (results && results.length > 0) {
-        for (const row of results as Record<string, unknown>[]) {
-          enrichAndStripGameListRow(row, homeRegion);
-        }
+        postProcessGameListRows(
+          results as Record<string, unknown>[],
+          homeRegion,
+        );
       }
 
       const res = Response.json(results || [], {
@@ -1243,6 +1282,9 @@ Disallow: /
 
       const query = buildToysListQuery(user.id);
       const { results } = await env.DB.prepare(query).bind(user.id).all();
+      if (results && results.length > 0) {
+        postProcessToyListRows(results as Record<string, unknown>[]);
+      }
 
       const res = Response.json(results || [], {
         headers: {
@@ -1316,11 +1358,10 @@ Disallow: /
       }
 
       if (platformId) {
-        query += ' AND (g.platform_id = ? OR p.parent_platform_id = ?)';
+        query +=
+          ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
         params.push(platformId, platformId);
       }
-
-      query += GAMES_ORDER_BY;
 
       const { results } = await env.DB.prepare(query)
         .bind(...params)
@@ -1329,24 +1370,27 @@ Disallow: /
         ? sessionUser.homeRegion
         : DEFAULT_USER_HOME_REGION;
       if (results && results.length > 0) {
-        for (const row of results as Record<string, unknown>[]) {
-          enrichAndStripGameListRow(row, effectiveHomeRegion);
-        }
+        postProcessGameListRows(
+          results as Record<string, unknown>[],
+          effectiveHomeRegion,
+        );
+      }
+      const bodyJson = JSON.stringify(results || []);
+      const cacheableRes = new Response(bodyJson, {
+        headers: publicCacheHeaders,
+      });
+      if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
+        await putEdgeCacheEntry(edgeCache, cacheKey, cacheableRes, isNoCache);
       }
       if (sessionUser) {
-        return Response.json(results || [], {
+        return new Response(bodyJson, {
           headers: {
+            'Content-Type': 'application/json',
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
           },
         });
       }
-      const res = new Response(JSON.stringify(results || []), {
-        headers: publicCacheHeaders,
-      });
-      if (isPublicCacheable && edgeCache) {
-        await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
-      }
-      return res;
+      return cacheableRes;
     }
 
     // Endpoint: GET /api/games/:id
@@ -1616,20 +1660,25 @@ Disallow: /
       const { results } = userId
         ? await env.DB.prepare(query).bind(userId).all()
         : await env.DB.prepare(query).all();
+      if (results && results.length > 0) {
+        postProcessToyListRows(results as Record<string, unknown>[]);
+      }
+      const bodyJson = JSON.stringify(results || []);
+      const cacheableRes = new Response(bodyJson, {
+        headers: publicCacheHeaders,
+      });
+      if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
+        await putEdgeCacheEntry(edgeCache, cacheKey, cacheableRes, isNoCache);
+      }
       if (sessionUser) {
-        return Response.json(results || [], {
+        return new Response(bodyJson, {
           headers: {
+            'Content-Type': 'application/json',
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
           },
         });
       }
-      const res = new Response(JSON.stringify(results || []), {
-        headers: publicCacheHeaders,
-      });
-      if (isPublicCacheable && edgeCache) {
-        await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
-      }
-      return res;
+      return cacheableRes;
     }
 
     // Endpoint: GET /api/toys/:id
@@ -1660,7 +1709,7 @@ Disallow: /
       const res = new Response(JSON.stringify(results || []), {
         headers: platformsCacheHeaders,
       });
-      if (isPublicCacheable && edgeCache) {
+      if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
         await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
       }
       return res;
@@ -2240,24 +2289,41 @@ Disallow: /
           ),
         );
 
-        let canonicalQuery = `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
-             FROM canonical_releases WHERE platform_id = ? AND (normalized_title LIKE ? OR raw_title LIKE ?`;
-        const bindArgs: Array<string | number> = [
-          localPlatformId,
-          `%${gameClean}%`,
-          `%${g.name}%`,
-        ];
-        if (altNorms.length > 0) {
-          canonicalQuery += ` OR normalized_title IN (${altNorms.map(() => '?').join(',')})`;
-          bindArgs.push(...altNorms);
-        }
-        canonicalQuery += ')';
+        const exactNorms = Array.from(
+          new Set([gameClean, ...altNorms].filter(Boolean)),
+        );
+        let initialCanonicalRows: unknown[] | undefined;
 
-        const { results: initialCanonicalRows } = await env.DB.prepare(
-          canonicalQuery,
-        )
-          .bind(...bindArgs)
-          .all();
+        if (exactNorms.length > 0) {
+          const exactRes = await env.DB.prepare(
+            `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
+             FROM canonical_releases
+             WHERE platform_id = ? AND normalized_title IN (${exactNorms.map(() => '?').join(',')})`,
+          )
+            .bind(localPlatformId, ...exactNorms)
+            .all();
+          initialCanonicalRows = exactRes.results;
+        }
+
+        if (!initialCanonicalRows || initialCanonicalRows.length === 0) {
+          let canonicalQuery = `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, barcode, publisher, is_verified_physical
+               FROM canonical_releases WHERE platform_id = ? AND (normalized_title LIKE ? OR raw_title LIKE ?`;
+          const bindArgs: Array<string | number> = [
+            localPlatformId,
+            `%${gameClean}%`,
+            `%${g.name}%`,
+          ];
+          if (altNorms.length > 0) {
+            canonicalQuery += ` OR normalized_title IN (${altNorms.map(() => '?').join(',')})`;
+            bindArgs.push(...altNorms);
+          }
+          canonicalQuery += ')';
+
+          const fallbackRes = await env.DB.prepare(canonicalQuery)
+            .bind(...bindArgs)
+            .all();
+          initialCanonicalRows = fallbackRes.results;
+        }
         const canonicalRows = (initialCanonicalRows ||
           []) as unknown as CanonicalRelease[];
 
@@ -5802,6 +5868,38 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     };
   }
 
+  // Compute SHA-256 fingerprint of upstream boutique feed items to skip D1 table scans when unchanged
+  let currentFeedHash = '';
+  try {
+    const feedSignature = preOrders
+      .map(
+        (po) =>
+          `${po.store}|${po.platformId ?? ''}|${po.cleanTitle}|${po.edition ?? ''}|${po.productUrl}|${po.priceCents ?? po.priceUsd ?? ''}|${po.isPreOrder ? 1 : 0}|${po.isAvailable === false ? 0 : 1}`,
+      )
+      .sort()
+      .join('||');
+    const hashBuffer = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(feedSignature),
+    );
+    currentFeedHash = Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    const lastHashRow = await env.DB.prepare(
+      `SELECT value FROM sync_state WHERE key = 'boutique_feed_hash'`,
+    ).first<{ value: string }>();
+    if (lastHashRow?.value && lastHashRow.value === currentFeedHash) {
+      return {
+        matchedCount: 0,
+        totalPreOrders: preOrders.length,
+        notifications: { dispatchedCount: 0, purgedCount: 0 },
+      };
+    }
+  } catch {
+    // Proceed with full sync if sync_state lookup fails
+  }
+
   const platformsWithNoPlat = [...targetPlatforms, 0];
   const placeholders = platformsWithNoPlat.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
@@ -5846,7 +5944,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     }
 
     const seenRows = await env.DB.prepare(
-      `SELECT key FROM sync_state WHERE key LIKE 'boutique_announced:%'`,
+      `SELECT key FROM sync_state WHERE key >= 'boutique_announced:' AND key < 'boutique_announced;'`,
     ).all<{ key: string }>();
     announcedUrls = new Set(
       (seenRows.results || []).map((r) =>
@@ -6081,6 +6179,20 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
       await env.DB.batch(chunk);
     }
     await markDbDirty(env);
+  }
+
+  if (currentFeedHash) {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES ('boutique_feed_hash', ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+      )
+        .bind(currentFeedHash)
+        .run();
+    } catch {
+      // Ignore sync_state persistence errors in unmigrated test environments
+    }
   }
 
   let notificationsResult = { dispatchedCount: 0, purgedCount: 0 };

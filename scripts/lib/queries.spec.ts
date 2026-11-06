@@ -3,6 +3,8 @@ import {
   resolveLocalizedReleaseTitle,
   buildTargetedCompanionByCrcBatchQuery,
   enrichAndStripGameListRow,
+  postProcessGameListRows,
+  postProcessToyListRows,
 } from './queries.js';
 
 describe('resolveLocalizedReleaseTitle', () => {
@@ -176,5 +178,83 @@ describe('resolveLocalizedReleaseTitle', () => {
     expect(row['metadata_json']).toBeUndefined();
     expect(row['origin_metadata']).toBeUndefined();
     expect(row['raw_title']).toBeUndefined();
+  });
+
+  it('postProcessGameListRows resolves sibling fallback release_date and sorts matching GAMES_ORDER_BY', () => {
+    const rows: Record<string, unknown>[] = [
+      {
+        id: 'rel-b',
+        stable_id: 10,
+        title: 'Zelda',
+        base_title: 'Zelda',
+        canonical_series: 'The Legend of Zelda',
+        release_date: null,
+        platform_id: 19,
+        ownership_status: 1,
+        backup_status: 0,
+      },
+      {
+        id: 'rel-a',
+        stable_id: 10,
+        title: 'Zelda',
+        base_title: 'Zelda',
+        canonical_series: 'The Legend of Zelda',
+        release_date: '1991-11-21',
+        platform_id: 19,
+        ownership_status: 1,
+        backup_status: 1,
+      },
+      {
+        id: 'rel-c',
+        stable_id: 20,
+        title: 'Metroid',
+        base_title: 'Metroid',
+        canonical_series: 'Metroid',
+        release_date: '1986-08-06',
+        platform_id: 18,
+        ownership_status: 1,
+        backup_status: 1,
+      },
+    ];
+
+    postProcessGameListRows(rows, 'USA');
+
+    // Metroid comes before The Legend of Zelda by canonical_series
+    expect(rows.map((r) => r['id'])).toEqual(['rel-c', 'rel-a', 'rel-b']);
+    // Sibling release_date fallback populated on rel-b from rel-a (same stable_id 10)
+    expect(rows[2]['release_date']).toBe('1991-11-21');
+  });
+
+  it('postProcessToyListRows sorts toys by canonical series, line, sort_index, release_date, and name', () => {
+    const rows: Record<string, unknown>[] = [
+      {
+        id: 'toy-2',
+        name: 'Bowser',
+        line: 'amiibo',
+        canonical_series: 'Super Mario',
+        sort_index: 2,
+        release_date: '2015-03-20',
+      },
+      {
+        id: 'toy-1',
+        name: 'Mario',
+        line: 'amiibo',
+        canonical_series: 'Super Mario',
+        sort_index: 1,
+        release_date: '2014-11-21',
+      },
+      {
+        id: 'toy-3',
+        name: 'Spyro',
+        line: 'Skylanders',
+        canonical_series: 'Spyro the Dragon',
+        sort_index: null,
+        release_date: '2011-10-16',
+      },
+    ];
+
+    postProcessToyListRows(rows);
+
+    expect(rows.map((r) => r['id'])).toEqual(['toy-1', 'toy-2', 'toy-3']);
   });
 });

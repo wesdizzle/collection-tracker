@@ -1315,14 +1315,27 @@ export class CollectionService {
       }>(`/api/collection/release?id=${encodeURIComponent(releaseId)}`)
       .pipe(
         tap((res) => {
-          if (res?.deletedGameId) {
-            this._games.update((games) =>
-              games.filter(
-                (g) =>
-                  g.id !== res.deletedGameId && g.game_id !== res.deletedGameId,
+          this._games.update((games) =>
+            games
+              .filter((g) => {
+                if (
+                  res?.deletedGameId &&
+                  (g.id === res.deletedGameId ||
+                    g.game_id === res.deletedGameId)
+                ) {
+                  return false;
+                }
+                return g.id !== releaseId;
+              })
+              .map((g) =>
+                g.releases
+                  ? {
+                      ...g,
+                      releases: g.releases.filter((r) => r.id !== releaseId),
+                    }
+                  : g,
               ),
-            );
-          }
+          );
           void this.clearServiceWorkerDataCaches();
         }),
         catchError(this.handleMutationError),

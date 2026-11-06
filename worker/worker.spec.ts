@@ -4222,6 +4222,59 @@ describe('Worker API Logic', () => {
           webPushSpy.mockRestore();
         }
       });
+
+      it('short-circuits syncWorkerBoutiquePreOrders when boutique_feed_hash is unchanged and re-evaluates after markDbDirty', async () => {
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+           VALUES (975, 'feed-hash-game', 'Feed Hash Game', 26, 'digital_only')`,
+        ).run();
+
+        const mockShopify = {
+          products: [
+            {
+              id: 771100,
+              title: 'Feed Hash Game - Nintendo Switch',
+              handle: 'feed-hash-game-switch',
+              tags: ['game', 'pre-order'],
+              variants: [{ price: '29.99' }],
+            },
+          ],
+        };
+
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input) => {
+            if (typeof input === 'string' && input.includes('fangamer.com')) {
+              return {
+                ok: true,
+                json: async () => mockShopify,
+              } as unknown as Response;
+            }
+            return {
+              ok: true,
+              json: async () => ({ products: [] }),
+            } as unknown as Response;
+          });
+
+        try {
+          const firstRun = await syncWorkerBoutiquePreOrders(mockEnv);
+          expect(firstRun.matchedCount).toBeGreaterThanOrEqual(1);
+
+          const hashRow = db
+            .prepare(
+              `SELECT value FROM sync_state WHERE key = 'boutique_feed_hash'`,
+            )
+            .get() as { value: string } | undefined;
+          expect(hashRow?.value).toMatch(/^[0-9a-f]{64}$/);
+
+          // Second run with identical upstream feed should short-circuit with 0 matches
+          const secondRun = await syncWorkerBoutiquePreOrders(mockEnv);
+          expect(secondRun.matchedCount).toBe(0);
+          expect(secondRun.totalPreOrders).toBe(1);
+        } finally {
+          fetchSpy.mockRestore();
+        }
+      });
     });
   });
 });

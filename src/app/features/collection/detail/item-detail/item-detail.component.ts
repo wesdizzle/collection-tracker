@@ -751,7 +751,6 @@ export class ItemDetailComponent {
       } else {
         await firstValueFrom(this.collectionService.deleteRelease(pd.id));
         this.pendingDelete.set(null);
-        await this.collectionService.refreshAll();
         const g = this.game();
         if (g) {
           const nextReleases = (g.releases || []).filter((r) => r.id !== pd.id);
