@@ -2258,4 +2258,68 @@ describe('CollectionListComponent', () => {
       'Physical Watch',
     ]);
   });
+
+  it('should omit backup badges and ignore backup_status filtering on publicly shared collection page', async () => {
+    component.collectionService.setPublicView(true, {
+      username: 'wesley',
+      displayName: 'Wesley',
+      bio: null,
+      homeRegion: 'USA',
+    });
+    component.currentTab.set('games');
+    component.filters.set({ ownership: 'all', backup_status: 1 });
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/u/wesley/games').flush([
+      {
+        id: 'backed-up-game',
+        title: 'Backed Up Game',
+        platform: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        platform_id: 26,
+        ownership_status: 1,
+        backup_status: 1,
+      },
+      {
+        id: 'unbacked-game',
+        title: 'Unbacked Game',
+        platform: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        platform_id: 26,
+        ownership_status: 1,
+        backup_status: 0,
+      },
+    ]);
+    httpMock.expectOne('/api/u/wesley/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([
+      {
+        id: 26,
+        name: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        brand: 'Nintendo',
+      },
+    ]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    // Both games should be included because backup_status filter is ignored in public view
+    expect(component.filteredGames().length).toBe(2);
+
+    // Grid view omits backup badges and backup filter dropdown
+    expect(fixture.nativeElement.querySelectorAll('.backup-badge').length).toBe(
+      0,
+    );
+    expect(
+      fixture.nativeElement.querySelector('#filter-backup-status'),
+    ).toBeNull();
+
+    // Compact table view also omits backup chips
+    component.viewMode.set('compact');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('.compact-disc-chip').length,
+    ).toBe(0);
+  });
 });

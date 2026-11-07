@@ -90,7 +90,7 @@ interface GameGroup {
 export class CollectionListComponent
   implements OnInit, AfterViewInit, OnDestroy
 {
-  private collectionService = inject(CollectionService);
+  public readonly collectionService = inject(CollectionService);
   private branding = inject(BrandingService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -142,7 +142,10 @@ export class CollectionListComponent
       const pid = parseInt(String(qp['platform_id']), 10);
       if (!isNaN(pid)) qpFilters.platform_id = pid;
     }
-    if (qp['backup_status'] !== undefined) {
+    if (
+      qp['backup_status'] !== undefined &&
+      !this.collectionService.isPublicView()
+    ) {
       const val = String(qp['backup_status']);
       if (val === '0' || val === 'missing') {
         qpFilters.backup_status = 0;
@@ -630,7 +633,11 @@ export class CollectionListComponent
       }
 
       // Backup Status Filter
-      if (f.backup_status !== undefined && f.backup_status !== 'all') {
+      if (
+        !this.collectionService.isPublicView() &&
+        f.backup_status !== undefined &&
+        f.backup_status !== 'all'
+      ) {
         if (f.backup_status === 'uncataloged') {
           const isBackedUp = (g.backup_status ? 1 : 0) === 1;
           const hasNoCrc =

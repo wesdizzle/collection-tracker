@@ -79,6 +79,7 @@
           </span>
         }
         @if (
+          showBackupDetails() &&
           game().ownership_status === 1 &&
           game().release_medium !== 'digital_native' &&
           (!game().discIds || game().discIds!.length <= 1)
@@ -102,6 +103,7 @@
           </button>
         }
         @if (
+          showBackupDetails() &&
           game().ownership_status === 1 &&
           game().release_medium !== 'digital_native' &&
           game().discIds &&

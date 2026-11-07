@@ -193,4 +193,22 @@ describe('GameCardComponent', () => {
     expect(badge).toBeTruthy();
     expect(badge.textContent).toContain('$9.99');
   });
+
+  it('should omit backup badges when showBackupDetails is false', () => {
+    fixture.componentRef.setInput('showBackupDetails', false);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelectorAll('.backup-badge').length).toBe(
+      0,
+    );
+
+    // Also verify single-disc game omits backup badge when showBackupDetails is false
+    fixture.componentRef.setInput('game', {
+      ...mockGame,
+      discIds: ['single-cart-1'],
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.backup-badge')).toBeNull();
+  });
 });

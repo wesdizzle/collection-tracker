@@ -23,6 +23,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
 export class GameCardComponent {
   game = input.required<Game>();
   showPlatform = input<boolean>(false);
+  showBackupDetails = input<boolean>(true);
 
   toggleStatus = output<{ event: MouseEvent; game: Game }>();
   toggleCase = output<{ event: MouseEvent; game: Game }>();

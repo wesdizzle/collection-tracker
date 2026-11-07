@@ -965,14 +965,17 @@ describe('ItemDetailComponent', () => {
 
       const compiled = fixture.nativeElement as HTMLElement;
 
-      // Public catalog metadata still renders
+      // Public catalog metadata still renders, while single-release discs-section is omitted when signed out
       expect(compiled.querySelector('.item-title')?.textContent).toContain(
         'Super Mario World',
       );
       expect(compiled.querySelector('.bundles-section')?.textContent).toContain(
         'Super Mario All-Stars',
       );
-      expect(compiled.querySelector('.discs-section')).toBeTruthy();
+      expect(compiled.querySelector('.discs-section')).toBeNull();
+      expect(compiled.textContent).not.toContain(
+        'No dump exists in community DAT files',
+      );
       expect(compiled.querySelector('.other-releases-section')).toBeTruthy();
 
       // Play status and ownership status pills are omitted
@@ -991,12 +994,72 @@ describe('ItemDetailComponent', () => {
         compiled.querySelector('[data-testid="journal-section"]'),
       ).toBeNull();
 
-      // Owned badges on shared backup releases and other regional releases are omitted
-      expect(
-        compiled.querySelector('.shared-backup-banner')?.textContent,
-      ).not.toContain('Owned');
+      // Owned badges on other regional releases are omitted
       expect(
         compiled.querySelector('.other-releases-section')?.textContent,
+      ).not.toContain('Owned');
+    });
+
+    it('renders physical disc release section with disc labels (without backup actions) for multi-disc sets when signed out', async () => {
+      collectionService.setAdminForTesting(false);
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of({
+          ...mockGame,
+          title: 'Final Fantasy VII',
+          platform: 'PlayStation',
+          platform_id: 7,
+          releases: [
+            {
+              id: 'ff7-disc-1',
+              game_id: 7,
+              title: 'Final Fantasy VII',
+              region: 'USA',
+              disc_label: 'Disc 1',
+              rom_name: 'Final Fantasy VII (USA) (Disc 1).bin',
+              backup_status: 1,
+              ownership_status: 1,
+              is_source_verified: 1,
+            },
+            {
+              id: 'ff7-disc-2',
+              game_id: 7,
+              title: 'Final Fantasy VII',
+              region: 'USA',
+              disc_label: 'Disc 2',
+              rom_name: 'Final Fantasy VII (USA) (Disc 2).bin',
+              backup_status: 0,
+              ownership_status: 1,
+              is_source_verified: 1,
+            },
+          ],
+          shared_backup_releases: [
+            {
+              id: 'ff7-gh',
+              game_id: 8,
+              title: 'Final Fantasy VII (Greatest Hits)',
+              region: 'USA',
+              backup_status: 1,
+              ownership_status: 1,
+            },
+          ],
+        }),
+      );
+
+      paramMapSubject.next(convertToParamMap({ id: '7', type: 'game' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const discsSection = compiled.querySelector('.discs-section');
+      expect(discsSection).toBeTruthy();
+      expect(discsSection?.textContent).toContain('Disc 1');
+      expect(discsSection?.textContent).toContain('Disc 2');
+      expect(compiled.querySelector('.disc-actions')).toBeNull();
+      expect(discsSection?.textContent).not.toContain('Backed Up');
+      expect(discsSection?.textContent).not.toContain('No Backup');
+      expect(
+        compiled.querySelector('.shared-backup-banner')?.textContent,
       ).not.toContain('Owned');
     });
 

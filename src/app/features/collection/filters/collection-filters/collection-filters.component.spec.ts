@@ -321,4 +321,25 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters?.name).toBe('');
     expect(emittedFilters?.regions).toEqual([]);
   });
+
+  it('should omit backup filter dropdown and exclude backup_status from activeFilterCount when showBackupDetails is false', () => {
+    fixture.componentRef.setInput('filters', {
+      ownership: 1,
+      backup_status: 1,
+    });
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('#filter-backup-status'),
+    ).toBeTruthy();
+    expect(component.activeFilterCount()).toBe(1);
+
+    fixture.componentRef.setInput('showBackupDetails', false);
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('#filter-backup-status'),
+    ).toBeNull();
+    expect(component.activeFilterCount()).toBe(0);
+  });
 });

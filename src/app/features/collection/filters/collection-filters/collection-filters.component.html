@@ -420,74 +420,76 @@
           </div>
 
           <!-- Backup -->
-          <div class="filter-group">
-            <div class="filter-group-header">
-              <label class="m3-label">Backup</label>
-            </div>
-            <div
-              class="input-wrapper dropdown-wrapper"
-              [class.active-wrapper]="activeDropdown() === 'backup_status'"
-            >
-              <button
-                type="button"
-                class="m3-input dropdown-trigger"
-                [class.open]="activeDropdown() === 'backup_status'"
-                (click)="toggleDropdown('backup_status', $event)"
-                id="filter-backup-status"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="activeDropdown() === 'backup_status'"
+          @if (showBackupDetails()) {
+            <div class="filter-group">
+              <div class="filter-group-header">
+                <label class="m3-label">Backup</label>
+              </div>
+              <div
+                class="input-wrapper dropdown-wrapper"
+                [class.active-wrapper]="activeDropdown() === 'backup_status'"
               >
-                <span class="trigger-text">{{ getBackupLabel() }}</span>
-                <span class="dropdown-icon-wrapper" aria-hidden="true">
-                  <svg
-                    class="dropdown-chevron"
-                    [class.open]="activeDropdown() === 'backup_status'"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
-                    />
-                  </svg>
-                </span>
-              </button>
-              @if (activeDropdown() === 'backup_status') {
-                <div class="dropdown-list animate-expressive" role="listbox">
-                  @for (opt of backupOptions; track opt.value) {
-                    <button
-                      type="button"
-                      class="dropdown-item state-layer"
-                      [class.selected]="
-                        (filters().backup_status ?? 'all') === opt.value
-                      "
-                      (click)="selectOption('backup_status', opt.value)"
-                      role="option"
-                      [attr.aria-selected]="
-                        (filters().backup_status ?? 'all') === opt.value
-                      "
+                <button
+                  type="button"
+                  class="m3-input dropdown-trigger"
+                  [class.open]="activeDropdown() === 'backup_status'"
+                  (click)="toggleDropdown('backup_status', $event)"
+                  id="filter-backup-status"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="activeDropdown() === 'backup_status'"
+                >
+                  <span class="trigger-text">{{ getBackupLabel() }}</span>
+                  <span class="dropdown-icon-wrapper" aria-hidden="true">
+                    <svg
+                      class="dropdown-chevron"
+                      [class.open]="activeDropdown() === 'backup_status'"
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      fill="currentColor"
                     >
-                      <span class="item-label">{{ opt.label }}</span>
-                      @if ((filters().backup_status ?? 'all') === opt.value) {
-                        <svg
-                          class="selected-check"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="currentColor"
-                        >
-                          <path
-                            d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
-                          />
-                        </svg>
-                      }
-                    </button>
-                  }
-                </div>
-              }
+                      <path
+                        d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+                      />
+                    </svg>
+                  </span>
+                </button>
+                @if (activeDropdown() === 'backup_status') {
+                  <div class="dropdown-list animate-expressive" role="listbox">
+                    @for (opt of backupOptions; track opt.value) {
+                      <button
+                        type="button"
+                        class="dropdown-item state-layer"
+                        [class.selected]="
+                          (filters().backup_status ?? 'all') === opt.value
+                        "
+                        (click)="selectOption('backup_status', opt.value)"
+                        role="option"
+                        [attr.aria-selected]="
+                          (filters().backup_status ?? 'all') === opt.value
+                        "
+                      >
+                        <span class="item-label">{{ opt.label }}</span>
+                        @if ((filters().backup_status ?? 'all') === opt.value) {
+                          <svg
+                            class="selected-check"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="currentColor"
+                          >
+                            <path
+                              d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                            />
+                          </svg>
+                        }
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
             </div>
-          </div>
+          }
 
           <!-- Verified Source Match -->
           <div class="filter-group">

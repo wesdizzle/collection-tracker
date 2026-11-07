@@ -237,6 +237,7 @@
                 </div>
               }
               @if (
+                showBackupDetails() &&
                 game.ownership_status === 1 &&
                 game.release_medium !== 'digital_native' &&
                 (!game.discIds || game.discIds.length <= 1)
@@ -259,7 +260,9 @@
                   />
                 </button>
               }
-              @if (game.discIds && game.discIds.length > 1) {
+              @if (
+                showBackupDetails() && game.discIds && game.discIds.length > 1
+              ) {
                 <div
                   class="compact-discs-container"
                   (click)="$event.stopPropagation(); $event.preventDefault()"
@@ -332,7 +335,9 @@
               }
               @if (
                 game.ownership_status !== 1 &&
-                (!game.discIds || game.discIds.length <= 1)
+                (!game.discIds ||
+                  game.discIds.length <= 1 ||
+                  !showBackupDetails())
               ) {
                 @if (game.release_date && isUpcomingDate(game.release_date)) {
                   <span class="upcoming-chip" title="Announced / Pre-order">

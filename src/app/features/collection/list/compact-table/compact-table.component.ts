@@ -27,6 +27,7 @@ export class CompactTableComponent {
   games = input<Game[]>([]);
   toys = input<Toy[]>([]);
   filters = input<FilterState>();
+  showBackupDetails = input<boolean>(true);
 
   toggleGameStatus = output<{ event: MouseEvent; game: Game }>();
   toggleCase = output<{ event: MouseEvent; game: Game }>();

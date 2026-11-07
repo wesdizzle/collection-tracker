@@ -155,7 +155,12 @@ export class CollectionFiltersComponent implements OnDestroy {
     if (f.platform_id !== undefined && f.platform_id !== null) count++;
     if (f.regions && f.regions.length > 0) count++;
     if (f.play_status && f.play_status !== 'all') count++;
-    if (f.backup_status !== undefined && f.backup_status !== 'all') count++;
+    if (
+      this.showBackupDetails() &&
+      f.backup_status !== undefined &&
+      f.backup_status !== 'all'
+    )
+      count++;
     if (f.physical_verified !== undefined && f.physical_verified !== 'all')
       count++;
     if (f.budget_label && f.budget_label !== 'all') count++;
@@ -271,6 +276,7 @@ export class CollectionFiltersComponent implements OnDestroy {
   public filters = input.required<FilterState>();
   public lastUpdated = input<Date | null>(null);
   public viewMode = input<ViewMode>('grid');
+  public showBackupDetails = input<boolean>(true);
 
   /** --- Options Catalogues --- */
   readonly ownershipOptions: {

@@ -170,6 +170,33 @@ describe('CompactTableComponent', () => {
       expect(component.getMediaIcon(cartGame, 1)).toBe('rom-archive');
       expect(component.getMediaIcon(opticalGame, 0)).toBe('missing-dump');
     });
+
+    it('should omit backup chips when showBackupDetails is false', () => {
+      fixture.componentRef.setInput('showBackupDetails', false);
+      fixture.detectChanges();
+
+      expect(
+        fixture.nativeElement.querySelector(
+          '.col-completeness .compact-disc-chip',
+        ),
+      ).toBeNull();
+
+      // Multi-disc owned game should also omit backup chips when showBackupDetails is false
+      fixture.componentRef.setInput('games', [
+        {
+          ...mockGames[0],
+          discIds: ['disc-1', 'disc-2'],
+          discBackups: [1, 0],
+        },
+      ]);
+      fixture.detectChanges();
+
+      expect(
+        fixture.nativeElement.querySelector(
+          '.col-completeness .compact-discs-container',
+        ),
+      ).toBeNull();
+    });
   });
 
   describe('Toys mode', () => {

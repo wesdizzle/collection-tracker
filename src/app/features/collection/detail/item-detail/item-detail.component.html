@@ -385,217 +385,226 @@
                 </div>
               }
               @if (g.releases && g.releases.length > 0) {
-                <div class="meta-box full-width discs-section mt-lg">
-                  <span class="label">{{ getReleasesSectionLabel(g) }}</span>
-                  <div class="discs-list flex flex-col gap-md">
-                    @for (release of g.releases; track release.id) {
-                      <div
-                        class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
-                      >
-                        <div class="disc-info flex-1">
-                          <div
-                            class="flex flex-wrap items-center gap-xs mb-2xs"
-                          >
-                            @if (release.disc_label) {
-                              <span class="variant-badge">{{
-                                release.disc_label
-                              }}</span>
-                            }
-                            @if (
-                              release.variants &&
-                              release.variants !== release.disc_label
-                            ) {
-                              <span class="variant-badge">{{
-                                release.variants
-                              }}</span>
-                            }
-                            @if (release.serial_code) {
-                              <span
-                                class="variant-badge serial-badge font-mono"
-                                >{{ release.serial_code }}</span
-                              >
-                            }
-                            @if (
-                              release.region && release.region !== g.region
-                            ) {
-                              <span class="variant-badge region-badge">{{
-                                release.region
-                              }}</span>
-                            }
-                            @if (
-                              release.is_companion_base_disc &&
-                              release.companion_game_id
-                            ) {
-                              <span
-                                class="companion-disc-note text-xs flex items-center gap-xs"
-                              >
-                                <app-icon name="link" [size]="12" />
-                                Identical disc master to original release:
-                                <a
-                                  [routerLink]="[
-                                    '/game',
-                                    release.companion_game_id,
-                                  ]"
-                                  class="meta-link font-semibold"
+                @if (
+                  collectionService.canShowPersonalState() ||
+                  g.releases.length > 1
+                ) {
+                  <div class="meta-box full-width discs-section mt-lg">
+                    <span class="label">{{ getReleasesSectionLabel(g) }}</span>
+                    <div class="discs-list flex flex-col gap-md">
+                      @for (release of g.releases; track release.id) {
+                        <div
+                          class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
+                        >
+                          <div class="disc-info flex-1">
+                            <div
+                              class="flex flex-wrap items-center gap-xs mb-2xs"
+                            >
+                              @if (release.disc_label) {
+                                <span class="variant-badge">{{
+                                  release.disc_label
+                                }}</span>
+                              }
+                              @if (
+                                release.variants &&
+                                release.variants !== release.disc_label
+                              ) {
+                                <span class="variant-badge">{{
+                                  release.variants
+                                }}</span>
+                              }
+                              @if (release.serial_code) {
+                                <span
+                                  class="variant-badge serial-badge font-mono"
+                                  >{{ release.serial_code }}</span
                                 >
-                                  {{
-                                    release.companion_game_title ||
-                                      'View Original Release'
-                                  }}
-                                </a>
-                              </span>
-                            } @else if (release.companion_game_id) {
-                              <span
-                                class="companion-disc-note text-xs flex items-center gap-xs"
-                              >
-                                <app-icon name="link" [size]="12" />
-                                Standalone game:
-                                <a
-                                  [routerLink]="[
-                                    '/game',
-                                    release.companion_game_id,
-                                  ]"
-                                  class="meta-link font-semibold"
+                              }
+                              @if (
+                                release.region && release.region !== g.region
+                              ) {
+                                <span class="variant-badge region-badge">{{
+                                  release.region
+                                }}</span>
+                              }
+                              @if (
+                                release.is_companion_base_disc &&
+                                release.companion_game_id
+                              ) {
+                                <span
+                                  class="companion-disc-note text-xs flex items-center gap-xs"
                                 >
-                                  {{
-                                    release.companion_game_title ||
-                                      'View Standalone Game'
-                                  }}
-                                </a>
-                              </span>
+                                  <app-icon name="link" [size]="12" />
+                                  Identical disc master to original release:
+                                  <a
+                                    [routerLink]="[
+                                      '/game',
+                                      release.companion_game_id,
+                                    ]"
+                                    class="meta-link font-semibold"
+                                  >
+                                    {{
+                                      release.companion_game_title ||
+                                        'View Original Release'
+                                    }}
+                                  </a>
+                                </span>
+                              } @else if (release.companion_game_id) {
+                                <span
+                                  class="companion-disc-note text-xs flex items-center gap-xs"
+                                >
+                                  <app-icon name="link" [size]="12" />
+                                  Standalone game:
+                                  <a
+                                    [routerLink]="[
+                                      '/game',
+                                      release.companion_game_id,
+                                    ]"
+                                    class="meta-link font-semibold"
+                                  >
+                                    {{
+                                      release.companion_game_title ||
+                                        'View Standalone Game'
+                                    }}
+                                  </a>
+                                </span>
+                              }
+                              @if (
+                                g.releases.length > 1 &&
+                                release.also_released_as
+                              ) {
+                                <span class="also-released-pill">{{
+                                  'Also released as: ' +
+                                    release.also_released_as
+                                }}</span>
+                              }
+                            </div>
+                            @if (release.comments) {
+                              <div
+                                class="release-comments-note text-xs text-secondary flex items-center gap-xs mt-2xs"
+                              >
+                                <span>{{ release.comments }}</span>
+                              </div>
                             }
                             @if (
-                              g.releases.length > 1 && release.also_released_as
+                              !release.rom_name && !release.canonical_release_id
                             ) {
-                              <span class="also-released-pill">{{
-                                'Also released as: ' + release.also_released_as
-                              }}</span>
+                              <div
+                                class="rom-text warning-text font-mono mb-2xs"
+                              >
+                                <app-icon name="alert-triangle" [size]="14" />
+                                {{
+                                  g.platform_id === 26 || g.platform_id === 27
+                                    ? 'No cartridge revision exists in community catalog'
+                                    : 'No dump exists in community DAT files'
+                                }}
+                              </div>
                             }
                           </div>
-                          @if (release.comments) {
-                            <div
-                              class="release-comments-note text-xs text-secondary flex items-center gap-xs mt-2xs"
-                            >
-                              <span>{{ release.comments }}</span>
-                            </div>
-                          }
-                          @if (
-                            !release.rom_name && !release.canonical_release_id
-                          ) {
-                            <div class="rom-text warning-text font-mono mb-2xs">
-                              <app-icon name="alert-triangle" [size]="14" />
-                              {{
-                                g.platform_id === 26 || g.platform_id === 27
-                                  ? 'No cartridge revision exists in community catalog'
-                                  : 'No dump exists in community DAT files'
-                              }}
+                          @if (collectionService.canShowPersonalState()) {
+                            <div class="disc-actions flex items-center gap-sm">
+                              <button
+                                class="stat-pill interactive"
+                                [class.active]="!!release.backup_status"
+                                [class.missing]="!release.backup_status"
+                                (click)="onToggleDiscBackup(release)"
+                                title="Toggle Backup Status"
+                              >
+                                <span class="icon"
+                                  ><app-icon
+                                    [name]="
+                                      getMediaIcon(
+                                        g.platform,
+                                        release.backup_status
+                                      )
+                                    "
+                                    [size]="14"
+                                /></span>
+                                <span>{{
+                                  release.backup_status
+                                    ? 'Backed Up'
+                                    : 'No Backup'
+                                }}</span>
+                              </button>
+                              @if (collectionService.isAdmin()) {
+                                <button
+                                  type="button"
+                                  class="btn-danger"
+                                  title="Remove this release"
+                                  (click)="requestDeleteRelease(release)"
+                                >
+                                  <app-icon name="close" [size]="14" />
+                                  <span>Remove</span>
+                                </button>
+                              }
                             </div>
                           }
                         </div>
-                        @if (collectionService.canShowPersonalState()) {
-                          <div class="disc-actions flex items-center gap-sm">
-                            <button
-                              class="stat-pill interactive"
-                              [class.active]="!!release.backup_status"
-                              [class.missing]="!release.backup_status"
-                              (click)="onToggleDiscBackup(release)"
-                              title="Toggle Backup Status"
+                      }
+                    </div>
+
+                    @if (
+                      g.shared_backup_releases &&
+                      g.shared_backup_releases.length > 0
+                    ) {
+                      <div class="shared-backup-banner mt-md p-sm rounded-md">
+                        <div class="text-xs font-semibold mb-2xs">
+                          <app-icon name="link" [size]="14" /> Included in
+                          Compilation / Expanded Release — Also part of:
+                        </div>
+                        <div class="flex flex-wrap gap-xs mt-2xs">
+                          @for (
+                            shared of g.shared_backup_releases;
+                            track shared.id
+                          ) {
+                            <a
+                              [routerLink]="['/game', shared.id]"
+                              class="jump-link-pill"
                             >
-                              <span class="icon"
-                                ><app-icon
-                                  [name]="
-                                    getMediaIcon(
-                                      g.platform,
-                                      release.backup_status
-                                    )
-                                  "
-                                  [size]="14"
-                              /></span>
-                              <span>{{
-                                release.backup_status
-                                  ? 'Backed Up'
-                                  : 'No Backup'
-                              }}</span>
-                            </button>
-                            @if (collectionService.isAdmin()) {
-                              <button
-                                type="button"
-                                class="btn-danger"
-                                title="Remove this release"
-                                (click)="requestDeleteRelease(release)"
+                              <span class="flex items-center gap-xs"
+                                ><app-icon name="disc" [size]="12" />
+                                {{ shared.title }}</span
                               >
-                                <app-icon name="close" [size]="14" />
-                                <span>Remove</span>
-                              </button>
-                            }
+                              @if (shared.region) {
+                                <span class="text-2xs text-secondary"
+                                  >({{ shared.region }})</span
+                                >
+                              }
+                              @if (
+                                collectionService.canShowPersonalState() &&
+                                shared.ownership_status === 1
+                              ) {
+                                <span
+                                  class="text-2xs flex items-center gap-2xs"
+                                  title="Owned in collection"
+                                  ><app-icon name="check" [size]="12" />
+                                  Owned</span
+                                >
+                              }
+                            </a>
+                          }
+                        </div>
+                      </div>
+                    }
+
+                    @if (g.voucher_notes && g.voucher_notes.length > 0) {
+                      <div
+                        class="voucher-notice-banner mt-md flex flex-col gap-2xs"
+                      >
+                        <div
+                          class="text-xs font-semibold flex items-center gap-xs"
+                        >
+                          <app-icon name="ticket" [size]="14" />
+                          <span>Bundled Digital Content</span>
+                        </div>
+                        @for (note of g.voucher_notes; track note) {
+                          <div class="text-xs text-secondary leading-normal">
+                            {{ note }}
                           </div>
                         }
                       </div>
                     }
                   </div>
-
-                  @if (
-                    g.shared_backup_releases &&
-                    g.shared_backup_releases.length > 0
-                  ) {
-                    <div class="shared-backup-banner mt-md p-sm rounded-md">
-                      <div class="text-xs font-semibold mb-2xs">
-                        <app-icon name="link" [size]="14" /> Included in
-                        Compilation / Expanded Release — Also part of:
-                      </div>
-                      <div class="flex flex-wrap gap-xs mt-2xs">
-                        @for (
-                          shared of g.shared_backup_releases;
-                          track shared.id
-                        ) {
-                          <a
-                            [routerLink]="['/game', shared.id]"
-                            class="jump-link-pill"
-                          >
-                            <span class="flex items-center gap-xs"
-                              ><app-icon name="disc" [size]="12" />
-                              {{ shared.title }}</span
-                            >
-                            @if (shared.region) {
-                              <span class="text-2xs text-secondary"
-                                >({{ shared.region }})</span
-                              >
-                            }
-                            @if (
-                              collectionService.canShowPersonalState() &&
-                              shared.ownership_status === 1
-                            ) {
-                              <span
-                                class="text-2xs flex items-center gap-2xs"
-                                title="Owned in collection"
-                                ><app-icon name="check" [size]="12" />
-                                Owned</span
-                              >
-                            }
-                          </a>
-                        }
-                      </div>
-                    </div>
-                  }
-
-                  @if (g.voucher_notes && g.voucher_notes.length > 0) {
-                    <div
-                      class="voucher-notice-banner mt-md flex flex-col gap-2xs"
-                    >
-                      <div
-                        class="text-xs font-semibold flex items-center gap-xs"
-                      >
-                        <app-icon name="ticket" [size]="14" />
-                        <span>Bundled Digital Content</span>
-                      </div>
-                      @for (note of g.voucher_notes; track note) {
-                        <div class="text-xs text-secondary leading-normal">
-                          {{ note }}
-                        </div>
-                      }
-                    </div>
-                  }
-                </div>
+                }
               } @else if (
                 !g.rom_name &&
                 g.platform_id !== 0 &&
