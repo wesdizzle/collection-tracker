@@ -112,6 +112,26 @@ describe('CollectionLayoutComponent', () => {
       fixture.detectChanges();
       const nonAdminNavLinks = headerInner.querySelectorAll('.nav-item');
       expect(nonAdminNavLinks.length).toBe(3);
+
+      // When in public view (/u/:username), Insights and Discovery tabs are hidden and Games/Toys link to /u/:username
+      collectionService.setPublicView(true, {
+        username: 'wesley',
+        displayName: 'Wesley',
+        bio: null,
+        homeRegion: 'USA',
+      });
+      fixture.detectChanges();
+      const publicNavLinks = Array.from(
+        headerInner.querySelectorAll('.nav-item'),
+      ) as HTMLElement[];
+      expect(publicNavLinks.length).toBe(2);
+      expect(
+        publicNavLinks.map((el) =>
+          el.querySelector('.label')?.textContent?.trim(),
+        ),
+      ).toEqual(['Games', 'Toys']);
+      const brandLink = fixture.nativeElement.querySelector('.brand-link');
+      expect(brandLink.getAttribute('routerlink')).toBe('/u/wesley/games');
     });
 
     it('should house content-area and main-footer inside layout-container', () => {

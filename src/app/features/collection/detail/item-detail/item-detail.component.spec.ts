@@ -89,6 +89,8 @@ describe('ItemDetailComponent', () => {
     fixture = TestBed.createComponent(ItemDetailComponent);
     component = fixture.componentInstance;
     collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(true);
+    collectionService.setPublicView(false, null);
     router = TestBed.inject(Router);
 
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(of(mockGame));
@@ -887,6 +889,150 @@ describe('ItemDetailComponent', () => {
       expect(otherSection?.textContent).not.toContain(
         'Ape Escape - La Invasion de los Monos (Spain).cue',
       );
+    });
+  });
+
+  describe('Public & Signed-Out Depersonalized Detail View', () => {
+    it('omits play status, ownership status, backup details, and provenance when signed out', async () => {
+      collectionService.setAdminForTesting(false);
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of({
+          ...mockGame,
+          title: 'Super Mario World',
+          platform: 'SNES',
+          ownership_status: 1,
+          play_status: PlayStatus.Played,
+          backup_status: 1,
+          physical_status: 'digital_extracted_rom',
+          release_medium: 'digital_extracted_rom',
+          origin_metadata: JSON.stringify({
+            origin_channel: 'Wii U Virtual Console',
+            origin_year: 2015,
+            target_hardware: 'SNES',
+            notes: 'Extracted VC release',
+          }),
+          bundled_games: [
+            {
+              stable_id: 201,
+              id: 'smw-bonus-disc',
+              title: 'Super Mario All-Stars',
+              platform_id: 19,
+              platform_name: 'SNES',
+              bundle_disc_number: 2,
+              backup_status: 1,
+            },
+          ],
+          releases: [
+            {
+              id: 'smw-snes-usa',
+              game_id: 1,
+              region: 'USA',
+              rom_name: 'Super Mario World (USA).sfc',
+              backup_status: 1,
+              ownership_status: 1,
+              is_source_verified: 1,
+            },
+          ],
+          shared_backup_releases: [
+            {
+              id: 'smas-smw-snes',
+              game_id: 2,
+              title: 'Super Mario All-Stars + Super Mario World',
+              region: 'USA',
+              backup_status: 1,
+              ownership_status: 1,
+            },
+          ],
+          other_releases: [
+            {
+              id: 'smw-snes-jpn',
+              game_id: 1,
+              title: 'Super Mario World (Japan)',
+              region: 'Japan',
+              release_date: '1990-11-21',
+              backup_status: 0,
+              ownership_status: 1,
+            },
+          ],
+        }),
+      );
+
+      paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+
+      // Public catalog metadata still renders
+      expect(compiled.querySelector('.item-title')?.textContent).toContain(
+        'Super Mario World',
+      );
+      expect(compiled.querySelector('.bundles-section')?.textContent).toContain(
+        'Super Mario All-Stars',
+      );
+      expect(compiled.querySelector('.discs-section')).toBeTruthy();
+      expect(compiled.querySelector('.other-releases-section')).toBeTruthy();
+
+      // Play status and ownership status pills are omitted
+      expect(compiled.querySelector('.play-status-pill')).toBeNull();
+      expect(compiled.querySelector('.ownership-pill')).toBeNull();
+
+      // Backup details (Backed Up / No Backup buttons/pills and Extracted Archival ROM pill) are omitted
+      expect(compiled.querySelector('.disc-actions')).toBeNull();
+      expect(compiled.querySelector('.stat-pill.extracted-rom')).toBeNull();
+      expect(compiled.textContent).not.toContain('Backed Up');
+      expect(compiled.textContent).not.toContain('No Backup');
+
+      // Provenance sections (Archival Origin Provenance and Acquisition Journal & Provenance) are omitted
+      expect(compiled.querySelector('.provenance-section')).toBeNull();
+      expect(
+        compiled.querySelector('[data-testid="journal-section"]'),
+      ).toBeNull();
+
+      // Owned badges on shared backup releases and other regional releases are omitted
+      expect(
+        compiled.querySelector('.shared-backup-banner')?.textContent,
+      ).not.toContain('Owned');
+      expect(
+        compiled.querySelector('.other-releases-section')?.textContent,
+      ).not.toContain('Owned');
+    });
+
+    it('omits toy ownership status pill when signed out', async () => {
+      collectionService.setAdminForTesting(false);
+      paramMapSubject.next(convertToParamMap({ id: 'amiibo-1', type: 'toy' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.querySelector('.item-title')?.textContent).toContain(
+        'Mario',
+      );
+      expect(compiled.querySelector('.ownership-pill')).toBeNull();
+    });
+
+    it('navigates back and filters by series within /u/:username when in public view', () => {
+      collectionService.setPublicView(true, {
+        username: 'wesley',
+        displayName: 'Wesley',
+        bio: null,
+        homeRegion: 'USA',
+      });
+      fixture.detectChanges();
+
+      const backSpy = vi
+        .spyOn(component.navigationHistory, 'back')
+        .mockImplementation(() => {});
+      const navigateSpy = vi.spyOn(router, 'navigate');
+
+      component.onBack();
+      expect(backSpy).toHaveBeenCalledWith(['/u', 'wesley', 'games']);
+
+      component.filterBySeries('Mario');
+      expect(navigateSpy).toHaveBeenCalledWith(['/u', 'wesley', 'games']);
     });
   });
 });

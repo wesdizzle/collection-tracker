@@ -25,7 +25,7 @@
       <div class="compact-table-body">
         @for (game of games(); track game.id) {
           <a
-            [routerLink]="['/collection', 'game', game.id]"
+            [routerLink]="['/game', game.id]"
             class="compact-table-row state-layer"
           >
             <div class="col-status">
@@ -408,7 +408,7 @@
       <div class="compact-table-body toys-body">
         @for (toy of toys(); track toy.id) {
           <a
-            [routerLink]="['/collection', 'toy', toy.id]"
+            [routerLink]="['/toy', toy.id]"
             class="compact-table-row state-layer toys-row"
           >
             <div class="col-status">

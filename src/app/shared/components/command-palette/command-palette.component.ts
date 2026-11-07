@@ -261,113 +261,142 @@ export class CommandPaletteComponent implements AfterViewInit {
     this.paletteService.close();
   }
 
-  private navigationActions: CommandPaletteItem[] = [
-    {
-      id: 'nav-games',
-      title: 'Games Catalog',
-      subtitle: 'Browse all video games',
-      category: 'Navigation',
-      icon: 'gamepad',
-      url: '/collection/games',
-      action: () => this.navigate('/collection/games'),
-    },
-    {
-      id: 'nav-toys',
-      title: 'Toys & Figures',
-      subtitle: 'Browse Amiibo and collectibles',
-      category: 'Navigation',
-      icon: 'figure-toy',
-      url: '/collection/toys',
-      action: () => this.navigate('/collection/toys'),
-    },
-    {
-      id: 'nav-insights',
-      title: 'Collection Insights',
-      subtitle: 'Stats, era decade breakdown, & completion graphs',
-      category: 'Navigation',
-      icon: 'flame',
-      url: '/collection/insights',
-      action: () => this.navigate('/collection/insights'),
-    },
-    {
-      id: 'nav-discovery',
-      title: 'Discovery Management',
-      subtitle: 'Track missing releases and scan candidates',
-      category: 'Navigation',
-      icon: 'compass',
-      url: '/collection/discovery',
-      action: () => this.navigate('/collection/discovery'),
-    },
-  ];
+  private getGamesTabUrl(): string {
+    return this.collectionService.getTabUrl?.('games') ?? '/collection/games';
+  }
 
-  private filterActions: CommandPaletteItem[] = [
-    {
-      id: 'filter-reset',
-      title: 'Reset All Filters',
-      subtitle: 'Clear all active filters and return to default owned view',
-      category: 'Quick Filters',
-      icon: 'refresh',
-      isResetAction: true,
-      action: () => this.resetAllFilters(),
-    },
-    {
-      id: 'filter-deals',
-      title: 'Unowned Deals',
-      subtitle: 'Games currently on sale or below retail price',
-      category: 'Quick Filters',
-      icon: 'coins',
-      url: '/collection/games',
-      queryParams: {
-        deals_only: 'true',
-        ownership: '0',
+  private getToysTabUrl(): string {
+    return this.collectionService.getTabUrl?.('toys') ?? '/collection/toys';
+  }
+
+  private isPersonalView(): boolean {
+    return this.collectionService.canShowPersonalState?.() ?? true;
+  }
+
+  private get navigationActions(): CommandPaletteItem[] {
+    const gamesUrl = this.getGamesTabUrl();
+    const toysUrl = this.getToysTabUrl();
+    const items: CommandPaletteItem[] = [
+      {
+        id: 'nav-games',
+        title: 'Games Catalog',
+        subtitle: 'Browse all video games',
+        category: 'Navigation',
+        icon: 'gamepad',
+        url: gamesUrl,
+        action: () => this.navigate(gamesUrl),
       },
-      action: () =>
-        this.navigate('/collection/games', {
-          deals_only: 'true',
-          ownership: '0',
-        }),
-    },
-    {
-      id: 'filter-backlog',
-      title: 'Backlog Queue',
-      subtitle: 'Games queued up to play next',
-      category: 'Quick Filters',
-      icon: 'list-queued',
-      url: '/collection/games',
-      queryParams: { play_status: '3' },
-      action: () => this.navigate('/collection/games', { play_status: '3' }),
-    },
-    {
-      id: 'filter-playing',
-      title: 'Currently Playing',
-      subtitle: 'Active playthroughs',
-      category: 'Quick Filters',
-      icon: 'play',
-      url: '/collection/games',
-      queryParams: { play_status: '2' },
-      action: () => this.navigate('/collection/games', { play_status: '2' }),
-    },
-    {
-      id: 'filter-seeking',
-      title: 'Seeking Wishlist',
-      subtitle: 'Games marked as actively seeking',
-      category: 'Quick Filters',
-      icon: 'seeking',
-      url: '/collection/games',
-      queryParams: { ownership: '2' },
-      action: () => this.navigate('/collection/games', { ownership: '2' }),
-    },
-    {
-      id: 'filter-missing-backups',
-      title: 'Missing ROM Backups',
-      subtitle: 'Physical items missing verified digital backup',
-      category: 'Quick Filters',
-      icon: 'missing-dump',
-      url: '/collection/games',
-      queryParams: { backup_status: '0' },
-      action: () => this.navigate('/collection/games', { backup_status: '0' }),
-    },
-  ];
+      {
+        id: 'nav-toys',
+        title: 'Toys & Figures',
+        subtitle: 'Browse Amiibo and collectibles',
+        category: 'Navigation',
+        icon: 'figure-toy',
+        url: toysUrl,
+        action: () => this.navigate(toysUrl),
+      },
+    ];
+    if (this.isPersonalView()) {
+      items.push(
+        {
+          id: 'nav-insights',
+          title: 'Collection Insights',
+          subtitle: 'Stats, era decade breakdown, & completion graphs',
+          category: 'Navigation',
+          icon: 'flame',
+          url: '/collection/insights',
+          action: () => this.navigate('/collection/insights'),
+        },
+        {
+          id: 'nav-discovery',
+          title: 'Discovery Management',
+          subtitle: 'Track missing releases and scan candidates',
+          category: 'Navigation',
+          icon: 'compass',
+          url: '/collection/discovery',
+          action: () => this.navigate('/collection/discovery'),
+        },
+      );
+    }
+    return items;
+  }
+
+  private get filterActions(): CommandPaletteItem[] {
+    const gamesUrl = this.getGamesTabUrl();
+    const items: CommandPaletteItem[] = [
+      {
+        id: 'filter-reset',
+        title: 'Reset All Filters',
+        subtitle: 'Clear all active filters and return to default owned view',
+        category: 'Quick Filters',
+        icon: 'refresh',
+        isResetAction: true,
+        action: () => this.resetAllFilters(),
+      },
+    ];
+    if (this.isPersonalView()) {
+      items.push(
+        {
+          id: 'filter-deals',
+          title: 'Unowned Deals',
+          subtitle: 'Games currently on sale or below retail price',
+          category: 'Quick Filters',
+          icon: 'coins',
+          url: gamesUrl,
+          queryParams: {
+            deals_only: 'true',
+            ownership: '0',
+          },
+          action: () =>
+            this.navigate(gamesUrl, {
+              deals_only: 'true',
+              ownership: '0',
+            }),
+        },
+        {
+          id: 'filter-backlog',
+          title: 'Backlog Queue',
+          subtitle: 'Games queued up to play next',
+          category: 'Quick Filters',
+          icon: 'list-queued',
+          url: gamesUrl,
+          queryParams: { play_status: '3' },
+          action: () => this.navigate(gamesUrl, { play_status: '3' }),
+        },
+        {
+          id: 'filter-playing',
+          title: 'Currently Playing',
+          subtitle: 'Active playthroughs',
+          category: 'Quick Filters',
+          icon: 'play',
+          url: gamesUrl,
+          queryParams: { play_status: '2' },
+          action: () => this.navigate(gamesUrl, { play_status: '2' }),
+        },
+        {
+          id: 'filter-seeking',
+          title: 'Seeking Wishlist',
+          subtitle: 'Games marked as actively seeking',
+          category: 'Quick Filters',
+          icon: 'seeking',
+          url: gamesUrl,
+          queryParams: { ownership: '2' },
+          action: () => this.navigate(gamesUrl, { ownership: '2' }),
+        },
+        {
+          id: 'filter-missing-backups',
+          title: 'Missing ROM Backups',
+          subtitle: 'Physical items missing verified digital backup',
+          category: 'Quick Filters',
+          icon: 'missing-dump',
+          url: gamesUrl,
+          queryParams: { backup_status: '0' },
+          action: () => this.navigate(gamesUrl, { backup_status: '0' }),
+        },
+      );
+    }
+    return items;
+  }
 
   public readonly flatResults = computed<CommandPaletteItem[]>(() => {
     const rawQuery = this.query().trim().toLowerCase();
@@ -435,10 +464,10 @@ export class CommandPaletteComponent implements AfterViewInit {
             subtitle: `${p.brand} platform${count > 0 ? ` • ${count} owned` : ''}`,
             category: 'Platforms',
             icon: 'gamepad' as IconName,
-            url: '/collection/games',
+            url: this.getGamesTabUrl(),
             queryParams: { platform_id: p.id },
             action: () =>
-              this.navigate('/collection/games', { platform_id: p.id }),
+              this.navigate(this.getGamesTabUrl(), { platform_id: p.id }),
           };
         });
 
@@ -493,13 +522,14 @@ export class CommandPaletteComponent implements AfterViewInit {
           subtitle: `${p.brand} platform${count > 0 ? ` • ${count} owned` : ''}`,
           category: 'Platforms',
           icon: 'gamepad' as IconName,
-          url: '/collection/games',
+          url: this.getGamesTabUrl(),
           queryParams: { platform_id: p.id },
           action: () =>
-            this.navigate('/collection/games', { platform_id: p.id }),
+            this.navigate(this.getGamesTabUrl(), { platform_id: p.id }),
         };
       });
 
+    const showPersonal = this.isPersonalView();
     const matchingGames: CommandPaletteItem[] = games
       .filter((g) => {
         const aliases =
@@ -525,18 +555,19 @@ export class CommandPaletteComponent implements AfterViewInit {
         category: 'Games',
         icon: getMediaIconName(
           g.display_name || g.platform,
-          g.backup_status,
+          showPersonal ? g.backup_status : false,
         ) as IconName,
-        badge:
-          g.ownership_status === 1
+        badge: !showPersonal
+          ? undefined
+          : g.ownership_status === 1
             ? 'Owned'
             : g.ownership_status === 2
               ? 'Seeking'
               : g.ownership_status === 3
                 ? 'Ordered'
                 : undefined,
-        url: `/collection/game/${g.id || g.stable_id}`,
-        action: () => this.navigate(`/collection/game/${g.id || g.stable_id}`),
+        url: `/game/${g.id || g.stable_id}`,
+        action: () => this.navigate(`/game/${g.id || g.stable_id}`),
       }));
 
     const toys = this.collectionService.toys();
@@ -554,16 +585,17 @@ export class CommandPaletteComponent implements AfterViewInit {
         subtitle: `${t.line || ''}${t.series_name ? ' • ' + t.series_name : ''}`,
         category: 'Toys',
         icon: 'figure-toy' as IconName,
-        badge:
-          t.ownership_status === 1
+        badge: !showPersonal
+          ? undefined
+          : t.ownership_status === 1
             ? 'Owned'
             : t.ownership_status === 2
               ? 'Seeking'
               : t.ownership_status === 3
                 ? 'Ordered'
                 : undefined,
-        url: `/collection/toy/${t.id || t.stable_id}`,
-        action: () => this.navigate(`/collection/toy/${t.id || t.stable_id}`),
+        url: `/toy/${t.id || t.stable_id}`,
+        action: () => this.navigate(`/toy/${t.id || t.stable_id}`),
       }));
 
     return [
@@ -754,7 +786,7 @@ export class CommandPaletteComponent implements AfterViewInit {
   private resetAllFilters() {
     this.paletteService.close();
     this.collectionService.resetListState();
-    this.router.navigate(['/collection/games'], {
+    this.router.navigate([this.getGamesTabUrl()], {
       queryParams: { reset: '1' },
     });
   }

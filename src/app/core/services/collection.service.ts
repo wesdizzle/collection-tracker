@@ -81,7 +81,11 @@ export class CollectionService {
   private _publicProfile = signal<PublicUserProfile | null>(null);
   public readonly publicProfile = this._publicProfile.asReadonly();
 
-  public readonly journalRevealed = computed(() => this.isAuthenticated());
+  public readonly canShowPersonalState = computed(
+    () => this.isAuthenticated() && !this._isPublicView(),
+  );
+
+  public readonly journalRevealed = computed(() => this.canShowPersonalState());
 
   private _journalEntriesMap = signal<Map<string, JournalEntry>>(new Map());
   public readonly journalEntriesMap = this._journalEntriesMap.asReadonly();
@@ -213,6 +217,39 @@ export class CollectionService {
 
   public exitPublicView(): void {
     this.setPublicView(false, null);
+  }
+
+  public getTabRoute(
+    tab: 'games' | 'toys' | 'insights' | 'discovery' | string = 'games',
+  ): string[] {
+    if (
+      this._isPublicView() &&
+      this._publicProfile() &&
+      (tab === 'games' || tab === 'toys')
+    ) {
+      return ['/u', this._publicProfile()!.username, tab];
+    }
+    return ['/collection', tab];
+  }
+
+  public getTabUrl(
+    tab: 'games' | 'toys' | 'insights' | 'discovery' | string = 'games',
+  ): string {
+    if (
+      this._isPublicView() &&
+      this._publicProfile() &&
+      (tab === 'games' || tab === 'toys')
+    ) {
+      return `/u/${encodeURIComponent(this._publicProfile()!.username)}/${tab}`;
+    }
+    return `/collection/${tab}`;
+  }
+
+  public getItemRoute(
+    type: 'game' | 'toy' | string,
+    id: string | number,
+  ): (string | number)[] {
+    return ['/' + type, id];
   }
 
   /**

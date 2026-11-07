@@ -2,7 +2,7 @@
   <div class="container animate-expressive pb-xl" data-version="final-v12">
     <nav class="details-nav mb-lg flex justify-between items-center">
       <a
-        [href]="'/collection/' + (type() ? type() + 's' : 'games')"
+        [href]="collectionService.getTabUrl(type() ? type() + 's' : 'games')"
         (click)="onBack($event)"
         class="back-link flex items-center gap-sm"
       >
@@ -22,42 +22,44 @@
       </a>
       @if (game(); as g) {
         <div class="quick-stats flex gap-sm items-center">
-          <div
-            class="stat-pill interactive"
-            [class.active]="g.play_status !== 0"
-            (click)="onEditPlayed(g)"
-          >
-            <span class="icon"
-              ><app-icon
-                [name]="getPlayStatusIconName(g.play_status)"
-                [size]="14"
-            /></span>
-            <span>{{ getPlayStatusText(g.play_status) }}</span>
-          </div>
-          <div
-            class="stat-pill interactive"
-            [class.active]="g.ownership_status !== 0"
-            [class.owned]="g.ownership_status === 1"
-            [class.seeking]="g.ownership_status === 2"
-            [class.ordered]="g.ownership_status === 3"
-            (click)="onEditOwnership(g, 'game')"
-          >
-            <span class="icon">
-              <app-icon
-                [name]="getOwnershipStatusIconName(g.ownership_status)"
-                [size]="14"
-              />
-            </span>
-            <span>{{
-              g.ownership_status === 1
-                ? 'Owned'
-                : g.ownership_status === 2
-                  ? 'Seeking'
-                  : g.ownership_status === 3
-                    ? 'Ordered'
-                    : 'Unowned'
-            }}</span>
-          </div>
+          @if (collectionService.canShowPersonalState()) {
+            <div
+              class="stat-pill interactive play-status-pill"
+              [class.active]="g.play_status !== 0"
+              (click)="onEditPlayed(g)"
+            >
+              <span class="icon"
+                ><app-icon
+                  [name]="getPlayStatusIconName(g.play_status)"
+                  [size]="14"
+              /></span>
+              <span>{{ getPlayStatusText(g.play_status) }}</span>
+            </div>
+            <div
+              class="stat-pill interactive ownership-pill"
+              [class.active]="g.ownership_status !== 0"
+              [class.owned]="g.ownership_status === 1"
+              [class.seeking]="g.ownership_status === 2"
+              [class.ordered]="g.ownership_status === 3"
+              (click)="onEditOwnership(g, 'game')"
+            >
+              <span class="icon">
+                <app-icon
+                  [name]="getOwnershipStatusIconName(g.ownership_status)"
+                  [size]="14"
+                />
+              </span>
+              <span>{{
+                g.ownership_status === 1
+                  ? 'Owned'
+                  : g.ownership_status === 2
+                    ? 'Seeking'
+                    : g.ownership_status === 3
+                      ? 'Ordered'
+                      : 'Unowned'
+              }}</span>
+            </div>
+          }
           @if (g.igdb_id && g.igdb_url) {
             <a
               [href]="g.igdb_url"
@@ -88,6 +90,7 @@
               <span>Upcoming Launch (Pre-Release)</span>
             </div>
           } @else if (
+            collectionService.canShowPersonalState() &&
             !hasPhysicalRelease(g) &&
             (g.physical_status === 'not_yet_physical' ||
               g.physical_status === 'physical_pending') &&
@@ -101,7 +104,9 @@
               <span class="icon"><app-icon name="clock" [size]="14" /></span>
               <span>Awaiting Physical Edition (Watching)</span>
             </div>
-          } @else if (canWatchPhysical(g)) {
+          } @else if (
+            collectionService.canShowPersonalState() && canWatchPhysical(g)
+          ) {
             <div
               class="stat-pill interactive"
               (click)="toggleWatchPhysical(g)"
@@ -111,8 +116,9 @@
               <span>+ Watch for Physical</span>
             </div>
           } @else if (
-            g.physical_status === 'digital_extracted_rom' ||
-            g.release_medium === 'digital_extracted_rom'
+            collectionService.canShowPersonalState() &&
+            (g.physical_status === 'digital_extracted_rom' ||
+              g.release_medium === 'digital_extracted_rom')
           ) {
             <div class="stat-pill active extracted-rom">
               <span class="icon"
@@ -153,30 +159,32 @@
         </div>
       } @else if (toy(); as t) {
         <div class="quick-stats flex gap-sm items-center">
-          <div
-            class="stat-pill interactive"
-            [class.active]="t.ownership_status !== 0"
-            [class.owned]="t.ownership_status === 1"
-            [class.seeking]="t.ownership_status === 2"
-            [class.ordered]="t.ownership_status === 3"
-            (click)="onEditOwnership(t, 'toy')"
-          >
-            <span class="icon">
-              <app-icon
-                [name]="getOwnershipStatusIconName(t.ownership_status)"
-                [size]="14"
-              />
-            </span>
-            <span>{{
-              t.ownership_status === 1
-                ? 'Owned'
-                : t.ownership_status === 2
-                  ? 'Seeking'
-                  : t.ownership_status === 3
-                    ? 'Ordered'
-                    : 'Unowned'
-            }}</span>
-          </div>
+          @if (collectionService.canShowPersonalState()) {
+            <div
+              class="stat-pill interactive ownership-pill"
+              [class.active]="t.ownership_status !== 0"
+              [class.owned]="t.ownership_status === 1"
+              [class.seeking]="t.ownership_status === 2"
+              [class.ordered]="t.ownership_status === 3"
+              (click)="onEditOwnership(t, 'toy')"
+            >
+              <span class="icon">
+                <app-icon
+                  [name]="getOwnershipStatusIconName(t.ownership_status)"
+                  [size]="14"
+                />
+              </span>
+              <span>{{
+                t.ownership_status === 1
+                  ? 'Owned'
+                  : t.ownership_status === 2
+                    ? 'Seeking'
+                    : t.ownership_status === 3
+                      ? 'Ordered'
+                      : 'Unowned'
+              }}</span>
+            </div>
+          }
           @if (getToySource(t); as source) {
             <a
               [href]="source.url"
@@ -291,7 +299,11 @@
               }
             }
             @if (game(); as g) {
-              @if (parsedOriginMetadata(); as origin) {
+              @if (
+                collectionService.canShowPersonalState() &&
+                  parsedOriginMetadata();
+                as origin
+              ) {
                 <div class="meta-box full-width provenance-section mt-md">
                   <span class="label">Archival Origin Provenance</span>
                   <div
@@ -345,26 +357,28 @@
                             }
                           </div>
                         </div>
-                        <div class="disc-actions flex items-center gap-sm">
-                          <div
-                            class="stat-pill"
-                            [class.active]="!!b.backup_status"
-                          >
-                            <span class="icon">
-                              <app-icon
-                                [name]="
-                                  b.backup_status
-                                    ? 'rom-archive'
-                                    : 'missing-dump'
-                                "
-                                [size]="14"
-                              />
-                            </span>
-                            <span>{{
-                              b.backup_status ? 'Backed Up' : 'No Backup'
-                            }}</span>
+                        @if (collectionService.canShowPersonalState()) {
+                          <div class="disc-actions flex items-center gap-sm">
+                            <div
+                              class="stat-pill"
+                              [class.active]="!!b.backup_status"
+                            >
+                              <span class="icon">
+                                <app-icon
+                                  [name]="
+                                    b.backup_status
+                                      ? 'rom-archive'
+                                      : 'missing-dump'
+                                  "
+                                  [size]="14"
+                                />
+                              </span>
+                              <span>{{
+                                b.backup_status ? 'Backed Up' : 'No Backup'
+                              }}</span>
+                            </div>
                           </div>
-                        </div>
+                        }
                       </div>
                     }
                   </div>
@@ -419,8 +433,7 @@
                                 Identical disc master to original release:
                                 <a
                                   [routerLink]="[
-                                    '/collection',
-                                    'game',
+                                    '/game',
                                     release.companion_game_id,
                                   ]"
                                   class="meta-link font-semibold"
@@ -439,8 +452,7 @@
                                 Standalone game:
                                 <a
                                   [routerLink]="[
-                                    '/collection',
-                                    'game',
+                                    '/game',
                                     release.companion_game_id,
                                   ]"
                                   class="meta-link font-semibold"
@@ -480,40 +492,44 @@
                             </div>
                           }
                         </div>
-                        <div class="disc-actions flex items-center gap-sm">
-                          <button
-                            class="stat-pill interactive"
-                            [class.active]="!!release.backup_status"
-                            [class.missing]="!release.backup_status"
-                            (click)="onToggleDiscBackup(release)"
-                            title="Toggle Backup Status"
-                          >
-                            <span class="icon"
-                              ><app-icon
-                                [name]="
-                                  getMediaIcon(
-                                    g.platform,
-                                    release.backup_status
-                                  )
-                                "
-                                [size]="14"
-                            /></span>
-                            <span>{{
-                              release.backup_status ? 'Backed Up' : 'No Backup'
-                            }}</span>
-                          </button>
-                          @if (collectionService.isAdmin()) {
+                        @if (collectionService.canShowPersonalState()) {
+                          <div class="disc-actions flex items-center gap-sm">
                             <button
-                              type="button"
-                              class="btn-danger"
-                              title="Remove this release"
-                              (click)="requestDeleteRelease(release)"
+                              class="stat-pill interactive"
+                              [class.active]="!!release.backup_status"
+                              [class.missing]="!release.backup_status"
+                              (click)="onToggleDiscBackup(release)"
+                              title="Toggle Backup Status"
                             >
-                              <app-icon name="close" [size]="14" />
-                              <span>Remove</span>
+                              <span class="icon"
+                                ><app-icon
+                                  [name]="
+                                    getMediaIcon(
+                                      g.platform,
+                                      release.backup_status
+                                    )
+                                  "
+                                  [size]="14"
+                              /></span>
+                              <span>{{
+                                release.backup_status
+                                  ? 'Backed Up'
+                                  : 'No Backup'
+                              }}</span>
                             </button>
-                          }
-                        </div>
+                            @if (collectionService.isAdmin()) {
+                              <button
+                                type="button"
+                                class="btn-danger"
+                                title="Remove this release"
+                                (click)="requestDeleteRelease(release)"
+                              >
+                                <app-icon name="close" [size]="14" />
+                                <span>Remove</span>
+                              </button>
+                            }
+                          </div>
+                        }
                       </div>
                     }
                   </div>
@@ -533,7 +549,7 @@
                           track shared.id
                         ) {
                           <a
-                            [routerLink]="['/collection', 'game', shared.id]"
+                            [routerLink]="['/game', shared.id]"
                             class="jump-link-pill"
                           >
                             <span class="flex items-center gap-xs"
@@ -545,7 +561,10 @@
                                 >({{ shared.region }})</span
                               >
                             }
-                            @if (shared.ownership_status === 1) {
+                            @if (
+                              collectionService.canShowPersonalState() &&
+                              shared.ownership_status === 1
+                            ) {
                               <span
                                 class="text-2xs flex items-center gap-2xs"
                                 title="Owned in collection"
@@ -632,7 +651,10 @@
                               >({{ other.release_date | date: 'yyyy' }})</span
                             >
                           }
-                          @if (other.ownership_status === 1) {
+                          @if (
+                            collectionService.canShowPersonalState() &&
+                            other.ownership_status === 1
+                          ) {
                             <span
                               class="text-2xs font-semibold flex items-center gap-2xs text-primary"
                             >
@@ -641,7 +663,7 @@
                           }
                         </div>
                         <a
-                          [routerLink]="['/collection', 'game', other.id]"
+                          [routerLink]="['/game', other.id]"
                           class="meta-link text-xs font-semibold flex items-center gap-xs interactive"
                         >
                           <span>View Release</span>
@@ -1125,7 +1147,7 @@
 
     @if (
       (type() === 'game' || type() === 'toy') &&
-      collectionService.isAuthenticated()
+      collectionService.canShowPersonalState()
     ) {
       <section
         class="journal-section animate-slide-up mb-xl"
@@ -1582,7 +1604,7 @@
   <div class="container pb-xl animate-expressive">
     <nav class="details-nav mb-lg flex justify-between items-center">
       <a
-        [href]="'/collection/' + (type() ? type() + 's' : 'games')"
+        [href]="collectionService.getTabUrl(type() ? type() + 's' : 'games')"
         (click)="onBack($event)"
         class="back-link flex items-center gap-sm"
       >
@@ -1607,7 +1629,7 @@
       </div>
       <p class="error-message">{{ error }}</p>
       <a
-        [href]="'/collection/' + (type() ? type() + 's' : 'games')"
+        [href]="collectionService.getTabUrl(type() ? type() + 's' : 'games')"
         (click)="onBack($event)"
         class="retry-btn"
       >

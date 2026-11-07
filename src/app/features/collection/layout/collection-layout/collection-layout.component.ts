@@ -22,7 +22,8 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
       <div class="header-inner">
         <div class="header-left">
           <a
-            routerLink="/collection/games"
+            [routerLink]="collectionService.getTabUrl('games')"
+            [attr.routerlink]="collectionService.getTabUrl('games')"
             (click)="onNavClick('games')"
             class="brand-link state-layer"
           >
@@ -37,7 +38,7 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
 
         <nav class="main-nav">
           <a
-            routerLink="/collection/games"
+            [routerLink]="collectionService.getTabUrl('games')"
             (click)="onNavClick('games')"
             routerLinkActive="active"
             class="nav-item"
@@ -46,7 +47,7 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
             <div class="indicator"></div>
           </a>
           <a
-            routerLink="/collection/toys"
+            [routerLink]="collectionService.getTabUrl('toys')"
             (click)="onNavClick('toys')"
             routerLinkActive="active"
             class="nav-item"
@@ -54,16 +55,18 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
             <span class="label">Toys</span>
             <div class="indicator"></div>
           </a>
-          <a
-            routerLink="/collection/insights"
-            (click)="onNavClick()"
-            routerLinkActive="active"
-            class="nav-item"
-          >
-            <span class="label">Insights</span>
-            <div class="indicator"></div>
-          </a>
-          @if (isAdmin()) {
+          @if (!isPublicView()) {
+            <a
+              routerLink="/collection/insights"
+              (click)="onNavClick()"
+              routerLinkActive="active"
+              class="nav-item"
+            >
+              <span class="label">Insights</span>
+              <div class="indicator"></div>
+            </a>
+          }
+          @if (isAdmin() && !isPublicView()) {
             <a
               routerLink="/collection/discovery"
               (click)="onNavClick()"
@@ -415,7 +418,7 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
 export class CollectionLayoutComponent implements OnDestroy {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
-  private collectionService = inject(CollectionService);
+  public readonly collectionService = inject(CollectionService);
   private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
   public readonly commandPalette = inject(CommandPaletteService);
   public readonly profileModalService = inject(ProfileModalService);

@@ -120,7 +120,7 @@ export class ItemDetailComponent {
       event.preventDefault();
     }
     const tab = this.type() === 'toy' ? 'toys' : 'games';
-    this.navigationHistory.back(['/collection', tab]);
+    this.navigationHistory.back(this.collectionService.getTabRoute(tab));
   }
 
   /** The current item type ('game', 'toy', or 'platform') derived from the route */
@@ -206,13 +206,13 @@ export class ItemDetailComponent {
   public journalEntry = toSignal(
     combineLatest([
       this.route.paramMap,
-      toObservable(this.collectionService.isAuthenticated),
+      toObservable(this.collectionService.canShowPersonalState),
       toObservable(this.journalRefreshTrigger),
     ]).pipe(
-      switchMap(([params, isAuth]) => {
+      switchMap(([params, canShowPersonal]) => {
         const type = params.get('type') || '';
         const id = params.get('id');
-        if (!isAuth || !id || (type !== 'game' && type !== 'toy')) {
+        if (!canShowPersonal || !id || (type !== 'game' && type !== 'toy')) {
           return of(null);
         }
         return this.collectionService
@@ -683,7 +683,11 @@ export class ItemDetailComponent {
    * Toggles the physical watch status ('not_yet_physical' vs 'digital_only') for games.
    */
   public toggleWatchPhysical(game: Game): void {
-    if (this.hasPhysicalRelease(game)) return;
+    if (
+      !this.collectionService.canShowPersonalState() ||
+      this.hasPhysicalRelease(game)
+    )
+      return;
     const nextStatus =
       game.physical_status === 'not_yet_physical' ||
       game.physical_status === 'physical_pending'
@@ -805,7 +809,7 @@ export class ItemDetailComponent {
         scrollY: 0,
       });
     }
-    this.router.navigate(['/collection', tab]);
+    this.router.navigate(this.collectionService.getTabRoute(tab));
   }
 
   getOwnershipStatusIconName(status: number): IconName {
@@ -860,6 +864,7 @@ export class ItemDetailComponent {
   }
 
   onEditOwnership(item: Game | Toy, type: 'game' | 'toy') {
+    if (!this.collectionService.canShowPersonalState()) return;
     this.collectionService.showOptions(
       'Ownership Status',
       'Select the ownership status for this item:',
@@ -891,6 +896,7 @@ export class ItemDetailComponent {
   }
 
   onEditPlayed(game: Game) {
+    if (!this.collectionService.canShowPersonalState()) return;
     this.collectionService.showOptions(
       'Play Status',
       'Select the play status for this game:',
@@ -918,6 +924,7 @@ export class ItemDetailComponent {
   }
 
   onEditBackedUp(game: Game) {
+    if (!this.collectionService.canShowPersonalState()) return;
     this.collectionService.showOptions(
       'Backup Status',
       'Select the backup status for this game:',
@@ -959,6 +966,7 @@ export class ItemDetailComponent {
   }
 
   onToggleDiscBackup(release: GameRelease) {
+    if (!this.collectionService.canShowPersonalState()) return;
     this.collectionService.showOptions(
       'Backup Status',
       'Select the backup status for this disc:',
