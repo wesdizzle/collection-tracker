@@ -48,4 +48,31 @@ describe('Service Worker Configuration (ngsw-config.json)', () => {
     expect(urls).toContain('https://images.igdb.com/**');
     expect(urls).toContain('https://*.amiiboapi.com/**');
   });
+
+  it('disables Beasties inlineCritical CSS in angular.json so strict script-src self CSP never blocks global styles', () => {
+    const angularJsonPath = path.resolve(__dirname, '../../angular.json');
+    const angularJson = JSON.parse(
+      fs.readFileSync(angularJsonPath, 'utf-8'),
+    ) as {
+      projects: {
+        tracker: {
+          architect: {
+            build: {
+              configurations: {
+                production: {
+                  optimization?: {
+                    styles?: { inlineCritical?: boolean };
+                  };
+                };
+              };
+            };
+          };
+        };
+      };
+    };
+    expect(
+      angularJson.projects.tracker.architect.build.configurations.production
+        .optimization?.styles?.inlineCritical,
+    ).toBe(false);
+  });
 });

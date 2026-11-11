@@ -1,10 +1,11 @@
 import '../test-setup';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { AppComponent } from './app.component';
+import { ConfirmationDialogComponent } from './shared/components/confirmation-dialog/confirmation-dialog.component';
 
 /**
  * UNIT TEST: AppComponent
@@ -37,5 +38,22 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     const app = fixture.componentInstance;
     expect(app.title).toEqual('tracker');
+  });
+
+  it('promotes ConfirmationDialogComponent to Top Layer via showModal() on mount', () => {
+    const fixture = TestBed.createComponent(ConfirmationDialogComponent);
+    const dialogEl = fixture.nativeElement.querySelector(
+      'dialog.dialog-overlay',
+    ) as HTMLDialogElement;
+    expect(dialogEl.hasAttribute('open')).toBe(false);
+
+    const showModalSpy = vi.fn(() => {
+      dialogEl.setAttribute('open', '');
+    });
+    dialogEl.showModal = showModalSpy;
+
+    fixture.detectChanges();
+    expect(showModalSpy).toHaveBeenCalledTimes(1);
+    expect(dialogEl.hasAttribute('open')).toBe(true);
   });
 });

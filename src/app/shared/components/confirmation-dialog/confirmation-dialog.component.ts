@@ -26,7 +26,6 @@ import { FormsModule } from '@angular/forms';
     <dialog
       #dialogEl
       class="dialog-overlay"
-      open
       aria-modal="true"
       aria-labelledby="confirmation-dialog-title"
       (click)="onBackdropClick($event)"
@@ -105,6 +104,10 @@ import { FormsModule } from '@angular/forms';
   `,
   styles: [
     `
+      .dialog-overlay:not([open]) {
+        display: none;
+      }
+
       .dialog-overlay {
         position: fixed;
         inset: 0;
@@ -275,10 +278,14 @@ export class ConfirmationDialogComponent implements AfterViewInit {
 
   ngAfterViewInit() {
     const dialog = this.dialogEl?.nativeElement;
-    if (dialog && typeof dialog.showModal === 'function' && !dialog.open) {
-      try {
-        dialog.showModal();
-      } catch {
+    if (dialog && !dialog.open) {
+      if (typeof dialog.showModal === 'function') {
+        try {
+          dialog.showModal();
+        } catch {
+          dialog.setAttribute('open', '');
+        }
+      } else {
         dialog.setAttribute('open', '');
       }
     }

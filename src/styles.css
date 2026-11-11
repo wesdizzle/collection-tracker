@@ -62,7 +62,8 @@
 
 /* --- THEME: DARK (Default) --- */
 :root,
-.theme-dark {
+.theme-dark,
+[data-theme='dark'] {
   color-scheme: dark;
 
   --m3-primary: #38bdf8; /* Logo Sky Blue / Cyan */
@@ -137,7 +138,8 @@
 }
 
 /* --- THEME: LIGHT --- */
-.theme-light {
+.theme-light,
+[data-theme='light'] {
   color-scheme: light;
 
   --m3-primary: #0284c7; /* Deep Sky Blue (4.54:1 on white) */

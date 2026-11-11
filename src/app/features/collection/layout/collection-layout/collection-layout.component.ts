@@ -157,6 +157,7 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
       @media (max-width: 768px) {
         .layout-container {
           padding-top: var(--spacing-24);
+          padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
         }
       }
     `,
@@ -234,11 +235,6 @@ export class CollectionLayoutComponent {
   });
 
   constructor() {
-    this.themeService.init('collection-theme', ['app-theme', 'theme'], 'auto', {
-      darkThemeColor: '#121214',
-      lightThemeColor: '#f8fafc',
-    });
-
     this.router.events
       .pipe(
         filter((e): e is NavigationEnd => e instanceof NavigationEnd),

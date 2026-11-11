@@ -6,7 +6,6 @@ import {
 } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { SwUpdate } from '@angular/service-worker';
-import { KitThemeService } from '@wesdizzle/app-kit/angular';
 import { ConfirmationDialogComponent } from './shared/components/confirmation-dialog/confirmation-dialog.component';
 import { CommandPaletteComponent } from './shared/components/command-palette/command-palette.component';
 import { CollectionService } from './core/services/collection.service';
@@ -21,17 +20,11 @@ import { CollectionService } from './core/services/collection.service';
 export class AppComponent implements OnDestroy {
   public title = 'tracker';
   private collectionService = inject(CollectionService);
-  private themeService = inject(KitThemeService);
   private swUpdate = inject(SwUpdate, { optional: true });
   public dialogState = this.collectionService.dialogState;
   private visibilityListener?: () => void;
 
   constructor() {
-    this.themeService.init('collection-theme', ['app-theme', 'theme'], 'auto', {
-      darkThemeColor: '#121214',
-      lightThemeColor: '#f8fafc',
-    });
-
     if (this.swUpdate?.isEnabled) {
       this.swUpdate.versionUpdates.subscribe((event) => {
         if (event.type === 'VERSION_READY') {
