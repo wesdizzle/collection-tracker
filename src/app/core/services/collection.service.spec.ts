@@ -724,7 +724,7 @@ describe('CollectionService', () => {
         expect(fetchSpy).toHaveBeenCalledWith(
           '/api/auth/logout?silent=1',
           expect.objectContaining({
-            method: 'GET',
+            method: 'POST',
             credentials: 'same-origin',
           }),
         );
@@ -803,7 +803,7 @@ describe('CollectionService', () => {
       expect(navSpy).toHaveBeenCalledWith('/');
     });
 
-    it('signOut clears session cookie via background fetch before navigating to /api/auth/logout', async () => {
+    it('signOut clears session cookie via POST fetch before redirecting to landing or IdP logout', async () => {
       service.setCurrentUserForTesting({
         id: 1,
         username: 'collector',
@@ -817,8 +817,14 @@ describe('CollectionService', () => {
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
         .mockResolvedValue(
-          new Response(JSON.stringify({ success: true }), { status: 200 }),
+          new Response(JSON.stringify({ ok: true }), { status: 200 }),
         );
+      const redirectSpy = vi
+        .spyOn(
+          service as unknown as { redirectTo: (url: string) => void },
+          'redirectTo',
+        )
+        .mockImplementation(() => {});
       const createElementSpy = vi.spyOn(document, 'createElement');
 
       try {
@@ -833,9 +839,11 @@ describe('CollectionService', () => {
             cache: 'no-store',
           }),
         );
+        expect(redirectSpy).toHaveBeenCalledWith('/');
         expect(createElementSpy).not.toHaveBeenCalledWith('form');
       } finally {
         fetchSpy.mockRestore();
+        redirectSpy.mockRestore();
         createElementSpy.mockRestore();
       }
     });

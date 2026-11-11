@@ -41,6 +41,12 @@
   transition: all 0.2s;
 }
 
+button.stat-pill {
+  appearance: none;
+  text-align: left;
+  line-height: inherit;
+}
+
 .stat-pill.active {
   background: var(--m3-primary-container);
   color: var(--m3-on-primary-container);
@@ -48,9 +54,9 @@
 }
 
 .stat-pill.missing {
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.35);
-  background: rgba(245, 158, 11, 0.08);
+  color: var(--kit-warning);
+  border-color: var(--kit-warning-border);
+  background: var(--kit-warning-subtle);
 }
 
 .stat-pill.active.seeking {
@@ -59,8 +65,9 @@
 }
 
 .stat-pill.active.ordered {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
+  background: var(--badge-info-bg);
+  color: var(--badge-info-fg);
+  border-color: var(--badge-info-border);
 }
 
 .stat-pill.active.igdb {
@@ -89,15 +96,15 @@
 }
 
 .stat-pill.active.upcoming {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: var(--badge-info-bg);
+  color: var(--badge-info-fg);
+  border: 1px solid var(--badge-info-border);
 }
 
 .stat-pill.active.pending {
-  background: rgba(168, 85, 247, 0.15);
-  color: #c084fc;
-  border: 1px solid rgba(168, 85, 247, 0.4);
+  background: var(--badge-purple-bg);
+  color: var(--badge-purple-fg);
+  border: 1px solid var(--badge-purple-border);
 }
 
 .stat-pill.interactive {
@@ -702,6 +709,13 @@
 .delete-modal-backdrop {
   position: fixed;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: none;
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -787,9 +801,9 @@
 .journal-error-banner {
   padding: 0.5rem 0.75rem;
   border-radius: var(--radius-sm);
-  background: rgba(239, 68, 68, 0.15);
-  color: #fca5a5;
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: var(--kit-danger-subtle);
+  color: var(--kit-danger);
+  border: 1px solid var(--kit-danger-border);
 }
 .btn-journal-save {
   padding: 0.5rem 1rem;
@@ -814,9 +828,9 @@
 .btn-journal-delete {
   padding: 0.5rem 0.85rem;
   border-radius: var(--radius-full);
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--kit-danger-subtle);
+  color: var(--kit-danger);
+  border: 1px solid var(--kit-danger-border);
   font-weight: 600;
   font-size: 0.8125rem;
   cursor: pointer;

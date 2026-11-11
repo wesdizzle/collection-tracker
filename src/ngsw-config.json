@@ -24,12 +24,10 @@
     {
       "name": "api-freshness",
       "urls": [
-        "/api/games",
-        "/api/games/**",
-        "/api/toys",
-        "/api/toys/**",
         "/api/platforms",
-        "/api/platforms/**"
+        "/api/platforms/**",
+        "/api/config",
+        "/api/user/regions"
       ],
       "cacheConfig": {
         "maxSize": 100,

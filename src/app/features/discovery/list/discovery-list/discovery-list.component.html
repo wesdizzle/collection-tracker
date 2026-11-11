@@ -53,6 +53,7 @@
           <input
             #queryInput
             type="text"
+            aria-label="Search game title"
             placeholder="Type game title..."
             class="m3-input"
             (keyup.enter)="
@@ -62,7 +63,11 @@
         </div>
 
         <div class="select-wrapper">
-          <select #platformSelect class="m3-select">
+          <select
+            #platformSelect
+            aria-label="Filter search by platform"
+            class="m3-select"
+          >
             <option value="">All Platforms</option>
             @for (group of platformGroups(); track group.brand) {
               <optgroup [label]="group.brand">
@@ -273,11 +278,7 @@
                           <span
                             class="physical-badge verified flex items-center gap-2xs"
                             title="Canonical Physical Cartridge / Disc Match"
-                            ><app-icon
-                              name="circle-fill"
-                              [size]="12"
-                              class="text-emerald-500"
-                            />
+                            ><app-icon name="circle-fill" [size]="12" />
                             Verified Physical</span
                           >
                         } @else if (
@@ -286,12 +287,8 @@
                           <span
                             class="physical-badge likely flex items-center gap-2xs"
                             title="Modern Retail Publisher / Barcode Match"
-                            ><app-icon
-                              name="circle-half"
-                              [size]="12"
-                              class="text-amber-500"
-                            />
-                            Likely Physical</span
+                            ><app-icon name="circle-half" [size]="12" /> Likely
+                            Physical</span
                           >
                         } @else if (
                           game.physical_status === 'not_yet_physical' ||
@@ -300,22 +297,14 @@
                           <span
                             class="physical-badge pending flex items-center gap-2xs"
                             title="Digital Release Awaiting Physical Edition"
-                            ><app-icon
-                              name="clock"
-                              [size]="12"
-                              class="text-purple-400"
-                            />
-                            Physical Pending</span
+                            ><app-icon name="clock" [size]="12" /> Physical
+                            Pending</span
                           >
                         } @else if (game.physical_status === 'digital_only') {
                           <span
                             class="physical-badge digital flex items-center gap-2xs"
                             title="Digital-Only / Virtual Console Re-release"
-                            ><app-icon
-                              name="circle-empty"
-                              [size]="12"
-                              class="text-slate-400"
-                            />
+                            ><app-icon name="circle-empty" [size]="12" />
                             Digital Only</span
                           >
                         }
@@ -379,7 +368,7 @@
       <!-- Series Discovery Controls Toolbar -->
       <div class="series-discovery-controls p-md mb-lg">
         <div class="flex flex-wrap items-center justify-between gap-md">
-          <div class="flex items-center gap-md flex-1 min-w-[280px]">
+          <div class="flex items-center gap-md flex-1 franchise-select-group">
             <label
               for="seriesSelect"
               class="font-bold text-sm text-secondary whitespace-nowrap"
@@ -626,34 +615,22 @@
                         <span
                           class="physical-badge verified flex items-center gap-2xs"
                           title="Canonical Physical Cartridge / Disc Match"
-                          ><app-icon
-                            name="circle-fill"
-                            [size]="12"
-                            class="text-emerald-500"
-                          />
-                          Verified Physical</span
+                          ><app-icon name="circle-fill" [size]="12" /> Verified
+                          Physical</span
                         >
                       } @else if (game.physical_status === 'likely_physical') {
                         <span
                           class="physical-badge likely flex items-center gap-2xs"
                           title="Modern Retail Publisher / Barcode Match"
-                          ><app-icon
-                            name="circle-half"
-                            [size]="12"
-                            class="text-amber-500"
-                          />
-                          Likely Physical</span
+                          ><app-icon name="circle-half" [size]="12" /> Likely
+                          Physical</span
                         >
                       } @else if (game.physical_status === 'digital_only') {
                         <span
                           class="physical-badge digital flex items-center gap-2xs"
                           title="Digital-Only / Virtual Console Re-release"
-                          ><app-icon
-                            name="circle-empty"
-                            [size]="12"
-                            class="text-slate-400"
-                          />
-                          Digital Only</span
+                          ><app-icon name="circle-empty" [size]="12" /> Digital
+                          Only</span
                         >
                       }
                       @if (game.collections) {
@@ -770,6 +747,7 @@
           <div class="flex flex-wrap gap-sm items-center flex-1">
             <input
               type="text"
+              aria-label="Filter amiibo by name"
               placeholder="Filter by name..."
               class="m3-input amiibo-search-input"
               [value]="amiiboSearchQuery()"
@@ -777,6 +755,7 @@
             />
 
             <select
+              aria-label="Filter amiibo by series"
               class="m3-select amiibo-select"
               [value]="amiiboSeriesFilter()"
               (change)="onAmiiboSeriesChange($event)"
@@ -788,6 +767,7 @@
             </select>
 
             <select
+              aria-label="Filter amiibo by type"
               class="m3-select amiibo-select"
               [value]="amiiboTypeFilter()"
               (change)="onAmiiboTypeChange($event)"
@@ -888,11 +868,24 @@
 
 <!-- INGESTION MODAL DIALOG -->
 @if (showModal() && modalGame(); as game) {
-  <div class="modal-backdrop" (click)="closeIngestionModal()">
+  <dialog
+    class="modal-backdrop"
+    open
+    aria-modal="true"
+    aria-labelledby="ingest-modal-title"
+    (cancel)="$event.preventDefault(); closeIngestionModal()"
+    (keydown.escape)="closeIngestionModal()"
+    (click)="closeIngestionModal()"
+  >
     <div class="modal-content" (click)="$event.stopPropagation()">
       <div class="modal-header">
-        <h3>Ingest Game Metadata</h3>
-        <button class="close-btn" (click)="closeIngestionModal()">
+        <h3 id="ingest-modal-title">Ingest Game Metadata</h3>
+        <button
+          type="button"
+          class="close-btn"
+          aria-label="Close modal"
+          (click)="closeIngestionModal()"
+        >
           &times;
         </button>
       </div>
@@ -955,42 +948,26 @@
                 @if (game.physical_status === 'verified_physical') {
                   <span
                     class="physical-badge verified flex items-center gap-2xs"
-                    ><app-icon
-                      name="circle-fill"
-                      [size]="12"
-                      class="text-emerald-500"
-                    />
-                    Verified Physical</span
+                    ><app-icon name="circle-fill" [size]="12" /> Verified
+                    Physical</span
                   >
                 } @else if (game.physical_status === 'likely_physical') {
                   <span class="physical-badge likely flex items-center gap-2xs"
-                    ><app-icon
-                      name="circle-half"
-                      [size]="12"
-                      class="text-amber-500"
-                    />
-                    Likely Physical</span
+                    ><app-icon name="circle-half" [size]="12" /> Likely
+                    Physical</span
                   >
                 } @else if (
                   game.physical_status === 'not_yet_physical' ||
                   game.physical_status === 'physical_pending'
                 ) {
                   <span class="physical-badge pending flex items-center gap-2xs"
-                    ><app-icon
-                      name="clock"
-                      [size]="12"
-                      class="text-purple-400"
-                    />
-                    Physical Pending</span
+                    ><app-icon name="clock" [size]="12" /> Physical
+                    Pending</span
                   >
                 } @else if (game.physical_status === 'digital_only') {
                   <span class="physical-badge digital flex items-center gap-2xs"
-                    ><app-icon
-                      name="circle-empty"
-                      [size]="12"
-                      class="text-slate-400"
-                    />
-                    Digital Only</span
+                    ><app-icon name="circle-empty" [size]="12" /> Digital
+                    Only</span
                   >
                 }
               </div>
@@ -1087,19 +1064,15 @@
             (game.first_release_date && isUpcomingDate(game.first_release_date))
           ) {
             <div
-              class="upcoming-info-banner p-md mb-lg rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-200 text-sm flex items-start gap-sm"
+              class="upcoming-info-banner wishlist-info-banner p-md mb-lg text-sm flex items-start gap-sm"
             >
-              <app-icon
-                name="calendar"
-                [size]="18"
-                class="text-blue-400 shrink-0 mt-2xs"
-              />
+              <app-icon name="calendar" [size]="18" class="shrink-0 mt-2xs" />
               <div>
                 <span class="font-bold">Wishlist Title:</span> This title is
                 awaiting physical release confirmation or commercial launch. It
                 will be tracked on your physical wishlist.
                 @if (game.first_release_date) {
-                  <div class="mt-2xs text-xs text-blue-300 font-medium">
+                  <div class="mt-2xs text-xs font-medium">
                     Expected Date: {{ game.first_release_date }}
                   </div>
                 }
@@ -1107,13 +1080,9 @@
             </div>
           } @else if (game.physical_status === 'physical_pending') {
             <div
-              class="upcoming-info-banner p-md mb-lg rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-200 text-sm flex items-start gap-sm"
+              class="upcoming-info-banner watch-info-banner p-md mb-lg text-sm flex items-start gap-sm"
             >
-              <app-icon
-                name="clock"
-                [size]="18"
-                class="text-purple-400 shrink-0 mt-2xs"
-              />
+              <app-icon name="clock" [size]="18" class="shrink-0 mt-2xs" />
               <div>
                 <span class="font-bold">Physical Edition Watch:</span>
                 Currently released digitally or awaiting physical edition
@@ -1173,6 +1142,7 @@
 
       <div class="modal-footer">
         <button
+          type="button"
           class="m3-btn m3-btn-secondary"
           [disabled]="modalLoading()"
           (click)="closeIngestionModal()"
@@ -1180,6 +1150,7 @@
           Cancel
         </button>
         <button
+          type="button"
           class="m3-btn m3-btn-primary"
           [disabled]="modalLoading() || !game || !modalPlatformId()"
           (click)="submitIngestion()"
@@ -1188,7 +1159,7 @@
         </button>
       </div>
     </div>
-  </div>
+  </dialog>
 }
 
 <!-- Sticky Floating Action Bar for Bulk operations -->
@@ -1242,7 +1213,12 @@
         ><app-icon name="sparkles" [size]="18"
       /></span>
       <span class="m3-toast-text">{{ toastMessage() }}</span>
-      <button class="m3-toast-close" (click)="toastMessage.set(null)">
+      <button
+        type="button"
+        class="m3-toast-close"
+        aria-label="Dismiss notification"
+        (click)="toastMessage.set(null)"
+      >
         &times;
       </button>
     </div>

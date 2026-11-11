@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   auditSqlCost,
+  diffSqliteSchema,
   extractTargetTable,
   isSecondaryIndexOrigin,
+  runCollectionStaticSchemaCostGuard,
+  SCHEMA_SQL_PATH,
   splitSqlStatements,
 } from './d1_cost_guard.js';
 
@@ -31,13 +34,14 @@ describe('d1_cost_guard', () => {
     }
   });
 
-  it('classifies SQLite PRAGMA index_list origins accurately', () => {
+  it('classifies SQLite PRAGMA index_list origins accurately across rowid and WITHOUT ROWID tables', () => {
     expect(isSecondaryIndexOrigin('c')).toBe(true);
     expect(isSecondaryIndexOrigin('u')).toBe(true);
-    expect(isSecondaryIndexOrigin('pk')).toBe(false);
+    expect(isSecondaryIndexOrigin('pk', false)).toBe(true);
+    expect(isSecondaryIndexOrigin('pk', true)).toBe(false);
   });
 
-  it('counts both explicit CREATE INDEX (c) and inline UNIQUE (u) constraints while excluding WITHOUT ROWID PK (pk)', () => {
+  it('counts explicit CREATE INDEX (c), inline UNIQUE (u), and rowid PK (pk) while excluding WITHOUT ROWID PK (pk)', () => {
     const baselinePath = createTempPath('baseline', '.db');
     const sqlPath = createTempPath('migration', '.sql');
 
@@ -107,7 +111,7 @@ describe('d1_cost_guard', () => {
     expect(report.isWithinBudget).toBe(true);
   });
 
-  it('preserves existing inline UNIQUE index counts when CREATE INDEX is executed in a migration', () => {
+  it('preserves existing rowid PK and inline UNIQUE index counts when CREATE INDEX is executed in a migration', () => {
     const baselinePath = createTempPath('baseline_idx', '.db');
     const sqlPath = createTempPath('migration_idx', '.sql');
 
@@ -132,13 +136,12 @@ describe('d1_cost_guard', () => {
     );
 
     const report = auditSqlCost(sqlPath, 100, baselinePath);
-    // platforms starts with 2 rows and K=1 (inline UNIQUE on name, plus PK autoindex 'pk' which is excluded).
-    // Note: id TEXT PRIMARY KEY on a rowid table has origin='pk', name UNIQUE has origin='u'.
-    // Creating idx_platforms_name_2 ('c') populates 2 existing rows (2 writes) and increases K from 1 to 2 (multiplier = 3).
-    // Inserting 'n64' then incurs 1 * 3 = 3 writes. Total = 2 + 3 = 5 writes.
-    expect(report.tableBreakdown['platforms'].secondaryIndexes).toBe(2);
-    expect(report.tableBreakdown['platforms'].multiplier).toBe(3);
-    expect(report.tableBreakdown['platforms'].billableWrites).toBe(5);
+    // platforms is a standard rowid table with id TEXT PRIMARY KEY ('pk' = 1) + name UNIQUE ('u' = 1) => K starts at 2.
+    // Creating idx_platforms_name_2 ('c') populates 2 existing rows (2 writes) and increases K from 2 to 3 (multiplier = 4).
+    // Inserting 'n64' then incurs 1 * 4 = 4 writes. Total = 2 + 4 = 6 writes.
+    expect(report.tableBreakdown['platforms'].secondaryIndexes).toBe(3);
+    expect(report.tableBreakdown['platforms'].multiplier).toBe(4);
+    expect(report.tableBreakdown['platforms'].billableWrites).toBe(6);
   });
 
   it('splits SQL statements and extracts target tables accurately', () => {
@@ -148,5 +151,25 @@ describe('d1_cost_guard', () => {
     expect(stmts).toHaveLength(2);
     expect(extractTargetTable(stmts[0])).toBe('games');
     expect(extractTargetTable(stmts[1])).toBe('toys');
+  });
+
+  it('passes static schema index bounds and EXPLAIN QUERY PLAN checks against migrations/schema.sql', () => {
+    const result = runCollectionStaticSchemaCostGuard();
+    expect(result.errors).toEqual([]);
+    expect(result.passed).toBe(true);
+  });
+
+  it('detects missing oidc_sub column and new indexes via diffSqliteSchema', () => {
+    const baselinePath = createTempPath('legacy_baseline', '.db');
+    const db = new Database(baselinePath);
+    db.exec(fs.readFileSync(SCHEMA_SQL_PATH, 'utf8'));
+    db.exec('DROP INDEX IF EXISTS idx_users_oidc_sub;');
+    db.close();
+
+    const diff = diffSqliteSchema(baselinePath, SCHEMA_SQL_PATH);
+    expect(diff.inSync).toBe(false);
+    expect(diff.additiveSql.some((s) => s.includes('idx_users_oidc_sub'))).toBe(
+      true,
+    );
   });
 });

@@ -23,7 +23,8 @@
       @if (game(); as g) {
         <div class="quick-stats flex gap-sm items-center">
           @if (collectionService.canShowPersonalState()) {
-            <div
+            <button
+              type="button"
               class="stat-pill interactive play-status-pill"
               [class.active]="g.play_status !== 0"
               (click)="onEditPlayed(g)"
@@ -34,8 +35,9 @@
                   [size]="14"
               /></span>
               <span>{{ getPlayStatusText(g.play_status) }}</span>
-            </div>
-            <div
+            </button>
+            <button
+              type="button"
               class="stat-pill interactive ownership-pill"
               [class.active]="g.ownership_status !== 0"
               [class.owned]="g.ownership_status === 1"
@@ -58,12 +60,13 @@
                       ? 'Ordered'
                       : 'Unowned'
               }}</span>
-            </div>
+            </button>
           }
           @if (g.igdb_id && g.igdb_url) {
             <a
               [href]="g.igdb_url"
               target="_blank"
+              rel="noopener noreferrer"
               class="stat-pill active igdb interactive"
             >
               <span class="icon"
@@ -96,25 +99,27 @@
               g.physical_status === 'physical_pending') &&
             !hasOwnedPhysical(g)
           ) {
-            <div
+            <button
+              type="button"
               class="stat-pill active pending interactive"
               (click)="toggleWatchPhysical(g)"
               title="Click to remove from Physical Watch list"
             >
               <span class="icon"><app-icon name="clock" [size]="14" /></span>
               <span>Awaiting Physical Edition (Watching)</span>
-            </div>
+            </button>
           } @else if (
             collectionService.canShowPersonalState() && canWatchPhysical(g)
           ) {
-            <div
+            <button
+              type="button"
               class="stat-pill interactive"
               (click)="toggleWatchPhysical(g)"
               title="Click to watch for physical release announcements and boutique pre-orders"
             >
               <span class="icon"><app-icon name="clock" [size]="14" /></span>
               <span>+ Watch for Physical</span>
-            </div>
+            </button>
           } @else if (
             collectionService.canShowPersonalState() &&
             (g.physical_status === 'digital_extracted_rom' ||
@@ -160,7 +165,8 @@
       } @else if (toy(); as t) {
         <div class="quick-stats flex gap-sm items-center">
           @if (collectionService.canShowPersonalState()) {
-            <div
+            <button
+              type="button"
               class="stat-pill interactive ownership-pill"
               [class.active]="t.ownership_status !== 0"
               [class.owned]="t.ownership_status === 1"
@@ -183,12 +189,13 @@
                       ? 'Ordered'
                       : 'Unowned'
               }}</span>
-            </div>
+            </button>
           }
           @if (getToySource(t); as source) {
             <a
               [href]="source.url"
               target="_blank"
+              rel="noopener noreferrer"
               class="stat-pill active physical interactive"
               style="text-decoration: none"
             >
@@ -503,6 +510,7 @@
                           @if (collectionService.canShowPersonalState()) {
                             <div class="disc-actions flex items-center gap-sm">
                               <button
+                                type="button"
                                 class="stat-pill interactive"
                                 [class.active]="!!release.backup_status"
                                 [class.missing]="!release.backup_status"
@@ -707,9 +715,13 @@
                 <div class="meta-box full-width">
                   <span class="label">Source</span>
                   <span class="value">
-                    <a [href]="source.url" target="_blank" class="meta-link">{{
-                      source.label
-                    }}</a>
+                    <a
+                      [href]="source.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="meta-link"
+                      >{{ source.label }}</a
+                    >
                   </span>
                 </div>
               }
@@ -1361,9 +1373,13 @@
     }
 
     @if (pendingDelete(); as pd) {
-      <div
+      <dialog
         class="delete-modal-backdrop"
+        open
+        aria-modal="true"
         data-testid="delete-modal"
+        (cancel)="$event.preventDefault(); cancelDelete()"
+        (keydown.escape)="cancelDelete()"
         (click)="cancelDelete()"
       >
         <div class="delete-modal" (click)="$event.stopPropagation()">
@@ -1404,7 +1420,7 @@
             </button>
           </div>
         </div>
-      </div>
+      </dialog>
     }
 
     @if (toy(); as t) {

@@ -26,12 +26,38 @@
   --header-height: 72px;
 
   /* Typography Scale - Expressive */
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-heading: 'Outfit', system-ui, -apple-system, sans-serif;
-  --font-display: 'Roboto Flex', 'Outfit', sans-serif;
-  --font-mono:
-    'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco,
-    Consolas, monospace;
+  --font-body: var(
+    --kit-font-sans,
+    'Inter',
+    system-ui,
+    -apple-system,
+    sans-serif
+  );
+  --font-heading: var(
+    --kit-font-heading,
+    'Outfit',
+    system-ui,
+    -apple-system,
+    sans-serif
+  );
+  --font-display: var(
+    --kit-font-heading,
+    'Outfit',
+    system-ui,
+    -apple-system,
+    sans-serif
+  );
+  --font-mono: var(
+    --kit-font-mono,
+    'JetBrains Mono',
+    'Fira Code',
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace
+  );
 }
 
 /* --- THEME: DARK (Default) --- */
@@ -54,11 +80,17 @@
   --m3-tertiary-container: #881337;
   --m3-on-tertiary-container: #ffe4e6;
 
+  --m3-error: #f87171;
+  --m3-on-error: #450a0a;
+  --m3-error-container: #7f1d1d;
+  --m3-on-error-container: #fee2e2;
+
   --m3-surface: #121214; /* Logo Spindle Hub Obsidian */
   --m3-on-surface: #f1f1f5;
   --m3-surface-variant: #23232b;
   --m3-on-surface-variant: #a2a2b4;
 
+  --m3-surface-container-lowest: #0d0d10;
   --m3-surface-container-low: #16161a;
   --m3-surface-container: #1a1a20;
   --m3-surface-container-high: #1e1e24; /* Logo Cartridge Body Slate */
@@ -69,13 +101,46 @@
 
   --glass-bg: rgba(18, 18, 20, 0.75);
   --glass-border: rgba(255, 255, 255, 0.08);
+
+  /* Shared WCAG AA Semantic Badge Tokens (Dark) */
+  --badge-info-bg: rgba(56, 189, 248, 0.16);
+  --badge-info-fg: #7dd3fc;
+  --badge-info-border: rgba(56, 189, 248, 0.4);
+
+  --badge-purple-bg: rgba(168, 85, 247, 0.18);
+  --badge-purple-fg: #d8b4fe;
+  --badge-purple-border: rgba(168, 85, 247, 0.42);
+
+  --badge-orange-bg: rgba(245, 158, 11, 0.16);
+  --badge-orange-fg: #fbbf24;
+  --badge-orange-border: rgba(251, 191, 36, 0.4);
+
+  --badge-neutral-bg: rgba(148, 163, 184, 0.16);
+  --badge-neutral-fg: #cbd5e1;
+  --badge-neutral-border: rgba(148, 163, 184, 0.35);
+
+  /* Bridge @wesdizzle/app-kit --kit-* tokens cleanly to M3 Expressive palette */
+  --kit-surface: var(--m3-surface);
+  --kit-surface-container-low: var(--m3-surface-container-low);
+  --kit-surface-container: var(--m3-surface-container);
+  --kit-surface-container-high: var(--m3-surface-container-high);
+  --kit-surface-container-highest: var(--m3-surface-container-highest);
+  --kit-on-surface: var(--m3-on-surface);
+  --kit-on-surface-variant: var(--m3-on-surface-variant);
+  --kit-primary: var(--m3-primary);
+  --kit-on-primary: var(--m3-on-primary);
+  --kit-primary-container: var(--m3-primary-container);
+  --kit-on-primary-container: var(--m3-on-primary-container);
+  --kit-outline: var(--m3-outline);
+  --kit-outline-variant: var(--m3-outline-variant);
+  --kit-glass-bg: var(--glass-bg);
 }
 
 /* --- THEME: LIGHT --- */
 .theme-light {
   color-scheme: light;
 
-  --m3-primary: #0284c7; /* Deep Sky Blue */
+  --m3-primary: #0284c7; /* Deep Sky Blue (4.54:1 on white) */
   --m3-on-primary: #ffffff;
   --m3-primary-container: #e0f2fe;
   --m3-on-primary-container: #034b6e;
@@ -90,21 +155,60 @@
   --m3-tertiary-container: #ffe4e6;
   --m3-on-tertiary-container: #881337;
 
+  --m3-error: #dc2626;
+  --m3-on-error: #ffffff;
+  --m3-error-container: #fee2e2;
+  --m3-on-error-container: #7f1d1d;
+
   --m3-surface: #f8fafc; /* Crisp Clean Slate White */
   --m3-on-surface: #0f172a;
   --m3-surface-variant: #e2e8f0;
   --m3-on-surface-variant: #475569;
 
+  --m3-surface-container-lowest: #ffffff;
   --m3-surface-container-low: #f1f5f9;
-  --m3-surface-container: #e2e8f0;
-  --m3-surface-container-high: #cbd5e1;
-  --m3-surface-container-highest: #94a3b8;
+  --m3-surface-container: #ffffff;
+  --m3-surface-container-high: #f1f5f9;
+  --m3-surface-container-highest: #e2e8f0;
 
-  --m3-outline: #94a3b8;
+  --m3-outline: #64748b;
   --m3-outline-variant: #cbd5e1;
 
-  --glass-bg: rgba(248, 250, 252, 0.8);
-  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-bg: rgba(248, 250, 252, 0.85);
+  --glass-border: rgba(15, 23, 42, 0.08);
+
+  /* Shared WCAG AA Semantic Badge Tokens (Light >= 4.5:1) */
+  --badge-info-bg: rgba(3, 105, 161, 0.1);
+  --badge-info-fg: #0369a1;
+  --badge-info-border: rgba(3, 105, 161, 0.3);
+
+  --badge-purple-bg: rgba(109, 40, 217, 0.1);
+  --badge-purple-fg: #6d28d9;
+  --badge-purple-border: rgba(109, 40, 217, 0.3);
+
+  --badge-orange-bg: rgba(180, 83, 9, 0.1);
+  --badge-orange-fg: #b45309;
+  --badge-orange-border: rgba(180, 83, 9, 0.32);
+
+  --badge-neutral-bg: rgba(71, 85, 105, 0.1);
+  --badge-neutral-fg: #334155;
+  --badge-neutral-border: rgba(71, 85, 105, 0.3);
+
+  /* Bridge @wesdizzle/app-kit --kit-* tokens cleanly to M3 Light palette */
+  --kit-surface: var(--m3-surface);
+  --kit-surface-container-low: var(--m3-surface-container-low);
+  --kit-surface-container: var(--m3-surface-container);
+  --kit-surface-container-high: var(--m3-surface-container-high);
+  --kit-surface-container-highest: var(--m3-surface-container-highest);
+  --kit-on-surface: var(--m3-on-surface);
+  --kit-on-surface-variant: var(--m3-on-surface-variant);
+  --kit-primary: var(--m3-primary);
+  --kit-on-primary: var(--m3-on-primary);
+  --kit-primary-container: var(--m3-primary-container);
+  --kit-on-primary-container: var(--m3-on-primary-container);
+  --kit-outline: var(--m3-outline);
+  --kit-outline-variant: var(--m3-outline-variant);
+  --kit-glass-bg: var(--glass-bg);
 }
 
 * {
@@ -134,14 +238,25 @@ textarea {
   font-family: var(--font-body);
 }
 
+/* Global Accessible Focus Ring */
+:where(
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex='-1'])
+):focus-visible {
+  outline: 2px solid var(--m3-primary);
+  outline-offset: 2px;
+}
+
 h1,
 h2 {
   font-family: var(--font-display);
   font-weight: 800;
   letter-spacing: -0.02em;
-  font-variation-settings:
-    'wdth' 120,
-    'wght' 800;
 }
 
 h3,
@@ -151,7 +266,6 @@ h6 {
   font-family: var(--font-heading);
   font-weight: 600;
   letter-spacing: -0.01em;
-  font-variation-settings: normal;
 }
 
 a {
@@ -203,15 +317,15 @@ a {
 
 .m3-card-elevated {
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.3),
-    0 4px 8px rgba(0, 0, 0, 0.2);
+    0 1px 3px rgba(0, 0, 0, 0.18),
+    0 4px 8px rgba(0, 0, 0, 0.12);
 }
 
 .m3-card-elevated:hover {
   transform: translateY(-8px) scale(1.02);
   box-shadow:
-    0 12px 24px rgba(0, 0, 0, 0.4),
-    0 20px 40px rgba(0, 0, 0, 0.3);
+    0 12px 24px rgba(0, 0, 0, 0.24),
+    0 20px 40px rgba(0, 0, 0, 0.18);
   background: var(--m3-surface-container-highest);
   border-color: var(--m3-primary);
 }
@@ -272,6 +386,23 @@ a {
 }
 .animate-stagger-3 {
   animation-delay: 0.15s;
+}
+
+/* Reduced Motion Accessibility Guard */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .m3-card-elevated:hover,
+  .m3-chip.active {
+    transform: none !important;
+  }
 }
 
 /* Layout Utilities */

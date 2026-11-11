@@ -541,12 +541,13 @@ describe('ItemDetailComponent', () => {
       }),
     );
 
-    vi.spyOn(collectionService, 'getJournalEntry').mockReturnValue(
-      of({
-        authorized: true,
-        entry: {
+    const getJournalSpy = vi.spyOn(collectionService, 'getJournalEntry');
+    const seededMap = new Map([
+      [
+        'game:wii-sports-nintendo-wii',
+        {
           id: 42,
-          item_type: 'game',
+          item_type: 'game' as const,
           item_id: 'wii-sports-nintendo-wii',
           purchase_date: '2009-06',
           is_approximate_date: 1,
@@ -557,8 +558,13 @@ describe('ItemDetailComponent', () => {
           notes:
             'Free pack-in with Nintendo Wii console, purchased around June 2009 as part of a Best Buy promotion bundling it with an HP Pavilion dv6-1245dx laptop',
         },
-      }),
-    );
+      ],
+    ]);
+    (
+      collectionService as unknown as {
+        _journalEntriesMap: { set: (val: typeof seededMap) => void };
+      }
+    )._journalEntriesMap.set(seededMap);
 
     paramMapSubject.next(
       convertToParamMap({ id: 'wii-sports-nintendo-wii', type: 'game' }),
@@ -566,6 +572,8 @@ describe('ItemDetailComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
+
+    expect(getJournalSpy).not.toHaveBeenCalled();
 
     const compiled = fixture.nativeElement as HTMLElement;
 
@@ -1030,8 +1038,8 @@ describe('ItemDetailComponent', () => {
 
     it('navigates back and filters by series within /u/:username when in public view', () => {
       collectionService.setPublicView(true, {
-        username: 'wesley',
-        displayName: 'Wesley',
+        username: 'alice',
+        displayName: 'Alice',
         bio: null,
         homeRegion: 'USA',
       });
@@ -1043,10 +1051,10 @@ describe('ItemDetailComponent', () => {
       const navigateSpy = vi.spyOn(router, 'navigate');
 
       component.onBack();
-      expect(backSpy).toHaveBeenCalledWith(['/u', 'wesley', 'games']);
+      expect(backSpy).toHaveBeenCalledWith(['/u', 'alice', 'games']);
 
       component.filterBySeries('Mario');
-      expect(navigateSpy).toHaveBeenCalledWith(['/u', 'wesley', 'games']);
+      expect(navigateSpy).toHaveBeenCalledWith(['/u', 'alice', 'games']);
     });
   });
 });

@@ -2,17 +2,18 @@
  * CONFIRMATION DIALOG COMPONENT
  *
  * A Material 3 Expressive dialog for critical user confirmations.
- * Designed to be centered in the viewport with a blurred backdrop.
+ * Uses a native <dialog> element for proper modal semantics and Escape handling.
  */
 
 import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
   Component,
+  ElementRef,
   EventEmitter,
   Input,
   Output,
   ViewChild,
-  ElementRef,
-  AfterViewInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
@@ -20,13 +21,19 @@ import { FormsModule } from '@angular/forms';
   selector: 'app-confirmation-dialog',
   standalone: true,
   imports: [FormsModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="dialog-overlay" (click)="onCancel()">
+    <dialog
+      #dialogEl
+      class="dialog-overlay"
+      open
+      aria-modal="true"
+      aria-labelledby="confirmation-dialog-title"
+      (click)="onBackdropClick($event)"
+      (cancel)="$event.preventDefault(); onCancel()"
+    >
       <div
         class="dialog-container m3-surface-container-high animate-expressive"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirmation-dialog-title"
         (click)="$event.stopPropagation()"
       >
         <header class="dialog-header">
@@ -44,6 +51,7 @@ import { FormsModule } from '@angular/forms';
                 type="number"
                 [(ngModel)]="inputValue"
                 class="m3-input"
+                aria-label="Confirmation input value"
                 (keydown.enter)="onConfirm()"
                 (keydown.escape)="onCancel()"
               />
@@ -54,6 +62,7 @@ import { FormsModule } from '@angular/forms';
             <div class="options-container mt-md">
               @for (opt of options; track opt.value) {
                 <button
+                  type="button"
                   class="m3-button m3-button-filled state-layer option-btn"
                   (click)="onOptionSelect(opt.value)"
                 >
@@ -66,12 +75,14 @@ import { FormsModule } from '@angular/forms';
         @if (type !== 'options') {
           <footer class="dialog-footer">
             <button
+              type="button"
               class="m3-button m3-button-text state-layer"
               (click)="onCancel()"
             >
               Cancel
             </button>
             <button
+              type="button"
               class="m3-button m3-button-filled state-layer"
               (click)="onConfirm()"
             >
@@ -81,6 +92,7 @@ import { FormsModule } from '@angular/forms';
         } @else {
           <footer class="dialog-footer options-footer">
             <button
+              type="button"
               class="m3-button m3-button-text state-layer"
               (click)="onCancel()"
             >
@@ -89,20 +101,23 @@ import { FormsModule } from '@angular/forms';
           </footer>
         }
       </div>
-    </div>
+    </dialog>
   `,
   styles: [
     `
       .dialog-overlay {
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        inset: 0;
+        width: 100vw;
+        max-width: 100vw;
+        height: 100vh;
+        max-height: 100vh;
+        margin: 0;
+        border: none;
         background: rgba(0, 0, 0, 0.75);
         backdrop-filter: blur(20px) contrast(90%) brightness(80%);
         -webkit-backdrop-filter: blur(20px) contrast(90%) brightness(80%);
-        z-index: 99999; /* Ensure it stays above everything */
+        z-index: 99999;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -110,6 +125,10 @@ import { FormsModule } from '@angular/forms';
         overscroll-behavior: contain;
         transform: translateZ(0);
         will-change: transform, backdrop-filter;
+      }
+
+      .dialog-overlay::backdrop {
+        background: transparent;
       }
 
       .dialog-container {
@@ -251,14 +270,29 @@ export class ConfirmationDialogComponent implements AfterViewInit {
   @Output() confirmWithInput = new EventEmitter<string | number>();
   @Output() cancel = new EventEmitter<void>();
 
+  @ViewChild('dialogEl') dialogEl?: ElementRef<HTMLDialogElement>;
   @ViewChild('numberInput') numberInput?: ElementRef<HTMLInputElement>;
 
   ngAfterViewInit() {
+    const dialog = this.dialogEl?.nativeElement;
+    if (dialog && typeof dialog.showModal === 'function' && !dialog.open) {
+      try {
+        dialog.showModal();
+      } catch {
+        dialog.setAttribute('open', '');
+      }
+    }
     if (this.type === 'input' && this.numberInput) {
       setTimeout(() => {
         this.numberInput?.nativeElement.focus();
         this.numberInput?.nativeElement.select();
       }, 100);
+    }
+  }
+
+  onBackdropClick(event: MouseEvent) {
+    if (event.target === event.currentTarget) {
+      this.onCancel();
     }
   }
 

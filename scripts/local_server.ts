@@ -13,12 +13,21 @@ import 'dotenv/config';
 import * as http from 'http';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
-import worker, { Env, invalidateSeriesScanCache } from '../worker/worker.js';
+import worker, {
+  Env,
+  invalidateSeriesScanCache,
+  resetWorkerRateLimits,
+} from '../worker/worker.js';
 import { recomputeCanonicalSeries } from './compute_canonical_series.js';
 import { getDatabase } from './lib/db.js';
 
 export const PORT = Number(process.env['PORT'] || 3000);
 export const HOST = process.env['HOST'] || '127.0.0.1';
+
+const LOOPBACK_DEV_ORIGINS = new Set([
+  'http://localhost:4200',
+  'http://127.0.0.1:4200',
+]);
 
 const initializedDatabases = new WeakSet<Database.Database>();
 
@@ -35,11 +44,13 @@ function ensureLocalSchemaAndSync(db: Database.Database): void {
   }
   initializedDatabases.add(db);
   invalidateSeriesScanCache();
+  resetWorkerRateLimits();
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      oidc_sub TEXT,
       is_public INTEGER NOT NULL DEFAULT 0,
       home_region TEXT NOT NULL DEFAULT 'USA',
       display_name TEXT,
@@ -47,9 +58,18 @@ function ensureLocalSchemaAndSync(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+  `);
+
+  const userColumns = db.pragma('table_info(users)') as Array<{ name: string }>;
+  if (!userColumns.some((c) => c.name === 'oidc_sub')) {
+    db.exec('ALTER TABLE users ADD COLUMN oidc_sub TEXT;');
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub
+    ON users(oidc_sub) WHERE oidc_sub IS NOT NULL;
 
     INSERT OR IGNORE INTO users (id, username, is_public, home_region, display_name)
-    VALUES (1, 'wesley', 1, 'USA', 'Wesley');
+    VALUES (1, 'dev_admin', 1, 'USA', 'Dev Admin');
 
     CREATE TABLE IF NOT EXISTS user_games (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -365,9 +385,19 @@ export const handleRequest = (db: Database.Database) => {
   const d1 = createLocalD1Adapter(db);
 
   return async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    // Enable cross-origin requests for the local Angular dev server (Port 4200)
+    // Enable cross-origin requests strictly for the local Angular dev server (Port 4200)
+    const reqOrigin =
+      typeof req.headers?.['origin'] === 'string' ? req.headers['origin'] : '';
+    const allowedOrigin = LOOPBACK_DEV_ORIGINS.has(reqOrigin)
+      ? reqOrigin
+      : null;
+
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    if (allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Vary', 'Origin');
+    }
     res.setHeader(
       'Access-Control-Allow-Methods',
       'GET, POST, PUT, DELETE, OPTIONS',
@@ -436,9 +466,10 @@ export const handleRequest = (db: Database.Database) => {
             }),
         } as unknown as Fetcher,
         BACKUP_BUCKET: {
+          head: async () => null,
           put: async () => null,
           get: async () => null,
-          list: async () => ({ objects: [] }),
+          list: async () => ({ objects: [], truncated: false }),
           delete: async () => {},
         } as unknown as R2Bucket,
         TWITCH_CLIENT_ID:
@@ -454,7 +485,7 @@ export const handleRequest = (db: Database.Database) => {
         DEV_AUTH_EMAIL: process.env['DEV_AUTH_EMAIL'] || 'admin@example.com',
         SESSION_SECRET:
           process.env['SESSION_SECRET'] ||
-          'dev-insecure-session-secret-change-me',
+          'dev-only-collection-tracker-local-session-secret-32c',
         OIDC_ISSUER: process.env['OIDC_ISSUER'],
         OIDC_CLIENT_ID: process.env['OIDC_CLIENT_ID'] || 'collection-tracker',
         APP_REPO_URL: process.env['APP_REPO_URL'],
@@ -492,7 +523,11 @@ export const handleRequest = (db: Database.Database) => {
       webRes.headers.forEach((value, key) => {
         res.setHeader(key, value);
       });
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      if (allowedOrigin) {
+        res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Vary', 'Origin');
+      }
 
       const responseText = await webRes.text();
       res.end(responseText);

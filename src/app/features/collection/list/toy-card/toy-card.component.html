@@ -1,7 +1,9 @@
-<a
-  [routerLink]="['/toy', toy().id]"
-  class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden"
->
+<div class="m3-card m3-card-elevated state-layer flex flex-col overflow-hidden">
+  <a
+    [routerLink]="['/toy', toy().id]"
+    class="card-primary-link"
+    [attr.aria-label]="toy().name"
+  ></a>
   <div class="card-art-frame toy-frame">
     @if (toy().image_url) {
       <img
@@ -27,6 +29,7 @@
 
     <!-- Status Badge -->
     <button
+      type="button"
       class="status-badge state-layer interactive"
       [class]="'status-' + toy().ownership_status"
       [title]="
@@ -79,4 +82,4 @@
     </div>
     <h3 class="card-title">{{ toy().name }}</h3>
   </div>
-</a>
+</div>

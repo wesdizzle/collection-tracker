@@ -1666,6 +1666,13 @@ export const UPSERT_JOURNAL_ENTRY_QUERY = `
     receipt_url = excluded.receipt_url,
     notes = excluded.notes,
     updated_at = CURRENT_TIMESTAMP
+  WHERE journal_entries.purchase_date IS NOT excluded.purchase_date
+     OR journal_entries.is_approximate_date IS NOT excluded.is_approximate_date
+     OR journal_entries.price_paid IS NOT excluded.price_paid
+     OR journal_entries.merchant IS NOT excluded.merchant
+     OR journal_entries.gifted_by IS NOT excluded.gifted_by
+     OR journal_entries.receipt_url IS NOT excluded.receipt_url
+     OR journal_entries.notes IS NOT excluded.notes
 `;
 
 export const DELETE_JOURNAL_ENTRY_QUERY = `
@@ -1753,6 +1760,23 @@ export function normalizeReceiptUrl(
 const NATIVE_ASIAN_SCRIPT_REGEX =
   /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
 
+export interface ParsedGameMetadata {
+  alternative_names?: Array<{ name?: string; comment?: string }>;
+  game_localizations?: Array<{ region?: number; name?: string }>;
+}
+
+export function parseGameMetadataOnce(
+  metadataJsonOrObj: string | ParsedGameMetadata | null | undefined,
+): ParsedGameMetadata | null {
+  if (!metadataJsonOrObj) return null;
+  if (typeof metadataJsonOrObj === 'object') return metadataJsonOrObj;
+  try {
+    return JSON.parse(metadataJsonOrObj) as ParsedGameMetadata;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolves the appropriate localized or alternate release title from IGDB metadata_json
  * (game_localizations and alternative_names) or canonical source raw_title.
@@ -1761,36 +1785,32 @@ const NATIVE_ASIAN_SCRIPT_REGEX =
 export function resolveLocalizedReleaseTitle(
   gameTitle: string,
   releaseRegion: string | null | undefined,
-  metadataJson: string | null | undefined,
+  metadataJson: string | ParsedGameMetadata | null | undefined,
   canonicalTitle: string | null | undefined,
   homeRegion: string = DEFAULT_USER_HOME_REGION,
 ): string {
   const regLower = (releaseRegion || '').toLowerCase();
+  const parsed = parseGameMetadataOnce(metadataJson);
 
   // If the release includes the user's local/home region, prefer the local language
   if (isRegionMatchingHome(releaseRegion, homeRegion)) {
-    if (metadataJson) {
-      try {
-        const parsed = JSON.parse(metadataJson);
-        if (Array.isArray(parsed.alternative_names)) {
-          const usAlt = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /north america|united states|\busa\b|\bus title\b/i.test(
-                a.comment || '',
-              ) &&
-              a.name &&
-              !NATIVE_ASIAN_SCRIPT_REGEX.test(a.name),
-          );
-          if (usAlt?.name) return usAlt.name;
-        }
-        if (Array.isArray(parsed.game_localizations)) {
-          const loc = parsed.game_localizations.find(
-            (l: { region?: number; name?: string }) => l.region === 1 && l.name,
-          );
-          if (loc?.name) return loc.name;
-        }
-      } catch {
-        // ignore JSON parse error
+    if (parsed) {
+      if (Array.isArray(parsed.alternative_names)) {
+        const usAlt = parsed.alternative_names.find(
+          (a) =>
+            /north america|united states|\busa\b|\bus title\b/i.test(
+              a.comment || '',
+            ) &&
+            a.name &&
+            !NATIVE_ASIAN_SCRIPT_REGEX.test(a.name),
+        );
+        if (usAlt?.name) return usAlt.name;
+      }
+      if (Array.isArray(parsed.game_localizations)) {
+        const loc = parsed.game_localizations.find(
+          (l) => l.region === 1 && l.name,
+        );
+        if (loc?.name) return loc.name;
       }
     }
 
@@ -1805,125 +1825,112 @@ export function resolveLocalizedReleaseTitle(
     return gameTitle;
   }
 
-  if (metadataJson) {
-    try {
-      const parsed = JSON.parse(metadataJson);
-
-      // Check Japan / Asian regions
-      if (regLower.includes('japan') || regLower.includes('jp')) {
-        // 1. Check alternative_names for native Japanese script first
-        if (Array.isArray(parsed.alternative_names)) {
-          const jpNative = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /japanese|japan/i.test(a.comment || '') &&
-              a.name &&
-              NATIVE_ASIAN_SCRIPT_REGEX.test(a.name),
-          );
-          if (jpNative?.name) return jpNative.name;
-        }
-
-        // 2. Check game_localizations for region 3 (Japan)
-        if (Array.isArray(parsed.game_localizations)) {
-          const loc = parsed.game_localizations.find(
-            (l: { region?: number; name?: string }) => l.region === 3 && l.name,
-          );
-          if (loc?.name) return loc.name;
-        }
-
-        // 3. Fallback to any Japanese alternative name
-        if (Array.isArray(parsed.alternative_names)) {
-          const jpAlt = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /japanese|japan/i.test(a.comment || '') && a.name,
-          );
-          if (jpAlt?.name) return jpAlt.name;
-        }
-      } else if (regLower.includes('korea')) {
-        if (Array.isArray(parsed.alternative_names)) {
-          const koNative = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /korean|korea/i.test(a.comment || '') &&
-              a.name &&
-              /[\uac00-\ud7af]/.test(a.name),
-          );
-          if (koNative?.name) return koNative.name;
-        }
-        if (Array.isArray(parsed.game_localizations)) {
-          const loc = parsed.game_localizations.find(
-            (l: { region?: number; name?: string }) => l.region === 2 && l.name,
-          );
-          if (loc?.name) return loc.name;
-        }
-        if (Array.isArray(parsed.alternative_names)) {
-          const koAlt = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /korean|korea/i.test(a.comment || '') && a.name,
-          );
-          if (koAlt?.name) return koAlt.name;
-        }
-      } else if (
-        regLower.includes('china') ||
-        regLower.includes('taiwan') ||
-        regLower.includes('hong kong')
-      ) {
-        if (Array.isArray(parsed.alternative_names)) {
-          const zhNative = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /chinese|taiwan|hong kong/i.test(a.comment || '') &&
-              a.name &&
-              /[\u3400-\u4dbf\u4e00-\u9fff]/.test(a.name),
-          );
-          if (zhNative?.name) return zhNative.name;
-        }
-      } else if (regLower.includes('spain') || regLower.includes('spanish')) {
-        if (Array.isArray(parsed.alternative_names)) {
-          const esAlt = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /spanish|spain/i.test(a.comment || '') && a.name,
-          );
-          if (esAlt?.name) return esAlt.name;
-        }
-      } else if (regLower.includes('germany') || regLower.includes('german')) {
-        if (Array.isArray(parsed.alternative_names)) {
-          const deAlt = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /german/i.test(a.comment || '') && a.name,
-          );
-          if (deAlt?.name) return deAlt.name;
-        }
-      } else if (regLower.includes('france') || regLower.includes('french')) {
-        if (Array.isArray(parsed.alternative_names)) {
-          const frAlt = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /french|france/i.test(a.comment || '') && a.name,
-          );
-          if (frAlt?.name) return frAlt.name;
-        }
-      } else if (regLower.includes('italy') || regLower.includes('italian')) {
-        if (Array.isArray(parsed.alternative_names)) {
-          const itAlt = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /italian|italy/i.test(a.comment || '') && a.name,
-          );
-          if (itAlt?.name) return itAlt.name;
-        }
-      } else if (regLower.includes('europe') || regLower.includes('pal')) {
-        if (Array.isArray(parsed.game_localizations)) {
-          const loc = parsed.game_localizations.find(
-            (l: { region?: number; name?: string }) => l.region === 4 && l.name,
-          );
-          if (loc?.name) return loc.name;
-        }
-        if (Array.isArray(parsed.alternative_names)) {
-          const euAlt = parsed.alternative_names.find(
-            (a: { name?: string; comment?: string }) =>
-              /europe|pal/i.test(a.comment || '') && a.name,
-          );
-          if (euAlt?.name) return euAlt.name;
-        }
+  if (parsed) {
+    // Check Japan / Asian regions
+    if (regLower.includes('japan') || regLower.includes('jp')) {
+      // 1. Check alternative_names for native Japanese script first
+      if (Array.isArray(parsed.alternative_names)) {
+        const jpNative = parsed.alternative_names.find(
+          (a) =>
+            /japanese|japan/i.test(a.comment || '') &&
+            a.name &&
+            NATIVE_ASIAN_SCRIPT_REGEX.test(a.name),
+        );
+        if (jpNative?.name) return jpNative.name;
       }
-    } catch {
-      // ignore JSON parse error
+
+      // 2. Check game_localizations for region 3 (Japan)
+      if (Array.isArray(parsed.game_localizations)) {
+        const loc = parsed.game_localizations.find(
+          (l) => l.region === 3 && l.name,
+        );
+        if (loc?.name) return loc.name;
+      }
+
+      // 3. Fallback to any Japanese alternative name
+      if (Array.isArray(parsed.alternative_names)) {
+        const jpAlt = parsed.alternative_names.find(
+          (a) => /japanese|japan/i.test(a.comment || '') && a.name,
+        );
+        if (jpAlt?.name) return jpAlt.name;
+      }
+    } else if (regLower.includes('korea')) {
+      if (Array.isArray(parsed.alternative_names)) {
+        const koNative = parsed.alternative_names.find(
+          (a) =>
+            /korean|korea/i.test(a.comment || '') &&
+            a.name &&
+            /[\uac00-\ud7af]/.test(a.name),
+        );
+        if (koNative?.name) return koNative.name;
+      }
+      if (Array.isArray(parsed.game_localizations)) {
+        const loc = parsed.game_localizations.find(
+          (l) => l.region === 2 && l.name,
+        );
+        if (loc?.name) return loc.name;
+      }
+      if (Array.isArray(parsed.alternative_names)) {
+        const koAlt = parsed.alternative_names.find(
+          (a) => /korean|korea/i.test(a.comment || '') && a.name,
+        );
+        if (koAlt?.name) return koAlt.name;
+      }
+    } else if (
+      regLower.includes('china') ||
+      regLower.includes('taiwan') ||
+      regLower.includes('hong kong')
+    ) {
+      if (Array.isArray(parsed.alternative_names)) {
+        const zhNative = parsed.alternative_names.find(
+          (a) =>
+            /chinese|taiwan|hong kong/i.test(a.comment || '') &&
+            a.name &&
+            /[\u3400-\u4dbf\u4e00-\u9fff]/.test(a.name),
+        );
+        if (zhNative?.name) return zhNative.name;
+      }
+    } else if (regLower.includes('spain') || regLower.includes('spanish')) {
+      if (Array.isArray(parsed.alternative_names)) {
+        const esAlt = parsed.alternative_names.find(
+          (a) => /spanish|spain/i.test(a.comment || '') && a.name,
+        );
+        if (esAlt?.name) return esAlt.name;
+      }
+    } else if (regLower.includes('germany') || regLower.includes('german')) {
+      if (Array.isArray(parsed.alternative_names)) {
+        const deAlt = parsed.alternative_names.find(
+          (a) => /german/i.test(a.comment || '') && a.name,
+        );
+        if (deAlt?.name) return deAlt.name;
+      }
+    } else if (regLower.includes('france') || regLower.includes('french')) {
+      if (Array.isArray(parsed.alternative_names)) {
+        const frAlt = parsed.alternative_names.find(
+          (a) => /french|france/i.test(a.comment || '') && a.name,
+        );
+        if (frAlt?.name) return frAlt.name;
+      }
+    } else if (regLower.includes('italy') || regLower.includes('italian')) {
+      if (Array.isArray(parsed.alternative_names)) {
+        const itAlt = parsed.alternative_names.find(
+          (a) => /italian|italy/i.test(a.comment || '') && a.name,
+        );
+        if (itAlt?.name) return itAlt.name;
+      }
+    } else if (regLower.includes('europe') || regLower.includes('pal')) {
+      if (Array.isArray(parsed.game_localizations)) {
+        const loc = parsed.game_localizations.find(
+          (l) => l.region === 4 && l.name,
+        );
+        if (loc?.name) return loc.name;
+      }
+      if (Array.isArray(parsed.alternative_names)) {
+        const euAlt = parsed.alternative_names.find(
+          (a) => /europe|pal/i.test(a.comment || '') && a.name,
+        );
+        if (euAlt?.name) return euAlt.name;
+      }
     }
   }
 
@@ -1942,52 +1949,47 @@ export function resolveLocalizedReleaseTitle(
  * distinct cross-language search names into `searchableNames`, and strips
  * bulky `metadata_json`, `origin_metadata`, and `raw_title` fields before
  * serializing the `/api/games` or `/api/u/:username/games` payload.
+ * Parses `metadata_json` at most once per row.
  */
 export function enrichAndStripGameListRow(
   row: Record<string, unknown>,
   homeRegion?: string | null,
 ): void {
   const metadataJson = (row['metadata_json'] as string) || null;
-  if (row['region'] && (metadataJson || row['raw_title'])) {
+  const parsedMetadata = parseGameMetadataOnce(metadataJson);
+
+  if (row['region'] && (parsedMetadata || row['raw_title'])) {
     row['title'] = resolveLocalizedReleaseTitle(
       (row['base_title'] || row['title'] || '') as string,
       row['region'] as string | null,
-      metadataJson,
+      parsedMetadata,
       (row['raw_title'] || row['title'] || '') as string,
       homeRegion || undefined,
     );
   }
-  if (metadataJson) {
-    try {
-      const parsed = JSON.parse(metadataJson) as {
-        alternative_names?: Array<{ name?: string }>;
-        game_localizations?: Array<{ name?: string }>;
-      };
-      const titleLower = String(row['title'] || '')
-        .trim()
-        .toLowerCase();
-      const baseLower = String(row['base_title'] || '')
-        .trim()
-        .toLowerCase();
-      const extraNames = new Set<string>();
-      const collect = (items?: Array<{ name?: string }>) => {
-        if (!Array.isArray(items)) return;
-        for (const item of items) {
-          const n = item?.name?.trim();
-          if (!n) continue;
-          const lower = n.toLowerCase();
-          if (lower !== titleLower && lower !== baseLower) {
-            extraNames.add(n);
-          }
+  if (parsedMetadata) {
+    const titleLower = String(row['title'] || '')
+      .trim()
+      .toLowerCase();
+    const baseLower = String(row['base_title'] || '')
+      .trim()
+      .toLowerCase();
+    const extraNames = new Set<string>();
+    const collect = (items?: Array<{ name?: string }>) => {
+      if (!Array.isArray(items)) return;
+      for (const item of items) {
+        const n = item?.name?.trim();
+        if (!n) continue;
+        const lower = n.toLowerCase();
+        if (lower !== titleLower && lower !== baseLower) {
+          extraNames.add(n);
         }
-      };
-      collect(parsed.alternative_names);
-      collect(parsed.game_localizations);
-      if (extraNames.size > 0) {
-        row['searchableNames'] = Array.from(extraNames);
       }
-    } catch {
-      // ignore invalid JSON
+    };
+    collect(parsedMetadata.alternative_names);
+    collect(parsedMetadata.game_localizations);
+    if (extraNames.size > 0) {
+      row['searchableNames'] = Array.from(extraNames);
     }
   }
   delete row['metadata_json'];
@@ -2021,9 +2023,10 @@ function getGameListVariantPriority(variants: unknown): number {
 /**
  * Post-processes game list rows in JavaScript:
  * 1. Resolves fallback sibling `release_date` per `stable_id` without a correlated SQL subquery.
- * 2. Enriches localized titles and strips bulky metadata columns via `enrichAndStripGameListRow`.
- * 3. Sorts rows in-place using the canonical `GAMES_ORDER_BY` ordering, avoiding SQLite's
- *    `USE TEMP B-TREE FOR ORDER BY` (+12,461 D1 `rows_read` per call).
+ * 2. Enriches localized titles and strips bulky metadata columns via `enrichAndStripGameListRow`
+ *    (parsing `metadata_json` at most once per row).
+ * 3. Precomputes sort keys once per row (Schwartzian transform) and sorts in-place using
+ *    the canonical `GAMES_ORDER_BY` ordering, staying comfortably under Cloudflare's 10ms CPU budget.
  */
 export function postProcessGameListRows(
   rows: Record<string, unknown>[],
@@ -2044,93 +2047,90 @@ export function postProcessGameListRows(
     }
   }
 
-  for (const row of rows) {
+  const keyed = new Array<{
+    row: Record<string, unknown>;
+    plat0: number;
+    launch: string | null;
+    launchNull: number;
+    parentPlat: number;
+    plat: number;
+    seriesKey: string;
+    rel: string | null;
+    relNull: number;
+    sort: number | null;
+    sortNull: number;
+    titleKey: string;
+    varPrio: number;
+    reg: string;
+    id: string;
+  }>(rows.length);
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     if (!row['release_date'] && row['stable_id'] !== undefined) {
       row['release_date'] =
         fallbackReleaseByStableId.get(Number(row['stable_id'])) ?? null;
     }
     enrichAndStripGameListRow(row, homeRegion);
+
+    const launch = (row['platform_launch_date'] as string | null) || null;
+    const rel = (row['release_date'] as string | null) || null;
+    const rawSort = row['sort_index'] as number | null | undefined;
+    const sort = rawSort === null || rawSort === undefined ? null : rawSort;
+    const plat = Number(row['platform_id'] ?? 0);
+
+    keyed[i] = {
+      row,
+      plat0: row['platform_id'] === 0 ? 1 : 0,
+      launch,
+      launchNull: launch === null ? 1 : 0,
+      parentPlat: Number(row['parent_platform_id'] ?? plat),
+      plat,
+      seriesKey: stripLeadingArticleLower(
+        String(
+          row['canonical_series'] || row['base_title'] || row['title'] || '',
+        ),
+      ),
+      rel,
+      relNull: rel === null ? 1 : 0,
+      sort,
+      sortNull: sort === null ? 1 : 0,
+      titleKey: stripLeadingArticleLower(
+        String(row['base_title'] || row['title'] || ''),
+      ),
+      varPrio: getGameListVariantPriority(row['variants']),
+      reg: String(row['region'] ?? ''),
+      id: String(row['id'] ?? ''),
+    };
   }
 
-  rows.sort((a, b) => {
-    const aPlat0 = a['platform_id'] === 0 ? 1 : 0;
-    const bPlat0 = b['platform_id'] === 0 ? 1 : 0;
-    if (aPlat0 !== bPlat0) return aPlat0 - bPlat0;
-
-    const aLaunch = (a['platform_launch_date'] as string | null) || null;
-    const bLaunch = (b['platform_launch_date'] as string | null) || null;
-    const aLaunchNull = aLaunch === null ? 1 : 0;
-    const bLaunchNull = bLaunch === null ? 1 : 0;
-    if (aLaunchNull !== bLaunchNull) return aLaunchNull - bLaunchNull;
-    if (aLaunch !== null && bLaunch !== null && aLaunch !== bLaunch) {
-      return aLaunch < bLaunch ? -1 : 1;
+  keyed.sort((a, b) => {
+    if (a.plat0 !== b.plat0) return a.plat0 - b.plat0;
+    if (a.launchNull !== b.launchNull) return a.launchNull - b.launchNull;
+    if (a.launch !== null && b.launch !== null && a.launch !== b.launch) {
+      return a.launch < b.launch ? -1 : 1;
     }
-
-    const aParentPlat = Number(
-      a['parent_platform_id'] ?? a['platform_id'] ?? 0,
-    );
-    const bParentPlat = Number(
-      b['parent_platform_id'] ?? b['platform_id'] ?? 0,
-    );
-    if (aParentPlat !== bParentPlat) return aParentPlat - bParentPlat;
-
-    const aPlat = Number(a['platform_id'] ?? 0);
-    const bPlat = Number(b['platform_id'] ?? 0);
-    if (aPlat !== bPlat) return aPlat - bPlat;
-
-    const aSeriesKey = stripLeadingArticleLower(
-      String(a['canonical_series'] || a['base_title'] || a['title'] || ''),
-    );
-    const bSeriesKey = stripLeadingArticleLower(
-      String(b['canonical_series'] || b['base_title'] || b['title'] || ''),
-    );
-    if (aSeriesKey !== bSeriesKey) return aSeriesKey < bSeriesKey ? -1 : 1;
-
-    const aRel = (a['release_date'] as string | null) || null;
-    const bRel = (b['release_date'] as string | null) || null;
-    const aRelNull = aRel === null ? 1 : 0;
-    const bRelNull = bRel === null ? 1 : 0;
-    if (aRelNull !== bRelNull) return aRelNull - bRelNull;
-    if (aRel !== null && bRel !== null && aRel !== bRel) {
-      return aRel < bRel ? -1 : 1;
+    if (a.parentPlat !== b.parentPlat) return a.parentPlat - b.parentPlat;
+    if (a.plat !== b.plat) return a.plat - b.plat;
+    if (a.seriesKey !== b.seriesKey) return a.seriesKey < b.seriesKey ? -1 : 1;
+    if (a.relNull !== b.relNull) return a.relNull - b.relNull;
+    if (a.rel !== null && b.rel !== null && a.rel !== b.rel) {
+      return a.rel < b.rel ? -1 : 1;
     }
-
-    const aSort = a['sort_index'] as number | null | undefined;
-    const bSort = b['sort_index'] as number | null | undefined;
-    const aSortNull = aSort === null || aSort === undefined ? 1 : 0;
-    const bSortNull = bSort === null || bSort === undefined ? 1 : 0;
-    if (aSortNull !== bSortNull) return aSortNull - bSortNull;
-    if (
-      aSort !== null &&
-      aSort !== undefined &&
-      bSort !== null &&
-      bSort !== undefined &&
-      aSort !== bSort
-    ) {
-      return aSort - bSort;
+    if (a.sortNull !== b.sortNull) return a.sortNull - b.sortNull;
+    if (a.sort !== null && b.sort !== null && a.sort !== b.sort) {
+      return a.sort - b.sort;
     }
-
-    const aTitleKey = stripLeadingArticleLower(
-      String(a['base_title'] || a['title'] || ''),
-    );
-    const bTitleKey = stripLeadingArticleLower(
-      String(b['base_title'] || b['title'] || ''),
-    );
-    if (aTitleKey !== bTitleKey) return aTitleKey < bTitleKey ? -1 : 1;
-
-    const aVarPrio = getGameListVariantPriority(a['variants']);
-    const bVarPrio = getGameListVariantPriority(b['variants']);
-    if (aVarPrio !== bVarPrio) return aVarPrio - bVarPrio;
-
-    const aReg = String(a['region'] ?? '');
-    const bReg = String(b['region'] ?? '');
-    if (aReg !== bReg) return aReg < bReg ? -1 : 1;
-
-    const aId = String(a['id'] ?? '');
-    const bId = String(b['id'] ?? '');
-    if (aId !== bId) return aId < bId ? -1 : 1;
+    if (a.titleKey !== b.titleKey) return a.titleKey < b.titleKey ? -1 : 1;
+    if (a.varPrio !== b.varPrio) return a.varPrio - b.varPrio;
+    if (a.reg !== b.reg) return a.reg < b.reg ? -1 : 1;
+    if (a.id !== b.id) return a.id < b.id ? -1 : 1;
     return 0;
   });
+
+  for (let i = 0; i < keyed.length; i++) {
+    rows[i] = keyed[i].row;
+  }
 }
 
 function getToyAmiiboTypeOrder(line: unknown, type: unknown): number {
@@ -2150,100 +2150,95 @@ function getToyAmiiboTypeOrder(line: unknown, type: unknown): number {
 }
 
 /**
- * Sorts toy list rows in-place in JavaScript using the canonical toy list ordering,
+ * Sorts toy list rows in-place in JavaScript using precomputed Schwartzian sort keys,
  * avoiding SQLite's `USE TEMP B-TREE FOR ORDER BY` (+1,490 D1 `rows_read` per call).
  */
 export function postProcessToyListRows(rows: Record<string, unknown>[]): void {
   if (!rows || rows.length === 0) return;
 
-  rows.sort((a, b) => {
-    const aLineKey = stripLeadingArticleLower(
-      String(a['series_line'] || a['line'] || ''),
-    );
-    const bLineKey = stripLeadingArticleLower(
-      String(b['series_line'] || b['line'] || ''),
-    );
-    if (aLineKey !== bLineKey) return aLineKey < bLineKey ? -1 : 1;
+  const keyed = new Array<{
+    row: Record<string, unknown>;
+    lineKey: string;
+    seriesIdx: number | null;
+    seriesIdxNull: number;
+    seriesNameKey: string;
+    typeOrd: number;
+    isAmiibo: boolean;
+    sort: number | null;
+    sortNull: number;
+    rel: string | null;
+    relNull: number;
+    nameKey: string;
+  }>(rows.length);
 
-    const aSeriesIdx = a['series_index'] as number | null | undefined;
-    const bSeriesIdx = b['series_index'] as number | null | undefined;
-    const aSeriesIdxNull =
-      aSeriesIdx === null || aSeriesIdx === undefined ? 1 : 0;
-    const bSeriesIdxNull =
-      bSeriesIdx === null || bSeriesIdx === undefined ? 1 : 0;
-    if (aSeriesIdxNull !== bSeriesIdxNull)
-      return aSeriesIdxNull - bSeriesIdxNull;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rawSeriesIdx = row['series_index'] as number | null | undefined;
+    const seriesIdx =
+      rawSeriesIdx === null || rawSeriesIdx === undefined ? null : rawSeriesIdx;
+    const rawSort = row['sort_index'] as number | null | undefined;
+    const sort = rawSort === null || rawSort === undefined ? null : rawSort;
+    const rel = (row['release_date'] as string | null) || null;
+
+    keyed[i] = {
+      row,
+      lineKey: stripLeadingArticleLower(
+        String(row['series_line'] || row['line'] || ''),
+      ),
+      seriesIdx,
+      seriesIdxNull: seriesIdx === null ? 1 : 0,
+      seriesNameKey: stripLeadingArticleLower(String(row['series_name'] || '')),
+      typeOrd: getToyAmiiboTypeOrder(row['line'], row['type']),
+      isAmiibo: row['line'] === 'amiibo',
+      sort,
+      sortNull: sort === null ? 1 : 0,
+      rel,
+      relNull: rel === null ? 1 : 0,
+      nameKey: stripLeadingArticleLower(String(row['name'] || '')),
+    };
+  }
+
+  keyed.sort((a, b) => {
+    if (a.lineKey !== b.lineKey) return a.lineKey < b.lineKey ? -1 : 1;
+    if (a.seriesIdxNull !== b.seriesIdxNull) {
+      return a.seriesIdxNull - b.seriesIdxNull;
+    }
     if (
-      aSeriesIdx !== null &&
-      aSeriesIdx !== undefined &&
-      bSeriesIdx !== null &&
-      bSeriesIdx !== undefined &&
-      aSeriesIdx !== bSeriesIdx
+      a.seriesIdx !== null &&
+      b.seriesIdx !== null &&
+      a.seriesIdx !== b.seriesIdx
     ) {
-      return aSeriesIdx - bSeriesIdx;
+      return a.seriesIdx - b.seriesIdx;
     }
-
-    const aSeriesNameKey = stripLeadingArticleLower(
-      String(a['series_name'] || ''),
-    );
-    const bSeriesNameKey = stripLeadingArticleLower(
-      String(b['series_name'] || ''),
-    );
-    if (aSeriesNameKey !== bSeriesNameKey) {
-      return aSeriesNameKey < bSeriesNameKey ? -1 : 1;
+    if (a.seriesNameKey !== b.seriesNameKey) {
+      return a.seriesNameKey < b.seriesNameKey ? -1 : 1;
     }
+    if (a.typeOrd !== b.typeOrd) return a.typeOrd - b.typeOrd;
 
-    const aTypeOrd = getToyAmiiboTypeOrder(a['line'], a['type']);
-    const bTypeOrd = getToyAmiiboTypeOrder(b['line'], b['type']);
-    if (aTypeOrd !== bTypeOrd) return aTypeOrd - bTypeOrd;
-
-    const aIsAmiibo = a['line'] === 'amiibo';
-    const bIsAmiibo = b['line'] === 'amiibo';
-    const aSort = a['sort_index'] as number | null | undefined;
-    const bSort = b['sort_index'] as number | null | undefined;
-
-    if (!aIsAmiibo && !bIsAmiibo) {
-      const aSortNull = aSort === null || aSort === undefined ? 1 : 0;
-      const bSortNull = bSort === null || bSort === undefined ? 1 : 0;
-      if (aSortNull !== bSortNull) return aSortNull - bSortNull;
-      if (
-        aSort !== null &&
-        aSort !== undefined &&
-        bSort !== null &&
-        bSort !== undefined &&
-        aSort !== bSort
-      ) {
-        return aSort - bSort;
+    if (!a.isAmiibo && !b.isAmiibo) {
+      if (a.sortNull !== b.sortNull) return a.sortNull - b.sortNull;
+      if (a.sort !== null && b.sort !== null && a.sort !== b.sort) {
+        return a.sort - b.sort;
       }
     }
 
-    const aRel = (a['release_date'] as string | null) || null;
-    const bRel = (b['release_date'] as string | null) || null;
-    const aRelNull = aRel === null ? 1 : 0;
-    const bRelNull = bRel === null ? 1 : 0;
-    if (aRelNull !== bRelNull) return aRelNull - bRelNull;
-    if (aRel !== null && bRel !== null && aRel !== bRel) {
-      return aRel < bRel ? -1 : 1;
+    if (a.relNull !== b.relNull) return a.relNull - b.relNull;
+    if (a.rel !== null && b.rel !== null && a.rel !== b.rel) {
+      return a.rel < b.rel ? -1 : 1;
     }
 
-    if (aIsAmiibo && bIsAmiibo) {
-      const aSortNull = aSort === null || aSort === undefined ? 1 : 0;
-      const bSortNull = bSort === null || bSort === undefined ? 1 : 0;
-      if (aSortNull !== bSortNull) return aSortNull - bSortNull;
-      if (
-        aSort !== null &&
-        aSort !== undefined &&
-        bSort !== null &&
-        bSort !== undefined &&
-        aSort !== bSort
-      ) {
-        return aSort - bSort;
+    if (a.isAmiibo && b.isAmiibo) {
+      if (a.sortNull !== b.sortNull) return a.sortNull - b.sortNull;
+      if (a.sort !== null && b.sort !== null && a.sort !== b.sort) {
+        return a.sort - b.sort;
       }
     }
 
-    const aNameKey = stripLeadingArticleLower(String(a['name'] || ''));
-    const bNameKey = stripLeadingArticleLower(String(b['name'] || ''));
-    if (aNameKey !== bNameKey) return aNameKey < bNameKey ? -1 : 1;
+    if (a.nameKey !== b.nameKey) return a.nameKey < b.nameKey ? -1 : 1;
     return 0;
   });
+
+  for (let i = 0; i < keyed.length; i++) {
+    rows[i] = keyed[i].row;
+  }
 }

@@ -1,8 +1,8 @@
 /**
  * DATABASE INITIALIZATION UTILITY
  *
- * Initializes a new local `collection.sqlite` database using the canonical schema
- * and base reference catalog from `migrations/0001_initial_schema.sql`.
+ * Initializes a local `collection.sqlite` database using the canonical schema
+ * and base reference catalog from `migrations/schema.sql`.
  *
  * USAGE:
  *   npx tsx scripts/init_database.ts
@@ -19,12 +19,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.join(__dirname, '..');
 const dbPath = getLocalD1Path();
-const migrationsDir = path.join(rootDir, 'migrations');
+const schemaPath = path.join(rootDir, 'migrations', 'schema.sql');
 
-if (!fs.existsSync(migrationsDir)) {
-  console.error(
-    `[InitDb] Error: Migrations directory not found at ${migrationsDir}`,
-  );
+if (!fs.existsSync(schemaPath)) {
+  console.error(`[InitDb] Error: Canonical schema not found at ${schemaPath}`);
   process.exit(1);
 }
 
@@ -33,44 +31,14 @@ console.log('[InitDb] Initializing local collection.sqlite database...');
 const db = new Database(dbPath);
 
 try {
-  const migrationFiles = fs
-    .readdirSync(migrationsDir)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-
-  for (const file of migrationFiles) {
-    console.log(`[InitDb] Applying migration: ${file}...`);
-    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    // Strip comment lines before splitting to prevent breaking on comments containing semicolons
-    const cleanSql = sql
-      .split('\n')
-      .filter((line) => !line.trim().startsWith('--'))
-      .join('\n');
-    const statements = cleanSql
-      .split(';')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
-    for (const stmt of statements) {
-      try {
-        db.exec(stmt);
-      } catch (stmtErr: unknown) {
-        const msg =
-          stmtErr instanceof Error ? stmtErr.message : String(stmtErr);
-        if (msg.includes('duplicate column name')) {
-          // Column already exists, safe to ignore
-          continue;
-        }
-        throw stmtErr;
-      }
-    }
-  }
+  console.log('[InitDb] Applying canonical schema: migrations/schema.sql...');
+  const sql = fs.readFileSync(schemaPath, 'utf8');
+  db.exec(sql);
 
   console.log(
-    '✅ Successfully applied all migrations and base reference catalog!',
+    '✅ Successfully applied canonical schema and base reference catalog!',
   );
 
-  // Print summary counts
   const platformCount = (
     db.prepare('SELECT COUNT(*) as c FROM platforms').get() as { c: number }
   ).c;

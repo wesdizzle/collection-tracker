@@ -1,6 +1,8 @@
 import {
+  HOST_SESSION_COOKIE as KIT_HOST_SESSION_COOKIE,
   SESSION_COOKIE as KIT_SESSION_COOKIE,
   DEFAULT_SESSION_DAYS as KIT_DEFAULT_SESSION_DAYS,
+  HOST_OIDC_STATE_COOKIE as KIT_HOST_OIDC_STATE_COOKIE,
   OIDC_STATE_COOKIE as KIT_OIDC_STATE_COOKIE,
   OIDC_STATE_TTL_SECONDS as KIT_OIDC_STATE_TTL_SECONDS,
   UserRole,
@@ -16,13 +18,30 @@ import {
   verifyOidcStateCookie,
   parseCookies,
   isLoopbackRequest,
+  isSecureOrigin,
+  getSessionCookieName,
+  getOidcStateCookieName,
+  readSessionCookie,
+  readOidcStateCookie,
+  serializeSessionCookie,
+  serializeClearSessionCookies,
+  serializeOidcStateCookie,
+  serializeClearOidcStateCookies,
+  sanitizeReturnToPath,
+  resolveStrongSecret,
+  isCrossOriginMutatingRequest,
+  validateSameOriginMutation,
+  buildCspHeader,
+  withSecurityHeaders as kitWithSecurityHeaders,
   timingSafeEqualStrings,
   resetOidcJwksCache,
   verifyOidcIdToken,
 } from '@wesdizzle/app-kit/worker';
 
+export const HOST_SESSION_COOKIE = KIT_HOST_SESSION_COOKIE;
 export const SESSION_COOKIE = KIT_SESSION_COOKIE;
 export const DEFAULT_SESSION_DAYS = KIT_DEFAULT_SESSION_DAYS;
+export const HOST_OIDC_STATE_COOKIE = KIT_HOST_OIDC_STATE_COOKIE;
 export const OIDC_STATE_COOKIE = KIT_OIDC_STATE_COOKIE;
 export const OIDC_STATE_TTL_SECONDS = KIT_OIDC_STATE_TTL_SECONDS;
 
@@ -45,6 +64,21 @@ export {
   verifyOidcStateCookie,
   parseCookies,
   isLoopbackRequest,
+  isSecureOrigin,
+  getSessionCookieName,
+  getOidcStateCookieName,
+  readSessionCookie,
+  readOidcStateCookie,
+  serializeSessionCookie,
+  serializeClearSessionCookies,
+  serializeOidcStateCookie,
+  serializeClearOidcStateCookies,
+  sanitizeReturnToPath,
+  resolveStrongSecret,
+  isCrossOriginMutatingRequest,
+  validateSameOriginMutation,
+  buildCspHeader,
+  kitWithSecurityHeaders,
   timingSafeEqualStrings,
   resetOidcJwksCache,
   verifyOidcIdToken,
@@ -86,11 +120,11 @@ export function buildSessionCookie(
   maxAgeSeconds: number,
   secure: boolean,
 ): string {
-  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  return serializeSessionCookie(token, secure, maxAgeSeconds);
 }
 
 export function clearSessionCookie(secure: boolean): string {
-  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  return serializeClearSessionCookies(secure)[0];
 }
 
 export function buildOidcStateCookie(
@@ -98,11 +132,11 @@ export function buildOidcStateCookie(
   maxAgeSeconds: number = OIDC_STATE_TTL_SECONDS,
   secure: boolean = true,
 ): string {
-  return `${OIDC_STATE_COOKIE}=${token}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  return serializeOidcStateCookie(token, secure, maxAgeSeconds);
 }
 
 export function clearOidcStateCookie(secure: boolean = true): string {
-  return `${OIDC_STATE_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  return serializeClearOidcStateCookies(secure)[0];
 }
 
 /** Home regions a user may select. Values align with REGION_ANCESTORS in collection.models.ts. */

@@ -24,10 +24,15 @@ describe('Service Worker Configuration (ngsw-config.json)', () => {
     const configRaw = fs.readFileSync(configPath, 'utf-8');
     const config = JSON.parse(configRaw) as NgswConfig;
 
-    // 1. Verify the 'api-freshness' dataGroup exists and has a 30d maxAge
+    // 1. Verify the 'api-freshness' dataGroup exists, has a 30d maxAge, and NEVER caches user-personalized collection payloads in shared CacheStorage
     const apiGroup = config.dataGroups.find((g) => g.name === 'api-freshness');
     expect(apiGroup).toBeDefined();
     expect(apiGroup?.cacheConfig.maxAge).toBe('30d');
+    expect(apiGroup?.urls).toContain('/api/platforms');
+    expect(apiGroup?.urls).not.toContain('/api/games');
+    expect(apiGroup?.urls).not.toContain('/api/games/**');
+    expect(apiGroup?.urls).not.toContain('/api/toys');
+    expect(apiGroup?.urls).not.toContain('/api/toys/**');
 
     // 2. Verify the 'external-assets' dataGroup exists, has 30d maxAge, and a large maxSize
     const extGroup = config.dataGroups.find(

@@ -7,7 +7,6 @@ import {
   HostListener,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NotificationService } from '../../../../core/services/notification.service';
 import { DealNotificationPreferences } from '../../../../core/models/collection.models';
@@ -30,7 +29,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
 @Component({
   selector: 'app-notification-settings-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent],
   template: `
     <div
       class="modal-backdrop fade-in"
@@ -735,25 +734,15 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .alert-banner.warning {
-        background: rgba(234, 179, 8, 0.12);
-        border: 1px solid rgba(234, 179, 8, 0.35);
-        color: #ca8a04;
-      }
-
-      :host-context(.theme-dark) .alert-banner.warning {
-        background: rgba(234, 179, 8, 0.15);
-        color: #fde047;
+        background: var(--kit-warning-subtle);
+        border: 1px solid var(--kit-warning-border);
+        color: var(--kit-warning);
       }
 
       .alert-banner.danger {
-        background: rgba(239, 68, 68, 0.12);
-        border: 1px solid rgba(239, 68, 68, 0.35);
-        color: #dc2626;
-      }
-
-      :host-context(.theme-dark) .alert-banner.danger {
-        background: rgba(239, 68, 68, 0.15);
-        color: #fca5a5;
+        background: var(--kit-danger-subtle);
+        border: 1px solid var(--kit-danger-border);
+        color: var(--kit-danger);
       }
 
       .banner-icon {
@@ -783,13 +772,9 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .status-chip.active {
-        background: rgba(34, 197, 94, 0.15);
-        color: #16a34a;
-        border: 1px solid rgba(34, 197, 94, 0.35);
-      }
-
-      :host-context(.theme-dark) .status-chip.active {
-        color: #4ade80;
+        background: var(--kit-success-subtle);
+        color: var(--kit-success);
+        border: 1px solid var(--kit-success-border);
       }
 
       .status-chip.inactive {
@@ -1046,19 +1031,11 @@ const COMMON_PLATFORMS: PlatformOption[] = [
       }
 
       .text-success {
-        color: #16a34a;
-      }
-
-      :host-context(.theme-dark) .text-success {
-        color: #4ade80;
+        color: var(--kit-success);
       }
 
       .text-danger {
-        color: #dc2626;
-      }
-
-      :host-context(.theme-dark) .text-danger {
-        color: #f87171;
+        color: var(--kit-danger);
       }
     `,
   ],
@@ -1080,9 +1057,16 @@ export class NotificationSettingsModalComponent {
   public readonly testSuccess = signal<boolean>(false);
   public readonly saveMessage = signal<string | null>(null);
 
-  public localPrefs: DealNotificationPreferences = {
+  private readonly _localPrefs = signal<DealNotificationPreferences>({
     ...this.notificationService.preferences(),
-  };
+  });
+
+  public get localPrefs(): DealNotificationPreferences {
+    return this._localPrefs();
+  }
+  public set localPrefs(value: DealNotificationPreferences) {
+    this._localPrefs.set(value);
+  }
 
   public scopeDescription(): string {
     switch (this.localPrefs.scope) {
@@ -1125,22 +1109,22 @@ export class NotificationSettingsModalComponent {
     if (enable) {
       const ok = await this.notificationService.enableNotifications();
       if (ok) {
-        this.localPrefs.enabled = true;
+        this._localPrefs.update((p) => ({ ...p, enabled: true }));
       }
     } else {
       const ok = await this.notificationService.disableNotifications();
       if (ok) {
-        this.localPrefs.enabled = false;
+        this._localPrefs.update((p) => ({ ...p, enabled: false }));
       }
     }
   }
 
   public setScope(scope: 'seeking_only' | 'seeking_and_unowned' | 'all'): void {
-    this.localPrefs.scope = scope;
+    this._localPrefs.update((p) => ({ ...p, scope }));
   }
 
   public setMinDiscount(disc: number): void {
-    this.localPrefs.minDiscountPct = disc;
+    this._localPrefs.update((p) => ({ ...p, minDiscountPct: disc }));
   }
 
   public isStoreSelected(store: string): boolean {
@@ -1150,25 +1134,32 @@ export class NotificationSettingsModalComponent {
   public toggleStore(store: string): void {
     if (this.isStoreSelected(store)) {
       if (this.localPrefs.stores.length > 1) {
-        this.localPrefs.stores = this.localPrefs.stores.filter(
-          (s) => s !== store,
-        );
+        this._localPrefs.update((p) => ({
+          ...p,
+          stores: p.stores.filter((s) => s !== store),
+        }));
       }
     } else {
-      this.localPrefs.stores = [...this.localPrefs.stores, store];
+      this._localPrefs.update((p) => ({
+        ...p,
+        stores: [...p.stores, store],
+      }));
     }
   }
 
   public onPriceChange(value: number | null): void {
     if (value === null || value === undefined || isNaN(value) || value <= 0) {
-      this.localPrefs.maxPriceCents = null;
+      this._localPrefs.update((p) => ({ ...p, maxPriceCents: null }));
     } else {
-      this.localPrefs.maxPriceCents = Math.round(value * 100);
+      this._localPrefs.update((p) => ({
+        ...p,
+        maxPriceCents: Math.round(value * 100),
+      }));
     }
   }
 
   public clearMaxPrice(): void {
-    this.localPrefs.maxPriceCents = null;
+    this._localPrefs.update((p) => ({ ...p, maxPriceCents: null }));
   }
 
   public isPlatformSelected(id: number): boolean {
@@ -1177,19 +1168,23 @@ export class NotificationSettingsModalComponent {
 
   public togglePlatform(id: number): void {
     if (this.isPlatformSelected(id)) {
-      this.localPrefs.platformIds = this.localPrefs.platformIds.filter(
-        (p) => p !== id,
-      );
+      this._localPrefs.update((p) => ({
+        ...p,
+        platformIds: p.platformIds.filter((platId) => platId !== id),
+      }));
     } else {
-      this.localPrefs.platformIds = [...this.localPrefs.platformIds, id];
+      this._localPrefs.update((p) => ({
+        ...p,
+        platformIds: [...p.platformIds, id],
+      }));
     }
   }
 
   public toggleAllPlatforms(): void {
     if (this.localPrefs.platformIds.length === 0) {
-      this.localPrefs.platformIds = [26, 33]; // default to Switch and Vita
+      this._localPrefs.update((p) => ({ ...p, platformIds: [26, 33] }));
     } else {
-      this.localPrefs.platformIds = [];
+      this._localPrefs.update((p) => ({ ...p, platformIds: [] }));
     }
   }
 
@@ -1220,16 +1215,8 @@ export class NotificationSettingsModalComponent {
       | 'special_editions'
       | 'unowned',
   ): boolean {
-    if (!this.localPrefs.physical_announcement_scope) {
-      this.localPrefs.physical_announcement_scope = {
-        seeking: true,
-        watch_physical: true,
-        uncataloged: true,
-        special_editions: true,
-        unowned: false,
-      };
-    }
-    const val = this.localPrefs.physical_announcement_scope[key];
+    const scope = this.localPrefs.physical_announcement_scope;
+    const val = scope?.[key];
     return val !== undefined ? val : key !== 'unowned';
   }
 
@@ -1241,27 +1228,34 @@ export class NotificationSettingsModalComponent {
       | 'special_editions'
       | 'unowned',
   ): void {
-    if (!this.localPrefs.physical_announcement_scope) {
-      this.localPrefs.physical_announcement_scope = {
+    const nextVal = !this.getPhysicalScope(key);
+    this._localPrefs.update((p) => ({
+      ...p,
+      physical_announcement_scope: {
         seeking: true,
         watch_physical: true,
         uncataloged: true,
         special_editions: true,
         unowned: false,
-      };
-    }
-    this.localPrefs.physical_announcement_scope[key] =
-      !this.getPhysicalScope(key);
+        ...p.physical_announcement_scope,
+        [key]: nextVal,
+      },
+    }));
   }
 
   public toggleNotifyGameReleases(): void {
-    this.localPrefs.notify_game_releases =
-      this.localPrefs.notify_game_releases === false ? true : false;
+    this._localPrefs.update((p) => ({
+      ...p,
+      notify_game_releases: p.notify_game_releases === false ? true : false,
+    }));
   }
 
   public toggleNotifyPhysicalAnnouncements(): void {
-    this.localPrefs.notify_physical_announcements =
-      this.localPrefs.notify_physical_announcements === false ? true : false;
+    this._localPrefs.update((p) => ({
+      ...p,
+      notify_physical_announcements:
+        p.notify_physical_announcements === false ? true : false,
+    }));
   }
 
   public async onSavePreferences(): Promise<void> {

@@ -41,7 +41,7 @@ describe('CollectionLayoutComponent', () => {
 
   it('should have a brand link pointing to the collection', () => {
     const brandLink = fixture.nativeElement.querySelector('.brand-link');
-    expect(brandLink.getAttribute('routerlink')).toBe('/collection/games');
+    expect(brandLink.getAttribute('href')).toBe('/collection/games');
   });
 
   it('should render brand title from BrandingService', () => {
@@ -115,8 +115,8 @@ describe('CollectionLayoutComponent', () => {
 
       // When in public view (/u/:username), Insights and Discovery tabs are hidden and Games/Toys link to /u/:username
       collectionService.setPublicView(true, {
-        username: 'wesley',
-        displayName: 'Wesley',
+        username: 'alice',
+        displayName: 'Alice',
         bio: null,
         homeRegion: 'USA',
       });
@@ -131,7 +131,7 @@ describe('CollectionLayoutComponent', () => {
         ),
       ).toEqual(['Games', 'Toys']);
       const brandLink = fixture.nativeElement.querySelector('.brand-link');
-      expect(brandLink.getAttribute('routerlink')).toBe('/u/wesley/games');
+      expect(brandLink.getAttribute('href')).toBe('/u/alice/games');
     });
 
     it('should house content-area and main-footer inside layout-container', () => {

@@ -10,7 +10,6 @@ import {
   untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { KitProfileModalComponent } from '@wesdizzle/app-kit/angular';
 import { CollectionService } from '../../core/services/collection.service';
@@ -25,7 +24,6 @@ import { UserProfile } from '../../core/models/collection.models';
   selector: 'app-profile-modal',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     KitProfileModalComponent,
     IconComponent,
@@ -154,9 +152,9 @@ import { UserProfile } from '../../core/models/collection.models';
       }
 
       .notif-status-badge.active {
-        background: rgba(34, 197, 94, 0.15);
-        color: #4ade80;
-        border-color: rgba(34, 197, 94, 0.35);
+        background: var(--kit-success-subtle);
+        color: var(--kit-success);
+        border-color: var(--kit-success-border);
       }
     `,
   ],
@@ -193,20 +191,43 @@ export class ProfileModalComponent implements OnInit {
     'Australia',
   ]);
 
-  public displayName = '';
-  public bio = '';
-  public homeRegion = 'USA';
-  public isPublic = false;
+  private _displayName = signal('');
+  private _bio = signal('');
+  private _homeRegion = signal('USA');
+  private _isPublic = signal(false);
+
+  get displayName(): string {
+    return this._displayName();
+  }
+  set displayName(value: string) {
+    this._displayName.set(value);
+  }
+
+  get bio(): string {
+    return this._bio();
+  }
+  set bio(value: string) {
+    this._bio.set(value);
+  }
+
+  get homeRegion(): string {
+    return this._homeRegion();
+  }
+  set homeRegion(value: string) {
+    this._homeRegion.set(value);
+  }
+
+  get isPublic(): boolean {
+    return this._isPublic();
+  }
+  set isPublic(value: boolean) {
+    this._isPublic.set(value);
+  }
 
   public isSaving = signal<boolean>(false);
   public statusMessage = signal<string | null>(null);
   public isError = signal<boolean>(false);
   public copied = signal<boolean>(false);
-
-  public isDraggingSheet = signal<boolean>(false);
-  public effectiveTransformY = signal<number | null>(null);
-  private dragStartY = 0;
-  private currentDragY = 0;
 
   public publicUrl = computed(() => {
     const username = this.profile()?.username;
@@ -263,55 +284,11 @@ export class ProfileModalComponent implements OnInit {
   }
 
   public requestClose(): void {
-    this.effectiveTransformY.set(null);
-    this.isDraggingSheet.set(false);
     this.modalService.close();
-  }
-
-  public onDialogClick(event: MouseEvent): void {
-    const dialog = this.dialogEl?.nativeElement;
-    if (dialog && event.target === dialog) {
-      this.requestClose();
-    }
-  }
-
-  public onDialogCancel(event: Event): void {
-    event.preventDefault();
-    if (this.modalService.activeView() === 'notifications') {
-      this.modalService.setView('profile');
-      return;
-    }
-    this.requestClose();
   }
 
   public openNotifications(): void {
     this.modalService.setView('notifications');
-  }
-
-  public onTouchStart(event: TouchEvent): void {
-    this.dragStartY = event.touches[0].clientY;
-    this.currentDragY = this.dragStartY;
-    this.isDraggingSheet.set(true);
-  }
-
-  public onTouchMove(event: TouchEvent): void {
-    if (!this.isDraggingSheet()) return;
-    this.currentDragY = event.touches[0].clientY;
-    const deltaY = this.currentDragY - this.dragStartY;
-    if (deltaY > 0) {
-      this.effectiveTransformY.set(deltaY);
-    }
-  }
-
-  public onTouchEnd(): void {
-    if (!this.isDraggingSheet()) return;
-    this.isDraggingSheet.set(false);
-    const deltaY = this.currentDragY - this.dragStartY;
-    if (deltaY > 100) {
-      this.requestClose();
-    } else {
-      this.effectiveTransformY.set(null);
-    }
   }
 
   public saveProfile(): void {

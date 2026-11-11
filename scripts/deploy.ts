@@ -1,8 +1,15 @@
+import * as path from 'path';
 import { runWranglerDeploy } from '@wesdizzle/app-kit/scripts';
 
+const rootDir = process.cwd();
+
 runWranglerDeploy({
-  rootDir: process.cwd(),
+  rootDir,
   appLabel: 'collection-tracker',
+  faviconTargets: [
+    path.join(rootDir, 'public', 'favicon.svg'),
+    path.join(rootDir, 'dist', 'tracker', 'browser', 'favicon.svg'),
+  ],
   secretsToUpload: [
     'SESSION_SECRET',
     'ADMIN_KEY',

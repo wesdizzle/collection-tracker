@@ -291,7 +291,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
    */
   async triggerSearch(query: string, platformIdStr: string) {
     if (!query) {
-      alert('Please enter a search query.');
+      this.searchError.set('Please enter a search query.');
       return;
     }
     const platformId = Number(platformIdStr || 0);
@@ -1072,7 +1072,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.showToast(`Successfully ingested "${game.name}"!`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      alert('Ingestion failed: ' + msg);
+      this.showToast('Ingestion failed: ' + msg);
     } finally {
       this.modalLoading.set(false);
     }
@@ -1377,7 +1377,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.showToast(`Successfully ingested "${game.title}"!`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      alert(`Failed to add game "${game.title}": ` + msg);
+      this.showToast(`Failed to add game "${game.title}": ` + msg);
     }
   }
 
@@ -1586,7 +1586,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.showToast(`Successfully added amiibo "${item.name}" as unowned!`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`Failed to add amiibo "${item.name}": ` + msg);
+      this.showToast(`Failed to add amiibo "${item.name}": ` + msg);
     }
   }
 

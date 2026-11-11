@@ -1,4 +1,5 @@
 import {
+  ChangeDetectionStrategy,
   Component,
   inject,
   signal,
@@ -10,8 +11,8 @@ import {
   DestroyRef,
   AfterViewInit,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
+import { BottomSheetDragController } from '@wesdizzle/app-kit/angular';
 import { CommandPaletteService } from '../../../core/services/command-palette.service';
 import { CollectionService } from '../../../core/services/collection.service';
 import { getMediaIconName } from '../../../core/models/collection.models';
@@ -107,9 +108,10 @@ export interface CommandPaletteGroup {
 @Component({
   selector: 'app-command-palette',
   standalone: true,
-  imports: [CommonModule, IconComponent, HighlightTokensPipe],
+  imports: [IconComponent, HighlightTokensPipe],
   templateUrl: './command-palette.component.html',
   styleUrl: './command-palette.component.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CommandPaletteComponent implements AfterViewInit {
   public paletteService = inject(CommandPaletteService);
@@ -127,9 +129,9 @@ export class CommandPaletteComponent implements AfterViewInit {
 
   public isEntering = signal(false);
   public isClosing = signal(false);
-  public sheetTransformY = signal(0);
-  public isDraggingSheet = signal(false);
-  private sheetDragStartY = 0;
+  public readonly sheetDrag = new BottomSheetDragController(59);
+  public readonly sheetTransformY = this.sheetDrag.dragOffsetY;
+  public readonly isDraggingSheet = this.sheetDrag.isDragging;
 
   public readonly effectiveTransformY = computed<number | null>(() => {
     if (this.isClosing()) {
@@ -733,28 +735,15 @@ export class CommandPaletteComponent implements AfterViewInit {
   // --- Mobile Bottom Sheet Drag-to-Dismiss Gesture ---
 
   public onDragHandleTouchStart(event: TouchEvent): void {
-    if (event.touches.length !== 1) return;
-    this.sheetDragStartY = event.touches[0].clientY;
-    this.isDraggingSheet.set(true);
-    this.sheetTransformY.set(0);
+    this.sheetDrag.onTouchStart(event);
   }
 
   public onDragHandleTouchMove(event: TouchEvent): void {
-    if (!this.isDraggingSheet() || event.touches.length !== 1) return;
-    const deltaY = event.touches[0].clientY - this.sheetDragStartY;
-    if (deltaY > 0) {
-      this.sheetTransformY.set(deltaY);
-    } else {
-      this.sheetTransformY.set(0);
-    }
+    this.sheetDrag.onTouchMove(event);
   }
 
   public onDragHandleTouchEnd(): void {
-    if (!this.isDraggingSheet()) return;
-    const currentDelta = this.sheetTransformY();
-    this.isDraggingSheet.set(false);
-
-    if (currentDelta >= 60) {
+    this.sheetDrag.onTouchEnd(() => {
       this.isClosing.set(true);
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
         try {
@@ -766,11 +755,9 @@ export class CommandPaletteComponent implements AfterViewInit {
       setTimeout(() => {
         this.paletteService.close();
         this.isClosing.set(false);
-        this.sheetTransformY.set(0);
+        this.sheetDrag.reset();
       }, 220);
-    } else {
-      this.sheetTransformY.set(0);
-    }
+    });
   }
 
   private scrollActiveItemIntoView() {

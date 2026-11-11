@@ -26,7 +26,7 @@ vi.mock('./lib/igdb.js', () => ({
       id: `igdb-${id}`,
       name: 'Bloodborne',
       summary: 'A dark action RPG.',
-      image_url: 'http://example.com/cover.png',
+      image_url: 'https://example.com/cover.png',
       platform: 'PlayStation 4',
       platforms: [{ id: 48, name: 'PlayStation 4' }],
       release_date: '2015-03-24',
@@ -42,7 +42,7 @@ vi.mock('./lib/igdb.js', () => ({
         name: query || 'Bloodborne',
         platform: 'PlayStation 4',
         platform_ids: [48],
-        image_url: 'http://example.com/cover.png',
+        image_url: 'https://example.com/cover.png',
       },
     ]),
   ),
@@ -61,7 +61,7 @@ vi.mock('./lib/igdb.js', () => ({
         id: `igdb-${id}`,
         name: 'Bloodborne',
         summary: 'A dark action RPG.',
-        image_url: 'http://example.com/cover.png',
+        image_url: 'https://example.com/cover.png',
         platforms: [{ id: 48, name: 'PlayStation 4' }],
         release_date: '2015-03-24',
         collections: 'Bloodborne Series',
@@ -211,7 +211,7 @@ describe('Local Server API Logic', () => {
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             INSERT INTO users (id, username, is_public, home_region, display_name)
-            VALUES (1, 'wesley', 1, 'USA', 'Wesley');
+            VALUES (1, 'dev_admin', 1, 'USA', 'Dev Admin');
             CREATE TABLE IF NOT EXISTS journal_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
@@ -472,7 +472,7 @@ describe('Local Server API Logic', () => {
               tail: '00000002',
               name: 'Mario',
               type: 'Figure',
-              image: 'http://example.com/mario.png',
+              image: 'https://example.com/mario.png',
               gameSeries: 'Super Mario',
               amiiboSeries: 'Super Mario',
             },
@@ -481,7 +481,7 @@ describe('Local Server API Logic', () => {
               tail: '003f0502',
               name: 'Zelda - TOTK',
               type: 'Figure',
-              image: 'http://example.com/zelda.png',
+              image: 'https://example.com/zelda.png',
               gameSeries: 'The Legend of Zelda',
               amiiboSeries: 'The Legend of Zelda',
               release: { na: '2023-11-03' },
@@ -512,7 +512,7 @@ describe('Local Server API Logic', () => {
         series_name: 'The Legend of Zelda',
         amiibo_id: '01030000003f0502',
         type: 'Figure',
-        image_url: 'http://example.com/zelda.png',
+        image_url: 'https://example.com/zelda.png',
         ownership_status: 1,
       };
 
@@ -544,7 +544,7 @@ describe('Local Server API Logic', () => {
         series_name: 'The Legend of Zelda',
         amiibo_id: '0103000000400502',
         type: 'Figure',
-        image_url: 'http://example.com/ganon.png',
+        image_url: 'https://example.com/ganon.png',
       };
 
       const { req, res } = createDiscoveryMocks(
@@ -755,11 +755,11 @@ describe('Local Server API Logic', () => {
           title: 'Bloodborne II',
           platform_id: 34,
           igdb_id: 102,
-          igdb_url: 'http://example.com/bloodborne2',
+          igdb_url: 'https://example.com/bloodborne2',
           summary: 'A sequel.',
           genres: 'RPG',
           region: 'USA',
-          image_url: 'http://example.com/cover.png',
+          image_url: 'https://example.com/cover.png',
         },
         releases: [
           {

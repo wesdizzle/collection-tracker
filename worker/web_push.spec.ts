@@ -329,9 +329,9 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     const withAdmin = resolveVapidSubject(
       undefined,
       undefined,
-      'wesley@example.com',
+      'admin@example.com',
     );
-    expect(withAdmin).toBe('mailto:wesley@example.com');
+    expect(withAdmin).toBe('mailto:admin@example.com');
 
     // Uses request origin if HTTPS
     const withReq = resolveVapidSubject(
@@ -363,6 +363,9 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     expect(isAllowedPushEndpoint('https://web.push.apple.com/abc')).toBe(true);
     expect(
       isAllowedPushEndpoint('http://fcm.googleapis.com/fcm/send/abc'),
+    ).toBe(false);
+    expect(
+      isAllowedPushEndpoint('https://fcm.googleapis.com:8443/fcm/send/abc'),
     ).toBe(false);
     expect(isAllowedPushEndpoint('https://127.0.0.1/internal')).toBe(false);
     expect(isAllowedPushEndpoint('https://attacker.example.com/ssrf')).toBe(

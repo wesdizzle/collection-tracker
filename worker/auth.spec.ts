@@ -100,19 +100,25 @@ describe('worker/auth', () => {
     expect(cookies['third']).toBe('bar');
   });
 
-  it('builds session cookie with security flags', () => {
+  it('builds session cookie with __Host- prefix and security flags on HTTPS', () => {
     const cookie = buildSessionCookie('mytoken', 3600, true);
-    expect(cookie).toContain('app_user_session=mytoken');
+    expect(cookie).toContain('__Host-app_user_session=mytoken');
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('SameSite=Lax');
     expect(cookie).toContain('Secure');
+
+    const localCookie = buildSessionCookie('mytoken', 3600, false);
+    expect(localCookie).toContain('app_user_session=mytoken');
+    expect(localCookie).not.toContain('__Host-');
   });
 
-  it('builds clearing cookie with epoch expiry', () => {
+  it('builds clearing cookie with zero Max-Age', () => {
     const cookie = clearSessionCookie(false);
     expect(cookie).toContain('app_user_session=;');
     expect(cookie).toContain('Max-Age=0');
-    expect(cookie).toContain('Thu, 01 Jan 1970');
+
+    const secureClear = clearSessionCookie(true);
+    expect(secureClear).toContain('__Host-app_user_session=;');
   });
 
   it('normalizes home region correctly', () => {
@@ -172,14 +178,14 @@ describe('worker/auth', () => {
 
       // Cookie header builders
       const setCookie = buildOidcStateCookie(signed, 600, true);
-      expect(setCookie).toContain('app_oidc_state=');
+      expect(setCookie).toContain('__Host-app_oidc_state=');
       expect(setCookie).toContain('HttpOnly');
       expect(setCookie).toContain('SameSite=Lax');
       expect(setCookie).toContain('Path=/');
       expect(setCookie).toContain('Secure');
 
       const clearCookie = clearOidcStateCookie(true);
-      expect(clearCookie).toContain('app_oidc_state=;');
+      expect(clearCookie).toContain('__Host-app_oidc_state=;');
       expect(clearCookie).toContain('Max-Age=0');
     });
   });

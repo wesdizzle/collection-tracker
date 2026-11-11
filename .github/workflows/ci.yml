@@ -38,6 +38,9 @@ jobs:
       - name: Run Linting
         run: npm run lint
 
+      - name: Run D1 Schema & Query Cost Guard
+        run: npm run d1:cost-guard
+
       - name: Run Unified Tests (Vitest)
         run: npm run test
 

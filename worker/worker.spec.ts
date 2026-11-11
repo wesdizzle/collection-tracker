@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import * as webPush from './web_push';
@@ -5,7 +7,8 @@ import {
   signSession,
   verifySession,
   SESSION_COOKIE,
-  OIDC_STATE_COOKIE,
+  HOST_SESSION_COOKIE,
+  HOST_OIDC_STATE_COOKIE,
   parseCookies,
   resetOidcJwksCache,
 } from './auth';
@@ -14,9 +17,17 @@ import worker, {
   isAuthorizedAdmin,
   markDbDirty,
   performScheduledBackup,
+  resetWorkerRateLimits,
+  syncOrResolveOidcUser,
   syncWorkerBoutiquePreOrders,
   syncWorkerLaunchDayNotifications,
+  syncWorkerRetailDeals,
 } from './worker';
+
+const CANONICAL_SCHEMA_SQL = fs.readFileSync(
+  path.resolve(__dirname, '../migrations/schema.sql'),
+  'utf-8',
+);
 
 /**
  * UNIT TEST: Cloudflare Worker Logic
@@ -32,11 +43,11 @@ describe('Worker API Logic', () => {
       bind: (...params: (string | number | null)[]) => {
         all: () => Promise<{ results: unknown[] }>;
         first: () => Promise<unknown>;
-        run: () => Promise<{ success: boolean }>;
+        run: () => Promise<{ success: boolean; meta: { changes: number } }>;
       };
       all: () => Promise<{ results: unknown[] }>;
       first: () => Promise<unknown>;
-      run: () => Promise<{ success: boolean }>;
+      run: () => Promise<{ success: boolean; meta: { changes: number } }>;
     };
     batch: (
       statements: { run: () => Promise<{ success: boolean }> }[],
@@ -44,222 +55,52 @@ describe('Worker API Logic', () => {
   };
   let mockBucket: {
     storage: Map<string, string>;
-    put: (key: string, data: string, options?: unknown) => Promise<unknown>;
-    get: (key: string) => Promise<{ text: () => Promise<string> } | null>;
+    metadata: Map<string, Record<string, string>>;
+    put: (
+      key: string,
+      data: string,
+      options?: { customMetadata?: Record<string, string> },
+    ) => Promise<unknown>;
+    head: (key: string) => Promise<{
+      key: string;
+      customMetadata?: Record<string, string>;
+    } | null>;
+    get: (key: string) => Promise<{
+      body: string;
+      customMetadata?: Record<string, string>;
+      text: () => Promise<string>;
+    } | null>;
     list: (options?: { prefix?: string }) => Promise<{
       objects: { key: string; uploaded?: Date }[];
+      truncated: boolean;
     }>;
     delete: (key: string) => Promise<void>;
   };
   let mockEnv: Env;
 
   beforeEach(() => {
-    // Initialize an in-memory database for clean, isolated tests
+    resetWorkerRateLimits();
+    resetOidcJwksCache();
+
+    // Initialize an in-memory database loaded from canonical migrations/schema.sql (PRAGMA foreign_keys = ON)
     db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    db.exec(CANONICAL_SCHEMA_SQL);
 
-    // Setup schema - matching canonical migration schema
+    // Seed baseline test fixtures against canonical schema
     db.exec(`
-      CREATE TABLE platforms (
-        id INTEGER PRIMARY KEY, 
-        name TEXT UNIQUE,
-        display_name TEXT, 
-        brand TEXT, 
-        launch_date DATE, 
-        parent_platform_id INTEGER,
-        image_url TEXT
-      );
-      CREATE TABLE games (
-        stable_id INTEGER PRIMARY KEY, 
-        id TEXT, 
-        title TEXT, 
-        series TEXT, 
-        canonical_series TEXT,
-        platform_id INTEGER, 
-        sort_index INTEGER,
-        queued BOOLEAN,
-        image_url TEXT,
-        play_status INTEGER DEFAULT 0,
-        backup_status INTEGER DEFAULT 0,
-        igdb_id INTEGER,
-        igdb_url TEXT,
-        summary TEXT,
-        genres TEXT,
-        region TEXT,
-        collections TEXT,
-        franchises TEXT,
-        manually_verified BOOLEAN,
-        metadata_json TEXT,
-        physical_status TEXT DEFAULT 'unverified',
-        verification_tier INTEGER DEFAULT 0,
-        barcode TEXT,
-        release_medium TEXT DEFAULT 'physical_retail',
-        origin_metadata TEXT,
-        bundle_parent_id INTEGER,
-        bundle_disc_number INTEGER,
-        retail_price INTEGER,
-        retail_regular_price INTEGER,
-        retail_discount_pct INTEGER,
-        retail_on_sale INTEGER DEFAULT 0,
-        retail_store TEXT,
-        retail_url TEXT,
-        retail_updated_at TEXT
-      );
-      CREATE TABLE game_releases (
-        id TEXT PRIMARY KEY,
-        game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
-        region TEXT,
-        variants TEXT,
-        also_released_as TEXT,
-        rom_name TEXT,
-        rom_crc TEXT,
-        backup_status INTEGER NOT NULL DEFAULT 0,
-        ownership_status INTEGER NOT NULL DEFAULT 0,
-        release_date DATE,
-        canonical_release_id INTEGER,
-        barcode TEXT,
-        is_physical INTEGER DEFAULT 1,
-        has_case INTEGER NOT NULL DEFAULT 0,
-        has_manual INTEGER NOT NULL DEFAULT 0,
-        image_url TEXT
-      );
-      CREATE TABLE canonical_releases (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        platform_id INTEGER NOT NULL,
-        raw_title TEXT NOT NULL,
-        normalized_title TEXT NOT NULL,
-        region TEXT,
-        variants TEXT,
-        rom_name TEXT,
-        rom_crc TEXT,
-        serial_code TEXT,
-        barcode TEXT,
-        publisher TEXT,
-        source TEXT NOT NULL DEFAULT 'dat',
-        is_verified_physical INTEGER NOT NULL DEFAULT 1,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE toys (
-        stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        id TEXT UNIQUE, 
-        name TEXT NOT NULL, 
-        line TEXT NOT NULL,
-        series_id TEXT, 
-        series_name TEXT, 
-        series_line TEXT,
-        series TEXT,
-        type TEXT,
-        release_date DATE,
-        sort_index INTEGER,
-        ownership_status INTEGER DEFAULT 0,
-        verified BOOLEAN DEFAULT 0,
-        metadata_json TEXT,
-        image_url TEXT,
-        amiibo_id TEXT,
-        scl_url TEXT,
-        region TEXT,
-        details TEXT
-      );
-      CREATE TABLE toy_series (
-        id TEXT PRIMARY KEY, 
-        name TEXT, 
-        line TEXT,
-        sort_index INTEGER
-      );
-      CREATE TABLE ignored_items (id TEXT PRIMARY KEY);
-      CREATE TABLE toy_game_compatibility (
-        toy_stable_id INTEGER,
-        game_stable_id INTEGER,
-        PRIMARY KEY (toy_stable_id, game_stable_id)
-      );
-      CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-        is_public INTEGER NOT NULL DEFAULT 0,
-        home_region TEXT NOT NULL DEFAULT 'USA',
-        display_name TEXT,
-        bio TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
       INSERT INTO users (id, username, is_public, home_region, display_name)
-      VALUES (1, 'wesley', 1, 'USA', 'Wesley');
-      CREATE TABLE user_game_releases (
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        release_id TEXT NOT NULL REFERENCES game_releases(id) ON DELETE CASCADE,
-        ownership_status INTEGER NOT NULL DEFAULT 0,
-        backup_status INTEGER NOT NULL DEFAULT 0,
-        has_case INTEGER NOT NULL DEFAULT 0,
-        has_manual INTEGER NOT NULL DEFAULT 0,
-        rating INTEGER,
-        notes TEXT,
-        PRIMARY KEY (user_id, release_id)
-      );
-      CREATE TABLE user_games (
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
-        play_status INTEGER NOT NULL DEFAULT 0,
-        queued INTEGER NOT NULL DEFAULT 0,
-        rating INTEGER,
-        notes TEXT,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (user_id, game_id)
-      );
-      CREATE TABLE user_toys (
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        toy_id TEXT NOT NULL REFERENCES toys(id) ON DELETE CASCADE,
-        ownership_status INTEGER NOT NULL DEFAULT 0,
-        rating INTEGER,
-        notes TEXT,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (user_id, toy_id)
-      );
-      CREATE TABLE push_subscriptions (
-        id TEXT PRIMARY KEY,
-        user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
-        endpoint TEXT NOT NULL UNIQUE,
-        p256dh TEXT NOT NULL,
-        auth TEXT NOT NULL,
-        preferences_json TEXT NOT NULL DEFAULT '{}',
-        user_agent TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS sync_state (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS journal_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
-        item_type TEXT NOT NULL CHECK(item_type IN ('game', 'toy')),
-        item_id TEXT NOT NULL,
-        purchase_date TEXT,
-        is_approximate_date INTEGER NOT NULL DEFAULT 0,
-        price_paid REAL,
-        merchant TEXT,
-        gifted_by TEXT,
-        receipt_url TEXT,
-        notes TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, item_type, item_id)
-      );
-      CREATE TABLE IF NOT EXISTS cron_execution_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        job_name TEXT NOT NULL,
-        status TEXT NOT NULL,
-        duration_ms INTEGER NOT NULL,
-        summary TEXT,
-        details_json TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (1, 'NES', 'NES', 'Nintendo', '1985-10-18');
-      INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, sort_index) VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 'Super Mario', 1, 0);
-      INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES ('gb-mario', 1, 'USA', null, null, null, 0, 1, '1985-10-18');
-      INSERT INTO toy_series (id, name, line, sort_index) VALUES ('smash', 'Smash', 'amiibo', 0);
-      INSERT INTO toys (stable_id, id, name, line, series_id, sort_index, ownership_status) VALUES (1, 'link-amiibo', 'Link', 'amiibo', 'smash', 0, 0);
+      VALUES (1, 'alice', 1, 'USA', 'Alice');
+      INSERT INTO games (stable_id, id, title, series, canonical_series, platform_id, sort_index)
+      VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 'Super Mario', 1, 0);
+      INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, release_date)
+      VALUES ('gb-mario', 1, 'USA', null, null, null, '1985-10-18');
+      INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+      VALUES (1, 'gb-mario', 1, 0);
+      INSERT OR IGNORE INTO toy_series (id, name, line, sort_index)
+      VALUES ('smash', 'Smash', 'amiibo', 0);
+      INSERT INTO toys (stable_id, id, name, line, series_id, sort_index)
+      VALUES (1, 'link-amiibo', 'Link', 'amiibo', 'smash', 0);
       INSERT INTO sync_state (key, value) VALUES ('boutique_seed_completed', '1');
     `);
 
@@ -279,8 +120,8 @@ describe('Worker API Logic', () => {
         all: async () => ({ results: db.prepare(query).all() as unknown[] }),
         first: async () => db.prepare(query).get() as unknown,
         run: async () => {
-          db.prepare(query).run();
-          return { success: true };
+          const info = db.prepare(query).run();
+          return { success: true, meta: { changes: info.changes } };
         },
       }),
       batch: async (statements) => {
@@ -293,16 +134,31 @@ describe('Worker API Logic', () => {
     };
 
     const storage = new Map<string, string>();
+    const metadata = new Map<string, Record<string, string>>();
     mockBucket = {
       storage,
-      put: async (key: string, data: string) => {
+      metadata,
+      put: async (key: string, data: string, options) => {
         storage.set(key, data);
+        if (options?.customMetadata) {
+          metadata.set(key, { ...options.customMetadata });
+        } else {
+          metadata.delete(key);
+        }
         return { key };
+      },
+      head: async (key: string) => {
+        if (!storage.has(key)) return null;
+        return { key, customMetadata: metadata.get(key) };
       },
       get: async (key: string) => {
         const item = storage.get(key);
         if (!item) return null;
-        return { body: item, text: async () => item };
+        return {
+          body: item,
+          customMetadata: metadata.get(key),
+          text: async () => item,
+        };
       },
       list: async (options?: { prefix?: string }) => {
         const prefix = options?.prefix || '';
@@ -312,10 +168,11 @@ describe('Worker API Logic', () => {
             objects.push({ key });
           }
         }
-        return { objects };
+        return { objects, truncated: false };
       },
       delete: async (key: string) => {
         storage.delete(key);
+        metadata.delete(key);
       },
     };
 
@@ -326,7 +183,10 @@ describe('Worker API Logic', () => {
       },
       BACKUP_BUCKET: mockBucket as unknown as Env['BACKUP_BUCKET'],
       ADMIN_EMAIL: 'admin@example.com',
-      SESSION_SECRET: 'dev-insecure-session-secret-change-me',
+      SESSION_SECRET: 'test-unit-session-secret-32-chars-minimum',
+      VAPID_PUBLIC_KEY:
+        'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QT9ScVw_test_public_key_placeholder_65bytes',
+      VAPID_PRIVATE_KEY: 'test-vapid-private-key-placeholder',
       TWITCH_CLIENT_ID: 'test-twitch-id',
       TWITCH_CLIENT_SECRET: 'test-twitch-secret',
     };
@@ -378,8 +238,8 @@ describe('Worker API Logic', () => {
     const res = await worker.fetch(req, mockEnv);
 
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { brand: string }[];
-    expect(data[0].brand).toBe('Nintendo');
+    const data = (await res.json()) as { id: number; brand: string }[];
+    expect(data.some((p) => p.id === 1 && p.brand === '3DO')).toBe(true);
   });
 
   it('Delegates non-API routes to static assets', async () => {
@@ -462,7 +322,7 @@ describe('Worker API Logic', () => {
 
     // Authenticated request with verified HMAC session cookie
     const sessionToken = await signSession(
-      { id: 1, username: 'wesley', role: 'admin', homeRegion: 'USA' },
+      { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
       mockEnv.SESSION_SECRET!,
     );
     const authReq = new Request(
@@ -530,14 +390,20 @@ describe('Worker API Logic', () => {
     expect(updatedGame.sort_index).toBe(42);
   });
 
-  it('performScheduledBackup dumps tables and saves snapshot to R2', async () => {
+  it('performScheduledBackup dumps tables, deduplicates unchanged SHA-256 via head(), and saves daily snapshot to R2', async () => {
     // Non-daily call updates latest.json
     const nonDailyRes = await performScheduledBackup(mockEnv, false);
     expect(nonDailyRes.rowCount).toBeGreaterThan(0);
     expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
     expect(mockBucket.storage.size).toBe(1);
 
-    // Daily call saves both dated snapshot and latest.json
+    // Repeat call with unchanged DB skips upload via head() SHA-256 metadata check
+    const unchangedRes = await performScheduledBackup(mockEnv, true);
+    expect(unchangedRes.skipped).toBe(true);
+    expect(mockBucket.storage.size).toBe(1);
+
+    // Mutate DB and run daily call -> saves both dated snapshot and updated latest.json
+    db.prepare('UPDATE games SET sort_index = 7 WHERE stable_id = 1').run();
     const dailyRes = await performScheduledBackup(mockEnv, true);
     expect(dailyRes.rowCount).toBeGreaterThan(0);
     expect(mockBucket.storage.size).toBe(2); // dated snapshot + latest.json
@@ -547,7 +413,7 @@ describe('Worker API Logic', () => {
     const parsed = JSON.parse(latest!);
     expect(parsed.metadata.totalRows).toBe(dailyRes.rowCount);
     expect(parsed.tables.games.length).toBe(1);
-    expect(parsed.tables.platforms.length).toBe(1);
+    expect(parsed.tables.platforms.length).toBeGreaterThanOrEqual(1);
   });
 
   it('performScheduledBackup prunes snapshots older than 30 days', async () => {
@@ -1119,13 +985,28 @@ describe('Worker API Logic', () => {
     expect(customCookies.some((c) => c.includes('Max-Age=864000'))).toBe(true);
   });
 
-  it('GET /admin/logout revokes session and OIDC state cookies and redirects to root', async () => {
-    const req = new Request('https://tracker.example.com/admin/logout');
+  it('POST /admin/logout revokes __Host- and legacy session/OIDC cookies with 303 redirect and rejects GET', async () => {
+    const getRes = await worker.fetch(
+      new Request('https://tracker.example.com/admin/logout'),
+      mockEnv,
+    );
+    expect(getRes.status).toBe(405);
+    expect(getRes.headers.get('Allow')).toBe('POST');
+
+    const req = new Request('https://tracker.example.com/admin/logout', {
+      method: 'POST',
+      headers: { Origin: 'https://tracker.example.com' },
+    });
     const res = await worker.fetch(req, mockEnv);
-    expect(res.status).toBe(200);
-    const body = await res.text();
-    expect(body).toContain("window.location.replace('/')");
+    expect(res.status).toBe(303);
+    expect(res.headers.get('Location')).toBe('/');
     const cookies = res.headers.getSetCookie();
+    expect(
+      cookies.some(
+        (c) =>
+          c.includes(`${HOST_SESSION_COOKIE}=;`) && c.includes('Max-Age=0'),
+      ),
+    ).toBe(true);
     expect(
       cookies.some(
         (c) => c.includes('app_user_session=;') && c.includes('Max-Age=0'),
@@ -1133,7 +1014,8 @@ describe('Worker API Logic', () => {
     ).toBe(true);
     expect(
       cookies.some(
-        (c) => c.includes('app_oidc_state=;') && c.includes('Max-Age=0'),
+        (c) =>
+          c.includes(`${HOST_OIDC_STATE_COOKIE}=;`) && c.includes('Max-Age=0'),
       ),
     ).toBe(true);
   });
@@ -1156,10 +1038,10 @@ describe('Worker API Logic', () => {
     expect(spoofData.authenticated).toBe(false);
     expect(spoofData.email).toBeNull();
 
-    // Test signed app_user_session cookie for admin
+    // Test signed app_user_session fallback cookie for admin
     const signedAdminToken = await signSession(
-      { id: 1, username: 'wesley', role: 'admin', homeRegion: 'USA' },
-      'dev-insecure-session-secret-change-me',
+      { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
+      mockEnv.SESSION_SECRET!,
     );
     const sessionCookieReq = new Request(
       'https://tracker.example.com/api/admin/me',
@@ -1231,7 +1113,7 @@ describe('Worker API Logic', () => {
     expect(
       isAuthorizedAdmin(prodUnauth, mockEnv, {
         id: 1,
-        username: 'wesley',
+        username: 'alice',
         role: 'admin',
         homeRegion: 'USA',
       }),
@@ -1241,7 +1123,7 @@ describe('Worker API Logic', () => {
     expect(
       isAuthorizedAdmin(prodUnauth, mockEnv, {
         id: 2,
-        username: 'wesley_test',
+        username: 'bob_collector',
         role: 'user',
         homeRegion: 'USA',
       }),
@@ -1251,7 +1133,7 @@ describe('Worker API Logic', () => {
   it('GET /api/discovery/search annotates physical release status and filters digital fluff', async () => {
     // Seed platform and canonical releases
     db.prepare(
-      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
     ).run(19, 'Game Boy Advance', 'Game Boy Advance', 'Nintendo', '2001-06-11');
     db.prepare(
       `
@@ -1412,7 +1294,7 @@ describe('Worker API Logic', () => {
 
   it('GET /api/discovery/matches returns matched physical releases and verification tier', async () => {
     db.prepare(
-      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
     ).run(19, 'Game Boy Advance', 'Game Boy Advance', 'Nintendo', '2001-06-11');
     db.prepare(
       `
@@ -1675,10 +1557,10 @@ describe('Worker API Logic', () => {
 
   it('GET /api/discovery/scan-series separates Switch 1 (130) from Switch 2 (508) and surfaces FDS (54) & 64DD (55) titles via alternative_names', async () => {
     db.prepare(
-      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
     ).run(26, 'Nintendo Switch', 'Nintendo Switch', 'Nintendo', '2017-03-03');
     db.prepare(
-      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
     ).run(
       27,
       'Nintendo Switch 2',
@@ -1687,7 +1569,7 @@ describe('Worker API Logic', () => {
       '2025-06-05',
     );
     db.prepare(
-      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
     ).run(
       54,
       'Famicom Disk System',
@@ -1696,7 +1578,7 @@ describe('Worker API Logic', () => {
       '1986-02-21',
     );
     db.prepare(
-      'INSERT OR REPLACE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
     ).run(55, 'Nintendo 64DD', 'Nintendo 64DD', 'Nintendo', '1999-12-01');
 
     // Owned Switch 1 game: Everybody 1-2-Switch! (igdb_id: 252035 on platform 26)
@@ -1867,16 +1749,32 @@ describe('Worker API Logic', () => {
   });
 
   describe('Notification Endpoints', () => {
-    it('should return the VAPID public key', async () => {
+    it('should return the VAPID public key when configured and 503 when VAPID_PRIVATE_KEY is missing', async () => {
       const req = new Request(
         'http://localhost/api/notifications/vapid-public-key',
       );
       const res = await worker.fetch(req, mockEnv);
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { publicKey: string };
+      const body = (await res.json()) as {
+        configured: boolean;
+        publicKey: string;
+      };
+      expect(body.configured).toBe(true);
       expect(body.publicKey).toBeDefined();
       expect(typeof body.publicKey).toBe('string');
       expect(body.publicKey.length).toBeGreaterThan(20);
+
+      const unconfiguredEnv: Env = {
+        ...mockEnv,
+        VAPID_PRIVATE_KEY: undefined,
+      };
+      const unconfRes = await worker.fetch(
+        new Request('http://localhost/api/notifications/vapid-public-key'),
+        unconfiguredEnv,
+      );
+      expect(unconfRes.status).toBe(503);
+      const unconfBody = (await unconfRes.json()) as { configured: boolean };
+      expect(unconfBody.configured).toBe(false);
     });
 
     it('should subscribe and persist push subscription with preferences', async () => {
@@ -1925,8 +1823,8 @@ describe('Worker API Logic', () => {
     it('should update preferences for an existing endpoint', async () => {
       const endpoint = 'https://push.example.com/sub/update-test';
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, created_at, updated_at)
-         VALUES ('test-id', ?, 'dummy-p256dh', 'dummy-auth', '{}', '2026-01-01', '2026-01-01')`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, created_at, updated_at)
+         VALUES ('test-id', 1, ?, 'dummy-p256dh', 'dummy-auth', '{}', '2026-01-01', '2026-01-01')`,
       ).run(endpoint);
 
       const updateReq = new Request(
@@ -1961,8 +1859,8 @@ describe('Worker API Logic', () => {
     it('should unsubscribe an endpoint', async () => {
       const endpoint = 'https://push.example.com/sub/unsub-test';
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, created_at, updated_at)
-         VALUES ('unsub-id', ?, 'p256dh', 'auth', '2026-01-01', '2026-01-01')`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at, updated_at)
+         VALUES ('unsub-id', 1, ?, 'p256dh', 'auth', '2026-01-01', '2026-01-01')`,
       ).run(endpoint);
 
       const req = new Request(
@@ -2046,12 +1944,21 @@ describe('Worker API Logic', () => {
       expect(data.background_color).toBe('#121214');
     });
 
-    it('GET /api/admin/logout clears session and OIDC state cookies', async () => {
-      const req = new Request('https://tracker.example.com/api/admin/logout');
+    it('POST /api/admin/logout clears session and OIDC state cookies', async () => {
+      const req = new Request('https://tracker.example.com/api/admin/logout', {
+        method: 'POST',
+        headers: { Origin: 'https://tracker.example.com' },
+      });
       const res = await worker.fetch(req, mockEnv);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(303);
       const cookies = res.headers.getSetCookie();
+      expect(
+        cookies.some(
+          (c) =>
+            c.includes(`${HOST_SESSION_COOKIE}=;`) && c.includes('Max-Age=0'),
+        ),
+      ).toBe(true);
       expect(
         cookies.some(
           (c) => c.includes('app_user_session=;') && c.includes('Max-Age=0'),
@@ -2059,7 +1966,9 @@ describe('Worker API Logic', () => {
       ).toBe(true);
       expect(
         cookies.some(
-          (c) => c.includes('app_oidc_state=;') && c.includes('Max-Age=0'),
+          (c) =>
+            c.includes(`${HOST_OIDC_STATE_COOKIE}=;`) &&
+            c.includes('Max-Age=0'),
         ),
       ).toBe(true);
     });
@@ -2261,8 +2170,14 @@ describe('Worker API Logic', () => {
 
       db.prepare(
         `
-        INSERT INTO game_releases (id, game_id, ownership_status)
-        VALUES ('sos-rel', 777, 2)
+        INSERT INTO game_releases (id, game_id)
+        VALUES ('sos-rel', 777)
+      `,
+      ).run();
+      db.prepare(
+        `
+        INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+        VALUES (1, 'sos-rel', 2)
       `,
       ).run();
 
@@ -2345,14 +2260,22 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
-         VALUES ('anton-usa-rel', 901, 'USA', 1, 1)`,
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('anton-usa-rel', 901, 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+         VALUES (1, 'anton-usa-rel', 1)`,
       ).run();
 
       // Another release row for Europe unowned (mimicking real catalog)
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
-         VALUES ('anton-eur-rel', 901, 'EUR', 0, 1)`,
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('anton-eur-rel', 901, 'EUR')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-anton', 1, 'https://push.example.com/sub-anton', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       // Standard Fangamer pre-order drops
@@ -2400,14 +2323,18 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, variants, ownership_status, is_physical)
-         VALUES ('hk-std-rel', 902, 'USA', 'Standard', 1, 1)`,
+        `INSERT INTO game_releases (id, game_id, region, variants)
+         VALUES ('hk-std-rel', 902, 'USA', 'Standard')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+         VALUES (1, 'hk-std-rel', 1)`,
       ).run();
 
       // Push subscription listening for announcements
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-1', 'https://push.example.com/sub1', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-1', 1, 'https://push.example.com/sub1', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       // Collector's Edition pre-order drops
@@ -2470,8 +2397,12 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
-         VALUES ('anton-sw-rel', 903, 'USA', 1, 1)`,
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('anton-sw-rel', 903, 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+         VALUES (1, 'anton-sw-rel', 1)`,
       ).run();
 
       db.prepare(
@@ -2480,13 +2411,13 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
-         VALUES ('anton-ps5-rel', 904, 'USA', 0, 1)`,
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('anton-ps5-rel', 904, 'USA')`,
       ).run();
 
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-ps5', 'https://push.example.com/sub-ps5', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-ps5', 1, 'https://push.example.com/sub-ps5', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const mockShopify = {
@@ -2548,8 +2479,8 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-cold', 'https://push.example.com/sub-cold', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true, "uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-cold', 1, 'https://push.example.com/sub-cold', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true, "uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const mockShopify = {
@@ -2711,8 +2642,8 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-silent', 'https://push.example.com/sub-silent', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-silent', 1, 'https://push.example.com/sub-silent', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const mockShopify = {
@@ -2773,8 +2704,8 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-transition', 'https://push.example.com/sub-transition', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-transition', 1, 'https://push.example.com/sub-transition', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const mockShopify = {
@@ -2831,8 +2762,8 @@ describe('Worker API Logic', () => {
 
     it('syncWorkerBoutiquePreOrders suppresses uncataloged announcements for items older than 72 hours or non-preorders', async () => {
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-uncat-old', 'https://push.example.com/sub-uncat-old', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-uncat-old', 1, 'https://push.example.com/sub-uncat-old', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const fourDaysAgo = new Date(
@@ -2907,8 +2838,8 @@ describe('Worker API Logic', () => {
 
     it('syncWorkerBoutiquePreOrders dispatches uncataloged announcement for fresh pre-order items within 72 hours', async () => {
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-uncat-fresh', 'https://push.example.com/sub-uncat-fresh', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-uncat-fresh', 1, 'https://push.example.com/sub-uncat-fresh', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const twoHoursAgo = new Date(
@@ -2974,8 +2905,8 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-sold-out', 'https://push.example.com/sub-sold-out', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-sold-out', 1, 'https://push.example.com/sub-sold-out', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const mockShopify = {
@@ -3026,13 +2957,17 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, variants, ownership_status, is_physical)
-         VALUES ('celeste-std-rel', 921, 'USA', 'Standard', 1, 1)`,
+        `INSERT INTO game_releases (id, game_id, region, variants)
+         VALUES ('celeste-std-rel', 921, 'USA', 'Standard')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+         VALUES (1, 'celeste-std-rel', 1)`,
       ).run();
 
       db.prepare(
-        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-ancient', 'https://push.example.com/sub-ancient', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-ancient', 1, 'https://push.example.com/sub-ancient', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       // Ancient listing from 2023, not a pre-order, in stock
@@ -3086,14 +3021,14 @@ describe('Worker API Logic', () => {
 
       // First release inserted is Japan and unowned
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, ownership_status, is_physical)
-         VALUES ('castlevania-jp', 930, 'Japan', 0, 1)`,
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('castlevania-jp', 930, 'Japan')`,
       ).run();
 
       // Second release inserted is USA and owned by User 1
       db.prepare(
-        `INSERT INTO game_releases (id, game_id, region, is_physical)
-         VALUES ('castlevania-usa', 930, 'USA', 1)`,
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('castlevania-usa', 930, 'USA')`,
       ).run();
       db.prepare(
         `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
@@ -3101,7 +3036,7 @@ describe('Worker API Logic', () => {
       ).run();
 
       const sessionToken = await signSession(
-        { id: 1, username: 'wesley', role: 'admin', homeRegion: 'USA' },
+        { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
         mockEnv.SESSION_SECRET!,
       );
       const req = new Request(
@@ -3195,12 +3130,16 @@ describe('Worker API Logic', () => {
            VALUES (950, 'del-game', 'Deletable Game', 26, 'likely_physical')`,
         ).run();
         db.prepare(
-          `INSERT INTO game_releases (id, game_id, region, ownership_status)
-           VALUES ('del-game-usa', 950, 'USA', 1), ('del-game-eu', 950, 'Europe', 2)`,
+          `INSERT INTO game_releases (id, game_id, region)
+           VALUES ('del-game-usa', 950, 'USA'), ('del-game-eu', 950, 'Europe')`,
         ).run();
         db.prepare(
-          `INSERT INTO journal_entries (item_type, item_id, notes)
-           VALUES ('game', 'del-game', 'bought at a flea market')`,
+          `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+           VALUES (1, 'del-game-usa', 1), (1, 'del-game-eu', 2)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO journal_entries (user_id, item_type, item_id, notes)
+           VALUES (1, 'game', 'del-game', 'bought at a flea market')`,
         ).run();
       });
 
@@ -3364,7 +3303,7 @@ describe('Worker API Logic', () => {
     describe('Multi-User, OIDC PKCE & Profile Endpoints', () => {
       it('GET /api/auth/me returns authenticated user profile and Account Hub metadata when signed in', async () => {
         const sessionToken = await signSession(
-          { id: 1, username: 'wesley', role: 'admin', homeRegion: 'USA' },
+          { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
           mockEnv.SESSION_SECRET!,
         );
         const oidcEnv: Env = {
@@ -3376,7 +3315,7 @@ describe('Worker API Logic', () => {
           'https://collection-tracker.example.com/api/auth/me',
           {
             headers: {
-              Cookie: `${SESSION_COOKIE}=${sessionToken}`,
+              Cookie: `${HOST_SESSION_COOKIE}=${sessionToken}`,
             },
           },
         );
@@ -3400,7 +3339,7 @@ describe('Worker API Logic', () => {
         expect(data.accountHubUrl).toBe(
           'https://id.example.com/account?client_id=collection-tracker',
         );
-        expect(data.user.username).toBe('wesley');
+        expect(data.user.username).toBe('alice');
         expect(data.user.email).toBeUndefined();
         expect(data.user.role).toBe('admin');
         expect(data.user.homeRegion).toBe('USA');
@@ -3446,11 +3385,11 @@ describe('Worker API Logic', () => {
 
         const setCookies = loginRes.headers.getSetCookie();
         const stateCookieHeader = setCookies.find((c) =>
-          c.startsWith(`${OIDC_STATE_COOKIE}=`),
+          c.startsWith(`${HOST_OIDC_STATE_COOKIE}=`),
         );
         expect(stateCookieHeader).toBeTruthy();
         const parsedCookie = parseCookies(stateCookieHeader!);
-        const stateCookieVal = parsedCookie[OIDC_STATE_COOKIE];
+        const stateCookieVal = parsedCookie[HOST_OIDC_STATE_COOKIE];
 
         // 2. Mock OIDC provider /token and /.well-known/jwks.json
         const b64UrlStr = (s: string) =>
@@ -3531,7 +3470,7 @@ describe('Worker API Logic', () => {
             `https://collection-tracker.example.com/api/auth/callback?code=auth-code-xyz&state=${encodeURIComponent(stateParam)}`,
             {
               headers: {
-                Cookie: `${OIDC_STATE_COOKIE}=${stateCookieVal}`,
+                Cookie: `${HOST_OIDC_STATE_COOKIE}=${stateCookieVal}`,
               },
             },
           );
@@ -3543,13 +3482,13 @@ describe('Worker API Logic', () => {
 
           const cbCookies = cbRes.headers.getSetCookie();
           const sessionCookieLine = cbCookies.find((c) =>
-            c.startsWith(`${SESSION_COOKIE}=`),
+            c.startsWith(`${HOST_SESSION_COOKIE}=`),
           );
           expect(sessionCookieLine).toBeTruthy();
 
           const sessionCookieMap = parseCookies(sessionCookieLine!);
           const verifiedSession = await verifySession(
-            sessionCookieMap[SESSION_COOKIE],
+            sessionCookieMap[HOST_SESSION_COOKIE],
             oidcEnv.SESSION_SECRET!,
           );
           expect(verifiedSession).not.toBeNull();
@@ -3622,12 +3561,12 @@ describe('Worker API Logic', () => {
 
       it('GET /api/user/profile and PUT /api/user/profile manages user settings and homeRegion', async () => {
         const adminToken = await signSession(
-          { id: 1, username: 'wesley', role: 'admin', homeRegion: 'USA' },
+          { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
           mockEnv.SESSION_SECRET!,
         );
         const authHeaders = {
           'Content-Type': 'application/json',
-          Cookie: `${SESSION_COOKIE}=${adminToken}`,
+          Cookie: `${HOST_SESSION_COOKIE}=${adminToken}`,
         };
 
         // 1. GET profile
@@ -3642,7 +3581,7 @@ describe('Worker API Logic', () => {
           homeRegion: string;
           isPublic: boolean;
         };
-        expect(initial.username).toBe('wesley');
+        expect(initial.username).toBe('alice');
         expect(initial.homeRegion).toBe('USA');
 
         // 2. PUT profile updating homeRegion, isPublic, bio
@@ -3655,7 +3594,7 @@ describe('Worker API Logic', () => {
               homeRegion: 'Japan',
               isPublic: true,
               bio: 'Retro gaming archivist',
-              displayName: 'Wes M.',
+              displayName: 'Alice M.',
             }),
           },
         );
@@ -3670,7 +3609,7 @@ describe('Worker API Logic', () => {
         expect(updated.homeRegion).toBe('Japan');
         expect(updated.isPublic).toBe(true);
         expect(updated.bio).toBe('Retro gaming archivist');
-        expect(updated.displayName).toBe('Wes M.');
+        expect(updated.displayName).toBe('Alice M.');
 
         // 3. Verify in DB
         const dbRow = db
@@ -3686,7 +3625,7 @@ describe('Worker API Logic', () => {
         expect(dbRow.home_region).toBe('Japan');
         expect(dbRow.is_public).toBe(1);
         expect(dbRow.bio).toBe('Retro gaming archivist');
-        expect(dbRow.display_name).toBe('Wes M.');
+        expect(dbRow.display_name).toBe('Alice M.');
       });
 
       it('GET /api/u/:username returns public profile, and 404 for private or missing profiles', async () => {
@@ -3700,15 +3639,16 @@ describe('Worker API Logic', () => {
 
         // Public profile lookup
         const pubReq = new Request(
-          'https://collection-tracker.example.com/api/u/wesley',
+          'https://collection-tracker.example.com/api/u/alice',
         );
         const pubRes = await worker.fetch(pubReq, mockEnv);
         expect(pubRes.status).toBe(200);
+        expect(pubRes.headers.get('Cache-Control')).toContain('s-maxage=60');
         const pubData = (await pubRes.json()) as {
           username: string;
           homeRegion: string;
         };
-        expect(pubData.username).toBe('wesley');
+        expect(pubData.username).toBe('alice');
 
         // Private profile lookup by unauthenticated guest -> 404
         const privReq = new Request(
@@ -3737,13 +3677,24 @@ describe('Worker API Logic', () => {
           'strict-origin-when-cross-origin',
         );
 
-        const logoutRes = await worker.fetch(
-          new Request('https://collection-tracker.example.com/api/auth/logout'),
-          mockEnv,
+        const htmlEnv: Env = {
+          ...mockEnv,
+          ASSETS: {
+            fetch: vi.fn().mockResolvedValue(
+              new Response('<!doctype html><html></html>', {
+                headers: { 'Content-Type': 'text/html; charset=utf-8' },
+              }),
+            ),
+          },
+        };
+        const htmlRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/'),
+          htmlEnv,
         );
-        expect(logoutRes.headers.get('Content-Security-Policy')).toContain(
-          "default-src 'self'",
-        );
+        const csp = htmlRes.headers.get('Content-Security-Policy') || '';
+        expect(csp).toContain("default-src 'self'");
+        expect(csp).toContain("script-src 'self'");
+        expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
 
         // 2. Cross-origin Origin check on POST/PUT/DELETE
         const csrfRes = await worker.fetch(
@@ -3785,7 +3736,7 @@ describe('Worker API Logic', () => {
            VALUES (2, 'user2', 0, 'USA')`,
         ).run();
         const user1Token = await signSession(
-          { id: 1, username: 'wesley', role: 'admin', homeRegion: 'USA' },
+          { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
           mockEnv.SESSION_SECRET!,
         );
         const user2Token = await signSession(
@@ -3885,7 +3836,7 @@ describe('Worker API Logic', () => {
           DB: {
             prepare: (q: string) => ({
               all: async () => {
-                if (q.includes('FROM games')) {
+                if (q.includes('FROM "games"') || q.includes('FROM games')) {
                   throw new Error('Simulated D1 read error');
                 }
                 return { results: [] };
@@ -3914,8 +3865,8 @@ describe('Worker API Logic', () => {
              VALUES (?, ?, ?, 26, 'digital_only')`,
           ).run(960 + i, `coalesce-game-${i}`, `Coalesce Game ${i}`);
           db.prepare(
-            `INSERT INTO game_releases (id, game_id, region, is_physical)
-             VALUES (?, ?, 'USA', 1)`,
+            `INSERT INTO game_releases (id, game_id, region)
+             VALUES (?, ?, 'USA')`,
           ).run(`coalesce-rel-${i}`, 960 + i);
         }
         // User 1 owns all 4 games physically; User 2 owns none
@@ -4037,20 +3988,26 @@ describe('Worker API Logic', () => {
         }
       });
 
-      it('GET /api/auth/logout?silent=1 clears session cookies and returns JSON with CORS credentials for OIDC_ISSUER', async () => {
+      it('POST /api/auth/logout?silent=1 clears session cookies and returns JSON with CORS credentials for OIDC_ISSUER', async () => {
         const oidcEnv: Env = {
           ...mockEnv,
           OIDC_ISSUER: 'https://auth.example.com',
           OIDC_CLIENT_ID: 'collection-tracker',
           SESSION_SECRET: 'test-session-secret-32-chars-minimum',
         };
+        const getRes = await worker.fetch(
+          new Request('https://tracker.example.com/api/auth/logout?silent=1'),
+          oidcEnv,
+        );
+        expect(getRes.status).toBe(405);
+
         const req = new Request(
           'https://tracker.example.com/api/auth/logout?silent=1',
           {
-            method: 'GET',
+            method: 'POST',
             headers: {
               Origin: 'https://auth.example.com',
-              Cookie: 'app_user_session=some-token',
+              Cookie: `${HOST_SESSION_COOKIE}=some-token`,
             },
           },
         );
@@ -4064,29 +4021,50 @@ describe('Worker API Logic', () => {
           'true',
         );
         const setCookie = res.headers.get('Set-Cookie') || '';
+        expect(setCookie).toContain(`${HOST_SESSION_COOKIE}=;`);
         expect(setCookie).toContain('app_user_session=;');
         expect(setCookie).toContain('Max-Age=0');
-        const body = (await res.json()) as { success: boolean };
-        expect(body).toEqual({ success: true });
+        const body = (await res.json()) as { ok: boolean; success: boolean };
+        expect(body).toEqual({ ok: true, success: true });
       });
 
-      it('POST /api/auth/logout with Origin: null clears session cookies without 403 cross-origin rejection', async () => {
+      it('POST /api/auth/logout returns 303 See Other for same-origin and blocks Origin: null', async () => {
         const oidcEnv: Env = {
           ...mockEnv,
           OIDC_ISSUER: 'https://auth.example.com',
           OIDC_CLIENT_ID: 'collection-tracker',
           SESSION_SECRET: 'test-session-secret-32-chars-minimum',
         };
-        const req = new Request('https://tracker.example.com/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            Origin: 'null',
-            Cookie: 'app_user_session=some-token',
+        const nullOriginReq = new Request(
+          'https://tracker.example.com/api/auth/logout',
+          {
+            method: 'POST',
+            headers: {
+              Origin: 'null',
+              Cookie: `${HOST_SESSION_COOKIE}=some-token`,
+            },
           },
-        });
-        const res = await worker.fetch(req, oidcEnv);
-        expect(res.status).toBe(200);
+        );
+        const nullOriginRes = await worker.fetch(nullOriginReq, oidcEnv);
+        expect(nullOriginRes.status).toBe(403);
+
+        const sameOriginReq = new Request(
+          'https://tracker.example.com/api/auth/logout',
+          {
+            method: 'POST',
+            headers: {
+              Origin: 'https://tracker.example.com',
+              Cookie: `${HOST_SESSION_COOKIE}=some-token`,
+            },
+          },
+        );
+        const res = await worker.fetch(sameOriginReq, oidcEnv);
+        expect(res.status).toBe(303);
+        expect(res.headers.get('Location')).toContain(
+          'https://auth.example.com/logout?',
+        );
         const setCookie = res.headers.get('Set-Cookie') || '';
+        expect(setCookie).toContain(`${HOST_SESSION_COOKIE}=;`);
         expect(setCookie).toContain('app_user_session=;');
         expect(setCookie).toContain('Max-Age=0');
       });
@@ -4108,14 +4086,16 @@ describe('Worker API Logic', () => {
         const state = authorizeUrl.searchParams.get('state')!;
 
         const setCookie = loginRes.headers.get('Set-Cookie') || '';
-        const stateCookieMatch = setCookie.match(/app_oidc_state=([^;]+)/);
+        const stateCookieMatch = setCookie.match(
+          /(?:__Host-)?app_oidc_state=([^;]+)/,
+        );
         expect(stateCookieMatch).not.toBeNull();
 
         const callbackReq = new Request(
           `https://tracker.example.com/api/auth/callback?error=access_denied&state=${encodeURIComponent(state)}`,
           {
             headers: {
-              Cookie: `app_oidc_state=${stateCookieMatch![1]}`,
+              Cookie: `${HOST_OIDC_STATE_COOKIE}=${stateCookieMatch![1]}`,
             },
           },
         );
@@ -4124,6 +4104,432 @@ describe('Worker API Logic', () => {
         expect(callbackRes.headers.get('Location')).toBe(
           'https://tracker.example.com/?sso=checked',
         );
+      });
+
+      it('PERF-01: POST /api/discovery/add preserves multi-user user_game_releases under PRAGMA foreign_keys = ON (0 cascade deletes, 0 writes when identical)', async () => {
+        const fkEnabled = db.pragma('foreign_keys', { simple: true });
+        expect(fkEnabled).toBe(1);
+
+        db.prepare(
+          `INSERT INTO users (id, username, is_public, home_region)
+           VALUES (2, 'bob', 1, 'Europe')`,
+        ).run();
+
+        // Initial ingest of Chrono Trigger with USA release
+        const addPayload = {
+          game: {
+            title: 'Chrono Trigger',
+            platform_id: 2,
+            igdb_id: 7777,
+            physical_status: 'verified_physical',
+            ownership_status: 1,
+            release_date: '1995-08-11',
+          },
+          releases: [
+            {
+              region: 'USA',
+              rom_name: 'Chrono Trigger (USA).sfc',
+              rom_crc: '2D206BF7',
+              ownership_status: 1,
+              backup_status: 1,
+            },
+          ],
+        };
+
+        const firstRes = await worker.fetch(
+          new Request('http://localhost/api/discovery/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(addPayload),
+          }),
+          mockEnv,
+        );
+        expect(firstRes.status).toBe(200);
+        const firstBody = (await firstRes.json()) as {
+          gameId: string;
+          stableId: number;
+        };
+
+        const relRow = db
+          .prepare('SELECT id FROM game_releases WHERE game_id = ?')
+          .get(firstBody.stableId) as { id: string };
+        expect(relRow).toBeDefined();
+
+        // Enrich both User 1 (Alice) and User 2 (Bob) ownership flags on this release
+        db.prepare(
+          `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+           VALUES (1, ?, 1, 1, 1, 1)
+           ON CONFLICT(user_id, release_id) DO UPDATE SET
+             ownership_status = 1, backup_status = 1, has_case = 1, has_manual = 1`,
+        ).run(relRow.id);
+        db.prepare(
+          `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+           VALUES (2, ?, 1, 0, 1, 0)`,
+        ).run(relRow.id);
+
+        // Track SQL changes on game_releases during identical re-ingest
+        let releaseRowChanges = 0;
+        const basePrepare = mockDb.prepare;
+        mockDb.prepare = (q: string) => {
+          const stmt = basePrepare(q);
+          if (q.includes('INSERT INTO game_releases')) {
+            return {
+              ...stmt,
+              bind: (...params: (string | number | null)[]) => {
+                const bound = stmt.bind(...params);
+                return {
+                  ...bound,
+                  run: async () => {
+                    const out = await bound.run();
+                    releaseRowChanges += out.meta.changes;
+                    return out;
+                  },
+                };
+              },
+            };
+          }
+          return stmt;
+        };
+
+        try {
+          // 1) Identical re-ingest -> 0 writes to game_releases and 0 cascade deletes!
+          const repeatRes = await worker.fetch(
+            new Request('http://localhost/api/discovery/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(addPayload),
+            }),
+            mockEnv,
+          );
+          expect(repeatRes.status).toBe(200);
+          expect(releaseRowChanges).toBe(0);
+
+          // 2) Metadata update on the same release -> updates game_releases in place without deleting user_game_releases!
+          const updatedPayload = {
+            ...addPayload,
+            releases: [
+              {
+                ...addPayload.releases[0],
+                barcode: '045496830410',
+              },
+            ],
+          };
+          const updateRes = await worker.fetch(
+            new Request('http://localhost/api/discovery/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(updatedPayload),
+            }),
+            mockEnv,
+          );
+          expect(updateRes.status).toBe(200);
+          expect(releaseRowChanges).toBe(1);
+        } finally {
+          mockDb.prepare = basePrepare;
+        }
+
+        const aliceUgr = db
+          .prepare(
+            'SELECT ownership_status, backup_status, has_case, has_manual FROM user_game_releases WHERE user_id = 1 AND release_id = ?',
+          )
+          .get(relRow.id) as {
+          ownership_status: number;
+          backup_status: number;
+          has_case: number;
+          has_manual: number;
+        };
+        const bobUgr = db
+          .prepare(
+            'SELECT ownership_status, backup_status, has_case, has_manual FROM user_game_releases WHERE user_id = 2 AND release_id = ?',
+          )
+          .get(relRow.id) as {
+          ownership_status: number;
+          backup_status: number;
+          has_case: number;
+          has_manual: number;
+        };
+
+        expect(aliceUgr).toEqual({
+          ownership_status: 1,
+          backup_status: 1,
+          has_case: 1,
+          has_manual: 1,
+        });
+        expect(bobUgr).toEqual({
+          ownership_status: 1,
+          backup_status: 0,
+          has_case: 1,
+          has_manual: 0,
+        });
+      });
+
+      it('PERF-02: syncWorkerRetailDeals incurs 0 writes on unchanged repeat runs and resets only expired sales', async () => {
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id, physical_status, retail_on_sale, retail_price, retail_regular_price, retail_discount_pct, retail_store, retail_url)
+           VALUES (980, 'active-deal-sw', 'Octopath Traveler II', 26, 'verified_physical', 0, null, null, null, null, null),
+                  (981, 'expired-deal-sw', 'Expired Sale Game', 26, 'verified_physical', 1, 1999, 5999, 67, 'VGP', 'https://videogamesplus.ca/products/expired')`,
+        ).run();
+
+        const vgpMock = {
+          products: [
+            {
+              id: 501,
+              title: 'Octopath Traveler II - Nintendo Switch',
+              handle: 'octopath-traveler-ii-switch',
+              tags: ['Nintendo Switch'],
+              variants: [
+                {
+                  price: '29.99',
+                  compare_at_price: '59.99',
+                  available: true,
+                },
+              ],
+            },
+          ],
+        };
+
+        let gameRowWrites = 0;
+        const basePrepare = mockDb.prepare;
+        mockDb.prepare = (q: string) => {
+          const stmt = basePrepare(q);
+          if (q.includes('UPDATE games')) {
+            return {
+              ...stmt,
+              bind: (...params: (string | number | null)[]) => {
+                const bound = stmt.bind(...params);
+                return {
+                  ...bound,
+                  run: async () => {
+                    const out = await bound.run();
+                    gameRowWrites += out.meta.changes;
+                    return out;
+                  },
+                };
+              },
+            };
+          }
+          return stmt;
+        };
+
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input) => {
+            const urlStr = String(input);
+            if (urlStr.includes('videogamesplus.ca')) {
+              return new Response(JSON.stringify(vgpMock), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+            return new Response(JSON.stringify({ products: [], records: [] }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          });
+
+        try {
+          // Run 1: activates game 980 and expires game 981 (2 row updates)
+          await syncWorkerRetailDeals(mockEnv);
+          expect(gameRowWrites).toBe(2);
+
+          const activeRow = db
+            .prepare(
+              'SELECT retail_on_sale, retail_price FROM games WHERE stable_id = 980',
+            )
+            .get() as { retail_on_sale: number; retail_price: number };
+          const expiredRow = db
+            .prepare('SELECT retail_on_sale FROM games WHERE stable_id = 981')
+            .get() as { retail_on_sale: number };
+          expect(activeRow).toEqual({ retail_on_sale: 1, retail_price: 2189 });
+          expect(expiredRow.retail_on_sale).toBe(0);
+
+          // Run 2 with identical retail feed -> 0 D1 row writes!
+          gameRowWrites = 0;
+          await syncWorkerRetailDeals(mockEnv);
+          expect(gameRowWrites).toBe(0);
+        } finally {
+          mockDb.prepare = basePrepare;
+          fetchSpy.mockRestore();
+        }
+      });
+
+      it('syncOrResolveOidcUser enforces oidc_sub binding, requires email_verified for legacy link, and disambiguates username collisions', async () => {
+        const oidcEnv: Env = {
+          ...mockEnv,
+          ADMIN_EMAIL: 'admin@example.com',
+        };
+
+        // 1. Unverified email matching ADMIN_EMAIL must NOT link User 1; provisions separate user with disambiguated username if colliding with 'alice'
+        const unverifiedClaims = {
+          iss: 'https://id.example.com',
+          sub: 'sub-attacker-unverified',
+          aud: 'collection-tracker',
+          exp: Math.floor(Date.now() / 1000) + 600,
+          iat: Math.floor(Date.now() / 1000),
+          email: 'admin@example.com',
+          email_verified: false,
+          preferred_username: 'alice',
+        };
+        const unverifiedUser = await syncOrResolveOidcUser(
+          oidcEnv,
+          unverifiedClaims,
+          'https://collection-tracker.example.com/api/auth/callback',
+        );
+        expect(unverifiedUser.id).not.toBe(1);
+        expect(unverifiedUser.username).toMatch(/^alice_[a-z0-9]+$/);
+        expect(unverifiedUser.oidc_sub).toBe('sub-attacker-unverified');
+
+        // 2. Verified ADMIN_EMAIL links legacy User 1 (where oidc_sub IS NULL) and binds oidc_sub
+        const verifiedAdminClaims = {
+          iss: 'https://id.example.com',
+          sub: 'sub-real-admin',
+          aud: 'collection-tracker',
+          exp: Math.floor(Date.now() / 1000) + 600,
+          iat: Math.floor(Date.now() / 1000),
+          email: 'admin@example.com',
+          email_verified: true,
+          preferred_username: 'alice',
+        };
+        const linkedAdmin = await syncOrResolveOidcUser(
+          oidcEnv,
+          verifiedAdminClaims,
+          'https://collection-tracker.example.com/api/auth/callback',
+        );
+        expect(linkedAdmin.id).toBe(1);
+        expect(linkedAdmin.oidc_sub).toBe('sub-real-admin');
+
+        // 3. Returning login resolves directly by immutable oidc_sub
+        const returningAdmin = await syncOrResolveOidcUser(
+          oidcEnv,
+          { ...verifiedAdminClaims, preferred_username: 'alice_renamed' },
+          'https://collection-tracker.example.com/api/auth/callback',
+        );
+        expect(returningAdmin.id).toBe(1);
+        expect(returningAdmin.username).toBe('alice_renamed');
+      });
+
+      it('deterministically evicts /api/u/:username* from Edge Cache on privacy toggle and enforces rate limits & https:// URL validation', async () => {
+        const cachedMap = new Map<string, Response>();
+        const deletedKeys: string[] = [];
+        const mockCache = {
+          match: vi.fn(async (req: RequestInfo | URL) => {
+            const key = req instanceof Request ? req.url : String(req);
+            return cachedMap.get(key)?.clone();
+          }),
+          put: vi.fn(async (req: RequestInfo | URL, res: Response) => {
+            const key = req instanceof Request ? req.url : String(req);
+            cachedMap.set(key, res.clone());
+          }),
+          delete: vi.fn(async (req: RequestInfo | URL) => {
+            const key = req instanceof Request ? req.url : String(req);
+            deletedKeys.push(key);
+            return cachedMap.delete(key);
+          }),
+        };
+        vi.stubGlobal('caches', { default: mockCache });
+
+        try {
+          // Prime public profile cache across another isolate (without relying on in-memory Set)
+          await worker.fetch(
+            new Request('https://collection-tracker.example.com/api/u/alice'),
+            mockEnv,
+          );
+          expect(
+            cachedMap.has('https://collection-tracker.example.com/api/u/alice'),
+          ).toBe(true);
+
+          const adminToken = await signSession(
+            { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
+            mockEnv.SESSION_SECRET!,
+          );
+          const privToggleRes = await worker.fetch(
+            new Request(
+              'https://collection-tracker.example.com/api/user/profile',
+              {
+                method: 'PUT',
+                headers: {
+                  Origin: 'https://collection-tracker.example.com',
+                  'Content-Type': 'application/json',
+                  Cookie: `${HOST_SESSION_COOKIE}=${adminToken}`,
+                },
+                body: JSON.stringify({ isPublic: false }),
+              },
+            ),
+            mockEnv,
+          );
+          expect(privToggleRes.status).toBe(200);
+          expect(deletedKeys).toContain(
+            'https://collection-tracker.example.com/api/u/alice',
+          );
+          expect(deletedKeys).toContain(
+            'https://collection-tracker.example.com/api/u/alice/games',
+          );
+          expect(deletedKeys).toContain(
+            'https://collection-tracker.example.com/api/u/alice/toys',
+          );
+
+          // Missing Content-Type: application/json returns 415
+          const badCtRes = await worker.fetch(
+            new Request('http://localhost/api/collection/toggle', {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain' },
+              body: JSON.stringify({ id: 'mario', type: 'game', status: 1 }),
+            }),
+            mockEnv,
+          );
+          expect(badCtRes.status).toBe(415);
+
+          // Reject http:// external URLs on discovery add & add-toy
+          const badUrlGameRes = await worker.fetch(
+            new Request('http://localhost/api/discovery/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                game: {
+                  title: 'Insecure URL Game',
+                  platform_id: 1,
+                  igdb_url: 'http://insecure.example.com/game',
+                },
+                releases: [],
+              }),
+            }),
+            mockEnv,
+          );
+          expect(badUrlGameRes.status).toBe(400);
+
+          const badUrlToyRes = await worker.fetch(
+            new Request('http://localhost/api/discovery/add-toy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: 'Insecure Toy',
+                line: 'amiibo',
+                scl_url: 'javascript:alert(1)',
+              }),
+            }),
+            mockEnv,
+          );
+          expect(badUrlToyRes.status).toBe(400);
+
+          // Rate limiting on /api/notifications/test (> 5/min -> 429)
+          let lastStatus = 0;
+          for (let i = 0; i < 6; i++) {
+            const testPushRes = await worker.fetch(
+              new Request('http://localhost/api/notifications/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  endpoint: 'https://fcm.googleapis.com/fcm/send/missing',
+                }),
+              }),
+              mockEnv,
+            );
+            lastStatus = testPushRes.status;
+          }
+          expect(lastStatus).toBe(429);
+        } finally {
+          vi.unstubAllGlobals();
+        }
       });
     });
   });

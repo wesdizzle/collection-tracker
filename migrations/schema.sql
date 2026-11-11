@@ -1,5 +1,7 @@
--- Migration: 0001_initial_schema.sql
--- Description: Canonical database schema and base reference catalog (platforms and toy_series).
+-- Canonical Schema: migrations/schema.sql
+-- Description: Declarative database schema, indexes, and base reference catalog (platforms and toy_series).
+
+PRAGMA foreign_keys = ON;
 
 -- ============================================================================
 -- 1. CORE CATALOG & REFERENCE TABLES
@@ -136,6 +138,7 @@ CREATE TABLE IF NOT EXISTS ignored_items (
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    oidc_sub TEXT,
     is_public INTEGER NOT NULL DEFAULT 0 CHECK (is_public IN (0, 1)),
     home_region TEXT NOT NULL DEFAULT 'USA',
     display_name TEXT,
@@ -220,7 +223,10 @@ CREATE TABLE IF NOT EXISTS cron_execution_logs (
 -- 3. INDEXES
 -- ============================================================================
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub) WHERE oidc_sub IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_games_id ON games (id);
+CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id) WHERE igdb_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_games_platform_id ON games (platform_id);
 CREATE INDEX IF NOT EXISTS idx_games_canonical_series ON games (canonical_series);
 CREATE INDEX IF NOT EXISTS idx_games_bundle_parent ON games (bundle_parent_id);
@@ -256,6 +262,7 @@ CREATE INDEX IF NOT EXISTS idx_ug_game ON user_games (game_id);
 CREATE INDEX IF NOT EXISTS idx_ut_toy ON user_toys (toy_id);
 CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions (user_id);
 CREATE INDEX IF NOT EXISTS idx_cron_logs_job_date ON cron_execution_logs (job_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cron_logs_created_at ON cron_execution_logs(created_at);
 
 -- ============================================================================
 -- 4. BASE REFERENCE CATALOG (PLATFORMS & TOY SERIES)

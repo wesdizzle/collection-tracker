@@ -24,12 +24,15 @@
 
       <div class="compact-table-body">
         @for (game of games(); track game.id) {
-          <a
-            [routerLink]="['/game', game.id]"
-            class="compact-table-row state-layer"
-          >
+          <div class="compact-table-row state-layer">
+            <a
+              [routerLink]="['/game', game.id]"
+              class="row-primary-link"
+              [attr.aria-label]="game.title"
+            ></a>
             <div class="col-status">
               <button
+                type="button"
                 class="row-status-btn state-layer interactive"
                 [class]="'status-' + game.ownership_status"
                 [title]="
@@ -389,7 +392,7 @@
                 <span class="empty-cell-dash">-</span>
               }
             </div>
-          </a>
+          </div>
         }
       </div>
     </div>
@@ -409,12 +412,15 @@
 
       <div class="compact-table-body toys-body">
         @for (toy of toys(); track toy.id) {
-          <a
-            [routerLink]="['/toy', toy.id]"
-            class="compact-table-row state-layer toys-row"
-          >
+          <div class="compact-table-row state-layer toys-row">
+            <a
+              [routerLink]="['/toy', toy.id]"
+              class="row-primary-link"
+              [attr.aria-label]="toy.name"
+            ></a>
             <div class="col-status">
               <button
+                type="button"
                 class="row-status-btn state-layer interactive"
                 [class]="'status-' + toy.ownership_status"
                 [title]="
@@ -522,7 +528,7 @@
                 {{ toy.region }}
               </span>
             </div>
-          </a>
+          </div>
         }
       </div>
     </div>

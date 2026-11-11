@@ -40,6 +40,7 @@ import {
   normalizeJournalDatePayload,
   normalizeMerchantName,
   normalizeReceiptUrl,
+  parseGameMetadataOnce,
   resolveLocalizedReleaseTitle,
   postProcessGameListRows,
   postProcessToyListRows,
@@ -70,15 +71,12 @@ import {
   RetailDealItem,
 } from '../scripts/lib/bestbuy';
 import {
-  DEFAULT_VAPID_PUBLIC_KEY,
   sendWebPushNotification,
   resolveVapidSubject,
   isAllowedPushEndpoint,
   WebPushNotificationPayload,
 } from './web_push';
 import {
-  SESSION_COOKIE,
-  OIDC_STATE_COOKIE,
   OIDC_STATE_TTL_SECONDS,
   DEFAULT_SESSION_DAYS,
   SessionUser,
@@ -89,17 +87,26 @@ import {
   computePkceCodeChallenge,
   signOidcStateCookie,
   verifyOidcStateCookie,
-  buildOidcStateCookie,
-  clearOidcStateCookie,
   verifyOidcIdToken,
   parseCookies,
-  buildSessionCookie,
-  clearSessionCookie,
   isLoopbackRequest,
+  isSecureOrigin,
+  readSessionCookie,
+  readOidcStateCookie,
+  serializeSessionCookie,
+  serializeClearSessionCookies,
+  serializeOidcStateCookie,
+  serializeClearOidcStateCookies,
+  sanitizeReturnToPath,
+  resolveStrongSecret,
+  isCrossOriginMutatingRequest,
+  buildCspHeader,
+  kitWithSecurityHeaders,
   timingSafeEqualStrings,
   ALLOWED_HOME_REGIONS,
   normalizeHomeRegion,
 } from './auth';
+import { performScheduledBackup as kitPerformScheduledBackup } from '@wesdizzle/app-kit/worker';
 import {
   fetchBoutiquePreOrders,
   BoutiquePreOrder,
@@ -199,12 +206,20 @@ async function putEdgeCacheEntry(
   await edgeCache.put(cacheKey, response.clone()).catch(() => {});
 }
 
+export interface EdgeCacheInvalidationOptions {
+  userId?: number;
+  username?: string;
+  previousUsername?: string;
+}
+
 /**
- * Invalidates Cloudflare Edge Cache entries for public collection endpoints
- * whenever a mutation occurs or prices are refreshed.
+ * Invalidates Cloudflare Edge Cache entries for public collection endpoints,
+ * public user profiles (`/api/u/<username>*`), and authenticated user-scoped
+ * `?__uid=` cache keys across isolates whenever a mutation occurs.
  */
 export async function invalidateEdgeApiCache(
   originUrl?: string,
+  options?: EdgeCacheInvalidationOptions,
 ): Promise<void> {
   const edgeCache = await getEdgeCache();
   if (!edgeCache) return;
@@ -223,15 +238,55 @@ export async function invalidateEdgeApiCache(
         // ignoreSearch may not be supported in all environments
       }
     }
-    // Also deterministically purge primary user-scoped edge cache keys across isolates
-    await edgeCache
-      .delete(new Request(`${origin}/api/toys?__uid=1`))
-      .catch(() => {});
-    for (const reg of ALLOWED_HOME_REGIONS) {
+
+    // Deterministically purge user-scoped edge cache keys across isolates
+    const userIds = Array.from(
+      new Set([1, ...(options?.userId ? [options.userId] : [])]),
+    );
+    for (const uid of userIds) {
       await edgeCache
-        .delete(new Request(`${origin}/api/games?__uid=1&__reg=${reg}`))
+        .delete(new Request(`${origin}/api/toys?__uid=${uid}`))
         .catch(() => {});
+      await edgeCache
+        .delete(new Request(`${origin}/api/games?__uid=${uid}`))
+        .catch(() => {});
+      for (const reg of ALLOWED_HOME_REGIONS) {
+        await edgeCache
+          .delete(new Request(`${origin}/api/games?__uid=${uid}&__reg=${reg}`))
+          .catch(() => {});
+      }
     }
+
+    // Deterministically purge public profile `/api/u/<username>*` keys across isolates
+    const usernames = Array.from(
+      new Set(
+        [
+          options?.username,
+          options?.username?.toLowerCase(),
+          options?.previousUsername,
+          options?.previousUsername?.toLowerCase(),
+        ].filter((u): u is string => Boolean(u && u.trim().length > 0)),
+      ),
+    );
+    for (const u of usernames) {
+      const encoded = encodeURIComponent(u.trim());
+      const profilePaths = [
+        `/api/u/${encoded}`,
+        `/api/u/${encoded}/games`,
+        `/api/u/${encoded}/toys`,
+      ];
+      for (const up of profilePaths) {
+        await edgeCache.delete(new Request(`${origin}${up}`)).catch(() => {});
+        try {
+          await edgeCache.delete(new Request(`${origin}${up}`), {
+            ignoreSearch: true,
+          });
+        } catch {
+          // ignoreSearch may not be supported in all environments
+        }
+      }
+    }
+
     for (const urlStr of trackedEdgeCacheUrls) {
       await edgeCache.delete(new Request(urlStr)).catch(() => {});
     }
@@ -239,6 +294,83 @@ export async function invalidateEdgeApiCache(
   } catch (err) {
     console.warn('[invalidateEdgeApiCache] Failed to purge edge cache:', err);
   }
+}
+
+const workerRateLimitBuckets = new Map<string, number[]>();
+
+export function resetWorkerRateLimits(): void {
+  workerRateLimitBuckets.clear();
+}
+
+function getRateLimitClientKey(
+  request: Request,
+  sessionUser?: SessionUser | null,
+): string {
+  const cfIp = request.headers.get('CF-Connecting-IP')?.trim();
+  if (cfIp) return `ip:${cfIp}`;
+  const xff = request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim();
+  if (xff) return `ip:${xff}`;
+  if (sessionUser) return `user:${sessionUser.id}`;
+  return 'anon';
+}
+
+function checkWorkerRateLimit(
+  bucket: string,
+  clientKey: string,
+  maxRequests: number,
+  windowMs: number,
+): { allowed: boolean; retryAfterSec: number } {
+  const now = Date.now();
+  const compositeKey = `${bucket}:${clientKey}`;
+  const existing = workerRateLimitBuckets.get(compositeKey) || [];
+  const active = existing.filter((ts) => now - ts < windowMs);
+  if (active.length >= maxRequests) {
+    workerRateLimitBuckets.set(compositeKey, active);
+    const oldest = active[0] ?? now;
+    const retryAfterSec = Math.max(
+      1,
+      Math.ceil((windowMs - (now - oldest)) / 1000),
+    );
+    return { allowed: false, retryAfterSec };
+  }
+  active.push(now);
+  if (workerRateLimitBuckets.size > 2000) {
+    for (const [k, timestamps] of workerRateLimitBuckets) {
+      if (timestamps.every((ts) => now - ts >= windowMs)) {
+        workerRateLimitBuckets.delete(k);
+      }
+    }
+  }
+  workerRateLimitBuckets.set(compositeKey, active);
+  return { allowed: true, retryAfterSec: 0 };
+}
+
+function isValidHttpsExternalUrl(raw: unknown): boolean {
+  if (raw === null || raw === undefined || raw === '') return true;
+  if (typeof raw !== 'string') return false;
+  const trimmed = raw.trim();
+  if (!trimmed) return true;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
+function isValidCatalogImageUrl(raw: unknown): boolean {
+  if (raw === null || raw === undefined || raw === '') return true;
+  if (typeof raw !== 'string') return false;
+  const trimmed = raw.trim();
+  if (!trimmed) return true;
+  if (
+    trimmed.startsWith('/') &&
+    !trimmed.startsWith('//') &&
+    !trimmed.includes('\\')
+  ) {
+    return true;
+  }
+  return isValidHttpsExternalUrl(trimmed);
 }
 
 let cachedPlatformMetadata: {
@@ -384,52 +516,89 @@ export async function queryIGDBEdge(
   return (await res.json()) as unknown[];
 }
 
+const LOOPBACK_DEV_ORIGINS = new Set([
+  'http://localhost:4200',
+  'http://127.0.0.1:4200',
+]);
+
+const WORKER_HTML_CSP = buildCspHeader({
+  scriptSrc: "'self'",
+  styleSrc: "'self' 'unsafe-inline' https://fonts.googleapis.com",
+  fontSrc: "'self' https://fonts.gstatic.com data:",
+  imgSrc: "'self' https: data: blob:",
+  connectSrc: "'self' https:",
+  workerSrc: "'self' blob:",
+});
+
+const JSON_BODY_MUTATION_PATHS = new Set([
+  '/api/user/profile',
+  '/api/collection/toggle',
+  '/api/collection/sort',
+  '/api/discovery/add',
+  '/api/discovery/add-toy',
+  '/api/journal',
+  '/api/notifications/subscribe',
+  '/api/notifications/preferences',
+  '/api/notifications/unsubscribe',
+  '/api/notifications/test',
+]);
+
+const BACKUP_TABLES = [
+  'platforms',
+  'toy_series',
+  'ignored_items',
+  'games',
+  'toys',
+  'toy_game_compatibility',
+  'game_releases',
+  'push_subscriptions',
+  'sync_state',
+  'journal_entries',
+  'users',
+  'user_game_releases',
+  'user_games',
+  'user_toys',
+] as const;
+
 /**
  * Resolves the session signing secret.
- * On non-loopback requests, requires an explicit SESSION_SECRET binding.
- * On loopback requests, allows fallback to ADMIN_KEY or local dev secret.
+ * On non-loopback requests, requires a strong (>= 32 char, non-placeholder) SESSION_SECRET binding.
+ * On loopback requests, allows fallback to ADMIN_KEY or a local dev secret.
  */
 export function getSessionSecret(env: Env, url: URL): string | null {
-  if (env.SESSION_SECRET && env.SESSION_SECRET.trim().length > 0) {
-    return env.SESSION_SECRET;
+  const isLoopback = isLoopbackRequest(url);
+  const raw = env.SESSION_SECRET?.trim();
+  if (!isLoopback) {
+    if (!raw || raw === 'dev-insecure-session-secret-change-me') {
+      return null;
+    }
+    try {
+      return resolveStrongSecret(raw, 'SESSION_SECRET', false);
+    } catch {
+      return null;
+    }
   }
-  if (isLoopbackRequest(url)) {
-    return env.ADMIN_KEY || 'dev-insecure-session-secret-change-me';
+  if (raw && raw.length > 0) {
+    return raw;
   }
-  return null;
+  return (
+    env.ADMIN_KEY || 'dev-only-collection-tracker-local-session-secret-32c'
+  );
 }
 
 /**
- * Applies standard security headers (and Content-Security-Policy on HTML responses)
+ * Applies standard security headers (HSTS on HTTPS, Permissions-Policy, XFO, nosniff,
+ * Referrer-Policy, and strict Content-Security-Policy without 'unsafe-inline' in script-src)
  * to outgoing Worker responses.
  */
-export function withSecurityHeaders(res: Response): Response {
-  const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
-  const isHtml = contentType.includes('text/html');
-  const csp =
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' https: data: blob:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'";
-  try {
-    res.headers.set('X-Content-Type-Options', 'nosniff');
-    res.headers.set('X-Frame-Options', 'DENY');
-    res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-    if (isHtml && !res.headers.has('Content-Security-Policy')) {
-      res.headers.set('Content-Security-Policy', csp);
-    }
-    return res;
-  } catch {
-    const headers = new Headers(res.headers);
-    headers.set('X-Content-Type-Options', 'nosniff');
-    headers.set('X-Frame-Options', 'DENY');
-    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-    if (isHtml && !headers.has('Content-Security-Policy')) {
-      headers.set('Content-Security-Policy', csp);
-    }
-    return new Response(res.body, {
-      status: res.status,
-      statusText: res.statusText,
-      headers,
-    });
-  }
+export function withSecurityHeaders(
+  res: Response,
+  includeHsts: boolean = true,
+): Response {
+  return kitWithSecurityHeaders(res, {
+    htmlCsp: WORKER_HTML_CSP,
+    includeHsts,
+  });
 }
 
 export function getOidcIssuer(env: Env): string | null {
@@ -453,27 +622,73 @@ export function getAccountHubUrl(env: Env): string | null {
 interface DbUserRow {
   id: number;
   username: string;
+  oidc_sub?: string | null;
   is_public: number;
   home_region: string | null;
   display_name: string | null;
   bio: string | null;
 }
 
+async function resolveUniqueOidcUsername(
+  env: Env,
+  desiredUsername: string,
+  excludeUserId?: number,
+): Promise<string> {
+  const base = desiredUsername.trim() || 'collector';
+  const existingOwner = (await env.DB.prepare(
+    'SELECT id FROM users WHERE username = ? COLLATE NOCASE',
+  )
+    .bind(base)
+    .first()) as { id: number } | null;
+
+  if (
+    !existingOwner ||
+    (excludeUserId !== undefined && existingOwner.id === excludeUserId)
+  ) {
+    return base;
+  }
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const suffix =
+      generateRandomBase64Url(4)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .slice(0, 6) || Math.random().toString(36).slice(2, 8);
+    const candidate = `${base}_${suffix}`;
+    const conflict = (await env.DB.prepare(
+      'SELECT id FROM users WHERE username = ? COLLATE NOCASE',
+    )
+      .bind(candidate)
+      .first()) as { id: number } | null;
+    if (!conflict) {
+      return candidate;
+    }
+  }
+  return `${base}_${Date.now().toString(36)}`;
+}
+
 /**
  * Synchronizes or resolves a verified OIDC user against the D1 `users` table.
- * Performs diff-only updates so unchanged repeat logins incur 0 D1 writes.
+ * - Binds returning users by immutable `oidc_sub` first.
+ * - Links pre-seeded row `id = 1` (`oidc_sub IS NULL`) ONLY when `claims.email_verified === true`
+ *   and `claims.email` matches `env.ADMIN_EMAIL`. Never links by mutable `username`!
+ * - Disambiguates colliding `preferred_username` values with a short random suffix.
+ * - Performs diff-only updates so unchanged repeat logins incur 0 D1 writes.
  */
 export async function syncOrResolveOidcUser(
   env: Env,
   claims: OidcIdTokenClaims,
   requestUrl?: string,
 ): Promise<DbUserRow> {
-  const numericSub = /^\d+$/.test(claims.sub) ? parseInt(claims.sub, 10) : NaN;
+  const sub = String(claims.sub || '').trim();
+  if (!sub) {
+    throw new Error('Missing OIDC subject claim.');
+  }
   const rawEmail = (claims.email || '').toLowerCase().trim();
   const rawUsername = (
     claims.preferred_username ||
     (rawEmail ? rawEmail.split('@')[0] : '') ||
-    `user_${claims.sub}`
+    `user_${sub}`
   ).trim();
   const claimDisplayName =
     typeof claims.name === 'string' && claims.name.trim().length > 0
@@ -481,43 +696,82 @@ export async function syncOrResolveOidcUser(
       : null;
 
   const selectCols =
-    'SELECT id, username, is_public, home_region, display_name, bio FROM users';
+    'SELECT id, username, oidc_sub, is_public, home_region, display_name, bio FROM users';
 
-  let existing: DbUserRow | null = null;
-  if (Number.isInteger(numericSub) && numericSub > 0) {
-    existing = (await env.DB.prepare(`${selectCols} WHERE id = ?`)
-      .bind(numericSub)
-      .first()) as DbUserRow | null;
-  }
-  if (!existing && rawUsername) {
+  let existing = (await env.DB.prepare(
+    `${selectCols} WHERE oidc_sub = ? AND oidc_sub IS NOT NULL`,
+  )
+    .bind(sub)
+    .first()) as DbUserRow | null;
+
+  if (
+    !existing &&
+    claims.email_verified === true &&
+    rawEmail &&
+    env.ADMIN_EMAIL &&
+    rawEmail === env.ADMIN_EMAIL.trim().toLowerCase()
+  ) {
     existing = (await env.DB.prepare(
-      `${selectCols} WHERE username = ? COLLATE NOCASE`,
-    )
-      .bind(rawUsername)
-      .first()) as DbUserRow | null;
+      `${selectCols} WHERE id = 1 AND oidc_sub IS NULL`,
+    ).first()) as DbUserRow | null;
   }
 
   if (existing) {
-    const nextUsername = rawUsername || existing.username;
+    let nextUsername = existing.username;
+    if (
+      rawUsername &&
+      rawUsername.toLowerCase() !== existing.username.toLowerCase()
+    ) {
+      const alreadyDisambiguated = existing.username
+        .toLowerCase()
+        .startsWith(`${rawUsername.toLowerCase()}_`);
+      const ownerOfRaw = (await env.DB.prepare(
+        'SELECT id FROM users WHERE username = ? COLLATE NOCASE',
+      )
+        .bind(rawUsername)
+        .first()) as { id: number } | null;
+
+      if (!ownerOfRaw || ownerOfRaw.id === existing.id) {
+        nextUsername = rawUsername;
+      } else if (!alreadyDisambiguated) {
+        nextUsername = await resolveUniqueOidcUsername(
+          env,
+          rawUsername,
+          existing.id,
+        );
+      }
+    }
+
     const nextDisplayName = existing.display_name || claimDisplayName;
     const usernameChanged = existing.username !== nextUsername;
-
+    const oidcSubMissing = !existing.oidc_sub;
     const needsUpdate =
-      usernameChanged || (!existing.display_name && Boolean(claimDisplayName));
+      oidcSubMissing ||
+      usernameChanged ||
+      (!existing.display_name && Boolean(claimDisplayName));
 
     if (needsUpdate) {
+      const prevUsername = existing.username;
       await env.DB.prepare(
         `UPDATE users
-         SET username = ?, display_name = COALESCE(display_name, ?), updated_at = CURRENT_TIMESTAMP
+         SET oidc_sub = COALESCE(oidc_sub, ?),
+             username = ?,
+             display_name = COALESCE(display_name, ?),
+             updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
       )
-        .bind(nextUsername, claimDisplayName, existing.id)
+        .bind(sub, nextUsername, claimDisplayName, existing.id)
         .run();
       if (usernameChanged) {
-        await invalidateEdgeApiCache(requestUrl);
+        await invalidateEdgeApiCache(requestUrl, {
+          userId: existing.id,
+          username: nextUsername,
+          previousUsername: prevUsername,
+        });
       }
       existing = {
         ...existing,
+        oidc_sub: existing.oidc_sub || sub,
         username: nextUsername,
         display_name: nextDisplayName,
       };
@@ -525,30 +779,21 @@ export async function syncOrResolveOidcUser(
     return existing;
   }
 
-  // Provision new user in D1
-  if (Number.isInteger(numericSub) && numericSub > 0) {
-    await env.DB.prepare(
-      `INSERT INTO users (id, username, is_public, home_region, display_name)
-       VALUES (?, ?, 0, 'USA', ?)`,
-    )
-      .bind(numericSub, rawUsername, claimDisplayName)
-      .run();
-    const created = (await env.DB.prepare(`${selectCols} WHERE id = ?`)
-      .bind(numericSub)
-      .first()) as DbUserRow | null;
-    if (created) return created;
-  }
-
+  const uniqueUsername = await resolveUniqueOidcUsername(
+    env,
+    rawUsername || `user_${sub}`,
+  );
   await env.DB.prepare(
-    `INSERT INTO users (username, is_public, home_region, display_name)
-     VALUES (?, 0, 'USA', ?)`,
+    `INSERT INTO users (username, oidc_sub, is_public, home_region, display_name)
+     VALUES (?, ?, 0, 'USA', ?)`,
   )
-    .bind(rawUsername, claimDisplayName)
+    .bind(uniqueUsername, sub, claimDisplayName)
     .run();
+
   const created = (await env.DB.prepare(
-    `${selectCols} WHERE username = ? COLLATE NOCASE`,
+    `${selectCols} WHERE oidc_sub = ? AND oidc_sub IS NOT NULL`,
   )
-    .bind(rawUsername)
+    .bind(sub)
     .first()) as DbUserRow | null;
   if (!created) {
     throw new Error('Failed to provision OIDC user in D1.');
@@ -557,8 +802,36 @@ export async function syncOrResolveOidcUser(
 }
 
 /**
- * Resolves the authenticated SessionUser from the signed session cookie (app_user_session),
- * constant-time admin key header, or local loopback dev environment fallback.
+ * Determines whether synthetic loopback developer admin auto-elevation is safe:
+ * - Must be a loopback host (`localhost`, `127.0.0.1`, `[::1]`)
+ * - Disabled whenever `OIDC_ISSUER` is configured
+ * - Disabled whenever `Sec-Fetch-Site` or `Origin` indicates a cross-site / drive-by request
+ */
+function isSafeLoopbackDevBypass(
+  request: Request,
+  url: URL,
+  env: Env,
+): boolean {
+  if (!isLoopbackRequest(url)) return false;
+  if (getOidcIssuer(env)) return false;
+  const secFetchSite = request.headers.get('Sec-Fetch-Site')?.toLowerCase();
+  if (secFetchSite === 'cross-site' || secFetchSite === 'same-site') {
+    return false;
+  }
+  const originHeader = request.headers.get('Origin');
+  if (
+    originHeader !== null &&
+    originHeader !== url.origin &&
+    !LOOPBACK_DEV_ORIGINS.has(originHeader)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Resolves the authenticated SessionUser from the signed session cookie (`__Host-app_user_session`
+ * or `app_user_session`), constant-time admin key header, or safe local loopback dev fallback.
  */
 export async function resolveSessionUser(
   request: Request,
@@ -568,7 +841,7 @@ export async function resolveSessionUser(
   const url = new URL(request.url);
   const cookieHeader = request.headers.get('Cookie');
   const cookies = parseCookies(cookieHeader);
-  const token = cookies[SESSION_COOKIE];
+  const token = readSessionCookie(cookies);
   const secret = getSessionSecret(env, url);
 
   if (token && secret) {
@@ -579,12 +852,11 @@ export async function resolveSessionUser(
   }
 
   const adminKey = request.headers.get('x-admin-key');
-  // Constant-time Admin key header or loopback dev bypass for local testing only
   if (
     (env.ADMIN_KEY &&
       adminKey &&
       timingSafeEqualStrings(adminKey, env.ADMIN_KEY)) ||
-    isLoopbackRequest(url)
+    isSafeLoopbackDevBypass(request, url, env)
   ) {
     return {
       id: 1,
@@ -599,12 +871,7 @@ export async function resolveSessionUser(
 
 /**
  * Validates whether the incoming request is authorized to execute admin actions.
- * Supports explicit sessionUser role verification, constant-time admin key, and loopback localhost testing.
- *
- * @param request The incoming HTTP Request
- * @param env Cloudflare worker environment bindings
- * @param sessionUser Optional pre-resolved session user
- * @returns true if authorized, false otherwise
+ * Supports explicit sessionUser role verification, constant-time admin key, and safe loopback dev testing.
  */
 export function isAuthorizedAdmin(
   request: Request,
@@ -626,8 +893,8 @@ export function isAuthorizedAdmin(
     return true;
   }
 
-  // 2. Loopback local dev bypass
-  if (isLoopbackRequest(url)) {
+  // 2. Safe loopback local dev bypass (only when OIDC_ISSUER is unset and not cross-site)
+  if (isSafeLoopbackDevBypass(request, url, env)) {
     return true;
   }
 
@@ -664,157 +931,47 @@ export async function logCronExecution(
 }
 
 /**
- * Dumps all tables from D1 and writes an immutable snapshot to Cloudflare R2.
- *
- * @param env Cloudflare worker environment bindings
- * @returns Summary object containing table counts and written snapshot key
+ * Dumps all tables from D1 and writes a compact SHA-256 deduplicated snapshot to Cloudflare R2
+ * via `@wesdizzle/app-kit/worker`.
  */
 export async function performScheduledBackup(
   env: Env,
   isDaily: boolean = false,
-): Promise<{ key: string; rowCount: number }> {
-  if (!env.BACKUP_BUCKET) {
-    console.warn(
-      '[WorkerBackup] BACKUP_BUCKET binding not configured. Skipping snapshot.',
-    );
-    return { key: 'none', rowCount: 0 };
-  }
-
-  const tables = [
-    'platforms',
-    'toy_series',
-    'ignored_items',
-    'games',
-    'toys',
-    'toy_game_compatibility',
-    'game_releases',
-    'push_subscriptions',
-    'sync_state',
-    'journal_entries',
-    'users',
-    'user_game_releases',
-    'user_games',
-    'user_toys',
-  ];
-
-  const backupData: Record<string, unknown[]> = {};
-  let totalRows = 0;
-
-  for (const table of tables) {
-    try {
-      const { results } = await env.DB.prepare(`SELECT * FROM ${table}`).all();
-      backupData[table] = results || [];
-      totalRows += (results || []).length;
-    } catch (err) {
-      console.error(`[WorkerBackup] Failed to dump table ${table}:`, err);
-      throw new Error(
-        `Aborted backup to prevent partial overwrite: failed dumping table ${table}`,
-        { cause: err },
-      );
-    }
-  }
-
-  const now = new Date();
-  const timestamp = now.toISOString();
-  const dateStr = timestamp.slice(0, 10);
-
-  const payload = JSON.stringify(
-    {
-      metadata: {
-        timestamp,
-        date: dateStr,
-        version: 1,
-        totalRows,
-        tableCounts: Object.fromEntries(
-          Object.entries(backupData).map(([tbl, rows]) => [tbl, rows.length]),
-        ),
-      },
-      tables: backupData,
-    },
-    null,
-    2,
-  );
-
-  const latestKey = 'snapshots/latest.json';
-  await env.BACKUP_BUCKET.put(latestKey, payload, {
-    httpMetadata: { contentType: 'application/json' },
+  skipIfUnchanged: boolean = true,
+): Promise<{
+  key: string;
+  rowCount: number;
+  skipped?: boolean;
+  prunedCount?: number;
+}> {
+  return kitPerformScheduledBackup(env, BACKUP_TABLES, {
+    isDaily,
+    skipIfUnchanged,
   });
-
-  let snapshotKey = latestKey;
-
-  // On daily window, also save immutable dated snapshot and run 30-day retention prune
-  if (isDaily) {
-    snapshotKey = `snapshots/backup-${dateStr}-${now.getTime()}.json`;
-    await env.BACKUP_BUCKET.put(snapshotKey, payload, {
-      httpMetadata: { contentType: 'application/json' },
-    });
-
-    console.log(
-      `[WorkerBackup] Successfully saved daily snapshot ${snapshotKey} (${totalRows} rows)`,
-    );
-
-    // 30-day rolling snapshot retention policy: purge snapshots older than 30 days
-    try {
-      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      if (typeof env.BACKUP_BUCKET.list === 'function') {
-        const listed = await env.BACKUP_BUCKET.list({
-          prefix: 'snapshots/backup-',
-        });
-        if (listed && Array.isArray(listed.objects)) {
-          let prunedCount = 0;
-          for (const obj of listed.objects) {
-            const uploadTime = obj.uploaded ? obj.uploaded.getTime() : null;
-            let isExpired = false;
-            if (uploadTime !== null) {
-              isExpired = uploadTime < thirtyDaysAgo;
-            } else {
-              const match = obj.key.match(/-(\d+)\.json$/);
-              if (match) {
-                const epoch = parseInt(match[1], 10);
-                isExpired = epoch < thirtyDaysAgo;
-              }
-            }
-            if (isExpired && typeof env.BACKUP_BUCKET.delete === 'function') {
-              await env.BACKUP_BUCKET.delete(obj.key);
-              prunedCount++;
-            }
-          }
-          if (prunedCount > 0) {
-            console.log(
-              `[WorkerBackup] Pruned ${prunedCount} snapshot(s) older than 30 days.`,
-            );
-          }
-        }
-      }
-    } catch (pruneErr) {
-      console.warn('[WorkerBackup] Failed to prune aged snapshots:', pruneErr);
-    }
-  } else {
-    console.log(
-      `[WorkerBackup] Successfully updated latest snapshot ${latestKey} (${totalRows} rows)`,
-    );
-  }
-
-  return { key: snapshotKey, rowCount: totalRows };
 }
 
 /**
- * Flags the database as dirty in sync_state so the scheduled cron creates a fresh snapshot.
+ * Flags the database as dirty in `sync_state` (diff-guarded so already-dirty state incurs 0 writes)
+ * and selectively clears `boutique_feed_hash` only when a game's ownership or physical status changes.
  */
 export async function markDbDirty(
   env: Env,
   _table?: string,
   _id?: string | number,
+  options?: { clearBoutiqueHash?: boolean },
 ): Promise<void> {
   try {
     await env.DB.prepare(
       `INSERT INTO sync_state (key, value, updated_at)
        VALUES ('db_dirty', '1', datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = datetime('now')`,
+       ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = datetime('now')
+       WHERE sync_state.value != '1'`,
     ).run();
-    await env.DB.prepare(
-      `DELETE FROM sync_state WHERE key = 'boutique_feed_hash'`,
-    ).run();
+    if (options?.clearBoutiqueHash) {
+      await env.DB.prepare(
+        `DELETE FROM sync_state WHERE key = 'boutique_feed_hash'`,
+      ).run();
+    }
   } catch (err) {
     console.warn('[WorkerBackup] Failed to mark db dirty:', err);
   }
@@ -870,55 +1027,125 @@ Disallow: /
     });
   }
 
-  // Handle CORS preflight requests
+  // Handle CORS preflight requests without ever reflecting '*' or arbitrary Origins
   if (request.method === 'OPTIONS') {
     const reqOrigin = request.headers.get('Origin');
     const oidcIssuer = getOidcIssuer(env);
-    const allowCredentialedOrigin =
+    const allowCredentialedOrigin = Boolean(
       reqOrigin &&
       (reqOrigin === url.origin ||
         (oidcIssuer && reqOrigin === oidcIssuer) ||
-        isLoopbackRequest(url));
+        (isLoopbackRequest(url) && LOOPBACK_DEV_ORIGINS.has(reqOrigin))),
+    );
     return new Response(null, {
       headers: {
-        'Access-Control-Allow-Origin': allowCredentialedOrigin
-          ? reqOrigin
-          : '*',
-        ...(allowCredentialedOrigin
-          ? { 'Access-Control-Allow-Credentials': 'true', Vary: 'Origin' }
+        ...(allowCredentialedOrigin && reqOrigin
+          ? {
+              'Access-Control-Allow-Origin': reqOrigin,
+              'Access-Control-Allow-Credentials': 'true',
+              Vary: 'Origin',
+            }
           : {}),
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers':
-          'Content-Type, Authorization, Cf-Access-Authenticated-User-Email, Cf-Access-Jwt-Assertion, X-Requested-With, Mcp-Session-Id, Accept, Cache-Control, Last-Event-ID',
-        'Access-Control-Expose-Headers': 'Mcp-Session-Id',
+          'Content-Type, Authorization, X-Requested-With, Accept, Cache-Control',
         'Access-Control-Max-Age': '86400',
       },
     });
   }
 
   try {
-    // Enforce same-origin Origin header check on state-changing requests
+    // Enforce Fetch Metadata + Origin CSRF protection on all state-mutating requests
     const isLogoutEndpoint =
       path === '/api/auth/logout' ||
       path === '/api/admin/logout' ||
       path === '/admin/logout';
+    const isSilentLogout =
+      isLogoutEndpoint &&
+      (url.searchParams.get('silent') === '1' ||
+        url.searchParams.get('frontchannel') === '1');
+    const oidcIssuer = getOidcIssuer(env);
+    const allowedMutationOrigins: string[] = [];
+    if (isLoopbackRequest(url)) {
+      allowedMutationOrigins.push(...LOOPBACK_DEV_ORIGINS);
+    }
+    if (isSilentLogout && oidcIssuer) {
+      allowedMutationOrigins.push(oidcIssuer);
+    }
+
+    if (
+      isCrossOriginMutatingRequest(request, url, {
+        allowedOrigins: allowedMutationOrigins,
+      })
+    ) {
+      return Response.json(
+        { error: 'Forbidden: Cross-origin state mutation blocked.' },
+        { status: 403 },
+      );
+    }
+
     if (
       (request.method === 'POST' ||
         request.method === 'PUT' ||
-        request.method === 'DELETE') &&
-      !isLoopbackRequest(url) &&
-      !isLogoutEndpoint
+        request.method === 'PATCH') &&
+      JSON_BODY_MUTATION_PATHS.has(path)
     ) {
-      const originHeader = request.headers.get('Origin');
-      if (originHeader && originHeader !== url.origin) {
+      const contentType = (
+        request.headers.get('Content-Type') || ''
+      ).toLowerCase();
+      if (!contentType.includes('application/json')) {
         return Response.json(
-          { error: 'Forbidden: Cross-origin state mutation blocked.' },
-          { status: 403 },
+          {
+            error:
+              'Unsupported Media Type: Content-Type must be application/json.',
+          },
+          { status: 415 },
         );
       }
     }
 
     const sessionUser = await resolveSessionUser(request, env, ctx);
+
+    // Rate-limit external-API discovery endpoints and push test endpoint
+    if (path.startsWith('/api/discovery/')) {
+      const rl = checkWorkerRateLimit(
+        'discovery',
+        getRateLimitClientKey(request, sessionUser),
+        30,
+        60_000,
+      );
+      if (!rl.allowed) {
+        return Response.json(
+          { error: 'Too many discovery requests. Please try again shortly.' },
+          {
+            status: 429,
+            headers: { 'Retry-After': String(rl.retryAfterSec) },
+          },
+        );
+      }
+    } else if (
+      request.method === 'POST' &&
+      path === '/api/notifications/test'
+    ) {
+      const rl = checkWorkerRateLimit(
+        'notifications-test',
+        getRateLimitClientKey(request, sessionUser),
+        5,
+        60_000,
+      );
+      if (!rl.allowed) {
+        return Response.json(
+          {
+            error:
+              'Too many test notifications sent. Please wait before trying again.',
+          },
+          {
+            status: 429,
+            headers: { 'Retry-After': String(rl.retryAfterSec) },
+          },
+        );
+      }
+    }
 
     /**
      * READ-ONLY API ENDPOINTS (Edge-cacheable for anonymous callers, public profiles,
@@ -1175,7 +1402,11 @@ Disallow: /
           return Response.json({ error: 'User not found' }, { status: 404 });
         }
 
-        await invalidateEdgeApiCache(request.url);
+        await invalidateEdgeApiCache(request.url, {
+          userId: profile.id,
+          username: profile.username,
+          previousUsername: sessionUser.username,
+        });
         await markDbDirty(env);
 
         const res = Response.json({
@@ -1199,10 +1430,10 @@ Disallow: /
               homeRegion: profile.home_region || 'USA',
             };
             const token = await signSession(updatedUser, secret);
-            const isSecure = url.protocol === 'https:';
+            const isSecure = isSecureOrigin(url);
             res.headers.set(
               'Set-Cookie',
-              buildSessionCookie(token, 30 * 86400, isSecure),
+              serializeSessionCookie(token, isSecure, 30 * 86400),
             );
           }
         }
@@ -1261,7 +1492,7 @@ Disallow: /
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': user.is_public
-            ? 'public, max-age=60, s-maxage=300'
+            ? 'public, max-age=60, s-maxage=60'
             : 'private, no-cache, no-store, must-revalidate',
         },
       });
@@ -1302,7 +1533,7 @@ Disallow: /
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': user.is_public
-            ? 'public, max-age=60, s-maxage=300'
+            ? 'public, max-age=60, s-maxage=60'
             : 'private, no-cache, no-store, must-revalidate',
         },
       });
@@ -1346,7 +1577,7 @@ Disallow: /
           headers: {
             'Content-Type': 'application/json',
             'Cache-Control': user.is_public
-              ? 'public, max-age=60, s-maxage=300'
+              ? 'public, max-age=60, s-maxage=60'
               : 'private, no-cache, no-store, must-revalidate',
           },
         },
@@ -1505,10 +1736,11 @@ Disallow: /
         ? sessionUser.homeRegion
         : DEFAULT_USER_HOME_REGION;
       const baseTitle = game.base_title || game.title || '';
+      const parsedMeta = parseGameMetadataOnce(game.metadata_json || null);
       game.title = resolveLocalizedReleaseTitle(
         baseTitle,
         game.region as string | null,
-        game.metadata_json || null,
+        parsedMeta,
         game.raw_title || game.title || '',
         effectiveHomeRegion,
       );
@@ -1517,7 +1749,7 @@ Disallow: /
           rel['title'] = resolveLocalizedReleaseTitle(
             baseTitle,
             rel['region'] as string | null,
-            game.metadata_json || null,
+            parsedMeta,
             rel['title'] as string | null,
             effectiveHomeRegion,
           );
@@ -1528,7 +1760,7 @@ Disallow: /
           rel['title'] = resolveLocalizedReleaseTitle(
             baseTitle,
             rel['region'] as string | null,
-            game.metadata_json || null,
+            parsedMeta,
             rel['title'] as string | null,
             effectiveHomeRegion,
           );
@@ -1895,7 +2127,7 @@ Disallow: /
         const titlePlaceholders = candidateTitles.map(() => '?').join(',');
 
         const { results: existingGames } = await env.DB.prepare(
-          `SELECT igdb_id, platform_id, title FROM games WHERE igdb_id IN (${igdbPlaceholders}) OR title IN (${titlePlaceholders})`,
+          `SELECT igdb_id, platform_id, title FROM games WHERE igdb_id IN (${igdbPlaceholders}) OR (title COLLATE NOCASE) IN (${titlePlaceholders})`,
         )
           .bind(...candidateIgdbIds, ...candidateTitles)
           .all();
@@ -2185,8 +2417,11 @@ Disallow: /
 
         return Response.json(normalized);
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: msg }, { status: 500 });
+        console.error('[DiscoverySearch] Error:', err);
+        return Response.json(
+          { error: 'Internal discovery search error' },
+          { status: 500 },
+        );
       }
     }
 
@@ -2407,8 +2642,11 @@ Disallow: /
           verification_reasons: verification.reasons,
         });
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: msg }, { status: 500 });
+        console.error('[DiscoveryMatches] Error:', err);
+        return Response.json(
+          { error: 'Internal discovery error' },
+          { status: 500 },
+        );
       }
     }
 
@@ -2844,8 +3082,11 @@ Disallow: /
 
         return Response.json(suggestions);
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: msg }, { status: 500 });
+        console.error('[DiscoveryScanSeries] Error:', err);
+        return Response.json(
+          { error: 'Internal discovery error' },
+          { status: 500 },
+        );
       }
     }
 
@@ -2972,8 +3213,11 @@ Disallow: /
 
         return Response.json(missingAmiibo);
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: msg }, { status: 500 });
+        console.error('[DiscoveryScanAmiibo] Error:', err);
+        return Response.json(
+          { error: 'Internal discovery error' },
+          { status: 500 },
+        );
       }
     }
 
@@ -2983,15 +3227,14 @@ Disallow: /
       path === '/api/admin/login' ||
       path === '/admin/login'
     ) {
-      const rawReturnTo =
-        url.searchParams.get('return_to') || '/collection/games';
-      const returnTo =
-        rawReturnTo.startsWith('/') && !rawReturnTo.startsWith('//')
-          ? rawReturnTo
-          : '/collection/games';
+      const returnTo = sanitizeReturnToPath(
+        url.searchParams.get('return_to'),
+        url.origin,
+        '/collection/games',
+      );
 
       const oidcIssuer = getOidcIssuer(env);
-      const isSecure = url.protocol === 'https:';
+      const isSecure = isSecureOrigin(url);
       const prompt = url.searchParams.get('prompt')?.trim() || '';
 
       if (oidcIssuer && url.searchParams.get('dev_bypass') !== '1') {
@@ -3043,10 +3286,10 @@ Disallow: /
           headers: {
             Location: authorizeUrl.toString(),
             'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Set-Cookie': buildOidcStateCookie(
+            'Set-Cookie': serializeOidcStateCookie(
               stateToken,
-              OIDC_STATE_TTL_SECONDS,
               isSecure,
+              OIDC_STATE_TTL_SECONDS,
             ),
             'x-auth-status': 'oidc-redirect',
           },
@@ -3119,7 +3362,7 @@ Disallow: /
 
       res.headers.append(
         'Set-Cookie',
-        buildSessionCookie(sessionToken, maxAge, isSecure),
+        serializeSessionCookie(sessionToken, isSecure, maxAge),
       );
 
       return res;
@@ -3127,14 +3370,32 @@ Disallow: /
 
     // Endpoint: GET /api/auth/callback (OIDC Authorization Code + PKCE S256 callback)
     else if (path === '/api/auth/callback') {
-      const isSecure = url.protocol === 'https:';
+      const isSecure = isSecureOrigin(url);
       const sessionSecret = getSessionSecret(env, url);
       const cookies = parseCookies(request.headers.get('Cookie'));
-      const stateCookieToken = cookies[OIDC_STATE_COOKIE];
+      const stateCookieToken = readOidcStateCookie(cookies);
       const statePayload =
         stateCookieToken && sessionSecret
           ? await verifyOidcStateCookie(stateCookieToken, sessionSecret)
           : null;
+
+      const buildCallbackErrorRedirect = (
+        redirectPath: string,
+        authStatus: string,
+      ): Response => {
+        const errRes = new Response(null, {
+          status: 302,
+          headers: {
+            Location: new URL(redirectPath, request.url).toString(),
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'x-auth-status': authStatus,
+          },
+        });
+        for (const c of serializeClearOidcStateCookies(isSecure)) {
+          errRes.headers.append('Set-Cookie', c);
+        }
+        return errRes;
+      };
 
       const oauthError = url.searchParams.get('error');
       if (oauthError) {
@@ -3145,48 +3406,24 @@ Disallow: /
         if (statePayload?.silent || oauthError === 'login_required') {
           redirectPath = '/?sso=checked';
         }
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: new URL(redirectPath, request.url).toString(),
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Set-Cookie': clearOidcStateCookie(isSecure),
-            'x-auth-status': 'oidc-error',
-          },
-        });
+        return buildCallbackErrorRedirect(redirectPath, 'oidc-error');
       }
 
       const code = (url.searchParams.get('code') || '').trim();
       const state = (url.searchParams.get('state') || '').trim();
       const oidcIssuer = getOidcIssuer(env);
       if (!code || !state || !oidcIssuer || !sessionSecret) {
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: new URL(
-              '/?auth_error=invalid_callback',
-              request.url,
-            ).toString(),
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Set-Cookie': clearOidcStateCookie(isSecure),
-            'x-auth-status': 'invalid-callback',
-          },
-        });
+        return buildCallbackErrorRedirect(
+          '/?auth_error=invalid_callback',
+          'invalid-callback',
+        );
       }
 
       if (!statePayload || !timingSafeEqualStrings(statePayload.state, state)) {
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: new URL(
-              '/?auth_error=invalid_state',
-              request.url,
-            ).toString(),
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Set-Cookie': clearOidcStateCookie(isSecure),
-            'x-auth-status': 'invalid-state',
-          },
-        });
+        return buildCallbackErrorRedirect(
+          '/?auth_error=invalid_state',
+          'invalid-state',
+        );
       }
 
       const clientId = getOidcClientId(env);
@@ -3210,18 +3447,10 @@ Disallow: /
       });
 
       if (!tokenRes.ok) {
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: new URL(
-              '/?auth_error=token_exchange_failed',
-              request.url,
-            ).toString(),
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Set-Cookie': clearOidcStateCookie(isSecure),
-            'x-auth-status': 'token-exchange-failed',
-          },
-        });
+        return buildCallbackErrorRedirect(
+          '/?auth_error=token_exchange_failed',
+          'token-exchange-failed',
+        );
       }
 
       const tokenData = (await tokenRes.json().catch(() => null)) as {
@@ -3230,18 +3459,10 @@ Disallow: /
       } | null;
 
       if (!tokenData?.id_token) {
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: new URL(
-              '/?auth_error=missing_id_token',
-              request.url,
-            ).toString(),
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Set-Cookie': clearOidcStateCookie(isSecure),
-            'x-auth-status': 'missing-id-token',
-          },
-        });
+        return buildCallbackErrorRedirect(
+          '/?auth_error=missing_id_token',
+          'missing-id-token',
+        );
       }
 
       const claims = await verifyOidcIdToken(tokenData.id_token, {
@@ -3251,18 +3472,10 @@ Disallow: /
       });
 
       if (!claims) {
-        return new Response(null, {
-          status: 302,
-          headers: {
-            Location: new URL(
-              '/?auth_error=invalid_id_token',
-              request.url,
-            ).toString(),
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Set-Cookie': clearOidcStateCookie(isSecure),
-            'x-auth-status': 'invalid-id-token',
-          },
-        });
+        return buildCallbackErrorRedirect(
+          '/?auth_error=invalid_id_token',
+          'invalid-id-token',
+        );
       }
 
       const userRow = await syncOrResolveOidcUser(env, claims, request.url);
@@ -3289,12 +3502,11 @@ Disallow: /
         validDays,
       );
 
-      const returnTo =
-        statePayload.returnTo &&
-        statePayload.returnTo.startsWith('/') &&
-        !statePayload.returnTo.startsWith('//')
-          ? statePayload.returnTo
-          : '/collection/games';
+      const returnTo = sanitizeReturnToPath(
+        statePayload.returnTo,
+        url.origin,
+        '/collection/games',
+      );
       const targetUrl = new URL(returnTo, request.url).toString();
       const res = new Response(null, {
         status: 302,
@@ -3306,9 +3518,11 @@ Disallow: /
       });
       res.headers.append(
         'Set-Cookie',
-        buildSessionCookie(sessionToken, maxAge, isSecure),
+        serializeSessionCookie(sessionToken, isSecure, maxAge),
       );
-      res.headers.append('Set-Cookie', clearOidcStateCookie(isSecure));
+      for (const c of serializeClearOidcStateCookies(isSecure)) {
+        res.headers.append('Set-Cookie', c);
+      }
       return res;
     }
 
@@ -3325,12 +3539,19 @@ Disallow: /
       });
     }
 
-    // Endpoint: GET / POST /api/auth/logout, /api/admin/logout, /admin/logout
+    // Endpoint: POST /api/auth/logout, /api/admin/logout, /admin/logout
     else if (
       path === '/api/auth/logout' ||
       path === '/api/admin/logout' ||
       path === '/admin/logout'
     ) {
+      if (request.method !== 'POST') {
+        return Response.json(
+          { error: 'Method Not Allowed: Use POST to log out.' },
+          { status: 405, headers: { Allow: 'POST' } },
+        );
+      }
+
       const oidcIssuer = getOidcIssuer(env);
       const returnUrl = new URL('/', request.url).toString();
       const isLocalDev = isLoopbackRequest(url);
@@ -3341,7 +3562,7 @@ Disallow: /
         oidcIssuer && !isLocalDev
           ? `${oidcIssuer}/logout?post_logout_redirect_uri=${encodeURIComponent(returnUrl)}&client_id=${encodeURIComponent(getOidcClientId(env))}`
           : '/';
-      const isSecure = url.protocol === 'https:';
+      const isSecure = isSecureOrigin(url);
 
       let res: Response;
       if (isSilent) {
@@ -3350,7 +3571,7 @@ Disallow: /
           reqOrigin &&
           (reqOrigin === url.origin ||
             (oidcIssuer && reqOrigin === oidcIssuer) ||
-            isLocalDev);
+            (isLocalDev && LOOPBACK_DEV_ORIGINS.has(reqOrigin)));
         const headers = new Headers({
           'Content-Type': 'application/json; charset=utf-8',
           'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -3360,33 +3581,25 @@ Disallow: /
           headers.set('Access-Control-Allow-Credentials', 'true');
           headers.set('Vary', 'Origin');
         }
-        res = new Response(JSON.stringify({ success: true }), {
+        res = new Response(JSON.stringify({ ok: true, success: true }), {
           status: 200,
           headers,
         });
       } else {
-        const logoutHtml = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Logging Out</title>
-  <meta http-equiv="refresh" content="0; url=${targetRedirect}">
-</head>
-<body style="background:#130b24;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-  <p>Logging out and clearing session...</p>
-  <script>window.location.replace('${targetRedirect}');</script>
-</body>
-</html>`;
-        res = new Response(logoutHtml, {
-          status: 200,
+        res = new Response(null, {
+          status: 303,
           headers: {
-            'Content-Type': 'text/html; charset=utf-8',
+            Location: targetRedirect,
             'Cache-Control': 'no-store, no-cache, must-revalidate',
           },
         });
       }
-      res.headers.append('Set-Cookie', clearSessionCookie(isSecure));
-      res.headers.append('Set-Cookie', clearOidcStateCookie(isSecure));
+      for (const c of serializeClearSessionCookies(isSecure)) {
+        res.headers.append('Set-Cookie', c);
+      }
+      for (const c of serializeClearOidcStateCookies(isSecure)) {
+        res.headers.append('Set-Cookie', c);
+      }
       res.headers.append(
         'Set-Cookie',
         `CF_AppSession=; Path=/; Domain=${url.hostname}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
@@ -3417,7 +3630,7 @@ Disallow: /
     // Endpoint: GET /api/admin/me
     else if (path === '/api/admin/me') {
       const cookieHeader = request.headers.get('Cookie') || '';
-      const hasCookie = cookieHeader.includes(SESSION_COOKIE);
+      const hasCookie = Boolean(readSessionCookie(parseCookies(cookieHeader)));
       const authorized = isAuthorizedAdmin(request, env, sessionUser);
       return Response.json({
         authenticated: Boolean(sessionUser || authorized),
@@ -3662,7 +3875,8 @@ Disallow: /
                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                ON CONFLICT(user_id, game_id) DO UPDATE SET
                  ${field} = excluded.${field},
-                 updated_at = CURRENT_TIMESTAMP`,
+                 updated_at = CURRENT_TIMESTAMP
+               WHERE user_games.${field} IS NOT excluded.${field}`,
           )
             .bind(currentUserId, stableId, normalizedStatus)
             .run();
@@ -3712,7 +3926,8 @@ Disallow: /
                   `INSERT INTO user_game_releases (user_id, release_id, ${field})
                      VALUES (?, ?, ?)
                      ON CONFLICT(user_id, release_id) DO UPDATE SET
-                       ${field} = excluded.${field}`,
+                       ${field} = excluded.${field}
+                     WHERE user_game_releases.${field} IS NOT excluded.${field}`,
                 ).bind(currentUserId, r.id, normalizedStatus),
               );
               if (statements.length > 0) {
@@ -3723,7 +3938,8 @@ Disallow: /
                 `INSERT INTO user_game_releases (user_id, release_id, ${field})
                    VALUES (?, ?, ?)
                    ON CONFLICT(user_id, release_id) DO UPDATE SET
-                     ${field} = excluded.${field}`,
+                     ${field} = excluded.${field}
+                   WHERE user_game_releases.${field} IS NOT excluded.${field}`,
               )
                 .bind(currentUserId, id, normalizedStatus)
                 .run();
@@ -3763,7 +3979,8 @@ Disallow: /
                     `INSERT INTO user_game_releases (user_id, release_id, ${field})
                        VALUES (?, ?, ?)
                        ON CONFLICT(user_id, release_id) DO UPDATE SET
-                         ${field} = excluded.${field}`,
+                         ${field} = excluded.${field}
+                       WHERE user_game_releases.${field} IS NOT excluded.${field}`,
                   ).bind(currentUserId, r.id, normalizedStatus),
                 );
                 await env.DB.batch(statements);
@@ -3772,7 +3989,8 @@ Disallow: /
                   `INSERT INTO user_game_releases (user_id, release_id, ${field})
                      VALUES (?, ?, ?)
                      ON CONFLICT(user_id, release_id) DO UPDATE SET
-                       ${field} = excluded.${field}`,
+                       ${field} = excluded.${field}
+                     WHERE user_game_releases.${field} IS NOT excluded.${field}`,
                 )
                   .bind(currentUserId, typedReleases[0].id, normalizedStatus)
                   .run();
@@ -3786,7 +4004,7 @@ Disallow: /
               }
               const releaseId = `${id}-default`;
               await env.DB.prepare(
-                `INSERT INTO game_releases (id, game_id, region)
+                `INSERT OR IGNORE INTO game_releases (id, game_id, region)
                    VALUES (?, ?, ?)`,
               )
                 .bind(releaseId, game.stable_id, game.region)
@@ -3796,7 +4014,8 @@ Disallow: /
                 `INSERT INTO user_game_releases (user_id, release_id, ${field})
                    VALUES (?, ?, ?)
                    ON CONFLICT(user_id, release_id) DO UPDATE SET
-                     ${field} = excluded.${field}`,
+                     ${field} = excluded.${field}
+                   WHERE user_game_releases.${field} IS NOT excluded.${field}`,
               )
                 .bind(currentUserId, releaseId, normalizedStatus)
                 .run();
@@ -3822,14 +4041,22 @@ Disallow: /
              VALUES (?, ?, ?, CURRENT_TIMESTAMP)
              ON CONFLICT(user_id, toy_id) DO UPDATE SET
                ${field} = excluded.${field},
-               updated_at = CURRENT_TIMESTAMP`,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE user_toys.${field} IS NOT excluded.${field}`,
         )
           .bind(currentUserId, id, normalizedStatus)
           .run();
       }
 
-      await invalidateEdgeApiCache(request.url);
-      await markDbDirty(env, type === 'game' ? 'games' : 'toys', id);
+      await invalidateEdgeApiCache(request.url, {
+        userId: currentUserId,
+        username: sessionUser?.username,
+      });
+      await markDbDirty(env, type === 'game' ? 'games' : 'toys', id, {
+        clearBoutiqueHash:
+          type === 'game' &&
+          (field === 'ownership_status' || field === 'physical_status'),
+      });
       return Response.json({ success: true });
     }
 
@@ -3886,8 +4113,13 @@ Disallow: /
       ]);
 
       invalidateSeriesScanCache();
-      await invalidateEdgeApiCache(request.url);
-      await markDbDirty(env, 'games', game.stable_id);
+      await invalidateEdgeApiCache(request.url, {
+        userId: sessionUser?.id,
+        username: sessionUser?.username,
+      });
+      await markDbDirty(env, 'games', game.stable_id, {
+        clearBoutiqueHash: true,
+      });
       return Response.json({ success: true, deletedGameId: game.id });
     }
 
@@ -3968,8 +4200,13 @@ Disallow: /
         ]);
 
         invalidateSeriesScanCache();
-        await invalidateEdgeApiCache(request.url);
-        await markDbDirty(env, 'games', noPlatGame.stable_id);
+        await invalidateEdgeApiCache(request.url, {
+          userId: sessionUser?.id,
+          username: sessionUser?.username,
+        });
+        await markDbDirty(env, 'games', noPlatGame.stable_id, {
+          clearBoutiqueHash: true,
+        });
         return Response.json({
           success: true,
           deletedReleaseId: releaseId,
@@ -4001,8 +4238,11 @@ Disallow: /
       }
 
       invalidateSeriesScanCache();
-      await invalidateEdgeApiCache(request.url);
-      await markDbDirty(env);
+      await invalidateEdgeApiCache(request.url, {
+        userId: sessionUser?.id,
+        username: sessionUser?.username,
+      });
+      await markDbDirty(env, undefined, undefined, { clearBoutiqueHash: true });
       return Response.json({ success: true, deletedReleaseId: releaseId });
     }
 
@@ -4073,7 +4313,10 @@ Disallow: /
           .run();
       }
 
-      await invalidateEdgeApiCache(request.url);
+      await invalidateEdgeApiCache(request.url, {
+        userId: sessionUser?.id,
+        username: sessionUser?.username,
+      });
       await markDbDirty(env, type === 'game' ? 'games' : 'toys', id);
       return Response.json({ success: true });
     }
@@ -4118,6 +4361,7 @@ Disallow: /
           release_date?: string | null;
           canonical_release_id?: number | null;
           barcode?: string | null;
+          image_url?: string | null;
         }>;
       } | null;
 
@@ -4130,6 +4374,17 @@ Disallow: /
       ) {
         return Response.json(
           { error: 'Invalid game payload' },
+          { status: 400 },
+        );
+      }
+
+      if (
+        !isValidHttpsExternalUrl(game.igdb_url) ||
+        !isValidCatalogImageUrl(game.image_url) ||
+        (releases || []).some((r) => !isValidCatalogImageUrl(r.image_url))
+      ) {
+        return Response.json(
+          { error: 'Invalid URL: catalog URLs must use https://' },
           { status: 400 },
         );
       }
@@ -4181,7 +4436,7 @@ Disallow: /
       }
       if (!existingGame) {
         existingGame = (await env.DB.prepare(
-          'SELECT id, stable_id FROM games WHERE LOWER(title) = LOWER(?) AND platform_id = ? AND (igdb_id IS NULL OR ? IS NULL OR igdb_id = ?) ORDER BY stable_id ASC LIMIT 1',
+          'SELECT id, stable_id FROM games WHERE title = ? COLLATE NOCASE AND platform_id = ? AND (igdb_id IS NULL OR ? IS NULL OR igdb_id = ?) ORDER BY stable_id ASC LIMIT 1',
         )
           .bind(
             game.title.trim(),
@@ -4307,7 +4562,8 @@ Disallow: /
              VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP)
              ON CONFLICT(user_id, game_id) DO UPDATE SET
                play_status = excluded.play_status,
-               updated_at = CURRENT_TIMESTAMP`,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE user_games.play_status IS NOT excluded.play_status`,
         )
           .bind(currentUserId, finalStableId, game.play_status)
           .run();
@@ -4333,10 +4589,31 @@ Disallow: /
           statements.push(
             env.DB.prepare(
               `
-                INSERT OR REPLACE INTO game_releases (
+                INSERT INTO game_releases (
                   id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date,
-                  canonical_release_id, barcode
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  canonical_release_id, barcode, image_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  game_id = excluded.game_id,
+                  region = excluded.region,
+                  variants = excluded.variants,
+                  also_released_as = excluded.also_released_as,
+                  rom_name = excluded.rom_name,
+                  rom_crc = excluded.rom_crc,
+                  release_date = excluded.release_date,
+                  canonical_release_id = excluded.canonical_release_id,
+                  barcode = excluded.barcode,
+                  image_url = COALESCE(excluded.image_url, game_releases.image_url)
+                WHERE game_releases.game_id IS NOT excluded.game_id
+                   OR game_releases.region IS NOT excluded.region
+                   OR game_releases.variants IS NOT excluded.variants
+                   OR game_releases.also_released_as IS NOT excluded.also_released_as
+                   OR game_releases.rom_name IS NOT excluded.rom_name
+                   OR game_releases.rom_crc IS NOT excluded.rom_crc
+                   OR game_releases.release_date IS NOT excluded.release_date
+                   OR game_releases.canonical_release_id IS NOT excluded.canonical_release_id
+                   OR game_releases.barcode IS NOT excluded.barcode
+                   OR game_releases.image_url IS NOT COALESCE(excluded.image_url, game_releases.image_url)
               `,
             ).bind(
               baseRelSlug,
@@ -4349,6 +4626,7 @@ Disallow: /
               rel.release_date || game.release_date || null,
               rel.canonical_release_id || null,
               rel.barcode || null,
+              rel.image_url || null,
             ),
           );
 
@@ -4362,7 +4640,9 @@ Disallow: /
                    VALUES (?, ?, ?, ?)
                    ON CONFLICT(user_id, release_id) DO UPDATE SET
                      ownership_status = excluded.ownership_status,
-                     backup_status = excluded.backup_status`,
+                     backup_status = excluded.backup_status
+                   WHERE user_game_releases.ownership_status IS NOT excluded.ownership_status
+                      OR user_game_releases.backup_status IS NOT excluded.backup_status`,
               ).bind(currentUserId, baseRelSlug, ownStatus, bkpStatus),
             );
           }
@@ -4377,9 +4657,22 @@ Disallow: /
         const defaultRelId = `${candidateGameId}-default`;
         await env.DB.prepare(
           `
-            INSERT OR REPLACE INTO game_releases (
+            INSERT INTO game_releases (
               id, game_id, region, variants, rom_name, rom_crc, release_date
             ) VALUES (?, ?, ?, NULL, NULL, NULL, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              game_id = excluded.game_id,
+              region = excluded.region,
+              variants = excluded.variants,
+              rom_name = excluded.rom_name,
+              rom_crc = excluded.rom_crc,
+              release_date = excluded.release_date
+            WHERE game_releases.game_id IS NOT excluded.game_id
+               OR game_releases.region IS NOT excluded.region
+               OR game_releases.variants IS NOT excluded.variants
+               OR game_releases.rom_name IS NOT excluded.rom_name
+               OR game_releases.rom_crc IS NOT excluded.rom_crc
+               OR game_releases.release_date IS NOT excluded.release_date
           `,
         )
           .bind(
@@ -4396,7 +4689,8 @@ Disallow: /
             `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
                VALUES (?, ?, ?, 0)
                ON CONFLICT(user_id, release_id) DO UPDATE SET
-                 ownership_status = excluded.ownership_status`,
+                 ownership_status = excluded.ownership_status
+               WHERE user_game_releases.ownership_status IS NOT excluded.ownership_status`,
           )
             .bind(currentUserId, defaultRelId, ownStatus)
             .run();
@@ -4404,8 +4698,13 @@ Disallow: /
       }
 
       invalidateSeriesScanCache();
-      await invalidateEdgeApiCache(request.url);
-      await markDbDirty(env);
+      await invalidateEdgeApiCache(request.url, {
+        userId: currentUserId,
+        username: sessionUser?.username,
+      });
+      await markDbDirty(env, 'games', finalStableId, {
+        clearBoutiqueHash: true,
+      });
       return Response.json({
         success: true,
         gameId: candidateGameId,
@@ -4432,6 +4731,7 @@ Disallow: /
         release_date?: string | null;
         ownership_status?: number;
         image_url?: string | null;
+        scl_url?: string | null;
         amiibo_id?: string | null;
         metadata_json?: string | null;
         region?: string | null;
@@ -4439,6 +4739,16 @@ Disallow: /
 
       if (!toy || !toy.name) {
         return Response.json({ error: 'Invalid toy payload' }, { status: 400 });
+      }
+
+      if (
+        !isValidCatalogImageUrl(toy.image_url) ||
+        !isValidHttpsExternalUrl(toy.scl_url)
+      ) {
+        return Response.json(
+          { error: 'Invalid URL: catalog URLs must use https://' },
+          { status: 400 },
+        );
       }
 
       const slugify = (s: string) =>
@@ -4452,7 +4762,7 @@ Disallow: /
         `amiibo-${slugify(toy.name)}-${slugify(toy.series_name || 'amiibo')}`;
 
       const existingToy = (await env.DB.prepare(
-        `SELECT id, stable_id FROM toys WHERE (amiibo_id IS NOT NULL AND amiibo_id = ?) OR id = ? OR name = ?`,
+        `SELECT id, stable_id FROM toys WHERE (amiibo_id IS NOT NULL AND amiibo_id = ?) OR id = ? OR name = ? COLLATE NOCASE`,
       )
         .bind(toy.amiibo_id || candidateId, candidateId, toy.name)
         .first()) as { id: string; stable_id: number } | null;
@@ -4464,12 +4774,14 @@ Disallow: /
           `UPDATE toys 
              SET verified = 1,
                  image_url = COALESCE(?, image_url),
+                 scl_url = COALESCE(?, scl_url),
                  metadata_json = COALESCE(?, metadata_json),
                  amiibo_id = COALESCE(?, amiibo_id)
              WHERE stable_id = ?`,
         )
           .bind(
             toy.image_url || null,
+            toy.scl_url || null,
             toy.metadata_json || null,
             toy.amiibo_id || null,
             existingToy.stable_id,
@@ -4482,12 +4794,16 @@ Disallow: /
              VALUES (?, ?, ?, CURRENT_TIMESTAMP)
              ON CONFLICT(user_id, toy_id) DO UPDATE SET
                ownership_status = excluded.ownership_status,
-               updated_at = CURRENT_TIMESTAMP`,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE user_toys.ownership_status IS NOT excluded.ownership_status`,
         )
           .bind(currentUserId, existingToy.id, ownStatus)
           .run();
 
-        await invalidateEdgeApiCache(request.url);
+        await invalidateEdgeApiCache(request.url, {
+          userId: currentUserId,
+          username: sessionUser?.username,
+        });
         await markDbDirty(env);
         return Response.json({ success: true, id: existingToy.id });
       }
@@ -4504,30 +4820,51 @@ Disallow: /
           ? maxSortIndexRow.max_idx
           : 0) + 1;
 
+      const toyLine = toy.line || 'amiibo';
+      const rawSeriesName = toy.series_name || toy.series || '';
+      const seriesLabel = toy.series || toy.series_name || 'Other';
+      let seriesId: string | null = null;
+
+      if (rawSeriesName) {
+        const existingSeries = (await env.DB.prepare(
+          'SELECT id FROM toy_series WHERE line = ? AND name = ? COLLATE NOCASE',
+        )
+          .bind(toyLine, rawSeriesName)
+          .first()) as { id: string } | null;
+
+        if (existingSeries?.id) {
+          seriesId = existingSeries.id;
+        } else {
+          seriesId = `${slugify(toyLine)}-${slugify(rawSeriesName)}`;
+          await env.DB.prepare(
+            'INSERT OR IGNORE INTO toy_series (id, line, name) VALUES (?, ?, ?)',
+          )
+            .bind(seriesId, toyLine, rawSeriesName)
+            .run();
+        }
+      }
+
       await env.DB.prepare(
         `
           INSERT INTO toys (
             id, name, line, series_id, series, type, release_date,
-            image_url, amiibo_id, verified, metadata_json, sort_index, region
+            image_url, scl_url, amiibo_id, verified, metadata_json, sort_index, region
           ) VALUES (
             ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, 1, ?, ?, ?
+            ?, ?, ?, 1, ?, ?, ?
           )
         `,
       )
         .bind(
           candidateId,
           toy.name,
-          toy.line || 'amiibo',
-          toy.series_name
-            ? slugify(toy.series_name)
-            : toy.series
-              ? slugify(toy.series)
-              : null,
-          toy.series || toy.series_name || 'Other',
+          toyLine,
+          seriesId,
+          seriesLabel,
           toy.type || 'Figure',
           toy.release_date || null,
           toy.image_url || null,
+          toy.scl_url || null,
           toy.amiibo_id || null,
           toy.metadata_json || null,
           sortIndex,
@@ -4541,12 +4878,16 @@ Disallow: /
            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
            ON CONFLICT(user_id, toy_id) DO UPDATE SET
              ownership_status = excluded.ownership_status,
-             updated_at = CURRENT_TIMESTAMP`,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE user_toys.ownership_status IS NOT excluded.ownership_status`,
       )
         .bind(currentUserId, candidateId, ownStatus)
         .run();
 
-      await invalidateEdgeApiCache(request.url);
+      await invalidateEdgeApiCache(request.url, {
+        userId: currentUserId,
+        username: sessionUser?.username,
+      });
       await markDbDirty(env);
       return Response.json({ success: true, id: candidateId });
     }
@@ -4794,8 +5135,18 @@ Disallow: /
       request.method === 'GET' &&
       path === '/api/notifications/vapid-public-key'
     ) {
+      if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
+        return Response.json(
+          {
+            configured: false,
+            error: 'Web Push notifications are not configured.',
+          },
+          { status: 503 },
+        );
+      }
       return Response.json({
-        publicKey: env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC_KEY,
+        configured: true,
+        publicKey: env.VAPID_PUBLIC_KEY,
       });
     }
 
@@ -5168,7 +5519,8 @@ export default {
     env: Env,
     ctx?: ExecutionContext,
   ): Promise<Response> {
-    return withSecurityHeaders(await handleFetch(request, env, ctx));
+    const isSecure = isSecureOrigin(new URL(request.url));
+    return withSecurityHeaders(await handleFetch(request, env, ctx), isSecure);
   },
 
   /**
@@ -5481,10 +5833,9 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
   }
 
   const candidateRows = await env.DB.prepare(
-    `SELECT g.stable_id, g.id, g.title, g.platform_id, COALESCE(ugr.ownership_status, 0) as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, 0 as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
      FROM games g
-     LEFT JOIN game_releases r ON r.game_id = g.stable_id
-     LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id`,
+     LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
   ).all<{
     stable_id: number;
     id: string;
@@ -5505,7 +5856,7 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
         id: c.id,
         title: c.title,
         platform_id: c.platform_id,
-        ownership_status: c.ownership_status ?? 0,
+        ownership_status: 0,
       });
     }
   }
@@ -5521,13 +5872,12 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
     }
   }
 
-  // Reset previous retail sales flags only for games that were previously marked on sale
-  const statements: D1PreparedStatement[] = [
-    env.DB.prepare(
-      `UPDATE games SET retail_on_sale = 0 WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games') AND retail_on_sale != 0`,
-    ),
-  ];
+  // Track previously active retail sales so we only clear games whose deals actually expired
+  const prevSaleRows = await env.DB.prepare(
+    `SELECT stable_id FROM games WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games') AND retail_on_sale != 0`,
+  ).all<{ stable_id: number }>();
 
+  const statements: D1PreparedStatement[] = [];
   const nowIso = new Date().toISOString();
 
   for (const [stableId, deal] of bestDealByGame.entries()) {
@@ -5546,7 +5896,7 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
              retail_url = ?,
              retail_updated_at = ?
          WHERE stable_id = ?
-           AND (retail_on_sale != 1 OR retail_price != ? OR retail_regular_price != ? OR retail_discount_pct != ? OR retail_store != ? OR retail_url != ?)`,
+           AND (retail_on_sale IS NOT 1 OR retail_price IS NOT ? OR retail_regular_price IS NOT ? OR retail_discount_pct IS NOT ? OR retail_store IS NOT ? OR retail_url IS NOT ?)`,
       ).bind(
         salePriceCents,
         regularPriceCents,
@@ -5562,6 +5912,21 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
         deal.url,
       ),
     );
+  }
+
+  const expiredSaleIds = (prevSaleRows.results || [])
+    .map((r) => r.stable_id)
+    .filter((id) => !bestDealByGame.has(id));
+  if (expiredSaleIds.length > 0) {
+    const EXP_CHUNK = 80;
+    for (let i = 0; i < expiredSaleIds.length; i += EXP_CHUNK) {
+      const slice = expiredSaleIds.slice(i, i + EXP_CHUNK);
+      statements.push(
+        env.DB.prepare(
+          `UPDATE games SET retail_on_sale = 0 WHERE stable_id IN (${slice.map(() => '?').join(',')}) AND retail_on_sale != 0`,
+        ).bind(...slice),
+      );
+    }
   }
 
   if (statements.length > 0) {
@@ -5617,22 +5982,35 @@ export async function dispatchDealPushNotifications(
       return { dispatchedCount: 0, purgedCount: 0 };
     }
 
+    const subscribedUserIds = Array.from(
+      new Set(subscriptions.map((s) => s.user_id || 1)),
+    );
     const userOwnershipMap = new Map<string, number>();
-    try {
-      const ugrRows = await env.DB.prepare(
-        `SELECT ugr.user_id, r.game_id as stable_id, MAX(ugr.ownership_status) as ownership_status
-         FROM user_game_releases ugr
-         JOIN game_releases r ON r.id = ugr.release_id
-         GROUP BY ugr.user_id, r.game_id`,
-      ).all<{ user_id: number; stable_id: number; ownership_status: number }>();
-      for (const row of ugrRows.results || []) {
-        userOwnershipMap.set(
-          `${row.user_id}:${row.stable_id}`,
-          row.ownership_status ?? 0,
-        );
+    if (subscribedUserIds.length > 0) {
+      try {
+        const subPlaceholders = subscribedUserIds.map(() => '?').join(',');
+        const ugrRows = await env.DB.prepare(
+          `SELECT ugr.user_id, r.game_id as stable_id, MAX(ugr.ownership_status) as ownership_status
+           FROM user_game_releases ugr
+           JOIN game_releases r ON r.id = ugr.release_id
+           WHERE ugr.user_id IN (${subPlaceholders})
+           GROUP BY ugr.user_id, r.game_id`,
+        )
+          .bind(...subscribedUserIds)
+          .all<{
+            user_id: number;
+            stable_id: number;
+            ownership_status: number;
+          }>();
+        for (const row of ugrRows.results || []) {
+          userOwnershipMap.set(
+            `${row.user_id}:${row.stable_id}`,
+            row.ownership_status ?? 0,
+          );
+        }
+      } catch {
+        // Fallback to 0 (unowned) if user_game_releases lookup fails
       }
-    } catch {
-      // Fallback to gameLookup.ownership_status if user_game_releases is unavailable
     }
 
     let dispatchedCount = 0;
@@ -5683,11 +6061,7 @@ export async function dispatchDealPushNotifications(
         if (!game) continue;
 
         const userKey = `${subUserId}:${stableId}`;
-        const effectiveOwnership = userOwnershipMap.has(userKey)
-          ? userOwnershipMap.get(userKey)!
-          : subUserId === 1
-            ? game.ownership_status
-            : 0;
+        const effectiveOwnership = userOwnershipMap.get(userKey) ?? 0;
 
         if (scope === 'seeking_only' && effectiveOwnership !== 2) {
           continue;
@@ -6034,12 +6408,11 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
   const placeholders = platformsWithNoPlat.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
-            MAX(COALESCE(ugr.ownership_status, 0)) AS ownership_status,
-            MAX(CASE WHEN ugr.ownership_status = 1 THEN 1 ELSE 0 END) AS has_owned_physical,
+            0 AS ownership_status,
+            0 AS has_owned_physical,
             GROUP_CONCAT(COALESCE(r.variants, '')) AS owned_variants
      FROM games g
      LEFT JOIN game_releases r ON r.game_id = g.stable_id
-     LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id
      WHERE g.platform_id IN (${placeholders})
      GROUP BY g.stable_id`,
   )
@@ -6372,6 +6745,14 @@ async function dispatchPhysicalAnnouncementNotifications(
       preferences_json: string | null;
     }>();
 
+    const subscriptions = subRows.results || [];
+    if (subscriptions.length === 0) {
+      return { dispatchedCount: 0, purgedCount: 0 };
+    }
+
+    const subscribedUserIds = Array.from(
+      new Set(subscriptions.map((s) => s.user_id || 1)),
+    );
     const userOwnershipByGame = new Map<
       string,
       {
@@ -6381,6 +6762,7 @@ async function dispatchPhysicalAnnouncementNotifications(
       }
     >();
     try {
+      const subPlaceholders = subscribedUserIds.map(() => '?').join(',');
       const ugrRows = await env.DB.prepare(
         `SELECT ugr.user_id, r.game_id as stable_id,
                 MAX(ugr.ownership_status) as ownership_status,
@@ -6388,14 +6770,17 @@ async function dispatchPhysicalAnnouncementNotifications(
                 GROUP_CONCAT(CASE WHEN ugr.ownership_status = 1 THEN COALESCE(r.variants, '') ELSE NULL END) as owned_variants
          FROM user_game_releases ugr
          JOIN game_releases r ON r.id = ugr.release_id
+         WHERE ugr.user_id IN (${subPlaceholders})
          GROUP BY ugr.user_id, r.game_id`,
-      ).all<{
-        user_id: number;
-        stable_id: number;
-        ownership_status: number;
-        has_owned_physical: number;
-        owned_variants: string | null;
-      }>();
+      )
+        .bind(...subscribedUserIds)
+        .all<{
+          user_id: number;
+          stable_id: number;
+          ownership_status: number;
+          has_owned_physical: number;
+          owned_variants: string | null;
+        }>();
       for (const row of ugrRows.results || []) {
         userOwnershipByGame.set(`${row.user_id}:${row.stable_id}`, {
           ownership_status: row.ownership_status ?? 0,
@@ -6404,10 +6789,10 @@ async function dispatchPhysicalAnnouncementNotifications(
         });
       }
     } catch {
-      // Fallback to item.game fields if user_game_releases query fails
+      // Fallback to 0 (unowned) if user_game_releases query fails
     }
 
-    for (const sub of subRows.results || []) {
+    for (const sub of subscriptions) {
       const subUserId = sub.user_id || 1;
       let prefs: Partial<DealNotificationPreferences> = {};
       try {
@@ -6457,21 +6842,9 @@ async function dispatchPhysicalAnnouncementNotifications(
             game.stable_id !== undefined
               ? userOwnershipByGame.get(`${subUserId}:${game.stable_id}`)
               : undefined;
-          const subOwnershipStatus = userState
-            ? userState.ownership_status
-            : subUserId === 1
-              ? game.ownership_status
-              : 0;
-          const subHasOwnedPhysical = userState
-            ? userState.has_owned_physical
-            : subUserId === 1
-              ? (game.has_owned_physical ?? 0)
-              : 0;
-          const subOwnedVariants = userState
-            ? userState.owned_variants
-            : subUserId === 1
-              ? (game.owned_variants ?? null)
-              : null;
+          const subOwnershipStatus = userState?.ownership_status ?? 0;
+          const subHasOwnedPhysical = userState?.has_owned_physical ?? 0;
+          const subOwnedVariants = userState?.owned_variants ?? null;
 
           const variantAlreadyOwned = Boolean(
             isSpecialEdition &&

@@ -37,7 +37,7 @@ describe('LandingPageComponent', () => {
     expect(component.accountMissing()).toBe(true);
 
     const banner = fixture.nativeElement.querySelector(
-      '[data-testid="account-missing-banner"]',
+      '[data-testid="account-missing-alert"]',
     );
     expect(banner).not.toBeNull();
   });

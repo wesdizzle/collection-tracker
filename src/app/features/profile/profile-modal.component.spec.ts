@@ -144,7 +144,9 @@ describe('ProfileModalComponent', () => {
 
     const dialog = component.dialogEl?.nativeElement;
     if (dialog) {
-      component.onDialogClick({ target: dialog } as unknown as MouseEvent);
+      component.kitModal?.onDialogClick({
+        target: dialog,
+      } as unknown as MouseEvent);
       expect(closeSpy).toHaveBeenCalledTimes(2);
     }
   });
@@ -152,17 +154,17 @@ describe('ProfileModalComponent', () => {
   it('should trigger close on touch swipe down past threshold', () => {
     const closeSpy = vi.spyOn(component, 'requestClose');
 
-    component.onTouchStart({
+    component.kitModal?.onTouchStart({
       touches: [{ clientY: 100 }],
     } as unknown as TouchEvent);
 
-    component.onTouchMove({
+    component.kitModal?.onTouchMove({
       touches: [{ clientY: 250 }],
     } as unknown as TouchEvent);
 
-    expect(component.effectiveTransformY()).toBe(150);
+    expect(component.kitModal?.effectiveTransformY()).toBe(150);
 
-    component.onTouchEnd();
+    component.kitModal?.onTouchEnd();
     expect(closeSpy).toHaveBeenCalled();
   });
 
@@ -209,7 +211,7 @@ describe('ProfileModalComponent', () => {
 
     const closeSpy = vi.spyOn(component, 'requestClose');
     const cancelEvent = new Event('cancel', { cancelable: true });
-    component.onDialogCancel(cancelEvent);
+    component.kitModal?.onDialogCancel(cancelEvent);
     fixture.detectChanges();
 
     expect(modalService.activeView()).toBe('profile');

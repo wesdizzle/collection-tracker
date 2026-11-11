@@ -2202,8 +2202,8 @@ describe('CollectionListComponent', () => {
 
   it('should omit backup badges and ignore backup_status filtering on publicly shared collection page', async () => {
     component.collectionService.setPublicView(true, {
-      username: 'wesley',
-      displayName: 'Wesley',
+      username: 'alice',
+      displayName: 'Alice',
       bio: null,
       homeRegion: 'USA',
     });
@@ -2212,7 +2212,7 @@ describe('CollectionListComponent', () => {
     const httpMock = TestBed.inject(HttpTestingController);
     const initPromise = component.ngOnInit();
 
-    httpMock.expectOne('/api/u/wesley/games').flush([
+    httpMock.expectOne('/api/u/alice/games').flush([
       {
         id: 'backed-up-game',
         title: 'Backed Up Game',
@@ -2232,7 +2232,7 @@ describe('CollectionListComponent', () => {
         backup_status: 0,
       },
     ]);
-    httpMock.expectOne('/api/u/wesley/toys').flush([]);
+    httpMock.expectOne('/api/u/alice/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([
       {
         id: 26,

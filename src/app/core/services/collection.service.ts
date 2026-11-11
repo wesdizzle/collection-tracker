@@ -14,7 +14,7 @@
  *   underlying API layer based on RxJS Observables.
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, OnDestroy, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router, RouteReuseStrategy } from '@angular/router';
 import {
@@ -58,7 +58,7 @@ import {
 @Injectable({
   providedIn: 'root',
 })
-export class CollectionService {
+export class CollectionService implements OnDestroy {
   private http = inject(HttpClient);
   private router = inject(Router);
   private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
@@ -116,6 +116,9 @@ export class CollectionService {
   public readonly authInitialized = this._authInitialized.asReadonly();
   private _authPromise: Promise<UserProfile | null> | null = null;
   private _lastAuthCheckMs = 0;
+  private _visibilityListener?: () => void;
+  private _focusListener?: () => void;
+  private _pageshowListener?: (event: PageTransitionEvent) => void;
 
   /**
    * Initializes the service and restores any saved navigation state from sessionStorage.
@@ -130,6 +133,26 @@ export class CollectionService {
     }
   }
 
+  public ngOnDestroy(): void {
+    if (typeof document !== 'undefined' && this._visibilityListener) {
+      document.removeEventListener(
+        'visibilitychange',
+        this._visibilityListener,
+      );
+      this._visibilityListener = undefined;
+    }
+    if (typeof window !== 'undefined') {
+      if (this._focusListener) {
+        window.removeEventListener('focus', this._focusListener);
+        this._focusListener = undefined;
+      }
+      if (this._pageshowListener) {
+        window.removeEventListener('pageshow', this._pageshowListener);
+        this._pageshowListener = undefined;
+      }
+    }
+  }
+
   /**
    * Listens for tab visibility, window focus, and BFCache restore events so that
    * signing out or updating identity details in another tab/window (such as the
@@ -139,29 +162,32 @@ export class CollectionService {
     const checkOnReturn = () => {
       if (
         this._authInitialized() &&
-        Date.now() - this._lastAuthCheckMs >= 2000
+        Date.now() - this._lastAuthCheckMs >= 60_000
       ) {
         this.refreshAuthStatus().catch(() => {});
       }
     };
     if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', () => {
+      this._visibilityListener = () => {
         if (document.visibilityState === 'hidden') {
           clearSilentSsoAttempt();
         } else if (document.visibilityState === 'visible') {
           checkOnReturn();
         }
-      });
+      };
+      document.addEventListener('visibilitychange', this._visibilityListener);
     }
     if (typeof window !== 'undefined') {
-      window.addEventListener('focus', () => {
+      this._focusListener = () => {
         checkOnReturn();
-      });
-      window.addEventListener('pageshow', (event: PageTransitionEvent) => {
+      };
+      this._pageshowListener = (event: PageTransitionEvent) => {
         if (event.persisted && this._authInitialized()) {
           this.refreshAuthStatus().catch(() => {});
         }
-      });
+      };
+      window.addEventListener('focus', this._focusListener);
+      window.addEventListener('pageshow', this._pageshowListener);
     }
   }
 
@@ -175,6 +201,11 @@ export class CollectionService {
     this._journalEntriesMap.set(new Map());
     this._journalLoaded.set(false);
     if (wasAuthenticated) {
+      if (!this._isPublicView()) {
+        this._games.set([]);
+        this._toys.set([]);
+        this._loadedOwnerContext.set(null);
+      }
       if (this.routeReuseStrategy instanceof CollectionRouteReuseStrategy) {
         this.routeReuseStrategy.clearAll();
       }
@@ -331,7 +362,7 @@ export class CollectionService {
     }
     if (!status.authenticated || !status.authorized) {
       await fetch('/api/auth/logout?silent=1', {
-        method: 'GET',
+        method: 'POST',
         credentials: 'same-origin',
         cache: 'no-store',
       }).catch(() => {});
@@ -403,11 +434,11 @@ export class CollectionService {
       this._currentUser.set({
         id: 1,
         email: 'admin@example.com',
-        username: 'wesley',
+        username: 'alice',
         role: 'admin',
         isPublic: true,
         homeRegion: 'USA',
-        displayName: 'Wesley',
+        displayName: 'Alice',
         bio: null,
       });
     } else {
@@ -1264,12 +1295,24 @@ export class CollectionService {
     }
   }
 
+  public getLogoutRedirectUrl(postLogoutPath = '/'): string {
+    const issuer = this._oidcIssuer()?.replace(/\/+$/, '');
+    if (issuer && typeof window !== 'undefined' && window.location) {
+      const target = `${window.location.origin}${postLogoutPath.startsWith('/') ? postLogoutPath : '/'}`;
+      return `${issuer}/logout?post_logout_redirect_uri=${encodeURIComponent(target)}`;
+    }
+    return postLogoutPath;
+  }
+
   /**
    * Signs out the current user, clears in-memory and Service Worker data caches,
-   * clears the local session cookie via background fetch, and navigates to `/api/auth/logout`.
+   * clears the local session cookie via POST fetch, and redirects to landing/IdP logout.
    */
   public async signOut(): Promise<void> {
+    const targetUrl = this.getLogoutRedirectUrl('/');
     this._currentUser.set(null);
+    this._games.set([]);
+    this._toys.set([]);
     this._journalEntriesMap.set(new Map());
     this._journalLoaded.set(false);
     this._loadedOwnerContext.set(null);
@@ -1283,9 +1326,7 @@ export class CollectionService {
         cache: 'no-store',
       }).catch(() => {});
     }
-    if (typeof window !== 'undefined' && window.location) {
-      window.location.assign('/api/auth/logout');
-    }
+    this.redirectTo(targetUrl);
   }
 
   public logoutAdmin() {

@@ -23,7 +23,7 @@ import {
   computed,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   ActivatedRoute,
@@ -55,7 +55,7 @@ import { IconName } from '../../../../shared/components/icon/icon.catalog';
   selector: 'app-item-detail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterModule, IconComponent],
+  imports: [DatePipe, FormsModule, RouterModule, IconComponent],
   templateUrl: './item-detail.component.html',
   styleUrls: ['./item-detail.component.css'],
 })
@@ -200,31 +200,55 @@ export class ItemDetailComponent {
     this.type() === 'platform' ? (this.item() as Platform) : null,
   );
 
-  /**
-   * Reactive signal fetching the acquisition journal entry for the current game or toy.
-   */
-  public journalEntry = toSignal(
-    combineLatest([
-      this.route.paramMap,
-      toObservable(this.collectionService.canShowPersonalState),
-      toObservable(this.journalRefreshTrigger),
-    ]).pipe(
-      switchMap(([params, canShowPersonal]) => {
-        const type = params.get('type') || '';
-        const id = params.get('id');
-        if (!canShowPersonal || !id || (type !== 'game' && type !== 'toy')) {
-          return of(null);
-        }
-        return this.collectionService
-          .getJournalEntry(type as 'game' | 'toy', id)
-          .pipe(
-            switchMap((res) => of(res.entry)),
-            catchError(() => of(null)),
-          );
-      }),
-    ),
-    { initialValue: null },
+  /** The current item identifier derived from the route */
+  public routeId = toSignal(
+    this.route.paramMap.pipe(switchMap((p) => [p.get('id') || ''])),
+    {
+      initialValue: '',
+    },
   );
+
+  /**
+   * Computed signal deriving the acquisition journal entry for the current game or toy
+   * directly from CollectionService's already-loaded journal state.
+   */
+  public journalEntry = computed<JournalEntry | null>(() => {
+    this.journalRefreshTrigger();
+    if (!this.collectionService.canShowPersonalState()) {
+      return null;
+    }
+    const itemType = this.type();
+    if (itemType !== 'game' && itemType !== 'toy') {
+      return null;
+    }
+    const map = this.collectionService.journalEntriesMap();
+    const idFromRoute = this.routeId();
+    if (itemType === 'game') {
+      const g = this.game();
+      const candidates = [
+        g?.game_id,
+        g?.id,
+        g?.stable_id !== undefined ? String(g.stable_id) : null,
+        idFromRoute,
+      ];
+      for (const candidate of candidates) {
+        if (candidate) {
+          const match = map.get(`game:${candidate}`);
+          if (match) return match;
+        }
+      }
+      return null;
+    }
+    const t = this.toy();
+    const candidates = [t?.id, idFromRoute];
+    for (const candidate of candidates) {
+      if (candidate) {
+        const match = map.get(`toy:${candidate}`);
+        if (match) return match;
+      }
+    }
+    return null;
+  });
 
   formatAcquisitionDate(
     dateStr?: string | null,
