@@ -1,0 +1,926 @@
+/**
+ * PURE SOURCE FORMAT & STRING MATCHING UTILITIES
+ *
+ * Lightweight, zero-dependency string extraction, region extraction, variant extraction,
+ * and platform matching routines.
+ *
+ * Safe for execution across both Cloudflare Workers edge isolates and local Node runtimes.
+ */
+
+import {
+  BOX_SET_DISC_LABELS,
+  findRetailPackInDisc,
+  getCuratedReleaseTags,
+} from './special_labels.js';
+
+/**
+ * Interface representing a platform database record.
+ */
+export interface PlatformRecord {
+  id: number;
+  name: string;
+  display_name: string;
+}
+
+/**
+ * Matches standard and localized numbered disc/side indicators:
+ * e.g., "Disc 1", "Disco 2", "Disque 1", "Disk A", "Side B", "Disc 1 of 2".
+ */
+export const NUMBERED_DISC_REGEX =
+  /^(?:disc|disco|disque|disk|side)\s+[a-zA-Z0-9]+(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?$/i;
+
+/**
+ * Matches Japanese counting disc indicators: Ichi, Ni, San, Yon, Shi, Go.
+ */
+export const JP_DISC_REGEX = /^(?:ichi|ni|san|yon|shi|go)$/i;
+
+/**
+ * Recognized disc-role parentheticals that identify a disc's function within
+ * a multi-disc retail box rather than a separate edition/variant.
+ */
+export const DISC_ROLE_INDICATORS = new Set<string>([
+  'play disc',
+  'data disc',
+  'data installation disc',
+  'installation disc',
+  'install disc',
+  'game disc',
+  'key disc',
+  'install',
+  'play',
+  'single player',
+  'single-player',
+  'multiplayer',
+  'campaign',
+  'campanha',
+  'add-on disc',
+  'add-on content disc',
+  'expansion disk',
+  'expansion disc',
+  'additional content packs install disc',
+  'zusaetzliche inhaltspacks installations-disc',
+  'tsuika contents disc',
+  'dlc installer',
+  'voice over pack',
+  'game',
+]);
+
+/**
+ * Compilation-scoped per-disc game subtitles.
+ * Keyed by lowercase compilation release prefix so that standalone releases of those
+ * games (e.g., standalone Batman: Arkham Asylum or Heavy Rain) are never affected.
+ */
+export const COMPILATION_DISC_SUBTITLES: Record<string, ReadonlySet<string>> = {
+  'batman - return to arkham': new Set(['arkham asylum', 'arkham city']),
+  'bioshock - the collection': new Set([
+    'bioshock-bioshock 2 disc',
+    'bioshock infinite disc',
+  ]),
+  'bioshock - ultimate rapture edition': new Set([
+    'bioshock - bonus content',
+    'bioshock 2 - bonus content',
+  ]),
+  'heavy rain & beyond - two souls collection': new Set([
+    'heavy rain',
+    'beyond - two souls',
+  ]),
+};
+
+/**
+ * Checks if a parenthetical inner string is a compilation-scoped disc subtitle
+ * when evaluated against the full release/ROM name.
+ */
+export function isCompilationDiscSubtitle(
+  content: string,
+  fullReleaseName?: string | null,
+): boolean {
+  if (!fullReleaseName) return false;
+  const normContent = content.toLowerCase().trim();
+  const normRelease = fullReleaseName.toLowerCase().trim();
+  for (const [prefix, subtitles] of Object.entries(
+    COMPILATION_DISC_SUBTITLES,
+  )) {
+    if (normRelease.startsWith(prefix) && subtitles.has(normContent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Checks if a parenthetical inner string is a disc/side or disc-role indicator.
+ */
+export function isDiscOrRoleIndicator(
+  content: string,
+  fullReleaseName?: string | null,
+): boolean {
+  const normalized = content.toLowerCase().trim();
+  if (NUMBERED_DISC_REGEX.test(normalized)) return true;
+  if (JP_DISC_REGEX.test(normalized)) return true;
+  if (DISC_ROLE_INDICATORS.has(normalized)) return true;
+  if (isCompilationDiscSubtitle(normalized, fullReleaseName)) return true;
+  return false;
+}
+
+const REGIONS_MAP: Record<string, string> = {
+  usa: 'USA',
+  europe: 'Europe',
+  japan: 'Japan',
+  world: 'World',
+  asia: 'Asia',
+  france: 'France',
+  germany: 'Germany',
+  australia: 'Australia',
+  uk: 'UK',
+  'united kingdom': 'UK',
+  canada: 'Canada',
+  korea: 'Korea',
+  brazil: 'Brazil',
+  spain: 'Spain',
+  italy: 'Italy',
+  netherlands: 'Netherlands',
+  sweden: 'Sweden',
+  russia: 'Russia',
+  china: 'China',
+  taiwan: 'Taiwan',
+  portugal: 'Portugal',
+  denmark: 'Denmark',
+  norway: 'Norway',
+  finland: 'Finland',
+  'hong kong': 'Hong Kong',
+  hongkong: 'Hong Kong',
+  latam: 'Latin America',
+  'latin america': 'Latin America',
+  nz: 'New Zealand',
+  'new zealand': 'New Zealand',
+  scandinavia: 'Scandinavia',
+  poland: 'Poland',
+  austria: 'Austria',
+  switzerland: 'Switzerland',
+  ireland: 'Ireland',
+  turkey: 'Turkey',
+  'united arab emirates': 'United Arab Emirates',
+  uae: 'United Arab Emirates',
+  greece: 'Greece',
+  'south africa': 'South Africa',
+  india: 'India',
+  mexico: 'Mexico',
+  belgium: 'Belgium',
+  israel: 'Israel',
+  croatia: 'Croatia',
+  czech: 'Czech Republic',
+  hungary: 'Hungary',
+  slovakia: 'Slovakia',
+};
+
+const RECOGNIZED_REGIONS = new Set<string>([
+  ...Object.keys(REGIONS_MAP),
+  'unknown',
+]);
+
+const RECOGNIZED_LANGUAGES = new Set<string>([
+  'en',
+  'fr',
+  'de',
+  'es',
+  'it',
+  'nl',
+  'pt',
+  'sv',
+  'no',
+  'da',
+  'fi',
+  'pl',
+  'ru',
+  'ja',
+  'zh',
+  'ko',
+  'el',
+  'tr',
+  'uk',
+  'ar',
+  'he',
+  'th',
+  'vi',
+  'cs',
+  'hu',
+  'hr',
+  'sk',
+  'ro',
+  'hi',
+  'bg',
+  'ca',
+  'sl',
+  'is',
+  'id',
+  'lt',
+  'lv',
+  'et',
+  'sr',
+  'ms',
+  'tl',
+  'af',
+  'eu',
+  'gl',
+  'hant',
+  'hans',
+  'zh-hant',
+  'zh-hans',
+  'pt-br',
+  'pt-pt',
+  'es-xl',
+  'es-la',
+  'es-es',
+  'fr-ca',
+  'en-gb',
+  'en-us',
+  'm1',
+  'm2',
+  'm3',
+  'm4',
+  'm5',
+  'm6',
+  'm7',
+  'm8',
+  'm9',
+  'multi1',
+  'multi2',
+  'multi3',
+  'multi4',
+  'multi5',
+  'multi6',
+  'multi7',
+  'multi8',
+  'multi9',
+  'english',
+  'french',
+  'german',
+  'spanish',
+  'italian',
+  'dutch',
+  'portuguese',
+  'swedish',
+  'norwegian',
+  'danish',
+  'finnish',
+  'polish',
+  'russian',
+  'japanese',
+  'chinese',
+  'korean',
+  'czech',
+  'hungarian',
+  'greek',
+  'turkish',
+  'arabic',
+  'hebrew',
+  'thai',
+  'vietnamese',
+  'croatian',
+  'slovak',
+  'romanian',
+  'hindi',
+  'bulgarian',
+  'catalan',
+  'slovenian',
+  'icelandic',
+  'indonesian',
+]);
+
+/**
+ * Checks if a string content consists entirely of regions, languages, or disc indicators.
+ * Used to separate variants from language/region/disc parentheticals.
+ *
+ * @param content Parenthetical inner content.
+ * @returns True if it is a region, language, or disc, false otherwise.
+ */
+export function isRegionOrLanguageOrDisc(
+  content: string,
+  fullReleaseName?: string | null,
+): boolean {
+  const normalized = content.toLowerCase().trim();
+  if (!normalized) return true;
+
+  if (isDiscOrRoleIndicator(normalized, fullReleaseName)) return true;
+  if (RECOGNIZED_REGIONS.has(normalized)) return true;
+
+  // First split by comma, slash, or plus to keep multi-word regions (e.g., "United Kingdom", "Latin America")
+  // and hyphenated language tags (e.g., "Zh-Hant", "Pt-BR") intact.
+  const commaSegments = normalized.split(/[,/+\\]+/);
+  const allCommaSegmentsMatch = commaSegments.every((seg) => {
+    const s = seg.trim();
+    if (!s) return true;
+    return RECOGNIZED_REGIONS.has(s) || RECOGNIZED_LANGUAGES.has(s);
+  });
+  if (allCommaSegmentsMatch) return true;
+
+  // Fallback token split for space/hyphen-separated language/region lists
+  const parts = normalized.split(/[\s,/\-\\+]+/);
+  return parts.every((part) => {
+    const p = part.trim();
+    if (!p) return true;
+    return RECOGNIZED_REGIONS.has(p) || RECOGNIZED_LANGUAGES.has(p);
+  });
+}
+
+/**
+ * Determines whether a parenthetical on a numbered multi-disc release is a true
+ * edition/revision/hardware variant (returns true) vs. a per-disc content subtitle
+ * like "(Red Dead Redemption Single Player)", "(Subsistence)", "(Dante)" (returns false).
+ */
+export function isTrueEditionOrRevisionVariant(content: string): boolean {
+  const lower = content.toLowerCase().trim();
+
+  // 1. Revisions, versions, firmware, and Sony/Nintendo serial/build codes
+  if (
+    /^(?:rev\s*(?:[a-z]|\d+(?:\.\d+)*)\b|v\d+(?:\.\d+)*[a-z]?|alt(?:\s+\d+)?|fw\d+(?:\.\d+)*|cusa-\d+|second printing)$/i.test(
+      lower,
+    )
+  ) {
+    return true;
+  }
+
+  // 2. Pre-release, demo, prototype, sample, kiosk
+  if (
+    /\b(?:beta|proto|prototype|demo|kiosk|sample|promo|taikenban)\b/i.test(
+      lower,
+    )
+  ) {
+    return true;
+  }
+
+  // 3. Recognized retail editions, budget lines, hardware enhancements, or compilations
+  if (
+    /\b(?:limited edition|collector'?s edition|special edition|deluxe|gold edition|day one edition|complete edition|game of the year|goty|greatest hits|platinum|playstation.*the best|rockstar classics|classic|nintendo selects|player'?s choice|shindou|genteiban|shokai|tokubetsu|premium|bundle|walmart|gamestop|best buy|target|amazon|edc|sgb|gb compatible|ndsi|virtual console|switch online|lodgenet|sega channel|e-reader|retro-bit|iam8bit|limited run|rerel|reprint)\b/i.test(
+      lower,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Extracts region codes from a release title.
+ *
+ * @param name The raw release name containing parentheses.
+ * @returns Comma-separated region string or null.
+ */
+export function extractRegions(name: string): string | null {
+  if (!name) return null;
+
+  // Normalize cross-region companion Disc 2s that share a retail box with a single-region Disc 1
+  const nameLower = name.toLowerCase();
+  if (nameLower.startsWith('halo 3 - odst')) {
+    if (nameLower.includes('(usa, brazil)') && nameLower.includes('(disc 2)')) {
+      return 'USA';
+    }
+    if (
+      nameLower.includes('(europe, asia)') &&
+      nameLower.includes('(disc 2)')
+    ) {
+      return 'Europe, Australia';
+    }
+  }
+  if (
+    nameLower.startsWith('resident evil 6') &&
+    nameLower.includes('(usa, europe)') &&
+    nameLower.includes('(disc 2)') &&
+    nameLower.includes('(voice over pack)')
+  ) {
+    return 'World';
+  }
+
+  const found: string[] = [];
+  const parentheticalMatches = name.match(/\(([^)]+)\)/g);
+  if (parentheticalMatches) {
+    for (const match of parentheticalMatches) {
+      const content = match.slice(1, -1);
+      // Split by comma or slash first to preserve multi-word regions like "United Kingdom", "Latin America", "Hong Kong"
+      const segments = content.split(/[,/]+/);
+      for (const seg of segments) {
+        const cleanSeg = seg.trim().toLowerCase();
+        if (REGIONS_MAP[cleanSeg]) {
+          const mapped = REGIONS_MAP[cleanSeg];
+          if (!found.includes(mapped)) {
+            found.push(mapped);
+          }
+          continue;
+        }
+        // Fallback: split by whitespace if segment wasn't a multi-word region
+        const parts = cleanSeg.split(/\s+/);
+        for (const part of parts) {
+          const cleanPart = part.trim().toLowerCase();
+          if (REGIONS_MAP[cleanPart]) {
+            const mapped = REGIONS_MAP[cleanPart];
+            if (!found.includes(mapped)) {
+              found.push(mapped);
+            }
+          }
+        }
+      }
+    }
+  }
+  return found.length > 0 ? found.join(', ') : null;
+}
+
+/**
+ * Extracts variant indicators (such as 'Beta', 'Proto', 'Rev 1', 'Greatest Hits',
+ * 'Nintendo Selects', 'Superseded') from a release title while ignoring regions,
+ * languages, disc indicators, and per-disc subtitles on multi-disc sets.
+ *
+ * @param name Raw release name containing parenthetical variants.
+ * @param platformId Optional platform ID for curated special-label and superseded lookups.
+ * @returns Comma-separated list of variants, or null.
+ */
+export function extractVariants(
+  name: string,
+  platformId?: number,
+): string | null {
+  if (!name) return null;
+
+  const found: string[] = [];
+  const parentheticalMatches = name.match(/\(([^)]+)\)/g);
+
+  // Check if this release is a numbered multi-disc entry (e.g. (Disc 1), (Disco 2), (Disque 1))
+  const hasNumberedDisc = Boolean(
+    parentheticalMatches?.some((m) => {
+      const inner = m.slice(1, -1).trim();
+      return NUMBERED_DISC_REGEX.test(inner) || JP_DISC_REGEX.test(inner);
+    }),
+  );
+
+  const isDateToken = (token: string): boolean =>
+    /^(?:19|20)\d{2}(?:[-./]\d{1,2}(?:[-./]\d{1,2}(?:[T\s_-][0-9a-z:.]+)?)?)?$/i.test(
+      token.trim(),
+    ) || /^\d{1,2}[-./]\d{1,2}[-./](?:19|20)\d{2}$/.test(token.trim());
+
+  if (parentheticalMatches) {
+    for (const match of parentheticalMatches) {
+      const rawContent = match.slice(1, -1).trim();
+      if (!isRegionOrLanguageOrDisc(rawContent, name)) {
+        // Ignore pure build dates and timestamps on Beta/Proto/Demo/Debug ROMs (e.g. "1998-07-16", "2006-12-14 17.05")
+        if (isDateToken(rawContent)) {
+          continue;
+        }
+        // Strip comma-separated build dates inside compound parentheticals (e.g. "Climax, 2004-05-31" -> "Climax")
+        const content = rawContent
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s && !isDateToken(s))
+          .join(', ');
+        if (!content) {
+          continue;
+        }
+        // If this is a numbered multi-disc release, ignore per-disc content subtitles
+        // (e.g. "(Red Dead Redemption Single Player)", "(Undead Nightmare and Multiplayer)",
+        // "(Subsistence)", "(Persistence)", "(Existence)", "(Dante)", "(Lucia)")
+        if (hasNumberedDisc && !isTrueEditionOrRevisionVariant(content)) {
+          continue;
+        }
+        // Special case for MGS3 Subsistence Disc 3 where "(Limited Edition)" or "(Shokai Seisanban)"
+        // was only tagged on Disc 3 in Redump
+        if (
+          hasNumberedDisc &&
+          name.toLowerCase().startsWith('metal gear solid 3 - subsistence') &&
+          /^(?:limited edition|shokai seisanban)$/i.test(content)
+        ) {
+          continue;
+        }
+        if (!found.includes(content)) {
+          found.push(content);
+        }
+      }
+    }
+  }
+
+  // Append curated special-label tags (e.g. Nintendo Selects, Platinum Hits, Greatest Hits,
+  // New Play Control!, Player's Choice, Essentials, Classic NES Series) and Superseded tag
+  const regionStr = extractRegions(name);
+  const curatedTags = getCuratedReleaseTags(name, regionStr, platformId);
+  for (const tag of curatedTags) {
+    if (
+      !found.some((existing) => existing.toLowerCase() === tag.toLowerCase())
+    ) {
+      found.push(tag);
+    }
+  }
+
+  return found.length > 0 ? found.join(', ') : null;
+}
+
+/**
+ * Extracts a human-readable per-disc label (e.g., "Disc 1 • Red Dead Redemption Single Player",
+ * "Play Disc", "Add-On Disc") from a ROM filename for display in the detail view.
+ */
+export function extractDiscLabel(
+  romName: string | null | undefined,
+): string | null {
+  if (!romName) return null;
+  const baseLower = romName
+    .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
+    .trim()
+    .toLowerCase();
+  if (BOX_SET_DISC_LABELS[baseLower]) {
+    return BOX_SET_DISC_LABELS[baseLower];
+  }
+  const parentheticalMatches = romName.match(/\(([^)]+)\)/g);
+  if (!parentheticalMatches) return null;
+
+  let discNumberPart: string | null = null;
+  let subtitlePart: string | null = null;
+
+  for (const match of parentheticalMatches) {
+    const content = match.slice(1, -1).trim();
+    const lower = content.toLowerCase();
+    if (NUMBERED_DISC_REGEX.test(lower)) {
+      discNumberPart = content;
+    } else if (
+      DISC_ROLE_INDICATORS.has(lower) ||
+      isCompilationDiscSubtitle(lower, romName)
+    ) {
+      subtitlePart = content;
+    } else if (
+      discNumberPart &&
+      !isRegionOrLanguageOrDisc(content, romName) &&
+      !isTrueEditionOrRevisionVariant(content)
+    ) {
+      subtitlePart = content;
+    }
+  }
+
+  if (discNumberPart && subtitlePart) {
+    return `${discNumberPart} — ${subtitlePart}`;
+  }
+  return discNumberPart || subtitlePart || null;
+}
+
+/**
+ * Determines whether a release or ROM should be ignored based on global or platform-specific rules.
+ *
+ * @param releaseName The clean release title.
+ * @param romName The ROM filename.
+ * @param platformId The platform ID.
+ * @returns True if the release is ignored, false otherwise.
+ */
+export function isIgnoredFormatRelease(
+  releaseName: string,
+  romName: string,
+  platformId?: number,
+): boolean {
+  // Retail pack-in bonus discs (e.g. Mega Man Legends 2 Demo inside Tron Bonne) are legitimate commercial media
+  if (findRetailPackInDisc(romName)) {
+    return false;
+  }
+
+  const romLower = romName.toLowerCase();
+  const relLower = releaseName.toLowerCase();
+  const lastDot = romLower.lastIndexOf('.');
+  const ext = lastDot !== -1 ? romLower.substring(lastDot) : '';
+
+  const badExtensions = [
+    '.tmd',
+    '.tik',
+    '.cert',
+    '.app',
+    '.cetk',
+    '.pkg',
+    '.unh',
+  ];
+  if (badExtensions.includes(ext)) return true;
+
+  // PlayStation Vita (Platform 33): Support canonical .psv images and .zip archives; reject .vpk
+  if (platformId === 33) {
+    if (ext === '.vpk') {
+      return true;
+    }
+    if (ext !== '.psv' && ext !== '.zip' && ext !== '.7z' && ext !== '') {
+      return true;
+    }
+  }
+
+  if (romLower.startsWith('tmd.')) return true;
+  const nameWithoutExt =
+    lastDot !== -1 ? romLower.substring(0, lastDot) : romLower;
+  if (/^\d+(\.\d+)*$/.test(romLower) || /^\d+(\.\d+)*$/.test(nameWithoutExt)) {
+    return true;
+  }
+
+  const combined = `${relLower} ${romLower}`;
+  const parentheticals = combined.match(/\(([^)]+)\)/g);
+  if (parentheticals) {
+    for (const rawParen of parentheticals) {
+      const inner = rawParen.slice(1, -1).trim();
+      // Ignore unreleased prototypes, development betas, kiosk demos, and samples
+      if (
+        /\b(?:beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
+          inner,
+        )
+      ) {
+        return true;
+      }
+      if (
+        /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|namco museum archives|capcom town|famicombox|pokemon box|ds broadcast|manual|super mario 3d all-stars|digital|atari anthology|atari flashback|capcom classics mini mix|sega smash pack|midway arcade|activision anthology)\b/i.test(
+          inner,
+        ) ||
+        inner.includes('game & watch') ||
+        /\b(?:anniversary|legacy|advance|marvel maximum|disney afternoon|namcot|metal gear solid|kirby's dream|sonic classic|sonic mega|seiken densetsu|20 shuunen special|super mario|zelda|bomberman)\s+collection\b/i.test(
+          inner,
+        ) ||
+        /\bcollection\s+of\s+(?:mana|saga)\b/i.test(inner) ||
+        /\bzelda\s+collector'?s?\s+edition\b/i.test(inner)
+      ) {
+        return true;
+      }
+      if (
+        platformId !== undefined &&
+        platformId !== 20 &&
+        /\b(?:gamecube(?:\s+edition)?|animal crossing|animal forest)\b/i.test(
+          inner,
+        )
+      ) {
+        return true;
+      }
+      if (
+        platformId === undefined &&
+        /\b(?:animal crossing|animal forest)\b/i.test(inner)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Maps a platform name from a DAT file header to a database platform definition.
+ * Uses explicit string fallbacks followed by exact and substring matching.
+ *
+ * @param datPlatformName Platform name declared in the DAT file header.
+ * @param targetPlatform The database platform record we are trying to match.
+ * @returns True if the DAT platform maps to the target platform, false otherwise.
+ */
+export function isPlatformMatch(
+  datPlatformName: string,
+  targetPlatform: PlatformRecord,
+): boolean {
+  if (/\bcommodore\b/i.test(datPlatformName) && targetPlatform.id === 17) {
+    return false;
+  }
+
+  const normalize = (s: string) =>
+    s
+      .replace(/&amp;/gi, ' and ')
+      .replace(/&/g, ' and ')
+      .replace(/\(parent-clone\)/gi, '')
+      .replace(/parent-clone/gi, '')
+      .toLowerCase()
+      .replace(
+        /\b(unofficial|nintendo|sony|sega|microsoft|philips|atari|tiger|snk|nec|panasonic|mattel|coleco|bandai|casio|fujitsu|interton|pce|tg16|interactive multimedia system|interactive multiplayer|interactive multimedia|video computer system|mark iii|bigendian|byteswapped|headered|headerless|decrypted|encrypted|bin|lyx|a78|j64|jag|abs|cof|rom|psvgamesd|blackfinpsv|nonpdrm|parentclone|parent clone)\b/gi,
+        '',
+      )
+      .replace(/[^a-z0-9]/g, '');
+
+  const datClean = normalize(datPlatformName);
+  const targetClean = normalize(
+    targetPlatform.display_name || targetPlatform.name,
+  );
+
+  // Exact match on normalized names
+  if (datClean && targetClean && datClean === targetClean) {
+    return true;
+  }
+
+  // Mega Drive / Genesis combined DAT header match
+  if (
+    datClean === 'megadrivegenesis' &&
+    (targetClean === 'genesis' || targetClean === 'megadrive')
+  ) {
+    return true;
+  }
+
+  // Explicit mappings from DAT headers/names to database platform IDs
+  const explicitPlatformMap: Record<string, number> = {
+    // Disc systems (Redump)
+    '3do': 1,
+    '3dointeractivemultiplayer': 1,
+    jaguarcd: 6,
+    neogeocd: 10,
+    gamecube: 20,
+    nintendogamecube: 20,
+    wii: 22,
+    wiiu: 24,
+    cdi: 28,
+    philipscdi: 28,
+    playstation: 29,
+    playstation2: 30,
+    playstationportable: 31,
+    psp: 31,
+    playstation3: 32,
+    playstationvita: 33,
+    psvita: 33,
+    playstation4: 34,
+    playstation5: 35,
+    segacd: 39,
+    megacd: 39,
+    megacdandcd: 39,
+    megacdcd: 39,
+    megacdandsegacd: 39,
+    megacdsegacd: 39,
+    saturn: 42,
+    segasaturn: 42,
+    dreamcast: 43,
+    pcenginecd: 46,
+    turbografxcd: 46,
+    pcenginecdandturbografxcd: 46,
+    pcenginecdturbografxcd: 46,
+    xbox: 47,
+    xbox360: 48,
+    xboxone: 49,
+    xboxseriesx: 50,
+    xboxseries: 50,
+
+    // Cartridge & Diskette systems (No-Intro)
+    atari2600: 2,
+    '2600': 2,
+    atari5200: 3,
+    '5200': 3,
+    atari7800: 4,
+    '7800': 4,
+    lynx: 5,
+    atarilynx: 5,
+    jaguar: 6,
+    atarijaguar: 6,
+    colecovision: 7,
+    intellivision: 8,
+    neogeoaes: 9,
+    neogeopocketcolor: 11,
+    neogeopocket: 11,
+    'entertainment system': 13,
+    entertainmentsystem: 13,
+    nintendoentertainmentsystem: 13,
+    nes: 13,
+    gameboy: 14,
+    superentertainmentsystem: 15,
+    supernintendoentertainmentsystem: 15,
+    snes: 15,
+    virtualboy: 16,
+    '64': 17,
+    nintendo64: 17,
+    n64: 17,
+    gameboycolor: 18,
+    gbc: 18,
+    gameboyadvance: 19,
+    gba: 19,
+    ds: 21,
+    nintendods: 21,
+    '3ds': 23,
+    nintendo3ds: 23,
+    new3ds: 25,
+    newnintendo3ds: 25,
+    switch: 26,
+    nintendoswitch: 26,
+    mastersystem: 36,
+    genesis: 37,
+    megadrive: 37,
+    megadrivegenesis: 37,
+    gamegear: 38,
+    pico: 40,
+    '32x': 41,
+    gamecom: 44,
+    turbografx16: 45,
+    pcengine: 45,
+    pcengineturbografx16: 45,
+    famicom: 53,
+    familycomputer: 53,
+    famicomdisksystem: 54,
+    familycomputerdisksystem: 54,
+    fds: 54,
+    nintendo64dd: 55,
+    '64dd': 55,
+  };
+
+  const matchedId = explicitPlatformMap[datClean];
+  if (matchedId && matchedId === targetPlatform.id) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * DEFAULT USER HOME REGION
+ * Defaults to 'USA'.
+ */
+export const DEFAULT_USER_HOME_REGION = 'USA';
+
+/**
+ * Regional hierarchy lookup map.
+ * Defines which broader geographical regions encompass each country or sub-region.
+ * Note: 'World' contains all regions by definition and is evaluated directly.
+ */
+export const REGION_ANCESTORS: Record<string, string[]> = {
+  // North America
+  usa: ['north america', 'americas'],
+  canada: ['north america', 'americas'],
+  mexico: ['north america', 'americas', 'latin america'],
+
+  // Europe & European countries
+  uk: ['europe', 'pal'],
+  'united kingdom': ['europe', 'pal'],
+  ireland: ['europe', 'pal'],
+  france: ['europe', 'pal'],
+  germany: ['europe', 'pal'],
+  italy: ['europe', 'pal'],
+  spain: ['europe', 'pal'],
+  portugal: ['europe', 'pal'],
+  netherlands: ['europe', 'pal'],
+  austria: ['europe', 'pal'],
+  switzerland: ['europe', 'pal'],
+  sweden: ['europe', 'scandinavia', 'pal'],
+  norway: ['europe', 'scandinavia', 'pal'],
+  denmark: ['europe', 'scandinavia', 'pal'],
+  finland: ['europe', 'scandinavia', 'pal'],
+  scandinavia: ['europe', 'pal'],
+  poland: ['europe', 'pal'],
+  russia: ['europe'],
+  greece: ['europe', 'pal'],
+  turkey: ['europe'],
+
+  // Asia
+  japan: ['asia'],
+  korea: ['asia'],
+  china: ['asia'],
+  taiwan: ['asia'],
+  'hong kong': ['asia'],
+
+  // Oceania
+  australia: ['oceania', 'pal'],
+  'new zealand': ['oceania', 'pal'],
+
+  // Americas
+  brazil: ['americas', 'latin america'],
+  'latin america': ['americas'],
+};
+
+/**
+ * Checks whether an item's region tag matches the user's home region, taking
+ * regional hierarchies and superset containers into account.
+ *
+ * Rules:
+ * - Empty / null item region is considered not matching.
+ * - If an item is labeled 'World', it satisfies all home regions.
+ * - If an item region exactly matches the home region (case-insensitive), it matches.
+ * - If an item region is a recognized ancestor of the home region (e.g. item is 'Europe'
+ *   and home region is 'UK', or item is 'North America' and home region is 'USA'), it matches.
+ * - Handles comma-separated multi-region strings (e.g. 'USA, Europe', 'Japan, Asia', 'Japan, USA').
+ *
+ * @param itemRegion The comma-delimited or single region from the game/toy (e.g. 'USA', 'World', 'Europe').
+ * @param homeRegion The user's home region (defaults to DEFAULT_USER_HOME_REGION = 'USA').
+ */
+export function isRegionMatchingHome(
+  itemRegion: string | null | undefined,
+  homeRegion: string = DEFAULT_USER_HOME_REGION,
+): boolean {
+  if (!itemRegion) return false;
+  const cleanHome = homeRegion.trim().toLowerCase();
+  if (!cleanHome) return false;
+
+  const itemTokens = itemRegion
+    .split(',')
+    .map((r) => r.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (itemTokens.length === 0) return false;
+
+  // 'World' contains everything
+  if (itemTokens.includes('world')) {
+    return true;
+  }
+
+  // Direct match
+  if (itemTokens.includes(cleanHome)) {
+    return true;
+  }
+
+  // Check if any item token is an ancestor region containing the home region
+  const homeAncestors = REGION_ANCESTORS[cleanHome] || [];
+  for (const ancestor of homeAncestors) {
+    if (itemTokens.includes(ancestor)) {
+      return true;
+    }
+  }
+
+  // Also check reverse if the user's home region is a broader region (e.g. user set home to 'Europe')
+  // and the item is tagged with a sub-region (e.g. 'UK')
+  for (const token of itemTokens) {
+    const tokenAncestors = REGION_ANCESTORS[token] || [];
+    if (tokenAncestors.includes(cleanHome)) {
+      return true;
+    }
+  }
+
+  return false;
+}

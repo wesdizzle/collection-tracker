@@ -1,0 +1,1052 @@
+import '../../../../../test-setup';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import {
+  ActivatedRoute,
+  convertToParamMap,
+  provideRouter,
+  Router,
+  ParamMap,
+} from '@angular/router';
+import { of, BehaviorSubject, throwError } from 'rxjs';
+import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
+import { ItemDetailComponent } from './item-detail.component';
+import { CollectionService } from '../../../../core/services/collection.service';
+import {
+  Game,
+  Toy,
+  PlayStatus,
+} from '../../../../core/models/collection.models';
+
+/**
+ * UNIT TEST: ItemDetailComponent
+ *
+ * Verifies that the detail view correctly loads and displays item information.
+ * Uses modern Angular 21+ provider-based mocking for HTTP and Routing.
+ */
+describe('ItemDetailComponent', () => {
+  let component: ItemDetailComponent;
+  let fixture: ComponentFixture<ItemDetailComponent>;
+  let collectionService: CollectionService;
+  let router: Router;
+  let paramMapSubject: BehaviorSubject<ParamMap>;
+
+  const mockGame: Game = {
+    stable_id: 1,
+    id: 'super-mario-world-snes',
+    title: 'Super Mario World',
+    series: 'Mario',
+    canonical_series: 'Mario',
+    platform: 'SNES',
+    platform_id: 19,
+    release_date: '1990-11-21',
+    image_url: 'mario.jpg',
+    genres: 'Platformer',
+    summary: 'A classic game.',
+    ownership_status: 1,
+    play_status: PlayStatus.Played,
+    backup_status: 1,
+  };
+
+  const mockToy: Toy = {
+    stable_id: 1,
+    id: 'amiibo-1',
+    name: 'Mario',
+    line: 'amiibo',
+    type: 'Figure',
+    series_name: 'Super Mario',
+    series_line: 'Super Mario',
+    release_date: '2014-11-21',
+    image_url: 'mario-amiibo.jpg',
+    ownership_status: 1,
+    verified: 1,
+  };
+
+  beforeEach(async () => {
+    paramMapSubject = new BehaviorSubject(
+      convertToParamMap({ id: '1', type: 'game' }),
+    );
+
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+
+    await TestBed.configureTestingModule({
+      imports: [ItemDetailComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([{ path: '**', component: class {} }]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: paramMapSubject.asObservable(),
+          },
+        },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(ItemDetailComponent);
+    component = fixture.componentInstance;
+    collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(true);
+    collectionService.setPublicView(false, null);
+    router = TestBed.inject(Router);
+
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(of(mockGame));
+    vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(mockToy));
+
+    fixture.detectChanges();
+  });
+
+  it('should load and display game details', async () => {
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.game()).toEqual(mockGame);
+    expect(component.formattedDate()).toContain('Wednesday, November 21, 1990');
+
+    const compiled = fixture.nativeElement;
+    expect(compiled.querySelector('.item-title').textContent).toContain(
+      'Super Mario World',
+    );
+  });
+
+  it('should load and display toy details', async () => {
+    paramMapSubject.next(convertToParamMap({ id: 'amiibo-1', type: 'toy' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(component.toy()).toEqual(mockToy);
+    expect(component.type()).toBe('toy');
+
+    const compiled = fixture.nativeElement;
+    expect(compiled.querySelector('.item-title').textContent).toContain(
+      'Mario',
+    );
+    expect(compiled.querySelector('.item-series').textContent).toContain(
+      'Super Mario',
+    );
+  });
+
+  it('should navigate to collection with exact series filter and reset scroll', () => {
+    const reuseStrategy = new CollectionRouteReuseStrategy();
+    const clearRouteSpy = vi.spyOn(reuseStrategy, 'clearRoute');
+    (
+      component as unknown as {
+        routeReuseStrategy: CollectionRouteReuseStrategy;
+      }
+    ).routeReuseStrategy = reuseStrategy;
+
+    const navigateSpy = vi.spyOn(router, 'navigate');
+    const updateStateSpy = vi.spyOn(collectionService, 'updateListState');
+
+    component.filterBySeries('Mario');
+
+    expect(clearRouteSpy).toHaveBeenCalledWith('games');
+    expect(updateStateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          seriesOrName: 'Mario',
+          seriesExact: true,
+        }),
+        scrollX: 0,
+        scrollY: 0,
+      }),
+    );
+    expect(navigateSpy).toHaveBeenCalledWith(['/collection', 'games']);
+  });
+
+  it('should reset window scroll to (0, 0) on initialization and param change', () => {
+    const scrollToSpy = vi
+      .spyOn(window, 'scrollTo')
+      .mockImplementation(() => {});
+
+    paramMapSubject.next(convertToParamMap({ id: '2', type: 'game' }));
+    fixture.detectChanges();
+
+    expect(scrollToSpy).toHaveBeenCalledWith({
+      top: 0,
+      left: 0,
+      behavior: 'instant',
+    });
+  });
+
+  it('should delegate to navigationHistory.back on onBack', () => {
+    const backSpy = vi
+      .spyOn(component.navigationHistory, 'back')
+      .mockImplementation(() => {});
+    const preventDefault = vi.fn();
+    const mockEvent = { preventDefault } as unknown as Event;
+
+    component.onBack(mockEvent);
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(backSpy).toHaveBeenCalledWith(['/collection', 'games']);
+  });
+
+  it('should handle missing release dates gracefully', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({ ...mockGame, release_date: '' }),
+    );
+
+    // Force reload
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(component.formattedDate()).toBeNull();
+  });
+
+  it('should display physical release verified badge and metadata when releases are present', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        rom_name: 'Super Mario World (USA).sfc',
+        rom_crc: 'B19DF4F3',
+        is_source_verified: 1,
+        releases: [
+          {
+            id: 'super-mario-world-snes-usa',
+            game_id: 1,
+            region: 'USA',
+            rom_name: 'Super Mario World (USA).sfc',
+            rom_crc: 'B19DF4F3',
+            backup_status: 1,
+            ownership_status: 1,
+            is_source_verified: 1,
+          },
+        ],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    // Check for Physical Release Verified pill
+    const romPill = compiled.querySelector('.stat-pill.physical-release');
+    expect(romPill).toBeTruthy();
+    expect(romPill.textContent).toContain('Verified Source Match');
+
+    // Check for physical discs / releases section
+    const discsSection = compiled.querySelector('.discs-section');
+    expect(discsSection).toBeTruthy();
+    expect(discsSection.textContent).toContain('Physical Cartridge Release');
+
+    // Filenames and raw CRC32 must NOT be rendered in the UI
+    expect(discsSection.textContent).not.toContain(
+      'Super Mario World (USA).sfc',
+    );
+    expect(discsSection.textContent).not.toContain('B19DF4F3');
+  });
+
+  it('should render the IGDB verified pill as an anchor tag with correct URL', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        igdb_id: 12345,
+        igdb_url:
+          'https://www.igdb.com/games/the-legend-of-zelda-ocarina-of-time',
+        title: 'The Legend of Zelda: Ocarina of Time',
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const igdbLink = compiled.querySelector('a.stat-pill.igdb');
+    expect(igdbLink).toBeTruthy();
+    expect(igdbLink.getAttribute('href')).toBe(
+      'https://www.igdb.com/games/the-legend-of-zelda-ocarina-of-time',
+    );
+    expect(igdbLink.getAttribute('target')).toBe('_blank');
+  });
+
+  it('should display Nintendo Revised attribution pill for Switch 1 & Switch 2 games', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        platform_id: 26,
+        platform: 'Nintendo Switch',
+        title: 'Super Mario Odyssey',
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const sheetLink = compiled.querySelector('a.stat-pill.physical');
+    expect(sheetLink).toBeTruthy();
+    expect(sheetLink.getAttribute('href')).toContain(
+      'docs.google.com/spreadsheets/d/1CEABCBrPv1tWf89hSZqUunK0JW-sQo8XpxuvZhdtHQs',
+    );
+    expect(sheetLink.textContent).toContain('Nintendo Revised Sheet');
+  });
+
+  it('should display Switch revision variant, serial code, and sheet comments without raw filename or CRC32', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        platform_id: 26,
+        platform: 'Nintendo Switch',
+        title: '1-2-Switch',
+        releases: [
+          {
+            id: 'rel-switch-1',
+            game_id: 1,
+            region: 'USA',
+            variants: 'Rev 001 (v1.1.0)',
+            serial_code: 'LA-H-AACCA-USA',
+            comments: 'Complete on cart',
+            rom_name: '1-2-Switch [0100000000010000][v65536].xci',
+            rom_crc: null,
+            backup_status: 1,
+            ownership_status: 1,
+          },
+        ],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const discsSection = compiled.querySelector('.discs-section');
+    expect(discsSection).toBeTruthy();
+    expect(discsSection.textContent).toContain('Rev 001 (v1.1.0)');
+    expect(discsSection.textContent).toContain('LA-H-AACCA-USA');
+    expect(discsSection.textContent).toContain('Complete on cart');
+    expect(discsSection.textContent).not.toContain(
+      '1-2-Switch [0100000000010000][v65536].xci',
+    );
+    expect(discsSection.textContent).not.toContain('CRC32');
+  });
+
+  it('should display extracted archival ROM provenance and badge', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        title: 'EarthBound Beginnings',
+        platform: 'NES',
+        physical_status: 'digital_extracted_rom',
+        release_medium: 'digital_extracted_rom',
+        origin_metadata: JSON.stringify({
+          origin_type: 'extracted_virtual_console',
+          origin_platform: 'Wii U Virtual Console',
+          origin_channel: 'Wii U Virtual Console',
+          origin_year: 2015,
+          target_hardware: 'Nintendo Entertainment System / Famicom',
+          notes: 'First official English localization release.',
+        }),
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    // Check extracted ROM pill
+    const extractedPill = compiled.querySelector('.stat-pill.extracted-rom');
+    expect(extractedPill).toBeTruthy();
+    expect(extractedPill.textContent).toContain('Extracted Archival ROM');
+
+    // Check provenance card
+    const provenanceCard = compiled.querySelector('.provenance-section');
+    expect(provenanceCard).toBeTruthy();
+    expect(provenanceCard.textContent).toContain('Wii U Virtual Console');
+    expect(provenanceCard.textContent).toContain('2015');
+    expect(provenanceCard.textContent).toContain(
+      'First official English localization release.',
+    );
+  });
+
+  it('should display included bundled games and bonus discs', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        title: 'Bayonetta 2',
+        platform: 'Wii U',
+        bundled_games: [
+          {
+            stable_id: 201,
+            id: 'bayonetta-wiiu-disc2',
+            title: 'Bayonetta',
+            platform_id: 24,
+            platform_name: 'Wii U',
+            bundle_disc_number: 2,
+            rom_name: 'Bayonetta (USA) (Disc 2).wux',
+            backup_status: 1,
+          },
+        ],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const bundlesSection = compiled.querySelector('.bundles-section');
+    expect(bundlesSection).toBeTruthy();
+    expect(bundlesSection.textContent).toContain(
+      'Included Games & Bonus Discs (In-Box)',
+    );
+    expect(bundlesSection.textContent).toContain('Bayonetta');
+    expect(bundlesSection.textContent).toContain('Disc 2');
+    expect(bundlesSection.textContent).toContain('Backed Up');
+  });
+
+  it('should render external source link for Amiibo, Skylanders, and Starlink toys', async () => {
+    // 1. Amiibo with amiibo_id
+    const amiiboToy: Toy = {
+      ...mockToy,
+      amiibo_id: '00030000000c0002',
+    };
+    vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(amiiboToy));
+    paramMapSubject.next(convertToParamMap({ id: 'amiibo-1', type: 'toy' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const amiiboLink = compiled.querySelector('.stat-pill.physical');
+    expect(amiiboLink).toBeTruthy();
+    expect(amiiboLink.textContent).toContain('AmiiboAPI');
+    expect(amiiboLink.getAttribute('href')).toContain('00030000000c0002');
+
+    // 2. Skylanders with scl_url
+    const skylandersToy: Toy = {
+      ...mockToy,
+      line: 'Skylanders',
+      scl_url: 'https://skylanderscharacterlist.com/spyro/',
+    };
+    vi.spyOn(collectionService, 'getToyById').mockReturnValue(
+      of(skylandersToy),
+    );
+    paramMapSubject.next(convertToParamMap({ id: 'spyro', type: 'toy' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const sclLink = compiled.querySelector('.stat-pill.physical');
+    expect(sclLink).toBeTruthy();
+    expect(sclLink.textContent).toContain('SCL Character Page');
+    expect(sclLink.getAttribute('href')).toBe(
+      'https://skylanderscharacterlist.com/spyro/',
+    );
+
+    // 3. Starlink toy
+    const starlinkToy: Toy = {
+      ...mockToy,
+      name: 'Fox McCloud',
+      line: 'Starlink',
+    };
+    vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(starlinkToy));
+    paramMapSubject.next(convertToParamMap({ id: 'fox', type: 'toy' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const starlinkLink = compiled.querySelector('.stat-pill.physical');
+    expect(starlinkLink).toBeTruthy();
+    expect(starlinkLink.textContent).toContain('Starlink Wiki');
+    expect(starlinkLink.getAttribute('href')).toContain('Fox_McCloud');
+  });
+
+  it('should display error state when item fails to load', async () => {
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      throwError(() => new Error('Failed to fetch metadata')),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '999', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const errorState = compiled.querySelector('.error-state');
+    expect(errorState).toBeTruthy();
+    expect(compiled.querySelector('.error-message')?.textContent).toContain(
+      'Unable to retrieve item metadata. Please try again later.',
+    );
+    expect(compiled.querySelector('.retry-btn')).toBeTruthy();
+  });
+
+  it('should display retail pricing, deal banner, and outbound research links', async () => {
+    const dealGame: Game = {
+      ...mockGame,
+      title: 'Hollow Knight',
+      platform: 'Nintendo Switch',
+      display_name: 'Nintendo Switch',
+      retail_price: 1499,
+      retail_regular_price: 3499,
+      retail_discount_pct: 57,
+      retail_on_sale: 1,
+      retail_store: 'Best Buy',
+      retail_url:
+        'https://www.bestbuy.com/site/hollow-knight-nintendo-switch/6352097.p?skuId=6352097',
+    };
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(of(dealGame));
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const marketSection = compiled.querySelector('.market-section');
+    expect(marketSection).toBeTruthy();
+
+    // Check deal banner
+    const dealBanner = compiled.querySelector('.deal-banner');
+    expect(dealBanner).toBeTruthy();
+    expect(dealBanner?.textContent).toContain('57% OFF');
+    expect(dealBanner?.textContent).toContain('$14.99');
+    expect(dealBanner?.textContent).toContain('Reg: $34.99');
+
+    // Check direct Best Buy buy button
+    const buyBtn = compiled.querySelector('.btn-retail-buy');
+    expect(buyBtn).toBeTruthy();
+    expect(buyBtn?.getAttribute('href')).toBe(dealGame.retail_url);
+
+    // Check outbound research links
+    const ebayLink = compiled.querySelector('a.jump-link-pill.ebay');
+    expect(ebayLink).toBeTruthy();
+    expect(ebayLink?.getAttribute('href')).toContain('ebay.com');
+    expect(ebayLink?.getAttribute('href')).toContain('_sacat=139973');
+
+    const dekuLink = compiled.querySelector('a.jump-link-pill.deku');
+    expect(dekuLink).toBeTruthy();
+    expect(dekuLink?.getAttribute('href')).toBe(
+      'https://www.dekudeals.com/search?q=Hollow%20Knight',
+    );
+  });
+
+  it('renders Acquisition Journal directly when authenticated and omits it when unauthenticated', async () => {
+    collectionService.setAdminForTesting(true);
+
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        id: 'wii-sports-nintendo-wii',
+        title: 'Wii Sports',
+      }),
+    );
+
+    vi.spyOn(collectionService, 'getJournalEntry').mockReturnValue(
+      of({
+        authorized: true,
+        entry: {
+          id: 42,
+          item_type: 'game',
+          item_id: 'wii-sports-nintendo-wii',
+          purchase_date: '2009-06',
+          is_approximate_date: 1,
+          price_paid: 0,
+          merchant: 'Best Buy',
+          gifted_by: null,
+          receipt_url: 'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+          notes:
+            'Free pack-in with Nintendo Wii console, purchased around June 2009 as part of a Best Buy promotion bundling it with an HP Pavilion dv6-1245dx laptop',
+        },
+      }),
+    );
+
+    paramMapSubject.next(
+      convertToParamMap({ id: 'wii-sports-nintendo-wii', type: 'game' }),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    // Authenticated: Journal rendered directly without masking or eye toggle
+    const revealedGrid = compiled.querySelector(
+      '[data-testid="journal-revealed-state"]',
+    );
+    expect(revealedGrid).toBeTruthy();
+    expect(
+      compiled.querySelector('[data-testid="journal-masked-state"]'),
+    ).toBeNull();
+    expect(
+      compiled.querySelector('[data-testid="btn-toggle-journal-eye"]'),
+    ).toBeNull();
+
+    expect(
+      compiled.querySelector('[data-testid="journal-date-display"]')
+        ?.textContent,
+    ).toContain('Around June 2009');
+    expect(
+      compiled.querySelector('[data-testid="journal-price-display"]')
+        ?.textContent,
+    ).toContain('$0.00');
+    expect(
+      compiled.querySelector('[data-testid="journal-merchant-display"]')
+        ?.textContent,
+    ).toContain('Best Buy');
+
+    const receiptLink = compiled.querySelector(
+      '[data-testid="journal-receipt-link"]',
+    ) as HTMLAnchorElement;
+    expect(receiptLink).toBeTruthy();
+    expect(receiptLink.getAttribute('href')).toBe(
+      'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+    );
+
+    const notesCallout = compiled.querySelector(
+      '[data-testid="journal-notes-display"]',
+    );
+    expect(notesCallout?.textContent).toContain('HP Pavilion dv6-1245dx');
+
+    // Unauthenticated: Journal section is completely omitted
+    collectionService.setAdminForTesting(false);
+    fixture.detectChanges();
+    expect(
+      compiled.querySelector('[data-testid="journal-section"]'),
+    ).toBeNull();
+  });
+
+  describe('Marketplace Links & Release Status Integration', () => {
+    it('should generate targeted eBay search URLs for toys', () => {
+      const skylanderToy: Toy = {
+        ...mockToy,
+        name: 'Camo',
+        line: 'Skylanders',
+      };
+      expect(component.getSmartEbayToyUrl(skylanderToy, 'all')).toBe(
+        'https://www.ebay.com/sch/i.html?_nkw=Camo%20Skylanders',
+      );
+      expect(component.getSmartEbayToyUrl(skylanderToy, 'loose')).toBe(
+        'https://www.ebay.com/sch/i.html?_nkw=Camo%20Skylanders%20loose',
+      );
+      expect(component.getSmartEbayToyUrl(skylanderToy, 'new')).toBe(
+        'https://www.ebay.com/sch/i.html?_nkw=Camo%20Skylanders%20nib%20sealed',
+      );
+    });
+
+    it('should render toy research and marketplace links without valuation cards', async () => {
+      const skylanderToy: Toy = {
+        ...mockToy,
+        name: 'Camo',
+        line: 'Skylanders',
+        series_name: "Spyro's Adventure",
+      };
+
+      vi.spyOn(collectionService, 'getToyById').mockReturnValue(
+        of(skylanderToy),
+      );
+      paramMapSubject.next(convertToParamMap({ id: 'toy-camo', type: 'toy' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const marketSection = compiled.querySelector('.market-section');
+      expect(marketSection).toBeTruthy();
+      expect(marketSection?.textContent).toContain(
+        'Research & Marketplace Links',
+      );
+
+      const ebayLinks = compiled.querySelectorAll('a[href*="ebay.com"]');
+      expect(ebayLinks.length).toBeGreaterThan(0);
+    });
+
+    it('should not mark past released unowned games as upcoming pre-release', async () => {
+      const pastUnownedGame: Game = {
+        ...mockGame,
+        ownership_status: 0,
+        release_date: '1990-11-21',
+        releases: [
+          {
+            id: 'super-mario-world-snes-1',
+            game_id: 1,
+            region: 'USA',
+            ownership_status: 0,
+            backup_status: 0,
+            release_date: '1990-11-21',
+          },
+        ],
+      };
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of(pastUnownedGame),
+      );
+      paramMapSubject.next(
+        convertToParamMap({ id: 'super-mario-world-snes', type: 'game' }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const upcomingPill = compiled.querySelector('.stat-pill.upcoming');
+      expect(upcomingPill).toBeNull();
+      expect(component.isUpcomingRelease(pastUnownedGame)).toBe(false);
+    });
+
+    it('should correctly mark future unowned games as upcoming pre-release', () => {
+      const futureGame: Game = {
+        ...mockGame,
+        ownership_status: 0,
+        release_date: '2099-01-01',
+        releases: [],
+      };
+      expect(component.isUpcomingRelease(futureGame)).toBe(true);
+    });
+
+    it('should never show watch for physical button on verified physical or signature matched games even when unowned', async () => {
+      const asteroidsUnowned: Game = {
+        ...mockGame,
+        id: 'asteroids-atari-2600',
+        title: 'Asteroids',
+        platform: 'Atari 2600',
+        platform_id: 10,
+        ownership_status: 0,
+        physical_status: 'verified_physical',
+        rom_name: 'Asteroids (Japan, USA).a26',
+        releases: [
+          {
+            id: 'asteroids-atari-2600-rel-1',
+            game_id: 10,
+            region: 'USA',
+            rom_name: 'Asteroids (Japan, USA).a26',
+            ownership_status: 0,
+            backup_status: 0,
+          },
+        ],
+      };
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of(asteroidsUnowned),
+      );
+      paramMapSubject.next(
+        convertToParamMap({ id: 'asteroids-atari-2600', type: 'game' }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.textContent).not.toContain('+ Watch for Physical');
+      expect(component.canWatchPhysical(asteroidsUnowned)).toBe(false);
+      expect(component.hasPhysicalRelease(asteroidsUnowned)).toBe(true);
+    });
+
+    it('should treat Platform 0 (No Platform) games as having no physical release and display the Awaiting Physical Edition pill', async () => {
+      const echoWeaverWatched: Game = {
+        ...mockGame,
+        id: 'echo-weaver-no-platform',
+        title: 'Echo Weaver',
+        platform: 'No Platform',
+        platform_id: 0,
+        ownership_status: 0,
+        physical_status: 'not_yet_physical',
+        rom_name: null,
+        releases: [],
+      };
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of(echoWeaverWatched),
+      );
+      paramMapSubject.next(
+        convertToParamMap({ id: 'echo-weaver-no-platform', type: 'game' }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(component.hasPhysicalRelease(echoWeaverWatched)).toBe(false);
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.textContent).toContain(
+        'Awaiting Physical Edition (Watching)',
+      );
+      expect(compiled.textContent).not.toContain(
+        'No dump exists in community DAT files',
+      );
+    });
+
+    it('should render other releases without exposing raw rom filenames and display alternate titles', async () => {
+      const apeEscapeGame: Game = {
+        ...mockGame,
+        id: 'ape-escape-playstation-8e306ae4',
+        title: 'Ape Escape',
+        platform: 'PlayStation',
+        releases: [
+          {
+            id: 'ape-escape-playstation-8e306ae4',
+            game_id: 1896,
+            region: 'USA',
+            rom_name: 'Ape Escape (USA).cue',
+            backup_status: 1,
+            ownership_status: 1,
+          },
+        ],
+        other_releases: [
+          {
+            id: 'ape-escape-playstation-cd211697',
+            game_id: 1896,
+            title: 'Saru! Get You!',
+            region: 'Japan',
+            rom_name: 'Saru! Get You! (Japan) (Rev 1).cue',
+            release_date: '1999-06-24',
+            backup_status: 0,
+            ownership_status: 0,
+          },
+          {
+            id: 'ape-escape-playstation-adbe9210',
+            game_id: 1896,
+            title: 'Ape Escape - La Invasión de los Monos',
+            region: 'Spain',
+            rom_name: 'Ape Escape - La Invasion de los Monos (Spain).cue',
+            release_date: '1999-07-02',
+            backup_status: 0,
+            ownership_status: 0,
+          },
+        ],
+      };
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of(apeEscapeGame),
+      );
+      paramMapSubject.next(
+        convertToParamMap({
+          id: 'ape-escape-playstation-8e306ae4',
+          type: 'game',
+        }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const otherSection = compiled.querySelector('.other-releases-section');
+      expect(otherSection).toBeTruthy();
+      expect(otherSection?.textContent).toContain('Saru! Get You!');
+      expect(otherSection?.textContent).toContain(
+        'Ape Escape - La Invasión de los Monos',
+      );
+      expect(otherSection?.textContent).not.toContain(
+        'Saru! Get You! (Japan) (Rev 1).cue',
+      );
+      expect(otherSection?.textContent).not.toContain(
+        'Ape Escape - La Invasion de los Monos (Spain).cue',
+      );
+    });
+  });
+
+  describe('Public & Signed-Out Depersonalized Detail View', () => {
+    it('omits play status, ownership status, backup details, and provenance when signed out', async () => {
+      collectionService.setAdminForTesting(false);
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of({
+          ...mockGame,
+          title: 'Super Mario World',
+          platform: 'SNES',
+          ownership_status: 1,
+          play_status: PlayStatus.Played,
+          backup_status: 1,
+          physical_status: 'digital_extracted_rom',
+          release_medium: 'digital_extracted_rom',
+          origin_metadata: JSON.stringify({
+            origin_channel: 'Wii U Virtual Console',
+            origin_year: 2015,
+            target_hardware: 'SNES',
+            notes: 'Extracted VC release',
+          }),
+          bundled_games: [
+            {
+              stable_id: 201,
+              id: 'smw-bonus-disc',
+              title: 'Super Mario All-Stars',
+              platform_id: 19,
+              platform_name: 'SNES',
+              bundle_disc_number: 2,
+              backup_status: 1,
+            },
+          ],
+          releases: [
+            {
+              id: 'smw-snes-usa',
+              game_id: 1,
+              region: 'USA',
+              rom_name: 'Super Mario World (USA).sfc',
+              backup_status: 1,
+              ownership_status: 1,
+              is_source_verified: 1,
+            },
+          ],
+          shared_backup_releases: [
+            {
+              id: 'smas-smw-snes',
+              game_id: 2,
+              title: 'Super Mario All-Stars + Super Mario World',
+              region: 'USA',
+              backup_status: 1,
+              ownership_status: 1,
+            },
+          ],
+          other_releases: [
+            {
+              id: 'smw-snes-jpn',
+              game_id: 1,
+              title: 'Super Mario World (Japan)',
+              region: 'Japan',
+              release_date: '1990-11-21',
+              backup_status: 0,
+              ownership_status: 1,
+            },
+          ],
+        }),
+      );
+
+      paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+
+      // Public catalog metadata still renders, while single-release discs-section is omitted when signed out
+      expect(compiled.querySelector('.item-title')?.textContent).toContain(
+        'Super Mario World',
+      );
+      expect(compiled.querySelector('.bundles-section')?.textContent).toContain(
+        'Super Mario All-Stars',
+      );
+      expect(compiled.querySelector('.discs-section')).toBeNull();
+      expect(compiled.textContent).not.toContain(
+        'No dump exists in community DAT files',
+      );
+      expect(compiled.querySelector('.other-releases-section')).toBeTruthy();
+
+      // Play status and ownership status pills are omitted
+      expect(compiled.querySelector('.play-status-pill')).toBeNull();
+      expect(compiled.querySelector('.ownership-pill')).toBeNull();
+
+      // Backup details (Backed Up / No Backup buttons/pills and Extracted Archival ROM pill) are omitted
+      expect(compiled.querySelector('.disc-actions')).toBeNull();
+      expect(compiled.querySelector('.stat-pill.extracted-rom')).toBeNull();
+      expect(compiled.textContent).not.toContain('Backed Up');
+      expect(compiled.textContent).not.toContain('No Backup');
+
+      // Provenance sections (Archival Origin Provenance and Acquisition Journal & Provenance) are omitted
+      expect(compiled.querySelector('.provenance-section')).toBeNull();
+      expect(
+        compiled.querySelector('[data-testid="journal-section"]'),
+      ).toBeNull();
+
+      // Owned badges on other regional releases are omitted
+      expect(
+        compiled.querySelector('.other-releases-section')?.textContent,
+      ).not.toContain('Owned');
+    });
+
+    it('renders physical disc release section with disc labels (without backup actions) for multi-disc sets when signed out', async () => {
+      collectionService.setAdminForTesting(false);
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of({
+          ...mockGame,
+          title: 'Final Fantasy VII',
+          platform: 'PlayStation',
+          platform_id: 7,
+          releases: [
+            {
+              id: 'ff7-disc-1',
+              game_id: 7,
+              title: 'Final Fantasy VII',
+              region: 'USA',
+              disc_label: 'Disc 1',
+              rom_name: 'Final Fantasy VII (USA) (Disc 1).bin',
+              backup_status: 1,
+              ownership_status: 1,
+              is_source_verified: 1,
+            },
+            {
+              id: 'ff7-disc-2',
+              game_id: 7,
+              title: 'Final Fantasy VII',
+              region: 'USA',
+              disc_label: 'Disc 2',
+              rom_name: 'Final Fantasy VII (USA) (Disc 2).bin',
+              backup_status: 0,
+              ownership_status: 1,
+              is_source_verified: 1,
+            },
+          ],
+          shared_backup_releases: [
+            {
+              id: 'ff7-gh',
+              game_id: 8,
+              title: 'Final Fantasy VII (Greatest Hits)',
+              region: 'USA',
+              backup_status: 1,
+              ownership_status: 1,
+            },
+          ],
+        }),
+      );
+
+      paramMapSubject.next(convertToParamMap({ id: '7', type: 'game' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const discsSection = compiled.querySelector('.discs-section');
+      expect(discsSection).toBeTruthy();
+      expect(discsSection?.textContent).toContain('Disc 1');
+      expect(discsSection?.textContent).toContain('Disc 2');
+      expect(compiled.querySelector('.disc-actions')).toBeNull();
+      expect(discsSection?.textContent).not.toContain('Backed Up');
+      expect(discsSection?.textContent).not.toContain('No Backup');
+      expect(
+        compiled.querySelector('.shared-backup-banner')?.textContent,
+      ).not.toContain('Owned');
+    });
+
+    it('omits toy ownership status pill when signed out', async () => {
+      collectionService.setAdminForTesting(false);
+      paramMapSubject.next(convertToParamMap({ id: 'amiibo-1', type: 'toy' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      expect(compiled.querySelector('.item-title')?.textContent).toContain(
+        'Mario',
+      );
+      expect(compiled.querySelector('.ownership-pill')).toBeNull();
+    });
+
+    it('navigates back and filters by series within /u/:username when in public view', () => {
+      collectionService.setPublicView(true, {
+        username: 'wesley',
+        displayName: 'Wesley',
+        bio: null,
+        homeRegion: 'USA',
+      });
+      fixture.detectChanges();
+
+      const backSpy = vi
+        .spyOn(component.navigationHistory, 'back')
+        .mockImplementation(() => {});
+      const navigateSpy = vi.spyOn(router, 'navigate');
+
+      component.onBack();
+      expect(backSpy).toHaveBeenCalledWith(['/u', 'wesley', 'games']);
+
+      component.filterBySeries('Mario');
+      expect(navigateSpy).toHaveBeenCalledWith(['/u', 'wesley', 'games']);
+    });
+  });
+});

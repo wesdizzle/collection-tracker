@@ -1,0 +1,1250 @@
+<div class="discovery-container">
+  <!-- Header Area -->
+  <div class="discovery-header-panel mb-lg">
+    <h1 class="text-gradient">Discovery Center</h1>
+    <p class="text-secondary text-sm">
+      Discover, match, and ingest new games and amiibo into your collection.
+    </p>
+  </div>
+
+  <!-- Tab Buttons Navigation -->
+  <div class="tabs-container mb-lg">
+    <button
+      class="tab-button"
+      [class.active]="activeTab() === 'search'"
+      (click)="activeTab.set('search')"
+    >
+      <span class="tab-icon flex items-center gap-xs"
+        ><app-icon name="seeking" [size]="16" /> Game Search</span
+      >
+    </button>
+    <button
+      class="tab-button"
+      [class.active]="activeTab() === 'scan'"
+      (click)="activeTab.set('scan')"
+    >
+      <span class="tab-icon flex items-center gap-xs"
+        ><app-icon name="compass" [size]="16" /> Franchise Discovery</span
+      >
+    </button>
+    <button
+      class="tab-button"
+      [class.active]="activeTab() === 'amiibo'"
+      (click)="activeTab.set('amiibo')"
+    >
+      <span class="tab-icon flex items-center gap-xs"
+        ><app-icon name="figure-toy" [size]="16" /> Amiibo Discovery</span
+      >
+      @if (amiiboResults().length > 0) {
+        <span class="tab-badge">{{ amiiboResults().length }}</span>
+      }
+    </button>
+  </div>
+
+  <!-- TAB 1: MANUAL GAME SEARCH -->
+  @if (activeTab() === 'search') {
+    <div class="tab-content animate-slide-up">
+      <!-- Control Panel -->
+      <div class="search-controls mb-lg">
+        <div class="m3-input-wrapper">
+          <span class="input-prefix-icon"
+            ><app-icon name="seeking" [size]="16"
+          /></span>
+          <input
+            #queryInput
+            type="text"
+            placeholder="Type game title..."
+            class="m3-input"
+            (keyup.enter)="
+              triggerSearch(queryInput.value, platformSelect.value)
+            "
+          />
+        </div>
+
+        <div class="select-wrapper">
+          <select #platformSelect class="m3-select">
+            <option value="">All Platforms</option>
+            @for (group of platformGroups(); track group.brand) {
+              <optgroup [label]="group.brand">
+                @for (p of group.platforms; track p.id) {
+                  @if (!p.parent_platform_id) {
+                    <option [value]="p.id">
+                      {{ p.display_name || p.name }}
+                    </option>
+                  } @else {
+                    <option [value]="p.id">
+                      &nbsp;&nbsp;↳ {{ p.display_name || p.name }}
+                    </option>
+                  }
+                }
+              </optgroup>
+            }
+          </select>
+        </div>
+
+        <button
+          class="m3-btn m3-btn-primary"
+          (click)="triggerSearch(queryInput.value, platformSelect.value)"
+        >
+          Search IGDB
+        </button>
+      </div>
+
+      <!-- Search States -->
+      @if (searchLoading()) {
+        <div class="flex justify-center p-xl">
+          <div class="spinner"></div>
+        </div>
+      }
+
+      @if (searchError()) {
+        <div class="error-banner mb-md">
+          <span class="icon"
+            ><app-icon name="alert-triangle" [size]="16"
+          /></span>
+          <p>{{ searchError() }}</p>
+        </div>
+      }
+
+      @if (
+        !searchLoading() &&
+        searchResults().length === 0 &&
+        !searchError() &&
+        !searchPerformed()
+      ) {
+        <div class="empty-state">
+          <div class="empty-icon text-4xl">
+            <app-icon name="seeking" [size]="48" />
+          </div>
+          <h3>Begin Manual Search</h3>
+          <p class="text-secondary">
+            Select a platform and type a title above to discover matches from
+            IGDB.
+          </p>
+        </div>
+      }
+
+      @if (
+        !searchLoading() &&
+        searchResults().length === 0 &&
+        !searchError() &&
+        searchPerformed()
+      ) {
+        <div class="empty-state animate-slide-up">
+          <div class="empty-icon text-4xl">
+            <app-icon name="inbox-empty" [size]="48" />
+          </div>
+          <h3>No Games Found on IGDB</h3>
+          <p class="text-secondary mb-md">
+            We couldn't find any games matching "{{ lastQuery() }}" on the
+            selected platform.
+          </p>
+          <button
+            class="m3-btn m3-btn-secondary btn-sm"
+            (click)="clearSearchState()"
+          >
+            Clear Search
+          </button>
+        </div>
+      }
+
+      <!-- Search Results Grid -->
+      @if (!searchLoading() && searchResults().length > 0) {
+        <div class="search-results-header mb-md">
+          <p class="text-secondary text-xs">
+            Search additions are added to your collection as unowned by default.
+          </p>
+        </div>
+        <div class="results-grid">
+          @for (game of searchResults(); track game.id) {
+            <div class="game-result-card">
+              <div class="result-cover">
+                @if (game.image_url) {
+                  <img
+                    [src]="game.image_url"
+                    alt="cover"
+                    referrerpolicy="no-referrer"
+                  />
+                } @else {
+                  <div class="no-image">No Cover Available</div>
+                }
+              </div>
+              <div class="result-details">
+                <div class="result-info">
+                  <h4 class="result-title" [title]="game.name">
+                    {{ game.name }}
+                  </h4>
+                  @if (game.first_release_date) {
+                    <div class="release-year text-xs text-secondary mb-xs">
+                      {{ game.first_release_date.slice(0, 4) }}
+                      @if (game.genres) {
+                        • {{ game.genres }}
+                      }
+                    </div>
+                  }
+
+                  <!-- Platform Selection Group -->
+                  <div class="platform-selection-group">
+                    @if (
+                      game.physical_platforms &&
+                      game.physical_platforms.length > 0
+                    ) {
+                      <div
+                        class="platform-selection-header flex items-center justify-between mb-xs"
+                      >
+                        <span class="text-xs text-secondary font-medium"
+                          >Platforms:</span
+                        >
+                        <div
+                          class="platform-quick-actions flex gap-xs items-center"
+                        >
+                          <button
+                            type="button"
+                            class="quick-link-btn"
+                            title="Select verified physical releases only"
+                            (click)="selectVerifiedPlatforms(game)"
+                          >
+                            Verified Only
+                          </button>
+                          <button
+                            type="button"
+                            class="quick-link-btn"
+                            title="Select all available platforms"
+                            (click)="selectAllPlatforms(game)"
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            class="quick-link-btn"
+                            title="Deselect all platforms"
+                            (click)="deselectAllPlatforms(game)"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <div class="platform-chips">
+                        @for (
+                          p of game.physical_platforms;
+                          track p.platform_id
+                        ) {
+                          @if (p.is_owned) {
+                            <span
+                              class="platform-chip owned"
+                              title="Already in collection"
+                            >
+                              <app-icon name="check" [size]="12" />
+                              {{ p.platform_name }} (In Collection)
+                            </span>
+                          } @else {
+                            <label
+                              class="platform-chip unowned"
+                              [class.active]="
+                                isPlatformSelected(game.id, p.platform_id)
+                              "
+                            >
+                              <input
+                                type="checkbox"
+                                [checked]="
+                                  isPlatformSelected(game.id, p.platform_id)
+                                "
+                                (change)="
+                                  togglePlatformSelection(
+                                    game.id,
+                                    p.platform_id
+                                  )
+                                "
+                              />
+                              <span>{{ p.platform_name }}</span>
+                              @if (p.matched_releases_count > 0) {
+                                <span class="rel-count"
+                                  >({{ p.matched_releases_count }})</span
+                                >
+                              }
+                            </label>
+                          }
+                        }
+                      </div>
+                    } @else {
+                      <div class="flex gap-xs items-center flex-wrap">
+                        <span class="platform-badge">{{ game.platform }}</span>
+                        @if (game.physical_status === 'verified_physical') {
+                          <span
+                            class="physical-badge verified flex items-center gap-2xs"
+                            title="Canonical Physical Cartridge / Disc Match"
+                            ><app-icon
+                              name="circle-fill"
+                              [size]="12"
+                              class="text-emerald-500"
+                            />
+                            Verified Physical</span
+                          >
+                        } @else if (
+                          game.physical_status === 'likely_physical'
+                        ) {
+                          <span
+                            class="physical-badge likely flex items-center gap-2xs"
+                            title="Modern Retail Publisher / Barcode Match"
+                            ><app-icon
+                              name="circle-half"
+                              [size]="12"
+                              class="text-amber-500"
+                            />
+                            Likely Physical</span
+                          >
+                        } @else if (
+                          game.physical_status === 'not_yet_physical' ||
+                          game.physical_status === 'physical_pending'
+                        ) {
+                          <span
+                            class="physical-badge pending flex items-center gap-2xs"
+                            title="Digital Release Awaiting Physical Edition"
+                            ><app-icon
+                              name="clock"
+                              [size]="12"
+                              class="text-purple-400"
+                            />
+                            Physical Pending</span
+                          >
+                        } @else if (game.physical_status === 'digital_only') {
+                          <span
+                            class="physical-badge digital flex items-center gap-2xs"
+                            title="Digital-Only / Virtual Console Re-release"
+                            ><app-icon
+                              name="circle-empty"
+                              [size]="12"
+                              class="text-slate-400"
+                            />
+                            Digital Only</span
+                          >
+                        }
+                      </div>
+                    }
+                  </div>
+                </div>
+
+                <div class="card-actions flex gap-xs items-center mt-sm">
+                  @if (game.platform_id === 0) {
+                    <button
+                      class="m3-btn m3-btn-primary flex-1 btn-sm"
+                      (click)="ingestWishlistForGame(game)"
+                    >
+                      + Wishlist Physical
+                    </button>
+                  } @else {
+                    <button
+                      class="m3-btn m3-btn-primary flex-1 btn-sm"
+                      [disabled]="getSelectedPlatformsCount(game) === 0"
+                      (click)="ingestSelectedForGame(game)"
+                      title="Add selected platforms to collection as unowned"
+                    >
+                      Ingest as Unowned ({{ getSelectedPlatformsCount(game) }})
+                    </button>
+                    @if (canWatchPhysical(game)) {
+                      <button
+                        class="m3-btn m3-btn-secondary btn-sm"
+                        title="Track as digital release awaiting physical edition (Platform 0)"
+                        (click)="ingestPhysicalWatchForGame(game)"
+                      >
+                        + Watch Physical
+                      </button>
+                    }
+                  }
+                  <button
+                    class="m3-btn m3-btn-secondary btn-sm"
+                    title="Customize ingestion options and releases"
+                    (click)="
+                      openIngestionModal(
+                        game,
+                        getSelectedPlatformIds(game)[0]?.toString() ||
+                          (game.platform_id ? game.platform_id.toString() : '0')
+                      )
+                    "
+                  >
+                    Customize...
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  <!-- TAB 2: SERIES DISCOVERY -->
+  @if (activeTab() === 'scan') {
+    <div class="tab-content animate-slide-up">
+      <!-- Series Discovery Controls Toolbar -->
+      <div class="series-discovery-controls p-md mb-lg">
+        <div class="flex flex-wrap items-center justify-between gap-md">
+          <div class="flex items-center gap-md flex-1 min-w-[280px]">
+            <label
+              for="seriesSelect"
+              class="font-bold text-sm text-secondary whitespace-nowrap"
+            >
+              Franchise:
+            </label>
+            <select
+              id="seriesSelect"
+              class="m3-select flex-1"
+              [value]="selectedSeries()"
+              (change)="onSeriesSelectChange($event)"
+              [disabled]="scanLoading()"
+            >
+              <option value="">
+                All Franchises ({{ trackedSeriesList().length }} tracked)
+              </option>
+              @for (item of trackedSeriesList(); track item.name) {
+                <option [value]="item.name">
+                  {{ item.name }} ({{ item.count }} collected)
+                </option>
+              }
+            </select>
+          </div>
+
+          <div class="flex items-center gap-sm">
+            @if (scanLoading()) {
+              <button class="m3-btn m3-btn-secondary" (click)="stopScan()">
+                <span class="flex items-center gap-xs">
+                  <app-icon name="square-stop" [size]="16" /> Stop Scan
+                </span>
+              </button>
+            } @else {
+              <button
+                class="m3-btn m3-btn-primary"
+                (click)="triggerSeriesScan()"
+              >
+                @if (selectedSeries()) {
+                  <span class="flex items-center gap-xs"
+                    ><app-icon name="seeking" [size]="16" /> Scan
+                    {{ selectedSeries() }}</span
+                  >
+                } @else {
+                  <span class="flex items-center gap-xs"
+                    ><app-icon name="compass" [size]="16" /> Scan All Franchises
+                    (Progressive)</span
+                  >
+                }
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- Progress Bar during progressive scan -->
+        @if (scanProgress() && (scanLoading() || scanCancelled())) {
+          <div class="scan-progress-box mt-md pt-md">
+            <div
+              class="flex justify-between items-center text-xs text-secondary mb-xs"
+            >
+              <span>
+                @if (scanLoading()) {
+                  Scanning franchises:
+                  <strong
+                    >{{ scanProgress()!.scanned }} of
+                    {{ scanProgress()!.total }}</strong
+                  >
+                  ({{ scanProgress()!.percent }}%)
+                } @else if (scanCancelled()) {
+                  Scan paused at
+                  <strong
+                    >{{ scanProgress()!.scanned }} of
+                    {{ scanProgress()!.total }}</strong
+                  >
+                  franchises
+                }
+              </span>
+              <span
+                >{{ scanResults().length }} missing game{{
+                  scanResults().length === 1 ? '' : 's'
+                }}
+                found</span
+              >
+            </div>
+            <div class="progress-bar-track">
+              <div
+                class="progress-bar-fill"
+                [style.width.%]="scanProgress()!.percent"
+              ></div>
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- CTA Action panel (only when no scan has been run yet) -->
+      @if (
+        !scanLoading() &&
+        scanResults().length === 0 &&
+        !scanPerformed() &&
+        !scanError()
+      ) {
+        <div class="scan-cta-card">
+          <div class="text-4xl mb-md flex justify-center">
+            <app-icon name="compass" [size]="48" />
+          </div>
+          <h2>Franchise Discovery</h2>
+          <p class="text-secondary mb-lg max-w-md mx-auto">
+            Scan all {{ trackedSeriesList().length }} tracked franchises
+            progressively with real-time streaming, or select a specific
+            franchise above to inspect missing entries instantly.
+          </p>
+          <button class="m3-btn m3-btn-primary" (click)="triggerSeriesScan()">
+            @if (selectedSeries()) {
+              <span class="flex items-center gap-xs"
+                ><app-icon name="seeking" [size]="16" /> Scan
+                {{ selectedSeries() }}</span
+              >
+            } @else {
+              <span class="flex items-center gap-xs"
+                ><app-icon name="refresh" [size]="16" /> Start Progressive
+                Franchise Scan</span
+              >
+            }
+          </button>
+        </div>
+      }
+
+      <!-- Scan Loading state (when 0 results returned yet) -->
+      @if (scanLoading() && scanResults().length === 0) {
+        <div class="scan-loading-card">
+          <div class="progress-pulse"></div>
+          <h3>Franchise Scan in Progress</h3>
+          <p class="text-secondary text-sm max-w-sm">
+            Fetching series metadata, compiling missing matches, and
+            cross-referencing catalogs. Results will stream in below...
+          </p>
+        </div>
+      }
+
+      <!-- Scan Error State -->
+      @if (scanError()) {
+        <div class="error-banner mb-md">
+          <span class="icon"
+            ><app-icon name="alert-triangle" [size]="16"
+          /></span>
+          <p>{{ scanError() }}</p>
+        </div>
+      }
+
+      <!-- Scan Empty Result State (after scan finished with 0 results) -->
+      @if (
+        !scanLoading() &&
+        scanResults().length === 0 &&
+        !scanError() &&
+        scanPerformed()
+      ) {
+        <div class="empty-state animate-slide-up">
+          <div class="empty-icon text-4xl">
+            <app-icon name="sparkles" [size]="48" />
+          </div>
+          <h3>All Tracked Franchises Reconciled!</h3>
+          <p class="text-secondary mb-md">
+            No missing canonical entries were found for your tracked franchises.
+          </p>
+          <button
+            class="m3-btn m3-btn-secondary btn-sm"
+            (click)="triggerSeriesScan()"
+          >
+            <span class="flex items-center gap-xs"
+              ><app-icon name="refresh" [size]="16" /> Scan Again</span
+            >
+          </button>
+        </div>
+      }
+
+      <!-- Scan Results Grid -->
+      @if (scanResults().length > 0) {
+        <div
+          class="scan-results-header mb-md flex justify-between items-center"
+        >
+          <div>
+            <h3>{{ scanResults().length }} Suggestions Found</h3>
+            <p class="text-secondary text-xs">
+              Series scans assume games are unowned and unplayed by default.
+            </p>
+          </div>
+          <div class="flex gap-sm">
+            <button
+              class="m3-btn m3-btn-secondary"
+              (click)="selectVerifiedScanOnly()"
+              title="Select only verified physical suggestions"
+            >
+              Select Verified Only
+            </button>
+            <button
+              class="m3-btn m3-btn-secondary"
+              (click)="toggleSelectAllScan()"
+            >
+              {{
+                selectedScanGameIds().size === scanResults().length
+                  ? 'Deselect All'
+                  : 'Select All'
+              }}
+            </button>
+            <button
+              class="m3-btn m3-btn-primary"
+              [disabled]="selectedScanGameIds().size === 0"
+              (click)="bulkAddSeriesGames()"
+            >
+              Bulk Ingest ({{ selectedScanGameIds().size }})
+            </button>
+          </div>
+        </div>
+
+        <div class="series-grid">
+          @for (game of scanResults(); track game.id + '-' + game.platform_id) {
+            <div class="series-game-card">
+              <input
+                type="checkbox"
+                class="series-card-checkbox"
+                [checked]="
+                  selectedScanGameIds().has(game.id + '-' + game.platform_id)
+                "
+                (change)="toggleScanSelection(game)"
+              />
+
+              <div class="series-game-cover">
+                @if (game.image_url) {
+                  <img
+                    [src]="game.image_url"
+                    alt="cover"
+                    referrerpolicy="no-referrer"
+                  />
+                } @else {
+                  <div class="no-image">No Cover</div>
+                }
+              </div>
+
+              <div class="series-game-info">
+                <div class="flex justify-between items-start flex-wrap gap-sm">
+                  <div>
+                    <h4 class="text-base font-bold">{{ game.title }}</h4>
+                    <div class="flex gap-sm items-center mt-sm flex-wrap">
+                      <span class="platform-badge">{{ game.platform }}</span>
+                      @if (game.physical_status === 'verified_physical') {
+                        <span
+                          class="physical-badge verified flex items-center gap-2xs"
+                          title="Canonical Physical Cartridge / Disc Match"
+                          ><app-icon
+                            name="circle-fill"
+                            [size]="12"
+                            class="text-emerald-500"
+                          />
+                          Verified Physical</span
+                        >
+                      } @else if (game.physical_status === 'likely_physical') {
+                        <span
+                          class="physical-badge likely flex items-center gap-2xs"
+                          title="Modern Retail Publisher / Barcode Match"
+                          ><app-icon
+                            name="circle-half"
+                            [size]="12"
+                            class="text-amber-500"
+                          />
+                          Likely Physical</span
+                        >
+                      } @else if (game.physical_status === 'digital_only') {
+                        <span
+                          class="physical-badge digital flex items-center gap-2xs"
+                          title="Digital-Only / Virtual Console Re-release"
+                          ><app-icon
+                            name="circle-empty"
+                            [size]="12"
+                            class="text-slate-400"
+                          />
+                          Digital Only</span
+                        >
+                      }
+                      @if (game.collections) {
+                        <span class="metadata-badge"
+                          >Series: {{ game.collections }}</span
+                        >
+                      }
+                      @if (game.franchises) {
+                        <span class="metadata-badge"
+                          >Franchise: {{ game.franchises }}</span
+                        >
+                      }
+                    </div>
+                  </div>
+                  <button
+                    class="m3-btn m3-btn-secondary btn-sm"
+                    (click)="addGameFromSeries(game)"
+                  >
+                    One-click Add
+                  </button>
+                </div>
+
+                @if (game.summary) {
+                  <p class="option-summary text-xs mt-sm text-secondary">
+                    {{ game.summary }}
+                  </p>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  <!-- TAB 3: AMIIBO DISCOVERY -->
+  @if (activeTab() === 'amiibo') {
+    <div class="tab-content animate-slide-up">
+      <!-- CTA Action panel if not scanned yet -->
+      @if (
+        !amiiboLoading() && amiiboResults().length === 0 && !amiiboPerformed()
+      ) {
+        <div class="scan-cta-card">
+          <div class="text-4xl mb-md flex justify-center">
+            <app-icon name="figure-toy" [size]="48" />
+          </div>
+          <h2>Scan Amiibo Catalog</h2>
+          <p class="text-secondary mb-lg max-w-md mx-auto">
+            Query the canonical AmiiboAPI database to discover newly released
+            figures and cards that are missing from your collection.
+          </p>
+          <button class="m3-btn m3-btn-primary" (click)="triggerAmiiboScan()">
+            <span class="flex items-center gap-xs"
+              ><app-icon name="figure-toy" [size]="16" /> Scan Missing
+              Amiibo</span
+            >
+          </button>
+        </div>
+      }
+
+      <!-- Scan Loading state -->
+      @if (amiiboLoading()) {
+        <div class="scan-loading-card">
+          <div class="progress-pulse"></div>
+          <h3>Amiibo Scan in Progress</h3>
+          <p class="text-secondary text-sm max-w-sm">
+            Fetching amiibo catalog from AmiiboAPI and cross-referencing with
+            your collection...
+          </p>
+        </div>
+      }
+
+      <!-- Scan Error State -->
+      @if (amiiboError()) {
+        <div class="error-banner mb-md">
+          <span class="icon"
+            ><app-icon name="alert-triangle" [size]="16"
+          /></span>
+          <p>{{ amiiboError() }}</p>
+        </div>
+      }
+
+      <!-- Empty Result State -->
+      @if (
+        !amiiboLoading() &&
+        amiiboResults().length === 0 &&
+        !amiiboError() &&
+        amiiboPerformed()
+      ) {
+        <div class="empty-state animate-slide-up">
+          <div class="empty-icon text-4xl">
+            <app-icon name="sparkles" [size]="48" />
+          </div>
+          <h3>All Amiibo Reconciled!</h3>
+          <p class="text-secondary mb-md">
+            Your collection includes every amiibo currently registered in the
+            database.
+          </p>
+          <button
+            class="m3-btn m3-btn-secondary btn-sm"
+            (click)="triggerAmiiboScan()"
+          >
+            <span class="flex items-center gap-xs"
+              ><app-icon name="refresh" [size]="16" /> Scan Again</span
+            >
+          </button>
+        </div>
+      }
+
+      <!-- Amiibo Results List -->
+      @if (!amiiboLoading() && amiiboResults().length > 0) {
+        <!-- Controls & Filters -->
+        <div class="amiibo-filters-bar mb-md">
+          <div class="flex flex-wrap gap-sm items-center flex-1">
+            <input
+              type="text"
+              placeholder="Filter by name..."
+              class="m3-input amiibo-search-input"
+              [value]="amiiboSearchQuery()"
+              (input)="onAmiiboSearchInput($event)"
+            />
+
+            <select
+              class="m3-select amiibo-select"
+              [value]="amiiboSeriesFilter()"
+              (change)="onAmiiboSeriesChange($event)"
+            >
+              <option value="all">All Series</option>
+              @for (s of amiiboSeriesList(); track s) {
+                <option [value]="s">{{ s }}</option>
+              }
+            </select>
+
+            <select
+              class="m3-select amiibo-select"
+              [value]="amiiboTypeFilter()"
+              (change)="onAmiiboTypeChange($event)"
+            >
+              <option value="all">All Types</option>
+              @for (t of amiiboTypesList(); track t) {
+                <option [value]="t">{{ t }}</option>
+              }
+            </select>
+          </div>
+
+          <div class="flex gap-sm items-center">
+            <button
+              class="m3-btn m3-btn-secondary btn-sm"
+              (click)="toggleSelectAllAmiibo()"
+            >
+              {{
+                selectedAmiiboIds().size === filteredAmiiboResults().length
+                  ? 'Deselect All'
+                  : 'Select All'
+              }}
+            </button>
+            <button
+              class="m3-btn m3-btn-primary btn-sm"
+              [disabled]="selectedAmiiboIds().size === 0"
+              (click)="bulkAddAmiibo()"
+            >
+              Bulk Ingest Unowned ({{ selectedAmiiboIds().size }})
+            </button>
+          </div>
+        </div>
+
+        <div class="mb-sm">
+          <p class="text-secondary text-xs">
+            Amiibo additions are added to your collection as unowned by default.
+          </p>
+        </div>
+
+        <!-- Discovered Amiibo Cards Grid -->
+        <div class="series-grid">
+          @for (
+            item of filteredAmiiboResults();
+            track item.amiibo_id || item.id
+          ) {
+            <div class="series-game-card">
+              <input
+                type="checkbox"
+                class="series-card-checkbox"
+                [checked]="selectedAmiiboIds().has(item.amiibo_id || item.id)"
+                (change)="toggleAmiiboSelection(item)"
+              />
+
+              <div class="amiibo-card-cover">
+                @if (item.image_url) {
+                  <img
+                    [src]="item.image_url"
+                    alt="amiibo"
+                    referrerpolicy="no-referrer"
+                  />
+                } @else {
+                  <div class="no-image">No Image</div>
+                }
+              </div>
+
+              <div class="series-game-info">
+                <div class="flex justify-between items-start flex-wrap gap-sm">
+                  <div>
+                    <h4 class="text-base font-bold">{{ item.name }}</h4>
+                    <div class="flex gap-sm items-center mt-sm flex-wrap">
+                      <span class="platform-badge toy-badge">amiibo</span>
+                      <span class="metadata-badge"
+                        >Series: {{ item.series_name }}</span
+                      >
+                      <span class="metadata-badge">Type: {{ item.type }}</span>
+                      @if (item.release_date) {
+                        <span class="metadata-badge"
+                          >Released: {{ item.release_date }}</span
+                        >
+                      }
+                    </div>
+                  </div>
+                  <button
+                    class="m3-btn m3-btn-secondary btn-sm"
+                    (click)="addSingleAmiibo(item)"
+                    title="Add to collection as unowned"
+                  >
+                    Ingest as Unowned
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>
+
+<!-- INGESTION MODAL DIALOG -->
+@if (showModal() && modalGame(); as game) {
+  <div class="modal-backdrop" (click)="closeIngestionModal()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Ingest Game Metadata</h3>
+        <button class="close-btn" (click)="closeIngestionModal()">
+          &times;
+        </button>
+      </div>
+
+      <div class="modal-body">
+        @if (modalLoading()) {
+          <div class="flex justify-center p-xl">
+            <div class="spinner"></div>
+          </div>
+        } @else {
+          <!-- Target Platform Selection for Global Searches -->
+          @if (modalInitialPlatformId() === 0) {
+            <div class="form-field mb-lg">
+              <label for="modal-platform-select">Target Platform</label>
+              <select
+                id="modal-platform-select"
+                class="m3-select"
+                [value]="modalPlatformId()"
+                (change)="onModalPlatformChange($event)"
+              >
+                <option value="0">Select Target Platform...</option>
+                @for (group of platformGroups(); track group.brand) {
+                  <optgroup [label]="group.brand">
+                    @for (p of group.platforms; track p.id) {
+                      @if (!p.parent_platform_id) {
+                        <option [value]="p.id">
+                          {{ p.display_name || p.name }}
+                        </option>
+                      } @else {
+                        <option [value]="p.id">
+                          &nbsp;&nbsp;↳ {{ p.display_name || p.name }}
+                        </option>
+                      }
+                    }
+                  </optgroup>
+                }
+              </select>
+            </div>
+          }
+
+          <!-- Game Header Summary -->
+          <div class="flex gap-md mb-lg items-start">
+            <div class="modal-game-cover">
+              @if (game.image_url) {
+                <img
+                  [src]="game.image_url"
+                  alt="cover"
+                  referrerpolicy="no-referrer"
+                />
+              } @else {
+                <div class="no-image">No Cover</div>
+              }
+            </div>
+            <div>
+              <h2 class="text-lg font-bold">{{ game.name }}</h2>
+              <div class="flex gap-xs items-center mt-sm flex-wrap">
+                <span class="platform-badge">{{
+                  game.platform || 'Unknown Platform'
+                }}</span>
+                @if (game.physical_status === 'verified_physical') {
+                  <span
+                    class="physical-badge verified flex items-center gap-2xs"
+                    ><app-icon
+                      name="circle-fill"
+                      [size]="12"
+                      class="text-emerald-500"
+                    />
+                    Verified Physical</span
+                  >
+                } @else if (game.physical_status === 'likely_physical') {
+                  <span class="physical-badge likely flex items-center gap-2xs"
+                    ><app-icon
+                      name="circle-half"
+                      [size]="12"
+                      class="text-amber-500"
+                    />
+                    Likely Physical</span
+                  >
+                } @else if (
+                  game.physical_status === 'not_yet_physical' ||
+                  game.physical_status === 'physical_pending'
+                ) {
+                  <span class="physical-badge pending flex items-center gap-2xs"
+                    ><app-icon
+                      name="clock"
+                      [size]="12"
+                      class="text-purple-400"
+                    />
+                    Physical Pending</span
+                  >
+                } @else if (game.physical_status === 'digital_only') {
+                  <span class="physical-badge digital flex items-center gap-2xs"
+                    ><app-icon
+                      name="circle-empty"
+                      [size]="12"
+                      class="text-slate-400"
+                    />
+                    Digital Only</span
+                  >
+                }
+              </div>
+              @if (game.summary) {
+                <p class="text-xs text-secondary mt-sm line-clamp-3">
+                  {{ game.summary }}
+                </p>
+              }
+            </div>
+          </div>
+
+          <!-- Matched Canonical Physical Releases Checklist -->
+          @if (matchedReleases().length > 0) {
+            <div class="form-field mb-lg">
+              <div class="flex justify-between items-center mb-xs">
+                <label class="font-bold">
+                  Canonical Physical Releases ({{ matchedReleases().length }}
+                  found)
+                </label>
+                <div class="flex items-center gap-xs text-xs">
+                  <button
+                    type="button"
+                    class="quick-link-btn"
+                    (click)="selectVerifiedReleasesOnly()"
+                    title="Select verified physical releases only"
+                  >
+                    Verified Only
+                  </button>
+                  <button
+                    type="button"
+                    class="quick-link-btn"
+                    (click)="selectAllReleases()"
+                    title="Select all canonical releases"
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    class="quick-link-btn"
+                    (click)="clearReleaseSelection()"
+                    title="Clear release selection"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div class="releases-checklist">
+                @for (
+                  rel of matchedReleases();
+                  track rel.romCrc || rel.romName || rel.name
+                ) {
+                  <label class="release-item">
+                    <input
+                      type="checkbox"
+                      class="release-checkbox"
+                      [checked]="
+                        selectedReleaseIds().has(
+                          rel.romCrc || rel.romName || rel.name
+                        )
+                      "
+                      (change)="toggleReleaseSelection(rel)"
+                    />
+                    <div class="release-details">
+                      <span class="release-title">{{ rel.name }}</span>
+                      <div class="flex gap-xs mt-xs flex-wrap">
+                        @if (rel.region) {
+                          <span class="tag-pill region-pill">{{
+                            rel.region
+                          }}</span>
+                        }
+                        @if (rel.variants) {
+                          <span class="tag-pill variant-pill">{{
+                            rel.variants
+                          }}</span>
+                        }
+                        @if (rel.serial_code) {
+                          <span class="tag-pill serial-pill">{{
+                            rel.serial_code
+                          }}</span>
+                        }
+                        @if (rel.romCrc) {
+                          <span class="tag-pill crc-pill"
+                            >CRC: {{ rel.romCrc }}</span
+                          >
+                        }
+                      </div>
+                    </div>
+                  </label>
+                }
+              </div>
+            </div>
+          } @else if (
+            game.physical_status === 'not_yet_physical' ||
+            (game.first_release_date && isUpcomingDate(game.first_release_date))
+          ) {
+            <div
+              class="upcoming-info-banner p-md mb-lg rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-200 text-sm flex items-start gap-sm"
+            >
+              <app-icon
+                name="calendar"
+                [size]="18"
+                class="text-blue-400 shrink-0 mt-2xs"
+              />
+              <div>
+                <span class="font-bold">Wishlist Title:</span> This title is
+                awaiting physical release confirmation or commercial launch. It
+                will be tracked on your physical wishlist.
+                @if (game.first_release_date) {
+                  <div class="mt-2xs text-xs text-blue-300 font-medium">
+                    Expected Date: {{ game.first_release_date }}
+                  </div>
+                }
+              </div>
+            </div>
+          } @else if (game.physical_status === 'physical_pending') {
+            <div
+              class="upcoming-info-banner p-md mb-lg rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-200 text-sm flex items-start gap-sm"
+            >
+              <app-icon
+                name="clock"
+                [size]="18"
+                class="text-purple-400 shrink-0 mt-2xs"
+              />
+              <div>
+                <span class="font-bold">Physical Edition Watch:</span>
+                Currently released digitally or awaiting physical edition
+                confirmation. When boutique publishers (LRG, SRG, iam8bit, etc.)
+                launch pre-orders, your collection will automatically detect it.
+              </div>
+            </div>
+          }
+
+          <!-- Ingestion status parameters -->
+          <div class="modal-meta-grid">
+            <div class="form-field">
+              <label for="ownership-select">Ownership Status</label>
+              <select
+                id="ownership-select"
+                class="m3-select"
+                [value]="ownershipStatus()"
+                (change)="onOwnershipChange($event)"
+              >
+                <option value="0">Unowned (Default)</option>
+                <option value="1">Owned</option>
+                <option value="2">Seeking</option>
+                <option value="3">Ordered</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="play-select">Play Status</label>
+              <select
+                id="play-select"
+                class="m3-select"
+                (change)="onPlayChange($event)"
+              >
+                <option value="0" selected>Unplayed</option>
+                <option value="1">Played</option>
+                <option value="2">Playing</option>
+                <option value="3">Queued</option>
+                <option value="4">Paused</option>
+                <option value="5">Dropped</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="backup-select">Backup Status</label>
+              <select
+                id="backup-select"
+                class="m3-select"
+                (change)="onBackupChange($event)"
+              >
+                <option value="0" selected>Not Backed Up</option>
+                <option value="1">Backed Up</option>
+              </select>
+            </div>
+          </div>
+        }
+      </div>
+
+      <div class="modal-footer">
+        <button
+          class="m3-btn m3-btn-secondary"
+          [disabled]="modalLoading()"
+          (click)="closeIngestionModal()"
+        >
+          Cancel
+        </button>
+        <button
+          class="m3-btn m3-btn-primary"
+          [disabled]="modalLoading() || !game || !modalPlatformId()"
+          (click)="submitIngestion()"
+        >
+          Ingest & Sync
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Sticky Floating Action Bar for Bulk operations -->
+@if (bulkActionBarVisible()) {
+  <div class="bulk-action-bar visible">
+    @if (activeTab() === 'scan') {
+      <span class="text-sm font-bold"
+        >{{ selectedScanGameIds().size }} Games Selected</span
+      >
+      <div class="flex gap-sm">
+        <button
+          class="m3-btn m3-btn-secondary btn-sm py-2"
+          (click)="clearScanSelection()"
+        >
+          Cancel
+        </button>
+        <button
+          class="m3-btn m3-btn-primary btn-sm py-2"
+          (click)="bulkAddSeriesGames()"
+        >
+          Ingest Bulk
+        </button>
+      </div>
+    } @else if (activeTab() === 'amiibo') {
+      <span class="text-sm font-bold"
+        >{{ selectedAmiiboIds().size }} Amiibo Selected</span
+      >
+      <div class="flex gap-sm">
+        <button
+          class="m3-btn m3-btn-secondary btn-sm py-2"
+          (click)="clearAmiiboSelection()"
+        >
+          Cancel
+        </button>
+        <button
+          class="m3-btn m3-btn-primary btn-sm py-2"
+          (click)="bulkAddAmiibo()"
+        >
+          Ingest Bulk Unowned
+        </button>
+      </div>
+    }
+  </div>
+}
+
+<!-- Toast Notification -->
+@if (toastMessage()) {
+  <div class="m3-toast-container animate-toast">
+    <div class="m3-toast-card">
+      <span class="m3-toast-icon"
+        ><app-icon name="sparkles" [size]="18"
+      /></span>
+      <span class="m3-toast-text">{{ toastMessage() }}</span>
+      <button class="m3-toast-close" (click)="toastMessage.set(null)">
+        &times;
+      </button>
+    </div>
+  </div>
+}

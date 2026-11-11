@@ -1,0 +1,545 @@
+<div class="insights-container animate-expressive">
+  <!-- Header Bar -->
+  <header class="insights-header">
+    <div class="header-titles">
+      <h1 class="insights-title">Collection Insights</h1>
+      <p class="insights-subtitle">
+        Visual analytics, platform completion, condition audit, and preservation
+        health.
+      </p>
+    </div>
+    <div class="header-actions">
+      <button
+        type="button"
+        class="refresh-btn m3-button-outlined"
+        (click)="refresh()"
+        [disabled]="isRefreshing()"
+        title="Refresh collection data from server"
+      >
+        <span class="btn-icon" [class.spinning]="isRefreshing()">
+          <app-icon name="refresh" [size]="16" />
+        </span>
+        <span>{{ isRefreshing() ? 'Refreshing...' : 'Refresh Data' }}</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Metric Summary Cards Row -->
+  <section class="summary-cards-grid">
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <span class="stat-label">Play Backlog Progress</span>
+        <span class="card-icon-badge primary-badge">
+          <app-icon name="play" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">{{ playStatusStats().playedPct }}%</div>
+      <div class="stat-subtext">
+        <span>{{ playStatusStats().played }} Played</span>
+        @if (playStatusStats().playing > 0) {
+          <span> • {{ playStatusStats().playing }} Playing</span>
+        }
+        @if (playStatusStats().queued > 0) {
+          <span> • {{ playStatusStats().queued }} Queued</span>
+        }
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <span class="stat-label">Games Owned</span>
+        <span class="card-icon-badge secondary-badge">
+          <app-icon name="gamepad" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">
+        {{ ownedGames().length }}
+      </div>
+      <div class="stat-subtext">
+        <span>{{ cibCount() }} CIB ({{ cibPct() }}%)</span>
+        @if (seekingGamesCount() > 0) {
+          <span> • {{ seekingGamesCount() }} Seeking</span>
+        }
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <span class="stat-label">Physical Backup Health</span>
+        <span
+          class="card-icon-badge"
+          [class.success-badge]="backupRatePct() >= 80"
+          [class.warning-badge]="backupRatePct() < 80"
+        >
+          <app-icon name="verified-badge" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">{{ backupRatePct() }}%</div>
+      <div class="stat-subtext">
+        <span
+          >{{ backedUpOwnedGames().length }} /
+          {{ physicalOwnedGames().length }} releases</span
+        >
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <span class="stat-label">Toys Owned</span>
+        <span class="card-icon-badge tertiary-badge">
+          <app-icon name="figure-toy" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">
+        {{ ownedToys().length }}
+      </div>
+      <div class="stat-subtext">
+        @if (catalogToysCount() > 0) {
+          <span>{{ toyCompletionPct() }}% of catalog</span>
+        } @else {
+          <span>0 cataloged</span>
+        }
+        @if (seekingToysCount() > 0) {
+          <span> • {{ seekingToysCount() }} Seeking</span>
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- Detailed Analytics Grid -->
+  <div class="insights-content-grid">
+    <!-- Left Column: Preservation, Condition & Backlog -->
+    <div class="insights-column">
+      <!-- Acquisition Cost Basis & Provenance Panel (Authenticated Users Only) -->
+      @if (collectionService.isAuthenticated()) {
+        <section
+          class="insight-panel journal-insight-panel"
+          data-testid="insights-journal-panel"
+        >
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <h2 class="panel-title">Acquisition Cost Basis & Provenance</h2>
+              <p class="panel-subtitle">
+                Private purchase ledger, total spend, and average cost basis
+              </p>
+            </div>
+          </div>
+
+          @if (journalSummary(); as js) {
+            <div
+              class="backup-stats-row journal-cost-grid"
+              data-testid="insights-journal-revealed"
+            >
+              <div class="backup-stat-item">
+                <span class="backup-stat-number">{{
+                  formatDollars(js.totalTrackedSpendDollars)
+                }}</span>
+                <span class="backup-stat-desc">Total Tracked Spend</span>
+              </div>
+              <div class="backup-stat-item">
+                <span class="backup-stat-number">
+                  {{ formatDollars(js.averagePricePaidDollars) }}
+                </span>
+                <span class="backup-stat-desc">
+                  Average Price Paid
+                  @if (js.paidEntryCount > 0) {
+                    ({{ js.paidEntryCount }} paid)
+                  }
+                </span>
+              </div>
+              <div class="backup-stat-item">
+                <span class="backup-stat-number"
+                  >{{ js.recordedCount }} / {{ js.totalOwnedCount }}</span
+                >
+                <span class="backup-stat-desc"
+                  >Provenance Coverage ({{ js.coveragePct }}%)</span
+                >
+              </div>
+            </div>
+
+            @if (js.topMerchants.length > 0) {
+              <div class="merchant-breakdown-section">
+                <div class="backlog-subgroup-title">
+                  Top Acquisition Sources
+                </div>
+                <div class="series-list">
+                  @for (m of js.topMerchants; track m.name) {
+                    <div class="series-row">
+                      <span class="series-name">{{ m.name }}</span>
+                      <div class="series-meta">
+                        <span class="series-badge">{{ m.count }} items</span>
+                        <span class="series-value">{{
+                          formatDollars(m.totalSpendDollars)
+                        }}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+          }
+        </section>
+      }
+
+      <!-- Physical Preservation & Backup Rate Card -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">ROM Preservation & Backups</h2>
+            <p class="panel-subtitle">
+              Verified Redump/No-Intro digital backups of owned physical
+              releases
+            </p>
+          </div>
+          <span class="rate-pill" [class.success]="backupRatePct() >= 80">
+            {{ backupRatePct() }}% Preserved
+          </span>
+        </div>
+
+        <div class="meter-bar-container">
+          <div
+            class="meter-bar-fill"
+            [style.width.%]="backupRatePct()"
+            [class.high]="backupRatePct() >= 80"
+          ></div>
+        </div>
+
+        <div class="backup-stats-row">
+          <a
+            class="backup-stat-item clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ backup_status: 1 }"
+            title="Filter collection to Backed Up physical releases"
+          >
+            <span class="backup-stat-number">{{
+              backedUpOwnedGames().length
+            }}</span>
+            <span class="backup-stat-desc">Backed Up</span>
+          </a>
+          <a
+            class="backup-stat-item clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ backup_status: 0 }"
+            title="Filter collection to Missing Backups"
+          >
+            <span class="backup-stat-number warning">{{
+              missingBackupsCount()
+            }}</span>
+            <span class="backup-stat-desc">Missing Backups</span>
+          </a>
+          <a
+            class="backup-stat-item clickable"
+            [routerLink]="['/collection']"
+            title="Filter collection to Physical Games"
+          >
+            <span class="backup-stat-number">{{
+              physicalOwnedGames().length
+            }}</span>
+            <span class="backup-stat-desc">Physical Total</span>
+          </a>
+        </div>
+
+        @if (missingBackupsCount() > 0) {
+          <div class="backup-action-banner">
+            <div class="banner-text">
+              <strong>{{ missingBackupsCount() }} owned games</strong> need
+              clean dumps to secure your preservation archive.
+            </div>
+            <a
+              [routerLink]="['/collection']"
+              [queryParams]="{ backup_status: 0 }"
+              class="m3-button m3-button-tonal view-missing-btn"
+            >
+              View Missing Backups
+            </a>
+          </div>
+        }
+      </section>
+
+      <!-- Packaging Condition Breakdown -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Packaging Condition Breakdown</h2>
+            <p class="panel-subtitle">
+              Completeness distribution across owned games
+            </p>
+          </div>
+        </div>
+
+        <!-- Segmented Condition Bar -->
+        <div class="segmented-condition-bar">
+          @if (cibPct() > 0) {
+            <div
+              class="condition-segment cib-segment"
+              [style.width.%]="cibPct()"
+              [title]="
+                'Complete in Box: ' + cibCount() + ' (' + cibPct() + '%)'
+              "
+            ></div>
+          }
+          @if (boxedPct() > 0) {
+            <div
+              class="condition-segment boxed-segment"
+              [style.width.%]="boxedPct()"
+              [title]="
+                'Game + Box / Case (No Manual): ' +
+                boxedOnlyCount() +
+                ' (' +
+                boxedPct() +
+                '%)'
+              "
+            ></div>
+          }
+          @if (loosePct() > 0) {
+            <div
+              class="condition-segment loose-segment"
+              [style.width.%]="loosePct()"
+              [title]="
+                'Loose Disc/Cart: ' + looseCount() + ' (' + loosePct() + '%)'
+              "
+            ></div>
+          }
+        </div>
+
+        <div class="condition-legend">
+          <div class="legend-item">
+            <span class="legend-dot cib-dot"></span>
+            <span class="legend-label">Complete in Box (CIB)</span>
+            <span class="legend-count">{{ cibCount() }} ({{ cibPct() }}%)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot boxed-dot"></span>
+            <span class="legend-label">Game + Box / Case (No Manual)</span>
+            <span class="legend-count"
+              >{{ boxedOnlyCount() }} ({{ boxedPct() }}%)</span
+            >
+          </div>
+          <div class="legend-item">
+            <span class="legend-dot loose-dot"></span>
+            <span class="legend-label">Loose Disc / Cart</span>
+            <span class="legend-count"
+              >{{ looseCount() }} ({{ loosePct() }}%)</span
+            >
+          </div>
+        </div>
+      </section>
+
+      <!-- Backlog & Play Status -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Play Backlog & Progress</h2>
+            <p class="panel-subtitle">Play journey across owned library</p>
+          </div>
+          <span class="rate-pill">
+            {{ playStatusStats().playedPct }}% Finished
+          </span>
+        </div>
+
+        <div class="play-status-grid">
+          <a
+            class="play-status-chip played-chip clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ play_status: 1 }"
+            title="Filter to Played games"
+          >
+            <span class="chip-number">{{ playStatusStats().played }}</span>
+            <span class="chip-label">Played</span>
+          </a>
+          <a
+            class="play-status-chip playing-chip clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ play_status: 2 }"
+            title="Filter to Currently Playing games"
+          >
+            <span class="chip-number">{{ playStatusStats().playing }}</span>
+            <span class="chip-label">Playing</span>
+          </a>
+          <a
+            class="play-status-chip queued-chip clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ play_status: 3 }"
+            title="Filter to Queued games"
+          >
+            <span class="chip-number">{{ playStatusStats().queued }}</span>
+            <span class="chip-label">Queued</span>
+          </a>
+          <a
+            class="play-status-chip unplayed-chip clickable"
+            [routerLink]="['/collection']"
+            [queryParams]="{ play_status: 0 }"
+            title="Filter to Unplayed games"
+          >
+            <span class="chip-number">{{ playStatusStats().unplayed }}</span>
+            <span class="chip-label">Unplayed</span>
+          </a>
+        </div>
+
+        @if (playingGames().length > 0) {
+          <div class="backlog-subgroup">
+            <div class="backlog-subgroup-title">Currently Playing</div>
+            <div class="backlog-mini-list">
+              @for (g of playingGames(); track g.id) {
+                <a
+                  [routerLink]="['/game', g.id]"
+                  class="backlog-mini-card state-layer"
+                  [title]="g.title"
+                >
+                  <span class="backlog-mini-title">{{ g.title }}</span>
+                  <span class="backlog-mini-platform">{{ g.platform }}</span>
+                </a>
+              }
+            </div>
+          </div>
+        }
+
+        @if (queuedGames().length > 0) {
+          <div class="backlog-subgroup">
+            <div class="backlog-subgroup-title">Up Next in Queue</div>
+            <div class="backlog-mini-list">
+              @for (g of queuedGames(); track g.id) {
+                <a
+                  [routerLink]="['/game', g.id]"
+                  class="backlog-mini-card state-layer"
+                  [title]="g.title"
+                >
+                  <span class="backlog-mini-title">{{ g.title }}</span>
+                  <span class="backlog-mini-platform">{{ g.platform }}</span>
+                </a>
+              }
+            </div>
+          </div>
+        }
+      </section>
+
+      <!-- Release Era & Decade Distribution Histogram -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Era & Release Decade Distribution</h2>
+            <p class="panel-subtitle">
+              Historical timeline of owned games by release era
+            </p>
+          </div>
+        </div>
+
+        <div class="decade-histogram">
+          @for (d of decadeDistribution(); track d.decade) {
+            <div class="decade-row">
+              <div class="decade-info">
+                <span class="decade-name">{{ d.eraName }}</span>
+                <span class="decade-meta">
+                  <strong>{{ d.count }}</strong> games ({{ d.pct }}%)
+                </span>
+              </div>
+              <div class="decade-bar-track">
+                <div
+                  class="decade-bar-fill"
+                  [style.width.%]="d.pct"
+                  [title]="
+                    d.eraName + ': ' + d.count + ' games (' + d.pct + '%)'
+                  "
+                ></div>
+              </div>
+            </div>
+          }
+        </div>
+      </section>
+
+      <!-- Franchise Representation -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">Top Franchises & Series</h2>
+            <p class="panel-subtitle">
+              Highest represented series in your library
+            </p>
+          </div>
+        </div>
+
+        <div class="series-list">
+          @for (s of topSeries(); track s.name) {
+            <div class="series-row">
+              <span class="series-name">{{ s.name }}</span>
+              <div class="series-meta">
+                <span class="series-badge">{{ s.ownedCount }} games</span>
+              </div>
+            </div>
+          }
+          @if (topSeries().length === 0) {
+            <div class="empty-state">No franchise data available</div>
+          }
+        </div>
+      </section>
+    </div>
+
+    <!-- Right Column: Platform Completion & Catalog Distribution -->
+    <div class="insights-column">
+      <!-- Platform Completion & Distribution -->
+      <section class="insight-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 class="panel-title">
+              Platform Distribution & Catalog Completion
+            </h2>
+            <p class="panel-subtitle">
+              Games owned relative to canonical catalog releases
+            </p>
+          </div>
+        </div>
+
+        <div class="platform-list">
+          @for (p of platformStats(); track p.id) {
+            <a
+              [routerLink]="['/collection']"
+              [queryParams]="{ platform_id: p.id }"
+              class="platform-item clickable state-layer"
+              title="Filter collection to {{ p.name }}"
+            >
+              <div class="platform-item-header">
+                <div class="platform-name-group">
+                  @if (p.logo) {
+                    <img
+                      [src]="p.logo"
+                      [alt]="p.name"
+                      class="platform-thumb-logo"
+                    />
+                  }
+                  <span class="platform-item-name">{{ p.name }}</span>
+                </div>
+                <div class="platform-counts">
+                  <span class="owned-fraction">
+                    <strong>{{ p.ownedCount }}</strong> / {{ p.catalogCount }}
+                  </span>
+                  <span class="completion-percentage"
+                    >({{ p.completionPct }}%)</span
+                  >
+                </div>
+              </div>
+
+              <!-- Completion Progress Bar -->
+              <div class="platform-progress-track">
+                <div
+                  class="platform-progress-fill"
+                  [style.width.%]="p.completionPct"
+                ></div>
+              </div>
+
+              <div class="platform-item-footer">
+                <span class="platform-backup-stat">
+                  ROM Backups: {{ p.backupCount }} / {{ p.ownedCount }} ({{
+                    p.backupPct
+                  }}%)
+                </span>
+              </div>
+            </a>
+          }
+          @if (platformStats().length === 0) {
+            <div class="empty-state">No platforms recorded</div>
+          }
+        </div>
+      </section>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,815 @@
+/**
+ * CORE COLLECTION MODELS
+ *
+ * Centralized high-performance interfaces for the Collection Tracker.
+ * Resolves circular dependencies between services and components.
+ */
+
+export enum OwnershipStatus {
+  Unowned = 0,
+  Owned = 1,
+  Seeking = 2,
+  Ordered = 3,
+}
+
+export enum PlayStatus {
+  Unplayed = 0,
+  Played = 1,
+  Playing = 2,
+  Queued = 3,
+  Paused = 4,
+  Dropped = 5,
+}
+
+export type PhysicalStatus =
+  | 'verified_physical'
+  | 'likely_physical'
+  | 'not_yet_physical'
+  | 'physical_pending'
+  | 'digital_extracted_rom'
+  | 'digital_only'
+  | 'unreleased_prototype'
+  | 'unverified';
+
+export type ReleaseMedium =
+  | 'physical_retail'
+  | 'physical_limited'
+  | 'digital_extracted_rom'
+  | 'digital_native'
+  | 'unreleased_prototype';
+
+export interface GameRelease {
+  id: string;
+  game_id: number;
+  title?: string | null;
+  region?: string | null;
+  variants?: string | null;
+  also_released_as?: string | null;
+  rom_name?: string | null;
+  rom_crc?: string | null;
+  canonical_release_id?: number | null;
+  is_source_verified?: number;
+  source?: string | null;
+  backup_status: number;
+  ownership_status: number;
+  release_date?: string | null;
+  image_url?: string | null;
+  barcode?: string | null;
+  has_case?: boolean | number;
+  has_manual?: boolean | number;
+  disc_label?: string | null;
+  is_companion_base_disc?: boolean;
+  companion_game_id?: string;
+  companion_game_title?: string;
+  serial_code?: string | null;
+  comments?: string | null;
+}
+
+export interface SharedBackupReleaseLink {
+  id: string;
+  title: string;
+  region?: string | null;
+  variants?: string | null;
+  rom_name?: string | null;
+  ownership_status: number;
+  backup_status: number;
+}
+
+export interface Game {
+  stable_id: number;
+  id: string; // The durable slug: game-title-platform-name
+  game_id?: string | null; // Grouped game slug reference
+  title: string;
+  base_title?: string | null;
+  series: string;
+  canonical_series: string;
+  release_date?: string | null;
+  platform: string;
+  platform_id: number;
+  igdb_id?: number | null;
+  igdb_url?: string | null;
+  region?: string | null;
+  display_name?: string | null;
+  ownership_status: OwnershipStatus;
+  play_status: PlayStatus;
+  backup_status: boolean | number;
+  has_case?: boolean | number;
+  has_manual?: boolean | number;
+  retail_price?: number | null;
+  retail_regular_price?: number | null;
+  retail_discount_pct?: number | null;
+  retail_on_sale?: boolean | number;
+  retail_store?: string | null;
+  retail_url?: string | null;
+  retail_updated_at?: string | null;
+  image_url?: string | null;
+  summary?: string | null;
+  genres?: string | null;
+  collections?: string | null;
+  franchises?: string | null;
+  brand?: string | null;
+  platform_launch_date?: string | null;
+  platform_logo?: string | null;
+  parent_platform_id?: number | null;
+  sort_index?: number | null;
+  variants?: string | null;
+  also_released_as?: string | null;
+  rom_name?: string | null;
+  rom_crc?: string | null;
+  canonical_release_id?: number | null;
+  is_source_verified?: number;
+  source?: string | null;
+  physical_status?: PhysicalStatus;
+  release_medium?: ReleaseMedium;
+  origin_metadata?: string | null;
+  metadata_json?: string | null;
+  bundle_parent_id?: number | null;
+  bundle_disc_number?: number | null;
+  bundle_count?: number;
+  verification_tier?: number;
+  barcode?: string | null;
+  disc_label?: string | null;
+  companion_game_id?: string;
+  companion_game_title?: string;
+  is_companion_base_disc?: boolean;
+  releases?: GameRelease[];
+  other_releases?: GameRelease[];
+  bundled_games?: BundledGame[];
+  shared_backup_releases?: SharedBackupReleaseLink[];
+  voucher_notes?: string[];
+  discIds?: string[];
+  discBackups?: number[];
+  discRomNames?: string[];
+  searchableNames?: string[];
+  searchableSeries?: string[];
+}
+
+export interface BundledGame {
+  stable_id: number;
+  id: string;
+  title: string;
+  platform_id: number;
+  platform_name?: string;
+  bundle_disc_number?: number;
+  release_medium?: string;
+  origin_metadata?: string | null;
+  rom_name?: string | null;
+  backup_status?: number;
+}
+
+export interface Toy {
+  stable_id: number;
+  id: string;
+  name: string;
+  line: string;
+  type: string;
+  series_name: string;
+  series_line: string;
+  series?: string;
+  release_date: string;
+  ownership_status: OwnershipStatus;
+  image_url: string;
+  platform_id?: number;
+  amiibo_id?: string;
+  scl_url?: string;
+  region?: string;
+  verified?: boolean | number;
+  metadata_json?: string;
+  sort_index?: number;
+  series_index?: number;
+  details?: string | null;
+}
+
+export interface ToySeriesGroup {
+  seriesName: string;
+  toys: Toy[];
+  totalCount: number;
+}
+
+export interface ToyGroup {
+  lineName: string;
+  seriesGroups: ToySeriesGroup[];
+  totalCount: number;
+}
+
+export interface Platform {
+  id: number;
+  name: string;
+  display_name: string;
+  parent_platform_id?: number;
+  brand: string;
+  launch_date: string;
+  image_url: string;
+}
+
+export interface DiscoveryOption {
+  name: string;
+  platform: string;
+  id: string;
+  image_url: string | null;
+  summary: string | null;
+}
+
+export interface DiscoveryItem {
+  title: string;
+  platform: string;
+  line?: string;
+  series?: string;
+  options: DiscoveryOption[];
+}
+
+export interface DiscoveryPayload {
+  currentTitle: string;
+  currentPlatform: string;
+  currentLine?: string;
+  currentSeries?: string;
+  selectedIgdbId: string | number;
+  selectedName: string;
+  selectedPlatform: string;
+  region: string;
+  summary?: string;
+  imageUrl?: string;
+}
+
+export interface FilterState {
+  ownership:
+    | 'all'
+    | 'seeking_or_unowned'
+    | 'upcoming'
+    | 'home_region_and_owned'
+    | OwnershipStatus;
+  play_status?: 'all' | PlayStatus;
+  backup_status?: 'all' | 0 | 1 | 'uncataloged';
+  physical_verified?: 'all' | 0 | 1;
+  budget_label?:
+    | 'all'
+    | 'standard_only'
+    | 'standard_and_budget'
+    | 'budget_only';
+  platform_id?: number;
+  regions?: string[];
+  is_linked?: boolean;
+  line?: string;
+  type?: string;
+  name?: string;
+  nameExact?: boolean;
+  series?: string;
+  seriesExact?: boolean;
+  tag?: string;
+  tagExact?: boolean;
+  seriesOrName?: string;
+  deals_only?: boolean;
+  sortBy?:
+    | 'default'
+    | 'retail_asc'
+    | 'discount_desc'
+    | 'release_desc'
+    | 'release_asc';
+}
+
+export interface PlatformGroup {
+  brand: string;
+  platforms: Platform[];
+}
+
+export type ViewMode = 'grid' | 'compact';
+
+export interface ListState {
+  tab: 'games' | 'toys';
+  filters: FilterState;
+  displayLimit: number;
+  viewMode?: ViewMode;
+  scrollX?: number;
+  scrollY?: number;
+}
+
+export interface DiscoveryRelease {
+  name: string;
+  romName: string;
+  romCrc: string | null;
+  region: string | null;
+  variants: string | null;
+  releaseDate: string | null;
+  canonical_release_id?: number | null;
+  serial_code?: string | null;
+  barcode?: string | null;
+  is_physical?: boolean | number;
+}
+
+export interface DiscoveryPlatformOption {
+  platform_id: number;
+  platform_name: string;
+  physical_status: PhysicalStatus;
+  is_physical: boolean;
+  is_owned: boolean;
+  matched_releases_count: number;
+  matched_releases?: DiscoveryRelease[];
+}
+
+export interface IGDBSearchResult {
+  id: string | number;
+  name: string;
+  platform: string;
+  platform_id?: number;
+  image_url: string | null;
+  summary?: string | null;
+  genres?: string | null;
+  igdb_url?: string | null;
+  collections?: string | null;
+  franchises?: string | null;
+  region?: string | null;
+  ownership_status?: number;
+  play_status?: number;
+  backup_status?: number;
+  physical_status?: PhysicalStatus;
+  verification_tier?: number;
+  is_physical?: boolean;
+  physical_regions?: string[];
+  matched_releases?: DiscoveryRelease[];
+  verification_reasons?: string[];
+  first_release_date?: string | null;
+  physical_platforms?: DiscoveryPlatformOption[];
+  untracked_platforms?: string[];
+}
+
+export interface ScanSuggestion {
+  id: string | number;
+  title: string;
+  platform: string;
+  platform_id: number;
+  image_url: string | null;
+  summary?: string | null;
+  collections?: string | null;
+  franchises?: string | null;
+  genres?: string | null;
+  igdb_url?: string | null;
+  region?: string | null;
+  releases: DiscoveryRelease[];
+  physical_status?:
+    | 'verified_physical'
+    | 'likely_physical'
+    | 'digital_only'
+    | 'unverified';
+  verification_tier?: number;
+  is_physical?: boolean;
+  physical_regions?: string[];
+  verification_reasons?: string[];
+  first_release_date?: string | null;
+}
+
+export interface AmiiboDiscoveryItem {
+  id: string;
+  amiibo_id: string;
+  name: string;
+  line: string;
+  series_name: string;
+  game_series?: string | null;
+  type: string;
+  image_url: string;
+  release_date?: string | null;
+  region?: string | null;
+}
+
+export interface PagedScanSeriesResult {
+  suggestions: ScanSuggestion[];
+  offset: number;
+  limit: number;
+  totalSeries: number;
+  hasMore: boolean;
+}
+
+export interface PhysicalAnnouncementScope {
+  seeking?: boolean;
+  watch_physical?: boolean;
+  uncataloged?: boolean;
+  special_editions?: boolean;
+  unowned?: boolean;
+}
+
+export interface DealNotificationPreferences {
+  enabled: boolean;
+  scope: 'seeking_only' | 'seeking_and_unowned' | 'all';
+  minDiscountPct: number;
+  maxPriceCents?: number | null;
+  platformIds: number[];
+  stores: string[];
+  notify_game_releases?: boolean;
+  notify_physical_announcements?: boolean;
+  physical_announcement_scope?: PhysicalAnnouncementScope;
+}
+
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  preferences?: DealNotificationPreferences;
+}
+
+export function isOpticalPlatform(
+  platform: string | null | undefined,
+): boolean {
+  if (!platform) return false;
+  const p = platform.toLowerCase();
+  if (p.includes('vita') || p.includes('psv')) return false;
+  return (
+    p.includes('playstation') ||
+    p.includes('ps1') ||
+    p.includes('ps2') ||
+    p.includes('ps3') ||
+    p.includes('ps4') ||
+    p.includes('ps5') ||
+    p.includes('psx') ||
+    p.includes('psp') ||
+    p.includes('saturn') ||
+    p.includes('sega cd') ||
+    p.includes('mega-cd') ||
+    p.includes('mega cd') ||
+    p.includes('dreamcast') ||
+    p.includes('gamecube') ||
+    p.includes('gcn') ||
+    p.includes('ngc') ||
+    p.includes('wii') ||
+    p.includes('xbox') ||
+    p.includes('x360') ||
+    p.includes('xb1') ||
+    p.includes('xbsx') ||
+    p.includes('3do') ||
+    p.includes('cd-rom') ||
+    p.includes('cd-i') ||
+    p.includes('turbografx-cd') ||
+    p.includes('turbografx cd') ||
+    p.includes('pc engine cd') ||
+    p.includes('pc-engine cd') ||
+    p.includes('neo geo cd') ||
+    p.includes('laseractive')
+  );
+}
+
+export function getMediaIconName(
+  platform: string | null | undefined,
+  backedUp: boolean | number,
+): 'disc' | 'rom-archive' | 'missing-dump' {
+  if (!backedUp) return 'missing-dump';
+  return isOpticalPlatform(platform) ? 'disc' : 'rom-archive';
+}
+
+export const SERIES_CROSS_LANGUAGE_ALIASES: Record<string, string[]> = {
+  'mega man': ['rockman', 'ロックマン'],
+  rockman: ['mega man', 'ロックマン'],
+  pokemon: ['pocket monsters', 'pokémon', 'ポケットモンスター'],
+  pokémon: ['pocket monsters', 'pokemon', 'ポケットモンスター'],
+  'pocket monsters': ['pokemon', 'pokémon', 'ポケットモンスター'],
+  mario: ['super mario', 'マリオ'],
+  'super mario': ['mario', 'マリオ'],
+  'f-zero': ['f zero', 'エフゼロ'],
+  'star fox': ['starwing', 'lylat wars', 'スターフォックス'],
+  'resident evil': ['biohazard', 'バイオハザード'],
+  biohazard: ['resident evil', 'バイオハザード'],
+  castlevania: ['akumajou dracula', 'dracula', '悪魔城ドラキュラ'],
+  'akumajou dracula': ['castlevania', '悪魔城ドラキュラ'],
+  contra: ['probotector', 'gryzor', '魂斗羅'],
+  'dragon quest': ['dragon warrior', 'ドラゴンクエスト'],
+  'dragon warrior': ['dragon quest', 'ドラゴンクエスト'],
+  mother: ['earthbound', 'マザー'],
+  earthbound: ['mother', 'マザー'],
+};
+
+export interface JournalEntry {
+  id: number;
+  item_type: 'game' | 'toy';
+  item_id: string;
+  purchase_date?: string | null;
+  is_approximate_date?: number | boolean | null;
+  price_paid?: number | null;
+  merchant?: string | null;
+  gifted_by?: string | null;
+  receipt_url?: string | null;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const STANDARD_MERCHANTS: readonly string[] = [
+  'Amazon',
+  'eBay',
+  'Best Buy',
+  'GameStop',
+  'Target',
+  'Walmart',
+  'Toys "R" Us',
+  'Limited Run Games',
+  'Play-Asia',
+  'Video Games Plus',
+  'PNP Games',
+  'Fangamer',
+  'iam8bit',
+  'Super Rare Games',
+  'Strictly Limited Games',
+  'Special Reserve Games',
+  'Square Enix Store',
+  'Nintendo Store',
+  'Club Nintendo',
+  'My Nintendo',
+  'Sony Rewards',
+  'NIS America',
+  'Atlus Shop',
+  'NewEgg',
+  'Groupon',
+  'Kickstarter',
+  'BackerKit',
+];
+
+const FULL_MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+const SHORT_MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/**
+ * Formats an acquisition date with support for approximate ("Around ...") dates:
+ * - "2013" -> "Around 2013"
+ * - "2009-06" -> "Around June 2009"
+ * - "2021-02-10" (exact) -> "Feb 10, 2021"
+ * - "2021-02-10" (isApproximate=true) -> "Around Feb 10, 2021"
+ */
+export function formatJournalDate(
+  dateStr?: string | null,
+  isApproximate?: number | boolean | null,
+): string {
+  if (!dateStr) return 'Unrecorded';
+  let cleaned = dateStr.trim();
+  if (!cleaned) return 'Unrecorded';
+
+  let approx = Boolean(isApproximate);
+  if (/^(~|around\s+|circa\s+)/i.test(cleaned)) {
+    approx = true;
+    cleaned = cleaned.replace(/^(~|around\s+|circa\s+)/i, '').trim();
+  }
+
+  if (/^\d{4}$/.test(cleaned)) {
+    return `Around ${cleaned}`;
+  }
+
+  const ymMatch = cleaned.match(/^(\d{4})-(\d{2})$/);
+  if (ymMatch) {
+    const year = ymMatch[1];
+    const monthIndex = parseInt(ymMatch[2], 10) - 1;
+    const monthName = FULL_MONTH_NAMES[monthIndex] || ymMatch[2];
+    return `Around ${monthName} ${year}`;
+  }
+
+  const ymdMatch = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const monthIndex = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    const shortMonth = SHORT_MONTH_NAMES[monthIndex] || ymdMatch[2];
+    const formatted = `${shortMonth} ${day}, ${year}`;
+    return approx ? `Around ${formatted}` : formatted;
+  }
+
+  return approx ? `Around ${cleaned}` : cleaned;
+}
+
+/**
+ * DEFAULT USER HOME REGION
+ * Currently defaults to 'USA'.
+ * In the future, this should be sourced from the authenticated user's profile settings
+ * to provide multi-user / personalized regional scoping.
+ */
+export const DEFAULT_USER_HOME_REGION = 'USA';
+
+/**
+ * Regional hierarchy lookup map.
+ * Defines which broader geographical regions encompass each country or sub-region.
+ * Note: 'World' contains all regions by definition and is evaluated directly.
+ */
+const REGION_ANCESTORS: Record<string, string[]> = {
+  // North America
+  usa: ['north america', 'americas'],
+  canada: ['north america', 'americas'],
+  mexico: ['north america', 'americas', 'latin america'],
+
+  // Europe & European countries
+  uk: ['europe', 'pal'],
+  'united kingdom': ['europe', 'pal'],
+  ireland: ['europe', 'pal'],
+  france: ['europe', 'pal'],
+  germany: ['europe', 'pal'],
+  italy: ['europe', 'pal'],
+  spain: ['europe', 'pal'],
+  portugal: ['europe', 'pal'],
+  netherlands: ['europe', 'pal'],
+  austria: ['europe', 'pal'],
+  switzerland: ['europe', 'pal'],
+  sweden: ['europe', 'scandinavia', 'pal'],
+  norway: ['europe', 'scandinavia', 'pal'],
+  denmark: ['europe', 'scandinavia', 'pal'],
+  finland: ['europe', 'scandinavia', 'pal'],
+  scandinavia: ['europe', 'pal'],
+  poland: ['europe', 'pal'],
+  russia: ['europe'],
+  greece: ['europe', 'pal'],
+  turkey: ['europe'],
+
+  // Asia
+  japan: ['asia'],
+  korea: ['asia'],
+  china: ['asia'],
+  taiwan: ['asia'],
+  'hong kong': ['asia'],
+
+  // Oceania
+  australia: ['oceania', 'pal'],
+  'new zealand': ['oceania', 'pal'],
+
+  // Americas
+  brazil: ['americas', 'latin america'],
+  'latin america': ['americas'],
+};
+
+/**
+ * Checks whether an item's region tag matches the user's home region, taking
+ * regional hierarchies and superset containers into account.
+ *
+ * Rules:
+ * - Empty / null item region is considered not matching.
+ * - If an item is labeled 'World', it satisfies all home regions.
+ * - If an item region exactly matches the home region (case-insensitive), it matches.
+ * - If an item region is a recognized ancestor of the home region (e.g. item is 'Europe'
+ *   and home region is 'UK', or item is 'North America' and home region is 'USA'), it matches.
+ * - Handles comma-separated multi-region strings (e.g. 'USA, Europe', 'Japan, Asia').
+ *
+ * @param itemRegion The comma-delimited or single region from the game/toy (e.g. 'USA', 'World', 'Europe').
+ * @param homeRegion The user's home region (defaults to DEFAULT_USER_HOME_REGION = 'USA').
+ */
+export function isRegionMatchingHome(
+  itemRegion: string | null | undefined,
+  homeRegion: string = DEFAULT_USER_HOME_REGION,
+): boolean {
+  if (!itemRegion) return false;
+  const cleanHome = homeRegion.trim().toLowerCase();
+  if (!cleanHome) return false;
+
+  const itemTokens = itemRegion
+    .split(',')
+    .map((r) => r.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (itemTokens.length === 0) return false;
+
+  // 'World' contains everything
+  if (itemTokens.includes('world')) {
+    return true;
+  }
+
+  // Direct match
+  if (itemTokens.includes(cleanHome)) {
+    return true;
+  }
+
+  // Check if any item token is an ancestor region containing the home region
+  const homeAncestors = REGION_ANCESTORS[cleanHome] || [];
+  for (const ancestor of homeAncestors) {
+    if (itemTokens.includes(ancestor)) {
+      return true;
+    }
+  }
+
+  // Also check reverse if the user's home region is a broader region (e.g. user set home to 'Europe')
+  // and the item is tagged with a sub-region (e.g. 'UK')
+  for (const token of itemTokens) {
+    const tokenAncestors = REGION_ANCESTORS[token] || [];
+    if (tokenAncestors.includes(cleanHome)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Normalizes a raw budget edition token into a standard canonical budget label string.
+ */
+export function normalizeBudgetToken(token: string): string | null {
+  const t = token.trim();
+  if (!t) return null;
+  if (
+    /^Greatest Hits$/i.test(t) ||
+    /^Double Pack Greatest Hits$/i.test(t) ||
+    /:\s*Greatest Hits$/i.test(t) ||
+    /\(Greatest Hits\)$/i.test(t)
+  ) {
+    return 'Greatest Hits';
+  }
+  if (
+    /^Platinum Hits$/i.test(t) ||
+    /^Best of Platinum Hits$/i.test(t) ||
+    /^Platinum Family Hits$/i.test(t) ||
+    /\(Platinum Hits\)$/i.test(t) ||
+    /:\s*Platinum Hits$/i.test(t)
+  ) {
+    return 'Platinum Hits';
+  }
+  if (
+    /^Platinum$/i.test(t) ||
+    /^Platinum - Twin Pack$/i.test(t) ||
+    /^Platinum:\s*(?:The Best of|EA Most Wanted)/i.test(t)
+  ) {
+    return 'Platinum';
+  }
+  if (/^Platinum Collection$/i.test(t) || /\(Platinum Collection\)$/i.test(t)) {
+    return 'Platinum Collection';
+  }
+  if (/^Player's Choice/i.test(t) || /^Players Choice/i.test(t)) {
+    return "Player's Choice";
+  }
+  if (/^Nintendo Selects$/i.test(t)) {
+    return 'Nintendo Selects';
+  }
+  if (/^PlayStation Hits$/i.test(t)) {
+    return 'PlayStation Hits';
+  }
+  if (
+    /^Xbox Classics$/i.test(t) ||
+    /^Classics$/i.test(t) ||
+    /^Classic$/i.test(t) ||
+    /\(Classics\)$/i.test(t)
+  ) {
+    return 'Xbox Classics';
+  }
+  if (
+    /^(?:PSP\s+|PS3\s+|PlayStation\s+)?Essentials$/i.test(t) ||
+    /Classics HD:\s*Essentials/i.test(t)
+  ) {
+    return 'Essentials';
+  }
+  if (/^Favorites$/i.test(t) || /^Favourites$/i.test(t)) return 'Favorites';
+  if (/^Sega All Stars$/i.test(t)) return 'Sega All Stars';
+  if (/^PS\s*one Books$/i.test(t)) return 'PSone Books';
+  if (
+    /\bthe Best(?:\s+for\s+Family)?$/i.test(t) ||
+    /^EA Best Hits$/i.test(t) ||
+    /^Satakore$/i.test(t) ||
+    /^DreKore$/i.test(t) ||
+    /^BigHit Series$/i.test(t) ||
+    /^Happy Price Selection$/i.test(t)
+  ) {
+    return t;
+  }
+  return null;
+}
+
+export interface UserProfile {
+  id: number;
+  email?: string | null;
+  username: string;
+  role: 'admin' | 'user';
+  isPublic: boolean;
+  homeRegion: string;
+  displayName: string | null;
+  bio: string | null;
+}
+
+export interface PublicUserProfile {
+  username: string;
+  displayName: string | null;
+  bio: string | null;
+  homeRegion: string;
+}
+
+export interface AuthMeResponse {
+  authenticated: boolean;
+  user: UserProfile | null;
+  oidcIssuer?: string | null;
+  oidcClientId?: string | null;
+  accountHubUrl?: string | null;
+  provisioned?: boolean;
+  email?: string;
+}

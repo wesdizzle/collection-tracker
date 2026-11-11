@@ -1,0 +1,70 @@
+{
+  "$schema": "../node_modules/@angular/service-worker/config/schema.json",
+  "index": "/index.html",
+  "assetGroups": [
+    {
+      "name": "app",
+      "installMode": "prefetch",
+      "resources": {
+        "files": ["/favicon.svg", "/icons/**", "/index.html", "/*.css", "/*.js"]
+      }
+    },
+    {
+      "name": "assets",
+      "installMode": "lazy",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": [
+          "/**/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|apple-touch-icon|png|otf|ttf|woff|woff2)"
+        ]
+      }
+    }
+  ],
+  "dataGroups": [
+    {
+      "name": "api-freshness",
+      "urls": [
+        "/api/games",
+        "/api/games/**",
+        "/api/toys",
+        "/api/toys/**",
+        "/api/platforms",
+        "/api/platforms/**"
+      ],
+      "cacheConfig": {
+        "maxSize": 100,
+        "maxAge": "30d",
+        "timeout": "5s",
+        "strategy": "freshness"
+      }
+    },
+    {
+      "name": "external-assets",
+      "urls": [
+        "https://images.igdb.com/**",
+        "https://raw.githubusercontent.com/**",
+        "https://*.amiiboapi.com/**",
+        "https://*.igdb.com/**",
+        "https://static.wikia.nocookie.net/**",
+        "https://*.wikia.nocookie.net/**",
+        "https://skylanderscharacterlist.com/**",
+        "https://*.skylanderscharacterlist.com/**"
+      ],
+      "cacheConfig": {
+        "maxSize": 5000,
+        "maxAge": "30d",
+        "timeout": "10s",
+        "strategy": "performance"
+      }
+    }
+  ],
+  "navigationUrls": [
+    "/**",
+    "!/**/*.*",
+    "!/**/*__*",
+    "!/**/*__*/**",
+    "!/admin/**",
+    "!/api/**",
+    "!/cdn-cgi/**"
+  ]
+}

@@ -1,0 +1,599 @@
+import { Component, inject, signal, OnDestroy } from '@angular/core';
+import {
+  ActivatedRoute,
+  Router,
+  RouterModule,
+  RouteReuseStrategy,
+} from '@angular/router';
+import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
+import { CollectionService } from '../../../../core/services/collection.service';
+import { BrandingService } from '../../../../core/services/branding.service';
+import { CommandPaletteService } from '../../../../core/services/command-palette.service';
+import { ProfileModalService } from '../../../../core/services/profile-modal.service';
+import { IconComponent } from '../../../../shared/components/icon/icon.component';
+import { ProfileModalComponent } from '../../../profile/profile-modal.component';
+
+@Component({
+  selector: 'app-collection-layout',
+  standalone: true,
+  imports: [RouterModule, IconComponent, ProfileModalComponent],
+  template: `
+    <header class="main-header">
+      <div class="header-inner">
+        <div class="header-left">
+          <a
+            [routerLink]="collectionService.getTabUrl('games')"
+            [attr.routerlink]="collectionService.getTabUrl('games')"
+            (click)="onNavClick('games')"
+            class="brand-link state-layer"
+          >
+            <img
+              [src]="branding.logoUrl()"
+              [alt]="branding.appName() + ' Icon'"
+              class="brand-icon"
+            />
+            <h1 class="brand-title">{{ branding.appName() }}</h1>
+          </a>
+        </div>
+
+        <nav class="main-nav">
+          <a
+            [routerLink]="collectionService.getTabUrl('games')"
+            (click)="onNavClick('games')"
+            routerLinkActive="active"
+            class="nav-item"
+          >
+            <span class="label">Games</span>
+            <div class="indicator"></div>
+          </a>
+          <a
+            [routerLink]="collectionService.getTabUrl('toys')"
+            (click)="onNavClick('toys')"
+            routerLinkActive="active"
+            class="nav-item"
+          >
+            <span class="label">Toys</span>
+            <div class="indicator"></div>
+          </a>
+          @if (!isPublicView()) {
+            <a
+              routerLink="/collection/insights"
+              (click)="onNavClick()"
+              routerLinkActive="active"
+              class="nav-item"
+            >
+              <span class="label">Insights</span>
+              <div class="indicator"></div>
+            </a>
+          }
+          @if (isAdmin() && !isPublicView()) {
+            <a
+              routerLink="/collection/discovery"
+              (click)="onNavClick()"
+              routerLinkActive="active"
+              class="nav-item dev-item"
+            >
+              <span class="label">Discovery</span>
+              <div class="indicator"></div>
+            </a>
+          }
+        </nav>
+
+        <div class="header-right">
+          <button
+            (click)="commandPalette.open()"
+            class="m3-button-icon state-layer"
+            title="Search & Command Palette (Ctrl+K)"
+            aria-label="Open command palette"
+          >
+            <app-icon name="search" [size]="18" />
+          </button>
+
+          <button
+            (click)="onUserIconClick()"
+            class="m3-button-icon state-layer"
+            [class.authenticated-icon]="isAuthenticated()"
+            [title]="
+              isAuthenticated()
+                ? 'Profile (@' + (currentUser()?.username || 'user') + ')'
+                : 'Sign In'
+            "
+            data-testid="header-user-btn"
+          >
+            <app-icon name="user" [size]="18" />
+          </button>
+
+          <button
+            (click)="toggleTheme()"
+            class="theme-toggle m3-button-icon state-layer"
+            [title]="'Theme: ' + theme()"
+          >
+            @if (theme() === 'light') {
+              <app-icon name="sun" [size]="18" />
+            } @else if (theme() === 'dark') {
+              <app-icon name="moon" [size]="18" />
+            } @else {
+              <app-icon name="sun-moon" [size]="18" />
+            }
+          </button>
+
+          @if (branding.repoUrl(); as repoUrl) {
+            <a
+              [href]="repoUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="github-btn m3-button-icon state-layer"
+              title="GitHub"
+            >
+              <svg viewBox="0 0 24 24" class="github-icon">
+                <path
+                  d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+                />
+              </svg>
+            </a>
+          }
+        </div>
+      </div>
+    </header>
+
+    @if (isPublicView() && publicProfile(); as pub) {
+      <div
+        class="public-collection-banner"
+        data-testid="public-collection-banner"
+      >
+        <div class="public-banner-inner">
+          <span class="public-badge">Public Collection</span>
+          <span class="public-username"
+            >Viewing <strong>{{ pub.displayName || pub.username }}</strong
+            >'s library (@{{ pub.username }})</span
+          >
+          @if (pub.bio) {
+            <span class="public-bio">&bull; {{ pub.bio }}</span>
+          }
+        </div>
+      </div>
+    }
+
+    <div class="layout-container">
+      <main class="content-area animate-expressive">
+        <router-outlet></router-outlet>
+      </main>
+
+      <footer class="main-footer">
+        <div class="footer-divider"></div>
+        <p class="footer-copy">{{ branding.appName() }} &copy; 2026</p>
+      </footer>
+    </div>
+
+    @if (profileModalService.isOpen()) {
+      <app-profile-modal />
+    }
+  `,
+  styles: [
+    `
+      .main-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        width: 100%;
+        background: var(--m3-surface);
+        border-bottom: 1px solid var(--m3-outline-variant);
+      }
+
+      .header-inner {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 var(--container-padding);
+        height: var(--header-height);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: relative; /* For absolute centering of desktop nav */
+      }
+
+      .public-collection-banner {
+        background: var(--m3-primary-container);
+        color: var(--m3-on-primary-container);
+        padding: 0.625rem 1rem;
+        border-bottom: 1px solid var(--m3-outline-variant);
+        font-size: 0.875rem;
+      }
+      .public-banner-inner {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 var(--container-padding);
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .public-badge {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: var(--m3-primary);
+        color: var(--m3-on-primary);
+        padding: 0.125rem 0.5rem;
+        border-radius: var(--radius-full);
+      }
+      .public-bio {
+        opacity: 0.85;
+        font-style: italic;
+      }
+
+      .layout-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: var(--spacing-32) var(--container-padding) 0;
+        min-height: calc(100vh - var(--header-height));
+        display: flex;
+        flex-direction: column;
+      }
+
+      .header-left,
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-16);
+        flex: 1;
+      }
+
+      .header-right {
+        justify-content: flex-end;
+      }
+
+      .brand-link {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-12);
+        padding: var(--spacing-8) var(--spacing-12);
+        border-radius: var(--radius-md);
+        transition: background-color 0.2s;
+      }
+
+      .brand-icon {
+        width: 32px;
+        height: 32px;
+      }
+      .brand-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--m3-on-surface);
+        margin: 0;
+      }
+
+      .main-nav {
+        display: flex;
+        justify-content: center;
+        gap: var(--spacing-8);
+        z-index: 1000;
+      }
+
+      /* Desktop Nav Positioning */
+      @media (min-width: 769px) {
+        .main-nav {
+          position: absolute;
+          left: 50%;
+          transform: translateX(-50%);
+          top: 0;
+          height: 100%;
+        }
+      }
+
+      .nav-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0 var(--spacing-24);
+        height: 100%;
+        position: relative;
+        color: var(--m3-on-surface-variant);
+        transition: color 0.2s;
+        cursor: pointer;
+        text-decoration: none;
+      }
+
+      .nav-item .label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        z-index: 1;
+      }
+
+      .nav-item .indicator {
+        position: absolute;
+        bottom: 0;
+        left: var(--spacing-24);
+        right: var(--spacing-24);
+        height: 3px;
+        background: var(--m3-primary);
+        border-radius: 3px 3px 0 0;
+        opacity: 0;
+        transform: scaleX(0.5);
+        transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+      }
+
+      .nav-item.active {
+        color: var(--m3-primary);
+      }
+      .nav-item.active .indicator {
+        opacity: 1;
+        transform: scaleX(1);
+      }
+      .nav-item:hover {
+        color: var(--m3-on-surface);
+      }
+
+      .m3-button-icon {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        border: none;
+        background: transparent;
+        color: var(--m3-on-surface-variant);
+        cursor: pointer;
+        font-size: 1.25rem;
+      }
+
+      .github-icon {
+        width: 24px;
+        height: 24px;
+        fill: currentColor;
+      }
+
+      .content-area {
+        flex: 1;
+        width: 100%;
+      }
+
+      .main-footer {
+        margin-top: var(--spacing-64);
+        padding: var(--spacing-32) 0;
+        text-align: center;
+      }
+
+      .footer-divider {
+        height: 1px;
+        background: var(--m3-outline-variant);
+        margin-bottom: var(--spacing-24);
+      }
+      .footer-copy {
+        color: var(--m3-on-surface-variant);
+        font-size: 0.875rem;
+      }
+
+      @media (max-width: 768px) {
+        .layout-container {
+          padding-top: var(--spacing-24);
+        }
+
+        .brand-title {
+          display: none;
+        }
+
+        .main-nav {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 80px;
+          background: var(--m3-surface-container-high);
+          border-top: 1px solid var(--m3-outline-variant);
+          padding-bottom: env(safe-area-inset-bottom);
+          box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+          transform: none; /* Reset desktop transform */
+        }
+
+        .nav-item {
+          flex: 1;
+          padding: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .nav-item .indicator {
+          display: none;
+        }
+
+        .nav-item .label {
+          padding: 6px 14px;
+          border-radius: var(--radius-full);
+          transition:
+            background-color 0.25s cubic-bezier(0.2, 0, 0, 1),
+            color 0.2s ease;
+          white-space: nowrap;
+        }
+
+        .nav-item.active .label {
+          background: var(--m3-secondary-container);
+          color: var(--m3-on-secondary-container);
+        }
+      }
+    `,
+  ],
+})
+export class CollectionLayoutComponent implements OnDestroy {
+  private router = inject(Router);
+  private route = inject(ActivatedRoute);
+  public readonly collectionService = inject(CollectionService);
+  private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
+  public readonly commandPalette = inject(CommandPaletteService);
+  public readonly profileModalService = inject(ProfileModalService);
+  public readonly branding = inject(BrandingService);
+  public theme = signal<'light' | 'dark' | 'auto'>('auto');
+  public isAdmin = this.collectionService.isAdmin;
+  public isAuthenticated = this.collectionService.isAuthenticated;
+  public currentUser = this.collectionService.currentUser;
+  public isPublicView = this.collectionService.isPublicView;
+  public publicProfile = this.collectionService.publicProfile;
+
+  private mediaQuery =
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
+  private mediaQueryListener = () => {
+    if (this.theme() === 'auto') {
+      this.applyTheme('auto');
+    }
+  };
+
+  constructor() {
+    if (this.mediaQuery) {
+      if (this.mediaQuery.addEventListener) {
+        this.mediaQuery.addEventListener('change', this.mediaQueryListener);
+      } else if ('addListener' in this.mediaQuery) {
+        (
+          this.mediaQuery as { addListener: (listener: () => void) => void }
+        ).addListener(this.mediaQueryListener);
+      }
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      window.location.search.includes('nonce=')
+    ) {
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: {},
+        replaceUrl: true,
+      });
+    }
+
+    const saved = localStorage.getItem('app-theme') as
+      | 'light'
+      | 'dark'
+      | 'auto'
+      | null;
+    if (saved) {
+      this.theme.set(saved);
+      this.applyTheme(saved);
+    } else {
+      this.applyTheme(this.theme());
+    }
+  }
+
+  ngOnDestroy() {
+    if (this.mediaQuery) {
+      if (this.mediaQuery.removeEventListener) {
+        this.mediaQuery.removeEventListener('change', this.mediaQueryListener);
+      } else if ('removeListener' in this.mediaQuery) {
+        (
+          this.mediaQuery as { removeListener: (listener: () => void) => void }
+        ).removeListener(this.mediaQueryListener);
+      }
+    }
+  }
+
+  onNavClick(tab?: 'games' | 'toys') {
+    if (tab) {
+      if (this.routeReuseStrategy instanceof CollectionRouteReuseStrategy) {
+        this.routeReuseStrategy.resetScroll(tab);
+      }
+      this.collectionService.resetTabScroll(tab);
+    }
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    }
+  }
+
+  onUserIconClick() {
+    this.profileModalService.open();
+  }
+
+  onAdminClick() {
+    this.onUserIconClick();
+  }
+
+  toggleTheme() {
+    const modes: ('light' | 'dark' | 'auto')[] = ['light', 'dark', 'auto'];
+    const next = modes[(modes.indexOf(this.theme()) + 1) % modes.length];
+    this.theme.set(next);
+    localStorage.setItem('app-theme', next);
+    this.applyTheme(next);
+  }
+
+  private applyTheme(mode: 'light' | 'dark' | 'auto') {
+    if (typeof document === 'undefined') return;
+
+    const updateDom = () => {
+      const body = document.body;
+      body.classList.remove('theme-light', 'theme-dark');
+
+      if (mode === 'dark') {
+        body.classList.add('theme-dark');
+        this.updateThemeColorMeta('dark');
+      } else if (mode === 'light') {
+        body.classList.add('theme-light');
+        this.updateThemeColorMeta('light');
+      } else {
+        const prefersDark =
+          typeof window !== 'undefined' &&
+          window.matchMedia &&
+          window.matchMedia('(prefers-color-scheme: dark)').matches;
+        body.classList.add(prefersDark ? 'theme-dark' : 'theme-light');
+        this.updateThemeColorMeta('auto', prefersDark ? 'dark' : 'light');
+      }
+    };
+
+    const doc = document as unknown as {
+      startViewTransition?: (callback: () => void) => void;
+    };
+
+    if (typeof doc.startViewTransition === 'function') {
+      doc.startViewTransition(() => {
+        updateDom();
+      });
+    } else {
+      document.documentElement.classList.add('disable-theme-transitions');
+      updateDom();
+      if (typeof window !== 'undefined') {
+        void document.body.offsetHeight;
+        requestAnimationFrame(() => {
+          document.documentElement.classList.remove(
+            'disable-theme-transitions',
+          );
+        });
+      } else {
+        document.documentElement.classList.remove('disable-theme-transitions');
+      }
+    }
+  }
+
+  private updateThemeColorMeta(
+    mode: 'light' | 'dark' | 'auto',
+    fallbackTheme: 'light' | 'dark' = 'dark',
+  ) {
+    if (typeof document === 'undefined') return;
+    const darkColor = '#121214';
+    const lightColor = '#f8fafc';
+
+    const metas = document.querySelectorAll<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
+    metas.forEach((meta) => {
+      const media = meta.getAttribute('media');
+      if (mode === 'dark') {
+        meta.setAttribute('content', darkColor);
+      } else if (mode === 'light') {
+        meta.setAttribute('content', lightColor);
+      } else {
+        if (media && media.includes('prefers-color-scheme: dark')) {
+          meta.setAttribute('content', darkColor);
+        } else if (media && media.includes('prefers-color-scheme: light')) {
+          meta.setAttribute('content', lightColor);
+        } else {
+          meta.setAttribute(
+            'content',
+            fallbackTheme === 'dark' ? darkColor : lightColor,
+          );
+        }
+      }
+    });
+  }
+}

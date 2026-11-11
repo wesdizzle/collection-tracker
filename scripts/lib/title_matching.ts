@@ -1,0 +1,752 @@
+import { isTrueEditionOrRevisionVariant } from './source_format.js';
+
+/**
+ * @file title_matching.ts
+ * @description Refined title normalization and matching utility library.
+ * It maps and compares game titles from user collection databases against No-Intro/Redump DAT files.
+ * It avoids alphabetical word scrambling, supports fractional title-slashes,
+ * resolves subtitles, and handles parenthetical bonus disc collisions.
+ */
+
+/**
+ * Normalizes a game title into a canonical string by lowercasing, converting
+ * symbols, removing publisher prefixes/suffixes, and stripping ignored words
+ * while maintaining the natural word order.
+ *
+ * @param title The game title to normalize.
+ * @returns The normalized title string.
+ */
+export function normalizeTitleForMatching(
+  title: string,
+  skipAliases = false,
+): string {
+  let t = title.toLowerCase().trim();
+
+  // Normalize Unicode curly apostrophes/quotes before stripping 's
+  t = t.replace(/[\u2018\u2019\u201B\u2032`]/g, "'");
+
+  // Strip apostrophe-s ('s) early so publisher/franchise prefixes are cleanly removed.
+  // E.g. "Disney's DuckTales" -> "Disney DuckTales" -> "DuckTales"
+  t = t.replace(/'s\b/g, '');
+
+  t = t.replace(/&/g, 'and');
+
+  // Normalize visual character substitutions like $ -> s (e.g. Game$! -> Games!)
+  t = t.replace(/\$/g, 's');
+
+  // Handle transliterations and macrons
+  t = t.replace(/oo/g, 'o').replace(/uu/g, 'u');
+  t = t.replace(/cch/g, 'tch');
+
+  // Normalize common spelling discrepancies
+  t = t.replace(/mega\s+man/g, 'megaman');
+  t = t.replace(/pac\s+man/g, 'pacman');
+  t = t.replace(/super\s+mario/g, 'supermario');
+
+  // Remove publisher prefixes/suffixes and franchise specific prefixes
+  t = t.replace(
+    /\b(disney|sega|nintendo|sony|microsoft|capcom|konami|namco|square enix|square|enix|atari|ubisoft|ea|marvel|sid meiers?|tom clancys?|lego|nickelodeon|lara croft)s?\b/gi,
+    '',
+  );
+
+  // Remove franchise specific suffixes like "the hedgehog"
+  t = t.replace(/\bthe hedgehog\b/gi, '');
+
+  // Normalize common special disc descriptors to "bonus disc"
+  t = t.replace(/\b(tokusei|kakuchou|special)\s+disc\b/gi, 'bonus disc');
+
+  // Normalize diacritics
+  t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Strip non-alphanumeric characters but keep spaces for word splitting
+  t = t.replace(/[^a-z0-9\s]/g, ' ');
+
+  // Filter out trailing platform suffixes from database titles (e.g. "Plants vs. Zombies DS" -> "Plants vs. Zombies")
+  t = t.replace(
+    /\b(ds|gba|gbc|n64|nes|snes|ps3|ps2|ps1|wii|xbox|3ds)\b$/gi,
+    '',
+  );
+
+  // Filter out common articles and prepositions
+  t = t.replace(
+    /\b(the|a|an|and|in|of|for|with|on|at|to|by|or|from|version|edition)\b/gi,
+    '',
+  );
+
+  // Split into words, filter empty ones, and join preserving natural order
+  const words = t.split(/\s+/).filter((w) => w.length > 0);
+  const cleanTitle = words.join('');
+
+  // Explicit overrides using clean alphanumeric keys to resolve colons, spaces, and other punctuation differences.
+  const ALIASES: Record<string, string> = {
+    anothercrabstreasure: 'anothercrabtreasure',
+    earthboundbeginnings: 'mother',
+    legendzeldaocarinatimelegendzeldaocarinatimemasterquesttwogamebonusdisc:
+      'legendzeldaocarinatimemasterquest',
+    legendzeldaocarinatimemasterquesttwogamebonusdisc:
+      'legendzeldaocarinatimemasterquest',
+    pokemoncolosseumbonusdisc: 'pokemoncolosseumbonusdisc',
+    princepersiatrilogyhd: 'princepersiatrilogy',
+    jakdaxtercollection: 'jakdaxtertrilogy',
+    ratchetclankcollection: 'ratchetclanktrilogy',
+    walkingdeadseasontwo: 'walkingdeadseasontwotelltalegamesseries',
+    finalfantasyxx2hdremaster:
+      'finalfantasyxfinalfantasyx2finalfantasyxx2hdremaster',
+    sonicclassics: 'soniccompilation',
+    n: 'nplus',
+    lemmings3d: '3dlemmings',
+    harvestmonnewbeginning: 'harvestmon3dnewbeginning',
+    harvestmontaletwotowns: 'harvestmon3dtaletwotowns',
+    bioshockinfinitecomplete: 'bioshockinfinitecompletebonuscontentdisc',
+    watchmenendisnigh: 'watchmenendisnighparts12',
+    classicscollection: 'classicscollectionvol1',
+    metalgearsolidlegacycollection: 'metalgearsolidlegacycollection19872012',
+    splintercelltrilogyhd: 'splintercelltrilogy',
+    dragonlairtrilogy: 'donbluthpresentsdragonlairtrilogy',
+    softwaretolworksstarwarschess: 'starwarschess',
+    simcopter64: 'simcopter',
+    tombraiderstarring: 'tombraider',
+    bioniclegame: 'bionicle',
+    grandtheftautoadvance: 'grandtheftauto',
+    starwarsepisodeijedipowerbattles: 'starwarsjedipowerbattles',
+    dissidia012finalfantasy: 'dissidia012duodecimfinalfantasy',
+    harvestmonlostvalley: 'harvestmon3dlostvalley',
+    metalgearghostbabel: 'metalgearsolid',
+    wonderboyiiimonsterlair: 'monsterlair',
+    raymanhodlumsrevenge: 'raymanhodlumrevenge',
+    metalgearsolidspecialmissions: 'metalgearsolidvrmissions',
+    okamizekkeiban: 'okamihd',
+    xenosagaepisodeiijenseitsvongutundboese:
+      'xenosagaepisodeiijenseitsvongutundbose',
+    littlebigplanetplaystationvita: 'littlebigplanetpsvita',
+    homeuniquehorroradventure: 'home',
+    fireemblemthreehopes: 'fireemblemwarriorsthreehopes',
+    nierautomataendyorha: 'nierautomata',
+    anniversarycollectionarcadeclassics: 'arcadeclassicsanniversary',
+    batmanenemywithintelltaleseries: 'batmanenemywithin',
+    blastermasterzeroii: 'blastermasterzero2',
+    childlightultimatevaliantheartsgreatwar:
+      'childlightultimatevaliantheartsgreatwardoublepack',
+    cryptnecrodancerswitch: 'cryptnecrodancer',
+    finalfantasypixelremastercollection:
+      'finalfantasyivipixelremastercollection',
+    glover: 'gloverqubyteclassics',
+    groundedfullyyoked: 'groundedfullyyolked',
+    harvestmonlighthope: 'harvestmonlighthopespecial',
+    megamanlegacycollection12: 'megamanlegacycollection',
+    ninokuniwrathwhitewitchremastered: 'ninokuniwrathwhitewitch',
+    octodaddadliestcatch: 'octodaddeadliestcatch',
+    oddworldmunchoddysee: 'oddworldmunchoddysseyhd',
+    oddworldnewntasty: 'oddworldabeoddyseenewntasty',
+    pikmin12bundle: 'pikmin12',
+    plantsvszombiesbattleneighborvillecomplete:
+      'plantsvszombiesbattleneighborville',
+    shantaeriskyrevengedirectorcut: 'shantaeriskyrevenge',
+  };
+
+  if (
+    !skipAliases &&
+    Object.prototype.hasOwnProperty.call(ALIASES, cleanTitle)
+  ) {
+    return ALIASES[cleanTitle];
+  }
+
+  return cleanTitle;
+}
+
+/**
+ * Evaluates whether a database game title matches a release title.
+ * Uses alternative title splitting and various matching strategies:
+ * 1. Exact normalized matches.
+ * 2. Dash/colon segment splitting for subtitles and acronyms.
+ * 3. Middle segment removal (e.g., GTA London Mission Pack).
+ * 4. Special parenthetical alignment for Bonus Discs.
+ *
+ * @param gameTitle The database game title.
+ * @param releaseTitle The clean release title from the DAT file (parentheticals stripped).
+ * @param rawReleaseName The raw release name from the DAT file (parentheticals intact).
+ * @param platformId Optional database platform ID to handle platform-specific title mappings.
+ * @returns True if the titles are considered a match, false otherwise.
+ */
+export function titlesMatch(
+  gameTitle: string,
+  releaseTitle: string,
+  rawReleaseName?: string,
+  platformId?: number,
+): boolean {
+  const PRE_SPLIT_ALIASES: Record<string, string> = {
+    'final fantasy x/x-2 hd remaster':
+      'final fantasy x / final fantasy x-2 / final fantasy x x-2 hd remaster',
+    'super mario all-stars: limited edition': 'super mario all-stars',
+    "assassin's creed chronicles: trilogy pack": "assassin's creed chronicles",
+    'the amazing spider-man vs. the kingpin':
+      'spider-man / spider-man vs. the kingpin / the amazing spider-man vs. the kingpin',
+    "x-men: gamesmaster's legacy": "x-men - gamemaster's legacy",
+    'final fantasy anthology':
+      'final fantasy anthology - final fantasy v / final fantasy anthology - final fantasy vi',
+    'minecraft: story mode - the complete adventure':
+      'minecraft - story mode - a telltale games series - the complete adventure / minecraft - story mode - the complete adventure',
+    'minecraft: story mode - season two':
+      'minecraft - story mode - season two - the telltale series / minecraft - story mode - season two',
+    'bioshock infinite':
+      'bioshock infinite / bioshock infinite - the complete edition - bonus content disc',
+  };
+  const gLower = gameTitle.toLowerCase().trim();
+  if (platformId === 14 && gLower === 'the amazing spider-man 2') {
+    gameTitle = 'spider-man 2';
+  } else if (Object.prototype.hasOwnProperty.call(PRE_SPLIT_ALIASES, gLower)) {
+    gameTitle = PRE_SPLIT_ALIASES[gLower];
+  }
+
+  const gameAlts = gameTitle
+    .split(/(?<!\d)[~/](?!\d)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // If the game title contains alternative delimiters, also include the full unsplit title
+  // as a candidate. This is crucial for matching compilation releases (e.g., "Marble Madness / Klax").
+  if (gameTitle.includes('/') || gameTitle.includes('~')) {
+    gameAlts.push(gameTitle);
+  }
+
+  const releaseAlts = releaseTitle
+    .split(/(?<!\d)[~/](?!\d)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const gAlt of gameAlts) {
+    for (const rAlt of releaseAlts) {
+      if (matchAlternative(gAlt, rAlt, rawReleaseName)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Compares a single game alternative title against a single release alternative title.
+ *
+ * @param gTitle Individual alternative game title.
+ * @param rAlt Individual alternative release title.
+ * @param rawReleaseName Raw release name (including parentheticals).
+ * @returns True if they match, false otherwise.
+ */
+function matchAlternative(
+  gTitle: string,
+  rAlt: string,
+  rawReleaseName?: string,
+): boolean {
+  const rawLower = rawReleaseName ? rawReleaseName.toLowerCase() : '';
+  const gameLower = gTitle.toLowerCase();
+  const isZeldaMQ = gameLower.includes('master quest');
+
+  const gNorm = normalizeTitleForMatching(gTitle);
+  const rNorm = normalizeTitleForMatching(rAlt);
+
+  // 1. Sequel / Season number check to prevent matching base games to sequels or vice-versa.
+  const isCompilation =
+    gTitle.includes('/') ||
+    gTitle.includes('~') ||
+    rAlt.includes('/') ||
+    rAlt.includes('~') ||
+    /\b\d+\s+games?\s+in\s+/i.test(gTitle) ||
+    /\b\d+\s+games?\s+in\s+/i.test(rAlt) ||
+    /\b\d+-in-\d+\b/i.test(gTitle) ||
+    /\b\d+-in-\d+\b/i.test(rAlt);
+
+  // Determine if the titles matched via an explicit alias mapping where their
+  // base, unaliased titles differ. If so, we bypass the sequel check to allow
+  // manual reconciliation overrides (e.g. matching SimCopter 64 to SimCopter).
+  const baseG = normalizeTitleForMatching(gTitle, true);
+  const baseR = normalizeTitleForMatching(rAlt, true);
+  const matchedViaAlias = gNorm === rNorm && baseG !== baseR;
+
+  if (!isZeldaMQ && !isCompilation && !matchedViaAlias) {
+    const getNumberTokens = (str: string): Set<string> => {
+      const tokens = new Set<string>();
+      // Normalize hyphenated dimensions like "3-D" or "2-D" to "3d" / "2d" so they are not parsed as standalone numbers
+      const lower = str.toLowerCase().replace(/\b(\d+)-d\b/g, '$1d');
+      const wordNumbers = [
+        'one',
+        'two',
+        'three',
+        'four',
+        'five',
+        'six',
+        'seven',
+        'eight',
+        'nine',
+        'ten',
+        'first',
+        'second',
+        'third',
+        'fourth',
+      ];
+      for (const word of wordNumbers) {
+        if (new RegExp(`\\b${word}\\b`).test(lower)) {
+          tokens.add(word);
+        }
+      }
+      const romanNumerals = [
+        'ii',
+        'iii',
+        'iv',
+        'v',
+        'vi',
+        'vii',
+        'viii',
+        'ix',
+        'x',
+      ];
+      for (const rom of romanNumerals) {
+        if (new RegExp(`\\b${rom}\\b`).test(lower)) {
+          tokens.add(rom);
+        }
+      }
+      const digits = lower.match(/\b\d+\b/g);
+      if (digits) {
+        for (const d of digits) {
+          tokens.add(d);
+        }
+      }
+      return tokens;
+    };
+
+    const canonicalNumber = (token: string): string => {
+      const map: Record<string, string> = {
+        one: '1',
+        first: '1',
+        two: '2',
+        second: '2',
+        ii: '2',
+        three: '3',
+        third: '3',
+        iii: '3',
+        four: '4',
+        fourth: '4',
+        iv: '4',
+        five: '5',
+        v: '5',
+        six: '6',
+        vi: '6',
+        seven: '7',
+        vii: '7',
+        eight: '8',
+        viii: '8',
+        nine: '9',
+        ix: '9',
+        ten: '10',
+        x: '10',
+      };
+      return map[token] || token;
+    };
+
+    const gameNums = new Set(
+      Array.from(getNumberTokens(gTitle)).map(canonicalNumber),
+    );
+    const releaseNums = new Set(
+      Array.from(getNumberTokens(rAlt)).map(canonicalNumber),
+    );
+
+    // Determine the highest sequel/season number >= 2 present in either title.
+    // Since we bypass the sequel check for explicit aliases, we can safely check
+    // all numeric indicators (including platform numbers like 64 or years like 1969/2005)
+    // to block incorrect base-to-sequel or base-to-expansion matching.
+    const allNums = new Set([...gameNums, ...releaseNums]);
+    const sequelNums = Array.from(allNums).filter((n) => {
+      const parsed = parseInt(n, 10);
+      return !isNaN(parsed) && parsed >= 2;
+    });
+
+    for (const seqNum of sequelNums) {
+      const gameHas = gameNums.has(seqNum);
+      const releaseHas = releaseNums.has(seqNum);
+      if (gameHas !== releaseHas) {
+        return false; // Mismatch on a sequel/season number
+      }
+    }
+  }
+
+  // 2. Enforce boundary check to prevent matching a standalone Bonus Disc, Tutorial Disc,
+  // Standalone Add-on Pack, or Expansion Kit to a main game (or vice versa).
+  // Parenthetical `(Bonus Disc)`, `(Bonus DVD)`, `(Bonus Content Disc)`, or `(Un CD Bonus)`
+  // on a matching base title ARE allowed (for 2-disc Limited/Collector's Editions), whereas
+  // standalone-title bonus discs (e.g. "Pokemon Colosseum Bonus Disc") and standalone
+  // add-on/pre-order/tutorial packs are blocked.
+  if (!isZeldaMQ && !matchedViaAlias) {
+    const rBaseLower = rAlt.toLowerCase();
+    const hasStandaloneBonusTitle = (str: string): boolean =>
+      str.includes('bonus disc') ||
+      (str.includes('bonus') && str.includes('disc')) ||
+      str.includes('tokusei disc') ||
+      str.includes('kakuchou disc');
+
+    const isAddOnOrPromoPack = (str: string): boolean =>
+      str.includes('pre-order bonus') ||
+      str.includes('tokusei disc') ||
+      str.includes('kakuchou disc') ||
+      str.includes('tutorial disc') ||
+      str.includes('(tutorial)') ||
+      str.includes('add-on pack') ||
+      str.includes('add-on content pack') ||
+      str.includes('add-on doppelpack') ||
+      str.includes('pack de expansion') ||
+      str.includes('extension de jeu') ||
+      str.includes('expansion kit');
+
+    const gameIsBonusEntry = hasStandaloneBonusTitle(gameLower);
+    const relFullLower = rawLower || rBaseLower;
+
+    if (gameIsBonusEntry) {
+      // A standalone Bonus Disc game entry (e.g. "Pokémon Colosseum Bonus Disc") must only match a Bonus/Tokusei/Kakuchou disc release
+      if (!hasStandaloneBonusTitle(relFullLower)) {
+        return false;
+      }
+    } else {
+      // A standard game entry must not match standalone-title bonus discs (e.g. "Pokemon Colosseum Bonus Disc" or "Pokemon Colosseum (USA) (Bonus Disc)") or add-on/promo packs
+      if (
+        hasStandaloneBonusTitle(rBaseLower) ||
+        (relFullLower.includes('pokemon colosseum') &&
+          hasStandaloneBonusTitle(relFullLower)) ||
+        isAddOnOrPromoPack(relFullLower)
+      ) {
+        return false;
+      }
+    }
+  }
+
+  // 3. Enforce boundary check to prevent matching a LEGO game to a non-LEGO game (or vice versa).
+  const isLegoGame = /\blego\b/i.test(gTitle);
+  const isLegoRelease =
+    /\blego\b/i.test(rAlt) ||
+    (rawReleaseName && /\blego\b/i.test(rawReleaseName));
+  if (isLegoGame !== !!isLegoRelease) {
+    return false;
+  }
+
+  // Strategy 1: Exact match on normalized strings (including Japanese ou/ō romanization equivalence)
+  if (
+    gNorm === rNorm ||
+    (gNorm.length >= 6 &&
+      rNorm.length >= 6 &&
+      gNorm.replace(/ou/g, 'o') === rNorm.replace(/ou/g, 'o'))
+  ) {
+    return true;
+  }
+
+  // Do not allow parenthetical bonus discs to fuzzy-match a different base title via dash/colon splitting
+  if (
+    !isZeldaMQ &&
+    /\bbonus\s+(?:disc|dvd|cd)\b/i.test(rawLower) &&
+    !/\bbonus\b/i.test(gameLower)
+  ) {
+    return false;
+  }
+
+  // Exclude Metal Gear Solid - Special Missions or VR Missions from matching base Metal Gear Solid
+  if (
+    gNorm === 'metalgearsolid' &&
+    (rNorm.includes('specialmissions') || rNorm.includes('vrmissions'))
+  ) {
+    return false;
+  }
+
+  // Exclude distinct sequels, spin-offs, and separate editions from matching base games via dash/colon splitting
+  const hasExactAndSubstring = (exact: string, sub: string) =>
+    (gNorm === exact && rNorm.includes(sub)) ||
+    (rNorm === exact && gNorm.includes(sub));
+
+  if (
+    hasExactAndSubstring('shovelknight', 'treasuretrove') ||
+    hasExactAndSubstring('returncastlewolfenstein', 'tideswar') ||
+    hasExactAndSubstring('returncastlewolfenstein', 'operationresurrection') ||
+    hasExactAndSubstring('eldenring', 'nightreign') ||
+    hasExactAndSubstring('untildawn', 'rushblod') ||
+    hasExactAndSubstring('walkingdead', 'survivalinstinct') ||
+    hasExactAndSubstring('minecraft', 'storymode') ||
+    hasExactAndSubstring('pokemonranger', 'batonnage') ||
+    hasExactAndSubstring('pokemonranger', 'hikarinokiseki') ||
+    hasExactAndSubstring('pokemonranger', 'shadowsalamia') ||
+    hasExactAndSubstring('pokemonranger', 'guardiansigns') ||
+    hasExactAndSubstring('zoneenders', 'anubis') ||
+    hasExactAndSubstring('zoneenders', '2ndrunner')
+  ) {
+    return false;
+  }
+
+  // Strategy 2: Dash/colon segmentation split for subtitles/acronyms
+  // Checks segments of both release and game titles to allow base/subtitle matches in either direction.
+  // We use space-dash-space (\s+-\s+) or colon (:) to split, avoiding breaking hyphens inside words (e.g. "All-Stars" or "358-2").
+  // e.g. "Tomb Raider II - Starring Lara Croft" -> matches game "Tomb Raider II"
+  // e.g. "Super Mario All-Stars: Limited Edition" -> matches release "Super Mario All-Stars"
+  // e.g. "Assassin's Creed Chronicles: Trilogy Pack" -> matches release "Assassin's Creed Chronicles"
+  const rSegments = rAlt
+    .split(/(?:\s+-\s+|:)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const rSegmentNorms = rSegments.map((s) => normalizeTitleForMatching(s));
+
+  const gSegments = gTitle
+    .split(/(?:\s+-\s+|:)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const gSegmentNorms = gSegments.map((s) => normalizeTitleForMatching(s));
+
+  const GENERIC_DESCRIPTOR_NORMS = new Set([
+    'collection',
+    'trilogy',
+    'anthology',
+    'pack',
+    'bundle',
+    'remastered',
+    'edition',
+    'bonus',
+    'bonusdisc',
+    'disc',
+    'game',
+    'saga',
+    'compilation',
+  ]);
+
+  const isAcronymOf = (acronym: string, fullTitle: string): boolean => {
+    const cleanAcro = acronym.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    if (cleanAcro.length < 2 || cleanAcro.length > 6) return false;
+    const words = fullTitle.split(/\s+/).filter(Boolean);
+    const initials = words.map((w) => w[0].toLowerCase()).join('');
+    return initials === cleanAcro || initials.startsWith(cleanAcro);
+  };
+
+  const isDescriptorSegment = (
+    segment: string,
+    fullTitle?: string,
+  ): boolean => {
+    const norm = normalizeTitleForMatching(segment);
+    if (!norm) return true;
+    const lower = segment.toLowerCase().trim();
+    if (fullTitle && isAcronymOf(segment, fullTitle)) {
+      return true;
+    }
+    if (
+      lower.includes('add-on') ||
+      lower.includes('addon') ||
+      lower.includes('expansion') ||
+      lower.includes('extension de jeu') ||
+      lower.includes('tutorial')
+    ) {
+      return false;
+    }
+    return (
+      isTrueEditionOrRevisionVariant(lower) ||
+      /^(?:starring\s+.*|kawasaki.*|\d+\s+games\s+in\s+.*|vol(?:ume)?\s*\d+|pack|trilogy\s*pack|collection|anthology|remaster(?:ed)?|hd(?:\s*remaster(?:ed)?)?|bonus\s*content.*|bonus\s*disc.*)$/i.test(
+        lower,
+      )
+    );
+  };
+
+  // Case A: The release contains the full game title as one of its segments, and all remaining segments are edition/descriptor labels.
+  if (
+    !GENERIC_DESCRIPTOR_NORMS.has(gNorm) &&
+    gNorm.length >= 4 &&
+    rSegmentNorms.includes(gNorm)
+  ) {
+    const unMatchedSegments = rSegments.filter(
+      (s) => normalizeTitleForMatching(s) !== gNorm,
+    );
+    if (unMatchedSegments.every((s) => isDescriptorSegment(s, gTitle))) {
+      return true;
+    }
+  }
+
+  // Strategy 2.5: Swapped segments matching (e.g. "Super Mario World: Super Mario Advance 2" vs "Super Mario Advance 2 - Super Mario World")
+  // If both titles split into multiple segments, they match if they contain the exact same set of normalized segments in any order.
+  if (gSegmentNorms.length > 1 && rSegmentNorms.length > 1) {
+    const gSet = new Set(gSegmentNorms);
+    const rSet = new Set(rSegmentNorms);
+    if (gSet.size === rSet.size && Array.from(gSet).every((s) => rSet.has(s))) {
+      return true;
+    }
+  }
+
+  // Strategy 3: Middle segment removal
+  // e.g. "Grand Theft Auto - Mission Pack 1 - London 1969" -> matches "Grand Theft Auto: London 1969"
+  const segments = rAlt
+    .split(/\s+-\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (segments.length > 2) {
+    const endsStr = segments[0] + ' ' + segments[segments.length - 1];
+    const endsNorm = normalizeTitleForMatching(endsStr);
+    if (gNorm === endsNorm) {
+      return true;
+    }
+  }
+
+  // Strategy 4: Parenthetical inclusion checks (specifically for Bonus Discs/Special Discs)
+  if (rawReleaseName) {
+    const isSpecialDisc =
+      rawLower.includes('bonus disc') ||
+      rawLower.includes('tokusei disc') ||
+      rawLower.includes('kakuchou disc');
+
+    if (isSpecialDisc) {
+      if (
+        gTitle.toLowerCase().includes('bonus disc') ||
+        gTitle.toLowerCase().includes('bonus')
+      ) {
+        // Strip clean regional codes to expose clean descriptor name
+        const releaseWithBonus = cleanRawRegionCodes(rawLower);
+        const rBonusNorm = normalizeTitleForMatching(releaseWithBonus);
+        if (gNorm === rBonusNorm) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Evaluates whether a game matches a release title using either its primary title
+ * or its IGDB regional `alternative_names` (e.g. "Biohazard" for "Resident Evil",
+ * "Hoshi no Kirby" for "Kirby", "Dragon Quest" for "Dragon Warrior",
+ * "Doubutsu no Mori" for "Animal Crossing").
+ *
+ * Enforces regional compatibility so Japanese-specific alternate titles only match
+ * Japanese/Asian/World releases and never collide with Western releases of different games.
+ */
+export function gameMatchesReleaseWithAlternatives(
+  gameTitle: string,
+  releaseTitle: string,
+  rawReleaseName?: string,
+  platformId?: number,
+  alternativeNames?: Array<{ name: string; comment?: string }>,
+  releaseRegion?: string | null,
+): boolean {
+  if (titlesMatch(gameTitle, releaseTitle, rawReleaseName, platformId)) {
+    return true;
+  }
+
+  if (!alternativeNames || alternativeNames.length === 0) {
+    return false;
+  }
+
+  const effectiveRegion =
+    `${releaseRegion || ''} ${rawReleaseName || ''}`.toLowerCase();
+  const isJapanRelease = /\b(japan|jp|jpn|asia|world)\b/i.test(effectiveRegion);
+  const isEuropeRelease =
+    /\b(europe|eu|eur|uk|australia|germany|france|spain|italy|netherlands|sweden|scandinavia|world)\b/i.test(
+      effectiveRegion,
+    );
+  const isRussiaRelease = /\b(russia|russian|ru|cis)\b/i.test(effectiveRegion);
+  const isChinaRelease =
+    /\b(china|chinese|taiwan|hong kong|asia|world)\b/i.test(effectiveRegion);
+  const isKoreaRelease = /\b(korea|korean|kor|asia|world)\b/i.test(
+    effectiveRegion,
+  );
+
+  const gLower = gameTitle.toLowerCase().trim();
+  const NON_LATIN_SCRIPT_REGEX =
+    /[\p{Script=Cyrillic}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Greek}\p{Script=Hebrew}\p{Script=Thai}]/u;
+  const releaseHasNonLatin =
+    NON_LATIN_SCRIPT_REGEX.test(releaseTitle) ||
+    (rawReleaseName ? NON_LATIN_SCRIPT_REGEX.test(rawReleaseName) : false);
+
+  for (const alt of alternativeNames) {
+    if (!alt?.name) continue;
+    const altName = alt.name.trim();
+
+    // Require at least 4 Latin alphanumeric characters to avoid matching CJK-only strings or short acronyms (e.g. "RE2", "DQ3")
+    const alphaNum = altName.replace(/[^a-zA-Z0-9]/g, '');
+    if (alphaNum.length < 4) continue;
+
+    const commentLower = (alt.comment || '').toLowerCase();
+    if (
+      commentLower.includes('acronym') ||
+      commentLower.includes('abbreviation') ||
+      commentLower.includes('working title')
+    ) {
+      continue;
+    }
+
+    // Special guard: "Super Mario Bros.: The Lost Levels" has Japanese title "Super Mario Bros. 2",
+    // which must NEVER match the Western NES cartridge "Super Mario Bros. 2 (USA)".
+    if (
+      gLower.includes('lost levels') &&
+      normalizeTitleForMatching(altName) === 'supermariobros2'
+    ) {
+      if (platformId !== 54 || !isJapanRelease) {
+        continue;
+      }
+    }
+
+    const isJapaneseComment =
+      commentLower.includes('japanese') || commentLower.includes('japan');
+    const isEuropeanComment =
+      commentLower.includes('europe') ||
+      commentLower.includes('pal') ||
+      commentLower.includes('uk') ||
+      commentLower.includes('australian') ||
+      commentLower.includes('german') ||
+      commentLower.includes('french') ||
+      commentLower.includes('spanish') ||
+      commentLower.includes('italian');
+    const isRussianComment =
+      commentLower.includes('russian') || commentLower.includes('russia');
+    const isChineseComment =
+      commentLower.includes('chinese') ||
+      commentLower.includes('china') ||
+      commentLower.includes('taiwan') ||
+      commentLower.includes('hong kong');
+    const isKoreanComment =
+      commentLower.includes('korean') || commentLower.includes('korea');
+
+    if (isJapaneseComment && !isJapanRelease) {
+      continue;
+    }
+    if (isEuropeanComment && !isEuropeRelease) {
+      continue;
+    }
+    if (isRussianComment && !isRussiaRelease) {
+      continue;
+    }
+    if (isChineseComment && !isChinaRelease) {
+      continue;
+    }
+    if (isKoreanComment && !isKoreaRelease) {
+      continue;
+    }
+
+    // Non-Latin Subtitle Stripping Guard:
+    // If an alternative name contains non-Latin scripts (Cyrillic, CJK, etc.) but the release contains
+    // no non-Latin characters, normalizer would strip the non-Latin subtitle/segment and collapse it into
+    // a base franchise title (e.g. "Tomb Raider: Последнее откровение" -> "tombraider").
+    if (NON_LATIN_SCRIPT_REGEX.test(altName) && !releaseHasNonLatin) {
+      continue;
+    }
+
+    if (titlesMatch(altName, releaseTitle, rawReleaseName, platformId)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Removes standard regional identifiers in parentheses from a raw release string.
+ *
+ * @param str The raw release name in lowercase.
+ * @returns The string with standard regional parentheses removed.
+ */
+function cleanRawRegionCodes(str: string): string {
+  return str
+    .replace(
+      /\((usa|europe|japan|germany|france|australia|italy|spain|canada|korea|world|uk|brazil|asia|en|fr|de|es|it|ja|nl)\)/g,
+      '',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}

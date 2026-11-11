@@ -1,0 +1,2266 @@
+import '../../../../../test-setup';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import {
+  provideHttpClientTesting,
+  HttpTestingController,
+} from '@angular/common/http/testing';
+import { ActivatedRoute, Router } from '@angular/router';
+import { of, Observable, throwError } from 'rxjs';
+import { CollectionListComponent } from './collection-list.component';
+import { CollectionService } from '../../../../core/services/collection.service';
+import {
+  ListState,
+  Game,
+  FilterState,
+} from '../../../../core/models/collection.models';
+
+/**
+ * UNIT TEST: CollectionListComponent
+ *
+ * Verifies that the data grid correctly renders lists of
+ * games or toys fetched from the API layer.
+ * Uses modern Angular 21+ provider-based mocking for HTTP and Routing.
+ */
+describe('CollectionListComponent', () => {
+  let component: CollectionListComponent;
+  let fixture: ComponentFixture<CollectionListComponent>;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [CollectionListComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: { url: [{ path: 'games' }], queryParams: {} },
+            queryParams: of({}),
+          },
+        },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(CollectionListComponent);
+    component = fixture.componentInstance;
+
+    // Reset service state between tests to avoid pollution from sessionStorage
+    TestBed.inject(CollectionService).resetListState();
+  });
+
+  it('should create', () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    expect(component).toBeTruthy();
+  });
+
+  it('should restore state and invoke window.scrollTo on init', async () => {
+    const service = TestBed.inject(CollectionService);
+    const httpMock = TestBed.inject(HttpTestingController);
+    const scrollToSpy = vi
+      .spyOn(window, 'scrollTo')
+      .mockImplementation(() => {});
+
+    const mockState: ListState = {
+      tab: 'games',
+      filters: { ownership: 0 },
+      displayLimit: 500,
+      scrollX: 0,
+      scrollY: 1500,
+    };
+
+    // Inject mock state into service
+    service.updateListState(mockState);
+
+    // Trigger ngOnInit
+    const initPromise = component.ngOnInit();
+
+    // Handle the HTTP requests triggered by refreshAll
+    const reqGames = httpMock.expectOne('/api/games');
+    reqGames.flush([]);
+    const reqToys = httpMock.expectOne('/api/toys');
+    reqToys.flush([]);
+    const reqPlatforms = httpMock.expectOne('/api/platforms');
+    reqPlatforms.flush([]);
+
+    await initPromise;
+
+    expect(component.filters().ownership).toBe(0);
+    expect(component.displayLimit()).toBe(500);
+
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          expect(scrollToSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ top: 1500, left: 0 }),
+          );
+          scrollToSpy.mockRestore();
+          resolve();
+        });
+      });
+    });
+  });
+
+  it('should filter games independently by name, series, and tag with case/accent insensitivity and exact mode', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    // Trigger ngOnInit to start data load
+    const initPromise = component.ngOnInit();
+
+    // Provide mock data with accents and tags
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: '1',
+        title: 'Pokémon Yellow',
+        canonical_series: 'Pokémon',
+        variants: 'Rev 1, Superseded',
+        ownership_status: 1,
+        platform: 'Switch',
+      },
+      {
+        id: '2',
+        title: 'Super Mario Odyssey',
+        canonical_series: 'Mario',
+        variants: 'Nintendo Selects',
+        ownership_status: 1,
+        platform: 'Switch',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Test case insensitive series match
+    component.filters.set({ ownership: 'all', series: 'pokemon' });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].canonical_series).toBe('Pokémon');
+
+    // Test substring series match
+    component.filters.set({ ownership: 'all', series: 'poke' });
+    expect(component.filteredGames().length).toBe(1);
+
+    // Test title match (substring) via name filter
+    component.filters.set({ ownership: 'all', name: 'yellow' });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].title).toBe('Pokémon Yellow');
+
+    // Test exact name match
+    component.filters.set({
+      ownership: 'all',
+      name: 'yellow',
+      nameExact: true,
+    });
+    expect(component.filteredGames().length).toBe(0);
+    component.filters.set({
+      ownership: 'all',
+      name: 'pokemon yellow',
+      nameExact: true,
+    });
+    expect(component.filteredGames().length).toBe(1);
+
+    // Test title match (case/accent insensitive)
+    component.filters.set({ ownership: 'all', name: 'ODYSSEY' });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].title).toBe('Super Mario Odyssey');
+
+    // Test tag match (substring & exact)
+    component.filters.set({ ownership: 'all', tag: 'selects' });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].id).toBe('2');
+
+    component.filters.set({
+      ownership: 'all',
+      tag: 'selects',
+      tagExact: true,
+    });
+    expect(component.filteredGames().length).toBe(0);
+
+    component.filters.set({
+      ownership: 'all',
+      tag: 'nintendo selects',
+      tagExact: true,
+    });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].id).toBe('2');
+
+    // Test non-match
+    component.filters.set({ ownership: 'all', name: 'Zelda' });
+    expect(component.filteredGames().length).toBe(0);
+  });
+
+  it('should correctly calculate group totals even when displayLimit is small', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const initPromise = component.ngOnInit();
+
+    // Provide 5 games for Switch, but we will set displayLimit to 2
+    httpMock.expectOne('/api/games').flush([
+      { id: '1', title: 'G1', platform: 'Switch', ownership_status: 1 },
+      { id: '2', title: 'G2', platform: 'Switch', ownership_status: 1 },
+      { id: '3', title: 'G3', platform: 'Switch', ownership_status: 1 },
+      { id: '4', title: 'G4', platform: 'Switch', ownership_status: 1 },
+      { id: '5', title: 'G5', platform: 'Switch', ownership_status: 1 },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    component.displayLimit.set(2);
+    fixture.detectChanges();
+
+    const groups = component.groupedGames();
+    expect(groups.length).toBe(1);
+    expect(groups[0].platformName).toBe('Switch');
+    expect(groups[0].games.length).toBe(2); // Only 2 displayed
+    expect(groups[0].totalCount).toBe(5); // But total count should be 5
+  });
+
+  it('should include sub-platform games when filtering by parent platform', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const initPromise = component.ngOnInit();
+
+    // PS4 (id 34), PSVR (id 51, parent 34)
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'ps4-game',
+        title: 'PS4 Game',
+        platform_id: 34,
+        ownership_status: 1,
+        platform: 'PS4',
+      },
+      {
+        id: 'psvr-game',
+        title: 'PSVR Game',
+        platform_id: 51,
+        parent_platform_id: 34,
+        ownership_status: 1,
+        platform: 'PSVR',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Filter by PS4
+    component.filters.set({ ownership: 'all', platform_id: 34 });
+    expect(component.filteredGames().length).toBe(2);
+  });
+
+  it('should filter games by physical release verified status', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: '1',
+        title: 'Game 1',
+        ownership_status: 1,
+        platform: 'NES',
+        rom_name: 'Game 1.nes',
+        is_source_verified: 1,
+      },
+      {
+        id: '2',
+        title: 'Game 2',
+        ownership_status: 1,
+        platform: 'NES',
+        is_source_verified: 0,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Filter by Verified (value 1)
+    component.filters.set({ ownership: 'all', physical_verified: 1 });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].id).toBe('1');
+
+    // Filter by Unverified (value 0)
+    component.filters.set({ ownership: 'all', physical_verified: 0 });
+    expect(component.filteredGames().length).toBe(1);
+    expect(component.filteredGames()[0].id).toBe('2');
+
+    // Filter by All
+    component.filters.set({ ownership: 'all', physical_verified: 'all' });
+    expect(component.filteredGames().length).toBe(2);
+  });
+
+  it('should hide bundle children from top-level list', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'mother-famicom',
+        title: 'Mother',
+        platform: 'Famicom',
+        platform_id: 53,
+        physical_status: 'verified_physical',
+        release_medium: 'physical_retail',
+        ownership_status: 1,
+      },
+      {
+        id: 'bayo2-wiiu',
+        stable_id: 100,
+        title: 'Bayonetta 2',
+        platform: 'Wii U',
+        platform_id: 24,
+        physical_status: 'verified_physical',
+        release_medium: 'physical_retail',
+        ownership_status: 1,
+      },
+      {
+        id: 'bayo1-included',
+        stable_id: 101,
+        title: 'Bayonetta',
+        platform: 'Wii U',
+        platform_id: 24,
+        bundle_parent_id: 100,
+        bundle_disc_number: 2,
+        physical_status: 'verified_physical',
+        release_medium: 'physical_retail',
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    component.filters.set({ ownership: 'all' });
+    const games = component.filteredGames();
+    expect(games.map((g) => g.id)).toEqual(['bayo2-wiiu', 'mother-famicom']);
+  });
+
+  it('should support exact normalized matching for series', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: '1',
+        title: 'N+',
+        canonical_series: 'N',
+        ownership_status: 1,
+        platform: 'PSP',
+      },
+      {
+        id: '2',
+        title: 'N++',
+        canonical_series: 'N',
+        ownership_status: 1,
+        platform: 'Switch',
+      },
+      {
+        id: '3',
+        title: 'Batman Arkham Knight',
+        canonical_series: 'Batman',
+        ownership_status: 1,
+        platform: 'PS4',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Without exact match, searching series "n" should find everything with "n" in series
+    component.filters.set({
+      ownership: 'all',
+      series: 'n',
+      seriesExact: false,
+    });
+    // "N" has "n", "Batman" has "n"
+    expect(component.filteredGames().length).toBe(3);
+
+    // With exact match, searching "n" should only find games in series "N"
+    component.filters.set({
+      ownership: 'all',
+      series: 'n',
+      seriesExact: true,
+    });
+    expect(component.filteredGames().length).toBe(2);
+    expect(
+      component.filteredGames().every((g) => g.canonical_series === 'N'),
+    ).toBe(true);
+
+    // Should still be case and accent insensitive
+    component.filters.set({
+      ownership: 'all',
+      series: 'N',
+      seriesExact: true,
+    });
+    expect(component.filteredGames().length).toBe(2);
+  });
+
+  it('should filter toys by line, type, series, and name', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        id: 'f1',
+        name: 'Mario',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Super Mario',
+        ownership_status: 1,
+      },
+      {
+        id: 'f2',
+        name: 'Link',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Zelda',
+        ownership_status: 1,
+      },
+      {
+        id: 'f3',
+        name: 'Isabelle',
+        line: 'amiibo',
+        type: 'Card',
+        series_name: 'Animal Crossing',
+        ownership_status: 0,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Filter by ownership (unowned)
+    component.filters.set({
+      ownership: 0,
+      line: '',
+      type: '',
+      name: '',
+      series: '',
+    });
+    expect(component.filteredToys().length).toBe(1);
+    expect(component.filteredToys()[0].name).toBe('Isabelle');
+
+    // Filter by line
+    component.filters.set({
+      ownership: 'all',
+      line: 'amiibo',
+      type: '',
+      name: '',
+      series: '',
+    });
+    expect(component.filteredToys().length).toBe(3);
+
+    // Filter by type
+    component.filters.set({
+      ownership: 'all',
+      line: '',
+      type: 'Figure',
+      name: '',
+      series: '',
+    });
+    expect(component.filteredToys().length).toBe(2);
+
+    // Filter by series (normalized)
+    component.filters.set({
+      ownership: 'all',
+      line: '',
+      type: '',
+      series: 'super mario',
+    });
+    expect(component.filteredToys().length).toBe(1);
+    expect(component.filteredToys()[0].series_name).toBe('Super Mario');
+
+    // Filter by toy name (normalized)
+    component.filters.set({
+      ownership: 'all',
+      line: '',
+      type: '',
+      name: 'isabelle',
+    });
+    expect(component.filteredToys().length).toBe(1);
+    expect(component.filteredToys()[0].name).toBe('Isabelle');
+  });
+
+  it('should group toys correctly with total counts', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      { id: '1', name: 'A1', line: 'Line A', ownership_status: 1 },
+      { id: '2', name: 'A2', line: 'Line A', ownership_status: 1 },
+      { id: '3', name: 'B1', line: 'Line B', ownership_status: 1 },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const groups = component.groupedToys();
+    expect(groups.length).toBe(2);
+    expect(groups.find((g) => g.lineName === 'Line A')?.totalCount).toBe(2);
+    expect(groups.find((g) => g.lineName === 'Line B')?.totalCount).toBe(1);
+  });
+
+  it('should sort games strictly by platform launch, brand, series, release date, and sort index', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'g1',
+        title: 'The Legend of Zelda',
+        canonical_series: 'The Legend of Zelda',
+        release_date: '2020-01-01',
+        sort_index: 1,
+        platform: 'P1',
+        platform_launch_date: '2000-01-01',
+        brand: 'Nintendo',
+        ownership_status: 1,
+      },
+      {
+        id: 'g2',
+        title: 'Metroid',
+        canonical_series: 'Metroid',
+        release_date: '2020-01-01',
+        sort_index: 1,
+        platform: 'P1',
+        platform_launch_date: '2000-01-01',
+        brand: 'Nintendo',
+        ownership_status: 1,
+      },
+      {
+        id: 'g3',
+        title: 'Pokémon',
+        canonical_series: 'Pokémon',
+        release_date: '2020-01-01',
+        sort_index: 1,
+        platform: 'P1',
+        platform_launch_date: '2000-01-01',
+        brand: 'Nintendo',
+        ownership_status: 1,
+      },
+      {
+        id: 'g4',
+        title: 'Game D',
+        canonical_series: 'Series A',
+        release_date: '2020-01-01',
+        sort_index: 1,
+        platform: 'P2',
+        platform_launch_date: '1995-01-01',
+        brand: 'Sega',
+        ownership_status: 1,
+      },
+      {
+        id: 'g5',
+        title: 'Game E',
+        canonical_series: 'Series A',
+        release_date: '2020-01-01',
+        sort_index: 1,
+        platform: 'P1',
+        platform_launch_date: '2000-01-01',
+        brand: 'Apple',
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    const games = component.filteredGames();
+    // 1. Platform Launch Date: g4 (1995) comes first
+    expect(games[0].id).toBe('g4');
+    // 2. Brand: g5 (Apple) comes before g1/g2/g3 (Nintendo) because both launched in 2000
+    expect(games[1].id).toBe('g5');
+    // 3. Series (Normalized):
+    // "The Legend of Zelda" -> "legend of zelda"
+    // "Metroid" -> "metroid"
+    // "Pokémon" -> "pokemon"
+    // "Series A" -> "series a"
+    // Order: legend of zelda (g1), metroid (g2), pokemon (g3), series a (from g5)
+    expect(games[2].id).toBe('g1'); // L
+    expect(games[3].id).toBe('g2'); // M
+    expect(games[4].id).toBe('g3'); // P
+  });
+
+  it('should sort toys strictly by line, series, release date, and sort index', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    component.currentTab.set('toys');
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        id: 't1',
+        name: 'Toy 1',
+        line: 'The Line B',
+        series_name: 'Series A',
+        release_date: '2020-01-01',
+        sort_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 't2',
+        name: 'Toy 2',
+        line: 'A Line A',
+        series_name: 'The Series B',
+        release_date: '2020-01-01',
+        sort_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 't3',
+        name: 'Toy 3',
+        line: 'Line A',
+        series_name: 'An Series A',
+        release_date: '2021-01-01',
+        sort_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 't4',
+        name: 'Toy 4',
+        line: 'Line A',
+        series_name: 'Series A',
+        release_date: '2020-01-01',
+        sort_index: 2,
+        ownership_status: 1,
+      },
+      {
+        id: 't5',
+        name: 'Toy 5',
+        line: 'Line A',
+        series_name: 'Series A',
+        release_date: '2020-01-01',
+        sort_index: 1,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    const toys = component.filteredToys();
+    // 1. Line (Normalized):
+    // "A Line A" -> "line a"
+    // "Line A" -> "line a"
+    // "The Line B" -> "line b"
+    // Line A group: t2, t3, t4, t5. Line B group: t1
+    expect(toys[4].id).toBe('t1');
+
+    // 2. Series (Normalized) within Line A:
+    // "The Series B" (t2) -> "series b"
+    // "An Series A" (t3) -> "series a"
+    // "Series A" (t4/t5) -> "series a"
+    // Series A group: t3, t4, t5. Series B group: t2
+    expect(toys[3].id).toBe('t2');
+
+    // 3. Sort Index within Series A: t3/t5 (1) vs t4 (2)
+    expect(toys[2].id).toBe('t4');
+
+    // 4. Release Date within Sort Index 1: t5 (2020) vs t3 (2021)
+    expect(toys[0].id).toBe('t5');
+    expect(toys[1].id).toBe('t3');
+  });
+
+  it('should sort amiibo toys strictly by type, then release date, then sort index', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    component.currentTab.set('toys');
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        id: 'a1',
+        name: 'Isabelle Card',
+        line: 'amiibo',
+        type: 'Card',
+        series_name: 'Animal Crossing',
+        release_date: '2015-10-22',
+        sort_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 'a2',
+        name: 'Isabelle Figure',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Animal Crossing',
+        release_date: '2015-11-21',
+        sort_index: 2,
+        ownership_status: 1,
+      },
+      {
+        id: 'a3',
+        name: 'Mabel Figure',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Animal Crossing',
+        release_date: '2015-11-21',
+        sort_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 'a4',
+        name: 'Villager Figure',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Animal Crossing',
+        release_date: '2014-11-21',
+        sort_index: 5,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    const toys = component.filteredToys();
+    expect(toys.length).toBe(4);
+    // Expected order:
+    // 1. Type (Figure first, then Card) -> a4, a3, a2 are Figures, a1 is Card (so a1 is last)
+    // 2. Release Date among figures: a4 (2014) is earlier than a2/a3 (2015)
+    // 3. Sort Index among identical release dates: a3 (sort_index 1) vs a2 (sort_index 2)
+    // Final order: a4, a3, a2, a1
+    expect(toys[0].id).toBe('a4');
+    expect(toys[1].id).toBe('a3');
+    expect(toys[2].id).toBe('a2');
+    expect(toys[3].id).toBe('a1');
+  });
+
+  it('should calculate uniqueSeries based on the active tab', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'g1',
+        title: 'Game 1',
+        canonical_series: 'Zelda',
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([
+      { id: 'f1', name: 'Toy 1', series_name: 'Mario', ownership_status: 1 },
+      { id: 'f2', name: 'Toy 2', series_name: 'Metroid', ownership_status: 1 },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Default tab is 'games'
+    let series = component.uniqueSeries();
+    expect(series).toContain('Zelda');
+    expect(series).not.toContain('Mario');
+    expect(series.length).toBe(1);
+
+    // Switch to 'toys'
+    component.currentTab.set('toys');
+    series = component.uniqueSeries();
+    expect(series).not.toContain('Zelda');
+    expect(series).toContain('Mario');
+    expect(series).toContain('Metroid');
+    expect(series.length).toBe(2);
+  });
+
+  it('should sort dropdown options using normalized logic', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      { id: 't1', line: 'amiibo', ownership_status: 1 },
+      { id: 't2', line: 'LEGO', ownership_status: 1 },
+      { id: 't3', line: 'The Black Series', ownership_status: 1 },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    const lines = component.uniqueLines();
+    // Normalized for sort:
+    // "amiibo" -> "amiibo" (A)
+    // "LEGO" -> "lego" (L)
+    // "The Black Series" -> "black series" (B)
+    // Correct Order: amiibo (A), The Black Series (B), LEGO (L)
+    expect(lines[0]).toBe('amiibo');
+    expect(lines[1]).toBe('The Black Series');
+    expect(lines[2]).toBe('LEGO');
+  });
+
+  it('should sort toys by series_index when present', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        id: 't1',
+        name: 'Spyro',
+        line: 'Skylanders',
+        series_name: "Spyro's Adventure",
+        series_index: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 't2',
+        name: 'Tree Rex',
+        line: 'Skylanders',
+        series_name: 'Giants',
+        series_index: 2,
+        ownership_status: 1,
+      },
+      {
+        id: 't3',
+        name: 'Bash',
+        line: 'Skylanders',
+        series_name: "Spyro's Adventure",
+        series_index: 1,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    component.currentTab.set('toys');
+
+    const toys = component.filteredToys();
+    expect(toys[0].id).toBe('t3'); // Bash
+    expect(toys[1].id).toBe('t1'); // Spyro
+    expect(toys[2].id).toBe('t2'); // Tree Rex
+
+    const series = component.uniqueSeries();
+    expect(series[0]).toBe("Spyro's Adventure");
+    expect(series[1]).toBe('Giants');
+  });
+
+  it('should display physical release verified badge on game card when rom_name is present', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'game-with-rom',
+        title: 'Game With ROM',
+        platform: 'NES',
+        ownership_status: 1,
+        rom_name: 'Game With ROM (USA).nes',
+        rom_crc: '12345678',
+        is_source_verified: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement;
+    const physicalReleaseBadge = compiled.querySelector(
+      '.physical-release-badge',
+    );
+    expect(physicalReleaseBadge).toBeTruthy();
+    expect(physicalReleaseBadge.getAttribute('title')).toContain(
+      'Verified Source Match',
+    );
+    const icon = physicalReleaseBadge.querySelector('app-icon');
+    expect(icon?.getAttribute('name')).toBe('verified-badge');
+  });
+
+  describe('Multi-disc grouping and getRomGroupingKey', () => {
+    it('should correctly build grouping keys for multi-disc vs single-disc files', () => {
+      const fn = (
+        component as unknown as {
+          getRomGroupingKey: (filename: string | null | undefined) => string;
+        }
+      ).getRomGroupingKey.bind(component);
+      expect(fn('Castlevania - Symphony of the Night (Disc 1).cue')).toBe(
+        'multi:castlevania - symphony of the night',
+      );
+      expect(fn('Castlevania - Symphony of the Night (Disc 2).cue')).toBe(
+        'multi:castlevania - symphony of the night',
+      );
+      expect(fn('Metal Gear Solid - Disc A.bin')).toBe(
+        'multi:metal gear solid',
+      );
+      expect(fn('Command & Conquer (Disc 1 of 2).iso')).toBe(
+        'multi:command & conquer',
+      );
+      expect(fn("Dragon's Lair - Disc A")).toBe("multi:dragon's lair");
+      expect(fn('Game Side A.iso')).toBe('single:game side a');
+      expect(fn('Rayman (USA) (Playable Game Preview).cue')).toBe(
+        'single:rayman (usa) (playable game preview)',
+      );
+      expect(fn('Rayman (USA).cue')).toBe('single:rayman (usa)');
+      expect(
+        fn(
+          'Metal Gear Solid (Japan, Asia) (Disc 1) (Ichi) (Premium Package).cue',
+        ),
+      ).toBe('multi:metal gear solid (japan, asia)');
+      expect(
+        fn(
+          'Metal Gear Solid (Japan, Asia) (Disc 2) (Ni) (Premium Package).cue',
+        ),
+      ).toBe('multi:metal gear solid (japan, asia)');
+      expect(
+        fn(
+          'Red Dead Redemption - Game of the Year Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 1) (Red Dead Redemption Single Player).iso',
+        ),
+      ).toBe(
+        'multi:red dead redemption - game of the year edition (usa, europe) (en,fr,de,es,it)',
+      );
+      expect(
+        fn(
+          'Red Dead Redemption - Game of the Year Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 2) (Undead Nightmare and Multiplayer).iso',
+        ),
+      ).toBe(
+        'multi:red dead redemption - game of the year edition (usa, europe) (en,fr,de,es,it)',
+      );
+      expect(
+        fn(
+          "Elder Scrolls IV, The - Oblivion - Edizione Gioco dell'Anno (Italy) (Disco 2).iso",
+        ),
+      ).toBe(
+        "multi:elder scrolls iv, the - oblivion - edizione gioco dell'anno (italy)",
+      );
+      expect(fn(null)).toBe('');
+    });
+
+    it('should group multi-disc releases only if their stripped ROM names match', async () => {
+      const httpMock = TestBed.inject(HttpTestingController);
+      const initPromise = component.ngOnInit();
+
+      httpMock.expectOne('/api/games').flush([
+        {
+          id: 'cv-1',
+          game_id: 101,
+          title: 'Castlevania: Symphony of the Night',
+          platform: 'PlayStation',
+          ownership_status: 1,
+          rom_name: 'Castlevania - Symphony of the Night (Disc 1).cue',
+          region: 'USA',
+          variants: '',
+        },
+        {
+          id: 'cv-2',
+          game_id: 101,
+          title: 'Castlevania: Symphony of the Night',
+          platform: 'PlayStation',
+          ownership_status: 1,
+          rom_name: 'Castlevania - Symphony of the Night (Disc 2).cue',
+          region: 'USA',
+          variants: '',
+        },
+        {
+          id: 'cv-jp-1',
+          game_id: 101,
+          title: 'Akumajou Dracula X: Gekka no Nocturne',
+          platform: 'PlayStation',
+          ownership_status: 1,
+          rom_name:
+            'Akumajou Dracula X - Gekka no Nocturne (Japan) (Disc 1).cue',
+          region: 'Japan',
+          variants: '',
+        },
+      ]);
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+
+      await initPromise;
+      fixture.detectChanges();
+
+      const games = component.filteredGames();
+      // Should have 2 grouped games:
+      // Group 1: Castlevania: Symphony of the Night (USA, grouping cv-1 and cv-2)
+      // Group 2: Akumajou Dracula X: Gekka no Nocturne (Japan, cv-jp-1)
+      expect(games.length).toBe(2);
+
+      const usaGroup = games.find((g) => g.region === 'USA');
+      expect(usaGroup).toBeTruthy();
+      expect(usaGroup?.discIds).toContain('cv-1');
+      expect(usaGroup?.discIds).toContain('cv-2');
+      expect(usaGroup?.discIds.length).toBe(2);
+
+      const jpGroup = games.find((g) => g.region === 'Japan');
+      expect(jpGroup).toBeTruthy();
+      expect(jpGroup?.discIds).toContain('cv-jp-1');
+      expect(jpGroup?.discIds.length).toBe(1);
+    });
+  });
+
+  it('should sort alternate/demo releases after the main release when sharing the same release date', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'g-demo',
+        title: 'Metal Gear Solid',
+        canonical_series: 'Metal Gear Solid',
+        platform: 'PlayStation',
+        release_date: '1998-09-03',
+        ownership_status: 1,
+        variants: 'Demo',
+        is_companion_base_disc: true,
+        companion_game_id: 'g-main',
+        platform_launch_date: '1995-01-01',
+        brand: 'Sony',
+      },
+      {
+        id: 'g-main',
+        title: 'Metal Gear Solid',
+        canonical_series: 'Metal Gear Solid',
+        platform: 'PlayStation',
+        release_date: '1998-09-03',
+        ownership_status: 1,
+        variants: null,
+        platform_launch_date: '1995-01-01',
+        brand: 'Sony',
+      },
+      {
+        id: 'g-rev',
+        title: 'Metal Gear Solid',
+        canonical_series: 'Metal Gear Solid',
+        platform: 'PlayStation',
+        release_date: '1998-09-03',
+        ownership_status: 1,
+        variants: 'Rev 1',
+        platform_launch_date: '1995-01-01',
+        brand: 'Sony',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const games = component.filteredGames();
+    expect(games.length).toBe(3);
+    // Correct sorting order by variant priority:
+    // 1. g-main (variants is null, priority 0)
+    // 2. g-rev (variants is "Rev 1", priority 1)
+    // 3. g-demo (variants is "Demo", priority 2)
+    expect(games[0].id).toBe('g-main');
+    expect(games[1].id).toBe('g-rev');
+    expect(games[2].id).toBe('g-demo');
+  });
+
+  it('should normalize stale value_desc sortBy from saved state back to default', async () => {
+    const service = TestBed.inject(CollectionService);
+    service.updateListState({
+      tab: 'games',
+      filters: {
+        ownership: 1,
+        sortBy: 'value_desc' as unknown as FilterState['sortBy'],
+      },
+      displayLimit: 100,
+    });
+
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'g-1',
+        title: 'Game 1',
+        platform: 'NES',
+        ownership_status: 1,
+        platform_launch_date: '1985-01-01',
+        brand: 'Nintendo',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    expect(component.filters().sortBy).toBe('default');
+  });
+
+  it('should toggle has_case and has_manual via collectionService when admin', async () => {
+    const service = TestBed.inject(CollectionService);
+    service.setAdminForTesting(true);
+    const updateCaseSpy = vi
+      .spyOn(service, 'updateHasCase')
+      .mockReturnValue(of({ success: true }));
+    const updateManualSpy = vi
+      .spyOn(service, 'updateHasManual')
+      .mockReturnValue(of({ success: true }));
+
+    const mockGame = {
+      stable_id: 1,
+      id: 'g-test',
+      title: 'Test Game',
+      has_case: 0,
+      has_manual: 0,
+      ownership_status: 1,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleCase(mockEvent, mockGame);
+    expect(mockEvent.preventDefault).toHaveBeenCalled();
+    expect(updateCaseSpy).toHaveBeenCalledWith('g-test', 1);
+
+    component.onToggleManual(mockEvent, mockGame);
+    expect(mockEvent.stopPropagation).toHaveBeenCalled();
+    expect(updateManualSpy).toHaveBeenCalledWith('g-test', 1);
+  });
+
+  it('should not toggle case or manual and prompt admin login when not admin', () => {
+    const service = TestBed.inject(CollectionService);
+    service.setAdminForTesting(false);
+    const promptSpy = vi
+      .spyOn(service, 'promptAdminLogin')
+      .mockImplementation(() => {});
+    const updateCaseSpy = vi.spyOn(service, 'updateHasCase');
+    const updateManualSpy = vi.spyOn(service, 'updateHasManual');
+
+    const mockGame = {
+      id: 'g-test',
+      has_case: 0,
+      has_manual: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleCase(mockEvent, mockGame);
+    expect(promptSpy).toHaveBeenCalled();
+    expect(mockGame.has_case).toBe(0);
+    expect(updateCaseSpy).not.toHaveBeenCalled();
+
+    component.onToggleManual(mockEvent, mockGame);
+    expect(promptSpy).toHaveBeenCalledTimes(2);
+    expect(mockGame.has_manual).toBe(0);
+    expect(updateManualSpy).not.toHaveBeenCalled();
+  });
+
+  it('should roll back case and manual on server failure', () => {
+    const service = TestBed.inject(CollectionService);
+    service.setAdminForTesting(true);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(service, 'updateHasCase').mockReturnValue(
+      new Observable((subscriber) =>
+        subscriber.error(new Error('Network error')),
+      ),
+    );
+    vi.spyOn(service, 'updateHasManual').mockReturnValue(
+      new Observable((subscriber) =>
+        subscriber.error(new Error('Network error')),
+      ),
+    );
+
+    const mockGame = {
+      id: 'g-test',
+      has_case: 0,
+      has_manual: 1,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleCase(mockEvent, mockGame);
+    expect(mockGame.has_case).toBe(0); // Rolled back
+
+    component.onToggleManual(mockEvent, mockGame);
+    expect(mockGame.has_manual).toBe(1); // Rolled back
+
+    errorSpy.mockRestore();
+  });
+
+  it('should render item count in platform header without market valuation', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'g-1',
+        title: 'Mario Sunshine',
+        platform: 'Nintendo GameCube',
+        platform_id: 20,
+        ownership_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        platform_launch_date: '2001-09-14',
+      },
+      {
+        stable_id: 2,
+        id: 'g-2',
+        title: 'Luigi Mansion',
+        platform: 'Nintendo GameCube',
+        platform_id: 20,
+        ownership_status: 1,
+        has_case: 0,
+        has_manual: 0,
+        platform_launch_date: '2001-09-14',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const platformBadge =
+      fixture.nativeElement.querySelector('.platform-badge');
+    expect(platformBadge).toBeTruthy();
+    expect(platformBadge.textContent.trim()).toBe('2 Items');
+  });
+
+  it('should filter games by seeking_or_unowned and deals_only', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'g-owned',
+        title: 'Owned Game',
+        platform: 'PS4',
+        platform_id: 48,
+        ownership_status: 1, // Owned
+        retail_on_sale: 1,
+        retail_price: 1999,
+        platform_launch_date: '2013-11-15',
+      },
+      {
+        stable_id: 2,
+        id: 'g-seeking',
+        title: 'Seeking Game',
+        platform: 'PS4',
+        platform_id: 48,
+        ownership_status: 2, // Seeking
+        retail_on_sale: 1,
+        retail_price: 999,
+        platform_launch_date: '2013-11-15',
+      },
+      {
+        stable_id: 3,
+        id: 'g-unowned',
+        title: 'Unowned Game',
+        platform: 'PS4',
+        platform_id: 48,
+        ownership_status: 0, // Unowned
+        retail_on_sale: 0,
+        retail_price: 5999,
+        platform_launch_date: '2013-11-15',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Test seeking_or_unowned
+    component.filters.set({
+      ownership: 'seeking_or_unowned',
+    });
+    fixture.detectChanges();
+
+    const seekingOrUnowned = component.filteredGames();
+    expect(seekingOrUnowned.map((g) => g.id)).toEqual([
+      'g-seeking',
+      'g-unowned',
+    ]);
+
+    // Test deals_only on top of seeking_or_unowned
+    component.filters.set({
+      ownership: 'seeking_or_unowned',
+      deals_only: true,
+    });
+    fixture.detectChanges();
+
+    const dealsOnly = component.filteredGames();
+    expect(dealsOnly.map((g) => g.id)).toEqual(['g-seeking']);
+  });
+
+  it('should sort games by retail_asc and discount_desc', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'g-expensive',
+        title: 'Expensive Deal',
+        platform: 'Xbox One',
+        platform_id: 49,
+        ownership_status: 0,
+        retail_price: 2999,
+        retail_discount_pct: 20,
+        retail_on_sale: 1,
+        platform_launch_date: '2013-11-22',
+      },
+      {
+        stable_id: 2,
+        id: 'g-cheap',
+        title: 'Cheap Clearance',
+        platform: 'Xbox One',
+        platform_id: 49,
+        ownership_status: 0,
+        retail_price: 799,
+        retail_discount_pct: 70,
+        retail_on_sale: 1,
+        platform_launch_date: '2013-11-22',
+      },
+      {
+        stable_id: 3,
+        id: 'g-deep-discount',
+        title: 'Deep Discount',
+        platform: 'Xbox One',
+        platform_id: 49,
+        ownership_status: 0,
+        retail_price: 999,
+        retail_discount_pct: 85,
+        retail_on_sale: 1,
+        platform_launch_date: '2013-11-22',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Test sort by lowest retail price
+    component.filters.set({
+      ownership: 'all',
+      sortBy: 'retail_asc',
+    });
+    fixture.detectChanges();
+
+    const byRetailPrice = component.filteredGames();
+    expect(byRetailPrice.map((g) => g.id)).toEqual([
+      'g-cheap',
+      'g-deep-discount',
+      'g-expensive',
+    ]);
+
+    // Test sort by deepest discount
+    component.filters.set({
+      ownership: 'all',
+      sortBy: 'discount_desc',
+    });
+    fixture.detectChanges();
+
+    const byDiscount = component.filteredGames();
+    expect(byDiscount.map((g) => g.id)).toEqual([
+      'g-deep-discount',
+      'g-cheap',
+      'g-expensive',
+    ]);
+  });
+
+  it('should bypass platform grouping and sort across platforms for all price sort modes', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'nes-expensive',
+        title: 'Zelda',
+        canonical_series: 'Zelda',
+        platform: 'NES',
+        platform_id: 18,
+        ownership_status: 1,
+        retail_price: 2999,
+        retail_discount_pct: 20,
+        platform_launch_date: '1985-10-18',
+        brand: 'Nintendo',
+      },
+      {
+        stable_id: 2,
+        id: 'switch-cheap',
+        title: 'Arms',
+        canonical_series: 'Arms',
+        platform: 'Nintendo Switch',
+        platform_id: 130,
+        ownership_status: 1,
+        retail_price: 999,
+        retail_discount_pct: 75,
+        platform_launch_date: '2017-03-03',
+        brand: 'Nintendo',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // 1. retail_asc: should return a single unified group across platforms
+    component.filters.set({ ownership: 'all', sortBy: 'retail_asc' });
+    fixture.detectChanges();
+    expect(component.groupedGames().length).toBe(1);
+    expect(component.groupedGames()[0].platformName).toContain(
+      'All Platforms (Ranked by Lowest Retail Price)',
+    );
+    expect(component.groupedGames()[0].games.map((g) => g.id)).toEqual([
+      'switch-cheap',
+      'nes-expensive',
+    ]);
+
+    // 2. discount_desc: should return a single unified group across platforms
+    component.filters.set({ ownership: 'all', sortBy: 'discount_desc' });
+    fixture.detectChanges();
+    expect(component.groupedGames().length).toBe(1);
+    expect(component.groupedGames()[0].platformName).toContain(
+      'All Platforms (Ranked by Biggest Sale %)',
+    );
+    expect(component.groupedGames()[0].games.map((g) => g.id)).toEqual([
+      'switch-cheap',
+      'nes-expensive',
+    ]);
+  });
+
+  it('should require companion Disc 1 to be backed up before marking a 2-disc GOTY release as backed up, without changing ownership', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 3796,
+        id: 'oblivion-base-usa',
+        game_id: 3796,
+        title: 'The Elder Scrolls IV: Oblivion',
+        platform: 'Xbox 360',
+        platform_id: 48,
+        region: 'USA',
+        variants: 'Superseded',
+        rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+        ownership_status: 1,
+        backup_status: 1,
+      },
+      {
+        stable_id: 3798,
+        id: 'oblivion-goty-usa',
+        game_id: 3798,
+        title: 'The Elder Scrolls IV: Oblivion Game of the Year Edition',
+        platform: 'Xbox 360',
+        platform_id: 48,
+        region: 'USA',
+        variants: null,
+        rom_name:
+          'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+        ownership_status: 0,
+        backup_status: 0,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    component.filters.set({ ownership: 'all' });
+    const games = component.filteredGames();
+    const goty = games.find((g) => g.id === 'oblivion-goty-usa');
+    expect(goty).toBeTruthy();
+    // Case 1: Original Disc 1 is backed up, GOTY Disc 2 is NOT backed up -> GOTY card is unowned and not backed up
+    expect(goty?.ownership_status).toBe(0);
+    expect(goty?.backup_status).toBe(0);
+  });
+
+  it('should extract canonical optional budget labels and render ± badges on cards', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'wind-waker-gc',
+        title: 'The Legend of Zelda: The Wind Waker',
+        platform: 'Nintendo GameCube',
+        platform_id: 20,
+        region: 'USA, Canada',
+        variants: null,
+        also_released_as:
+          "Player's Choice, Limited Edition, Player's Choice (Best Seller)",
+        ownership_status: 1,
+      },
+      {
+        id: 'oblivion-goty-rev1',
+        title: 'The Elder Scrolls IV: Oblivion - Game of the Year Edition',
+        platform: 'Xbox 360',
+        platform_id: 48,
+        region: 'USA',
+        variants: 'Rev 1, Platinum Hits',
+        also_released_as: null,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const ww = component.filteredGames().find((g) => g.id === 'wind-waker-gc')!;
+    expect(component.getOptionalBudgetLabels(ww)).toEqual(["Player's Choice"]);
+
+    // Tag filter should match optional budget labels in also_released_as
+    component.filters.set({ ownership: 'all', tag: "player's choice" });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'wind-waker-gc',
+    ]);
+
+    const optionalBadges = fixture.nativeElement.querySelectorAll(
+      '.badge-budget-optional',
+    );
+    expect(optionalBadges.length).toBe(1);
+    expect(optionalBadges[0].textContent.trim()).toBe("± Player's Choice");
+  });
+
+  it('should filter releases by budget label status (standard_only, standard_and_budget, budget_only)', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 101,
+        id: 'game-standard-only',
+        title: 'Niche Game (Standard Only)',
+        platform: 'Nintendo GameCube',
+        platform_id: 10,
+        region: 'USA',
+        variants: null,
+        also_released_as: null,
+        ownership_status: 1,
+      },
+      {
+        stable_id: 102,
+        id: 'game-both-std',
+        title: 'Hit Game (Standard Release)',
+        platform: 'Nintendo GameCube',
+        platform_id: 10,
+        region: 'USA',
+        variants: null,
+        also_released_as: "Player's Choice",
+        ownership_status: 1,
+      },
+      {
+        stable_id: 102,
+        id: 'game-both-budget',
+        title: 'Hit Game (Player Choice Release)',
+        platform: 'Nintendo GameCube',
+        platform_id: 10,
+        region: 'USA',
+        variants: "Player's Choice",
+        also_released_as: null,
+        ownership_status: 1,
+      },
+      {
+        stable_id: 103,
+        id: 'game-budget-only',
+        title: 'Classic NES Series: Metroid',
+        platform: 'Game Boy Advance',
+        platform_id: 4,
+        region: 'USA',
+        variants: 'Classic NES Series',
+        also_released_as: null,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    // 1. All (no budget filter)
+    component.filters.set({ ownership: 'all', budget_label: 'all' });
+    expect(component.filteredGames().length).toBe(4);
+
+    // 2. Standard label only (includes standard-only and non-budget thematic lines like Classic NES Series)
+    component.filters.set({ ownership: 'all', budget_label: 'standard_only' });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-budget-only',
+      'game-standard-only',
+    ]);
+
+    // 3. Standard and budget labels (strictly releases with identical disc sold with both labels, having ± tag)
+    component.filters.set({
+      ownership: 'all',
+      budget_label: 'standard_and_budget',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-both-std',
+    ]);
+
+    // 4. Budget label only (strictly budget-exclusive pressings)
+    component.filters.set({ ownership: 'all', budget_label: 'budget_only' });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-both-budget',
+    ]);
+  });
+
+  it('should toggle individual disc backup status in multi-disc sets when admin', async () => {
+    const collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(true);
+    const updateSpy = vi
+      .spyOn(collectionService, 'updateBackupStatus')
+      .mockReturnValue(of({ success: true }));
+
+    const multiDiscGame = {
+      id: 'mgs-ps1',
+      title: 'Metal Gear Solid',
+      discIds: ['mgs-disc1', 'mgs-disc2'],
+      discBackups: [1, 0],
+      backup_status: 0,
+    } as unknown as Game;
+
+    expect(component.getBackedUpDiscCount(multiDiscGame)).toBe(1);
+
+    // Toggle Disc 2 to backed up
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
+
+    expect(updateSpy).toHaveBeenCalledWith('mgs-disc2', 1);
+    expect(multiDiscGame.discBackups?.[1]).toBe(1);
+    expect(multiDiscGame.backup_status).toBe(1);
+    expect(component.getBackedUpDiscCount(multiDiscGame)).toBe(2);
+  });
+
+  it('should not toggle disc backup and prompt admin login when not admin', () => {
+    const collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(false);
+    const promptSpy = vi
+      .spyOn(collectionService, 'promptAdminLogin')
+      .mockImplementation(() => {});
+    const updateSpy = vi.spyOn(collectionService, 'updateBackupStatus');
+
+    const multiDiscGame = {
+      id: 'mgs-ps1',
+      discIds: ['mgs-disc1', 'mgs-disc2'],
+      discBackups: [1, 0],
+      backup_status: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
+
+    expect(promptSpy).toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(multiDiscGame.discBackups?.[1]).toBe(0);
+    expect(multiDiscGame.backup_status).toBe(0);
+  });
+
+  it('should roll back disc backup on server error', () => {
+    const collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(true);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(collectionService, 'updateBackupStatus').mockReturnValue(
+      throwError(() => new Error('Server error')),
+    );
+
+    const multiDiscGame = {
+      id: 'mgs-ps1',
+      discIds: ['mgs-disc1', 'mgs-disc2'],
+      discBackups: [1, 0],
+      backup_status: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
+
+    expect(multiDiscGame.discBackups?.[1]).toBe(0);
+    expect(multiDiscGame.backup_status).toBe(0);
+
+    errorSpy.mockRestore();
+  });
+
+  it('should prompt admin login and not open dialog on onToggleStatus or onEditSortIndex when not admin', () => {
+    const collectionService = TestBed.inject(CollectionService);
+    collectionService.setAdminForTesting(false);
+    const promptSpy = vi
+      .spyOn(collectionService, 'promptAdminLogin')
+      .mockImplementation(() => {});
+    const optionsSpy = vi.spyOn(collectionService, 'showOptions');
+    const inputSpy = vi.spyOn(collectionService, 'showInput');
+
+    const mockGame = {
+      id: 'g1',
+      title: 'Game 1',
+      ownership_status: 1,
+      sort_index: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleStatus(mockEvent, mockGame, 'game');
+    expect(promptSpy).toHaveBeenCalledTimes(1);
+    expect(optionsSpy).not.toHaveBeenCalled();
+
+    component.onEditSortIndex(mockEvent, mockGame, 'game');
+    expect(promptSpy).toHaveBeenCalledTimes(2);
+    expect(inputSpy).not.toHaveBeenCalled();
+  });
+
+  it('should render compact table rows and columns when viewMode is compact', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const mockGames: Game[] = [
+      {
+        id: 'g1',
+        stable_id: 1,
+        title: 'Super Mario Bros.',
+        platform: 'NES',
+        platform_id: 1,
+        region: 'USA',
+        release_date: '1985-09-13',
+        ownership_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        retail_price: 2999,
+        retail_store: 'Best Buy',
+        image_url: 'https://example.com/mario.jpg',
+      } as unknown as Game,
+    ];
+
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush(mockGames);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([
+      {
+        id: 1,
+        name: 'NES',
+        display_name: 'Nintendo Entertainment System',
+        brand: 'Nintendo',
+      },
+    ]);
+    await initPromise;
+
+    component.viewMode.set('compact');
+    fixture.detectChanges();
+
+    const tableContainer = fixture.nativeElement.querySelector(
+      '.compact-table-container',
+    );
+    expect(tableContainer).toBeTruthy();
+
+    const header = tableContainer.querySelector('.compact-table-header');
+    expect(header).toBeTruthy();
+    expect(header.textContent).toContain('Status');
+    expect(header.textContent).toContain('Title');
+    expect(header.textContent).toContain('Price');
+
+    const row = tableContainer.querySelector('.compact-table-row');
+    expect(row).toBeTruthy();
+    expect(row.querySelector('.row-title-text').textContent).toContain(
+      'Super Mario Bros.',
+    );
+    expect(row.querySelector('.col-year').textContent).toContain('1985');
+    expect(row.querySelector('.col-region').textContent).toContain('USA');
+    expect(row.querySelector('.col-completeness').textContent).toContain(
+      'Case',
+    );
+    expect(row.querySelector('.col-price').textContent).toContain('$29.99');
+
+    // Switch back to grid
+    component.viewMode.set('grid');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('.compact-table-container'),
+    ).toBeFalsy();
+    expect(fixture.nativeElement.querySelector('.grid')).toBeTruthy();
+  });
+
+  it('should handle onViewModeChange and persist preference to localStorage', () => {
+    component.onViewModeChange('compact');
+    expect(component.viewMode()).toBe('compact');
+    expect(localStorage.getItem('app_preferred_view_mode')).toBe('compact');
+  });
+
+  it('should sort games by release date and bypass platform grouping', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'g1',
+        title: 'Mid Game',
+        release_date: '2010-05-15',
+        platform: 'PS3',
+        platform_id: 1,
+        ownership_status: 1,
+      },
+      {
+        id: 'g2',
+        title: 'Old Game',
+        release_date: '1995-10-20',
+        platform: 'SNES',
+        platform_id: 2,
+        ownership_status: 1,
+      },
+      {
+        id: 'g3',
+        title: 'New Game',
+        release_date: '2023-11-01',
+        platform: 'PS5',
+        platform_id: 3,
+        ownership_status: 1,
+      },
+      {
+        id: 'g4',
+        title: 'Undated Game',
+        release_date: null,
+        platform: 'PC',
+        platform_id: 4,
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // Test release_desc (newest first, undated at end)
+    component.filters.set({
+      ownership: 'all',
+      sortBy: 'release_desc',
+    });
+
+    const descGames = component.filteredGames();
+    expect(descGames.map((g) => g.id)).toEqual(['g3', 'g1', 'g2', 'g4']);
+
+    // Check groupedGames bypasses platform headers into a unified list
+    const groupsDesc = component.groupedGames();
+    expect(groupsDesc.length).toBe(1);
+    expect(groupsDesc[0].platformName).toContain(
+      'Ranked by Release Date (Newest First)',
+    );
+    expect(groupsDesc[0].games.map((g) => g.id)).toEqual([
+      'g3',
+      'g1',
+      'g2',
+      'g4',
+    ]);
+
+    // Test release_asc (oldest first, undated at end)
+    component.filters.set({
+      ownership: 'all',
+      sortBy: 'release_asc',
+    });
+
+    const ascGames = component.filteredGames();
+    expect(ascGames.map((g) => g.id)).toEqual(['g2', 'g1', 'g3', 'g4']);
+
+    const groupsAsc = component.groupedGames();
+    expect(groupsAsc.length).toBe(1);
+    expect(groupsAsc[0].platformName).toContain(
+      'Ranked by Release Date (Oldest First)',
+    );
+    expect(groupsAsc[0].games.map((g) => g.id)).toEqual([
+      'g2',
+      'g1',
+      'g3',
+      'g4',
+    ]);
+  });
+
+  it('should filter collection with home_region_and_owned preset filter', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'g-owned-japan',
+        title: 'Owned Japanese Game',
+        region: 'Japan',
+        ownership_status: 1, // Owned
+      },
+      {
+        id: 'g-owned-usa',
+        title: 'Owned USA Game',
+        region: 'USA',
+        ownership_status: 1, // Owned
+      },
+      {
+        id: 'g-seeking-usa',
+        title: 'Seeking USA Game',
+        region: 'USA',
+        ownership_status: 2, // Seeking
+      },
+      {
+        id: 'g-seeking-world',
+        title: 'Seeking World Game',
+        region: 'World',
+        ownership_status: 2, // Seeking
+      },
+      {
+        id: 'g-unowned-usa',
+        title: 'Unowned USA Game',
+        region: 'USA',
+        ownership_status: 0, // Unowned
+      },
+      {
+        id: 'g-seeking-japan',
+        title: 'Seeking Japanese Game',
+        region: 'Japan',
+        ownership_status: 2, // Seeking foreign
+      },
+      {
+        id: 'g-unowned-europe',
+        title: 'Unowned European Game',
+        region: 'Europe',
+        ownership_status: 0, // Unowned foreign
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        id: 't-owned-jp',
+        name: 'Owned JP Toy',
+        line: 'Amiibo',
+        series_name: 'Super Mario',
+        region: 'Japan',
+        ownership_status: 1,
+      },
+      {
+        id: 't-seeking-usa',
+        name: 'Seeking USA Toy',
+        line: 'Amiibo',
+        series_name: 'Super Mario',
+        region: 'USA',
+        ownership_status: 2,
+      },
+      {
+        id: 't-seeking-jp',
+        name: 'Seeking JP Toy',
+        line: 'Amiibo',
+        series_name: 'Super Mario',
+        region: 'Japan',
+        ownership_status: 2,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    component.filters.set({
+      ownership: 'home_region_and_owned',
+    });
+
+    const games = component.filteredGames();
+    const gameIds = games.map((g) => g.id);
+    expect(gameIds).toContain('g-owned-japan');
+    expect(gameIds).toContain('g-owned-usa');
+    expect(gameIds).toContain('g-seeking-usa');
+    expect(gameIds).toContain('g-seeking-world');
+    expect(gameIds).toContain('g-unowned-usa');
+    expect(gameIds).not.toContain('g-seeking-japan');
+    expect(gameIds).not.toContain('g-unowned-europe');
+
+    component.currentTab.set('toys');
+    const toys = component.filteredToys();
+    const toyIds = toys.map((t) => t.id);
+    expect(toyIds).toContain('t-owned-jp');
+    expect(toyIds).toContain('t-seeking-usa');
+    expect(toyIds).not.toContain('t-seeking-jp');
+  });
+
+  it('should apply inbound query parameters and clear them from URL via replaceUrl: true', () => {
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    (
+      component as unknown as {
+        applyQueryParams: (qp: Record<string, unknown>) => void;
+      }
+    ).applyQueryParams({
+      backup_status: '0',
+      ownership: '1',
+    });
+
+    expect(component.filters().backup_status).toBe(0);
+    expect(component.filters().ownership).toBe(1);
+    expect(navigateSpy).toHaveBeenCalledWith([], {
+      relativeTo: expect.anything(),
+      queryParams: {},
+      replaceUrl: true,
+    });
+  });
+
+  it('should support cross-language search, ampersand normalization, and metadata_json alternative titles', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'mario-to-wario-sfc',
+        title: 'Mario to Wario',
+        base_title: 'Mario & Wario',
+        platform: 'Super Nintendo Entertainment System / Super Famicom',
+        platform_id: 15,
+        ownership_status: 1,
+        series: 'Mario',
+        canonical_series: 'Mario',
+        franchises: 'Mario Bros., Wario, Mario',
+        rom_name: 'Mario to Wario (Japan) (En).sfc',
+        metadata_json: JSON.stringify({
+          alternative_names: [
+            { name: 'Mario & Wario' },
+            { name: 'Mario and Wario' },
+          ],
+          game_localizations: [{ name: 'マリオとワリオ', region: 3 }],
+        }),
+      },
+      {
+        id: 'rockman-x-sfc',
+        title: 'Rockman X',
+        base_title: 'Mega Man X',
+        platform: 'Super Nintendo Entertainment System / Super Famicom',
+        platform_id: 15,
+        ownership_status: 1,
+        series: 'Mega Man',
+        canonical_series: 'Mega Man',
+        metadata_json: JSON.stringify({
+          alternative_names: [{ name: 'Mega Man X' }],
+          game_localizations: [{ name: 'ロックマンX', region: 3 }],
+        }),
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    // 1. Search English title "Mario & Wario" when localized title is "Mario to Wario"
+    component.filters.set({ ownership: 'all', name: 'Mario & Wario' });
+    fixture.detectChanges();
+    let filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('mario-to-wario-sfc');
+
+    // 2. Search with "and" instead of "&": "Mario and Wario"
+    component.filters.set({ ownership: 'all', name: 'Mario and Wario' });
+    fixture.detectChanges();
+    filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('mario-to-wario-sfc');
+
+    // 3. Search Japanese localized text "マリオとワリオ"
+    component.filters.set({ ownership: 'all', name: 'マリオとワリオ' });
+    fixture.detectChanges();
+    filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('mario-to-wario-sfc');
+
+    // 4. Cross-language series filter: Filter by series "Rockman" matches "Mega Man" game
+    component.filters.set({ ownership: 'all', series: 'Rockman' });
+    fixture.detectChanges();
+    filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('rockman-x-sfc');
+
+    // 5. Franchise series match: Filter by "Wario" matches Mario to Wario
+    component.filters.set({ ownership: 'all', series: 'Wario' });
+    fixture.detectChanges();
+    filtered = component.filteredGames();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].id).toBe('mario-to-wario-sfc');
+  });
+
+  it('should not render physical-release-badge in compact table row view', async () => {
+    component.currentTab.set('games');
+    component.viewMode.set('compact');
+    component.filters.set({ ownership: 'all' });
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'verified-game',
+        title: 'Verified Cartridge',
+        platform: 'Nintendo Entertainment System / Famicom',
+        platform_id: 13,
+        ownership_status: 1,
+        is_source_verified: 1,
+        physical_status: 'verified_physical',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const badge = fixture.nativeElement.querySelector(
+      '.col-title .physical-release-badge',
+    );
+    expect(badge).toBeNull();
+  });
+
+  it('should exclude Platform 0 from platformGroups and sort Physical Watch games at the end', async () => {
+    component.currentTab.set('games');
+    component.filters.set({ ownership: 'all' });
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        id: 'watch-game',
+        title: 'Indie Watch Game',
+        platform: 'No Platform',
+        display_name: 'No Platform',
+        platform_id: 0,
+        ownership_status: 2,
+        physical_status: 'not_yet_physical',
+      },
+      {
+        id: 'switch-game',
+        title: 'Switch Release',
+        platform: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        platform_id: 26,
+        platform_launch_date: '2017-03-03',
+        brand: 'Nintendo',
+        ownership_status: 1,
+        physical_status: 'verified_physical',
+      },
+      {
+        id: 'undated-hw-game',
+        title: 'Undated Console Release',
+        platform: 'Future Console',
+        display_name: 'Future Console',
+        platform_id: 99,
+        platform_launch_date: null,
+        brand: 'Sony',
+        ownership_status: 1,
+        physical_status: 'verified_physical',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([
+      {
+        id: 0,
+        name: 'No Platform',
+        display_name: 'No Platform',
+        brand: 'Other',
+      },
+      {
+        id: 26,
+        name: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        brand: 'Nintendo',
+      },
+    ]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    const pGroups = component.platformGroups();
+    expect(pGroups.map((g) => g.brand)).toEqual(['Nintendo']);
+    expect(pGroups[0].platforms.map((p) => p.id)).toEqual([26]);
+
+    const grouped = component.groupedGames();
+    expect(grouped.map((g) => g.platformName)).toEqual([
+      'Nintendo Switch',
+      'Future Console',
+      'Physical Watch',
+    ]);
+  });
+
+  it('should omit backup badges and ignore backup_status filtering on publicly shared collection page', async () => {
+    component.collectionService.setPublicView(true, {
+      username: 'wesley',
+      displayName: 'Wesley',
+      bio: null,
+      homeRegion: 'USA',
+    });
+    component.currentTab.set('games');
+    component.filters.set({ ownership: 'all', backup_status: 1 });
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/u/wesley/games').flush([
+      {
+        id: 'backed-up-game',
+        title: 'Backed Up Game',
+        platform: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        platform_id: 26,
+        ownership_status: 1,
+        backup_status: 1,
+      },
+      {
+        id: 'unbacked-game',
+        title: 'Unbacked Game',
+        platform: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        platform_id: 26,
+        ownership_status: 1,
+        backup_status: 0,
+      },
+    ]);
+    httpMock.expectOne('/api/u/wesley/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([
+      {
+        id: 26,
+        name: 'Nintendo Switch',
+        display_name: 'Nintendo Switch',
+        brand: 'Nintendo',
+      },
+    ]);
+
+    await initPromise;
+    fixture.detectChanges();
+
+    // Both games should be included because backup_status filter is ignored in public view
+    expect(component.filteredGames().length).toBe(2);
+
+    // Grid view omits backup badges and backup filter dropdown
+    expect(fixture.nativeElement.querySelectorAll('.backup-badge').length).toBe(
+      0,
+    );
+    expect(
+      fixture.nativeElement.querySelector('#filter-backup-status'),
+    ).toBeNull();
+
+    // Compact table view also omits backup chips
+    component.viewMode.set('compact');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelectorAll('.compact-disc-chip').length,
+    ).toBe(0);
+  });
+});

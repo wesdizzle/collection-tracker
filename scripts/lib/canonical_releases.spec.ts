@@ -1,0 +1,1145 @@
+/**
+ * CANONICAL RELEASES & PHYSICAL VERIFICATION TESTS
+ */
+
+import { describe, it, expect } from 'vitest';
+import {
+  detectPhysicalReleaseStatus,
+  deduplicateDatReleases,
+  cleanTitleWithoutParentheticals,
+  extractSerialCode,
+  isDigitalFluffTitle,
+  hasEraDiscrepancy,
+  findCanonicalBundle,
+  CanonicalRelease,
+} from './canonical_releases.js';
+import {
+  extractRegions,
+  extractVariants,
+  extractDiscLabel,
+  isIgnoredFormatRelease,
+} from './source_format.js';
+import {
+  getRomGroupingKey,
+  enrichGameDetailWithCompanionsAndVouchers,
+  CompanionDiscCandidateRow,
+} from './queries.js';
+
+describe('Canonical Releases & Physical Verification Engine', () => {
+  describe('cleanTitleWithoutParentheticals & extractSerialCode', () => {
+    it('should clean parentheticals and reorganize ", The" and ", A" prefixes', () => {
+      expect(
+        cleanTitleWithoutParentheticals(
+          'Legend of Zelda, The - Ocarina of Time (USA) (Rev 1)',
+        ),
+      ).toBe('The Legend of Zelda - Ocarina of Time');
+      expect(cleanTitleWithoutParentheticals('Super Mario World (USA)')).toBe(
+        'Super Mario World',
+      );
+      expect(cleanTitleWithoutParentheticals('Boy and His Blob, A (USA)')).toBe(
+        'A Boy and His Blob',
+      );
+    });
+
+    it('should extract console serial codes from titles and rom names', () => {
+      expect(extractSerialCode('Final Fantasy VII (USA) (SLUS-00892)')).toBe(
+        'SLUS-00892',
+      );
+      expect(extractSerialCode('Zelda (HAC-P-AAAAA)')).toBe('HAC-P-AAAAA');
+      expect(extractSerialCode('Spider-Man (CUSA-02299)')).toBe('CUSA-02299');
+      expect(extractSerialCode('Standard Title Without Serial')).toBeNull();
+    });
+  });
+
+  describe('Tier 1: Canonical DAT Matching', () => {
+    it('should confirm physical release with 100% confidence when matched in canonical dataset', () => {
+      const mockReleases: CanonicalRelease[] = [
+        {
+          platform_id: 15, // SNES
+          raw_title: 'Super Mario World',
+          normalized_title: 'supermarioworld',
+          region: 'USA, Europe',
+          variants: 'Rev 1',
+          rom_name: 'Super Mario World (USA).sfc',
+          rom_crc: 'B19ED489',
+          source: 'dat',
+          is_verified_physical: 1,
+        },
+      ];
+
+      const result = detectPhysicalReleaseStatus({
+        platformId: 15,
+        gameTitle: 'Super Mario World',
+        canonicalReleases: mockReleases,
+      });
+
+      expect(result.physical_status).toBe('verified_physical');
+      expect(result.verification_tier).toBe(1);
+      expect(result.is_physical).toBe(true);
+      expect(result.matched_releases).toHaveLength(1);
+      expect(result.physical_regions).toContain('USA');
+      expect(result.physical_regions).toContain('Europe');
+    });
+
+    it('should classify as digital_only when matched canonical release has is_verified_physical === 0', () => {
+      const mockReleases: CanonicalRelease[] = [
+        {
+          platform_id: 33, // Vita
+          raw_title: 'Digital Only Indie Game',
+          normalized_title: 'digitalonlyindiegame',
+          region: 'USA',
+          variants: null,
+          rom_name: 'Digital Only Indie Game (USA).zip',
+          rom_crc: null,
+          serial_code: 'PCSE-99999',
+          source: 'dat',
+          is_verified_physical: 0,
+        },
+      ];
+
+      const result = detectPhysicalReleaseStatus({
+        platformId: 33,
+        gameTitle: 'Digital Only Indie Game',
+        canonicalReleases: mockReleases,
+      });
+
+      expect(result.physical_status).toBe('digital_only');
+      expect(result.verification_tier).toBe(3);
+      expect(result.is_physical).toBe(false);
+      expect(result.matched_releases).toHaveLength(1);
+      expect(result.reasons[0]).toContain('digital-only PSN release');
+    });
+  });
+
+  describe('Tier 2: External Metadata & Physical Publisher Allowlist', () => {
+    it('should confirm likely physical for physical-only publishers', () => {
+      const result = detectPhysicalReleaseStatus({
+        platformId: 26, // Switch
+        gameTitle: 'Celeste',
+        publisher: 'Limited Run Games',
+      });
+
+      expect(result.physical_status).toBe('likely_physical');
+      expect(result.verification_tier).toBe(2);
+      expect(result.is_physical).toBe(true);
+      expect(result.reasons[0]).toContain('Limited Run Games');
+    });
+
+    it('should confirm likely physical when physical packaging or format is present', () => {
+      const result = detectPhysicalReleaseStatus({
+        platformId: 34, // PS4
+        gameTitle: 'Horizon Zero Dawn',
+        igdbGameFormat: 'physical',
+      });
+
+      expect(result.physical_status).toBe('likely_physical');
+      expect(result.verification_tier).toBe(2);
+      expect(result.is_physical).toBe(true);
+    });
+
+    it('should confirm likely physical when retail barcode is provided', () => {
+      const result = detectPhysicalReleaseStatus({
+        platformId: 26, // Switch
+        gameTitle: 'Custom Physical Game',
+        barcode: '045496590420',
+      });
+
+      expect(result.physical_status).toBe('likely_physical');
+      expect(result.verification_tier).toBe(2);
+      expect(result.is_physical).toBe(true);
+    });
+  });
+
+  describe('Tier 3: Platform Lifespan & Digital Fluff Elimination', () => {
+    it('should flag retro games re-released on modern consoles as digital only', () => {
+      const result = detectPhysicalReleaseStatus({
+        platformId: 22, // Wii (Launch 2006)
+        gameTitle: 'Super Mario Bros. 3',
+        firstReleaseDate: '1988-10-23', // NES era (18 years before Wii)
+        platformLaunchDate: '2006-11-19',
+        canonicalReleases: [], // No physical Wii disc compilation match
+      });
+
+      expect(result.physical_status).toBe('digital_only');
+      expect(result.verification_tier).toBe(3);
+      expect(result.is_physical).toBe(false);
+      expect(result.reasons[0]).toContain(
+        'Original release date (1988) precedes platform launch (2006)',
+      );
+    });
+
+    it('should flag titles with digital keywords or DLC categories while preserving physical bundles (category 3)', () => {
+      expect(isDigitalFluffTitle('Super Mario World (Virtual Console)')).toBe(
+        true,
+      );
+      expect(
+        isDigitalFluffTitle('Streets of Rage (Nintendo Switch Online)'),
+      ).toBe(true);
+      expect(isDigitalFluffTitle('Cyberpunk 2077: Phantom Liberty', 1)).toBe(
+        true,
+      ); // DLC
+      expect(isDigitalFluffTitle('The Witcher 3: Blood and Wine', 2)).toBe(
+        true,
+      ); // Expansion
+      expect(isDigitalFluffTitle('Community Mod Pack', 5)).toBe(true); // Mod
+      expect(isDigitalFluffTitle('Life is Strange: Episode 2', 6)).toBe(true); // Episode
+      expect(isDigitalFluffTitle('Hitman: Season 1', 7)).toBe(true); // Season
+      expect(isDigitalFluffTitle('Costume Pack', 13)).toBe(true); // Pack/Addon
+      expect(isDigitalFluffTitle('Super Mario 3D All-Stars', 3)).toBe(false); // Bundle (allowed!)
+      expect(isDigitalFluffTitle('Chrono Trigger', 0)).toBe(false);
+    });
+
+    it('should match Japanese regional releases via alternativeNames on FDS (54) and 64DD (55)', () => {
+      const fdsAnd64ddCanonical: CanonicalRelease[] = [
+        {
+          platform_id: 54,
+          raw_title: 'Super Mario Bros. 2',
+          normalized_title: 'supermariobros2',
+          region: 'Japan',
+          variants: null,
+          rom_name: 'Super Mario Bros. 2 (Japan).fds',
+          rom_crc: 'F04CD4CD',
+          source: 'dat',
+          is_verified_physical: 1,
+        },
+        {
+          platform_id: 55,
+          raw_title: 'Doubutsu no Mori',
+          normalized_title: 'dobutsunomori',
+          region: 'Japan',
+          variants: null,
+          rom_name: 'Doubutsu no Mori (Japan).ndd',
+          rom_crc: '34FA2991',
+          source: 'dat',
+          is_verified_physical: 1,
+        },
+      ];
+
+      const lostLevelsRes = detectPhysicalReleaseStatus({
+        platformId: 54,
+        gameTitle: 'Super Mario Bros.: The Lost Levels',
+        alternativeNames: [
+          { name: 'Super Mario Bros. 2', comment: 'Japanese title' },
+        ],
+        canonicalReleases: fdsAnd64ddCanonical,
+      });
+      expect(lostLevelsRes.physical_status).toBe('verified_physical');
+      expect(lostLevelsRes.physical_regions).toEqual(['Japan']);
+
+      const animalCrossingRes = detectPhysicalReleaseStatus({
+        platformId: 55,
+        gameTitle: 'Animal Crossing',
+        alternativeNames: [
+          { name: 'Dōbutsu no Mori', comment: 'Japanese title' },
+        ],
+        canonicalReleases: fdsAnd64ddCanonical,
+      });
+      expect(animalCrossingRes.physical_status).toBe('verified_physical');
+      expect(animalCrossingRes.physical_regions).toEqual(['Japan']);
+    });
+
+    it('should detect upcoming games with future release dates preserving physical signals', () => {
+      const futureTimestamp = Math.floor(Date.now() / 1000) + 86400 * 180; // 180 days in future
+
+      // Upcoming game with physical publisher signal -> likely_physical
+      const upcomingPhysical = detectPhysicalReleaseStatus({
+        platformId: 26, // Switch
+        gameTitle: 'Shantae Advance: Risky Revolution',
+        firstReleaseDate: futureTimestamp,
+        publisher: 'Limited Run Games',
+      });
+      expect(upcomingPhysical.physical_status).toBe('likely_physical');
+      expect(upcomingPhysical.is_physical).toBe(true);
+      expect(upcomingPhysical.verification_tier).toBe(2);
+
+      // Upcoming game with no physical signals yet -> not_yet_physical
+      const upcomingDigital = detectPhysicalReleaseStatus({
+        platformId: 35, // PS5
+        gameTitle: 'Indie Dream Project',
+        firstReleaseDate: '2028-06-15',
+        publisher: 'Unknown Solo Dev',
+      });
+      expect(upcomingDigital.physical_status).toBe('not_yet_physical');
+      expect(upcomingDigital.is_physical).toBe(false);
+      expect(upcomingDigital.verification_tier).toBe(0);
+    });
+
+    it('should verify child platforms like PSVR using parent platform canonical releases', () => {
+      const ps4Canonical = [
+        {
+          id: 889900,
+          platform_id: 34, // PS4
+          raw_title: 'Astro Bot - Rescue Mission',
+          normalized_title: 'astrobotrescuemission',
+          region: 'USA',
+          variants: null,
+          rom_name: 'Astro Bot - Rescue Mission (USA).iso',
+          rom_crc: '0F563151',
+          source: 'dat' as const,
+          is_verified_physical: 1,
+        },
+      ];
+
+      const psvrRes = detectPhysicalReleaseStatus({
+        platformId: 51, // PSVR
+        parentPlatformId: 34, // PS4
+        gameTitle: 'Astro Bot: Rescue Mission',
+        canonicalReleases: ps4Canonical,
+      });
+
+      expect(psvrRes.physical_status).toBe('verified_physical');
+      expect(psvrRes.verification_tier).toBe(1);
+      expect(psvrRes.is_physical).toBe(true);
+      expect(psvrRes.physical_regions).toEqual(['USA']);
+    });
+
+    it('should correctly identify era discrepancies', () => {
+      expect(hasEraDiscrepancy(1990, 2006)).toBe(true); // SNES game on Wii
+      expect(hasEraDiscrepancy(2017, 2017)).toBe(false); // Switch launch game
+      expect(hasEraDiscrepancy(2005, 2006)).toBe(false); // Cross-gen game
+    });
+  });
+
+  describe('deduplicateDatReleases', () => {
+    it('should preserve distinct discs of multi-disc sets and remove non-physical dumps', () => {
+      const rawReleases = [
+        {
+          name: 'Final Fantasy VII (USA) (Disc 1)',
+          roms: [
+            { name: 'Final Fantasy VII (USA) (Disc 1).bin', crc: '11111111' },
+          ],
+        },
+        {
+          name: 'Final Fantasy VII (USA) (Disc 2)',
+          roms: [
+            { name: 'Final Fantasy VII (USA) (Disc 2).bin', crc: '22222222' },
+          ],
+        },
+        {
+          name: 'Bad Dump Title (USA)',
+          roms: [{ name: 'baddump.tik', crc: '00000000' }], // Ignored format
+        },
+      ];
+
+      const deduplicated = deduplicateDatReleases(29, rawReleases); // PS1
+      expect(deduplicated).toHaveLength(2);
+      expect(deduplicated[0].raw_title).toBe('Final Fantasy VII');
+      expect(deduplicated[0].normalized_title).toBe('finalfantasyvii');
+      expect(deduplicated[0].region).toBe('USA');
+      expect(deduplicated[0].rom_name).toBe(
+        'Final Fantasy VII (USA) (Disc 1).bin',
+      );
+      expect(deduplicated[1].rom_name).toBe(
+        'Final Fantasy VII (USA) (Disc 2).bin',
+      );
+    });
+
+    it('should support .psv cartridge dumps with authentic CRCs and .zip archives for Vita (Platform 33)', () => {
+      const rawReleases = [
+        {
+          name: 'Persona 4 Golden (USA)',
+          serial: 'PCSE-00120',
+          roms: [
+            {
+              name: 'Persona 4 Golden (USA).psv',
+              crc: 'ABC12345',
+              serial: 'PCSE-00120',
+            },
+          ],
+        },
+        {
+          name: 'Uncharted - Golden Abyss (USA)',
+          serial: 'PCSA-00017',
+          roms: [
+            {
+              name: 'Uncharted - Golden Abyss (USA).psv',
+              crc: 'DEADBEEF',
+              serial: 'PCSA-00017',
+            },
+          ],
+        },
+        {
+          name: 'Pure Digital PSN Indie (USA)',
+          serial: 'PCSE-99999',
+          roms: [
+            {
+              name: 'Pure Digital PSN Indie (USA).zip',
+            },
+          ],
+        },
+      ];
+
+      const deduplicated = deduplicateDatReleases(33, rawReleases);
+      expect(deduplicated).toHaveLength(3);
+      expect(deduplicated[0].raw_title).toBe('Persona 4 Golden');
+      expect(deduplicated[0].rom_name).toBe('Persona 4 Golden (USA).psv');
+      expect(deduplicated[0].rom_crc).toBe('ABC12345');
+      expect(deduplicated[0].serial_code).toBe('PCSE-00120');
+      expect(deduplicated[0].is_verified_physical).toBe(1);
+
+      expect(deduplicated[1].raw_title).toBe('Uncharted - Golden Abyss');
+      expect(deduplicated[1].rom_name).toBe(
+        'Uncharted - Golden Abyss (USA).psv',
+      );
+      expect(deduplicated[1].rom_crc).toBe('DEADBEEF');
+      expect(deduplicated[1].is_verified_physical).toBe(1);
+
+      expect(deduplicated[2].raw_title).toBe('Pure Digital PSN Indie');
+      expect(deduplicated[2].rom_name).toBe('Pure Digital PSN Indie (USA).zip');
+      expect(deduplicated[2].is_verified_physical).toBe(0);
+    });
+  });
+
+  describe('Multi-Game Bundles & Physical Verification', () => {
+    it('should reject games without physical cartridge or disc releases as digital_only', () => {
+      const result = detectPhysicalReleaseStatus({
+        platformId: 13, // NES
+        gameTitle: 'EarthBound Beginnings',
+        canonicalReleases: [], // No physical NES cartridge in US
+      });
+
+      expect(result.is_physical).toBe(false);
+      expect(result.physical_status).toBe('digital_only');
+    });
+
+    it('should classify unreleased physical games like Star Fox 2 as digital_only without DAT records', () => {
+      const starFoxResult = detectPhysicalReleaseStatus({
+        platformId: 15, // SNES
+        gameTitle: 'Star Fox 2',
+        canonicalReleases: [],
+      });
+      expect(starFoxResult.is_physical).toBe(false);
+      expect(starFoxResult.physical_status).toBe('digital_only');
+
+      const trialsResult = detectPhysicalReleaseStatus({
+        platformId: 15, // SNES
+        gameTitle: 'Trials of Mana',
+        canonicalReleases: [],
+      });
+      expect(trialsResult.is_physical).toBe(false);
+      expect(trialsResult.physical_status).toBe('digital_only');
+    });
+
+    it('should retain verified_physical for Mother on Famicom when physical DAT matches', () => {
+      const mockFamicomDat: CanonicalRelease[] = [
+        {
+          platform_id: 53, // Famicom
+          raw_title: 'Mother',
+          normalized_title: 'mother',
+          region: 'Japan',
+          variants: null,
+          rom_name: 'Mother (Japan).nes',
+          rom_crc: '2A111717',
+          source: 'dat',
+          is_verified_physical: 1,
+        },
+      ];
+
+      const result = detectPhysicalReleaseStatus({
+        platformId: 53, // Famicom
+        gameTitle: 'Mother',
+        canonicalReleases: mockFamicomDat,
+      });
+
+      expect(result.physical_status).toBe('verified_physical');
+      expect(result.is_physical).toBe(true);
+      expect(result.verification_tier).toBe(1);
+    });
+
+    it('should correctly find canonical bundle definitions for Bayonetta 2 and Rodea the Sky Soldier', () => {
+      const bayoBundle = findCanonicalBundle('Bayonetta 2', 24);
+      expect(bayoBundle).not.toBeNull();
+      expect(bayoBundle?.includedGames).toHaveLength(2);
+      expect(bayoBundle?.includedGames[1].title).toBe('Bayonetta');
+      expect(bayoBundle?.includedGames[1].platformId).toBe(24);
+
+      const rodeaBundle = findCanonicalBundle('Rodea the Sky Soldier', 24);
+      expect(rodeaBundle).not.toBeNull();
+      expect(rodeaBundle?.includedGames).toHaveLength(2);
+      expect(rodeaBundle?.includedGames[1].title).toBe('Rodea the Sky Soldier');
+      expect(rodeaBundle?.includedGames[1].platformId).toBe(22); // Wii
+    });
+  });
+
+  describe('Special Label Exclusives, Superseded Releases, and Multi-Disc Normalization', () => {
+    it('should tag budget-label-exclusive releases with their specific label and line', () => {
+      // Pikmin 2 (USA, Wii) was exclusively released as a Nintendo Selects title in NA
+      expect(extractVariants('Pikmin 2 (USA) (En,Fr,Es).rvz', 22)).toBe(
+        'Nintendo Selects',
+      );
+      // New Play Control! ports are not budget labels
+      expect(
+        extractVariants('Pikmin 2 (Europe) (En,Fr,De,Es,It).rvz', 22),
+      ).toBeNull();
+      expect(
+        extractVariants('Mario Power Tennis (USA) (En,Fr,Es).rvz', 22),
+      ).toBeNull();
+
+      // Jet Moto 2 (USA, PS1): Rev 0 was standard black label, Rev 1 (Championship Edition) was Greatest Hits exclusive
+      expect(extractVariants('Jet Moto 2 (USA).bin', 29)).toBeNull();
+      expect(extractVariants('Jet Moto 2 (USA) (Rev 1).bin', 29)).toBe(
+        'Rev 1, Greatest Hits',
+      );
+
+      // Silent Hill 2 (USA, PS2): Greatest Hits (v2.01) exclusive expanded Director's Cut
+      expect(
+        extractVariants(
+          'Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01).iso',
+          30,
+        ),
+      ).toBe('v2.01, Greatest Hits');
+
+      // Classic NES Series is a game series title prefix, not a budget label
+      expect(
+        extractVariants(
+          'Classic NES Series - Super Mario Bros. (USA, Europe).gba',
+          21,
+        ),
+      ).toBeNull();
+    });
+
+    it('should preserve retail pack-in demo discs while ignoring unreleased prototypes and standalone demos', () => {
+      // Mega Man Legends 2 Demo bundled inside The Misadventures of Tron Bonne retail jewel case
+      expect(
+        isIgnoredFormatRelease(
+          'Mega Man Legends 2',
+          'Mega Man Legends 2 (USA) (Demo).cue',
+          29,
+        ),
+      ).toBe(false);
+
+      // Unreleased development beta / prototype dumps are ignored
+      expect(
+        isIgnoredFormatRelease(
+          'The Misadventures of Tron Bonne',
+          'Misadventures of Tron Bonne, The (USA) (Beta) (1999-11-05).bin',
+          29,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease('SimCopter', 'SimCopter (USA) (Proto).z64', 17),
+      ).toBe(true);
+    });
+
+    it('should tag original 1-disc releases reused as Disc 1 in later 2-disc GOTY releases as Superseded', () => {
+      // The Elder Scrolls IV: Oblivion (Xbox 360, platform 48)
+      expect(
+        extractVariants('Elder Scrolls IV, The - Oblivion (USA).iso', 48),
+      ).toBe('Superseded');
+
+      // GOTY Disc 2 should NOT be tagged Superseded
+      expect(
+        extractVariants(
+          'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+          48,
+        ),
+      ).toBeNull();
+
+      // Skyrim (USA, Xbox 360) -> Superseded by Skyrim Legendary Edition
+      expect(
+        extractVariants('Elder Scrolls V, The - Skyrim (USA).iso', 48),
+      ).toBe('Superseded');
+    });
+
+    it('should strip localized disc markers, disc-role parentheticals, per-disc subtitles, and leaked languages/regions from variants', () => {
+      // Italian Oblivion GOTY Disco 2
+      expect(
+        extractVariants(
+          "Elder Scrolls IV, The - Oblivion - Edizione Gioco dell'Anno (Italy) (Disco 2).iso",
+          48,
+        ),
+      ).toBeNull();
+
+      // Red Dead Redemption GOTY per-disc subtitles
+      const rdr1 =
+        'Red Dead Redemption - Game of the Year Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 1) (Red Dead Redemption Single Player).iso';
+      const rdr2 =
+        'Red Dead Redemption - Game of the Year Edition (USA, Europe) (En,Fr,De,Es,It) (Disc 2) (Undead Nightmare and Multiplayer).iso';
+      expect(extractVariants(rdr1, 48)).toBeNull();
+      expect(extractVariants(rdr2, 48)).toBeNull();
+      expect(getRomGroupingKey(rdr1)).toBe(getRomGroupingKey(rdr2));
+      expect(extractDiscLabel(rdr1)).toBe(
+        'Disc 1 — Red Dead Redemption Single Player',
+      );
+      expect(extractDiscLabel(rdr2)).toBe(
+        'Disc 2 — Undead Nightmare and Multiplayer',
+      );
+
+      // Leaked language codes and multi-word regions
+      expect(
+        extractVariants(
+          'Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Pl,Ru,Cs,Hu,Hr,El,Sv,No,Da,Fi).iso',
+          32,
+        ),
+      ).toBeNull();
+      expect(
+        extractRegions(
+          'FIFA 08 (United Kingdom, Ireland) (En,Fr,De,Es,It).iso',
+        ),
+      ).toBe('UK, Ireland');
+      expect(
+        extractVariants(
+          'FIFA 08 (United Kingdom, Ireland) (En,Fr,De,Es,It).iso',
+          48,
+        ),
+      ).toBeNull();
+
+      // Build dates and timestamps on Beta/Proto/Demo ROMs should not become variant tags
+      expect(extractVariants('Glover (USA) (1998-07-16) (Beta).z64', 17)).toBe(
+        'Beta',
+      );
+      expect(
+        extractVariants(
+          'Turok 3 - Shadow of Oblivion (Europe) (Beta) (2000-07-16T211412).z64',
+          17,
+        ),
+      ).toBe('Beta');
+    });
+
+    it('should enrich game details for Case 1 (GOTY prepends companion Disc 1) and Case 2 (Original links forward to GOTY) without changing ownership', () => {
+      const platformReleases: CompanionDiscCandidateRow[] = [
+        {
+          id: 'the-elder-scrolls-iv-oblivion-48-usa',
+          game_id: 3796,
+          game_title: 'The Elder Scrolls IV: Oblivion',
+          platform_id: 48,
+          region: 'USA',
+          variants: 'Superseded',
+          rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+          rom_crc: '34DFCC77',
+          backup_status: 1,
+          ownership_status: 1,
+          release_date: '2006-03-20',
+        },
+        {
+          id: 'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+          game_id: 3798,
+          game_title:
+            'The Elder Scrolls IV: Oblivion - Game of the Year Edition',
+          platform_id: 48,
+          region: 'USA',
+          variants: null,
+          rom_name:
+            'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+          rom_crc: '779C2B27',
+          backup_status: 0,
+          ownership_status: 0,
+          release_date: '2007-09-11',
+        },
+      ];
+
+      // Case 1: Viewing unowned GOTY release when original release is backed up
+      const gotyDetail: {
+        id: string;
+        stable_id: number;
+        title: string;
+        platform_id: number;
+        region: string;
+        variants: string | null;
+        rom_name: string;
+        ownership_status: number;
+        releases: Array<Record<string, unknown>>;
+      } = {
+        id: 'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+        stable_id: 3798,
+        title: 'The Elder Scrolls IV: Oblivion - Game of the Year Edition',
+        platform_id: 48,
+        region: 'USA',
+        variants: null,
+        rom_name:
+          'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+        ownership_status: 0,
+        releases: [
+          {
+            id: 'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+            game_id: 3798,
+            region: 'USA',
+            variants: null,
+            rom_name:
+              'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+            rom_crc: '779C2B27',
+            backup_status: 0,
+            ownership_status: 0,
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(gotyDetail, platformReleases);
+
+      // GOTY ownership is untouched (0), but companion Disc 1 is prepended as Backed Up (1) with link back to Original
+      expect(gotyDetail.ownership_status).toBe(0);
+      expect(gotyDetail.releases).toHaveLength(2);
+      expect(gotyDetail.releases[0]['is_companion_base_disc']).toBe(true);
+      expect(gotyDetail.releases[0]['backup_status']).toBe(1);
+      expect(gotyDetail.releases[0]['companion_game_id']).toBe(
+        'the-elder-scrolls-iv-oblivion-48-usa',
+      );
+      expect(gotyDetail.releases[1]['disc_label']).toBe('Disc 2');
+
+      // Case 2: Viewing unowned Original release whose Disc 1 is backed up via GOTY
+      const originalDetail: {
+        id: string;
+        stable_id: number;
+        title: string;
+        platform_id: number;
+        region: string;
+        variants: string;
+        rom_name: string;
+        ownership_status: number;
+        backup_status: number;
+        releases: Array<Record<string, unknown>>;
+        shared_backup_releases?: Array<{
+          id: string;
+          title: string;
+          region: string | null;
+          variants: string | null;
+          rom_name: string;
+          ownership_status: number;
+          backup_status: number;
+        }>;
+      } = {
+        id: 'the-elder-scrolls-iv-oblivion-48-usa',
+        stable_id: 3796,
+        title: 'The Elder Scrolls IV: Oblivion',
+        platform_id: 48,
+        region: 'USA',
+        variants: 'Superseded',
+        rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+        ownership_status: 0,
+        backup_status: 1,
+        releases: [
+          {
+            id: 'the-elder-scrolls-iv-oblivion-48-usa',
+            game_id: 3796,
+            region: 'USA',
+            variants: 'Superseded',
+            rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+            rom_crc: '34DFCC77',
+            backup_status: 1,
+            ownership_status: 0,
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(
+        originalDetail,
+        platformReleases,
+      );
+
+      // Original remains unowned (0), backed up (1), and includes forward link to GOTY release
+      expect(originalDetail.ownership_status).toBe(0);
+      expect(originalDetail.backup_status).toBe(1);
+      expect(originalDetail.shared_backup_releases).toBeDefined();
+      expect(originalDetail.shared_backup_releases).toHaveLength(1);
+      expect(originalDetail.shared_backup_releases![0].id).toBe(
+        'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
+      );
+    });
+
+    it('should enrich physical releases with bundled digital voucher notes without modifying ownership or backup status', () => {
+      const ffxDetail: {
+        id: string;
+        title: string;
+        platform_id: number;
+        region: string;
+        releases: Array<Record<string, unknown>>;
+        voucher_notes?: string[];
+        ownership_status: number;
+        backup_status: number;
+      } = {
+        id: 'final-fantasy-x-x-2-hd-remaster-vita',
+        title: 'Final Fantasy X/X-2 HD Remaster',
+        platform_id: 33, // Vita
+        region: 'USA',
+        ownership_status: 1,
+        backup_status: 1,
+        releases: [
+          {
+            id: 'ffx-physical-cart',
+            rom_name: 'Final Fantasy X HD Remaster (USA).zip',
+            backup_status: 1,
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(ffxDetail, []);
+
+      expect(ffxDetail.voucher_notes).toBeDefined();
+      expect(ffxDetail.voucher_notes).toHaveLength(1);
+      expect(ffxDetail.voucher_notes![0]).toContain(
+        'Final Fantasy X-2 HD Remaster',
+      );
+      expect(ffxDetail.ownership_status).toBe(1);
+      expect(ffxDetail.backup_status).toBe(1);
+
+      const megaManDetail = {
+        id: 'mega-man-legacy-collection-1-2-switch',
+        title: 'Mega Man Legacy Collection 1 + 2',
+        platform_id: 26, // Switch
+        region: 'USA',
+        releases: [],
+        voucher_notes: undefined as string[] | undefined,
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(megaManDetail, []);
+      expect(megaManDetail.voucher_notes).toBeDefined();
+      expect(megaManDetail.voucher_notes![0]).toContain(
+        'Mega Man Legacy Collection 2',
+      );
+    });
+  });
+
+  describe('Modern Optical Disc Physical Verification (PS4 & PS5)', () => {
+    it('should elevate PS4 retail games with verified CUSA disc serials to Tier 1 verified_physical', () => {
+      const res = detectPhysicalReleaseStatus({
+        platformId: 34, // PS4
+        gameTitle: "Marvel's Spider-Man",
+        serialCode: 'CUSA-02299',
+        canonicalReleases: [],
+      });
+
+      expect(res.physical_status).toBe('verified_physical');
+      expect(res.verification_tier).toBe(1);
+      expect(res.is_physical).toBe(true);
+      expect(
+        res.reasons.some((r) =>
+          r.includes('Verified physical optical disc serial'),
+        ),
+      ).toBe(true);
+    });
+
+    it('should elevate PS5 retail games with verified PPSA disc serials to Tier 1 verified_physical', () => {
+      const res = detectPhysicalReleaseStatus({
+        platformId: 35, // PS5
+        gameTitle: "Marvel's Spider-Man: Miles Morales",
+        serialCode: 'PPSA-01411',
+        canonicalReleases: [],
+      });
+
+      expect(res.physical_status).toBe('verified_physical');
+      expect(res.verification_tier).toBe(1);
+      expect(res.is_physical).toBe(true);
+      expect(
+        res.reasons.some((r) =>
+          r.includes('Verified physical optical disc serial'),
+        ),
+      ).toBe(true);
+    });
+
+    it('should fall back to Tier 2 likely_physical for unknown/unverified serial codes', () => {
+      const res = detectPhysicalReleaseStatus({
+        platformId: 34, // PS4
+        gameTitle: 'Some Digital PSN Release',
+        serialCode: 'CUSA-99999',
+        canonicalReleases: [],
+      });
+
+      expect(res.physical_status).toBe('likely_physical');
+      expect(res.verification_tier).toBe(2);
+      expect(res.is_physical).toBe(true);
+    });
+
+    it('should not allow non-Latin subtitle alternative names to falsely match 2013 reboot disc on PS3', () => {
+      // PS3 (32) has a verified physical release of the 2013 reboot "Tomb Raider"
+      const ps3RebootRelease = [
+        {
+          id: 717402,
+          platform_id: 32,
+          raw_title: 'Tomb Raider',
+          normalized_title: 'tombraider',
+          region: 'USA',
+          variants: null,
+          rom_name: 'Tomb Raider (USA).iso',
+          rom_crc: null,
+          serial_code: null,
+          barcode: null,
+          publisher: 'Square Enix',
+          source: 'dat' as const,
+          is_verified_physical: 1,
+        },
+      ];
+
+      // Tomb Raider IV: The Last Revelation has Russian alt name with Cyrillic subtitle
+      const resIV = detectPhysicalReleaseStatus({
+        platformId: 32, // PS3
+        gameTitle: 'Tomb Raider: The Last Revelation',
+        alternativeNames: [
+          {
+            comment: 'Russian title',
+            name: 'Tomb Raider: Последнее откровение',
+          },
+        ],
+        firstReleaseDate: 943401600, // 1999
+        platformLaunchDate: '2006-11-17',
+        publisher: 'Eidos Interactive',
+        canonicalReleases: ps3RebootRelease,
+      });
+      expect(resIV.physical_status).toBe('digital_only');
+      expect(resIV.is_physical).toBe(false);
+
+      // Tomb Raider: Chronicles has Russian alt name
+      const resChronicles = detectPhysicalReleaseStatus({
+        platformId: 32, // PS3
+        gameTitle: 'Tomb Raider: Chronicles',
+        alternativeNames: [
+          { comment: 'Russian title', name: 'Tomb Raider: Хроники' },
+        ],
+        firstReleaseDate: 974419200, // 2000
+        platformLaunchDate: '2006-11-17',
+        publisher: 'Eidos Interactive',
+        canonicalReleases: ps3RebootRelease,
+      });
+      expect(resChronicles.physical_status).toBe('digital_only');
+      expect(resChronicles.is_physical).toBe(false);
+
+      // Tomb Raider: Legend has Russian alt name
+      const resLegend = detectPhysicalReleaseStatus({
+        platformId: 32, // PS3
+        gameTitle: 'Tomb Raider: Legend',
+        alternativeNames: [
+          { comment: 'Russian title', name: 'Tomb Raider - Легенда' },
+        ],
+        firstReleaseDate: 1144368000, // 2006
+        platformLaunchDate: '2006-11-17',
+        publisher: 'Eidos Interactive',
+        canonicalReleases: ps3RebootRelease,
+      });
+      expect(resLegend.physical_status).toBe('digital_only');
+      expect(resLegend.is_physical).toBe(false);
+
+      // Actual 2013 reboot game MUST match
+      const resReboot = detectPhysicalReleaseStatus({
+        platformId: 32, // PS3
+        gameTitle: 'Tomb Raider',
+        firstReleaseDate: 1362441600, // 2013
+        platformLaunchDate: '2006-11-17',
+        publisher: 'Square Enix',
+        canonicalReleases: ps3RebootRelease,
+      });
+      expect(resReboot.physical_status).toBe('verified_physical');
+      expect(resReboot.is_physical).toBe(true);
+    });
+  });
+
+  describe('Scoped Compilation Disc Subtitles, Multi-Disc Deduplication & Bonus Disc Enrichment', () => {
+    it('should scope compilation disc subtitles (Batman: Return to Arkham, BioShock: The Collection) without affecting standalone releases', () => {
+      const arkham1 =
+        'Batman - Return to Arkham (USA) (En,Fr,Es) (Arkham Asylum).iso';
+      const arkham2 =
+        'Batman - Return to Arkham (USA) (En,Fr,Es) (Arkham City).iso';
+      expect(extractVariants(arkham1, 34)).toBeNull();
+      expect(extractVariants(arkham2, 34)).toBeNull();
+      expect(getRomGroupingKey(arkham1)).toBe(getRomGroupingKey(arkham2));
+      expect(extractDiscLabel(arkham1)).toBe('Arkham Asylum');
+      expect(extractDiscLabel(arkham2)).toBe('Arkham City');
+
+      // Standalone releases or unrelated parentheticals are never treated as compilation disc roles
+      expect(
+        extractVariants('Some Other Game (USA) (Arkham Asylum).iso', 34),
+      ).toBe('Arkham Asylum');
+      expect(
+        extractVariants('Some Other Game (USA) (Heavy Rain).iso', 34),
+      ).toBe('Heavy Rain');
+    });
+
+    it('should preserve all discs of multi-disc games in deduplicateDatReleases()', () => {
+      const raw = [
+        {
+          name: 'Final Fantasy VII Remake (USA) (Data Disc)',
+          roms: [
+            {
+              name: 'Final Fantasy VII Remake (USA) (Data Disc).iso',
+              crc: '11111111',
+            },
+          ],
+        },
+        {
+          name: 'Final Fantasy VII Remake (USA) (Play Disc)',
+          roms: [
+            {
+              name: 'Final Fantasy VII Remake (USA) (Play Disc).iso',
+              crc: '22222222',
+            },
+          ],
+        },
+      ];
+      const deduped = deduplicateDatReleases(34, raw);
+      expect(deduped).toHaveLength(2);
+      expect(deduped.map((d) => d.rom_name)).toEqual([
+        'Final Fantasy VII Remake (USA) (Data Disc).iso',
+        'Final Fantasy VII Remake (USA) (Play Disc).iso',
+      ]);
+    });
+
+    it('should attach retail pack-in discs to their host game in detectPhysicalReleaseStatus() while blocking standalone demo matching', () => {
+      const canonical = [
+        {
+          platform_id: 30,
+          raw_title: 'Zone of the Enders',
+          normalized_title: 'zoneenders',
+          region: 'USA',
+          variants: null,
+          rom_name: 'Zone of the Enders (USA).iso',
+          rom_crc: 'AAAAAAAA',
+          source: 'dat' as const,
+          is_verified_physical: 1,
+        },
+        {
+          platform_id: 30,
+          raw_title: 'Metal Gear Solid 2 - Sons of Liberty - Trial Edition',
+          normalized_title: 'metalgearsolid2sonslibertytrial',
+          region: 'USA',
+          variants: 'Demo',
+          rom_name:
+            'Metal Gear Solid 2 - Sons of Liberty - Trial Edition (USA) (Demo).cue',
+          rom_crc: 'BBBBBBBB',
+          source: 'dat' as const,
+          is_verified_physical: 1,
+        },
+      ];
+
+      const zoeRes = detectPhysicalReleaseStatus({
+        platformId: 30,
+        gameTitle: 'Zone of the Enders',
+        canonicalReleases: canonical,
+      });
+      expect(zoeRes.matched_releases).toHaveLength(2);
+
+      const mgs2Res = detectPhysicalReleaseStatus({
+        platformId: 30,
+        gameTitle: 'Metal Gear Solid 2: Sons of Liberty',
+        canonicalReleases: canonical,
+      });
+      expect(mgs2Res.matched_releases).toHaveLength(0);
+    });
+
+    it('should enrich 2-disc Bonus Editions (isBonusEdition: true) with companion Base Game disc(s) without marking standard release as Superseded', () => {
+      // Standard 1-disc Alan Wake must NOT be tagged 'Superseded'
+      expect(
+        extractVariants(
+          'Alan Wake (World) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru).iso',
+          48,
+        ),
+      ).toBeNull();
+
+      const platformReleases: CompanionDiscCandidateRow[] = [
+        {
+          id: 'alan-wake-std',
+          game_id: 3712,
+          game_title: 'Alan Wake',
+          platform_id: 48,
+          region: 'World',
+          variants: null,
+          rom_name: 'Alan Wake (World) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru).iso',
+          rom_crc: '12345678',
+          backup_status: 1,
+          ownership_status: 1,
+          release_date: '2010-05-18',
+        },
+        {
+          id: 'alan-wake-bonus',
+          game_id: 3712,
+          game_title: 'Alan Wake',
+          platform_id: 48,
+          region: 'USA, Europe',
+          variants: 'Bonus Disc',
+          rom_name:
+            'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
+          rom_crc: '87654321',
+          backup_status: 0,
+          ownership_status: 0,
+          release_date: '2010-05-18',
+        },
+      ];
+
+      const bonusDetail: Parameters<
+        typeof enrichGameDetailWithCompanionsAndVouchers
+      >[0] = {
+        id: 'alan-wake-bonus',
+        stable_id: 3712,
+        title: 'Alan Wake',
+        platform_id: 48,
+        region: 'USA, Europe',
+        variants: 'Bonus Disc',
+        rom_name:
+          'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
+        releases: [
+          {
+            id: 'alan-wake-bonus',
+            game_id: 3712,
+            region: 'USA, Europe',
+            variants: 'Bonus Disc',
+            rom_name:
+              'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
+            rom_crc: '87654321',
+            backup_status: 0,
+            ownership_status: 0,
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(bonusDetail, platformReleases);
+      expect(bonusDetail.releases).toHaveLength(2);
+      expect(bonusDetail.releases![0]['disc_label']).toBe('Disc 1 (Base Game)');
+      expect(bonusDetail.releases![0]['is_companion_base_disc']).toBe(true);
+      expect(bonusDetail.releases![1]['disc_label']).toBe(
+        'Disc 2 (Bonus Disc)',
+      );
+    });
+
+    it('should cross-link standalone-case bonus discs (Pokémon Colosseum Bonus Disc <-> Pokémon Colosseum)', () => {
+      const gcReleases: CompanionDiscCandidateRow[] = [
+        {
+          id: 'pokemon-colosseum-usa',
+          game_id: 734,
+          game_title: 'Pokémon Colosseum',
+          platform_id: 20,
+          region: 'USA',
+          variants: null,
+          rom_name: 'Pokemon Colosseum (USA).iso',
+          rom_crc: 'AAAA1111',
+          backup_status: 1,
+          ownership_status: 1,
+          release_date: '2004-03-22',
+        },
+        {
+          id: 'pokemon-colosseum-bonus-usa',
+          game_id: 735,
+          game_title: 'Pokémon Colosseum Bonus Disc',
+          platform_id: 20,
+          region: 'USA',
+          variants: null,
+          rom_name: 'Pokemon Colosseum Bonus Disc (USA).iso',
+          rom_crc: 'BBBB2222',
+          backup_status: 1,
+          ownership_status: 1,
+          release_date: '2004-02-09',
+        },
+      ];
+
+      const colosseumDetail: Parameters<
+        typeof enrichGameDetailWithCompanionsAndVouchers
+      >[0] = {
+        id: 'pokemon-colosseum-usa',
+        stable_id: 734,
+        title: 'Pokémon Colosseum',
+        platform_id: 20,
+        region: 'USA',
+        releases: [
+          {
+            id: 'pokemon-colosseum-usa',
+            rom_name: 'Pokemon Colosseum (USA).iso',
+          },
+        ],
+      };
+
+      enrichGameDetailWithCompanionsAndVouchers(colosseumDetail, gcReleases);
+      expect(colosseumDetail.shared_backup_releases).toBeDefined();
+      expect(
+        colosseumDetail.shared_backup_releases!.some(
+          (s) => s.id === 'pokemon-colosseum-bonus-usa',
+        ),
+      ).toBe(true);
+    });
+  });
+});

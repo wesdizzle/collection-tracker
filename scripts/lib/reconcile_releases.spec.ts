@@ -1,0 +1,328 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import {
+  stripEditionSuffix,
+  selectBestRegionalCandidate,
+  reconcileGameReleasesWithCanonical,
+} from './reconcile_releases.js';
+import { auditSqlCost } from './d1_cost_guard.js';
+
+describe('reconcile_releases', () => {
+  describe('stripEditionSuffix', () => {
+    it('should strip common edition markers', () => {
+      expect(stripEditionSuffix('Dragon Quest XI S: Definitive Edition')).toBe(
+        'Dragon Quest XI S',
+      );
+      expect(stripEditionSuffix('Among Us: Crewmate Edition')).toBe('Among Us');
+      expect(
+        stripEditionSuffix('Xenoblade Chronicles: Definitive Edition'),
+      ).toBe('Xenoblade Chronicles');
+      expect(
+        stripEditionSuffix('Mario Kart 8 Deluxe + Booster Course Pass'),
+      ).toBe('Mario Kart 8 Deluxe');
+      expect(
+        stripEditionSuffix(
+          'Pokémon Scarlet + The Hidden Treasure of Area Zero',
+        ),
+      ).toBe('Pokémon Scarlet');
+    });
+
+    it('should preserve standard titles without edition markers', () => {
+      expect(stripEditionSuffix("Yoku's Island Express")).toBe(
+        "Yoku's Island Express",
+      );
+      expect(stripEditionSuffix('Super Mario Odyssey')).toBe(
+        'Super Mario Odyssey',
+      );
+    });
+  });
+
+  describe('selectBestRegionalCandidate', () => {
+    const candidates = [
+      { id: 1, region: 'Japan', rom_name: 'Game (Japan).xci' },
+      { id: 2, region: 'World', rom_name: 'Game (World).xci' },
+      { id: 3, region: 'Europe', rom_name: 'Game (Europe).xci' },
+    ];
+
+    it('should match exact region', () => {
+      const match = selectBestRegionalCandidate(candidates, 'Europe');
+      expect(match?.id).toBe(3);
+    });
+
+    it('should fall back to World for USA if USA not present', () => {
+      const match = selectBestRegionalCandidate(candidates, 'USA');
+      expect(match?.id).toBe(2);
+    });
+
+    it('should fall back to first candidate if no region specified', () => {
+      const match = selectBestRegionalCandidate(candidates, null);
+      expect(match?.id).toBe(1);
+    });
+
+    it('should return null when targetRegion has no compatible regional overlap or World fallback', () => {
+      const jpOnly = [{ id: 1, region: 'Japan', rom_name: 'Game (Japan).xci' }];
+      expect(selectBestRegionalCandidate(jpOnly, 'USA')).toBeNull();
+      expect(selectBestRegionalCandidate(jpOnly, 'Europe')).toBeNull();
+    });
+  });
+
+  describe('reconcileGameReleasesWithCanonical', () => {
+    let db: Database.Database;
+    const testSqlPath = path.join(os.tmpdir(), 'test_reconcile_output.sql');
+
+    beforeEach(() => {
+      db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE platforms (id INTEGER PRIMARY KEY, name TEXT, parent_platform_id INTEGER);
+        CREATE TABLE games (stable_id INTEGER PRIMARY KEY, id TEXT, title TEXT, platform_id INTEGER);
+        CREATE TABLE game_releases (
+          id TEXT PRIMARY KEY,
+          game_id INTEGER,
+          region TEXT,
+          variants TEXT,
+          also_released_as TEXT,
+          rom_name TEXT,
+          rom_crc TEXT,
+          canonical_release_id INTEGER
+        );
+        CREATE TABLE canonical_releases (
+          id INTEGER PRIMARY KEY,
+          platform_id INTEGER,
+          raw_title TEXT,
+          normalized_title TEXT,
+          region TEXT,
+          variants TEXT,
+          also_released_as TEXT,
+          packin_host_normalized_title TEXT,
+          redump_disc_id INTEGER,
+          rom_name TEXT,
+          rom_crc TEXT,
+          source TEXT
+        );
+
+        INSERT INTO platforms (id, name, parent_platform_id) VALUES (26, 'Nintendo Switch', NULL);
+        INSERT INTO platforms (id, name, parent_platform_id) VALUES (34, 'PlayStation 4', NULL);
+        INSERT INTO platforms (id, name, parent_platform_id) VALUES (51, 'PlayStation VR', 34);
+
+        INSERT INTO games (stable_id, title, platform_id) VALUES (1873, 'Yoku''s Island Express', 26);
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
+        VALUES ('1873-default', 1873, 'USA', NULL, NULL, NULL, NULL);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
+        VALUES (762828, 26, 'Yoku''s Island Express', 'yokuislandexpress', 'World', NULL, 'Yoku''s Island Express (World).xci', 'a95adadb', 'dat');
+
+        -- Child platform test data (PSVR game linking to PS4 Redump release)
+        INSERT INTO games (stable_id, title, platform_id) VALUES (2739, 'Astro Bot: Rescue Mission', 51);
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
+        VALUES ('2739-default', 2739, 'USA', NULL, NULL, NULL, NULL);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
+        VALUES (889900, 34, 'Astro Bot - Rescue Mission', 'astrobotrescuemission', 'USA', NULL, 'Astro Bot - Rescue Mission (USA).iso', '0f563151', 'dat');
+      `);
+    });
+
+    afterEach(() => {
+      db.close();
+      if (fs.existsSync(testSqlPath)) {
+        fs.unlinkSync(testSqlPath);
+      }
+    });
+
+    it('should reconcile missing rom_name and canonical_release_id in live mode', () => {
+      const result = reconcileGameReleasesWithCanonical(db, {
+        dryRun: false,
+        sqlOutputPath: testSqlPath,
+      });
+
+      expect(result.reconciledCount).toBe(2);
+      expect(result.updatesByPlatform[26]).toBe(1);
+      expect(result.updatesByPlatform[51]).toBe(1);
+
+      const updated = db
+        .prepare('SELECT * FROM game_releases WHERE game_id = ?')
+        .get(1873) as {
+        id: string;
+        canonical_release_id: number | null;
+        rom_name: string | null;
+        rom_crc: string | null;
+      };
+      expect(updated.id).toBe('1873-a95adadb');
+      expect(updated.canonical_release_id).toBe(762828);
+      expect(updated.rom_name).toBe("Yoku's Island Express (World).xci");
+      expect(updated.rom_crc).toBe('a95adadb');
+
+      // Verify child platform (PSVR -> PS4) reconciled and upgraded ID
+      const psvrUpdated = db
+        .prepare('SELECT * FROM game_releases WHERE game_id = ?')
+        .get(2739) as {
+        id: string;
+        canonical_release_id: number | null;
+        rom_name: string | null;
+        rom_crc: string | null;
+      };
+      expect(psvrUpdated.id).toBe('2739-0f563151');
+      expect(psvrUpdated.canonical_release_id).toBe(889900);
+      expect(psvrUpdated.rom_name).toBe('Astro Bot - Rescue Mission (USA).iso');
+      expect(psvrUpdated.rom_crc).toBe('0f563151');
+
+      expect(fs.existsSync(testSqlPath)).toBe(true);
+      const sqlContent = fs.readFileSync(testSqlPath, 'utf8');
+      expect(sqlContent).toContain(
+        "UPDATE game_releases SET id = '1873-a95adadb', canonical_release_id = 762828, rom_name = 'Yoku''s Island Express (World).xci', rom_crc = 'a95adadb'",
+      );
+      expect(sqlContent).toContain(
+        "UPDATE game_releases SET id = '2739-0f563151', canonical_release_id = 889900, rom_name = 'Astro Bot - Rescue Mission (USA).iso', rom_crc = '0f563151'",
+      );
+    });
+
+    it('should not modify database in dry-run mode', () => {
+      const result = reconcileGameReleasesWithCanonical(db, {
+        dryRun: true,
+        sqlOutputPath: testSqlPath,
+      });
+
+      expect(result.reconciledCount).toBe(2);
+
+      const notUpdated = db
+        .prepare('SELECT * FROM game_releases WHERE id = ?')
+        .get('1873-default') as {
+        canonical_release_id: number | null;
+        rom_name: string | null;
+      };
+      expect(notUpdated.canonical_release_id).toBeNull();
+      expect(notUpdated.rom_name).toBeNull();
+    });
+
+    it('should strictly reject matching base title when subtitle indicates a sequel or distinct game', () => {
+      db.exec(`
+        INSERT INTO games (stable_id, title, platform_id) VALUES (1571, 'Fire Emblem Warriors: Three Hopes', 26);
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
+        VALUES ('1571-default', 1571, 'USA', NULL, NULL, NULL, NULL);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
+        VALUES (999001, 26, 'Fire Emblem Warriors', 'fireemblemwarriors', 'World', NULL, 'Fire Emblem Warriors (World).xci', '1f09fa41', 'dat');
+      `);
+
+      reconcileGameReleasesWithCanonical(db, {
+        dryRun: false,
+        platformId: 26,
+      });
+
+      const threeHopes = db
+        .prepare(
+          'SELECT canonical_release_id, rom_name FROM game_releases WHERE id = ?',
+        )
+        .get('1571-default') as {
+        canonical_release_id: number | null;
+        rom_name: string | null;
+      };
+
+      expect(threeHopes.canonical_release_id).toBeNull();
+      expect(threeHopes.rom_name).toBeNull();
+    });
+
+    it('should match upstream catalog variants via canonical alias', () => {
+      db.exec(`
+        INSERT INTO games (stable_id, title, platform_id) VALUES (1572, 'Fire Emblem Warriors: Three Hopes', 26);
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
+        VALUES ('1572-default', 1572, 'USA', NULL, NULL, NULL, NULL);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
+        VALUES (999002, 26, 'Fire Emblem - Three Hopes', 'fireemblemwarriorsthreehopes', 'USA', NULL, 'Fire Emblem - Three Hopes (USA).xci', 'b1765d12', 'dat');
+      `);
+
+      reconcileGameReleasesWithCanonical(db, {
+        dryRun: false,
+        platformId: 26,
+      });
+
+      const threeHopes = db
+        .prepare(
+          'SELECT id, canonical_release_id, rom_name FROM game_releases WHERE game_id = ?',
+        )
+        .get(1572) as {
+        id: string;
+        canonical_release_id: number | null;
+        rom_name: string | null;
+      };
+
+      expect(threeHopes.id).toBe('1572-b1765d12');
+      expect(threeHopes.canonical_release_id).toBe(999002);
+      expect(threeHopes.rom_name).toBe('Fire Emblem - Three Hopes (USA).xci');
+    });
+
+    it('should cascade game_releases primary key renames to user_game_releases.release_id', () => {
+      db.exec(`
+        CREATE TABLE user_game_releases (
+          user_id INTEGER,
+          release_id TEXT,
+          game_id INTEGER,
+          status TEXT,
+          PRIMARY KEY (user_id, release_id)
+        );
+        INSERT INTO user_game_releases (user_id, release_id, game_id, status)
+        VALUES (1, '1873-default', 1873, 'owned');
+      `);
+
+      reconcileGameReleasesWithCanonical(db, {
+        dryRun: false,
+        sqlOutputPath: testSqlPath,
+      });
+
+      const userRel = db
+        .prepare('SELECT release_id FROM user_game_releases WHERE game_id = ?')
+        .get(1873) as { release_id: string };
+      expect(userRel.release_id).toBe('1873-a95adadb');
+
+      const sqlContent = fs.readFileSync(testSqlPath, 'utf8');
+      expect(sqlContent).toContain(
+        "UPDATE user_game_releases SET release_id = '1873-a95adadb' WHERE release_id = '1873-default';",
+      );
+    });
+  });
+
+  describe('auditSqlCost (D1 Cost Guard)', () => {
+    it('accounts for CREATE INDEX N-row B-Tree population and INSERT OR REPLACE 2*(1+K) amplification', () => {
+      const tmpBaselinePath = path.join(
+        os.tmpdir(),
+        `test_cost_guard_baseline_${Date.now()}.db`,
+      );
+      const tmpSqlPath = path.join(
+        os.tmpdir(),
+        `test_cost_guard_${Date.now()}.sql`,
+      );
+      const db = new Database(tmpBaselinePath);
+      db.exec(`
+        CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, category TEXT);
+        CREATE INDEX idx_items_name ON items(name);
+        INSERT INTO items (id, name, category) VALUES (1, 'A', 'X'), (2, 'B', 'Y'), (3, 'C', 'Z');
+      `);
+      db.close();
+
+      fs.writeFileSync(
+        tmpSqlPath,
+        `
+        CREATE INDEX idx_items_category ON items(category);
+        INSERT OR REPLACE INTO items (id, name, category) VALUES (1, 'A2', 'X2');
+      `,
+        'utf8',
+      );
+
+      try {
+        const report = auditSqlCost(tmpSqlPath, 5000, tmpBaselinePath);
+        // CREATE INDEX on 3 existing rows = 3 billable writes, and K becomes 2 (idx_items_name + idx_items_category).
+        // INSERT OR REPLACE of existing row id=1 incurs 2 * (1 + K) = 2 * (1 + 2) = 6 billable writes.
+        expect(report.tableBreakdown['items']?.rowsChanged).toBe(5);
+        expect(report.tableBreakdown['items']?.billableWrites).toBe(9);
+        expect(report.totalBillableWrites).toBe(9);
+        expect(report.isWithinBudget).toBe(true);
+      } finally {
+        if (fs.existsSync(tmpBaselinePath)) fs.unlinkSync(tmpBaselinePath);
+        if (fs.existsSync(tmpSqlPath)) fs.unlinkSync(tmpSqlPath);
+      }
+    });
+  });
+});

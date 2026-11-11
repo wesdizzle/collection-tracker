@@ -1,0 +1,1074 @@
+import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest';
+import Database from 'better-sqlite3';
+import { handleRequest } from './local_server';
+import { EventEmitter } from 'events';
+import axios from 'axios';
+
+vi.mock('axios');
+const mockedAxios = axios as Mocked<typeof axios>;
+
+vi.mock('./lib/dat_cache.js', () => ({
+  getPlatformDatReleases: vi.fn(() => [
+    {
+      name: 'Bloodborne (USA)',
+      romName: 'Bloodborne (USA).bin',
+      romCrc: '12345678',
+      region: 'USA',
+      variants: null,
+      releaseDate: null,
+    },
+  ]),
+}));
+
+vi.mock('./lib/igdb.js', () => ({
+  getGameById: vi.fn((id) =>
+    Promise.resolve({
+      id: `igdb-${id}`,
+      name: 'Bloodborne',
+      summary: 'A dark action RPG.',
+      image_url: 'http://example.com/cover.png',
+      platform: 'PlayStation 4',
+      platforms: [{ id: 48, name: 'PlayStation 4' }],
+      release_date: '2015-03-24',
+      collections: 'Bloodborne Series',
+      franchises: null,
+      genres: 'Role-playing (RPG)',
+    }),
+  ),
+  findGame: vi.fn((query) =>
+    Promise.resolve([
+      {
+        id: query === 'Elden Ring' ? 'igdb-999' : 'igdb-101',
+        name: query || 'Bloodborne',
+        platform: 'PlayStation 4',
+        platform_ids: [48],
+        image_url: 'http://example.com/cover.png',
+      },
+    ]),
+  ),
+  getCollectionGames: vi.fn(() =>
+    Promise.resolve([
+      {
+        id: 101,
+        name: 'Bloodborne',
+        platforms: [{ id: 48, name: 'PlayStation 4' }],
+      },
+    ]),
+  ),
+  getGamesByIds: vi.fn((ids) =>
+    Promise.resolve(
+      ids.map((id: number) => ({
+        id: `igdb-${id}`,
+        name: 'Bloodborne',
+        summary: 'A dark action RPG.',
+        image_url: 'http://example.com/cover.png',
+        platforms: [{ id: 48, name: 'PlayStation 4' }],
+        release_date: '2015-03-24',
+        collections: 'Bloodborne Series',
+        franchises: null,
+        genres: 'Role-playing (RPG)',
+      })),
+    ),
+  ),
+  queryIGDB: vi.fn(() =>
+    Promise.resolve([{ id: 202, name: 'Bloodborne Series' }]),
+  ),
+  PLATFORM_MAP: { 'PlayStation 4': 48, 'PlayStation VR': 165 },
+}));
+
+/**
+ * UNIT TEST: Local Server API Logic
+ *
+ * Verifies that the Node.js standalone server correctly implements
+ * the collection API using shared queries and handles platform hierarchy.
+ */
+
+describe('Local Server API Logic', () => {
+  let mockDb: Database.Database;
+
+  interface ToyRow {
+    id: number;
+    name: string;
+    line: string;
+    series: string;
+    amiibo_id: string | null;
+    verified: number;
+  }
+
+  beforeEach(() => {
+    // Setup in-memory DB
+    mockDb = new Database(':memory:');
+    mockDb.exec(`
+            CREATE TABLE platforms (
+                id INTEGER PRIMARY KEY, 
+                name TEXT,
+                display_name TEXT, 
+                brand TEXT, 
+                launch_date DATE, 
+                parent_platform_id INTEGER,
+                image_url TEXT
+            );
+            CREATE TABLE games (
+                stable_id INTEGER PRIMARY KEY, 
+                id TEXT, 
+                title TEXT, 
+                series TEXT, 
+                canonical_series TEXT,
+                platform_id INTEGER, 
+                owned BOOLEAN,
+                sort_index INTEGER,
+                queued BOOLEAN,
+                image_url TEXT,
+                play_status TEXT,
+                backup_status INTEGER DEFAULT 0,
+                igdb_id INTEGER,
+                igdb_url TEXT,
+                summary TEXT,
+                genres TEXT,
+                collections TEXT,
+                franchises TEXT,
+                manually_verified BOOLEAN,
+                metadata_json TEXT,
+                region TEXT,
+                physical_status TEXT DEFAULT 'unverified',
+                verification_tier INTEGER DEFAULT 0,
+                barcode TEXT,
+                release_medium TEXT DEFAULT 'physical_retail',
+                origin_metadata TEXT,
+                bundle_parent_id INTEGER,
+                bundle_disc_number INTEGER,
+                retail_price INTEGER,
+                retail_regular_price INTEGER,
+                retail_discount_pct INTEGER,
+                retail_on_sale INTEGER DEFAULT 0,
+                retail_store TEXT,
+                retail_url TEXT,
+                retail_updated_at TEXT
+            );
+            CREATE TABLE game_releases (
+                id TEXT PRIMARY KEY,
+                game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE,
+                region TEXT,
+                variants TEXT,
+                also_released_as TEXT,
+                rom_name TEXT,
+                rom_crc TEXT,
+                backup_status INTEGER NOT NULL DEFAULT 0,
+                ownership_status INTEGER NOT NULL DEFAULT 0,
+                release_date DATE,
+                canonical_release_id INTEGER,
+                barcode TEXT,
+                is_physical INTEGER DEFAULT 1,
+                has_case INTEGER NOT NULL DEFAULT 0,
+                has_manual INTEGER NOT NULL DEFAULT 0,
+                image_url TEXT
+            );
+            CREATE TABLE canonical_releases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform_id INTEGER NOT NULL,
+                raw_title TEXT NOT NULL,
+                normalized_title TEXT NOT NULL,
+                region TEXT,
+                variants TEXT,
+                rom_name TEXT,
+                rom_crc TEXT,
+                serial_code TEXT,
+                barcode TEXT,
+                publisher TEXT,
+                source TEXT NOT NULL DEFAULT 'dat',
+                is_verified_physical INTEGER NOT NULL DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE toys (
+                stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT UNIQUE,
+                name TEXT NOT NULL,
+                line TEXT NOT NULL,
+                series_id TEXT,
+                series_name TEXT,
+                series_line TEXT,
+                series TEXT,
+                type TEXT,
+                release_date DATE,
+                sort_index INTEGER,
+                ownership_status INTEGER DEFAULT 0,
+                verified BOOLEAN DEFAULT 0,
+                metadata_json TEXT,
+                image_url TEXT,
+                amiibo_id TEXT,
+                scl_url TEXT,
+                region TEXT,
+                details TEXT
+            );
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                is_public INTEGER NOT NULL DEFAULT 0,
+                home_region TEXT NOT NULL DEFAULT 'USA',
+                display_name TEXT,
+                bio TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO users (id, username, is_public, home_region, display_name)
+            VALUES (1, 'wesley', 1, 'USA', 'Wesley');
+            CREATE TABLE IF NOT EXISTS journal_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+                item_type TEXT NOT NULL CHECK(item_type IN ('game', 'toy')),
+                item_id TEXT NOT NULL,
+                purchase_date TEXT,
+                is_approximate_date INTEGER NOT NULL DEFAULT 0,
+                price_paid REAL,
+                merchant TEXT,
+                gifted_by TEXT,
+                receipt_url TEXT,
+                notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, item_type, item_id)
+            );
+        `);
+
+    // Seed data
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof input === 'string' ? input : input.toString();
+        if (urlStr.includes('amiiboapi.org')) {
+          const axiosRes = await mockedAxios.get(urlStr);
+          return new Response(
+            JSON.stringify(axiosRes?.data || { amiibo: [] }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+        if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+          return new Response(
+            JSON.stringify({
+              access_token: 'mock-twitch-token',
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+          return new Response(
+            JSON.stringify([
+              {
+                name: 'b0',
+                result: [
+                  {
+                    id: 101,
+                    name: 'Bloodborne',
+                    summary: 'A dark action RPG.',
+                    cover: {
+                      url: '//images.igdb.com/igdb/image/upload/t_thumb/co1rba.jpg',
+                    },
+                    platforms: [{ id: 48, name: 'PlayStation 4' }],
+                    first_release_date: 1427155200,
+                    collections: [{ name: 'Bloodborne Series' }],
+                    genres: [{ name: 'Role-playing (RPG)' }],
+                  },
+                ],
+              },
+            ]),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (urlStr.includes('api.igdb.com/v4/games')) {
+          const bodyStr = String(init?.body || '');
+          const isEldenRing = bodyStr.includes('Elden Ring');
+          return new Response(
+            JSON.stringify([
+              {
+                id: isEldenRing ? 999 : 101,
+                name: isEldenRing ? 'Elden Ring' : 'Bloodborne',
+                summary: 'A dark action RPG.',
+                cover: {
+                  url: '//images.igdb.com/igdb/image/upload/t_thumb/co1rba.jpg',
+                },
+                platforms: [{ id: 48, name: 'PlayStation 4' }],
+                first_release_date: 1427155200,
+                collections: [{ name: 'Bloodborne Series' }],
+                genres: [{ name: 'Role-playing (RPG)' }],
+              },
+            ]),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    );
+    mockDb
+      .prepare(
+        'INSERT INTO platforms (id, name, display_name, brand, launch_date, parent_platform_id) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(34, 'PlayStation 4', 'PlayStation 4', 'Sony', '2013-11-15', null);
+    mockDb
+      .prepare(
+        'INSERT INTO platforms (id, name, display_name, brand, launch_date, parent_platform_id) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(51, 'PlayStation VR', 'PlayStation VR', 'Sony', '2016-10-13', 34);
+    mockDb
+      .prepare(
+        'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+      )
+      .run(1, 'game-1', 'Bloodborne', 34);
+    mockDb
+      .prepare(
+        'INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run('game-1', 1, 'USA', null, null, null, 0, 1, '2015-03-24');
+
+    mockDb
+      .prepare(
+        'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+      )
+      .run(2, 'game-2', 'PSVR Demo Disc', 51);
+    mockDb
+      .prepare(
+        'INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run('game-2', 2, 'USA', null, null, null, 0, 1, '2016-10-13');
+  });
+
+  /**
+   * Helper to mock Node.js req/res objects for testing request handlers.
+   *
+   * @param url - The target endpoint URL for the mock request.
+   * @param method - The HTTP request method (e.g. 'GET', 'POST').
+   * @returns An object containing the mocked Request and Response instances.
+   * @throws None.
+   */
+  const createMocks = (url: string, method = 'GET') => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const req = new EventEmitter() as any;
+    req.url = url;
+    req.method = method;
+    req.headers = {};
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = new EventEmitter() as any;
+    res.setHeader = vi.fn();
+    res.end = vi.fn();
+    res.statusCode = 200;
+
+    return { req, res };
+  };
+
+  /**
+   * Helper to mock Node.js req/res objects specifically for endpoints requiring request bodies.
+   * Emits request body payload asynchronously in the next tick to simulate HTTP body reception.
+   */
+  const createDiscoveryMocks = (url: string, method = 'POST', body = {}) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const req = new EventEmitter() as any;
+    req.url = url;
+    req.method = method;
+    req.headers = { 'content-type': 'application/json' };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = new EventEmitter() as any;
+    res.setHeader = vi.fn();
+    res.end = vi.fn();
+    res.statusCode = 200;
+
+    process.nextTick(() => {
+      req.emit('data', Buffer.from(JSON.stringify(body)));
+      req.emit('end');
+    });
+
+    return { req, res };
+  };
+
+  it('should return games list with normalized platform info', async () => {
+    const { req, res } = createMocks('/api/games');
+    const handler = handleRequest(mockDb);
+
+    await handler(req, res);
+
+    expect(res.end).toHaveBeenCalled();
+    const output = JSON.parse(res.end.mock.calls[0][0]);
+
+    // Both games should be returned
+    expect(output.length).toBe(2);
+
+    // PSVR game should have PS4 info coalesced
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const psvrGame = output.find((g: any) => g.platform_id === 51);
+    expect(psvrGame.display_name).toBe('PlayStation 4'); // Coalesced from parent
+    expect(psvrGame.parent_platform_id).toBe(34);
+  });
+
+  it('should filter games by parent platform (including child platforms)', async () => {
+    const { req, res } = createMocks('/api/games?platform=34'); // Filter by PS4
+    const handler = handleRequest(mockDb);
+
+    await handler(req, res);
+
+    const output = JSON.parse(res.end.mock.calls[0][0]);
+
+    // Should include both PS4 game and PSVR game
+    expect(output.length).toBe(2);
+    expect(
+      output.every(
+        (g: { platform_id: number; parent_platform_id: number | null }) =>
+          g.platform_id === 34 || g.parent_platform_id === 34,
+      ),
+    ).toBe(true);
+  });
+
+  it('should return game detail with normalized platform info', async () => {
+    const { req, res } = createMocks('/api/games/game-2'); // The PSVR game
+    const handler = handleRequest(mockDb);
+
+    await handler(req, res);
+
+    const output = JSON.parse(res.end.mock.calls[0][0]);
+
+    expect(output.title).toBe('PSVR Demo Disc');
+    expect(output.display_name).toBe('PlayStation 4'); // Coalesced
+    expect(output.platform_launch_date).toBe('2013-11-15'); // PS4 launch date
+  });
+
+  it('should list platforms excluding children', async () => {
+    const { req, res } = createMocks('/api/platforms');
+    const handler = handleRequest(mockDb);
+
+    await handler(req, res);
+
+    const output = JSON.parse(res.end.mock.calls[0][0]);
+
+    // Should only have PS4, not PSVR
+    expect(output.length).toBe(1);
+    expect(output[0].id).toBe(34);
+    expect(output[0].parent_platform_id).toBeNull();
+  });
+
+  describe('Discovery Amiibo & Toy Ingestion Logic', () => {
+    it('should scan amiibo and return missing items', async () => {
+      mockDb
+        .prepare(
+          'INSERT INTO toys (id, name, line, series, amiibo_id) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(
+          'amiibo-mario',
+          'Mario',
+          'amiibo',
+          'Super Mario',
+          '0000000000000002',
+        );
+
+      mockedAxios.get.mockResolvedValue({
+        data: {
+          amiibo: [
+            {
+              head: '00000000',
+              tail: '00000002',
+              name: 'Mario',
+              type: 'Figure',
+              image: 'http://example.com/mario.png',
+              gameSeries: 'Super Mario',
+              amiiboSeries: 'Super Mario',
+            },
+            {
+              head: '01030000',
+              tail: '003f0502',
+              name: 'Zelda - TOTK',
+              type: 'Figure',
+              image: 'http://example.com/zelda.png',
+              gameSeries: 'The Legend of Zelda',
+              amiiboSeries: 'The Legend of Zelda',
+              release: { na: '2023-11-03' },
+            },
+          ],
+        },
+      });
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/discovery/scan-amiibo',
+        'GET',
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.length).toBe(1);
+      expect(output[0].name).toBe('Zelda - TOTK');
+      expect(output[0].amiibo_id).toBe('01030000003f0502');
+    });
+
+    it('should ingest a new toy via /api/discovery/add-toy', async () => {
+      const payload = {
+        name: 'Zelda - TOTK',
+        line: 'amiibo',
+        series_name: 'The Legend of Zelda',
+        amiibo_id: '01030000003f0502',
+        type: 'Figure',
+        image_url: 'http://example.com/zelda.png',
+        ownership_status: 1,
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/discovery/add-toy',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.success).toBe(true);
+
+      const inserted = mockDb
+        .prepare("SELECT * FROM toys WHERE amiibo_id = '01030000003f0502'")
+        .get() as ToyRow;
+      expect(inserted).toBeDefined();
+      expect(inserted.name).toBe('Zelda - TOTK');
+      expect(inserted.verified).toBe(1);
+    });
+
+    it('should default ownership_status to 0 when omitted via /api/discovery/add-toy', async () => {
+      const payload = {
+        name: 'Ganondorf - TOTK',
+        line: 'amiibo',
+        series_name: 'The Legend of Zelda',
+        amiibo_id: '0103000000400502',
+        type: 'Figure',
+        image_url: 'http://example.com/ganon.png',
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/discovery/add-toy',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.success).toBe(true);
+
+      const inserted = mockDb
+        .prepare("SELECT * FROM toys WHERE amiibo_id = '0103000000400502'")
+        .get() as ToyRow & { ownership_status?: number };
+      expect(inserted).toBeDefined();
+      expect(inserted.name).toBe('Ganondorf - TOTK');
+      if (inserted.ownership_status !== undefined) {
+        expect(inserted.ownership_status).toBe(0);
+      }
+    });
+  });
+
+  describe('Collection Toggle Logic', () => {
+    beforeEach(() => {
+      // Seed a multi-disc game
+      mockDb
+        .prepare(
+          'INSERT INTO games (stable_id, id, title, platform_id, region) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(10, 'mgs-ps1', 'Metal Gear Solid', 34, 'USA');
+
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'mgs-disc1',
+          10,
+          'USA',
+          null,
+          'Metal Gear Solid (USA) (Disc 1).cue',
+          null,
+          0,
+          0,
+          '1998-09-03',
+        );
+
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, backup_status, ownership_status, release_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'mgs-disc2',
+          10,
+          'USA',
+          null,
+          'Metal Gear Solid (USA) (Disc 2).cue',
+          null,
+          0,
+          0,
+          '1998-09-03',
+        );
+    });
+
+    it('should update ownership_status for all discs in the same release group', async () => {
+      const payload = {
+        id: 'mgs-disc1',
+        type: 'game',
+        status: 1,
+        field: 'ownership_status',
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/collection/toggle',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      const disc1 = mockDb
+        .prepare(
+          "SELECT ownership_status FROM game_releases WHERE id = 'mgs-disc1'",
+        )
+        .get() as { ownership_status: number };
+      const disc2 = mockDb
+        .prepare(
+          "SELECT ownership_status FROM game_releases WHERE id = 'mgs-disc2'",
+        )
+        .get() as { ownership_status: number };
+
+      expect(disc1.ownership_status).toBe(1);
+      expect(disc2.ownership_status).toBe(1);
+    });
+
+    it('should update backup_status individually for only the target release/disc', async () => {
+      const payload = {
+        id: 'mgs-disc1',
+        type: 'game',
+        status: 1,
+        field: 'backup_status',
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/collection/toggle',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      const disc1 = mockDb
+        .prepare(
+          "SELECT backup_status FROM game_releases WHERE id = 'mgs-disc1'",
+        )
+        .get() as { backup_status: number };
+      const disc2 = mockDb
+        .prepare(
+          "SELECT backup_status FROM game_releases WHERE id = 'mgs-disc2'",
+        )
+        .get() as { backup_status: number };
+
+      expect(disc1.backup_status).toBe(1);
+      expect(disc2.backup_status).toBe(0);
+    });
+
+    it('should update play_status on the games table', async () => {
+      const payload = {
+        id: 'mgs-disc1',
+        type: 'game',
+        status: 2, // Playing
+        field: 'play_status',
+      };
+
+      const { req, res } = createDiscoveryMocks(
+        '/api/collection/toggle',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+
+      await handler(req, res);
+
+      const game = mockDb
+        .prepare('SELECT play_status FROM games WHERE stable_id = 10')
+        .get() as { play_status: string | number };
+
+      expect(Number(game.play_status)).toBe(2);
+    });
+  });
+
+  describe('Ingestion and Discovery Endpoints', () => {
+    it('should search games on IGDB via /api/discovery/search', async () => {
+      const { req, res } = createMocks(
+        '/api/discovery/search?query=Elden+Ring&platformId=34',
+      );
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output).toHaveLength(1);
+      expect(output[0].name).toBe('Elden Ring');
+    });
+
+    it('should filter out already collected games in /api/discovery/search', async () => {
+      const { req, res } = createMocks(
+        '/api/discovery/search?query=Bloodborne&platformId=34',
+      );
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output).toHaveLength(0);
+    });
+
+    it('should get matches and details via /api/discovery/matches', async () => {
+      mockDb
+        .prepare(
+          `
+          INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source, is_verified_physical)
+          VALUES (34, 'Bloodborne', 'bloodborne', 'USA', NULL, 'Bloodborne (USA).bin', '12345678', 'dat', 1)
+        `,
+        )
+        .run();
+
+      const { req, res } = createMocks(
+        '/api/discovery/matches?igdbId=101&platformId=34',
+      );
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.game.name).toBe('Bloodborne');
+      expect(output.matchedReleases).toHaveLength(1);
+      expect(output.matchedReleases[0].name).toBe('Bloodborne');
+      expect(output.physical_status).toBe('verified_physical');
+    });
+
+    it('should transactionally add a game and releases via /api/discovery/add', async () => {
+      const payload = {
+        game: {
+          title: 'Bloodborne II',
+          platform_id: 34,
+          igdb_id: 102,
+          igdb_url: 'http://example.com/bloodborne2',
+          summary: 'A sequel.',
+          genres: 'RPG',
+          region: 'USA',
+          image_url: 'http://example.com/cover.png',
+        },
+        releases: [
+          {
+            region: 'USA',
+            variants: null,
+            rom_name: 'Bloodborne (USA).bin',
+            rom_crc: '12345678',
+            ownership_status: 1,
+            backup_status: 0,
+            release_date: '2015-03-24',
+          },
+        ],
+      };
+      const { req, res } = createDiscoveryMocks(
+        '/api/discovery/add',
+        'POST',
+        payload,
+      );
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      expect(output.success).toBe(true);
+
+      const dbGame = mockDb
+        .prepare("SELECT * FROM games WHERE id = 'bloodborne-ii-playstation-4'")
+        .get() as { stable_id: number; title: string } | undefined;
+      expect(dbGame).toBeDefined();
+      expect(dbGame!.title).toBe('Bloodborne II');
+
+      // Verify inserted release
+      const dbRelease = mockDb
+        .prepare('SELECT * FROM game_releases WHERE game_id = ?')
+        .get(dbGame!.stable_id) as { rom_name: string } | undefined;
+      expect(dbRelease).toBeDefined();
+      expect(dbRelease!.rom_name).toBe('Bloodborne (USA).bin');
+    });
+
+    it('should scan for missing series games via /api/discovery/scan-series', async () => {
+      // Seed a game with canonical_series 'Bloodborne Series'
+      mockDb
+        .prepare(
+          "UPDATE games SET title = 'Bloodborne Prelude', canonical_series = 'Bloodborne Series' WHERE stable_id = 1",
+        )
+        .run();
+
+      const { req, res } = createMocks('/api/discovery/scan-series');
+      const handler = handleRequest(mockDb);
+      await handler(req, res);
+      expect(res.end).toHaveBeenCalled();
+      const output = JSON.parse(res.end.mock.calls[0][0]);
+      console.log('--- SCAN-SERIES DEBUG OUTPUT ---', output);
+      expect(output.length).toBeGreaterThan(0);
+      expect(output[0].title).toBe('Bloodborne');
+      expect(output[0].releases).toBeDefined();
+    });
+
+    it('should consolidate God of War Saga discs and link back to standalone games', async () => {
+      mockDb
+        .prepare(
+          'INSERT INTO platforms (id, name, display_name, brand, launch_date) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(32, 'PlayStation 3', 'PlayStation 3', 'Sony', '2006-11-11');
+      mockDb
+        .prepare(
+          'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+        )
+        .run(
+          2444,
+          'god-of-war-collection-playstation-3',
+          'God of War Collection',
+          32,
+        );
+      mockDb
+        .prepare(
+          'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+        )
+        .run(2445, 'god-of-war-iii-playstation-3', 'God of War III', 32);
+      mockDb
+        .prepare(
+          'INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, ?)',
+        )
+        .run(10006, 'god-of-war-saga-playstation-3', 'God of War Saga', 32);
+
+      // Standalone Black Label releases
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, also_released_as, rom_name, backup_status, ownership_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'gow-col-v1',
+          2444,
+          'USA, Asia',
+          null,
+          'Greatest Hits',
+          'God of War Collection (USA, Asia) (v01.00).iso',
+          1,
+          0,
+        );
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, also_released_as, rom_name, backup_status, ownership_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'gow-3-v1',
+          2445,
+          'USA, Canada',
+          null,
+          null,
+          'God of War III (USA, Canada) (v01.03).iso',
+          0,
+          0,
+        );
+
+      // Re-homed Box Set discs
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, also_released_as, rom_name, backup_status, ownership_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'gow-col-v2',
+          10006,
+          'USA',
+          null,
+          null,
+          'God of War Collection (USA) (v02.00).iso',
+          1,
+          1,
+        );
+      mockDb
+        .prepare(
+          'INSERT INTO game_releases (id, game_id, region, variants, also_released_as, rom_name, backup_status, ownership_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'gow-3-v2',
+          10006,
+          'USA',
+          null,
+          'Greatest Hits',
+          'God of War III (USA) (v02.00).iso',
+          1,
+          1,
+        );
+
+      const handler = handleRequest(mockDb);
+      const { req, res } = createMocks('/api/games/gow-col-v2');
+      await handler(req, res);
+      const saga = JSON.parse(res.end.mock.calls[0][0]);
+
+      expect(saga.title).toBe('God of War Saga');
+      expect(saga.releases).toHaveLength(2);
+      expect(saga.releases[0].disc_label).toBe(
+        'Disc 1 — God of War Collection (v02.00)',
+      );
+      expect(saga.releases[0].companion_game_id).toBe('gow-col-v1');
+      expect(saga.releases[1].disc_label).toBe(
+        'Disc 2 — God of War III (v02.00)',
+      );
+      expect(saga.releases[1].companion_game_id).toBe('gow-3-v1');
+      expect(saga.releases[1].also_released_as).toBe('Greatest Hits');
+
+      // Also verify standalone God of War III links forward to God of War Saga
+      const { req: req3, res: res3 } = createMocks('/api/games/gow-3-v1');
+      await handler(req3, res3);
+      const gow3 = JSON.parse(res3.end.mock.calls[0][0]);
+      expect(gow3.shared_backup_releases).toBeDefined();
+      expect(gow3.shared_backup_releases[0].title).toBe('God of War Saga');
+    });
+
+    it('should sort multi-disc sets sequentially by Disc number (Disc 1, Disc 2, Disc 3)', async () => {
+      mockDb
+        .prepare(
+          `
+        INSERT INTO games (stable_id, id, title, platform_id, region)
+        VALUES (9999, 'ff7', 'Final Fantasy VII', 29, 'USA');
+      `,
+        )
+        .run();
+      mockDb
+        .prepare(
+          `
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, backup_status, ownership_status)
+        VALUES
+          ('ff7-d2', 9999, 'USA', NULL, 'Final Fantasy VII (USA) (Disc 2).cue', 1, 1),
+          ('ff7-d1', 9999, 'USA', NULL, 'Final Fantasy VII (USA) (Disc 1).cue', 1, 1),
+          ('ff7-d3', 9999, 'USA', NULL, 'Final Fantasy VII (USA) (Disc 3).cue', 1, 1);
+      `,
+        )
+        .run();
+
+      const handler = handleRequest(mockDb);
+      const { req, res } = createMocks('/api/games/ff7');
+      await handler(req, res);
+      const ff7 = JSON.parse(res.end.mock.calls[0][0]);
+
+      expect(ff7.releases).toHaveLength(3);
+      expect(ff7.releases[0].rom_name).toContain('Disc 1');
+      expect(ff7.releases[1].rom_name).toContain('Disc 2');
+      expect(ff7.releases[2].rom_name).toContain('Disc 3');
+    });
+
+    it('should save, retrieve, list, and delete journal entries via /api/journal', async () => {
+      const handler = handleRequest(mockDb);
+
+      // 1. POST /api/journal
+      const { req: postReq, res: postRes } = createDiscoveryMocks(
+        '/api/journal',
+        'POST',
+        {
+          item_type: 'game',
+          item_id: 'game-1',
+          purchase_date: '~2015-03',
+          price_paid: 59.99,
+          merchant: 'eBay (some_seller)',
+          receipt_url: 'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+          notes: 'Launch copy',
+        },
+      );
+      await handler(postReq, postRes);
+      const saved = JSON.parse(postRes.end.mock.calls[0][0]);
+      expect(saved.success).toBe(true);
+      expect(saved.entry.purchase_date).toBe('2015-03');
+      expect(saved.entry.is_approximate_date).toBe(1);
+      expect(saved.entry.merchant).toBe('eBay');
+      expect(saved.entry.receipt_url).toBe(
+        'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
+      );
+
+      // 2. GET /api/journal
+      const { req: getReq, res: getRes } = createMocks(
+        '/api/journal?item_type=game&item_id=game-1',
+      );
+      await handler(getReq, getRes);
+      const fetched = JSON.parse(getRes.end.mock.calls[0][0]);
+      expect(fetched.authorized).toBe(true);
+      expect(fetched.entry.price_paid).toBe(59.99);
+
+      // 3. GET /api/journal/entries
+      const { req: listReq, res: listRes } = createMocks(
+        '/api/journal/entries',
+      );
+      await handler(listReq, listRes);
+      const listed = JSON.parse(listRes.end.mock.calls[0][0]);
+      expect(listed.authorized).toBe(true);
+      expect(listed.entries).toHaveLength(1);
+
+      // 4. DELETE /api/journal
+      const { req: delReq, res: delRes } = createMocks(
+        '/api/journal?item_type=game&item_id=game-1',
+        'DELETE',
+      );
+      await handler(delReq, delRes);
+      const deleted = JSON.parse(delRes.end.mock.calls[0][0]);
+      expect(deleted.success).toBe(true);
+    });
+
+    it('should delete a single release and then the whole game via /api/collection/*', async () => {
+      const handler = handleRequest(mockDb);
+      mockDb
+        .prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id) VALUES (9100, 'del-local', 'Local Delete', 1)`,
+        )
+        .run();
+      mockDb
+        .prepare(
+          `INSERT INTO game_releases (id, game_id, region) VALUES ('del-local-a', 9100, 'USA'), ('del-local-b', 9100, 'Europe')`,
+        )
+        .run();
+      mockDb
+        .prepare(
+          `INSERT INTO journal_entries (item_type, item_id, notes) VALUES ('game', 'del-local', 'note')`,
+        )
+        .run();
+
+      const { req: relReq, res: relRes } = createMocks(
+        '/api/collection/release?id=del-local-b',
+        'DELETE',
+      );
+      await handler(relReq, relRes);
+      expect(JSON.parse(relRes.end.mock.calls[0][0]).success).toBe(true);
+      expect(
+        mockDb
+          .prepare(
+            'SELECT COUNT(*) as c FROM game_releases WHERE game_id = 9100',
+          )
+          .get(),
+      ).toEqual({ c: 1 });
+
+      const { req: gameReq, res: gameRes } = createMocks(
+        '/api/collection/game?id=del-local',
+        'DELETE',
+      );
+      await handler(gameReq, gameRes);
+      expect(JSON.parse(gameRes.end.mock.calls[0][0]).success).toBe(true);
+      expect(
+        mockDb.prepare('SELECT 1 FROM games WHERE stable_id = 9100').get(),
+      ).toBeUndefined();
+      expect(
+        mockDb
+          .prepare(`SELECT 1 FROM journal_entries WHERE item_id = 'del-local'`)
+          .get(),
+      ).toBeUndefined();
+
+      const { req: missReq, res: missRes } = createMocks(
+        '/api/collection/game?id=missing',
+        'DELETE',
+      );
+      await handler(missReq, missRes);
+      expect(missRes.statusCode).toBe(404);
+    });
+  });
+});

@@ -1,0 +1,387 @@
+:root {
+  /* Spacing Tokens (8px grid) */
+  --spacing-4: 4px;
+  --spacing-6: 6px;
+  --spacing-8: 8px;
+  --spacing-10: 10px;
+  --spacing-12: 12px;
+  --spacing-14: 14px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-48: 48px;
+  --spacing-64: 64px;
+
+  --radius-tag: 6px;
+  --radius-xs: 12px;
+  --radius-sm: 16px;
+  --radius-md: 24px;
+  --radius-lg: 32px;
+  --radius-xl: 48px;
+  --radius-full: 9999px;
+
+  --container-padding: var(--spacing-32);
+  --header-height: 72px;
+
+  /* Typography Scale - Expressive */
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-display: 'Roboto Flex', 'Outfit', sans-serif;
+  --font-mono:
+    'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, monospace;
+}
+
+/* --- THEME: DARK (Default) --- */
+:root,
+.theme-dark {
+  color-scheme: dark;
+
+  --m3-primary: #38bdf8; /* Logo Sky Blue / Cyan */
+  --m3-on-primary: #003549;
+  --m3-primary-container: #004d67;
+  --m3-on-primary-container: #bfe9ff;
+
+  --m3-secondary: #818cf8; /* Logo Indigo / Periwinkle */
+  --m3-on-secondary: #1e1b4b;
+  --m3-secondary-container: #312e81;
+  --m3-on-secondary-container: #e0e7ff;
+
+  --m3-tertiary: #fb7185; /* Logo Optical Disc Rose Accent */
+  --m3-on-tertiary: #4c0519;
+  --m3-tertiary-container: #881337;
+  --m3-on-tertiary-container: #ffe4e6;
+
+  --m3-surface: #121214; /* Logo Spindle Hub Obsidian */
+  --m3-on-surface: #f1f1f5;
+  --m3-surface-variant: #23232b;
+  --m3-on-surface-variant: #a2a2b4;
+
+  --m3-surface-container-low: #16161a;
+  --m3-surface-container: #1a1a20;
+  --m3-surface-container-high: #1e1e24; /* Logo Cartridge Body Slate */
+  --m3-surface-container-highest: #26262e;
+
+  --m3-outline: #8e8e9c;
+  --m3-outline-variant: #2e2e38;
+
+  --glass-bg: rgba(18, 18, 20, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+/* --- THEME: LIGHT --- */
+.theme-light {
+  color-scheme: light;
+
+  --m3-primary: #0284c7; /* Deep Sky Blue */
+  --m3-on-primary: #ffffff;
+  --m3-primary-container: #e0f2fe;
+  --m3-on-primary-container: #034b6e;
+
+  --m3-secondary: #4f46e5; /* Deep Indigo */
+  --m3-on-secondary: #ffffff;
+  --m3-secondary-container: #e0e7ff;
+  --m3-on-secondary-container: #1e1b4b;
+
+  --m3-tertiary: #e11d48; /* Deep Rose */
+  --m3-on-tertiary: #ffffff;
+  --m3-tertiary-container: #ffe4e6;
+  --m3-on-tertiary-container: #881337;
+
+  --m3-surface: #f8fafc; /* Crisp Clean Slate White */
+  --m3-on-surface: #0f172a;
+  --m3-surface-variant: #e2e8f0;
+  --m3-on-surface-variant: #475569;
+
+  --m3-surface-container-low: #f1f5f9;
+  --m3-surface-container: #e2e8f0;
+  --m3-surface-container-high: #cbd5e1;
+  --m3-surface-container-highest: #94a3b8;
+
+  --m3-outline: #94a3b8;
+  --m3-outline-variant: #cbd5e1;
+
+  --glass-bg: rgba(248, 250, 252, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--m3-surface);
+  color: var(--m3-on-surface);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.disable-theme-transitions,
+.disable-theme-transitions * {
+  transition: none !important;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: var(--font-body);
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variation-settings:
+    'wdth' 120,
+    'wght' 800;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variation-settings: normal;
+}
+
+a {
+  color: var(--m3-primary);
+  text-decoration: none;
+  transition:
+    color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Material State Layer Logic */
+.state-layer {
+  position: relative;
+  overflow: hidden;
+}
+
+.state-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.state-layer:hover::after {
+  opacity: 0.08;
+}
+.state-layer:focus::after {
+  opacity: 0.12;
+}
+.state-layer:active::after {
+  opacity: 0.12;
+}
+
+/* M3 Components */
+.m3-card {
+  background: var(--m3-surface-container);
+  border-radius: var(--radius-lg);
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 0.25s cubic-bezier(0.2, 0, 0, 1),
+    border-color 0.25s cubic-bezier(0.2, 0, 0, 1),
+    background-color 0.25s cubic-bezier(0.2, 0, 0, 1);
+  border: 1px solid var(--m3-outline-variant);
+  overflow: hidden;
+}
+
+.m3-card-elevated {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.m3-card-elevated:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.4),
+    0 20px 40px rgba(0, 0, 0, 0.3);
+  background: var(--m3-surface-container-highest);
+  border-color: var(--m3-primary);
+}
+
+.m3-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.6rem 1.2rem;
+  border-radius: var(--radius-full);
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: 1px solid var(--m3-outline);
+  color: var(--m3-on-surface-variant);
+  background: transparent;
+  gap: var(--spacing-8);
+  transition:
+    background-color 0.2s cubic-bezier(0.2, 0, 0, 1),
+    color 0.2s cubic-bezier(0.2, 0, 0, 1),
+    border-color 0.2s cubic-bezier(0.2, 0, 0, 1),
+    transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.m3-chip.active {
+  background: var(--m3-primary-container);
+  color: var(--m3-on-primary-container);
+  border-color: transparent;
+  transform: scale(1.05);
+}
+
+/* Expressive Animations */
+@keyframes expressiveEntrance {
+  0% {
+    opacity: 0;
+    transform: scale(0.98) translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-expressive {
+  animation: expressiveEntrance 0.35s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+}
+
+.animate-stagger-1 {
+  animation-delay: 0.05s;
+}
+.animate-stagger-2 {
+  animation-delay: 0.1s;
+}
+.animate-stagger-3 {
+  animation-delay: 0.15s;
+}
+
+/* Layout Utilities */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--container-padding);
+}
+
+.flex {
+  display: flex;
+}
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+.items-center {
+  align-items: center;
+}
+.justify-between {
+  justify-content: space-between;
+}
+.justify-center {
+  justify-content: center;
+}
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.gap-2xs {
+  gap: var(--spacing-4);
+}
+.gap-xs {
+  gap: var(--spacing-8);
+}
+.gap-sm {
+  gap: var(--spacing-8);
+}
+.gap-md {
+  gap: var(--spacing-16);
+}
+.gap-lg {
+  gap: var(--spacing-32);
+}
+
+.mb-2xs {
+  margin-bottom: var(--spacing-4);
+}
+.mb-xs {
+  margin-bottom: var(--spacing-8);
+}
+.mb-sm {
+  margin-bottom: var(--spacing-8);
+}
+.mb-md {
+  margin-bottom: var(--spacing-16);
+}
+.mb-lg {
+  margin-bottom: var(--spacing-32);
+}
+.mb-xl {
+  margin-bottom: var(--spacing-48);
+}
+
+.mt-2xs {
+  margin-top: var(--spacing-4);
+}
+.mt-xs {
+  margin-top: var(--spacing-8);
+}
+.mt-sm {
+  margin-top: var(--spacing-8);
+}
+.mt-md {
+  margin-top: var(--spacing-16);
+}
+.mt-lg {
+  margin-top: var(--spacing-32);
+}
+.mt-xl {
+  margin-top: var(--spacing-48);
+}
+
+/* --- MOBILE REFINEMENTS --- */
+@media (max-width: 768px) {
+  :root {
+    --container-padding: var(--spacing-16);
+  }
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  h1 {
+    font-size: 2rem;
+  }
+  h2 {
+    font-size: 1.5rem;
+  }
+}
+
+/* Utils */
+.text-gradient {
+  background: linear-gradient(135deg, var(--m3-primary), var(--m3-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.ml-auto {
+  margin-left: auto;
+}
+.mr-auto {
+  margin-right: auto;
+}

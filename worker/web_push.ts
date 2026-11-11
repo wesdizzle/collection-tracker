@@ -1,0 +1,543 @@
+/**
+ * EDGE-NATIVE WEB PUSH HELPER (RFC 8291 & RFC 8292)
+ *
+ * Implements Web Push Notification payload encryption (aes128gcm)
+ * and VAPID authentication directly via standard Web Crypto (`crypto.subtle`).
+ *
+ * Runs seamlessly on Cloudflare Workers edge runtime with zero external Node dependencies.
+ */
+
+export interface VapidJwk {
+  kty: string;
+  crv: string;
+  d: string;
+  x: string;
+  y: string;
+}
+
+export interface WebPushSubscription {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
+export interface WebPushNotificationPayload {
+  title: string;
+  body: string;
+  icon?: string;
+  badge?: string;
+  data?: {
+    url?: string;
+    onActionClick?: Record<string, { operation: string; url?: string }>;
+    [key: string]: unknown;
+  };
+  notification?: {
+    title: string;
+    body: string;
+    icon?: string;
+    badge?: string;
+    data?: {
+      url?: string;
+      onActionClick?: Record<string, { operation: string; url?: string }>;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface SendWebPushOptions {
+  subject?: string;
+  publicKey?: string;
+  privateKey?: string;
+  privateKeyJwk?: VapidJwk;
+  fetchFn?: typeof fetch;
+  allowTestHost?: boolean;
+}
+
+export interface SendWebPushResult {
+  success: boolean;
+  status: number;
+  shouldDelete: boolean;
+  error?: string;
+}
+
+export const DEFAULT_VAPID_PUBLIC_KEY =
+  'BCGrFeDrM518iDUIN5JmVLjL6ZvnxY72gPvM8V7azLh28SCHmvjOCVrbzy8R4qV4-dKSs3zDevg6dmOLbMJgcvk';
+
+const ALLOWED_PUSH_HOST_SUFFIXES = [
+  'fcm.googleapis.com',
+  '.fcm.googleapis.com',
+  '.mtalk.google.com',
+  '.push.services.mozilla.com',
+  '.autopush.stage.mozaws.net',
+  '.autopush.dev.mozaws.net',
+  '.notify.windows.com',
+  'web.push.apple.com',
+  '.push.apple.com',
+  '.push.samsungosp.com',
+  '.dbankcloud.cn',
+];
+
+/**
+ * Validates that a push subscription endpoint targets a trusted HTTPS Web Push service.
+ * Prevents SSRF to internal or arbitrary external origins.
+ */
+export function isAllowedPushEndpoint(
+  endpoint: string | null | undefined,
+  allowTestHost: boolean = false,
+): boolean {
+  if (!endpoint || typeof endpoint !== 'string') return false;
+  try {
+    const parsed = new URL(endpoint);
+    if (parsed.protocol !== 'https:') return false;
+    if (parsed.username || parsed.password) return false;
+    const host = parsed.hostname.toLowerCase();
+    if (allowTestHost && host === 'push.example.com') {
+      return true;
+    }
+    return ALLOWED_PUSH_HOST_SUFFIXES.some((suffix) =>
+      suffix.startsWith('.') ? host.endsWith(suffix) : host === suffix,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Base64URL string to Uint8Array.
+ */
+export function base64UrlToUint8Array(base64Url: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
+  const base64 = (base64Url + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+/**
+ * Uint8Array to Base64URL string.
+ */
+export function uint8ArrayToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binary);
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * HMAC-SHA-256 using Web Crypto subtle.
+ */
+async function hmacSha256(
+  keyBytes: Uint8Array,
+  data: Uint8Array,
+): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyBytes as unknown as BufferSource,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    data as unknown as BufferSource,
+  );
+  return new Uint8Array(signature);
+}
+
+/**
+ * HKDF-Extract(salt, IKM)
+ */
+async function hkdfExtract(
+  salt: Uint8Array,
+  ikm: Uint8Array,
+): Promise<Uint8Array> {
+  return hmacSha256(salt, ikm);
+}
+
+/**
+ * HKDF-Expand(PRK, info, length) for length <= 32 bytes.
+ */
+async function hkdfExpand(
+  prk: Uint8Array,
+  info: Uint8Array,
+  length: number,
+): Promise<Uint8Array> {
+  const data = new Uint8Array(info.length + 1);
+  data.set(info, 0);
+  data[info.length] = 1;
+  const t = await hmacSha256(prk, data);
+  return t.subarray(0, length);
+}
+
+/**
+ * Resolves a valid, routable contact URI for the VAPID 'sub' claim (RFC 8292).
+ * Apple APNs explicitly rejects .local / localhost addresses with 403 BadJwtToken.
+ */
+export function resolveVapidSubject(
+  subject?: string,
+  requestUrl?: string,
+  adminEmail?: string,
+): string {
+  if (
+    subject &&
+    !subject.includes('.local') &&
+    !subject.includes('localhost')
+  ) {
+    return subject;
+  }
+  if (
+    adminEmail &&
+    adminEmail.includes('@') &&
+    !adminEmail.includes('.local')
+  ) {
+    return `mailto:${adminEmail.trim()}`;
+  }
+  if (requestUrl) {
+    try {
+      const parsed = new URL(requestUrl);
+      if (
+        parsed.protocol === 'https:' &&
+        !parsed.hostname.includes('.local') &&
+        !parsed.hostname.includes('localhost')
+      ) {
+        return `https://${parsed.host}`;
+      }
+    } catch {
+      // fallback
+    }
+  }
+  return 'mailto:admin@collection-tracker.app';
+}
+
+/**
+ * Resolves or derives a valid P-256 JWK from private key options.
+ * Requires explicit VAPID key configuration; never falls back to a committed private key.
+ */
+export function resolveVapidJwk(
+  customPrivateKey?: string,
+  customPublicKey?: string,
+  explicitJwk?: VapidJwk,
+): VapidJwk {
+  if (explicitJwk) {
+    return explicitJwk;
+  }
+  if (customPrivateKey) {
+    const trimmed = customPrivateKey.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed) as VapidJwk;
+        if (parsed.d && parsed.x && parsed.y) {
+          return parsed;
+        }
+      } catch {
+        // continue
+      }
+    }
+    if (!customPublicKey) {
+      throw new Error(
+        'VAPID_PUBLIC_KEY is required when VAPID_PRIVATE_KEY is a raw scalar.',
+      );
+    }
+    const pubBytes = base64UrlToUint8Array(customPublicKey.trim());
+    if (pubBytes.length === 65 && pubBytes[0] === 4) {
+      const x = uint8ArrayToBase64Url(pubBytes.subarray(1, 33));
+      const y = uint8ArrayToBase64Url(pubBytes.subarray(33, 65));
+      return {
+        kty: 'EC',
+        crv: 'P-256',
+        d: trimmed,
+        x,
+        y,
+      };
+    }
+    throw new Error(
+      'Invalid VAPID_PUBLIC_KEY format (expected 65-byte P-256 uncompressed point).',
+    );
+  }
+  throw new Error(
+    'VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY must be configured to send Web Push notifications.',
+  );
+}
+
+/**
+ * Generates an RFC 8292 VAPID Authorization header string for a given push endpoint.
+ */
+export async function createVapidAuthHeader(
+  endpoint: string,
+  options?: SendWebPushOptions,
+): Promise<string> {
+  const jwk = resolveVapidJwk(
+    options?.privateKey,
+    options?.publicKey,
+    options?.privateKeyJwk,
+  );
+  let publicKey = options?.publicKey;
+  if (!publicKey) {
+    const xBytes = base64UrlToUint8Array(jwk.x);
+    const yBytes = base64UrlToUint8Array(jwk.y);
+    const pubBytes = new Uint8Array(65);
+    pubBytes[0] = 4;
+    pubBytes.set(xBytes, 1);
+    pubBytes.set(yBytes, 33);
+    publicKey = uint8ArrayToBase64Url(pubBytes);
+  }
+  const subject = resolveVapidSubject(options?.subject);
+
+  const origin = new URL(endpoint).origin;
+  const exp = Math.floor(Date.now() / 1000) + 12 * 3600; // 12 hours expiry
+
+  const headerObj = { alg: 'ES256', typ: 'JWT' };
+  const payloadObj = { aud: origin, exp, sub: subject };
+
+  const encoder = new TextEncoder();
+  const headerB64 = uint8ArrayToBase64Url(
+    encoder.encode(JSON.stringify(headerObj)),
+  );
+  const payloadB64 = uint8ArrayToBase64Url(
+    encoder.encode(JSON.stringify(payloadObj)),
+  );
+  const signInput = `${headerB64}.${payloadB64}`;
+
+  const privateKey = await crypto.subtle.importKey(
+    'jwk',
+    jwk,
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign'],
+  );
+
+  const signature = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    privateKey,
+    encoder.encode(signInput) as unknown as BufferSource,
+  );
+
+  const sigB64 = uint8ArrayToBase64Url(new Uint8Array(signature));
+  const jwt = `${signInput}.${sigB64}`;
+
+  return `vapid t=${jwt}, k=${publicKey}`;
+}
+
+/**
+ * Encrypts a plaintext payload using RFC 8291 `aes128gcm` standard.
+ */
+export async function encryptWebPushPayload(
+  clientPublicKeyB64: string,
+  clientAuthSecretB64: string,
+  plaintext: string,
+): Promise<Uint8Array> {
+  const uaPublicRaw = base64UrlToUint8Array(clientPublicKeyB64);
+  const uaAuth = base64UrlToUint8Array(clientAuthSecretB64);
+
+  // 1. Generate ephemeral ECDH key pair on curve P-256
+  const asKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits'],
+  );
+  const asPublicRaw = new Uint8Array(
+    await crypto.subtle.exportKey('raw', asKeyPair.publicKey),
+  );
+
+  // 2. Import UA public key
+  const uaPublicKey = await crypto.subtle.importKey(
+    'raw',
+    uaPublicRaw as unknown as BufferSource,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    [],
+  );
+
+  // 3. Derive shared secret via ECDH
+  const sharedSecretBits = await crypto.subtle.deriveBits(
+    { name: 'ECDH', public: uaPublicKey },
+    asKeyPair.privateKey,
+    256,
+  );
+  const sharedSecret = new Uint8Array(sharedSecretBits);
+
+  // 4. Generate random 16-byte salt
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+
+  // 5. HKDF key derivation
+  const prk = await hkdfExtract(uaAuth, sharedSecret);
+
+  const encoder = new TextEncoder();
+  const webpushInfoPrefix = encoder.encode('WebPush: info\0');
+  const keyInfo = new Uint8Array(
+    webpushInfoPrefix.length + uaPublicRaw.length + asPublicRaw.length,
+  );
+  keyInfo.set(webpushInfoPrefix, 0);
+  keyInfo.set(uaPublicRaw, webpushInfoPrefix.length);
+  keyInfo.set(asPublicRaw, webpushInfoPrefix.length + uaPublicRaw.length);
+
+  const ikm = await hkdfExpand(prk, keyInfo, 32);
+  const prk2 = await hkdfExtract(salt, ikm);
+
+  const cekInfo = encoder.encode('Content-Encoding: aes128gcm\0');
+  const cek = await hkdfExpand(prk2, cekInfo, 16);
+
+  const nonceInfo = encoder.encode('Content-Encoding: nonce\0');
+  const nonce = await hkdfExpand(prk2, nonceInfo, 12);
+
+  // 6. Delimit payload with 0x02
+  const plaintextBytes = encoder.encode(plaintext);
+  const padded = new Uint8Array(plaintextBytes.length + 1);
+  padded.set(plaintextBytes, 0);
+  padded[plaintextBytes.length] = 2; // RFC 8291 record delimiter
+
+  // 7. Encrypt with AES-GCM
+  const aesKey = await crypto.subtle.importKey(
+    'raw',
+    cek as unknown as BufferSource,
+    'AES-GCM',
+    false,
+    ['encrypt'],
+  );
+
+  const ciphertextBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce as unknown as BufferSource, tagLength: 128 },
+    aesKey,
+    padded as unknown as BufferSource,
+  );
+  const ciphertext = new Uint8Array(ciphertextBuffer);
+
+  // 8. Construct RFC 8291 header:
+  // salt (16B) || rs (4B uint32 = 4096) || idlen (1B = 65) || as_public (65B)
+  const header = new Uint8Array(16 + 4 + 1 + 65);
+  header.set(salt, 0);
+  const rs = 4096;
+  header[16] = (rs >> 24) & 0xff;
+  header[17] = (rs >> 16) & 0xff;
+  header[18] = (rs >> 8) & 0xff;
+  header[19] = rs & 0xff;
+  header[20] = asPublicRaw.length;
+  header.set(asPublicRaw, 21);
+
+  const fullPayload = new Uint8Array(header.length + ciphertext.length);
+  fullPayload.set(header, 0);
+  fullPayload.set(ciphertext, header.length);
+
+  return fullPayload;
+}
+
+/**
+ * Normalizes and packages a push notification payload so that it is natively handled by:
+ * 1. Angular Service Worker (`ngsw-worker.js`), which requires `payload.notification.title`.
+ * 2. Mobile OSes (Android & iOS) with rasterized PNG icons instead of SVG.
+ * 3. Deep-linking tap routing via `notification.data.onActionClick`.
+ * 4. Generic Web Push handlers that read top-level fields.
+ */
+export function buildPushNotificationBody(
+  payload: WebPushNotificationPayload,
+): string {
+  const url = payload.data?.url || '/';
+  const icon = payload.icon || '/icons/icon-192.png';
+  const badge = payload.badge || '/icons/badge-96.png';
+
+  const notificationData = {
+    ...(payload.data || {}),
+    url,
+    onActionClick: payload.data?.onActionClick || {
+      default: {
+        operation: 'navigateLastFocusedOrOpen',
+        url,
+      },
+    },
+  };
+
+  const formattedPayload: WebPushNotificationPayload = {
+    ...payload,
+    icon,
+    badge,
+    data: notificationData,
+    notification: {
+      title: payload.title,
+      body: payload.body,
+      icon,
+      badge,
+      data: notificationData,
+      ...(payload.notification || {}),
+    },
+  };
+
+  return JSON.stringify(formattedPayload);
+}
+
+/**
+ * Dispatches an encrypted Web Push notification to a push subscription.
+ */
+export async function sendWebPushNotification(
+  subscription: WebPushSubscription,
+  payload: WebPushNotificationPayload,
+  options?: SendWebPushOptions,
+): Promise<SendWebPushResult> {
+  const fetchFn = options?.fetchFn || fetch;
+
+  if (!isAllowedPushEndpoint(subscription.endpoint, options?.allowTestHost)) {
+    return {
+      success: false,
+      status: 400,
+      shouldDelete: true,
+      error: 'Unsupported or untrusted push endpoint host',
+    };
+  }
+
+  try {
+    const jsonBody = buildPushNotificationBody(payload);
+    const encryptedBody = await encryptWebPushPayload(
+      subscription.p256dh,
+      subscription.auth,
+      jsonBody,
+    );
+
+    const authHeader = await createVapidAuthHeader(
+      subscription.endpoint,
+      options,
+    );
+
+    const response = await fetchFn(subscription.endpoint, {
+      method: 'POST',
+      headers: {
+        TTL: '86400',
+        Urgency: 'normal',
+        'Content-Encoding': 'aes128gcm',
+        'Content-Type': 'application/octet-stream',
+        Authorization: authHeader,
+      },
+      body: encryptedBody as unknown as BodyInit,
+    });
+
+    const status = response.status;
+    const shouldDelete = status === 404 || status === 410;
+    const success = response.ok || status === 201;
+
+    let errorDetail: string | undefined;
+    if (!success) {
+      errorDetail = `Push service responded with status ${status}`;
+    }
+
+    return {
+      success,
+      status,
+      shouldDelete,
+      error: errorDetail,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      status: 0,
+      shouldDelete: false,
+      error: msg,
+    };
+  }
+}

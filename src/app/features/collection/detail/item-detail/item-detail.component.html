@@ -1,0 +1,1462 @@
+@if (item(); as i) {
+  <div class="container animate-expressive pb-xl" data-version="final-v12">
+    <nav class="details-nav mb-lg flex justify-between items-center">
+      <a
+        [href]="collectionService.getTabUrl(type() ? type() + 's' : 'games')"
+        (click)="onBack($event)"
+        class="back-link flex items-center gap-sm"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        Back to Collection
+      </a>
+      @if (game(); as g) {
+        <div class="quick-stats flex gap-sm items-center">
+          @if (collectionService.canShowPersonalState()) {
+            <div
+              class="stat-pill interactive play-status-pill"
+              [class.active]="g.play_status !== 0"
+              (click)="onEditPlayed(g)"
+            >
+              <span class="icon"
+                ><app-icon
+                  [name]="getPlayStatusIconName(g.play_status)"
+                  [size]="14"
+              /></span>
+              <span>{{ getPlayStatusText(g.play_status) }}</span>
+            </div>
+            <div
+              class="stat-pill interactive ownership-pill"
+              [class.active]="g.ownership_status !== 0"
+              [class.owned]="g.ownership_status === 1"
+              [class.seeking]="g.ownership_status === 2"
+              [class.ordered]="g.ownership_status === 3"
+              (click)="onEditOwnership(g, 'game')"
+            >
+              <span class="icon">
+                <app-icon
+                  [name]="getOwnershipStatusIconName(g.ownership_status)"
+                  [size]="14"
+                />
+              </span>
+              <span>{{
+                g.ownership_status === 1
+                  ? 'Owned'
+                  : g.ownership_status === 2
+                    ? 'Seeking'
+                    : g.ownership_status === 3
+                      ? 'Ordered'
+                      : 'Unowned'
+              }}</span>
+            </div>
+          }
+          @if (g.igdb_id && g.igdb_url) {
+            <a
+              [href]="g.igdb_url"
+              target="_blank"
+              class="stat-pill active igdb interactive"
+            >
+              <span class="icon"
+                ><app-icon name="verified-badge" [size]="14"
+              /></span>
+              <span>IGDB Verified</span>
+            </a>
+          }
+          @if (g.platform_id === 26 || g.platform_id === 27) {
+            <a
+              href="https://docs.google.com/spreadsheets/d/1CEABCBrPv1tWf89hSZqUunK0JW-sQo8XpxuvZhdtHQs/edit?gid=0#gid=0"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="stat-pill active physical interactive"
+              title="Physical release data verified via Nintendo Revised Cartridge Revisions spreadsheet"
+            >
+              <span class="icon"><app-icon name="link" [size]="14" /></span>
+              <span>Nintendo Revised Sheet ↗</span>
+            </a>
+          }
+          @if (isUpcomingRelease(g)) {
+            <div class="stat-pill active upcoming">
+              <span class="icon"><app-icon name="calendar" [size]="14" /></span>
+              <span>Upcoming Launch (Pre-Release)</span>
+            </div>
+          } @else if (
+            collectionService.canShowPersonalState() &&
+            !hasPhysicalRelease(g) &&
+            (g.physical_status === 'not_yet_physical' ||
+              g.physical_status === 'physical_pending') &&
+            !hasOwnedPhysical(g)
+          ) {
+            <div
+              class="stat-pill active pending interactive"
+              (click)="toggleWatchPhysical(g)"
+              title="Click to remove from Physical Watch list"
+            >
+              <span class="icon"><app-icon name="clock" [size]="14" /></span>
+              <span>Awaiting Physical Edition (Watching)</span>
+            </div>
+          } @else if (
+            collectionService.canShowPersonalState() && canWatchPhysical(g)
+          ) {
+            <div
+              class="stat-pill interactive"
+              (click)="toggleWatchPhysical(g)"
+              title="Click to watch for physical release announcements and boutique pre-orders"
+            >
+              <span class="icon"><app-icon name="clock" [size]="14" /></span>
+              <span>+ Watch for Physical</span>
+            </div>
+          } @else if (
+            collectionService.canShowPersonalState() &&
+            (g.physical_status === 'digital_extracted_rom' ||
+              g.release_medium === 'digital_extracted_rom')
+          ) {
+            <div class="stat-pill active extracted-rom">
+              <span class="icon"
+                ><app-icon name="rom-archive" [size]="14"
+              /></span>
+              <span>Extracted Archival ROM</span>
+            </div>
+          } @else if (hasPhysicalRelease(g)) {
+            <div class="stat-pill active physical-release">
+              <span class="icon">
+                @if (
+                  g.is_source_verified ||
+                  (g.releases && g.releases.some((r) => r.is_source_verified))
+                ) {
+                  <app-icon name="verified-badge" [size]="14" />
+                } @else {
+                  <app-icon name="physical-box" [size]="14" />
+                }
+              </span>
+              <span>{{
+                g.is_source_verified ||
+                (g.releases && g.releases.some((r) => r.is_source_verified))
+                  ? 'Verified Source Match'
+                  : 'Physical Retail Release'
+              }}</span>
+            </div>
+          } @else if (
+            g.release_medium !== 'digital_native' &&
+            g.release_medium !== 'unreleased_prototype'
+          ) {
+            <div class="stat-pill physical-release">
+              <span class="icon"
+                ><app-icon name="physical-box" [size]="14"
+              /></span>
+              <span>Physical Retail Release (Modern Platform)</span>
+            </div>
+          }
+        </div>
+      } @else if (toy(); as t) {
+        <div class="quick-stats flex gap-sm items-center">
+          @if (collectionService.canShowPersonalState()) {
+            <div
+              class="stat-pill interactive ownership-pill"
+              [class.active]="t.ownership_status !== 0"
+              [class.owned]="t.ownership_status === 1"
+              [class.seeking]="t.ownership_status === 2"
+              [class.ordered]="t.ownership_status === 3"
+              (click)="onEditOwnership(t, 'toy')"
+            >
+              <span class="icon">
+                <app-icon
+                  [name]="getOwnershipStatusIconName(t.ownership_status)"
+                  [size]="14"
+                />
+              </span>
+              <span>{{
+                t.ownership_status === 1
+                  ? 'Owned'
+                  : t.ownership_status === 2
+                    ? 'Seeking'
+                    : t.ownership_status === 3
+                      ? 'Ordered'
+                      : 'Unowned'
+              }}</span>
+            </div>
+          }
+          @if (getToySource(t); as source) {
+            <a
+              [href]="source.url"
+              target="_blank"
+              class="stat-pill active physical interactive"
+              style="text-decoration: none"
+            >
+              <span class="icon"><app-icon name="link" [size]="14" /></span>
+              <span>{{ source.label }}</span>
+            </a>
+          }
+        </div>
+      }
+    </nav>
+
+    <div class="hero-section mb-xl">
+      <div class="hero-grid">
+        <div class="art-container">
+          <div class="art-frame" [class.toy-frame]="type() === 'toy'">
+            @if (i.image_url) {
+              <img
+                [src]="i.image_url"
+                alt="Cover Art"
+                [class.glitch-load]="type() !== 'toy'"
+                [class.toy-detail-art]="type() === 'toy'"
+                referrerpolicy="no-referrer"
+              />
+            } @else {
+              <div class="placeholder">No Image</div>
+            }
+            @if (game(); as g) {
+              <div class="region-overlay" [title]="'Region: ' + g.region">
+                {{ g.region }}
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="hero-content">
+          <h1 class="item-title text-gradient">
+            {{ game()?.title || toy()?.name || platform()?.name }}
+          </h1>
+          @if (game()?.variants; as variants) {
+            <div class="flex flex-wrap gap-sm mb-md">
+              @for (variant of variants.split(','); track variant) {
+                @if (variant.trim()) {
+                  <span class="variant-badge big">{{ variant.trim() }}</span>
+                }
+              }
+            </div>
+          }
+          @if (game()?.also_released_as; as alsoReleased) {
+            <div
+              class="also-released-row flex flex-wrap items-center gap-xs mb-md"
+            >
+              <span class="also-released-label">Also released as:</span>
+              @for (label of alsoReleased.split(','); track label) {
+                @if (label.trim()) {
+                  <span class="also-released-pill">{{ label.trim() }}</span>
+                }
+              }
+            </div>
+          }
+          @if (type() === 'toy' && toy()?.series_name) {
+            <p class="item-series">{{ toy()?.series_name }}</p>
+          }
+
+          @if (formattedDate(); as date) {
+            <p class="item-release-banner animate-slide-up">{{ date }}</p>
+          }
+
+          @if (game(); as g) {
+            <div class="genre-cloud mt-lg">
+              @for (genre of (g.genres || '').split(', '); track genre) {
+                @if (genre) {
+                  <span class="genre-chip">{{ genre }}</span>
+                }
+              }
+            </div>
+          }
+
+          <div class="metadata-grid mt-xl">
+            <div class="meta-box">
+              <span class="label">{{
+                type() === 'toy' ? 'Line' : 'Platform'
+              }}</span>
+              <div class="value flex items-center gap-sm">
+                @if (game()?.platform_logo) {
+                  <img [src]="game()?.platform_logo" class="mini-logo" alt="" />
+                }
+                <span>{{
+                  game()?.display_name ||
+                    game()?.platform ||
+                    toy()?.line ||
+                    'N/A'
+                }}</span>
+              </div>
+            </div>
+            @if (game(); as g) {
+              @if (!formattedDate()) {
+                <div class="meta-box">
+                  <span class="label">Release Date</span>
+                  <span class="value">{{ g.release_date || 'Unknown' }}</span>
+                </div>
+              }
+            } @else if (toy(); as t) {
+              @if (!formattedDate()) {
+                <div class="meta-box">
+                  <span class="label">Release Date</span>
+                  <span class="value">{{ t.release_date || 'Unknown' }}</span>
+                </div>
+              }
+            }
+            @if (game(); as g) {
+              @if (
+                collectionService.canShowPersonalState() &&
+                  parsedOriginMetadata();
+                as origin
+              ) {
+                <div class="meta-box full-width provenance-section mt-md">
+                  <span class="label">Archival Origin Provenance</span>
+                  <div
+                    class="provenance-card p-sm rounded-md bg-surface-container-high border border-outline-variant mt-2xs"
+                  >
+                    <div class="flex items-center gap-sm mb-2xs">
+                      <span class="font-bold text-sm">Release Channel:</span>
+                      <span>{{
+                        origin.origin_channel || origin.origin_platform
+                      }}</span>
+                      @if (origin.origin_year) {
+                        <span class="text-secondary text-sm">{{
+                          origin.origin_year
+                        }}</span>
+                      }
+                    </div>
+                    @if (origin.target_hardware) {
+                      <div class="text-xs text-secondary mb-2xs">
+                        Target Playback Hardware:
+                        <strong>{{ origin.target_hardware }}</strong>
+                      </div>
+                    }
+                    @if (origin.notes) {
+                      <p class="text-sm text-secondary m-0">
+                        {{ origin.notes }}
+                      </p>
+                    }
+                  </div>
+                </div>
+              }
+              @if (g.bundled_games && g.bundled_games.length > 0) {
+                <div class="meta-box full-width bundles-section mt-lg">
+                  <span class="label"
+                    >Included Games & Bonus Discs (In-Box)</span
+                  >
+                  <div class="discs-list flex flex-col gap-md mt-2xs">
+                    @for (b of g.bundled_games; track b.id || b.stable_id) {
+                      <div
+                        class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
+                      >
+                        <div class="disc-info flex-1">
+                          <div class="flex items-center gap-sm mb-2xs">
+                            <span class="variant-badge"
+                              >Disc {{ b.bundle_disc_number || 2 }}</span
+                            >
+                            <strong class="text-sm">{{ b.title }}</strong>
+                            @if (b.platform_name) {
+                              <span class="crc-text"
+                                >[{{ b.platform_name }}]</span
+                              >
+                            }
+                          </div>
+                        </div>
+                        @if (collectionService.canShowPersonalState()) {
+                          <div class="disc-actions flex items-center gap-sm">
+                            <div
+                              class="stat-pill"
+                              [class.active]="!!b.backup_status"
+                            >
+                              <span class="icon">
+                                <app-icon
+                                  [name]="
+                                    b.backup_status
+                                      ? 'rom-archive'
+                                      : 'missing-dump'
+                                  "
+                                  [size]="14"
+                                />
+                              </span>
+                              <span>{{
+                                b.backup_status ? 'Backed Up' : 'No Backup'
+                              }}</span>
+                            </div>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+              @if (g.releases && g.releases.length > 0) {
+                @if (
+                  collectionService.canShowPersonalState() ||
+                  g.releases.length > 1
+                ) {
+                  <div class="meta-box full-width discs-section mt-lg">
+                    <span class="label">{{ getReleasesSectionLabel(g) }}</span>
+                    <div class="discs-list flex flex-col gap-md">
+                      @for (release of g.releases; track release.id) {
+                        <div
+                          class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
+                        >
+                          <div class="disc-info flex-1">
+                            <div
+                              class="flex flex-wrap items-center gap-xs mb-2xs"
+                            >
+                              @if (release.disc_label) {
+                                <span class="variant-badge">{{
+                                  release.disc_label
+                                }}</span>
+                              }
+                              @if (
+                                release.variants &&
+                                release.variants !== release.disc_label
+                              ) {
+                                <span class="variant-badge">{{
+                                  release.variants
+                                }}</span>
+                              }
+                              @if (release.serial_code) {
+                                <span
+                                  class="variant-badge serial-badge font-mono"
+                                  >{{ release.serial_code }}</span
+                                >
+                              }
+                              @if (
+                                release.region && release.region !== g.region
+                              ) {
+                                <span class="variant-badge region-badge">{{
+                                  release.region
+                                }}</span>
+                              }
+                              @if (
+                                release.is_companion_base_disc &&
+                                release.companion_game_id
+                              ) {
+                                <span
+                                  class="companion-disc-note text-xs flex items-center gap-xs"
+                                >
+                                  <app-icon name="link" [size]="12" />
+                                  Identical disc master to original release:
+                                  <a
+                                    [routerLink]="[
+                                      '/game',
+                                      release.companion_game_id,
+                                    ]"
+                                    class="meta-link font-semibold"
+                                  >
+                                    {{
+                                      release.companion_game_title ||
+                                        'View Original Release'
+                                    }}
+                                  </a>
+                                </span>
+                              } @else if (release.companion_game_id) {
+                                <span
+                                  class="companion-disc-note text-xs flex items-center gap-xs"
+                                >
+                                  <app-icon name="link" [size]="12" />
+                                  Standalone game:
+                                  <a
+                                    [routerLink]="[
+                                      '/game',
+                                      release.companion_game_id,
+                                    ]"
+                                    class="meta-link font-semibold"
+                                  >
+                                    {{
+                                      release.companion_game_title ||
+                                        'View Standalone Game'
+                                    }}
+                                  </a>
+                                </span>
+                              }
+                              @if (
+                                g.releases.length > 1 &&
+                                release.also_released_as
+                              ) {
+                                <span class="also-released-pill">{{
+                                  'Also released as: ' +
+                                    release.also_released_as
+                                }}</span>
+                              }
+                            </div>
+                            @if (release.comments) {
+                              <div
+                                class="release-comments-note text-xs text-secondary flex items-center gap-xs mt-2xs"
+                              >
+                                <span>{{ release.comments }}</span>
+                              </div>
+                            }
+                            @if (
+                              !release.rom_name && !release.canonical_release_id
+                            ) {
+                              <div
+                                class="rom-text warning-text font-mono mb-2xs"
+                              >
+                                <app-icon name="alert-triangle" [size]="14" />
+                                {{
+                                  g.platform_id === 26 || g.platform_id === 27
+                                    ? 'No cartridge revision exists in community catalog'
+                                    : 'No dump exists in community DAT files'
+                                }}
+                              </div>
+                            }
+                          </div>
+                          @if (collectionService.canShowPersonalState()) {
+                            <div class="disc-actions flex items-center gap-sm">
+                              <button
+                                class="stat-pill interactive"
+                                [class.active]="!!release.backup_status"
+                                [class.missing]="!release.backup_status"
+                                (click)="onToggleDiscBackup(release)"
+                                title="Toggle Backup Status"
+                              >
+                                <span class="icon"
+                                  ><app-icon
+                                    [name]="
+                                      getMediaIcon(
+                                        g.platform,
+                                        release.backup_status
+                                      )
+                                    "
+                                    [size]="14"
+                                /></span>
+                                <span>{{
+                                  release.backup_status
+                                    ? 'Backed Up'
+                                    : 'No Backup'
+                                }}</span>
+                              </button>
+                              @if (collectionService.isAdmin()) {
+                                <button
+                                  type="button"
+                                  class="btn-danger"
+                                  title="Remove this release"
+                                  (click)="requestDeleteRelease(release)"
+                                >
+                                  <app-icon name="close" [size]="14" />
+                                  <span>Remove</span>
+                                </button>
+                              }
+                            </div>
+                          }
+                        </div>
+                      }
+                    </div>
+
+                    @if (
+                      g.shared_backup_releases &&
+                      g.shared_backup_releases.length > 0
+                    ) {
+                      <div class="shared-backup-banner mt-md p-sm rounded-md">
+                        <div class="text-xs font-semibold mb-2xs">
+                          <app-icon name="link" [size]="14" /> Included in
+                          Compilation / Expanded Release — Also part of:
+                        </div>
+                        <div class="flex flex-wrap gap-xs mt-2xs">
+                          @for (
+                            shared of g.shared_backup_releases;
+                            track shared.id
+                          ) {
+                            <a
+                              [routerLink]="['/game', shared.id]"
+                              class="jump-link-pill"
+                            >
+                              <span class="flex items-center gap-xs"
+                                ><app-icon name="disc" [size]="12" />
+                                {{ shared.title }}</span
+                              >
+                              @if (shared.region) {
+                                <span class="text-2xs text-secondary"
+                                  >({{ shared.region }})</span
+                                >
+                              }
+                              @if (
+                                collectionService.canShowPersonalState() &&
+                                shared.ownership_status === 1
+                              ) {
+                                <span
+                                  class="text-2xs flex items-center gap-2xs"
+                                  title="Owned in collection"
+                                  ><app-icon name="check" [size]="12" />
+                                  Owned</span
+                                >
+                              }
+                            </a>
+                          }
+                        </div>
+                      </div>
+                    }
+
+                    @if (g.voucher_notes && g.voucher_notes.length > 0) {
+                      <div
+                        class="voucher-notice-banner mt-md flex flex-col gap-2xs"
+                      >
+                        <div
+                          class="text-xs font-semibold flex items-center gap-xs"
+                        >
+                          <app-icon name="ticket" [size]="14" />
+                          <span>Bundled Digital Content</span>
+                        </div>
+                        @for (note of g.voucher_notes; track note) {
+                          <div class="text-xs text-secondary leading-normal">
+                            {{ note }}
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              } @else if (
+                !g.rom_name &&
+                g.platform_id !== 0 &&
+                g.physical_status !== 'not_yet_physical'
+              ) {
+                <div class="meta-box full-width">
+                  <span class="label">Release Catalog</span>
+                  <span
+                    class="value rom-text warning-text flex items-center gap-xs"
+                    ><app-icon name="alert-triangle" [size]="14" />
+                    {{
+                      g.platform_id === 26 || g.platform_id === 27
+                        ? 'No cartridge revision exists in community catalog'
+                        : 'No dump exists in community DAT files'
+                    }}</span
+                  >
+                </div>
+              }
+
+              @if (g.other_releases && g.other_releases.length > 0) {
+                <div class="meta-box full-width other-releases-section mt-lg">
+                  <span class="label">Other Releases & Regional Prints</span>
+                  <div class="other-releases-list flex flex-col gap-sm mt-xs">
+                    @for (other of g.other_releases; track other.id) {
+                      <div
+                        class="other-release-row flex flex-col md:flex-row md:items-center justify-between gap-sm p-sm rounded-md border border-outline-variant bg-surface-container-high"
+                      >
+                        <div class="flex items-center gap-xs flex-wrap">
+                          @if (other.variants) {
+                            <span class="variant-badge">{{
+                              other.variants
+                            }}</span>
+                          }
+                          @if (other.region) {
+                            <span class="variant-badge region-badge">{{
+                              other.region
+                            }}</span>
+                          }
+                          @if (other.serial_code) {
+                            <span
+                              class="variant-badge serial-badge font-mono"
+                              >{{ other.serial_code }}</span
+                            >
+                          }
+                          @if (other.title && other.title !== g.title) {
+                            <span
+                              class="release-title font-semibold text-xs text-on-surface"
+                              >{{ other.title }}</span
+                            >
+                          }
+                          @if (other.release_date) {
+                            <span class="release-year text-xs text-secondary"
+                              >({{ other.release_date | date: 'yyyy' }})</span
+                            >
+                          }
+                          @if (
+                            collectionService.canShowPersonalState() &&
+                            other.ownership_status === 1
+                          ) {
+                            <span
+                              class="text-2xs font-semibold flex items-center gap-2xs text-primary"
+                            >
+                              <app-icon name="check" [size]="12" /> Owned
+                            </span>
+                          }
+                        </div>
+                        <a
+                          [routerLink]="['/game', other.id]"
+                          class="meta-link text-xs font-semibold flex items-center gap-xs interactive"
+                        >
+                          <span>View Release</span>
+                          <app-icon name="link" [size]="12" />
+                        </a>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+            }
+            @if (toy(); as t) {
+              <div class="meta-box">
+                <span class="label">Type</span>
+                <span class="value">{{ t.type }}</span>
+              </div>
+              @if (
+                t.line === 'Skylanders'
+                  ? t.series_name
+                  : t.series || t.series_name
+              ) {
+                <div class="meta-box">
+                  <span class="label">Series</span>
+                  <span class="value">{{
+                    t.line === 'Skylanders'
+                      ? t.series_name
+                      : t.series || t.series_name
+                  }}</span>
+                </div>
+              }
+              @if (getToySource(t); as source) {
+                <div class="meta-box full-width">
+                  <span class="label">Source</span>
+                  <span class="value">
+                    <a [href]="source.url" target="_blank" class="meta-link">{{
+                      source.label
+                    }}</a>
+                  </span>
+                </div>
+              }
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+
+    @if (game(); as g) {
+      @if (upcomingReleaseInfo(); as info) {
+        <section class="upcoming-watch-section animate-slide-up mb-xl">
+          <div
+            class="upcoming-card p-md rounded-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+          >
+            <div class="upcoming-info">
+              <div class="flex items-center gap-sm flex-wrap">
+                <span
+                  class="upcoming-badge-pill font-bold"
+                  [class.pending-pill]="info.isPending"
+                >
+                  <app-icon
+                    [name]="info.isPending ? 'clock' : 'calendar'"
+                    [size]="14"
+                  />
+                  {{ info.isPending ? 'PHYSICAL WATCH' : 'UPCOMING RELEASE' }}
+                </span>
+                @if (info.countdownText) {
+                  <span class="text-base font-bold text-on-surface">
+                    {{ info.countdownText }}
+                  </span>
+                }
+                @if (info.price) {
+                  <span class="text-base font-semibold text-secondary">
+                    {{ info.price }}
+                  </span>
+                }
+                @if (info.hasStoreLink) {
+                  <span class="text-sm font-semibold text-secondary">
+                    available at {{ info.storeName }} ({{
+                      storeRegionLabel(info.storeName)
+                    }})
+                  </span>
+                }
+              </div>
+              <p class="text-sm text-secondary m-0 mt-xs">
+                @if (info.isPending) {
+                  Tracking boutique physical feeds (Limited Run Games, Super
+                  Rare, iam8bit, etc.) for physical announcements.
+                } @else {
+                  Tracked for release day updates and physical pre-order
+                  availability.
+                }
+              </p>
+            </div>
+            @if (info.hasStoreLink) {
+              <a
+                [href]="info.retailUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn-preorder-link"
+              >
+                Pre-Order at {{ info.storeName }} ({{
+                  storeRegionLabel(info.storeName)
+                }}) ↗
+              </a>
+            }
+          </div>
+        </section>
+      }
+
+      <section class="market-section animate-slide-up mb-xl">
+        <div class="market-header flex justify-between items-center mb-md">
+          <h2 class="text-xl font-bold flex items-center gap-xs m-0">
+            <span class="flex items-center gap-xs"
+              ><app-icon name="storefront" [size]="20" /> Retail Deals & Store
+              Links</span
+            >
+          </h2>
+          @if (g.retail_updated_at) {
+            <span class="text-xs text-secondary">
+              Updated: {{ g.retail_updated_at }}
+            </span>
+          }
+        </div>
+
+        @if (g.retail_on_sale && g.retail_price) {
+          <div
+            class="deal-banner p-md rounded-lg mb-md flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+          >
+            <div class="deal-info">
+              <div class="flex items-center gap-sm flex-wrap">
+                <span class="deal-badge-pill font-bold">
+                  <app-icon name="flame" [size]="14" />
+                  {{
+                    g.retail_discount_pct
+                      ? g.retail_discount_pct + '% OFF'
+                      : 'ON SALE'
+                  }}
+                </span>
+                <span class="text-xl font-extrabold text-on-surface">
+                  {{ '$' + (g.retail_price / 100).toFixed(2) }}
+                </span>
+                @if (
+                  g.retail_regular_price &&
+                  g.retail_regular_price > g.retail_price
+                ) {
+                  <span class="text-sm line-through text-secondary">
+                    Reg:
+                    {{ '$' + (g.retail_regular_price / 100).toFixed(2) }}
+                  </span>
+                }
+                <span class="text-sm font-semibold text-secondary">
+                  at {{ g.retail_store || 'Best Buy' }}
+                </span>
+              </div>
+            </div>
+            @if (g.retail_url) {
+              <a
+                [href]="g.retail_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn-retail-buy"
+              >
+                View on {{ g.retail_store || 'Best Buy' }} ↗
+              </a>
+            }
+          </div>
+        } @else if (
+          !g.retail_on_sale && g.retail_url && !upcomingReleaseInfo()
+        ) {
+          <div
+            class="deal-banner p-md rounded-lg mb-md flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+            style="
+              background: var(--m3-surface-container-high);
+              border-color: var(--m3-outline-variant);
+            "
+          >
+            <div class="deal-info">
+              <div class="flex items-center gap-sm flex-wrap">
+                @if (g.retail_price) {
+                  <span class="text-xl font-extrabold text-on-surface">
+                    {{ '$' + (g.retail_price / 100).toFixed(2) }}
+                  </span>
+                }
+                <span class="text-sm font-semibold text-secondary">
+                  Available at {{ g.retail_store || 'Retailer' }} ({{
+                    storeRegionLabel(g.retail_store)
+                  }})
+                </span>
+              </div>
+            </div>
+            <a
+              [href]="g.retail_url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn-retail-buy"
+            >
+              View on {{ g.retail_store || 'Store' }} ({{
+                storeRegionLabel(g.retail_store)
+              }}) ↗
+            </a>
+          </div>
+        }
+
+        <div class="retail-links-bar mt-md flex flex-wrap items-center gap-sm">
+          <span
+            class="text-xs font-bold text-secondary uppercase tracking-wider"
+            >Research & Buy:</span
+          >
+          <a
+            [href]="getSmartEbayUrl(g, 'cib')"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill ebay"
+            title="Search eBay for Complete in Box (CIB) copies in Video Games"
+          >
+            <app-icon name="seeking" [size]="14" /> eBay (CIB / Complete)
+          </a>
+          <a
+            [href]="getSmartEbayUrl(g, 'loose')"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill ebay"
+            title="Search eBay for Authentic Loose copies"
+          >
+            <app-icon name="seeking" [size]="14" /> eBay (Loose)
+          </a>
+          <a
+            [href]="getDekuDealsUrl(g)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill deku"
+            title="Check Deku Deals for price history & alerts"
+          >
+            <app-icon name="tag" [size]="14" /> Deku Deals
+          </a>
+          <a
+            [href]="getBestBuyUrl(g)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill bestbuy"
+            title="Check Best Buy"
+          >
+            <app-icon name="shopping-cart" [size]="14" /> Best Buy
+          </a>
+          <a
+            [href]="getVgpUrl(g)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill"
+            title="Search VideoGamesPlus (VGP)"
+          >
+            <app-icon name="storefront" [size]="14" /> VGP
+          </a>
+          <a
+            [href]="getPnpUrl(g)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill"
+            title="Search PNP Games"
+          >
+            <app-icon name="storefront" [size]="14" /> PNP Games
+          </a>
+        </div>
+      </section>
+    }
+
+    @if (toy(); as t) {
+      <section class="market-section animate-slide-up mb-xl">
+        <div class="market-header flex justify-between items-center mb-md">
+          <h2 class="text-xl font-bold flex items-center gap-xs m-0">
+            <span class="flex items-center gap-xs"
+              ><app-icon name="storefront" [size]="20" /> Research & Marketplace
+              Links</span
+            >
+          </h2>
+        </div>
+
+        <div class="retail-links-bar mt-md flex flex-wrap items-center gap-sm">
+          <span
+            class="text-xs font-bold text-secondary uppercase tracking-wider"
+            >Research & Buy:</span
+          >
+          <a
+            [href]="getSmartEbayToyUrl(t, 'all')"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill ebay"
+            title="Search eBay for this figure"
+          >
+            <app-icon name="seeking" [size]="14" /> eBay (All)
+          </a>
+          <a
+            [href]="getSmartEbayToyUrl(t, 'loose')"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill ebay"
+            title="Search eBay for authentic loose figure"
+          >
+            <app-icon name="seeking" [size]="14" /> eBay (Loose)
+          </a>
+          <a
+            [href]="getSmartEbayToyUrl(t, 'new')"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill ebay"
+            title="Search eBay for sealed in box figure"
+          >
+            <app-icon name="seeking" [size]="14" /> eBay (Sealed/NIB)
+          </a>
+        </div>
+      </section>
+    }
+
+    @if (
+      (type() === 'game' || type() === 'toy') &&
+      collectionService.canShowPersonalState()
+    ) {
+      <section
+        class="journal-section animate-slide-up mb-xl"
+        data-testid="journal-section"
+      >
+        <div class="market-header flex justify-between items-center mb-md">
+          <h2 class="text-xl font-bold flex items-center gap-xs m-0">
+            <span class="flex items-center gap-xs">
+              <app-icon name="book-open" [size]="20" /> Acquisition Journal &
+              Provenance
+            </span>
+          </h2>
+          <div class="flex items-center gap-sm">
+            @if (!isEditingJournal()) {
+              <button
+                type="button"
+                class="btn-journal-action"
+                (click)="openJournalEditor()"
+                data-testid="btn-edit-journal"
+              >
+                <app-icon name="edit" [size]="14" />
+                <span>{{
+                  journalEntry() ? 'Edit Provenance' : 'Record Provenance'
+                }}</span>
+              </button>
+            }
+          </div>
+        </div>
+
+        @if (isEditingJournal()) {
+          <div
+            class="journal-editor-card p-md rounded-lg border border-outline-variant bg-surface-container-high"
+            data-testid="journal-editor-form"
+          >
+            <div class="journal-form-grid">
+              <div class="form-field">
+                <label class="field-label" for="journal-date-precision"
+                  >Date Precision</label
+                >
+                <select
+                  id="journal-date-precision"
+                  class="field-input"
+                  [(ngModel)]="journalForm.datePrecision"
+                  (ngModelChange)="onDatePrecisionChange($event)"
+                >
+                  <option value="exact">Exact Date (YYYY-MM-DD)</option>
+                  <option value="month">
+                    Month & Year (Around Month YYYY)
+                  </option>
+                  <option value="year">Year Only (Around YYYY)</option>
+                  <option value="unknown">Unrecorded / Unknown</option>
+                </select>
+              </div>
+
+              @if (journalForm.datePrecision === 'exact') {
+                <div class="form-field">
+                  <label class="field-label" for="journal-exact-date"
+                    >Purchase Date</label
+                  >
+                  <input
+                    id="journal-exact-date"
+                    type="date"
+                    class="field-input"
+                    [(ngModel)]="journalForm.purchaseDate"
+                  />
+                  <label class="approx-checkbox-label mt-2xs">
+                    <input
+                      type="checkbox"
+                      [(ngModel)]="journalForm.isApproximateDate"
+                    />
+                    <span>Approximate date (display as "Around ...")</span>
+                  </label>
+                </div>
+              } @else if (journalForm.datePrecision === 'month') {
+                <div class="form-field">
+                  <label class="field-label" for="journal-month-date"
+                    >Approximate Month & Year</label
+                  >
+                  <input
+                    id="journal-month-date"
+                    type="month"
+                    class="field-input"
+                    [(ngModel)]="journalForm.purchaseDate"
+                  />
+                  <span class="field-hint"
+                    >Displays as "Around Month YYYY"</span
+                  >
+                </div>
+              } @else if (journalForm.datePrecision === 'year') {
+                <div class="form-field">
+                  <label class="field-label" for="journal-year-date"
+                    >Approximate Year</label
+                  >
+                  <input
+                    id="journal-year-date"
+                    type="number"
+                    min="1970"
+                    max="2035"
+                    placeholder="e.g. 2013"
+                    class="field-input"
+                    [(ngModel)]="journalForm.purchaseDate"
+                  />
+                  <span class="field-hint">Displays as "Around YYYY"</span>
+                </div>
+              }
+
+              <div class="form-field">
+                <label class="field-label" for="journal-price-paid"
+                  >Price Paid (USD)</label
+                >
+                <input
+                  id="journal-price-paid"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 29.99 or 0.00"
+                  class="field-input"
+                  [(ngModel)]="journalForm.pricePaid"
+                />
+                <span class="field-hint"
+                  >Use 0.00 for gifts, free pack-ins, or point redemptions</span
+                >
+              </div>
+
+              <div class="form-field">
+                <label class="field-label" for="journal-merchant"
+                  >Merchant / Store</label
+                >
+                <input
+                  id="journal-merchant"
+                  type="text"
+                  list="standard-merchants-datalist"
+                  placeholder="e.g. eBay, Best Buy, Amazon..."
+                  class="field-input"
+                  [(ngModel)]="journalForm.merchant"
+                />
+                <datalist id="standard-merchants-datalist">
+                  @for (m of standardMerchants; track m) {
+                    <option [value]="m"></option>
+                  }
+                </datalist>
+              </div>
+
+              <div class="form-field">
+                <label class="field-label" for="journal-gifted-by"
+                  >Gifted By (Optional)</label
+                >
+                <input
+                  id="journal-gifted-by"
+                  type="text"
+                  placeholder="e.g. Parents, Friend..."
+                  class="field-input"
+                  [(ngModel)]="journalForm.giftedBy"
+                />
+              </div>
+
+              <div class="form-field">
+                <label class="field-label" for="journal-receipt-url"
+                  >Source Receipt Link (Optional)</label
+                >
+                <input
+                  id="journal-receipt-url"
+                  type="url"
+                  placeholder="https://mail.google.com/mail/u/0/#all/... or order URL"
+                  class="field-input"
+                  [(ngModel)]="journalForm.receiptUrl"
+                />
+              </div>
+
+              <div class="form-field full-width-field">
+                <label class="field-label" for="journal-notes"
+                  >Provenance & Currency Notes (Optional)</label
+                >
+                <textarea
+                  id="journal-notes"
+                  rows="2"
+                  placeholder="e.g. Purchased in CAD ($44.99 CAD), pack-in bundle details, or multi-item lot split..."
+                  class="field-input"
+                  [(ngModel)]="journalForm.notes"
+                ></textarea>
+              </div>
+            </div>
+
+            @if (journalSaveError()) {
+              <div class="journal-error-banner mt-sm text-xs">
+                {{ journalSaveError() }}
+              </div>
+            }
+
+            <div
+              class="journal-editor-actions flex justify-between items-center mt-md"
+            >
+              <div>
+                @if (journalEntry()) {
+                  <button
+                    type="button"
+                    class="btn-journal-delete"
+                    [disabled]="journalSaving()"
+                    (click)="onDeleteJournalEntry()"
+                  >
+                    Delete Record
+                  </button>
+                }
+              </div>
+              <div class="flex gap-sm">
+                <button
+                  type="button"
+                  class="btn-journal-cancel"
+                  [disabled]="journalSaving()"
+                  (click)="cancelJournalEdit()"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  class="btn-journal-save"
+                  [disabled]="journalSaving()"
+                  (click)="onSaveJournalEntry()"
+                  data-testid="btn-save-journal"
+                >
+                  {{ journalSaving() ? 'Saving...' : 'Save Provenance' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        } @else if (journalEntry(); as entry) {
+          <div
+            class="pricing-grid journal-revealed-grid"
+            data-testid="journal-revealed-state"
+          >
+            <div class="price-tier-card has-price">
+              <span class="tier-label">Acquired Date</span>
+              <span
+                class="tier-price text-lg"
+                data-testid="journal-date-display"
+              >
+                {{
+                  formatAcquisitionDate(
+                    entry.purchase_date,
+                    entry.is_approximate_date
+                  )
+                }}
+              </span>
+              <span class="tier-sub">
+                {{
+                  isApproximateEntry(entry)
+                    ? 'Approximate Date'
+                    : entry.purchase_date
+                      ? 'Verified Purchase Date'
+                      : 'Date Unrecorded'
+                }}
+              </span>
+            </div>
+
+            <div class="price-tier-card has-price">
+              <span class="tier-label">Price Paid</span>
+              <span class="tier-price" data-testid="journal-price-display">
+                {{
+                  entry.price_paid !== null && entry.price_paid !== undefined
+                    ? '$' + entry.price_paid.toFixed(2)
+                    : 'Unrecorded'
+                }}
+              </span>
+              <span class="tier-sub flex items-center gap-2xs">
+                @if (entry.gifted_by) {
+                  <app-icon name="gift" [size]="12" />
+                  <span>Gifted by {{ entry.gifted_by }}</span>
+                } @else if (entry.price_paid === 0) {
+                  <span>Free / Pack-in / Redeemed</span>
+                } @else {
+                  <span>Actual Cost Basis (USD)</span>
+                }
+              </span>
+            </div>
+
+            <div class="price-tier-card has-price">
+              <span class="tier-label">Merchant / Source</span>
+              <span
+                class="tier-price text-lg"
+                data-testid="journal-merchant-display"
+              >
+                {{
+                  entry.merchant ||
+                    (entry.gifted_by
+                      ? 'Gift (' + entry.gifted_by + ')'
+                      : 'Unrecorded')
+                }}
+              </span>
+              <span class="tier-sub">
+                @if (entry.receipt_url) {
+                  <a
+                    [href]="entry.receipt_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="receipt-deeplink"
+                    data-testid="journal-receipt-link"
+                  >
+                    <app-icon name="mail" [size]="12" />
+                    <span>View Source Receipt ↗</span>
+                  </a>
+                } @else {
+                  <span>Acquisition Channel</span>
+                }
+              </span>
+            </div>
+          </div>
+
+          @if (entry.notes) {
+            <div
+              class="journal-notes-callout mt-md p-sm rounded-md"
+              data-testid="journal-notes-display"
+            >
+              <div
+                class="text-xs font-bold uppercase tracking-wider text-secondary mb-2xs"
+              >
+                Provenance & Acquisition Notes
+              </div>
+              <div class="text-sm text-on-surface leading-normal">
+                {{ entry.notes }}
+              </div>
+            </div>
+          }
+        } @else {
+          <div
+            class="journal-empty-card p-md rounded-lg border border-outline-variant bg-surface-container-low flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+            data-testid="journal-empty-state"
+          >
+            <div>
+              <div class="font-semibold text-sm">
+                No acquisition provenance recorded for this item yet.
+              </div>
+              <div class="text-xs text-secondary mt-2xs">
+                Record the purchase date, price paid, merchant, and source
+                receipt link to track cost basis and appreciation.
+              </div>
+            </div>
+            <button
+              type="button"
+              class="btn-journal-action"
+              (click)="openJournalEditor()"
+            >
+              <app-icon name="edit" [size]="14" />
+              <span>Record Provenance</span>
+            </button>
+          </div>
+        }
+      </section>
+    }
+
+    @if (game(); as g) {
+      @if (g.summary) {
+        <section class="narrative-section animate-slide-up">
+          <div class="summary-text-airy">
+            {{ g.summary }}
+          </div>
+        </section>
+      }
+      @if (collectionService.isAdmin()) {
+        <section class="mt-lg flex justify-end">
+          <button
+            type="button"
+            class="btn-danger"
+            data-testid="delete-game-btn"
+            (click)="requestDeleteGame(g)"
+          >
+            <app-icon name="close" [size]="14" />
+            <span>Delete Game</span>
+          </button>
+        </section>
+      }
+    }
+
+    @if (pendingDelete(); as pd) {
+      <div
+        class="delete-modal-backdrop"
+        data-testid="delete-modal"
+        (click)="cancelDelete()"
+      >
+        <div class="delete-modal" (click)="$event.stopPropagation()">
+          <h3 class="font-bold mb-sm">
+            {{ pd.kind === 'game' ? 'Delete game?' : 'Remove release?' }}
+          </h3>
+          <p class="text-sm text-secondary mb-md">
+            @if (pd.kind === 'game') {
+              Remove "{{ pd.label }}" and all of its releases and acquisition
+              records from your collection? This cannot be undone.
+            } @else {
+              Remove release "{{ pd.label }}"? The game itself will remain. This
+              cannot be undone.
+            }
+          </p>
+          @if (deleteError(); as de) {
+            <p class="text-sm mb-sm" style="color: var(--m3-error)">
+              {{ de }}
+            </p>
+          }
+          <div class="flex justify-end gap-sm">
+            <button
+              type="button"
+              class="btn-journal-action"
+              [disabled]="deleting()"
+              (click)="cancelDelete()"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn-danger"
+              data-testid="confirm-delete-btn"
+              [disabled]="deleting()"
+              (click)="confirmDelete()"
+            >
+              {{ deleting() ? 'Deleting…' : 'Delete' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (toy(); as t) {
+      @if (t.details) {
+        <section class="narrative-section animate-slide-up">
+          <div class="summary-text-airy" style="white-space: pre-line">
+            {{ t.details }}
+          </div>
+        </section>
+      }
+    }
+  </div>
+} @else if (errorMessage(); as error) {
+  <div class="container pb-xl animate-expressive">
+    <nav class="details-nav mb-lg flex justify-between items-center">
+      <a
+        [href]="collectionService.getTabUrl(type() ? type() + 's' : 'games')"
+        (click)="onBack($event)"
+        class="back-link flex items-center gap-sm"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        Back to Collection
+      </a>
+    </nav>
+    <div class="loading-state error-state">
+      <div class="error-icon">
+        <app-icon name="alert-triangle" [size]="40" />
+      </div>
+      <p class="error-message">{{ error }}</p>
+      <a
+        [href]="collectionService.getTabUrl(type() ? type() + 's' : 'games')"
+        (click)="onBack($event)"
+        class="retry-btn"
+      >
+        Return to Collection
+      </a>
+    </div>
+  </div>
+} @else {
+  <div class="loading-state">
+    <div class="spinner"></div>
+    <p>Retrieving metadata...</p>
+  </div>
+}

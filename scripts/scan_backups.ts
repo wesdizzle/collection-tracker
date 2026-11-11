@@ -1,0 +1,1864 @@
+/**
+ * BACKUP FILE SCANNER & RECONCILIATOR (TS)
+ *
+ * This script scans a user-specified backup directory recursively for
+ * filenames matching the 'rom_name' field of games on their respective
+ * platforms. Matches are updated in the SQLite database by setting
+ * 'backup_status' to 1 on game_releases and synchronizing the games table.
+ *
+ * It also exports a surgical 'update_backup_status.sql' migration file
+ * that can be safely applied to remote Cloudflare D1 without exceeding quotas.
+ *
+ * SAFETY GUARANTEE:
+ * - This script treats the backup folder as strictly READ-ONLY.
+ * - It will never write, delete, rename, or modify any files or directories in the backup path.
+ * - It will not perform hash calculations or decompress archives to avoid performance overhead.
+ *
+ * USAGE:
+ * npm run scan-backups <path-to-backups>
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import Database from 'better-sqlite3';
+import {
+  normalizeTitleForMatching,
+  titlesMatch,
+} from './lib/title_matching.js';
+import { extractRegions, isPlatformMatch } from './lib/source_format.js';
+import { stripDiscIndicator } from './lib/queries.js';
+import { getLocalD1Path } from './lib/db.js';
+import {
+  parseNxdumptoolFilename,
+  resolveBestSwitchRevisionMatch,
+} from './lib/switch_revisions.js';
+import { stripEditionSuffix } from './lib/reconcile_releases.js';
+import { CanonicalRelease } from './lib/canonical_releases.js';
+
+export interface PlatformRow {
+  id: number;
+  name: string;
+  display_name: string | null;
+  brand: string | null;
+  launch_date: string | null;
+  parent_platform_id: number | null;
+}
+
+export interface ReleaseRow {
+  id: string;
+  game_id: number;
+  title: string;
+  rom_name: string;
+  stable_id: number;
+  region: string | null;
+  ownership_status?: number;
+  variants?: string | null;
+  rom_crc?: string | null;
+  serial_code?: string | null;
+}
+
+/**
+ * Valid game file extensions to verify base-name matching.
+ */
+export const GAME_EXTENSIONS = new Set([
+  '.psv',
+  '.rvz',
+  '.gcm',
+  '.iso',
+  '.wux',
+  '.wud',
+  '.chd',
+  '.cso',
+  '.pbp',
+  '.bin',
+  '.cue',
+  '.md',
+  '.gg',
+  '.sms',
+  '.a26',
+  '.a52',
+  '.a78',
+  '.lnx',
+  '.col',
+  '.int',
+  '.zip',
+  '.7z',
+  '.rar',
+  '.gba',
+  '.gbc',
+  '.gb',
+  '.nes',
+  '.sfc',
+  '.smc',
+  '.nds',
+  '.3ds',
+  '.cci',
+  '.cia',
+  '.z64',
+  '.n64',
+  '.v64',
+  '.wbfs',
+  '.ciso',
+  '.tgc',
+  '.gcz',
+  '.wad',
+  '.gdi',
+  '.cdi',
+  '.unh',
+  '.img',
+  '.mdf',
+  '.nrg',
+  '.gen',
+  '.smd',
+  '.pkg',
+  '.dax',
+  '.vb',
+  '.j64',
+  '.jag',
+  '.ngp',
+  '.ngc',
+  '.neo',
+  '.ws',
+  '.wsc',
+  '.pce',
+  '.fds',
+  '.xci',
+  '.nsp',
+  '.wua',
+  '.xiso.iso',
+]);
+
+/**
+ * Standardizes platform names to facilitate mapping between folder names and database entries.
+ *
+ * @param name The platform name string.
+ * @returns Cleaned alphanumeric lowercase platform string.
+ */
+function cleanPlatformName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(
+      /\b(nintendo|sony|sega|microsoft|philips|atari|tiger|snk|nec)\b/gi,
+      '',
+    )
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Resolves platform ID to an array of platform IDs that are scanned together.
+ * Specifically, NES (13) and Famicom (53) are mapped symmetrically,
+ * and child platforms (e.g. PSVR under PS4, PSVR2 under PS5, New 3DS under 3DS)
+ * are included when scanning parent platforms.
+ *
+ * @param platformId The database platform ID.
+ * @param allPlatforms Optional list of all platforms to resolve dynamic parent/child relationships.
+ * @returns Array of scanned platform IDs.
+ */
+export function getScannedPlatformIds(
+  platformId: number,
+  allPlatforms?: PlatformRow[],
+): number[] {
+  const ids = new Set<number>([platformId]);
+
+  // Symmetrical platforms (NES & Famicom)
+  if (platformId === 13 || platformId === 53) {
+    return [13, 53];
+  }
+
+  // Child platforms resolution
+  if (allPlatforms) {
+    for (const p of allPlatforms) {
+      if (p.parent_platform_id === platformId) {
+        ids.add(p.id);
+      }
+    }
+  } else {
+    // Known hierarchy fallbacks
+    if (platformId === 34) ids.add(51); // PSVR under PS4
+    if (platformId === 35) ids.add(52); // PSVR2 under PS5
+    if (platformId === 23) ids.add(25); // New 3DS under 3DS
+  }
+
+  return Array.from(ids);
+}
+
+/**
+ * Checks if a file is an ignored non-backup format or sidecar/save state.
+ *
+ * @param filename The filename to evaluate.
+ * @returns True if the file should be ignored from scanning and unmatched alerts.
+ */
+export function isIgnoredFile(filename: string): boolean {
+  const lower = filename.toLowerCase();
+
+  // Exact name matches
+  if (
+    lower === 'param.pbp' ||
+    lower === 'desktop.ini' ||
+    lower === '.ds_store' ||
+    lower === 'thumbs.db'
+  ) {
+    return true;
+  }
+
+  // AppleDouble / macOS metadata
+  if (lower.startsWith('._')) {
+    return true;
+  }
+
+  // Extension matches for saves, sidecars, cheats, artwork, playlists, and checksums
+  const ignoredExtensions = [
+    '.sav',
+    '.srm',
+    '.edat',
+    '.m3u',
+    '.cht',
+    '.nfo',
+    '.sfv',
+    '.md5',
+    '.sha1',
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.webp',
+    '.gif',
+    '.mp4',
+    '.txt',
+    '.xml',
+    '.pdf',
+    '.nvram',
+    '.eeprom',
+    '.hi',
+    '.fs',
+  ];
+
+  if (ignoredExtensions.some((ext) => lower.endsWith(ext))) {
+    return true;
+  }
+
+  // State files (e.g. .state, .state1, .state.auto)
+  if (/\.state(\d+|\.auto)?$/i.test(lower)) {
+    return true;
+  }
+
+  // Multi-track secondary .bin audio/data files (e.g. Track 2.bin, Track 02.bin, Track 2 of 5.bin)
+  // Track 1 is retained as the primary entry for bin/cue releases.
+  if (/(?:track|side)\s*(?:0?[2-9]|[1-9]\d+).*\.bin$/i.test(lower)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Helper to split a filename into base title and extension.
+ * Correctly handles double extensions like '.xiso.iso' by stripping both.
+ * Also normalizes title format (like converting 'Title, The' to 'The Title').
+ *
+ * @param filename The base filename.
+ * @returns Object containing the cleaned base name and the extension.
+ */
+export function getGameFileParts(filename: string): {
+  base: string;
+  ext: string;
+} {
+  const lower = filename.toLowerCase();
+
+  let ext: string;
+  let base: string;
+  if (lower.endsWith('.xiso.iso')) {
+    ext = '.xiso.iso';
+    base = filename.substring(0, filename.length - 9);
+  } else {
+    ext = path.parse(lower).ext;
+    base = path.parse(filename).name;
+  }
+
+  // Clean parentheticals and brackets from the base title
+  let baseTitle = base
+    .replace(/\s*[([][^\])]*[)\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Handle ", The" and ", A" suffix
+  if (baseTitle.includes(', The')) {
+    baseTitle = 'The ' + baseTitle.replace(', The', '');
+  } else if (baseTitle.includes(', A')) {
+    baseTitle = 'A ' + baseTitle.replace(', A', '');
+  }
+
+  return {
+    base: baseTitle,
+    ext: ext.toLowerCase(),
+  };
+}
+
+/**
+ * Splits a base title into individual segments based on delimiters (~, /, :, -).
+ *
+ * @param baseTitle The cleaned base title.
+ * @returns Array of segment strings.
+ */
+export function getTitleSegments(baseTitle: string): string[] {
+  let normalized = baseTitle.replace(/\s+-\s+/g, '___SPLIT___');
+  normalized = normalized.replace(/[~/:]/g, '___SPLIT___');
+  return normalized
+    .split('___SPLIT___')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Maps a subdirectory name to a database platform definition using name cleaning and fallbacks.
+ *
+ * @param subDirName Name of the directory.
+ * @param dbPlatforms Array of platform records from the database.
+ * @returns The matched platform database record, or null if no match is found.
+ */
+export function findDbPlatform(
+  subDirName: string,
+  dbPlatforms: PlatformRow[],
+): PlatformRow | null {
+  const datClean = cleanPlatformName(subDirName);
+  const lowerDat = subDirName.toLowerCase();
+
+  // 1. Check if dat_format's isPlatformMatch directly matches any platform
+  for (const p of dbPlatforms) {
+    if (
+      isPlatformMatch(subDirName, {
+        id: p.id,
+        name: p.name,
+        display_name: p.display_name || p.name,
+      })
+    ) {
+      return p;
+    }
+  }
+
+  // 2. Explicit fallbacks table with abbreviations (snes, ps1, n64, gba, etc.)
+  const fallbacks: Record<string, string> = {
+    'pc engine cd & turbografx cd': 'turbografx cd',
+    'pc engine cd': 'turbografx cd',
+    'turbografx cd': 'turbografx cd',
+    'mega cd': 'sega cd',
+    'sega cd': 'sega cd',
+    'pc engine': 'turbografx-16',
+    turbografx: 'turbografx-16',
+    'super nintendo entertainment system':
+      'super nintendo entertainment system',
+    'nintendo entertainment system': 'nintendo entertainment system',
+    megadrive: 'genesis',
+    'mega drive': 'genesis',
+    genesis: 'genesis',
+    gameboy: 'game boy',
+    'game boy color': 'game boy color',
+    'game boy advance': 'game boy advance',
+    'nintendo 64': 'nintendo 64',
+    'nintendo ds': 'nintendo ds',
+    'nintendo switch 2': 'nintendo switch 2',
+    'switch 2': 'nintendo switch 2',
+    'nintendo switch': 'nintendo switch',
+    switch: 'nintendo switch',
+    snes: 'super nintendo entertainment system',
+    nes: 'nintendo entertainment system',
+    n64: 'nintendo 64',
+    gamecube: 'nintendo gamecube',
+    ngc: 'nintendo gamecube',
+    gc: 'nintendo gamecube',
+    gba: 'game boy advance',
+    gbc: 'game boy color',
+    gb: 'game boy',
+    nds: 'nintendo ds',
+    ds: 'nintendo ds',
+    '3ds': 'nintendo 3ds',
+    n3ds: 'new nintendo 3ds',
+    'new 3ds': 'new nintendo 3ds',
+    ps1: 'playstation',
+    psx: 'playstation',
+    ps2: 'playstation 2',
+    ps3: 'playstation 3',
+    ps4: 'playstation 4',
+    ps5: 'playstation 5',
+    psp: 'playstation portable',
+    psvita: 'playstation vita',
+    vita: 'playstation vita',
+    psvr2: 'playstation vr2',
+    psvr: 'playstation vr',
+    'xbox 360': 'xbox 360',
+    xbox360: 'xbox 360',
+    'xbox one': 'xbox one',
+    xboxone: 'xbox one',
+    'xbox series x': 'xbox series x',
+    'xbox series': 'xbox series x',
+    xboxseries: 'xbox series x',
+    xboxseriesx: 'xbox series x',
+    xbox: 'xbox',
+    saturn: 'sega saturn',
+    dreamcast: 'dreamcast',
+    'game gear': 'sega game gear',
+    gamegear: 'sega game gear',
+    'master system': 'sega master system',
+    mastersystem: 'sega master system',
+    '32x': 'sega 32x',
+    tg16: 'turbografx-16',
+    pce: 'turbografx-16',
+    'neo geo pocket color': 'neo geo pocket color',
+    'neo geo cd': 'neo geo cd',
+    'neo geo x': 'neo geo x',
+    'neo geo aes': 'neo geo aes',
+    'neo geo': 'neo geo aes',
+    neogeo: 'neo geo aes',
+  };
+
+  const sortedFallbackKeys = Object.keys(fallbacks).sort(
+    (a, b) => b.length - a.length,
+  );
+
+  for (const key of sortedFallbackKeys) {
+    const dbVal = fallbacks[key];
+    if (
+      lowerDat === key ||
+      lowerDat === key.replace(/\s+/g, '') ||
+      new RegExp(`\\b${key}\\b`, 'i').test(lowerDat)
+    ) {
+      const matched = dbPlatforms.find((p) => {
+        const pName = (p.display_name || p.name).toLowerCase();
+        return pName === dbVal || pName.includes(dbVal);
+      });
+      if (matched) return matched;
+    }
+  }
+
+  // 3. Exact cleaned match
+  for (const p of dbPlatforms) {
+    const pClean = cleanPlatformName(p.display_name || p.name);
+    if (pClean === datClean) {
+      return p;
+    }
+  }
+
+  // 4. Substring match: only match if the directory name contains the platform name
+  // Sorted by clean name length descending so specific platforms (e.g. "switch2") match before ("switch")
+  const sortedPlatforms = [...dbPlatforms].sort((a, b) => {
+    const cleanA = cleanPlatformName(a.display_name || a.name);
+    const cleanB = cleanPlatformName(b.display_name || b.name);
+    return cleanB.length - cleanA.length;
+  });
+
+  for (const p of sortedPlatforms) {
+    const pClean = cleanPlatformName(p.display_name || p.name);
+    if (pClean.length > 2 && datClean.includes(pClean)) {
+      return p;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Recursively scans a directory and retrieves all file paths.
+ *
+ * @param dir Path to the directory.
+ * @returns An array of absolute file paths found.
+ */
+function getFilesRecursive(dir: string): string[] {
+  let results: string[] = [];
+  try {
+    const list = fs.readdirSync(dir);
+    for (const file of list) {
+      const fullPath = path.join(dir, file);
+      const stat = fs.statSync(fullPath);
+      if (stat && stat.isDirectory()) {
+        // Detect container directories (e.g. Vita / PS3 / Xbox folder dumps)
+        const isGameContainer =
+          fs.existsSync(path.join(fullPath, 'eboot.bin')) ||
+          fs.existsSync(path.join(fullPath, 'sce_sys', 'param.sfo')) ||
+          fs.existsSync(path.join(fullPath, 'default.xex'));
+
+        if (isGameContainer) {
+          // Treat container folder as a virtual .zip archive without recursing into internal assets
+          results.push(path.join(dir, `${file}.zip`));
+        } else {
+          results = results.concat(getFilesRecursive(fullPath));
+        }
+      } else {
+        results.push(fullPath);
+      }
+    }
+  } catch (err) {
+    console.error(`Error reading directory ${dir}:`, err);
+  }
+  return results;
+}
+
+/**
+ * Normalizes region strings to handle common equivalent representations
+ * (e.g. NA, USA, North America) when comparing game and release regions.
+ *
+ * @param region The region string to normalize.
+ * @returns Array of normalized region parts.
+ */
+function normalizeRegion(region: string | null): string[] {
+  if (!region) return [];
+  return region
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .map((part) => {
+      const p = part.trim();
+      if (
+        p === 'na' ||
+        p === 'usa' ||
+        p === 'us' ||
+        p === 'northamerica' ||
+        p === 'north america'
+      ) {
+        return 'usa';
+      }
+      if (p === 'jp' || p === 'jpn' || p === 'japan') {
+        return 'japan';
+      }
+      if (p === 'eu' || p === 'eur' || p === 'europe') {
+        return 'europe';
+      }
+      return p;
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Compares two region strings and determines if there is any overlap
+ * after resolving regional equivalences and World compatibility.
+ *
+ * @param reg1 First region string.
+ * @param reg2 Second region string.
+ * @returns True if the regions match, false otherwise.
+ */
+function regionsMatch(reg1: string | null, reg2: string | null): boolean {
+  if (!reg1 || !reg2) return false;
+  const parts1 = normalizeRegion(reg1);
+  const parts2 = normalizeRegion(reg2);
+  if (parts1.includes('world') || parts2.includes('world')) {
+    return true;
+  }
+  return parts1.some((p1) => parts2.includes(p1));
+}
+
+/**
+ * Retrieves the base filename prior to the extension.
+ * Correctly handles double extensions like '.xiso.iso' by stripping both.
+ *
+ * @param filename The full filename.
+ * @returns The base filename string.
+ */
+function getBaseName(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.xiso.iso')) {
+    return filename.substring(0, filename.length - 9);
+  }
+  return path.parse(filename).name;
+}
+
+/**
+ * Normalizes a ROM base name for tolerant comparison by:
+ * - Lowercasing and trimming
+ * - Stripping Track 1 indicator (e.g. "(Track 1)", "(Track 01)")
+ * - Stripping disc indicators (e.g. "Disc 1", "(Disc 2)")
+ * - Normalizing "Megaman" <-> "Mega Man"
+ * - Normalizing regional tag variants: "(USA, Canada)", "(Canada, USA)", "(US)" -> "(USA)"
+ *
+ * @param base The base filename prior to the extension.
+ * @returns Normalized base string for comparison.
+ */
+export function normalizeRomBaseForMatching(base: string): string {
+  let s = base.toLowerCase().trim();
+
+  // Strip Track 1 indicator (e.g. "(Track 1)", "(Track 01)")
+  s = s.replace(/[-_\s]*\(track\s+0*1\)/gi, '');
+
+  // Strip Redump language tags (e.g. "(En,Ja,Fr,De,Es)", "(En,Fr)", "(En,Es)", etc.)
+  s = s.replace(
+    /\(\s*(?:en|ja|fr|de|es|it|nl|pt|sv|no|da|fi|ko|zh|ru|pl)(?:\s*,\s*(?:en|ja|fr|de|es|it|nl|pt|sv|no|da|fi|ko|zh|ru|pl))*\s*\)/gi,
+    '',
+  );
+
+  // Strip Disc indicator (using existing disc stripping logic)
+  s = stripDiscIndicator(s);
+
+  // Normalize "Megaman" <-> "Mega Man"
+  s = s.replace(/\bmegaman\b/gi, 'mega man');
+
+  // Normalize regional tag variants: (USA, Canada), (Canada, USA), (US) -> (USA)
+  s = s.replace(/\(\s*usa\s*,\s*canada\s*\)/gi, '(usa)');
+  s = s.replace(/\(\s*canada\s*,\s*usa\s*\)/gi, '(usa)');
+  s = s.replace(/\(\s*us\s*\)/gi, '(usa)');
+
+  // Normalize multiple spaces
+  s = s.replace(/\s+/g, ' ').trim();
+
+  return s;
+}
+
+/**
+ * Extracts a normalized disc index or indicator (e.g. "1", "2", "a", "b") from a filename.
+ *
+ * @param filename The ROM or release filename.
+ * @returns The lowercase disc identifier if present, or null.
+ */
+export function extractDiscNumber(
+  filename: string | null | undefined,
+): string | null {
+  if (!filename) return null;
+  const match = filename.match(
+    /[-_\s]*\(?Disc\s+([a-zA-Z0-9]+)(?:\s+of\s+[0-9]+|\s*[/\\\\]\s*[0-9]+)?\)?/i,
+  );
+  return match ? match[1].toLowerCase() : null;
+}
+
+/**
+ * Resolves the best physical release match for a given backup file.
+ * Case-Insensitive Mode: Base name matches case-insensitively with compatible extensions.
+ * Multi-Disc Sets: Automatically preserves disc indices (e.g. Disc 2 strictly matches Disc 2).
+ * Normalized Matching: Automatically normalizes Megaman spacing, (USA)/(USA, Canada) tags, Track 1, and Redump languages.
+ * Regional Fallback: Matches clean base names when regions are compatible (e.g. Retro-Bit World reprint matching USA backup).
+ *
+ * @param filename The backup filename.
+ * @param releases Array of physical database releases on the platform.
+ * @returns The best matched release database record, or null.
+ */
+export function findBestReleaseMatch(
+  filename: string,
+  releases: ReleaseRow[],
+): ReleaseRow | null {
+  const fileParts = getGameFileParts(filename);
+  const fileBase = getBaseName(filename).toLowerCase();
+  const fileExt = fileParts.ext.toLowerCase();
+  const fileDisc = extractDiscNumber(filename);
+  const fileRegion = extractRegions(filename);
+
+  // 1. Direct case-insensitive base name match with compatible extension
+  for (const r of releases) {
+    const romParts = getGameFileParts(r.rom_name);
+    const romBase = getBaseName(r.rom_name).toLowerCase();
+    const romExt = romParts.ext.toLowerCase();
+
+    const baseMatches = fileBase === romBase;
+    const extMatches =
+      fileExt === romExt ||
+      (GAME_EXTENSIONS.has(fileExt) && GAME_EXTENSIONS.has(romExt));
+
+    if (baseMatches && extMatches) {
+      return r;
+    }
+  }
+
+  // 1b. Title ID / Serial Code match (e.g. PCSE00120, PCSE-00120, PCSB00074, SLUS-20001)
+  const fileBaseRaw = getBaseName(filename);
+  if (
+    /^[A-Z]{3,4}-?\d{4,5}$/i.test(fileBaseRaw) ||
+    /^[A-Z]{3,4}-?\d{4,5}$/i.test(fileParts.base)
+  ) {
+    const cleanFileCode = (fileBaseRaw || fileParts.base)
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase();
+    const serialMatch = releases.find((r) => {
+      if (!r.serial_code) return false;
+      const cleanRelCode = r.serial_code
+        .replace(/[^a-z0-9]/gi, '')
+        .toUpperCase();
+      return cleanRelCode === cleanFileCode;
+    });
+    if (serialMatch) {
+      return serialMatch;
+    }
+  }
+
+  // 2. Normalized base name match with multi-disc preservation
+  // Resolves "Megaman" <-> "Mega Man", "(USA)" <-> "(USA, Canada)", "(Track 1)", Redump language tags,
+  // and disc indicators while strictly prioritizing disc-to-disc matching when a disc indicator is present.
+  const fileNormBase = normalizeRomBaseForMatching(fileBaseRaw);
+  const matchingCandidates: ReleaseRow[] = [];
+
+  for (const r of releases) {
+    const romParts = getGameFileParts(r.rom_name);
+    const romExt = romParts.ext.toLowerCase();
+    const extMatches =
+      fileExt === romExt ||
+      (GAME_EXTENSIONS.has(fileExt) && GAME_EXTENSIONS.has(romExt));
+
+    if (!extMatches) continue;
+
+    const romNormBase = normalizeRomBaseForMatching(getBaseName(r.rom_name));
+    if (fileNormBase.length > 0 && fileNormBase === romNormBase) {
+      matchingCandidates.push(r);
+    }
+  }
+
+  if (matchingCandidates.length > 0) {
+    if (fileDisc) {
+      // If backup has Disc N, strictly match candidate with Disc N
+      const discMatch = matchingCandidates.find(
+        (r) => extractDiscNumber(r.rom_name) === fileDisc,
+      );
+      if (discMatch) return discMatch;
+    } else {
+      // If backup does NOT specify a disc (e.g. merged multi-disc CHD), prefer Disc 1
+      const disc1Match = matchingCandidates.find(
+        (r) => extractDiscNumber(r.rom_name) === '1',
+      );
+      if (disc1Match) return disc1Match;
+    }
+    return matchingCandidates[0];
+  }
+
+  // 3. Cleaned base name match with region compatibility (e.g. Retro-Bit World reprint matching USA backup)
+  const fileBaseClean = fileParts.base.toLowerCase();
+  const cleanCandidates: ReleaseRow[] = [];
+  for (const r of releases) {
+    const romParts = getGameFileParts(r.rom_name);
+    const romBaseClean = romParts.base.toLowerCase();
+    const romExt = romParts.ext.toLowerCase();
+    const extMatches =
+      fileExt === romExt ||
+      (GAME_EXTENSIONS.has(fileExt) && GAME_EXTENSIONS.has(romExt));
+
+    if (
+      fileBaseClean === romBaseClean &&
+      extMatches &&
+      (!fileRegion || !r.region || regionsMatch(fileRegion, r.region))
+    ) {
+      cleanCandidates.push(r);
+    }
+  }
+
+  if (cleanCandidates.length > 0) {
+    // 0. Prefer exact disc match if backup filename specifies a disc
+    if (fileDisc) {
+      const discMatch = cleanCandidates.find(
+        (r) => extractDiscNumber(r.rom_name) === fileDisc,
+      );
+      if (discMatch) return discMatch;
+    }
+
+    // 1. Prefer physically owned release if available
+    const ownedCandidate = cleanCandidates.find(
+      (r) => r.ownership_status === 1,
+    );
+    if (ownedCandidate) return ownedCandidate;
+
+    // 2. Prefer standard cartridge/disc releases over plug-and-play / mini console ROMs
+    const physicalCartCandidate = cleanCandidates.find(
+      (r) => !r.variants?.match(/mini|virtual console/i),
+    );
+    if (physicalCartCandidate) return physicalCartCandidate;
+
+    return cleanCandidates[0];
+  }
+
+  return null;
+}
+
+/**
+ * Identifies a tolerant release match for alerting when base name mismatch occurs.
+ *
+ * @param filename The backup filename.
+ * @param releases Array of physical database releases on the platform.
+ * @returns The best tolerantly matched release database record, or null.
+ */
+export function findTolerantReleaseMatch(
+  filename: string,
+  releases: ReleaseRow[],
+): ReleaseRow | null {
+  const fileParts = getGameFileParts(filename);
+  const fileBase = getBaseName(filename).toLowerCase();
+  const fileExt = fileParts.ext.toLowerCase();
+  const fileRegion = extractRegions(filename);
+
+  // 0. Case-insensitive exact base name match
+  for (const r of releases) {
+    const romBase = getBaseName(r.rom_name).toLowerCase();
+    const romParts = getGameFileParts(r.rom_name);
+    const romExt = romParts.ext.toLowerCase();
+    if (
+      fileBase === romBase &&
+      GAME_EXTENSIONS.has(fileExt) &&
+      GAME_EXTENSIONS.has(romExt)
+    ) {
+      return r;
+    }
+  }
+
+  // 1. Cleaned base name match (without parentheticals) AND region compatibility
+  for (const r of releases) {
+    const romParts = getGameFileParts(r.rom_name);
+    const fileBaseClean = fileParts.base.toLowerCase();
+    const romBaseClean = romParts.base.toLowerCase();
+    const romExt = romParts.ext.toLowerCase();
+    if (
+      fileBaseClean === romBaseClean &&
+      GAME_EXTENSIONS.has(fileExt) &&
+      GAME_EXTENSIONS.has(romExt)
+    ) {
+      if (!fileRegion || !r.region || regionsMatch(fileRegion, r.region)) {
+        return r;
+      }
+    }
+  }
+
+  // 2. Canonical title matching engine (using shared titlesMatch)
+  for (const r of releases) {
+    const romParts = getGameFileParts(r.rom_name);
+    const romExt = romParts.ext.toLowerCase();
+    if (GAME_EXTENSIONS.has(fileExt) && GAME_EXTENSIONS.has(romExt)) {
+      if (
+        titlesMatch(fileParts.base, romParts.base, r.rom_name) ||
+        normalizeTitleForMatching(fileParts.base) ===
+          normalizeTitleForMatching(romParts.base)
+      ) {
+        if (!fileRegion || !r.region || regionsMatch(fileRegion, r.region)) {
+          return r;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Checks if a filename matches a Sonic & Knuckles lock-on combination warning exception.
+ *
+ * @param filename The backup file name.
+ * @returns True if it's one of the lock-on combinations.
+ */
+function isSonicKnucklesException(filename: string): boolean {
+  const nameLower = filename.toLowerCase();
+  const exceptions = [
+    'sonic & knuckles + sonic the hedgehog (usa, europe) (lock-on combination).md',
+    'sonic & knuckles + sonic the hedgehog 2 (world) (rev a) (lock-on combination).md',
+    'sonic & knuckles + sonic the hedgehog 3 (usa) (lock-on combination).md',
+  ];
+  return exceptions.includes(nameLower);
+}
+
+export interface ReleaseDiffRow {
+  id: string;
+  game_id: number;
+  title: string;
+  platform_name: string;
+  rom_name: string;
+  backup_status: number;
+  ownership_status?: number;
+}
+
+export interface GameDiffRow {
+  stable_id: number;
+  title: string;
+  platform_id: number;
+  platform_name: string;
+  backup_status?: number;
+}
+
+export interface NetDiffResult {
+  releases: {
+    newlyBackedUp: ReleaseDiffRow[];
+    lostBackup: ReleaseDiffRow[];
+    unchangedBackedUpCount: number;
+    unchangedUnbackedCount: number;
+    totalTargetBackedUp: number;
+  };
+  games: {
+    newlyBackedUp: GameDiffRow[];
+    lostBackup: GameDiffRow[];
+    unchangedBackedUpCount: number;
+    unchangedUnbackedCount: number;
+    totalTargetBackedUp: number;
+  };
+}
+
+export function computeBackupNetDiffs(
+  priorReleases: ReleaseDiffRow[],
+  priorGames: GameDiffRow[],
+  matchedReleaseIds: Set<string>,
+): NetDiffResult {
+  const newlyBackedUpReleases: ReleaseDiffRow[] = [];
+  const lostBackupReleases: ReleaseDiffRow[] = [];
+  let unchangedBackedUpReleasesCount = 0;
+  let unchangedUnbackedReleasesCount = 0;
+
+  for (const r of priorReleases) {
+    const isMatched = matchedReleaseIds.has(r.id);
+    if (isMatched) {
+      if (r.backup_status === 0) {
+        newlyBackedUpReleases.push(r);
+      } else {
+        unchangedBackedUpReleasesCount++;
+      }
+    } else {
+      if (r.backup_status === 1) {
+        lostBackupReleases.push(r);
+      } else {
+        unchangedUnbackedReleasesCount++;
+      }
+    }
+  }
+
+  const releasesByGame = new Map<number, ReleaseDiffRow[]>();
+  for (const r of priorReleases) {
+    if (!releasesByGame.has(r.game_id)) {
+      releasesByGame.set(r.game_id, []);
+    }
+    releasesByGame.get(r.game_id)!.push(r);
+  }
+
+  const newlyBackedUpGames: GameDiffRow[] = [];
+  const lostBackupGames: GameDiffRow[] = [];
+  let unchangedBackedUpGamesCount = 0;
+  let unchangedUnbackedGamesCount = 0;
+
+  for (const g of priorGames) {
+    const gRels = releasesByGame.get(g.stable_id) || [];
+    const owned = gRels.filter((r) => r.ownership_status === 1);
+    const targetRels = owned.length > 0 ? owned : gRels;
+
+    const priorBackedUp =
+      g.backup_status !== undefined
+        ? g.backup_status
+        : targetRels.length > 0 &&
+            targetRels.every((r) => r.backup_status === 1)
+          ? 1
+          : 0;
+
+    const isTargetBackedUp =
+      targetRels.length > 0 &&
+      targetRels.every((r) => matchedReleaseIds.has(r.id));
+
+    if (isTargetBackedUp) {
+      if (priorBackedUp === 0) {
+        newlyBackedUpGames.push({ ...g, backup_status: 1 });
+      } else {
+        unchangedBackedUpGamesCount++;
+      }
+    } else {
+      if (priorBackedUp === 1) {
+        lostBackupGames.push({ ...g, backup_status: 0 });
+      } else {
+        unchangedUnbackedGamesCount++;
+      }
+    }
+  }
+
+  return {
+    releases: {
+      newlyBackedUp: newlyBackedUpReleases,
+      lostBackup: lostBackupReleases,
+      unchangedBackedUpCount: unchangedBackedUpReleasesCount,
+      unchangedUnbackedCount: unchangedUnbackedReleasesCount,
+      totalTargetBackedUp:
+        newlyBackedUpReleases.length + unchangedBackedUpReleasesCount,
+    },
+    games: {
+      newlyBackedUp: newlyBackedUpGames,
+      lostBackup: lostBackupGames,
+      unchangedBackedUpCount: unchangedBackedUpGamesCount,
+      unchangedUnbackedCount: unchangedUnbackedGamesCount,
+      totalTargetBackedUp:
+        newlyBackedUpGames.length + unchangedBackedUpGamesCount,
+    },
+  };
+}
+
+export function generateBackupDiffMarkdown(
+  diff: NetDiffResult,
+  platformStats: Record<string, { scanned: number; matched: number }>,
+  scanDir: string,
+  mode: 'DRY RUN' | 'APPLY',
+): string {
+  let md = `# Backup Scan Net Diff Report\n\n`;
+  md += `- **Date:** ${new Date().toISOString()}\n`;
+  md += `- **Scanned Directory:** \`${scanDir}\`\n`;
+  md += `- **Execution Mode:** \`${mode}\`\n\n`;
+
+  md += `## Overall Summary\n\n`;
+  md += `| Category | + Newly Backed Up (0 -> 1) | - Lost Backup (1 -> 0) | = Unchanged (1 -> 1) | Total Target Backed Up |\n`;
+  md += `| --- | --- | --- | --- | --- |\n`;
+  md += `| **Releases** | ${diff.releases.newlyBackedUp.length} | ${diff.releases.lostBackup.length} | ${diff.releases.unchangedBackedUpCount} | ${diff.releases.totalTargetBackedUp} |\n`;
+  md += `| **Games** | ${diff.games.newlyBackedUp.length} | ${diff.games.lostBackup.length} | ${diff.games.unchangedBackedUpCount} | ${diff.games.totalTargetBackedUp} |\n\n`;
+
+  md += `## Platform Breakdown\n\n`;
+  md += `| Platform | Files Scanned | Releases Matched |\n`;
+  md += `| --- | --- | --- |\n`;
+  for (const [plat, stats] of Object.entries(platformStats)) {
+    md += `| ${plat} | ${stats.scanned} | ${stats.matched} |\n`;
+  }
+  md += `\n`;
+
+  if (diff.releases.newlyBackedUp.length > 0) {
+    md += `## Newly Backed Up Releases (+0 -> 1) (${diff.releases.newlyBackedUp.length})\n\n`;
+    md += `| Platform | Game Title | ROM Name | Release ID |\n`;
+    md += `| --- | --- | --- | --- |\n`;
+    for (const r of diff.releases.newlyBackedUp) {
+      md += `| ${r.platform_name} | ${r.title} | ${r.rom_name} | \`${r.id}\` |\n`;
+    }
+    md += `\n`;
+  }
+
+  if (diff.releases.lostBackup.length > 0) {
+    md += `## Releases Losing Backup Status (-1 -> 0) (${diff.releases.lostBackup.length})\n\n`;
+    md += `| Platform | Game Title | ROM Name | Release ID |\n`;
+    md += `| --- | --- | --- | --- |\n`;
+    for (const r of diff.releases.lostBackup) {
+      md += `| ${r.platform_name} | ${r.title} | ${r.rom_name} | \`${r.id}\` |\n`;
+    }
+    md += `\n`;
+  }
+
+  if (diff.games.newlyBackedUp.length > 0) {
+    md += `## Newly Backed Up Games (+0 -> 1) (${diff.games.newlyBackedUp.length})\n\n`;
+    md += `| Platform | Game Title | Stable ID |\n`;
+    md += `| --- | --- | --- |\n`;
+    for (const g of diff.games.newlyBackedUp) {
+      md += `| ${g.platform_name} | ${g.title} | ${g.stable_id} |\n`;
+    }
+    md += `\n`;
+  }
+
+  if (diff.games.lostBackup.length > 0) {
+    md += `## Games Losing Backup Status (-1 -> 0) (${diff.games.lostBackup.length})\n\n`;
+    md += `| Platform | Game Title | Stable ID |\n`;
+    md += `| --- | --- | --- |\n`;
+    for (const g of diff.games.lostBackup) {
+      md += `| ${g.platform_name} | ${g.title} | ${g.stable_id} |\n`;
+    }
+    md += `\n`;
+  }
+
+  return md;
+}
+
+export interface ScanBackupsOptions {
+  backupDir: string;
+  dryRun?: boolean;
+  apply?: boolean;
+  dbPath?: string;
+  sqlOutputPath?: string;
+  diffOutputPath?: string;
+  mismatchOutputPath?: string;
+}
+
+export interface ScanBackupsResult {
+  totalScannedFiles: number;
+  totalMatchedReleases: number;
+  allMatchedReleaseIds: Set<string>;
+  diff: NetDiffResult;
+  baseNameMismatchAlerts: {
+    file: string;
+    game: string;
+    rom: string;
+    platform: string;
+  }[];
+  platformStats: Record<string, { scanned: number; matched: number }>;
+}
+
+export function scanBackups(options: ScanBackupsOptions): ScanBackupsResult {
+  const backupDir = path.resolve(options.backupDir);
+  const isDryRun = options.dryRun ?? !options.apply;
+
+  console.log(`Starting backup scan on: ${backupDir}`);
+  console.log(
+    'Safety check: Backup folder is treated as strictly read-only.\n',
+  );
+
+  if (isDryRun) {
+    console.log(
+      '[Mode: DRY RUN] Calculating net diffs without modifying database.\n',
+    );
+  } else {
+    console.log('[Mode: APPLY] Modifying local database with updates.\n');
+  }
+
+  const dbPath = options.dbPath || getLocalD1Path();
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`Database not found at ${dbPath}`);
+  }
+  const db = new Database(dbPath);
+
+  try {
+    const dbPlatforms = db
+      .prepare('SELECT * FROM platforms')
+      .all() as PlatformRow[];
+
+    // Read subdirectories in the backup directory
+    const subDirs = fs.readdirSync(backupDir).filter((f) => {
+      const fullPath = path.join(backupDir, f);
+      return fs.statSync(fullPath).isDirectory();
+    });
+
+    if (subDirs.length === 0) {
+      console.log('No platform subdirectories found in the backup directory.');
+      return {
+        totalScannedFiles: 0,
+        totalMatchedReleases: 0,
+        allMatchedReleaseIds: new Set<string>(),
+        diff: {
+          releases: {
+            newlyBackedUp: [],
+            lostBackup: [],
+            unchangedBackedUpCount: 0,
+            unchangedUnbackedCount: 0,
+            totalTargetBackedUp: 0,
+          },
+          games: {
+            newlyBackedUp: [],
+            lostBackup: [],
+            unchangedBackedUpCount: 0,
+            unchangedUnbackedCount: 0,
+            totalTargetBackedUp: 0,
+          },
+        },
+        baseNameMismatchAlerts: [],
+        platformStats: {},
+      };
+    }
+
+    // Pre-calculate scanned platform IDs across present subdirectories
+    const allScannedPlatformIds = new Set<number>();
+    for (const subDir of subDirs) {
+      const dbPlatform = findDbPlatform(subDir, dbPlatforms);
+      if (dbPlatform) {
+        const ids = getScannedPlatformIds(dbPlatform.id, dbPlatforms);
+        ids.forEach((id) => allScannedPlatformIds.add(id));
+      }
+    }
+
+    // Query prior state BEFORE any resets or changes
+    let priorReleases: ReleaseDiffRow[] = [];
+    let priorGames: GameDiffRow[] = [];
+
+    if (allScannedPlatformIds.size > 0) {
+      const platPlaceholders = Array.from(allScannedPlatformIds)
+        .map(() => '?')
+        .join(',');
+
+      priorReleases = db
+        .prepare(
+          `
+        SELECT r.id, r.game_id, g.title, COALESCE(p.display_name, p.name) as platform_name, r.rom_name, COALESCE(r.backup_status, 0) as backup_status, COALESCE(r.ownership_status, 0) as ownership_status
+        FROM game_releases r
+        JOIN games g ON r.game_id = g.stable_id
+        JOIN platforms p ON g.platform_id = p.id
+        WHERE g.platform_id IN (${platPlaceholders})
+      `,
+        )
+        .all(...allScannedPlatformIds) as ReleaseDiffRow[];
+
+      const rawGames = db
+        .prepare(
+          `
+        SELECT g.stable_id, g.title, g.platform_id, COALESCE(p.display_name, p.name) as platform_name
+        FROM games g
+        JOIN platforms p ON g.platform_id = p.id
+        WHERE g.platform_id IN (${platPlaceholders})
+      `,
+        )
+        .all(...allScannedPlatformIds) as Array<{
+        stable_id: number;
+        title: string;
+        platform_id: number;
+        platform_name: string;
+      }>;
+
+      const releasesByGame = new Map<number, ReleaseDiffRow[]>();
+      for (const r of priorReleases) {
+        if (!releasesByGame.has(r.game_id)) {
+          releasesByGame.set(r.game_id, []);
+        }
+        releasesByGame.get(r.game_id)!.push(r);
+      }
+
+      priorGames = rawGames.map((g) => {
+        const gRels = releasesByGame.get(g.stable_id) || [];
+        const owned = gRels.filter((r) => r.ownership_status === 1);
+        const targetRels = owned.length > 0 ? owned : gRels;
+        const isBackedUp =
+          targetRels.length > 0 &&
+          targetRels.every((r) => r.backup_status === 1)
+            ? 1
+            : 0;
+        return {
+          ...g,
+          backup_status: isBackedUp,
+        };
+      });
+    }
+
+    let totalScannedFiles = 0;
+    let totalMatchedReleases = 0;
+    const platformStats: Record<string, { scanned: number; matched: number }> =
+      {};
+    const baseNameMismatchAlerts: {
+      file: string;
+      game: string;
+      rom: string;
+      platform: string;
+    }[] = [];
+    const allMatchedReleaseIds = new Set<string>();
+    const matchedSwitchUpdates: Array<{
+      releaseId: string;
+      romName: string;
+      canonicalReleaseId: number | null;
+      variants: string | null;
+    }> = [];
+
+    for (const subDir of subDirs) {
+      const dbPlatform = findDbPlatform(subDir, dbPlatforms);
+      if (!dbPlatform) {
+        console.warn(
+          `[Platform Skip] Subdirectory "${subDir}" could not be mapped to any database platform.`,
+        );
+        continue;
+      }
+
+      const platformDisplayName = dbPlatform.display_name || dbPlatform.name;
+      const subDirPath = path.join(backupDir, subDir);
+      console.log(
+        `Scanning [${platformDisplayName}] from subdirectory "${subDir}"...`,
+      );
+
+      const rawFiles = getFilesRecursive(subDirPath);
+
+      // Filter ignored files, sidecars, artwork, and system directories
+      const files = rawFiles.filter((f) => {
+        const filename = path.basename(f);
+        return !isIgnoredFile(filename);
+      });
+
+      if (!platformStats[platformDisplayName]) {
+        platformStats[platformDisplayName] = { scanned: 0, matched: 0 };
+      }
+      platformStats[platformDisplayName].scanned += files.length;
+      totalScannedFiles += files.length;
+
+      if (files.length === 0) {
+        console.log(
+          `  No files found under "${subDir}" after filtering ignored files.`,
+        );
+        continue;
+      }
+
+      // Load game releases for this platform & hierarchy
+      const platformIds = getScannedPlatformIds(dbPlatform.id, dbPlatforms);
+      const placeholders = platformIds.map(() => '?').join(',');
+
+      const dbReleases = db
+        .prepare(
+          `
+        SELECT r.id, r.game_id, g.title, r.rom_name, r.rom_crc, g.stable_id, r.region, r.ownership_status, r.variants,
+               COALESCE(c.serial_code, NULL) as serial_code
+        FROM game_releases r
+        JOIN games g ON r.game_id = g.stable_id
+        LEFT JOIN canonical_releases c ON r.canonical_release_id = c.id
+        WHERE g.platform_id IN (${placeholders}) AND r.rom_name IS NOT NULL
+      `,
+        )
+        .all(...platformIds) as ReleaseRow[];
+
+      // Load all game releases for fallback uncataloged/regional matching
+      const allPlatformReleases = db
+        .prepare(
+          `
+        SELECT r.id, r.game_id, r.region, r.rom_name, r.rom_crc, r.ownership_status, r.canonical_release_id, r.variants, r.backup_status, r.is_physical
+        FROM game_releases r
+        JOIN games g ON r.game_id = g.stable_id
+        WHERE g.platform_id IN (${placeholders})
+      `,
+        )
+        .all(...platformIds) as Array<{
+        id: string;
+        game_id: number;
+        region: string | null;
+        rom_name: string | null;
+        rom_crc: string | null;
+        ownership_status: number;
+        canonical_release_id: number | null;
+        variants?: string | null;
+        backup_status?: number;
+        is_physical?: number;
+      }>;
+
+      // Load all games for fallback title-matching verification
+      const platformGames = db
+        .prepare(
+          `
+        SELECT stable_id, id, title 
+        FROM games 
+        WHERE platform_id IN (${placeholders})
+      `,
+        )
+        .all(...platformIds) as {
+        stable_id: number;
+        id: string;
+        title: string;
+      }[];
+
+      for (const file of files) {
+        const filename = path.basename(file);
+        if (isSonicKnucklesException(filename)) {
+          console.log(
+            `  [S&K Exception] Skipping unmatched alert for lock-on file: "${filename}"`,
+          );
+          continue;
+        }
+
+        // Nintendo Switch 1 & 2 nxdumptool backup matching
+        if (dbPlatform.id === 26 || dbPlatform.id === 27) {
+          const parsed = parseNxdumptoolFilename(filename);
+          if (parsed.isNxdumptool) {
+            const compMappings: Record<string, string> = {
+              'asteroids: recharged + breakout: recharged':
+                'atari recharged collection 1',
+              'black widow: recharged + centipede: recharged':
+                'atari recharged collection 2',
+              'gravitar: recharged + missile command: recharged':
+                'atari recharged collection 3',
+              'caverns of mars: recharged + yars: recharged':
+                'atari recharged collection 4',
+              '20xx + 30xx': '20xx / 30xx',
+              'axiom verge + axiom verge 2': 'axiom verge 1 & 2 double pack',
+            };
+
+            let matchedGame: {
+              stable_id: number;
+              id: string;
+              title: string;
+            } | null = null;
+            const compKey = parsed.compositeTitle.toLowerCase();
+            if (compMappings[compKey]) {
+              const targetNorm = normalizeTitleForMatching(
+                compMappings[compKey],
+              );
+              matchedGame =
+                platformGames.find(
+                  (g) => normalizeTitleForMatching(g.title) === targetNorm,
+                ) || null;
+            }
+
+            if (!matchedGame) {
+              for (const seg of parsed.segments) {
+                const segNorm = normalizeTitleForMatching(seg.cleanTitle);
+                matchedGame =
+                  platformGames.find((g) => {
+                    const gNorm = normalizeTitleForMatching(g.title);
+                    const strippedNorm = normalizeTitleForMatching(
+                      stripEditionSuffix(g.title),
+                    );
+                    return gNorm === segNorm || strippedNorm === segNorm;
+                  }) || null;
+                if (matchedGame) break;
+              }
+            }
+
+            if (!matchedGame) {
+              for (const g of platformGames) {
+                const segClean = parsed.segments[0].cleanTitle;
+                if (
+                  titlesMatch(g.title, segClean, filename, dbPlatform.id) ||
+                  titlesMatch(
+                    stripEditionSuffix(g.title),
+                    segClean,
+                    filename,
+                    dbPlatform.id,
+                  )
+                ) {
+                  matchedGame = g;
+                  break;
+                }
+                const toTokenStr = (s: string) =>
+                  s
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, '')
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .sort()
+                    .join(' ');
+                if (toTokenStr(g.title) === toTokenStr(segClean)) {
+                  matchedGame = g;
+                  break;
+                }
+              }
+            }
+
+            if (matchedGame) {
+              const canonicalMatches = db
+                .prepare(
+                  `SELECT id, platform_id, raw_title, normalized_title, region, variants, serial_code, source, is_verified_physical
+                   FROM canonical_releases
+                   WHERE platform_id = ? AND (normalized_title = ? OR normalized_title = ?)`,
+                )
+                .all(
+                  dbPlatform.id,
+                  normalizeTitleForMatching(matchedGame.title),
+                  normalizeTitleForMatching(parsed.segments[0].cleanTitle),
+                ) as CanonicalRelease[];
+
+              const gameRels = allPlatformReleases.filter(
+                (r) => r.game_id === matchedGame!.stable_id,
+              );
+              const defaultRel =
+                gameRels.find((r) => r.ownership_status === 1) || gameRels[0];
+
+              const bestRev = resolveBestSwitchRevisionMatch(
+                parsed,
+                canonicalMatches,
+                defaultRel?.region,
+              );
+
+              const targetRel =
+                (bestRev?.id
+                  ? gameRels.find((r) => r.canonical_release_id === bestRev.id)
+                  : undefined) ||
+                (bestRev?.variants
+                  ? gameRels.find(
+                      (r) =>
+                        r.variants &&
+                        r.variants.toLowerCase().trim() ===
+                          bestRev.variants!.toLowerCase().trim(),
+                    )
+                  : undefined) ||
+                defaultRel;
+
+              if (targetRel) {
+                targetRel.rom_name = filename;
+                targetRel.rom_crc = null;
+                targetRel.backup_status = 1;
+                targetRel.is_physical = 1;
+                if (bestRev?.id) targetRel.canonical_release_id = bestRev.id;
+                if (bestRev?.variants) targetRel.variants = bestRev.variants;
+
+                if (!isDryRun) {
+                  db.prepare(
+                    `
+                    UPDATE game_releases
+                    SET rom_name = ?,
+                        canonical_release_id = COALESCE(?, canonical_release_id),
+                        variants = COALESCE(?, variants),
+                        rom_crc = NULL,
+                        backup_status = 1,
+                        is_physical = 1
+                    WHERE id = ?
+                  `,
+                  ).run(
+                    filename,
+                    bestRev?.id || null,
+                    bestRev?.variants || null,
+                    targetRel.id,
+                  );
+                }
+
+                matchedSwitchUpdates.push({
+                  releaseId: targetRel.id,
+                  romName: filename,
+                  canonicalReleaseId: bestRev?.id || null,
+                  variants: bestRev?.variants || null,
+                });
+
+                console.log(
+                  `  [Switch Match] "${filename}" -> "${matchedGame.title}" (${bestRev?.variants || 'Standard'}) [Release: ${targetRel.id}]`,
+                );
+                if (!allMatchedReleaseIds.has(targetRel.id)) {
+                  allMatchedReleaseIds.add(targetRel.id);
+                  platformStats[platformDisplayName].matched++;
+                  totalMatchedReleases++;
+                }
+                continue;
+              }
+            }
+          }
+        }
+
+        const matched = findBestReleaseMatch(filename, dbReleases);
+        if (matched) {
+          console.log(
+            `  [Match Found] "${filename}" -> "${matched.title}" (${matched.rom_name})`,
+          );
+          if (!allMatchedReleaseIds.has(matched.id)) {
+            allMatchedReleaseIds.add(matched.id);
+            platformStats[platformDisplayName].matched++;
+            totalMatchedReleases++;
+          }
+
+          // Propagate to releases of the same game, or to owned box sets/compilations sharing the exact same rom_crc
+          if (matched.rom_crc) {
+            const identicalHashReleases = dbReleases.filter(
+              (r) =>
+                r.rom_crc === matched.rom_crc &&
+                !allMatchedReleaseIds.has(r.id) &&
+                (r.game_id === matched.game_id ||
+                  (r.ownership_status !== undefined && r.ownership_status > 0)),
+            );
+            for (const dup of identicalHashReleases) {
+              console.log(
+                `  [Identical CRC Match] "${matched.rom_crc}" -> "${dup.title}" (${dup.rom_name})`,
+              );
+              allMatchedReleaseIds.add(dup.id);
+              platformStats[platformDisplayName].matched++;
+              totalMatchedReleases++;
+            }
+          }
+        }
+        const matchedRelease = !!matched;
+
+        if (!matchedRelease) {
+          const tolerantMatch = findTolerantReleaseMatch(filename, dbReleases);
+          if (tolerantMatch) {
+            console.warn(
+              `  [ALERT: Base Name Mismatch] Backup file "${filename}" matches game "${tolerantMatch.title}" tolerantly but has differences prior to the extension. Target DB ROM name: "${tolerantMatch.rom_name}"`,
+            );
+            baseNameMismatchAlerts.push({
+              file: filename,
+              game: tolerantMatch.title,
+              rom: tolerantMatch.rom_name,
+              platform: platformDisplayName,
+            });
+          } else {
+            // Fallback title matching: strip parentheticals & extension
+            const fileParts = getGameFileParts(filename);
+            const normFile = normalizeTitleForMatching(fileParts.base);
+            const fileSegments = getTitleSegments(fileParts.base)
+              .map((s) => normalizeTitleForMatching(s))
+              .filter((s) => s.length >= 3);
+
+            let matchedGameDirect: {
+              stable_id: number;
+              id: string;
+              title: string;
+            } | null = null;
+            for (const game of platformGames) {
+              const gameNorm = normalizeTitleForMatching(game.title);
+              if (gameNorm === normFile || fileSegments.includes(gameNorm)) {
+                matchedGameDirect = game;
+                break;
+              }
+            }
+
+            if (matchedGameDirect) {
+              const fileRegion = extractRegions(filename);
+              const gameRels = allPlatformReleases.filter(
+                (r) => r.game_id === matchedGameDirect!.stable_id,
+              );
+
+              // 1. Check if an unlinked/fallback release exists for this game
+              const unlinkedFallback = gameRels.find(
+                (r) => !r.rom_name || r.id.endsWith('-default'),
+              );
+
+              if (unlinkedFallback) {
+                if (!unlinkedFallback.rom_name) {
+                  unlinkedFallback.rom_name = filename;
+                  if (!isDryRun) {
+                    db.prepare(
+                      'UPDATE game_releases SET rom_name = ? WHERE id = ?',
+                    ).run(filename, unlinkedFallback.id);
+                  }
+                }
+                console.log(
+                  `  [Uncataloged Backup Matched] "${filename}" -> "${matchedGameDirect.title}" (${unlinkedFallback.id})`,
+                );
+                if (!allMatchedReleaseIds.has(unlinkedFallback.id)) {
+                  allMatchedReleaseIds.add(unlinkedFallback.id);
+                  platformStats[platformDisplayName].matched++;
+                  totalMatchedReleases++;
+                }
+              } else if (
+                fileRegion &&
+                !gameRels.some(
+                  (r) => r.region && regionsMatch(r.region, fileRegion),
+                )
+              ) {
+                // 2. Region mismatch: game only has releases for other regions (e.g. Japan in DATs, but backup is USA)
+                const regionalSlug = `${matchedGameDirect.id}-${fileRegion.toLowerCase()}-default`;
+                if (!isDryRun) {
+                  db.prepare(
+                    `INSERT OR IGNORE INTO game_releases (id, game_id, region, rom_name, rom_crc, backup_status, ownership_status)
+                     VALUES (?, ?, ?, ?, NULL, 1, 0)`,
+                  ).run(
+                    regionalSlug,
+                    matchedGameDirect.stable_id,
+                    fileRegion,
+                    filename,
+                  );
+                }
+                console.log(
+                  `  [New Regional Release from Backup] "${filename}" -> created "${regionalSlug}" for "${matchedGameDirect.title}"`,
+                );
+                if (!allMatchedReleaseIds.has(regionalSlug)) {
+                  allMatchedReleaseIds.add(regionalSlug);
+                  platformStats[platformDisplayName].matched++;
+                  totalMatchedReleases++;
+                }
+              } else {
+                console.warn(
+                  `  [Release Mismatch Warning] Backup file "${filename}" matched game "${matchedGameDirect.title}" but did not match any physical release in game_releases.`,
+                );
+              }
+            } else {
+              console.error(
+                `  [ALERT] Backup file "${filename}" on platform "${platformDisplayName}" does not correspond to any game in the database!`,
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // Compute net diff
+    const diff = computeBackupNetDiffs(
+      priorReleases,
+      priorGames,
+      allMatchedReleaseIds,
+    );
+
+    // Apply to local SQLite if in APPLY mode
+    if (!isDryRun && allScannedPlatformIds.size > 0) {
+      const platPlaceholders = Array.from(allScannedPlatformIds)
+        .map(() => '?')
+        .join(',');
+      const applyTx = db.transaction(() => {
+        // 1. Scoped reset of game_releases for scanned platforms
+        db.prepare(
+          `UPDATE game_releases SET backup_status = 0 WHERE backup_status != 0 AND game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${platPlaceholders}))`,
+        ).run(...allScannedPlatformIds);
+
+        // 2. Mark matched releases as 1
+        if (allMatchedReleaseIds.size > 0) {
+          const updateStmt = db.prepare(
+            'UPDATE game_releases SET backup_status = 1 WHERE backup_status != 1 AND id = ?',
+          );
+          for (const releaseId of allMatchedReleaseIds) {
+            updateStmt.run(releaseId);
+          }
+        }
+      });
+      applyTx();
+      console.log(
+        '\n[Apply Complete] Local SQLite database updated successfully.',
+      );
+    }
+
+    // Display scan summary
+    console.log('\n========================================');
+    console.log('            SCAN SUMMARY');
+    console.log('========================================');
+    console.log(`Total files scanned: ${totalScannedFiles}`);
+    console.log(`Total releases matched: ${totalMatchedReleases}`);
+    console.log('\nBreakdown by Platform:');
+    for (const [platform, stats] of Object.entries(platformStats)) {
+      console.log(`- ${platform}:`);
+      console.log(`  Scanned: ${stats.scanned} files`);
+      console.log(`  Matched: ${stats.matched} releases`);
+    }
+
+    // Display net diff summary
+    console.log('\n========================================');
+    console.log('            NET DIFF SUMMARY');
+    console.log('========================================');
+    console.log('Releases:');
+    console.log(
+      `  + Newly backed up (0 -> 1): ${diff.releases.newlyBackedUp.length}`,
+    );
+    console.log(
+      `  - Lost backup (1 -> 0):     ${diff.releases.lostBackup.length}`,
+    );
+    console.log(
+      `  = Unchanged backed up:      ${diff.releases.unchangedBackedUpCount}`,
+    );
+    console.log(
+      `  Total target backed up:     ${diff.releases.totalTargetBackedUp}`,
+    );
+    console.log('\nGames:');
+    console.log(
+      `  + Newly backed up (0 -> 1): ${diff.games.newlyBackedUp.length}`,
+    );
+    console.log(
+      `  - Lost backup (1 -> 0):     ${diff.games.lostBackup.length}`,
+    );
+    console.log(
+      `  = Unchanged backed up:      ${diff.games.unchangedBackedUpCount}`,
+    );
+    console.log(
+      `  Total target backed up:     ${diff.games.totalTargetBackedUp}`,
+    );
+    console.log('========================================\n');
+
+    // Write surgical Cloudflare D1 migration SQL
+    const tempDir = path.join(process.cwd(), 'scripts', 'temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    const sqlOutPath =
+      options.sqlOutputPath || path.join(tempDir, 'update_backup_status.sql');
+    console.log(`Writing surgical Cloudflare D1 migration to: ${sqlOutPath}`);
+    let sqlContent =
+      '-- Surgical Backup Status Update Migration for Cloudflare D1\n';
+    sqlContent += '-- Generated on: ' + new Date().toISOString() + '\n\n';
+    sqlContent += 'PRAGMA foreign_keys = OFF;\n\n';
+
+    if (allScannedPlatformIds.size > 0) {
+      const platList = Array.from(allScannedPlatformIds).join(', ');
+      sqlContent += `-- 1. Reset backup_status only for scanned platforms\n`;
+      sqlContent += `UPDATE game_releases SET backup_status = 0 WHERE backup_status != 0 AND game_id IN (SELECT stable_id FROM games WHERE platform_id IN (${platList}));\n\n`;
+
+      if (allScannedPlatformIds.has(26) || allScannedPlatformIds.has(27)) {
+        sqlContent += `-- Clear legacy rom_crc on Nintendo Switch games\n`;
+        sqlContent += `UPDATE game_releases SET rom_crc = NULL WHERE rom_crc IS NOT NULL AND game_id IN (SELECT stable_id FROM games WHERE platform_id IN (26, 27));\n\n`;
+      }
+    }
+
+    if (allMatchedReleaseIds.size > 0) {
+      sqlContent += `-- 2. Mark matched releases as backed up\n`;
+      const releaseArr = Array.from(allMatchedReleaseIds);
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < releaseArr.length; i += CHUNK_SIZE) {
+        const chunk = releaseArr.slice(i, i + CHUNK_SIZE);
+        const escapedIds = chunk
+          .map((id) => `'${id.replace(/'/g, "''")}'`)
+          .join(', ');
+        sqlContent += `UPDATE game_releases SET backup_status = 1 WHERE backup_status != 1 AND id IN (${escapedIds});\n`;
+      }
+      sqlContent += '\n';
+    }
+
+    if (matchedSwitchUpdates.length > 0) {
+      sqlContent += `-- 3. Link matched Switch releases to canonical catalog revisions and update rom_name\n`;
+      for (const upd of matchedSwitchUpdates) {
+        const escId = `'${upd.releaseId.replace(/'/g, "''")}'`;
+        const escRom = `'${upd.romName.replace(/'/g, "''")}'`;
+        const canonVal = upd.canonicalReleaseId
+          ? `${upd.canonicalReleaseId}`
+          : 'NULL';
+        const varVal = upd.variants
+          ? `'${upd.variants.replace(/'/g, "''")}'`
+          : 'NULL';
+        sqlContent += `UPDATE game_releases SET rom_name = ${escRom}, rom_crc = NULL, canonical_release_id = COALESCE(${canonVal}, canonical_release_id), variants = COALESCE(${varVal}, variants), is_physical = 1 WHERE id = ${escId};\n`;
+      }
+      sqlContent += '\n';
+    }
+
+    sqlContent += 'PRAGMA foreign_keys = ON;\n';
+    fs.writeFileSync(sqlOutPath, sqlContent, 'utf-8');
+    console.log(
+      `Successfully generated update_backup_status.sql with ${allMatchedReleaseIds.size} matched release(s).`,
+    );
+
+    // Write base name mismatch alerts report
+    const alertsDir = path.join(process.cwd(), 'scratch');
+    if (!fs.existsSync(alertsDir)) {
+      fs.mkdirSync(alertsDir, { recursive: true });
+    }
+    const alertsPath =
+      options.mismatchOutputPath ||
+      path.join(alertsDir, 'backup_base_name_mismatch_alerts.md');
+    console.log(`Writing base name mismatch alerts to: ${alertsPath}`);
+    let alertMd = `# Backup Base Name Mismatch Alerts\n\n`;
+    alertMd += `The following is a list of local backup files that match a database release tolerantly (by title or segments) but deviate in their base name prior to the extension. These backups were **not** marked as backed up in the database.\n\n`;
+    alertMd += `To resolve these, rename the local backup file to match the database ROM name exactly (except for compressed extensions).\n\n`;
+    alertMd += `| Platform | Backup Filename on Disk | Target Game Title | Target Database ROM Name |\n`;
+    alertMd += `| --- | --- | --- | --- |\n`;
+
+    for (const a of baseNameMismatchAlerts) {
+      alertMd += `| ${a.platform} | ${a.file} | ${a.game} | ${a.rom} |\n`;
+    }
+
+    fs.writeFileSync(alertsPath, alertMd, 'utf-8');
+    console.log(
+      `Successfully generated ${baseNameMismatchAlerts.length} base name mismatch alert(s).`,
+    );
+
+    // Write net diff markdown report
+    const diffPath =
+      options.diffOutputPath || path.join(alertsDir, 'backup_scan_diff.md');
+    console.log(`Writing net diff report to: ${diffPath}`);
+    const diffMd = generateBackupDiffMarkdown(
+      diff,
+      platformStats,
+      backupDir,
+      isDryRun ? 'DRY RUN' : 'APPLY',
+    );
+    fs.writeFileSync(diffPath, diffMd, 'utf-8');
+    console.log(`Successfully generated backup_scan_diff.md.`);
+
+    if (isDryRun) {
+      console.log('\n[Dry Run Complete] Local database was NOT modified.');
+      console.log('To apply these changes locally, run:');
+      console.log(`  npx tsx scripts/scan_backups.ts "${backupDir}" --apply`);
+      console.log(
+        '  OR: npm run db:apply scripts/temp/update_backup_status.sql',
+      );
+      console.log('To deploy to remote Cloudflare D1, run:');
+      console.log('  npm run d1:update-backups -- --yes\n');
+    }
+
+    return {
+      totalScannedFiles,
+      totalMatchedReleases,
+      allMatchedReleaseIds,
+      diff,
+      baseNameMismatchAlerts,
+      platformStats,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Main execution method for the backup reconciliation process.
+ *
+ * @throws Error if database connection fails or input directory is invalid.
+ */
+function main(): void {
+  const args = process.argv.slice(2);
+  const isApply = args.includes('--apply');
+  const isDryRun = args.includes('--dry-run') || !isApply;
+  const nonFlagArgs = args.filter((a) => !a.startsWith('--'));
+
+  if (nonFlagArgs.length === 0) {
+    console.error('Error: Please provide the path to your backup directory.');
+    console.log(
+      'Usage: npx tsx scripts/scan_backups.ts <path-to-backups> [--dry-run | --apply]',
+    );
+    process.exit(1);
+  }
+
+  const rawDir = nonFlagArgs[0];
+  const backupDir = path.resolve(rawDir);
+  if (!fs.existsSync(backupDir) || !fs.statSync(backupDir).isDirectory()) {
+    console.error(`Error: The path "${backupDir}" is not a valid directory.`);
+    process.exit(1);
+  }
+
+  if (!args.includes('--apply') && !args.includes('--dry-run')) {
+    console.log(
+      '[Notice] No mode specified; defaulting to --dry-run. Pass --apply to execute updates against the local SQLite database.\n',
+    );
+  }
+
+  try {
+    scanBackups({
+      backupDir,
+      dryRun: isDryRun,
+      apply: isApply,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Fatal error during backup scan: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (
+  process.argv[1] &&
+  (process.argv[1].endsWith('scan_backups.ts') ||
+    process.argv[1].endsWith('scan_backups.js'))
+) {
+  main();
+}
