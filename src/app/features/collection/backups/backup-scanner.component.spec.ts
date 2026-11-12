@@ -182,4 +182,47 @@ describe('BackupScannerComponent', () => {
       ],
     });
   });
+
+  it('opens custom Platform Scope dropdown, selects a platform override, and closes on Escape', () => {
+    expect(component.isPlatformDropdownOpen()).toBe(false);
+    expect(component.selectedPlatformLabel()).toBe(
+      'Auto-detect from folder names',
+    );
+
+    const triggerBtn = fixture.nativeElement.querySelector(
+      '[data-testid="platform-override-trigger"]',
+    ) as HTMLButtonElement;
+    expect(triggerBtn).toBeTruthy();
+
+    triggerBtn.click();
+    fixture.detectChanges();
+
+    expect(component.isPlatformDropdownOpen()).toBe(true);
+    const listbox = fixture.nativeElement.querySelector(
+      '[data-testid="platform-override-listbox"]',
+    );
+    expect(listbox).toBeTruthy();
+
+    const snesOpt = fixture.nativeElement.querySelector(
+      '[data-testid="platform-option-15"]',
+    ) as HTMLButtonElement;
+    expect(snesOpt).toBeTruthy();
+    snesOpt.click();
+    fixture.detectChanges();
+
+    expect(component.isPlatformDropdownOpen()).toBe(false);
+    expect(component.platformOverrideId()).toBe(15);
+    expect(component.selectedPlatformLabel()).toBe(
+      'Super Nintendo Entertainment System',
+    );
+
+    // Re-open and close via Escape key
+    triggerBtn.click();
+    fixture.detectChanges();
+    expect(component.isPlatformDropdownOpen()).toBe(true);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(component.isPlatformDropdownOpen()).toBe(false);
+  });
 });

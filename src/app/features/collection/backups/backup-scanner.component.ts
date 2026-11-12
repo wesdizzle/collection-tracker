@@ -2,6 +2,7 @@ import {
   Component,
   ChangeDetectionStrategy,
   ElementRef,
+  HostListener,
   OnInit,
   ViewChild,
   computed,
@@ -46,6 +47,9 @@ export class BackupScannerComponent implements OnInit {
   /** Optional platform ID override (`null` = auto-detect from folder names) */
   public platformOverrideId = signal<number | null>(null);
 
+  /** Whether the custom Platform Scope dropdown menu is open */
+  public isPlatformDropdownOpen = signal<boolean>(false);
+
   /** Current computed scan report */
   public scanReport = signal<BackupScanReport | null>(null);
 
@@ -87,6 +91,18 @@ export class BackupScannerComponent implements OnInit {
       .sort((a, b) =>
         (a.display_name || a.name).localeCompare(b.display_name || b.name),
       );
+  });
+
+  /** Human-readable label for the currently selected Platform Scope */
+  public selectedPlatformLabel = computed<string>(() => {
+    const id = this.platformOverrideId();
+    if (id === null) {
+      return 'Auto-detect from folder names';
+    }
+    const found = this.availablePlatforms().find((p) => p.id === id);
+    return found
+      ? found.display_name || found.name
+      : 'Auto-detect from folder names';
   });
 
   public filteredOwnershipSwitches = computed<OwnershipSwitchProposal[]>(() => {
@@ -217,6 +233,30 @@ export class BackupScannerComponent implements OnInit {
     }
     const crawl = this.backupScannerService.crawlFromFileList(input.files);
     this.applyCrawlResult(crawl);
+  }
+
+  public togglePlatformDropdown(event?: Event): void {
+    event?.stopPropagation();
+    this.isPlatformDropdownOpen.update((open) => !open);
+  }
+
+  public selectPlatformOverride(rawVal: 'auto' | number): void {
+    this.isPlatformDropdownOpen.set(false);
+    this.onPlatformOverrideChange(rawVal);
+  }
+
+  @HostListener('document:click')
+  public onDocumentClick(): void {
+    if (this.isPlatformDropdownOpen()) {
+      this.isPlatformDropdownOpen.set(false);
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  public onEscapeKey(): void {
+    if (this.isPlatformDropdownOpen()) {
+      this.isPlatformDropdownOpen.set(false);
+    }
   }
 
   public onPlatformOverrideChange(rawVal: string | number | null): void {

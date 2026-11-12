@@ -15,21 +15,108 @@
       </div>
 
       <div class="scanner-hero-actions">
-        <div class="platform-scope-field">
-          <label for="platform-override-select" class="scope-label">
+        <div class="platform-scope-field" (click)="$event.stopPropagation()">
+          <label
+            id="platform-override-label"
+            for="platform-override-select"
+            class="scope-label"
+          >
             Platform Scope
           </label>
-          <select
+          <button
             id="platform-override-select"
-            class="scope-select"
-            [ngModel]="platformOverrideId() ?? 'auto'"
-            (ngModelChange)="onPlatformOverrideChange($event)"
+            type="button"
+            class="scope-dropdown-trigger"
+            [class.open]="isPlatformDropdownOpen()"
+            aria-haspopup="listbox"
+            aria-labelledby="platform-override-label platform-override-select"
+            [attr.aria-expanded]="isPlatformDropdownOpen()"
+            (click)="togglePlatformDropdown($event)"
+            data-testid="platform-override-trigger"
           >
-            <option value="auto">Auto-detect from folder names</option>
-            @for (p of availablePlatforms(); track p.id) {
-              <option [value]="p.id">{{ p.display_name || p.name }}</option>
-            }
-          </select>
+            <span class="scope-trigger-text">{{
+              selectedPlatformLabel()
+            }}</span>
+            <svg
+              class="scope-dropdown-chevron"
+              [class.open]="isPlatformDropdownOpen()"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"
+              />
+            </svg>
+          </button>
+
+          @if (isPlatformDropdownOpen()) {
+            <div
+              class="scope-dropdown-list"
+              role="listbox"
+              aria-labelledby="platform-override-label"
+              data-testid="platform-override-listbox"
+            >
+              <button
+                type="button"
+                class="scope-dropdown-item"
+                role="option"
+                [class.selected]="platformOverrideId() === null"
+                [attr.aria-selected]="platformOverrideId() === null"
+                (click)="selectPlatformOverride('auto')"
+                data-testid="platform-option-auto"
+              >
+                <span class="scope-option-label">
+                  Auto-detect from folder names
+                </span>
+                @if (platformOverrideId() === null) {
+                  <svg
+                    class="scope-selected-check"
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                    />
+                  </svg>
+                }
+              </button>
+              @for (p of availablePlatforms(); track p.id) {
+                <button
+                  type="button"
+                  class="scope-dropdown-item"
+                  role="option"
+                  [class.selected]="platformOverrideId() === p.id"
+                  [attr.aria-selected]="platformOverrideId() === p.id"
+                  (click)="selectPlatformOverride(p.id)"
+                  [attr.data-testid]="'platform-option-' + p.id"
+                >
+                  <span class="scope-option-label">
+                    {{ p.display_name || p.name }}
+                  </span>
+                  @if (platformOverrideId() === p.id) {
+                    <svg
+                      class="scope-selected-check"
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"
+                      />
+                    </svg>
+                  }
+                </button>
+              }
+            </div>
+          }
         </div>
 
         <button
