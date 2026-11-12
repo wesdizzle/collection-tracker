@@ -101,6 +101,7 @@ export function buildGamesListQuery(userId?: number | null): string {
            p.parent_platform_id,
            r.canonical_release_id,
            cr.source,
+           cr.serial_code,
            CASE
              WHEN cr.source IN ('nintendo_revised', 'dat') OR r.rom_name IS NOT NULL THEN 1
              ELSE 0
@@ -205,6 +206,7 @@ export function buildGameDetailQuery(userId?: number | null): string {
             p.parent_platform_id,
             r.canonical_release_id,
             cr.source,
+            cr.serial_code,
             CASE
               WHEN cr.source IN ('nintendo_revised', 'dat') OR r.rom_name IS NOT NULL THEN 1
               ELSE 0

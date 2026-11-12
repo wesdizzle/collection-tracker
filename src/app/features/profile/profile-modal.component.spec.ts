@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { ProfileModalComponent } from './profile-modal.component';
 import { CollectionService } from '../../core/services/collection.service';
@@ -253,5 +254,24 @@ describe('ProfileModalComponent', () => {
         '[data-testid="profile-notifications-btn"]',
       ),
     ).toBeNull();
+  });
+
+  it('should close profile modal and navigate to /collection/backups when Scan Local Backups is clicked', () => {
+    const router = TestBed.inject(Router);
+    const navSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    modalService.open();
+    fixture.detectChanges();
+
+    const scanBtn = fixture.nativeElement.querySelector(
+      '[data-testid="profile-backup-scanner-btn"]',
+    ) as HTMLButtonElement;
+    expect(scanBtn).toBeTruthy();
+
+    scanBtn.click();
+    fixture.detectChanges();
+
+    expect(modalService.isOpen()).toBe(false);
+    expect(navSpy).toHaveBeenCalledWith(['/collection/backups']);
   });
 });

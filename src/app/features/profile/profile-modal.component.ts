@@ -11,6 +11,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { KitProfileModalComponent } from '@wesdizzle/app-kit/angular';
 import { CollectionService } from '../../core/services/collection.service';
 import { ProfileModalService } from '../../core/services/profile-modal.service';
@@ -120,6 +121,45 @@ import { UserProfile } from '../../core/models/collection.models';
         </button>
       }
 
+      @if (isAuthenticated()) {
+        <button
+          profileExtraNav
+          type="button"
+          class="nav-section-btn"
+          (click)="openBackupScanner()"
+          data-testid="profile-backup-scanner-btn"
+        >
+          <div class="nav-section-left">
+            <span class="nav-section-icon">
+              <app-icon name="disc" [size]="18" />
+            </span>
+            <div class="nav-section-text">
+              <span class="nav-section-title">Scan Local Backups</span>
+              <span class="nav-section-desc">
+                Crawl a local folder by filename to review and sync ROM backup
+                status.
+              </span>
+            </div>
+          </div>
+          <div class="setting-nav-right">
+            <svg
+              class="nav-section-chevron"
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </div>
+        </button>
+      }
+
       @if (modalService.activeView() === 'notifications') {
         <app-notification-settings-modal
           profileSubview
@@ -167,6 +207,7 @@ export class ProfileModalComponent implements OnInit {
   }
 
   private collectionService = inject(CollectionService);
+  private router = inject(Router);
   public modalService = inject(ProfileModalService);
   public notificationService = inject(NotificationService);
   public branding = inject(BrandingService);
@@ -289,6 +330,11 @@ export class ProfileModalComponent implements OnInit {
 
   public openNotifications(): void {
     this.modalService.setView('notifications');
+  }
+
+  public openBackupScanner(): void {
+    this.modalService.close();
+    void this.router.navigate(['/collection/backups']);
   }
 
   public saveProfile(): void {

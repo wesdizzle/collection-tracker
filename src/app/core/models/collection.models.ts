@@ -48,6 +48,7 @@ export interface GameRelease {
   rom_name?: string | null;
   rom_crc?: string | null;
   canonical_release_id?: number | null;
+  serial_code?: string | null;
   is_source_verified?: number;
   source?: string | null;
   backup_status: number;
@@ -61,7 +62,6 @@ export interface GameRelease {
   is_companion_base_disc?: boolean;
   companion_game_id?: string;
   companion_game_title?: string;
-  serial_code?: string | null;
   comments?: string | null;
 }
 
@@ -117,6 +117,7 @@ export interface Game {
   rom_name?: string | null;
   rom_crc?: string | null;
   canonical_release_id?: number | null;
+  serial_code?: string | null;
   is_source_verified?: number;
   source?: string | null;
   physical_status?: PhysicalStatus;

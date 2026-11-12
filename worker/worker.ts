@@ -5,7 +5,7 @@
  * for the Collection Tracker.
  *
  * ARCHITECTURAL DESIGN:
- * 1. **Centralized Query Sharing**: Imports SQL constants and PLATFORM_MAP from `../scripts/lib/queries`
+ * 1. **Centralized Query Sharing**: Imports SQL constants and PLATFORM_MAP from `../shared/queries`
  *    to ensure query consistency between environments.
  * 2. **Workers Assets Integration**: Seamlessly serves the Angular SPA via `env.ASSETS` fallback.
  * 3. **Role-Based Edge Authentication**: Gates mutation endpoints (`/api/collection/toggle`,
@@ -52,24 +52,24 @@ import {
   buildToysListQuery,
   buildToyDetailQuery,
   DEFAULT_USER_HOME_REGION,
-} from '../scripts/lib/queries';
+} from '../shared/queries';
 import {
   detectPhysicalReleaseStatus,
   CanonicalRelease,
-} from '../scripts/lib/canonical_releases';
+} from '../shared/canonical_releases';
 import {
   fetchSwitchSpreadsheetTabs,
   parseSwitchRevisionsCsv,
-} from '../scripts/lib/switch_revisions';
-import { normalizeTitleForMatching } from '../scripts/lib/title_matching';
-import { MULTI_POSE_AMIIBO_EXPANSIONS } from '../scripts/lib/toys';
-import { computeGameCanonicalSeries } from '../scripts/lib/canonical_series';
+} from '../shared/switch_revisions';
+import { normalizeTitleForMatching } from '../shared/title_matching';
+import { MULTI_POSE_AMIIBO_EXPANSIONS } from '../shared/amiibo_poses';
+import { computeGameCanonicalSeries } from '../shared/canonical_series';
 import {
   fetchAllRetailDeals,
   matchBestBuyProduct,
   CandidateGame,
   RetailDealItem,
-} from '../scripts/lib/bestbuy';
+} from '../shared/bestbuy';
 import {
   sendWebPushNotification,
   resolveVapidSubject,
@@ -110,7 +110,7 @@ import { performScheduledBackup as kitPerformScheduledBackup } from '@wesdizzle/
 import {
   fetchBoutiquePreOrders,
   BoutiquePreOrder,
-} from '../scripts/lib/physical_feeds';
+} from '../shared/physical_feeds';
 import { DealNotificationPreferences } from '../src/app/core/models/collection.models';
 
 export interface Env {
@@ -533,6 +533,7 @@ const WORKER_HTML_CSP = buildCspHeader({
 const JSON_BODY_MUTATION_PATHS = new Set([
   '/api/user/profile',
   '/api/collection/toggle',
+  '/api/collection/backups/apply',
   '/api/collection/sort',
   '/api/discovery/add',
   '/api/discovery/add-toy',
@@ -1138,6 +1139,28 @@ Disallow: /
           {
             error:
               'Too many test notifications sent. Please wait before trying again.',
+          },
+          {
+            status: 429,
+            headers: { 'Retry-After': String(rl.retryAfterSec) },
+          },
+        );
+      }
+    } else if (
+      request.method === 'POST' &&
+      path === '/api/collection/backups/apply'
+    ) {
+      const rl = checkWorkerRateLimit(
+        'backups-apply',
+        getRateLimitClientKey(request, sessionUser),
+        20,
+        60_000,
+      );
+      if (!rl.allowed) {
+        return Response.json(
+          {
+            error:
+              'Too many backup sync requests. Please wait before trying again.',
           },
           {
             status: 429,
@@ -4058,6 +4081,408 @@ Disallow: /
           (field === 'ownership_status' || field === 'physical_status'),
       });
       return Response.json({ success: true });
+    }
+
+    // Endpoint: POST /api/collection/backups/apply
+    else if (
+      request.method === 'POST' &&
+      path === '/api/collection/backups/apply'
+    ) {
+      if (!sessionUser) {
+        return Response.json(
+          { error: 'Unauthorized: Authentication required.' },
+          { status: 401 },
+        );
+      }
+
+      const body = (await request.json().catch(() => null)) as {
+        setBackedUp?: unknown;
+        clearBackedUp?: unknown;
+        ownershipTransfers?: unknown;
+      } | null;
+
+      if (!body || typeof body !== 'object') {
+        return Response.json(
+          { error: 'Invalid backup apply payload.' },
+          { status: 400 },
+        );
+      }
+
+      const rawSet = body.setBackedUp ?? [];
+      const rawClear = body.clearBackedUp ?? [];
+      const rawTransfers = body.ownershipTransfers ?? [];
+
+      if (
+        !Array.isArray(rawSet) ||
+        !Array.isArray(rawClear) ||
+        !Array.isArray(rawTransfers)
+      ) {
+        return Response.json(
+          {
+            error:
+              'setBackedUp, clearBackedUp, and ownershipTransfers must be arrays.',
+          },
+          { status: 400 },
+        );
+      }
+
+      if (
+        rawSet.length > 10000 ||
+        rawClear.length > 10000 ||
+        rawTransfers.length > 2000
+      ) {
+        return Response.json(
+          { error: 'Backup batch payload exceeds maximum size.' },
+          { status: 400 },
+        );
+      }
+
+      const setIds = Array.from(
+        new Set(
+          rawSet
+            .filter((v): v is string => typeof v === 'string')
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      );
+      const clearIds = Array.from(
+        new Set(
+          rawClear
+            .filter((v): v is string => typeof v === 'string')
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      );
+
+      if (
+        setIds.length !== rawSet.length &&
+        rawSet.some((v) => typeof v !== 'string' || !v.trim())
+      ) {
+        return Response.json(
+          { error: 'setBackedUp must contain non-empty release ID strings.' },
+          { status: 400 },
+        );
+      }
+      if (
+        clearIds.length !== rawClear.length &&
+        rawClear.some((v) => typeof v !== 'string' || !v.trim())
+      ) {
+        return Response.json(
+          { error: 'clearBackedUp must contain non-empty release ID strings.' },
+          { status: 400 },
+        );
+      }
+
+      const setIdSet = new Set(setIds);
+      const clearIdSet = new Set(clearIds);
+      for (const id of setIds) {
+        if (clearIdSet.has(id)) {
+          return Response.json(
+            {
+              error: `Release ID "${id}" cannot be present in both setBackedUp and clearBackedUp.`,
+            },
+            { status: 400 },
+          );
+        }
+      }
+
+      const parsedTransfers: Array<{
+        fromReleaseIds: string[];
+        toReleaseIds: string[];
+      }> = [];
+      const allFromIdsSet = new Set<string>();
+      const allToIdsSet = new Set<string>();
+
+      for (const rawTransfer of rawTransfers) {
+        if (!rawTransfer || typeof rawTransfer !== 'object') {
+          return Response.json(
+            { error: 'Invalid ownershipTransfer entry.' },
+            { status: 400 },
+          );
+        }
+        const tObj = rawTransfer as {
+          fromReleaseIds?: unknown;
+          toReleaseIds?: unknown;
+        };
+        if (
+          !Array.isArray(tObj.fromReleaseIds) ||
+          !Array.isArray(tObj.toReleaseIds) ||
+          tObj.fromReleaseIds.length === 0 ||
+          tObj.toReleaseIds.length === 0 ||
+          tObj.fromReleaseIds.length > 50 ||
+          tObj.toReleaseIds.length > 50
+        ) {
+          return Response.json(
+            {
+              error:
+                'Each ownershipTransfer must include non-empty fromReleaseIds and toReleaseIds arrays.',
+            },
+            { status: 400 },
+          );
+        }
+        const fromReleaseIds = Array.from(
+          new Set(
+            tObj.fromReleaseIds
+              .filter((v): v is string => typeof v === 'string')
+              .map((v) => v.trim())
+              .filter(Boolean),
+          ),
+        );
+        const toReleaseIds = Array.from(
+          new Set(
+            tObj.toReleaseIds
+              .filter((v): v is string => typeof v === 'string')
+              .map((v) => v.trim())
+              .filter(Boolean),
+          ),
+        );
+        if (fromReleaseIds.length === 0 || toReleaseIds.length === 0) {
+          return Response.json(
+            {
+              error:
+                'fromReleaseIds and toReleaseIds must contain non-empty release ID strings.',
+            },
+            { status: 400 },
+          );
+        }
+        for (const fid of fromReleaseIds) {
+          if (allToIdsSet.has(fid) || toReleaseIds.includes(fid)) {
+            return Response.json(
+              {
+                error: `Release ID "${fid}" cannot be both a transfer source and target.`,
+              },
+              { status: 400 },
+            );
+          }
+          allFromIdsSet.add(fid);
+        }
+        for (const tid of toReleaseIds) {
+          if (allFromIdsSet.has(tid)) {
+            return Response.json(
+              {
+                error: `Release ID "${tid}" cannot be both a transfer source and target.`,
+              },
+              { status: 400 },
+            );
+          }
+          allToIdsSet.add(tid);
+        }
+        parsedTransfers.push({ fromReleaseIds, toReleaseIds });
+      }
+
+      const currentUserId = sessionUser.id;
+
+      // Verify ownershipTransfers belong to the exact same game_id and read source has_case / has_manual
+      const verifiedTransfers: Array<{
+        fromReleaseIds: string[];
+        toReleaseIds: string[];
+        migratedCase: number;
+        migratedManual: number;
+      }> = [];
+
+      if (parsedTransfers.length > 0) {
+        const allTransferReleaseIds = Array.from(
+          new Set([...allFromIdsSet, ...allToIdsSet]),
+        );
+        const releaseGameMap = new Map<string, number>();
+
+        for (let i = 0; i < allTransferReleaseIds.length; i += 100) {
+          const chunk = allTransferReleaseIds.slice(i, i + 100);
+          const placeholders = chunk.map(() => '?').join(', ');
+          const { results: relRows } = await env.DB.prepare(
+            `SELECT id, game_id FROM game_releases WHERE id IN (${placeholders})`,
+          )
+            .bind(...chunk)
+            .all<{ id: string; game_id: number }>();
+
+          for (const row of relRows || []) {
+            releaseGameMap.set(row.id, Number(row.game_id));
+          }
+        }
+
+        const allFromIdsList = Array.from(allFromIdsSet);
+        const sourceCompletenessMap = new Map<
+          string,
+          { ownership_status: number; has_case: number; has_manual: number }
+        >();
+
+        for (let i = 0; i < allFromIdsList.length; i += 100) {
+          const chunk = allFromIdsList.slice(i, i + 100);
+          const placeholders = chunk.map(() => '?').join(', ');
+          const { results: ugrRows } = await env.DB.prepare(
+            `SELECT release_id, ownership_status, has_case, has_manual
+             FROM user_game_releases
+             WHERE user_id = ? AND release_id IN (${placeholders})`,
+          )
+            .bind(currentUserId, ...chunk)
+            .all<{
+              release_id: string;
+              ownership_status: number;
+              has_case: number;
+              has_manual: number;
+            }>();
+
+          for (const row of ugrRows || []) {
+            sourceCompletenessMap.set(row.release_id, {
+              ownership_status: Number(row.ownership_status || 0),
+              has_case: Number(row.has_case || 0),
+              has_manual: Number(row.has_manual || 0),
+            });
+          }
+        }
+
+        for (const transfer of parsedTransfers) {
+          const firstGameId = releaseGameMap.get(transfer.fromReleaseIds[0]);
+          if (firstGameId === undefined) {
+            return Response.json(
+              {
+                error: `Unknown release ID in ownership transfer: "${transfer.fromReleaseIds[0]}".`,
+              },
+              { status: 400 },
+            );
+          }
+
+          for (const id of [
+            ...transfer.fromReleaseIds,
+            ...transfer.toReleaseIds,
+          ]) {
+            const gid = releaseGameMap.get(id);
+            if (gid === undefined) {
+              return Response.json(
+                {
+                  error: `Unknown release ID in ownership transfer: "${id}".`,
+                },
+                { status: 400 },
+              );
+            }
+            if (gid !== firstGameId) {
+              return Response.json(
+                {
+                  error:
+                    'Ownership transfers are only permitted between releases of the same game.',
+                },
+                { status: 400 },
+              );
+            }
+          }
+
+          let migratedCase = 0;
+          let migratedManual = 0;
+          for (const fid of transfer.fromReleaseIds) {
+            const comp = sourceCompletenessMap.get(fid);
+            if (comp) {
+              if (comp.has_case === 1) migratedCase = 1;
+              if (comp.has_manual === 1) migratedManual = 1;
+            }
+          }
+
+          verifiedTransfers.push({
+            fromReleaseIds: transfer.fromReleaseIds,
+            toReleaseIds: transfer.toReleaseIds,
+            migratedCase,
+            migratedManual,
+          });
+        }
+      }
+
+      const statements: D1PreparedStatement[] = [];
+      const handledSetIds = new Set<string>();
+      const handledClearIds = new Set<string>();
+
+      for (const transfer of verifiedTransfers) {
+        for (const fromId of transfer.fromReleaseIds) {
+          const alsoClearBackup = clearIdSet.has(fromId) ? 1 : 0;
+          if (alsoClearBackup === 1) {
+            handledClearIds.add(fromId);
+          }
+          statements.push(
+            env.DB.prepare(
+              `UPDATE user_game_releases
+               SET ownership_status = 0,
+                   has_case = 0,
+                   has_manual = 0,
+                   backup_status = CASE WHEN ? = 1 THEN 0 ELSE backup_status END
+               WHERE user_id = ? AND release_id = ?
+                 AND (ownership_status != 0 OR has_case != 0 OR has_manual != 0 OR (? = 1 AND backup_status != 0))`,
+            ).bind(alsoClearBackup, currentUserId, fromId, alsoClearBackup),
+          );
+        }
+
+        for (const toId of transfer.toReleaseIds) {
+          const alsoSetBackup = setIdSet.has(toId) ? 1 : 0;
+          if (alsoSetBackup === 1) {
+            handledSetIds.add(toId);
+          }
+          statements.push(
+            env.DB.prepare(
+              `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+               SELECT ?, id, 1, ?, ?, ? FROM game_releases WHERE id = ?
+               ON CONFLICT(user_id, release_id) DO UPDATE SET
+                 ownership_status = 1,
+                 backup_status = CASE WHEN ? = 1 THEN 1 ELSE user_game_releases.backup_status END,
+                 has_case = MAX(user_game_releases.has_case, excluded.has_case),
+                 has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
+               WHERE user_game_releases.ownership_status IS NOT 1
+                  OR (? = 1 AND user_game_releases.backup_status IS NOT 1)
+                  OR user_game_releases.has_case < excluded.has_case
+                  OR user_game_releases.has_manual < excluded.has_manual`,
+            ).bind(
+              currentUserId,
+              alsoSetBackup,
+              transfer.migratedCase,
+              transfer.migratedManual,
+              toId,
+              alsoSetBackup,
+              alsoSetBackup,
+            ),
+          );
+        }
+      }
+
+      for (const id of setIds) {
+        if (handledSetIds.has(id)) continue;
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO user_game_releases (user_id, release_id, backup_status)
+             SELECT ?, id, 1 FROM game_releases WHERE id = ?
+             ON CONFLICT(user_id, release_id) DO UPDATE SET
+               backup_status = 1
+             WHERE user_game_releases.backup_status IS NOT 1`,
+          ).bind(currentUserId, id),
+        );
+      }
+
+      for (const id of clearIds) {
+        if (handledClearIds.has(id)) continue;
+        statements.push(
+          env.DB.prepare(
+            `UPDATE user_game_releases
+             SET backup_status = 0
+             WHERE user_id = ? AND release_id = ? AND backup_status != 0`,
+          ).bind(currentUserId, id),
+        );
+      }
+
+      if (statements.length > 0) {
+        for (let i = 0; i < statements.length; i += 100) {
+          await env.DB.batch(statements.slice(i, i + 100));
+        }
+
+        await invalidateEdgeApiCache(request.url, {
+          userId: currentUserId,
+          username: sessionUser.username,
+        });
+        await markDbDirty(env, 'games', 'backups-apply', {
+          clearBoutiqueHash: verifiedTransfers.length > 0,
+        });
+      }
+
+      return Response.json({
+        success: true,
+        setCount: setIds.length,
+        clearCount: clearIds.length,
+        transferredCount: verifiedTransfers.length,
+      });
     }
 
     // Endpoint: DELETE /api/collection/game?id=<game id | release id | stable_id>

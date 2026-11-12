@@ -69,7 +69,7 @@ export interface CostGuardOptions {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const rootDir = path.join(__dirname, '..', '..');
+const rootDir = path.join(__dirname, '..');
 
 export const SCHEMA_SQL_PATH = path.join(rootDir, 'migrations', 'schema.sql');
 
@@ -154,6 +154,46 @@ export function runCollectionStaticSchemaCostGuard(
         name: 'journal lookup by (user_id, item_type, item_id)',
         sql: 'SELECT id, purchase_date, price_paid, notes FROM journal_entries WHERE user_id = ? AND item_type = ? AND item_id = ?',
         params: [1, 'game', '1'],
+      },
+      {
+        name: 'backup apply: source completeness lookup',
+        sql: 'SELECT release_id, ownership_status, has_case, has_manual FROM user_game_releases WHERE user_id = ? AND release_id IN (?)',
+        params: [1, 'rel-1'],
+      },
+      {
+        name: 'backup apply: clear source release ownership',
+        sql: `UPDATE user_game_releases
+              SET ownership_status = 0,
+                  has_case = 0,
+                  has_manual = 0,
+                  backup_status = CASE WHEN ? = 1 THEN 0 ELSE backup_status END
+              WHERE user_id = ? AND release_id = ?
+                AND (ownership_status != 0 OR has_case != 0 OR has_manual != 0 OR (? = 1 AND backup_status != 0))`,
+        params: [1, 1, 'rel-1', 1],
+      },
+      {
+        name: 'backup apply: target ownership + backup UPSERT',
+        sql: `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+              SELECT ?, id, 1, ?, ?, ? FROM game_releases WHERE id = ?
+              ON CONFLICT(user_id, release_id) DO UPDATE SET
+                ownership_status = 1,
+                backup_status = CASE WHEN ? = 1 THEN 1 ELSE user_game_releases.backup_status END,
+                has_case = MAX(user_game_releases.has_case, excluded.has_case),
+                has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
+              WHERE user_game_releases.ownership_status IS NOT 1
+                 OR (? = 1 AND user_game_releases.backup_status IS NOT 1)
+                 OR user_game_releases.has_case < excluded.has_case
+                 OR user_game_releases.has_manual < excluded.has_manual`,
+        params: [1, 1, 1, 1, 'rel-2', 1, 1],
+      },
+      {
+        name: 'backup apply: setBackedUp UPSERT',
+        sql: `INSERT INTO user_game_releases (user_id, release_id, backup_status)
+              SELECT ?, id, 1 FROM game_releases WHERE id = ?
+              ON CONFLICT(user_id, release_id) DO UPDATE SET
+                backup_status = 1
+              WHERE user_game_releases.backup_status IS NOT 1`,
+        params: [1, 'rel-1'],
       },
     ],
   });

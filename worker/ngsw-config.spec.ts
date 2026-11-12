@@ -20,7 +20,7 @@ interface NgswConfig {
 describe('Service Worker Configuration (ngsw-config.json)', () => {
   it('should enforce long-lived caching policies for offline support', () => {
     // Read the ngsw-config.json file directly from the filesystem
-    const configPath = path.resolve(__dirname, '../../src/ngsw-config.json');
+    const configPath = path.resolve(__dirname, '../src/ngsw-config.json');
     const configRaw = fs.readFileSync(configPath, 'utf-8');
     const config = JSON.parse(configRaw) as NgswConfig;
 
@@ -50,7 +50,7 @@ describe('Service Worker Configuration (ngsw-config.json)', () => {
   });
 
   it('disables Beasties inlineCritical CSS in angular.json so strict script-src self CSP never blocks global styles', () => {
-    const angularJsonPath = path.resolve(__dirname, '../../angular.json');
+    const angularJsonPath = path.resolve(__dirname, '../angular.json');
     const angularJson = JSON.parse(
       fs.readFileSync(angularJsonPath, 'utf-8'),
     ) as {

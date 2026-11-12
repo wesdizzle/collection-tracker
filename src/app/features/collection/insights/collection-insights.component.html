@@ -191,9 +191,21 @@
               releases
             </p>
           </div>
-          <span class="rate-pill" [class.success]="backupRatePct() >= 80">
-            {{ backupRatePct() }}% Preserved
-          </span>
+          <div style="display: flex; align-items: center; gap: 0.5rem">
+            @if (collectionService.isAuthenticated()) {
+              <a
+                [routerLink]="['/collection/backups']"
+                class="m3-button m3-button-tonal"
+                data-testid="insights-scan-backups-btn"
+              >
+                <app-icon name="disc" [size]="15" />
+                <span>Scan Folder</span>
+              </a>
+            }
+            <span class="rate-pill" [class.success]="backupRatePct() >= 80">
+              {{ backupRatePct() }}% Preserved
+            </span>
+          </div>
         </div>
 
         <div class="meter-bar-container">

@@ -160,6 +160,10 @@ describe('CommandPaletteComponent', () => {
     const resetAction = results.find((r) => r.id === 'filter-reset');
     expect(resetAction).toBeTruthy();
     expect(resetAction?.title).toBe('Reset All Filters');
+
+    const backupAction = results.find((r) => r.id === 'nav-backups');
+    expect(backupAction).toBeTruthy();
+    expect(backupAction?.title).toBe('Scan Local Backups');
   });
 
   it('should reset list state and navigate with reset param when Reset All Filters is selected', () => {

@@ -18,7 +18,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.ts', 'worker/**/*.ts'],
+    files: ['src/**/*.ts', 'shared/**/*.ts', 'worker/**/*.ts'],
     languageOptions: {
       globals: {
         ...globals.browser,

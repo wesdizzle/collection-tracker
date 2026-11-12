@@ -318,6 +318,16 @@ export class CommandPaletteComponent implements AfterViewInit {
           url: '/collection/discovery',
           action: () => this.navigate('/collection/discovery'),
         },
+        {
+          id: 'nav-backups',
+          title: 'Scan Local Backups',
+          subtitle:
+            'Match local ROM filenames against your catalog & apply diff',
+          category: 'Navigation',
+          icon: 'disc',
+          url: '/collection/backups',
+          action: () => this.navigate('/collection/backups'),
+        },
       );
     }
     return items;

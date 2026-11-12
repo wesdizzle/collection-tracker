@@ -1,0 +1,610 @@
+<div class="backup-scanner-page">
+  <header class="scanner-hero-card">
+    <div class="scanner-hero-top">
+      <div class="scanner-hero-title-group">
+        <span class="scanner-hero-icon" aria-hidden="true">
+          <app-icon name="rom-archive" [size]="24"></app-icon>
+        </span>
+        <div>
+          <h1 class="scanner-title">Local Backup Scanner</h1>
+          <p class="scanner-subtitle">
+            Crawl a local backup directory in your browser by filename only.
+            Zero file bytes are read, hashed, or uploaded.
+          </p>
+        </div>
+      </div>
+
+      <div class="scanner-hero-actions">
+        <div class="platform-scope-field">
+          <label for="platform-override-select" class="scope-label">
+            Platform Scope
+          </label>
+          <select
+            id="platform-override-select"
+            class="scope-select"
+            [ngModel]="platformOverrideId() ?? 'auto'"
+            (ngModelChange)="onPlatformOverrideChange($event)"
+          >
+            <option value="auto">Auto-detect from folder names</option>
+            @for (p of availablePlatforms(); track p.id) {
+              <option [value]="p.id">{{ p.display_name || p.name }}</option>
+            }
+          </select>
+        </div>
+
+        <button
+          type="button"
+          class="btn-choose-folder"
+          [disabled]="backupScannerService.isCrawling() || isApplying()"
+          (click)="onChooseDirectory()"
+        >
+          <app-icon name="rom-archive" [size]="18"></app-icon>
+          <span>
+            {{
+              lastCrawl()
+                ? 'Rescan / Choose Another Folder'
+                : 'Choose Backup Folder'
+            }}
+          </span>
+        </button>
+
+        @if (backupScannerService.supportsDirectoryPicker()) {
+          <button
+            type="button"
+            class="btn-fallback-picker"
+            [disabled]="backupScannerService.isCrawling() || isApplying()"
+            (click)="triggerFallbackFileInput()"
+            title="Use standard file input directory selector"
+          >
+            Browser File Input
+          </button>
+        }
+
+        <input
+          #fallbackDirInput
+          type="file"
+          class="sr-only-input"
+          webkitdirectory
+          multiple
+          (change)="onFallbackFilesSelected($event)"
+        />
+      </div>
+    </div>
+
+    @if (backupScannerService.isCrawling()) {
+      <div class="scanner-progress-banner" role="status" aria-live="polite">
+        <span class="spinner-dot" aria-hidden="true"></span>
+        <span>
+          Crawling directory
+          <strong>{{
+            backupScannerService.crawlProgress().currentFolder
+          }}</strong>
+          — {{ backupScannerService.crawlProgress().filesFound }} files
+          discovered...
+        </span>
+      </div>
+    }
+
+    @if (scanError()) {
+      <div class="scanner-alert scanner-alert-error" role="alert">
+        <app-icon name="alert-triangle" [size]="18"></app-icon>
+        <span>{{ scanError() }}</span>
+      </div>
+    }
+
+    @if (applySuccessBanner(); as applied) {
+      <div class="scanner-alert scanner-alert-success" role="status">
+        <app-icon name="check" [size]="18"></app-icon>
+        <span>
+          Backup sync applied:
+          <strong>{{ applied.setCount }}</strong> newly backed up,
+          <strong>{{ applied.clearCount }}</strong> cleared, and
+          <strong>{{ applied.transferredCount }}</strong> ownership
+          {{ applied.transferredCount === 1 ? 'switch' : 'switches' }}.
+        </span>
+      </div>
+    }
+  </header>
+
+  @if (scanReport(); as report) {
+    <section class="scanner-summary-grid" aria-label="Scan Summary Metrics">
+      <div class="metric-card">
+        <span class="metric-label">Scanned Folder</span>
+        <span
+          class="metric-value metric-folder-name"
+          [title]="report.rootFolderName"
+        >
+          {{ report.rootFolderName }}
+        </span>
+        <span class="metric-sub">
+          {{ report.totalScannedFiles }} game files across
+          {{ report.scannedPlatforms.length }}
+          {{ report.scannedPlatforms.length === 1 ? 'platform' : 'platforms' }}
+        </span>
+      </div>
+
+      <div class="metric-card metric-card-switch">
+        <span class="metric-label">Ownership Switches</span>
+        <span class="metric-value">
+          {{ selectedSwitchCount() }} / {{ report.ownershipSwitches.length }}
+        </span>
+        <span class="metric-sub">SKU replacements matched by dump</span>
+      </div>
+
+      <div class="metric-card metric-card-added">
+        <span class="metric-label">+ Newly Backed Up (0 → 1)</span>
+        <span class="metric-value">
+          {{ selectedSetCount() }} /
+          {{ report.diff.releases.newlyBackedUp.length }}
+        </span>
+        <span class="metric-sub">Releases gaining backup status</span>
+      </div>
+
+      <div class="metric-card metric-card-removed">
+        <span class="metric-label">- Missing Backups (1 → 0)</span>
+        <span class="metric-value">
+          {{ effectiveSelectedClearCount() }} /
+          {{ report.diff.releases.lostBackup.length }}
+        </span>
+        <span class="metric-sub">
+          {{
+            pruneMissingBackups()
+              ? 'Prune enabled on scanned platforms'
+              : 'Prune disabled (additive scan)'
+          }}
+        </span>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-label">= Unchanged Backed Up (1 → 1)</span>
+        <span class="metric-value">
+          {{ report.diff.releases.unchangedBackedUpCount }}
+        </span>
+        <span class="metric-sub">Already marked backed up</span>
+      </div>
+    </section>
+
+    <section class="scanner-controls-bar">
+      <label class="prune-toggle-label">
+        <input
+          type="checkbox"
+          [ngModel]="pruneMissingBackups()"
+          (ngModelChange)="pruneMissingBackups.set($event)"
+        />
+        <span class="prune-toggle-text">
+          <strong>Prune missing backups on scanned platforms (1 → 0)</strong>
+          <small>
+            Uncheck when scanning a partial SD card or single-game folder so
+            existing backups are never cleared.
+          </small>
+        </span>
+      </label>
+
+      <div class="scanner-search-box">
+        <app-icon name="search" [size]="16"></app-icon>
+        <input
+          type="search"
+          placeholder="Filter games, ROM filenames, or platforms..."
+          [ngModel]="searchQuery()"
+          (ngModelChange)="searchQuery.set($event)"
+          aria-label="Filter diff results"
+        />
+      </div>
+    </section>
+
+    @if (report.unrecognizedFolders.length > 0) {
+      <div class="scanner-alert scanner-alert-info">
+        <app-icon name="alert-triangle" [size]="16"></app-icon>
+        <span>
+          Skipped unrecognized platform subfolders:
+          <strong>{{ report.unrecognizedFolders.join(', ') }}</strong
+          >. Use the <em>Platform Scope</em> selector above if scanning a custom
+          single-platform folder.
+        </span>
+      </div>
+    }
+
+    <!-- 1. Ownership Switches Section -->
+    @if (report.ownershipSwitches.length > 0) {
+      <section class="diff-section diff-section-ownership">
+        <div class="diff-section-header">
+          <div>
+            <h2 class="diff-section-title">
+              Proposed Ownership Switches ({{
+                filteredOwnershipSwitches().length
+              }})
+            </h2>
+            <p class="diff-section-desc">
+              These games have an owned release SKU with no matching backup in
+              this scan, while a different catalog release SKU of the same game
+              was matched. Same-region revision switches are pre-selected;
+              cross-region switches require explicit opt-in. Case and Manual
+              flags are automatically carried over.
+            </p>
+          </div>
+          <div class="diff-bulk-buttons">
+            <button
+              type="button"
+              class="btn-inline"
+              (click)="setAllOwnershipSwitches(true)"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              class="btn-inline"
+              (click)="setAllOwnershipSwitches(false)"
+            >
+              Deselect All
+            </button>
+          </div>
+        </div>
+
+        <div class="diff-table-wrapper">
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th class="col-check">Switch</th>
+                <th>Platform</th>
+                <th>Game Title</th>
+                <th>Owned SKU → Discovered Backup SKU</th>
+                <th>Completeness Carried Over</th>
+                <th>Matched Backup File</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (sw of filteredOwnershipSwitches(); track sw.gameId) {
+                <tr
+                  [class.row-selected]="isSwitchSelected(sw.gameId)"
+                  [class.row-region-change]="sw.isRegionChange"
+                >
+                  <td class="col-check">
+                    <input
+                      type="checkbox"
+                      [checked]="isSwitchSelected(sw.gameId)"
+                      (change)="
+                        toggleSwitchSelection(
+                          sw.gameId,
+                          $any($event.target).checked
+                        )
+                      "
+                      [attr.aria-label]="
+                        'Switch owned release for ' + sw.gameTitle
+                      "
+                    />
+                  </td>
+                  <td>
+                    <span class="platform-pill">{{ sw.platformName }}</span>
+                  </td>
+                  <td class="cell-title">
+                    <a
+                      class="game-link"
+                      [routerLink]="['/collection/item', 'game', sw.gameSlug]"
+                    >
+                      {{ sw.gameTitle }}
+                    </a>
+                  </td>
+                  <td>
+                    <div class="sku-transition">
+                      <span class="sku-badge sku-from">{{
+                        sw.fromSkuLabel
+                      }}</span>
+                      <span class="sku-arrow" aria-hidden="true">→</span>
+                      <span class="sku-badge sku-to">{{ sw.toSkuLabel }}</span>
+                      @if (sw.isRegionChange) {
+                        <span class="badge-region-change">
+                          Region Change ({{ sw.fromRegion || 'World' }} →
+                          {{ sw.toRegion || 'World' }})
+                        </span>
+                      }
+                    </div>
+                  </td>
+                  <td>
+                    <div class="completeness-badges">
+                      @if (sw.hasCase) {
+                        <span class="comp-pill">Case</span>
+                      }
+                      @if (sw.hasManual) {
+                        <span class="comp-pill">Manual</span>
+                      }
+                      @if (!sw.hasCase && !sw.hasManual) {
+                        <span class="text-muted">Cart / Disc only</span>
+                      }
+                    </div>
+                  </td>
+                  <td class="cell-mono">
+                    {{ sw.matchedFilenames.join(', ') }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+
+    <!-- 2. Newly Backed Up (0 -> 1) Section -->
+    <section class="diff-section">
+      <div class="diff-section-header">
+        <div>
+          <h2 class="diff-section-title">
+            + Newly Backed Up Releases (0 → 1) ({{
+              filteredNewlyBackedUp().length
+            }})
+          </h2>
+          <p class="diff-section-desc">
+            Catalog releases matched by filename that are not yet marked as
+            backed up in your collection.
+          </p>
+        </div>
+        @if (report.diff.releases.newlyBackedUp.length > 0) {
+          <div class="diff-bulk-buttons">
+            <button
+              type="button"
+              class="btn-inline"
+              (click)="setAllNewlyBackedUp(true)"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              class="btn-inline"
+              (click)="setAllNewlyBackedUp(false)"
+            >
+              Deselect All
+            </button>
+          </div>
+        }
+      </div>
+
+      @if (filteredNewlyBackedUp().length === 0) {
+        <p class="empty-section-note">
+          No newly backed up releases in this scan.
+        </p>
+      } @else {
+        <div class="diff-table-wrapper">
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th class="col-check">Apply</th>
+                <th>Platform</th>
+                <th>Game Title</th>
+                <th>Catalog Release / ROM</th>
+                <th>Matched Local File</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (rel of filteredNewlyBackedUp(); track rel.id) {
+                <tr [class.row-selected]="isSetSelected(rel.id)">
+                  <td class="col-check">
+                    <input
+                      type="checkbox"
+                      [checked]="isSetSelected(rel.id)"
+                      (change)="
+                        toggleSetSelection(rel.id, $any($event.target).checked)
+                      "
+                      [attr.aria-label]="'Mark backed up: ' + rel.title"
+                    />
+                  </td>
+                  <td>
+                    <span class="platform-pill">{{ rel.platform_name }}</span>
+                  </td>
+                  <td class="cell-title">{{ rel.title }}</td>
+                  <td class="cell-mono">{{ rel.rom_name }}</td>
+                  <td class="cell-mono">
+                    {{ rel.matched_filename || rel.rom_name }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
+
+    <!-- 3. Missing on Scanned Platforms (1 -> 0) Section -->
+    <section
+      class="diff-section"
+      [class.diff-section-disabled]="!pruneMissingBackups()"
+    >
+      <div class="diff-section-header">
+        <div>
+          <h2 class="diff-section-title">
+            - Missing on Scanned Platforms (1 → 0) ({{
+              filteredLostBackups().length
+            }})
+          </h2>
+          <p class="diff-section-desc">
+            Releases on the scanned platform(s) currently marked as backed up
+            that were not found in the selected folder.
+          </p>
+        </div>
+        @if (
+          report.diff.releases.lostBackup.length > 0 && pruneMissingBackups()
+        ) {
+          <div class="diff-bulk-buttons">
+            <button
+              type="button"
+              class="btn-inline"
+              (click)="setAllLostBackups(true)"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              class="btn-inline"
+              (click)="setAllLostBackups(false)"
+            >
+              Deselect All
+            </button>
+          </div>
+        }
+      </div>
+
+      @if (!pruneMissingBackups()) {
+        <p class="empty-section-note">
+          Pruning is disabled — these
+          {{ report.diff.releases.lostBackup.length }}
+          releases will keep their existing backup status.
+        </p>
+      } @else if (filteredLostBackups().length === 0) {
+        <p class="empty-section-note">
+          No missing backups detected on scanned platforms.
+        </p>
+      } @else {
+        <div class="diff-table-wrapper">
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th class="col-check">Clear</th>
+                <th>Platform</th>
+                <th>Game Title</th>
+                <th>Catalog Release / ROM</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (rel of filteredLostBackups(); track rel.id) {
+                <tr [class.row-selected]="isClearSelected(rel.id)">
+                  <td class="col-check">
+                    <input
+                      type="checkbox"
+                      [checked]="isClearSelected(rel.id)"
+                      (change)="
+                        toggleClearSelection(
+                          rel.id,
+                          $any($event.target).checked
+                        )
+                      "
+                      [attr.aria-label]="'Clear backup status: ' + rel.title"
+                    />
+                  </td>
+                  <td>
+                    <span class="platform-pill">{{ rel.platform_name }}</span>
+                  </td>
+                  <td class="cell-title">{{ rel.title }}</td>
+                  <td class="cell-mono">{{ rel.rom_name }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
+
+    <!-- 4. Collapsible Platform Breakdown & Ignored Unmatched Files -->
+    <div class="collapsible-panels">
+      <details class="scanner-details">
+        <summary>
+          Platform Breakdown ({{ report.scannedPlatforms.length }}
+          {{ report.scannedPlatforms.length === 1 ? 'platform' : 'platforms' }})
+        </summary>
+        <div class="details-body">
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>Files Scanned</th>
+                <th>Catalog Releases Matched</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of report.scannedPlatforms; track p.id) {
+                <tr>
+                  <td>{{ p.name }}</td>
+                  <td>{{ p.scannedFiles }}</td>
+                  <td>{{ p.matchedReleases }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details class="scanner-details">
+        <summary>
+          Ignored Unmatched Files ({{ filteredIgnoredFiles().length }})
+        </summary>
+        <div class="details-body">
+          <p class="details-helper">
+            Files that did not match a physical catalog release (such as
+            digital-only backups or uncataloged dumps) are safely ignored and
+            never modify your catalog.
+          </p>
+          @if (filteredIgnoredFiles().length === 0) {
+            <p class="empty-section-note">Zero unmatched files.</p>
+          } @else {
+            <div class="diff-table-wrapper">
+              <table class="diff-table">
+                <thead>
+                  <tr>
+                    <th>Platform</th>
+                    <th>Filename</th>
+                    <th>Relative Path</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (f of filteredIgnoredFiles(); track f.relativePath) {
+                    <tr>
+                      <td>{{ f.platformName || 'Unmapped Folder' }}</td>
+                      <td class="cell-mono">{{ f.fileName }}</td>
+                      <td class="cell-mono text-muted">{{ f.relativePath }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </details>
+    </div>
+
+    <!-- Sticky Action Footer -->
+    <footer class="scanner-action-bar">
+      <div class="action-bar-summary">
+        <strong>Ready to sync:</strong>
+        <span>+{{ selectedSetCount() }} additions</span>
+        <span>•</span>
+        <span>-{{ effectiveSelectedClearCount() }} removals</span>
+        <span>•</span>
+        <span>
+          {{ selectedSwitchCount() }} ownership
+          {{ selectedSwitchCount() === 1 ? 'switch' : 'switches' }}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        class="btn-apply-diff"
+        [disabled]="!canApply()"
+        (click)="onApplySelectedDiff()"
+      >
+        <app-icon name="check" [size]="18"></app-icon>
+        <span>
+          {{ isApplying() ? 'Applying Updates...' : 'Apply Selected Updates' }}
+        </span>
+      </button>
+    </footer>
+  } @else if (!backupScannerService.isCrawling()) {
+    <section class="scanner-empty-state">
+      <div class="empty-icon-circle" aria-hidden="true">
+        <app-icon name="rom-archive" [size]="36"></app-icon>
+      </div>
+      <h2>Select a Local Backup Directory to Begin</h2>
+      <p>
+        Point the scanner at either your top-level multi-platform backup root
+        (e.g.
+        <code>Backups/SNES</code>, <code>Backups/Switch</code>) or a single
+        platform's folder. You will review a full diff of backup status changes
+        and any proposed release ownership switches before anything is saved.
+      </p>
+      <button
+        type="button"
+        class="btn-choose-folder"
+        (click)="onChooseDirectory()"
+      >
+        <app-icon name="rom-archive" [size]="18"></app-icon>
+        <span>Choose Backup Folder</span>
+      </button>
+    </section>
+  }
+</div>

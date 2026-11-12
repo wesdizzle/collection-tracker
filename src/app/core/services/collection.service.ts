@@ -1502,6 +1502,206 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
+   * Applies a batch backup scan diff (newly backed up releases, cleared missing backups,
+   * and optional SKU-level ownership transfers) in a single atomic Worker request.
+   */
+  applyBackupScanDiff(payload: {
+    setBackedUp: string[];
+    clearBackedUp: string[];
+    ownershipTransfers?: Array<{
+      fromReleaseIds: string[];
+      toReleaseIds: string[];
+      hasCase?: number;
+      hasManual?: number;
+    }>;
+  }): Observable<{
+    success: boolean;
+    setCount: number;
+    clearCount: number;
+    transferredCount: number;
+  }> {
+    if (this._isPublicView()) {
+      return throwError(() => new Error('Cannot modify public collection'));
+    }
+    if (!this.isAuthenticated()) {
+      this.promptAdminLogin();
+      return throwError(
+        () => new Error('Unauthorized: Authentication required'),
+      );
+    }
+
+    const requestBody = {
+      setBackedUp: payload.setBackedUp,
+      clearBackedUp: payload.clearBackedUp,
+      ownershipTransfers: (payload.ownershipTransfers || []).map((t) => ({
+        fromReleaseIds: t.fromReleaseIds,
+        toReleaseIds: t.toReleaseIds,
+      })),
+    };
+
+    return this.http
+      .post<{
+        success: boolean;
+        setCount: number;
+        clearCount: number;
+        transferredCount: number;
+      }>('/api/collection/backups/apply', requestBody)
+      .pipe(
+        tap(() => {
+          const setIdSet = new Set(payload.setBackedUp);
+          const clearIdSet = new Set(payload.clearBackedUp);
+          const transferFromSet = new Set<string>();
+          const transferToMap = new Map<
+            string,
+            { hasCase: number; hasManual: number }
+          >();
+
+          const currentGames = this._games();
+          const gameById = new Map<string, Game>();
+          for (const g of currentGames) {
+            gameById.set(g.id, g);
+          }
+
+          for (const t of payload.ownershipTransfers || []) {
+            let migratedCase = t.hasCase ?? 0;
+            let migratedManual = t.hasManual ?? 0;
+            for (const fid of t.fromReleaseIds) {
+              transferFromSet.add(fid);
+              const existing = gameById.get(fid);
+              if (existing) {
+                if (existing.has_case) migratedCase = 1;
+                if (existing.has_manual) migratedManual = 1;
+              }
+            }
+            for (const tid of t.toReleaseIds) {
+              transferToMap.set(tid, {
+                hasCase: migratedCase,
+                hasManual: migratedManual,
+              });
+            }
+          }
+
+          this._games.update((games) =>
+            games.map((g) => {
+              let changed = false;
+              let nextBackup = g.backup_status;
+              let nextOwnership = g.ownership_status;
+              let nextCase = g.has_case;
+              let nextManual = g.has_manual;
+
+              if (setIdSet.has(g.id)) {
+                nextBackup = 1;
+                changed = true;
+              } else if (clearIdSet.has(g.id)) {
+                nextBackup = 0;
+                changed = true;
+              }
+
+              if (transferFromSet.has(g.id)) {
+                nextOwnership = OwnershipStatus.Unowned;
+                nextCase = 0;
+                nextManual = 0;
+                changed = true;
+              } else if (transferToMap.has(g.id)) {
+                const meta = transferToMap.get(g.id)!;
+                nextOwnership = OwnershipStatus.Owned;
+                nextCase = Math.max(Number(g.has_case || 0), meta.hasCase);
+                nextManual = Math.max(
+                  Number(g.has_manual || 0),
+                  meta.hasManual,
+                );
+                changed = true;
+              }
+
+              let nextReleases = g.releases;
+              if (g.releases && g.releases.length > 0) {
+                let relChanged = false;
+                const mappedReleases = g.releases.map((r) => {
+                  let rBackup = r.backup_status;
+                  let rOwn = r.ownership_status;
+                  let rCase = r.has_case;
+                  let rManual = r.has_manual;
+                  let rMod = false;
+
+                  if (setIdSet.has(r.id)) {
+                    rBackup = 1;
+                    rMod = true;
+                  } else if (clearIdSet.has(r.id)) {
+                    rBackup = 0;
+                    rMod = true;
+                  }
+                  if (transferFromSet.has(r.id)) {
+                    rOwn = OwnershipStatus.Unowned;
+                    rCase = 0;
+                    rManual = 0;
+                    rMod = true;
+                  } else if (transferToMap.has(r.id)) {
+                    const meta = transferToMap.get(r.id)!;
+                    rOwn = OwnershipStatus.Owned;
+                    rCase = Math.max(Number(r.has_case || 0), meta.hasCase);
+                    rManual = Math.max(
+                      Number(r.has_manual || 0),
+                      meta.hasManual,
+                    );
+                    rMod = true;
+                  }
+                  if (!rMod) return r;
+                  relChanged = true;
+                  return {
+                    ...r,
+                    backup_status: rBackup,
+                    ownership_status: rOwn,
+                    has_case: rCase,
+                    has_manual: rManual,
+                  };
+                });
+                if (relChanged) {
+                  nextReleases = mappedReleases;
+                  changed = true;
+                }
+              }
+
+              let nextDiscBackups = g.discBackups;
+              if (g.discIds && g.discBackups && g.discIds.length > 1) {
+                let discChanged = false;
+                const mappedDiscBackups = g.discIds.map((did, idx) => {
+                  if (setIdSet.has(did)) {
+                    discChanged = true;
+                    return 1;
+                  }
+                  if (clearIdSet.has(did)) {
+                    discChanged = true;
+                    return 0;
+                  }
+                  return g.discBackups?.[idx] ?? 0;
+                });
+                if (discChanged) {
+                  nextDiscBackups = mappedDiscBackups;
+                  nextBackup = mappedDiscBackups.every((b) => b === 1) ? 1 : 0;
+                  changed = true;
+                }
+              }
+
+              if (!changed) return g;
+              return {
+                ...g,
+                backup_status: nextBackup,
+                ownership_status: nextOwnership,
+                has_case: nextCase,
+                has_manual: nextManual,
+                releases: nextReleases,
+                discBackups: nextDiscBackups,
+              };
+            }),
+          );
+          this._refreshTrigger.update((v) => v + 1);
+          void this.clearServiceWorkerDataCaches();
+        }),
+        catchError(this.handleMutationError),
+      );
+  }
+
+  /**
    * Updates the 'has_case' flag of a game release.
    */
   updateHasCase(id: string, status: number): Observable<unknown> {

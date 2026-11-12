@@ -138,6 +138,14 @@ export const routes: Routes = [
                 (m) => m.CollectionInsightsComponent,
               ),
           },
+          {
+            path: 'backups',
+            title: 'Scan Local Backups',
+            loadComponent: () =>
+              import('./features/collection/backups/backup-scanner.component').then(
+                (m) => m.BackupScannerComponent,
+              ),
+          },
         ],
       },
       {

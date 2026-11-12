@@ -7,6 +7,7 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **Game & Release Tracking**: Tracks games across 50+ platforms. Distinguishes intellectual property, commercial retail releases, and individual physical media (cartridges, discs, bonus/demo discs).
 - **Announced & Upcoming Physical Games Pipeline**: Tracks games from initial reveal through launch with fine-grained lifecycle states (`announced_unreleased`, `physical_pending`, `likely_physical`, `digital_only`, `released`) and automated launch-day status transitions.
 - **Physical Release Verification**: Reconciles items against canonical No-Intro and Redump XML DAT catalogs. Clean ROM titles can override displayed titles, matching filenames used by ROM managers.
+- **In-Browser Backup Directory Scanner (`/collection/backups`)**: Uses the File System Access API (`window.showDirectoryPicker`) and `<input type="file" webkitdirectory>` fallback to crawl local ROM/disc folders in the browser by filename only (zero file bytes read, hashed, or uploaded). Gracefully ignores digital-only backups and unmatched files, proposes **Ownership Switches** when a scanned backup matches a different regional or revision SKU of an already-owned game (preserving `has_case` and `has_manual`), and presents a diff review screen before applying updates.
 - **Multi-Disc Sets**: Groups multi-disc releases with inline disc expansion trays to track backup status per disc.
 - **Collection Journal (Provenance & Cost Basis)**: Records acquisition date (with approximate date flags), purchase price / cost basis, merchant attribution, gift provenance, receipt verification URLs, and private notes behind authenticated access.
 - **Toy Collection**: Supports amiibo, Skylanders, and Starlink figures and cards with series tracking, variant classification, and metadata from AmiiboAPI and SCL.
@@ -22,8 +23,9 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **Styling**: Modern CSS using Material 3 design tokens (`--m3-*`)
 - **Testing**: Vitest
 - **Build**: Angular CLI (`ng build` with esbuild)
-- **Edge API & Hosting**: Cloudflare Workers (`worker/worker.ts`), unified across production edge and local development via a `better-sqlite3` `D1Database` adapter (`scripts/local_server.ts`)
-- **Database**: Cloudflare D1 (SQLite-compatible) in production; Wrangler local D1 SQLite (`better-sqlite3`) for local staging and development
+- **Edge API & Hosting**: Cloudflare Workers (`worker/worker.ts`), unified across production edge and local Wrangler development (`npx wrangler dev --local --port 8787`)
+- **Isomorphic Domain Library (`shared/`)**: Pure TypeScript modules (`shared/backup_scanner.ts`, `shared/title_matching.ts`, `shared/canonical_releases.ts`, `shared/switch_revisions.ts`, `shared/queries.ts`, `shared/bestbuy.ts`, `shared/physical_feeds.ts`) shared directly between the Angular browser app and Cloudflare Worker without Node.js dependencies
+- **Database**: Cloudflare D1 (SQLite-compatible) in production; Wrangler local D1 SQLite for local staging and development
 - **Storage**: Cloudflare R2 for automated daily snapshots
 
 ## Architecture & Data Model
@@ -83,20 +85,24 @@ Retail packages containing bonus discs, soundtrack CDs, or pack-in demos (such a
 - In `canonical_releases`, companion pack-in discs are linked to the host game via `packin_host_normalized_title` and store their `redump_disc_id`.
 - During ingestion and collection detail views, companion discs are cleanly nested inside the host game's release tray under "Physical Discs / ROMs", preventing namesake base games from stealing pack-in demo backups.
 
-### Metadata Ingestion & Physical Reconciliation
+### Metadata Reconciliation & In-Browser Backup Scanning
 
-Heavy scraping and data indexing are performed locally against staging SQLite and synchronized to Cloudflare D1:
+Catalog matching, release reconciliation, and backup scanning run through pure isomorphic modules in `shared/`:
 
-- **Canonical DAT & Source Sync (`npm run sources:sync`)**: Syncs DAT files in `dats/`, aggregates Wikipedia budget lines, resolves pack-in provenance, and updates `canonical_releases`.
-- **Title Matching Strategies (`scripts/lib/title_matching.ts`)**:
+- **Title Matching Strategies (`shared/title_matching.ts`)**:
   - _Strategy 1 (Exact Match)_: Compares normalized titles with diacritics stripped, punctuation cleaned, and common publisher prefixes removed.
   - _Strategy 2 (Segment/Subtitle Matching)_: Splits titles on colons and dashes to match base games against subtitle variations.
   - _Strategy 3 (Middle-Segment Stripping)_: Handles mission packs and multi-segment naming patterns.
   - _Strategy 4 (Bonus Disc Matching)_: Uses parenthetical identifiers and pack-in host metadata to resolve companion discs.
-- **Strict Physical-Only Boundary**: The catalog tracks physical media exclusively. Ingestion pipelines and DAT parsers reject digital installers (`.pkg`), mini-console extractions, and Virtual Console wrappers at the ingestion boundary.
-- **Amiibo Multi-Pose Figures & Card Sets**: Amiibo entities with multiple swappable physical figures (e.g. Mr. Game & Watch's 4 poses: Default, Parachute, Bell, and Judge) are deterministically expanded into unique catalog entries with canonical pose qualifiers, distinct stable IDs, and pose-specific slugs.
-- **Nintendo Switch & Switch 2 Cartridge Revisions (`scripts/sync_switch_revisions.ts`)**:
-  - Ingests verified cartridge revision and reprint data from the Nintendo Revised community catalog across Switch 1 and Switch 2 tabs.
+- **In-Browser Backup Scanner & Ownership Reassignment (`shared/backup_scanner.ts`)**:
+  - Evaluates local directory trees by filename only, supporting both multi-platform roots (auto-detecting platform subdirectories) and single-platform folders.
+  - Matches Switch TitleIDs (`[16-hex]`) and version tags (`[vN]`), optical/cartridge serial codes (`SLUS-01041`), Redump/No-Intro parenthetical region/revision/disc tags, and normalized titles.
+  - Gracefully ignores digital-only dumps, Switch update/DLC files (`[UPD]`, `[DLC]`, non-`000` TitleIDs), and non-ROM sidecar files in a collapsible summary drawer.
+  - Detects **Ownership Switches** when a game has an owned release SKU without a backup in the scan while a different SKU of the same game is matched by the scan, proposing an atomic ownership transfer that preserves `has_case` and `has_manual` while keeping `user_games` and `journal_entries` untouched.
+- **Strict Physical-Only Boundary**: The catalog tracks physical media exclusively. Ingestion pipelines reject digital installers (`.pkg`), mini-console extractions, and Virtual Console wrappers at the ingestion boundary.
+- **Amiibo Multi-Pose Figures & Card Sets (`shared/amiibo_poses.ts`)**: Amiibo entities with multiple swappable physical figures (e.g. Mr. Game & Watch's 4 poses: Default, Parachute, Bell, and Judge) are deterministically expanded into unique catalog entries with canonical pose qualifiers, distinct stable IDs, and pose-specific slugs.
+- **Nintendo Switch & Switch 2 Cartridge Revisions (`shared/switch_revisions.ts`)**:
+  - Parses verified cartridge revision and reprint data from the Nintendo Revised community catalog across Switch 1 and Switch 2.
   - Automatically resolves `Title [TitleID][vVersion].xci` dump filenames to corresponding canonical revisions and cartridge patch versions.
 
 ### Cloudflare Edge Caching & Cache Invalidation
@@ -108,9 +114,9 @@ Heavy scraping and data indexing are performed locally against staging SQLite an
 
 Managed serverless databases enforce daily read and write limits (e.g. Cloudflare D1's 100,000 writes/day free tier). The project employs a strict pre-flight protection architecture:
 
-- **Zero-Cost R2 Baseline Hydration (`npm run db:pull-r2`)**: Downloads automated R2 snapshots (`snapshots/latest.json`) to hydrate a local clone (`data/remote_baseline.db`) without consuming any D1 read or write quota.
+- **Zero-Cost R2 Baseline Hydration (`npm run db:pull`)**: Downloads automated R2 snapshots (`snapshots/latest.json`) to hydrate the local Wrangler D1 database without consuming any D1 read or write quota.
 - **Index Write Amplification Accounting ($1 + K$)**: Every inserted, updated, or deleted row in a table with $K$ secondary indexes incurs $1 + K$ billable writes.
-- **Standalone Pre-Flight Cost Guard (`scripts/lib/d1_cost_guard.ts`)**: Audits `EXPLAIN QUERY PLAN` for unindexed table scans on large tables, dry-runs execution in a sandbox clone to calculate exact $\sum (\Delta \text{rows} \times (1 + K))$ write costs, and hard-aborts if projected writes exceed `--max-writes`.
+- **Standalone Pre-Flight Cost Guard (`scripts/d1_cost_guard.ts`)**: Audits `EXPLAIN QUERY PLAN` for unindexed table scans on large tables, dry-runs execution in a sandbox clone to calculate exact $\sum (\Delta \text{rows} \times (1 + K))$ write costs, and hard-aborts if projected writes exceed `--max-writes`.
 
 ### Edge Background Automation Engine
 
@@ -140,12 +146,7 @@ The Cloudflare Worker implements an edge-native background engine (`worker/worke
    ```bash
    npm install
    ```
-3. **Initialize local database**:
-   ```bash
-   npm run db:init
-   ```
-   Creates local Wrangler D1 SQLite database with canonical schema, platforms, and default taxonomies.
-4. **Configure environment variables**:
+3. **Configure environment variables**:
    Create a `.dev.vars` file in the root directory (gitignored):
    ```env
    D1_DATABASE_ID=your_cloudflare_d1_database_uuid
@@ -158,29 +159,15 @@ The Cloudflare Worker implements an edge-native background engine (`worker/worke
    VAPID_PRIVATE_KEY=your_vapid_private_key
    ADMIN_EMAIL=admin@example.com
    ```
+4. **Pull latest R2 snapshot into local D1 (optional)**:
+   ```bash
+   npm run db:pull
+   ```
 5. **Start local development server**:
    ```bash
    npm run dev
    ```
-   Starts the Angular dev server alongside `scripts/local_server.ts`, which executes the production Cloudflare Worker (`worker/worker.ts`) directly in Node.js backed by Wrangler's local D1 SQLite database via a `better-sqlite3` `D1Database` adapter.
-
-### Clean Fork Setup (Populating Catalog from Public Sources)
-
-Anyone spinning up a fork of this repository can populate all non-personal catalog details (game signatures, Switch cartridge revisions, budget line metadata, pack-in demo homing, and toy figures) directly from public authoritative sources:
-
-```bash
-# 1. Initialize schema and platforms
-npm run db:init
-
-# 2. Download canonical Datomatic v4 XMLs and Redump DATs
-npm run dats:download
-
-# 3. Aggregate budget lines, Redump pack-in cross-links, Switch revisions, and populate canonical_releases
-npm run sources:sync
-
-# 4. Discover and populate games and all toy lines (Amiibo, Skylanders, Starlink)
-npm run scrape -- --discovery
-```
+   Initializes the local Wrangler D1 database from `migrations/schema.sql` and starts `npx wrangler dev --local --port 8787` alongside the Angular dev server (`ng serve`).
 
 ## Privacy-Preserving Deployment & CI/CD
 
@@ -225,44 +212,25 @@ Configure a public OIDC client in your identity provider with Authorization Code
 
 ## CLI Commands
 
-### Database & Scraper Scripts
+### Development, Database & Quality Gates
 
-| Command                                                  | Description                                                                             |
-| :------------------------------------------------------- | :-------------------------------------------------------------------------------------- |
-| `npm run db:init`                                        | Initializes fresh local Wrangler D1 SQLite database from schema and migrations          |
-| `npm run db:backup`                                      | Exports atomic WAL-safe binary, SQL, and JSON backups locally                           |
-| `npm run db:pull`                                        | Pulls latest production snapshot from Cloudflare R2 into local staging SQLite           |
-| `npm run db:pull-r2`                                     | Downloads latest R2 snapshot and constructs `data/remote_baseline.db` (0 D1 quota cost) |
-| `npm run sources:download`                               | Downloads latest official No-Intro Datomatic v4 XMLs and Redump DATs into `dats/`       |
-| `npm run sources:sync`                                   | Aggregates DATs, Wikipedia budget lines, Redump pack-ins, and Switch revisions          |
-| `npm run sources:sync:platform -- --platform=<name\|id>` | Runs scoped canonical sync for a single platform to minimize D1 write quota             |
-| `npm run sources:update`                                 | Runs `sources:download` and `sources:sync` in a single combined pipeline                |
-| `npm run sources:dry-run`                                | Analyzes canonical sources and estimates D1 write quota usage without modifying data    |
-| `npm run sources:sync-switch`                            | Synchronizes Switch 1 & 2 revisions from Nintendo Revised spreadsheet                   |
-| `npm run d1:cost-guard -- --file=<sql> [--confirm]`      | Pre-flight cost guard validating write budgets and index plans for migrations           |
-| `npm run d1:deploy-switch [--confirm]`                   | Deploys Switch cartridge revision delta to remote D1 via the Pre-Flight Cost Guard      |
-| `npm run scrape`                                         | Runs multi-tier IGDB and canonical DAT reconciliation against local collection          |
-| `npm run scrape -- --discovery`                          | Discovers missing games and all toy lines (Amiibo, Skylanders, Starlink) as Wanted      |
-| `npm run scan-backups`                                   | Scans local backup directories to detect ROM files and match against games              |
-| `npm run local-api`                                      | Runs local Express adapter forwarding `/api/*` requests to the Cloudflare Worker        |
-| `npm run sync:bestbuy`                                   | Manually scrapes current retail game deals from Best Buy, VGP, and PNP Games            |
-
-### Development, Deployment & Quality Gates
-
-| Command                | Description                                                                  |
-| :--------------------- | :--------------------------------------------------------------------------- |
-| `npm start`            | Runs Angular dev server via `ng serve`                                       |
-| `npm run dev`          | Runs local Worker API server and Angular frontend concurrently               |
-| `npm run build`        | Compiles production Angular bundle to `dist/tracker`                         |
-| `npm run deploy`       | Builds bundle and deploys Worker + Assets with secret-injected `database_id` |
-| `npm run secrets:push` | Uploads configured secrets from `.dev.vars` / env to Cloudflare Worker       |
-| `npm test`             | Runs frontend (`test:ng`) and script/worker (`test:node`) test suites        |
-| `npm run test:ng`      | Runs frontend unit tests via Vitest                                          |
-| `npm run test:node`    | Runs backend worker and scraper tests via Vitest                             |
-| `npm run type-check`   | Runs TypeScript compiler checks (`tsc --noEmit`)                             |
-| `npm run lint`         | Runs ESLint                                                                  |
-| `npm run format:check` | Verifies codebase formatting via Prettier                                    |
-| `npm run ci-check`     | Runs lint, type-check, tests, and production build sequentially              |
+| Command                                             | Description                                                                             |
+| :-------------------------------------------------- | :-------------------------------------------------------------------------------------- |
+| `npm start`                                         | Runs Angular dev server via `ng serve`                                                  |
+| `npm run dev`                                       | Initializes local D1 schema and runs Wrangler local Worker + Angular dev server         |
+| `npm run db:pull`                                   | Pulls latest production snapshot from Cloudflare R2 into local Wrangler D1 (0 D1 reads) |
+| `npm run d1:cost-guard`                             | Verifies static schema index bounds (`1 + K`) and `EXPLAIN QUERY PLAN` on critical SQL  |
+| `npm run d1:cost-guard -- --file=<sql> [--confirm]` | Pre-flight cost guard validating write budgets and index plans for migrations           |
+| `npm run build`                                     | Compiles production Angular bundle to `dist/tracker`                                    |
+| `npm run deploy`                                    | Builds bundle and deploys Worker + Assets with secret-injected `database_id`            |
+| `npm run secrets:push`                              | Uploads configured secrets from `.dev.vars` / env to Cloudflare Worker                  |
+| `npm test`                                          | Runs frontend (`test:ng`) and shared/worker/scripts (`test:node`) test suites           |
+| `npm run test:ng`                                   | Runs frontend unit tests via Vitest                                                     |
+| `npm run test:node`                                 | Runs isomorphic `shared/`, `worker/`, and `scripts/` tests via Vitest                   |
+| `npm run type-check`                                | Runs TypeScript compiler checks (`tsc --noEmit`)                                        |
+| `npm run lint`                                      | Runs ESLint                                                                             |
+| `npm run format:check`                              | Verifies codebase formatting via Prettier                                               |
+| `npm run ci-check`                                  | Runs lint, format:check, type-check, d1:cost-guard, tests, and production build         |
 
 ## Custom Branding & Environment Configuration
 

@@ -21,14 +21,34 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { runD1PullFromR2 } from '@wesdizzle/app-kit/scripts';
-
-import { getLocalD1Path } from './lib/db.js';
+import {
+  findWranglerSqliteFile,
+  runD1PullFromR2,
+} from '@wesdizzle/app-kit/scripts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.join(__dirname, '..');
-const localDbPath = getLocalD1Path();
+
+function resolveLocalD1Path(): string {
+  const d1StateDir = path.join(
+    rootDir,
+    '.wrangler',
+    'state',
+    'v3',
+    'd1',
+    'miniflare-D1DatabaseObject',
+  );
+  const found = findWranglerSqliteFile(d1StateDir);
+  if (found) return found;
+  fs.mkdirSync(d1StateDir, { recursive: true });
+  return path.join(
+    d1StateDir,
+    '169f8be8b215c89203fa79284f81f610be46edc169f8d19359d676b5963cb1eb.sqlite',
+  );
+}
+
+const localDbPath = resolveLocalD1Path();
 const schemaSqlPath = path.join(rootDir, 'migrations', 'schema.sql');
 
 const TABLE_HYDRATION_ORDER = [

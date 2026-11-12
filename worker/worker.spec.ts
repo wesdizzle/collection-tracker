@@ -4532,5 +4532,307 @@ describe('Worker API Logic', () => {
         }
       });
     });
+
+    describe('POST /api/collection/backups/apply', () => {
+      it('rejects unauthenticated requests with 401 and cross-origin requests with 403', async () => {
+        const unauthRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/collection/backups/apply',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Origin: 'https://collection-tracker.example.com',
+              },
+              body: JSON.stringify({
+                setBackedUp: ['gb-mario'],
+                clearBackedUp: [],
+              }),
+            },
+          ),
+          mockEnv,
+        );
+        expect(unauthRes.status).toBe(401);
+
+        const csrfRes = await worker.fetch(
+          new Request('http://localhost/api/collection/backups/apply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Origin: 'https://evil.example.com',
+            },
+            body: JSON.stringify({
+              setBackedUp: ['gb-mario'],
+              clearBackedUp: [],
+            }),
+          }),
+          mockEnv,
+        );
+        expect(csrfRes.status).toBe(403);
+      });
+
+      it('applies setBackedUp and clearBackedUp isolated to the authenticated user', async () => {
+        db.exec(`
+          INSERT INTO users (id, username, is_public, home_region, display_name)
+          VALUES (2, 'bob', 1, 'USA', 'Bob');
+          INSERT INTO game_releases (id, game_id, region, variants, rom_name)
+          VALUES ('gb-mario-rev1', 1, 'USA', 'Rev 1', 'Super Mario Bros (USA) (Rev 1).nes');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+          VALUES (1, 'gb-mario-rev1', 0, 1),
+                 (2, 'gb-mario', 1, 0),
+                 (2, 'gb-mario-rev1', 1, 1);
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'user',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        const res = await worker.fetch(
+          new Request('http://localhost/api/collection/backups/apply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: `${SESSION_COOKIE}=${token}`,
+            },
+            body: JSON.stringify({
+              setBackedUp: ['gb-mario'],
+              clearBackedUp: ['gb-mario-rev1'],
+            }),
+          }),
+          mockEnv,
+        );
+
+        expect(res.status).toBe(200);
+        const data = (await res.json()) as {
+          success: boolean;
+          setCount: number;
+          clearCount: number;
+          transferredCount: number;
+        };
+        expect(data).toEqual({
+          success: true,
+          setCount: 1,
+          clearCount: 1,
+          transferredCount: 0,
+        });
+
+        const aliceRows = db
+          .prepare(
+            'SELECT release_id, ownership_status, backup_status FROM user_game_releases WHERE user_id = 1 ORDER BY release_id',
+          )
+          .all() as Array<{
+          release_id: string;
+          ownership_status: number;
+          backup_status: number;
+        }>;
+        expect(aliceRows).toEqual([
+          { release_id: 'gb-mario', ownership_status: 1, backup_status: 1 },
+          {
+            release_id: 'gb-mario-rev1',
+            ownership_status: 0,
+            backup_status: 0,
+          },
+        ]);
+
+        // Bob's rows remain completely untouched
+        const bobRows = db
+          .prepare(
+            'SELECT release_id, ownership_status, backup_status FROM user_game_releases WHERE user_id = 2 ORDER BY release_id',
+          )
+          .all() as Array<{
+          release_id: string;
+          ownership_status: number;
+          backup_status: number;
+        }>;
+        expect(bobRows).toEqual([
+          { release_id: 'gb-mario', ownership_status: 1, backup_status: 0 },
+          {
+            release_id: 'gb-mario-rev1',
+            ownership_status: 1,
+            backup_status: 1,
+          },
+        ]);
+      });
+
+      it('transfers SKU ownership, migrates has_case and has_manual across multi-disc target SKUs, and preserves play_status & journal entries', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id)
+          VALUES (50, 'ff7-ps1', 'Final Fantasy VII', 1);
+          INSERT INTO game_releases (id, game_id, region, variants, rom_name)
+          VALUES ('ff7-rev0-d1', 50, 'USA', null, 'Final Fantasy VII (USA) (Disc 1).cue'),
+                 ('ff7-rev0-d2', 50, 'USA', null, 'Final Fantasy VII (USA) (Disc 2).cue'),
+                 ('ff7-rev1-d1', 50, 'USA', 'Rev 1', 'Final Fantasy VII (USA) (Disc 1) (Rev 1).cue'),
+                 ('ff7-rev1-d2', 50, 'USA', 'Rev 1', 'Final Fantasy VII (USA) (Disc 2) (Rev 1).cue');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+          VALUES (1, 'ff7-rev0-d1', 1, 0, 1, 1),
+                 (1, 'ff7-rev0-d2', 1, 0, 1, 1);
+          INSERT INTO user_games (user_id, game_id, play_status, queued)
+          VALUES (1, 50, 2, 1);
+          INSERT INTO journal_entries (user_id, item_type, item_id, purchase_date, price_paid, merchant)
+          VALUES (1, 'game', 'ff7-ps1', '1997-09-07', 49.99, 'EB Games');
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'user',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        // Only Disc 1 of Rev 1 was dumped in the scan, while ownership transfers to the full 2-disc Rev 1 SKU
+        const res = await worker.fetch(
+          new Request('http://localhost/api/collection/backups/apply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: `${SESSION_COOKIE}=${token}`,
+            },
+            body: JSON.stringify({
+              setBackedUp: ['ff7-rev1-d1'],
+              clearBackedUp: [],
+              ownershipTransfers: [
+                {
+                  fromReleaseIds: ['ff7-rev0-d1', 'ff7-rev0-d2'],
+                  toReleaseIds: ['ff7-rev1-d1', 'ff7-rev1-d2'],
+                },
+              ],
+            }),
+          }),
+          mockEnv,
+        );
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          success: boolean;
+          setCount: number;
+          clearCount: number;
+          transferredCount: number;
+        };
+        expect(body).toEqual({
+          success: true,
+          setCount: 1,
+          clearCount: 0,
+          transferredCount: 1,
+        });
+
+        const ff7Rels = db
+          .prepare(
+            `SELECT release_id, ownership_status, backup_status, has_case, has_manual
+             FROM user_game_releases
+             WHERE user_id = 1 AND release_id LIKE 'ff7-%'
+             ORDER BY release_id`,
+          )
+          .all() as Array<{
+          release_id: string;
+          ownership_status: number;
+          backup_status: number;
+          has_case: number;
+          has_manual: number;
+        }>;
+
+        expect(ff7Rels).toEqual([
+          {
+            release_id: 'ff7-rev0-d1',
+            ownership_status: 0,
+            backup_status: 0,
+            has_case: 0,
+            has_manual: 0,
+          },
+          {
+            release_id: 'ff7-rev0-d2',
+            ownership_status: 0,
+            backup_status: 0,
+            has_case: 0,
+            has_manual: 0,
+          },
+          {
+            release_id: 'ff7-rev1-d1',
+            ownership_status: 1,
+            backup_status: 1,
+            has_case: 1,
+            has_manual: 1,
+          },
+          {
+            release_id: 'ff7-rev1-d2',
+            ownership_status: 1,
+            backup_status: 0,
+            has_case: 1,
+            has_manual: 1,
+          },
+        ]);
+
+        // Verify play_status, queued, and journal entry are preserved
+        const userGame = db
+          .prepare(
+            'SELECT play_status, queued FROM user_games WHERE user_id = 1 AND game_id = 50',
+          )
+          .get() as { play_status: number; queued: number };
+        expect(userGame).toEqual({ play_status: 2, queued: 1 });
+
+        const journal = db
+          .prepare(
+            "SELECT item_id, price_paid, merchant FROM journal_entries WHERE user_id = 1 AND item_id = 'ff7-ps1'",
+          )
+          .get() as { item_id: string; price_paid: number; merchant: string };
+        expect(journal).toEqual({
+          item_id: 'ff7-ps1',
+          price_paid: 49.99,
+          merchant: 'EB Games',
+        });
+      });
+
+      it('rejects cross-game ownershipTransfers with 400', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id)
+          VALUES (60, 'other-game', 'Other Game', 1);
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES ('other-game-rel', 60, 'USA');
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'user',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        const res = await worker.fetch(
+          new Request('http://localhost/api/collection/backups/apply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: `${SESSION_COOKIE}=${token}`,
+            },
+            body: JSON.stringify({
+              setBackedUp: ['other-game-rel'],
+              clearBackedUp: [],
+              ownershipTransfers: [
+                {
+                  fromReleaseIds: ['gb-mario'],
+                  toReleaseIds: ['other-game-rel'],
+                },
+              ],
+            }),
+          }),
+          mockEnv,
+        );
+
+        expect(res.status).toBe(400);
+        const err = (await res.json()) as { error: string };
+        expect(err.error).toContain('same game');
+      });
+    });
   });
 });

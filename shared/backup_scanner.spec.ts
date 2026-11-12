@@ -1,5 +1,5 @@
 /**
- * BACKUP SCANNER & CROSS-PLATFORM RECONCILIATION TESTS
+ * ISOMORPHIC BACKUP SCANNER & OWNERSHIP RECONCILIATION TESTS
  */
 
 import { describe, it, expect } from 'vitest';
@@ -7,22 +7,28 @@ import {
   getScannedPlatformIds,
   findDbPlatform,
   findBestReleaseMatch,
+  findBestReleaseMatchWithConfidence,
   findTolerantReleaseMatch,
   extractDiscNumber,
   normalizeRomBaseForMatching,
   getGameFileParts,
   isIgnoredFile,
+  isUpdateOrDlcDump,
+  collapseContainerDirectories,
+  scanBackupEntries,
+  computeOwnershipSwitches,
   GAME_EXTENSIONS,
   PlatformRow,
   ReleaseRow,
+  CatalogReleaseCandidate,
   computeBackupNetDiffs,
   generateBackupDiffMarkdown,
   ReleaseDiffRow,
   GameDiffRow,
-} from './scan_backups.js';
-import { stripDiscIndicator } from './lib/queries.js';
+} from './backup_scanner.js';
+import { stripDiscIndicator } from './queries.js';
 
-describe('Backup Scanner & Cross-Platform Reconciler', () => {
+describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
   const mockPlatforms: PlatformRow[] = [
     {
       id: 13,
@@ -121,6 +127,14 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       parent_platform_id: null,
     },
     {
+      id: 33,
+      name: 'playstation-vita',
+      display_name: 'PlayStation Vita',
+      brand: 'PlayStation',
+      launch_date: '2011-12-17',
+      parent_platform_id: null,
+    },
+    {
       id: 34,
       name: 'playstation-4',
       display_name: 'PlayStation 4',
@@ -154,12 +168,10 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
     });
 
     it('should dynamically resolve child platforms from platform hierarchy', () => {
-      // PSVR (51) is child of PS4 (34)
       const ps4Scanned = getScannedPlatformIds(34, mockPlatforms);
       expect(ps4Scanned).toContain(34);
       expect(ps4Scanned).toContain(51);
 
-      // New 3DS (25) is child of 3DS (23)
       const ds3Scanned = getScannedPlatformIds(23, mockPlatforms);
       expect(ds3Scanned).toContain(23);
       expect(ds3Scanned).toContain(25);
@@ -200,7 +212,7 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
     });
   });
 
-  describe('getGameFileParts & isIgnoredFile', () => {
+  describe('getGameFileParts, isIgnoredFile & isUpdateOrDlcDump', () => {
     it('should strip parentheticals and normalize ", The" and ", A" suffixes', () => {
       const partsThe = getGameFileParts('Legend of Zelda, The (USA).nes');
       expect(partsThe.base).toBe('The Legend of Zelda');
@@ -217,12 +229,9 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       expect(parts.ext).toBe('.xiso.iso');
     });
 
-    it('should NOT ignore .xiso.iso files', () => {
+    it('should NOT ignore .xiso.iso or .psv files', () => {
       expect(isIgnoredFile('Halo.xiso.iso')).toBe(false);
       expect(GAME_EXTENSIONS.has('.xiso.iso')).toBe(true);
-    });
-
-    it('should NOT ignore .psv PlayStation Vita cartridge dump files', () => {
       expect(isIgnoredFile('Persona 4 Golden (USA).psv')).toBe(false);
       expect(GAME_EXTENSIONS.has('.psv')).toBe(true);
     });
@@ -246,6 +255,59 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       expect(isIgnoredFile('Crash Bandicoot (USA) (Track 2).bin')).toBe(true);
       expect(isIgnoredFile('Crash Bandicoot (USA) (Track 03).bin')).toBe(true);
       expect(isIgnoredFile('Crash Bandicoot (USA) (Track 12).bin')).toBe(true);
+    });
+
+    it('should ignore standalone [UPD], [DLC], and non-000 Switch patch/DLC TitleIDs while keeping revised base cartridges', () => {
+      expect(
+        isUpdateOrDlcDump('Bayonetta [010076F0049A2800][v65536][UPD].nsp'),
+      ).toBe(true);
+      expect(isIgnoredFile('Bayonetta [010076F0049A2800][v65536].nsp')).toBe(
+        true,
+      );
+      expect(
+        isIgnoredFile('Breath of the Wild DLC [01007EF00011F001][v0].nsp'),
+      ).toBe(true);
+      // Revised base cartridge TitleID still ends in 000
+      expect(
+        isIgnoredFile(
+          'Bayonetta 1.1 [010076F0049A2000][v65536] [NKA][NC][NT].xci',
+        ),
+      ).toBe(false);
+    });
+  });
+
+  describe('collapseContainerDirectories', () => {
+    it('collapses Vita sce_sys/param.sfo, eboot.bin, and Xbox default.xex folders into single virtual .zip entries', () => {
+      const rawEntries = [
+        {
+          relativePath: 'Backups/Vita/PCSE00120/sce_sys/param.sfo',
+          fileName: 'param.sfo',
+        },
+        {
+          relativePath: 'Backups/Vita/PCSE00120/eboot.bin',
+          fileName: 'eboot.bin',
+        },
+        {
+          relativePath: 'Backups/Vita/PCSE00120/data/bgm.at9',
+          fileName: 'bgm.at9',
+        },
+        {
+          relativePath: 'Backups/SNES/Chrono Trigger (USA).sfc',
+          fileName: 'Chrono Trigger (USA).sfc',
+        },
+      ];
+
+      const collapsed = collapseContainerDirectories(rawEntries);
+      expect(collapsed).toEqual([
+        {
+          relativePath: 'Backups/Vita/PCSE00120.zip',
+          fileName: 'PCSE00120.zip',
+        },
+        {
+          relativePath: 'Backups/SNES/Chrono Trigger (USA).sfc',
+          fileName: 'Chrono Trigger (USA).sfc',
+        },
+      ]);
     });
   });
 
@@ -422,7 +484,6 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
     });
 
     it('should match multi-disc secondary discs and merged chd packages to base release', () => {
-      // Secondary disc
       const disc2Match = findBestReleaseMatch(
         'Final Fantasy VII (USA) (Disc 2).chd',
         mockReleases,
@@ -430,7 +491,6 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       expect(disc2Match).not.toBeNull();
       expect(disc2Match?.id).toBe('rel-ff7');
 
-      // Merged multi-disc package
       const mergedMatch = findBestReleaseMatch(
         'Final Fantasy VII (USA).chd',
         mockReleases,
@@ -506,69 +566,7 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
       expect(tolerantMatch?.id).toBe('rel-earthbound-beginnings');
     });
 
-    it('should find tolerant release matches even when backup file has no region tag', () => {
-      const cleanNameMatch = findTolerantReleaseMatch(
-        'Super Mario World.sfc',
-        mockReleases,
-      );
-      expect(cleanNameMatch).not.toBeNull();
-      expect(cleanNameMatch?.id).toBe('rel-smw');
-    });
-
-    it('should identify identical CRC matches across standalone and box set releases', () => {
-      const releasesWithCrc: ReleaseRow[] = [
-        {
-          id: 'rel-infamous-2-standalone',
-          game_id: 2456,
-          title: 'Infamous 2',
-          rom_name: 'Infamous 2 (USA) (En,Fr,Es,Pt) (v02.00).iso',
-          rom_crc: '581c29e5',
-          stable_id: 2456,
-          region: 'USA',
-        },
-        {
-          id: 'rel-infamous-2-collection',
-          game_id: 10004,
-          title: 'Infamous Collection',
-          rom_name: 'Infamous 2 (USA) (En,Fr,Es,Pt) (v02.00).iso',
-          rom_crc: '581c29e5',
-          stable_id: 10004,
-          region: 'USA',
-        },
-        {
-          id: 'rel-infamous-2-v1',
-          game_id: 2456,
-          title: 'Infamous 2',
-          rom_name: 'Infamous 2 (USA) (En,Fr,Es,Pt) (v01.00).iso',
-          rom_crc: '529d56f2',
-          stable_id: 2456,
-          region: 'USA',
-        },
-      ];
-
-      const match = findBestReleaseMatch(
-        'Infamous 2 (USA) (En,Fr,Es,Pt) (v02.00).iso',
-        releasesWithCrc,
-      );
-      expect(match).not.toBeNull();
-      expect(match?.rom_crc).toBe('581c29e5');
-
-      // Shared CRC propagation test
-      const matchingCrcReleases = releasesWithCrc.filter(
-        (r) => r.rom_crc === match?.rom_crc,
-      );
-      expect(matchingCrcReleases.length).toBe(2);
-      expect(matchingCrcReleases.map((r) => r.id)).toEqual([
-        'rel-infamous-2-standalone',
-        'rel-infamous-2-collection',
-      ]);
-      // Distinct revision with different CRC is NOT matched
-      expect(
-        matchingCrcReleases.some((r) => r.id === 'rel-infamous-2-v1'),
-      ).toBe(false);
-    });
-
-    it('should match Vita cartridge .zip backups and Title IDs to canonical releases', () => {
+    it('should match Vita cartridge .zip backups and Title IDs with exact confidence', () => {
       const vitaReleases: ReleaseRow[] = [
         {
           id: 'p4g-vita-usa',
@@ -581,26 +579,459 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
         },
       ];
 
-      // Clean human-readable zip
-      const matchZip = findBestReleaseMatch(
-        'Persona 4 Golden (USA).zip',
+      const matchSerial = findBestReleaseMatchWithConfidence(
+        'PCSE00120.zip',
         vitaReleases,
       );
-      expect(matchZip).not.toBeNull();
-      expect(matchZip?.id).toBe('p4g-vita-usa');
+      expect(matchSerial?.release.id).toBe('p4g-vita-usa');
+      expect(matchSerial?.confidence).toBe('exact');
+    });
+  });
 
-      // Title ID zip (without hyphen)
-      const matchSerial = findBestReleaseMatch('PCSE00120.zip', vitaReleases);
-      expect(matchSerial).not.toBeNull();
-      expect(matchSerial?.id).toBe('p4g-vita-usa');
+  describe('computeOwnershipSwitches (5 Safety Guards)', () => {
+    it('Guard 1 & 5: proposes pre-selected same-region revision switch and preserves has_case / has_manual', () => {
+      const catalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'smw-usa-rev0',
+          game_id: 101,
+          game_slug: 'super-mario-world',
+          title: 'Super Mario World',
+          platform_id: 15,
+          platform_name: 'Super Nintendo Entertainment System',
+          rom_name: 'Super Mario World (USA).sfc',
+          region: 'USA',
+          variants: null,
+          ownership_status: 1,
+          backup_status: 0,
+          has_case: 1,
+          has_manual: 1,
+        },
+        {
+          id: 'smw-usa-rev1',
+          game_id: 101,
+          game_slug: 'super-mario-world',
+          title: 'Super Mario World',
+          platform_id: 15,
+          platform_name: 'Super Nintendo Entertainment System',
+          rom_name: 'Super Mario World (USA) (Rev 1).sfc',
+          region: 'USA',
+          variants: 'Rev 1',
+          ownership_status: 0,
+          backup_status: 0,
+          has_case: 0,
+          has_manual: 0,
+        },
+      ];
 
-      // Title ID zip (with hyphen)
-      const matchSerialHyphen = findBestReleaseMatch(
-        'PCSE-00120.zip',
-        vitaReleases,
+      const matchedIds = new Set(['smw-usa-rev1']);
+      const confidenceMap = new Map([['smw-usa-rev1', 'exact' as const]]);
+      const fileMap = new Map([
+        ['smw-usa-rev1', 'Super Mario World (USA) (Rev 1).sfc'],
+      ]);
+
+      const switches = computeOwnershipSwitches(
+        catalog,
+        matchedIds,
+        confidenceMap,
+        fileMap,
       );
-      expect(matchSerialHyphen).not.toBeNull();
-      expect(matchSerialHyphen?.id).toBe('p4g-vita-usa');
+
+      expect(switches).toHaveLength(1);
+      expect(switches[0]).toMatchObject({
+        gameId: 101,
+        gameTitle: 'Super Mario World',
+        fromReleaseIds: ['smw-usa-rev0'],
+        toReleaseIds: ['smw-usa-rev1'],
+        hasCase: 1,
+        hasManual: 1,
+        isRegionChange: false,
+        defaultSelected: true,
+      });
+    });
+
+    it('Guard 5: proposes cross-region ownership switch as unchecked by default (defaultSelected: false)', () => {
+      const catalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'ct-usa',
+          game_id: 102,
+          title: 'Chrono Trigger',
+          platform_id: 15,
+          platform_name: 'Super Nintendo Entertainment System',
+          rom_name: 'Chrono Trigger (USA).sfc',
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'ct-jpn',
+          game_id: 102,
+          title: 'Chrono Trigger',
+          platform_id: 15,
+          platform_name: 'Super Nintendo Entertainment System',
+          rom_name: 'Chrono Trigger (Japan).sfc',
+          region: 'Japan',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+      ];
+
+      const switches = computeOwnershipSwitches(
+        catalog,
+        new Set(['ct-jpn']),
+        new Map([['ct-jpn', 'exact']]),
+        new Map([['ct-jpn', 'Chrono Trigger (Japan).sfc']]),
+      );
+
+      expect(switches).toHaveLength(1);
+      expect(switches[0].isRegionChange).toBe(true);
+      expect(switches[0].defaultSelected).toBe(false);
+    });
+
+    it('Guard 1: partial dump of an already-owned multi-disc SKU confirms the owned SKU and does NOT propose a switch', () => {
+      const catalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'ff7-d1',
+          game_id: 501,
+          title: 'Final Fantasy VII',
+          platform_id: 29,
+          platform_name: 'PlayStation',
+          rom_name: 'Final Fantasy VII (USA) (Disc 1).cue',
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'ff7-d2',
+          game_id: 501,
+          title: 'Final Fantasy VII',
+          platform_id: 29,
+          platform_name: 'PlayStation',
+          rom_name: 'Final Fantasy VII (USA) (Disc 2).cue',
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+      ];
+
+      const switches = computeOwnershipSwitches(
+        catalog,
+        new Set(['ff7-d1']),
+        new Map([['ff7-d1', 'exact']]),
+        new Map([['ff7-d1', 'Final Fantasy VII (USA) (Disc 1).chd']]),
+      );
+
+      expect(switches).toHaveLength(0);
+    });
+
+    it('Guard 1: switching to a multi-disc target SKU includes all target SKU discs in toReleaseIds', () => {
+      const catalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'ff7-rev0-d1',
+          game_id: 501,
+          title: 'Final Fantasy VII',
+          platform_id: 29,
+          platform_name: 'PlayStation',
+          rom_name: 'Final Fantasy VII (USA) (Disc 1).cue',
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+          has_case: 1,
+        },
+        {
+          id: 'ff7-rev0-d2',
+          game_id: 501,
+          title: 'Final Fantasy VII',
+          platform_id: 29,
+          platform_name: 'PlayStation',
+          rom_name: 'Final Fantasy VII (USA) (Disc 2).cue',
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+          has_case: 1,
+        },
+        {
+          id: 'ff7-rev1-d1',
+          game_id: 501,
+          title: 'Final Fantasy VII',
+          platform_id: 29,
+          platform_name: 'PlayStation',
+          rom_name: 'Final Fantasy VII (USA) (Disc 1) (Rev 1).cue',
+          region: 'USA',
+          variants: 'Rev 1',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+        {
+          id: 'ff7-rev1-d2',
+          game_id: 501,
+          title: 'Final Fantasy VII',
+          platform_id: 29,
+          platform_name: 'PlayStation',
+          rom_name: 'Final Fantasy VII (USA) (Disc 2) (Rev 1).cue',
+          region: 'USA',
+          variants: 'Rev 1',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+      ];
+
+      // Only Disc 1 of Rev 1 was dumped so far
+      const switches = computeOwnershipSwitches(
+        catalog,
+        new Set(['ff7-rev1-d1']),
+        new Map([['ff7-rev1-d1', 'exact']]),
+        new Map([
+          ['ff7-rev1-d1', 'Final Fantasy VII (USA) (Disc 1) (Rev 1).chd'],
+        ]),
+      );
+
+      expect(switches).toHaveLength(1);
+      expect(switches[0].fromReleaseIds).toEqual([
+        'ff7-rev0-d1',
+        'ff7-rev0-d2',
+      ]);
+      expect(switches[0].toReleaseIds).toEqual(['ff7-rev1-d1', 'ff7-rev1-d2']);
+      expect(switches[0].hasCase).toBe(1);
+    });
+
+    it('Guard 2: does not propose switch when an owned SKU is also matched or when multiple owned SKUs exist', () => {
+      const catalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'rel-owned-1',
+          game_id: 300,
+          title: 'Zelda',
+          platform_id: 15,
+          platform_name: 'SNES',
+          rom_name: 'Zelda (USA).sfc',
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'rel-owned-2',
+          game_id: 300,
+          title: 'Zelda',
+          platform_id: 15,
+          platform_name: 'SNES',
+          rom_name: 'Zelda (Japan).sfc',
+          region: 'Japan',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'rel-unowned-3',
+          game_id: 300,
+          title: 'Zelda',
+          platform_id: 15,
+          platform_name: 'SNES',
+          rom_name: 'Zelda (Europe).sfc',
+          region: 'Europe',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+      ];
+
+      const switches = computeOwnershipSwitches(
+        catalog,
+        new Set(['rel-unowned-3']),
+        new Map([['rel-unowned-3', 'exact']]),
+        new Map([['rel-unowned-3', 'Zelda (Europe).sfc']]),
+      );
+
+      expect(switches).toHaveLength(0);
+    });
+
+    it('Guard 3: excludes pack-in demo bonus discs from triggering or blocking ownership switches', () => {
+      const catalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'tron-bonne-usa',
+          game_id: 600,
+          title: 'The Misadventures of Tron Bonne',
+          platform_id: 29,
+          platform_name: 'PlayStation',
+          rom_name: 'Misadventures of Tron Bonne, The (USA).cue',
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'mml2-demo',
+          game_id: 600,
+          title: 'The Misadventures of Tron Bonne',
+          platform_id: 29,
+          platform_name: 'PlayStation',
+          rom_name: 'Mega Man Legends 2 (USA) (Demo).cue',
+          region: 'USA',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+      ];
+
+      const switches = computeOwnershipSwitches(
+        catalog,
+        new Set(['mml2-demo']),
+        new Map([['mml2-demo', 'exact']]),
+        new Map([['mml2-demo', 'Mega Man Legends 2 (USA) (Demo).cue']]),
+      );
+
+      expect(switches).toHaveLength(0);
+    });
+
+    it('Guard 4: does not propose ownership switch on clean_fallback match confidence', () => {
+      const catalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'smw-usa',
+          game_id: 101,
+          title: 'Super Mario World',
+          platform_id: 15,
+          platform_name: 'SNES',
+          rom_name: 'Super Mario World (USA).sfc',
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'smw-eur',
+          game_id: 101,
+          title: 'Super Mario World',
+          platform_id: 15,
+          platform_name: 'SNES',
+          rom_name: 'Super Mario World (Europe).sfc',
+          region: 'Europe',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+      ];
+
+      const switches = computeOwnershipSwitches(
+        catalog,
+        new Set(['smw-eur']),
+        new Map([['smw-eur', 'clean_fallback']]),
+        new Map([['smw-eur', 'Super Mario World.sfc']]),
+      );
+
+      expect(switches).toHaveLength(0);
+    });
+  });
+
+  describe('scanBackupEntries end-to-end client pipeline', () => {
+    const catalogReleases: CatalogReleaseCandidate[] = [
+      {
+        id: 'bayo-sw-rev0',
+        game_id: 500,
+        game_slug: 'bayonetta-switch',
+        title: 'Bayonetta',
+        base_title: 'Bayonetta',
+        platform_id: 26,
+        platform_name: 'Nintendo Switch',
+        rom_name: null,
+        serial_code: 'LA-H-AE98A-USA',
+        region: 'USA',
+        variants: 'Rev 000 (v1.0)',
+        canonical_release_id: 10,
+        ownership_status: 1,
+        backup_status: 0,
+        has_case: 1,
+        has_manual: 0,
+      },
+      {
+        id: 'bayo-sw-rev1',
+        game_id: 500,
+        game_slug: 'bayonetta-switch',
+        title: 'Bayonetta',
+        base_title: 'Bayonetta',
+        platform_id: 26,
+        platform_name: 'Nintendo Switch',
+        rom_name: null,
+        serial_code: 'LA-H-AE98A-USA',
+        region: 'USA',
+        variants: 'Rev 001 (v1.1)',
+        canonical_release_id: 11,
+        ownership_status: 0,
+        backup_status: 0,
+        has_case: 0,
+        has_manual: 0,
+      },
+      {
+        id: 'smw-snes-usa',
+        game_id: 101,
+        game_slug: 'super-mario-world',
+        title: 'Super Mario World',
+        base_title: 'Super Mario World',
+        platform_id: 15,
+        platform_name: 'Super Nintendo Entertainment System',
+        rom_name: 'Super Mario World (USA).sfc',
+        region: 'USA',
+        ownership_status: 1,
+        backup_status: 1,
+      },
+    ];
+
+    it('auto-detects multi-platform root, matches Switch nxdumptool revision, proposes ownership switch, and collects ignored digital-only files', () => {
+      const report = scanBackupEntries({
+        rootFolderName: 'Backups',
+        platforms: mockPlatforms,
+        catalogReleases,
+        entries: [
+          {
+            relativePath:
+              'Backups/Switch/Bayonetta 1.1 [010076F0049A2000][v65536] [NKA][NC][NT].xci',
+            fileName:
+              'Bayonetta 1.1 [010076F0049A2000][v65536] [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Backups/Switch/Bayonetta [010076F0049A2800][v65536].nsp',
+            fileName: 'Bayonetta [010076F0049A2800][v65536].nsp',
+          },
+          {
+            relativePath:
+              'Backups/Switch/Digital Indie Only [0100ABCDEF000000][v0].nsp',
+            fileName: 'Digital Indie Only [0100ABCDEF000000][v0].nsp',
+          },
+          {
+            relativePath: 'Backups/SNES/desktop.ini',
+            fileName: 'desktop.ini',
+          },
+        ],
+      });
+
+      expect(report.detectedMode).toBe('multi_platform_root');
+      expect(report.matchedReleaseIds.has('bayo-sw-rev1')).toBe(true);
+      expect(report.diff.releases.newlyBackedUp.map((r) => r.id)).toEqual([
+        'bayo-sw-rev1',
+      ]);
+      expect(report.ownershipSwitches).toHaveLength(1);
+      expect(report.ownershipSwitches[0]).toMatchObject({
+        gameId: 500,
+        fromReleaseIds: ['bayo-sw-rev0'],
+        toReleaseIds: ['bayo-sw-rev1'],
+        hasCase: 1,
+        defaultSelected: true,
+      });
+      // Digital Indie Only is quietly recorded in ignoredUnmatchedFiles; update NSP and desktop.ini are filtered by isIgnoredFile
+      expect(report.ignoredUnmatchedFiles).toHaveLength(1);
+      expect(report.ignoredUnmatchedFiles[0].fileName).toBe(
+        'Digital Indie Only [0100ABCDEF000000][v0].nsp',
+      );
+    });
+
+    it('auto-detects single-platform folder when selecting a platform directory directly', () => {
+      const report = scanBackupEntries({
+        rootFolderName: 'SNES',
+        platforms: mockPlatforms,
+        catalogReleases,
+        entries: [
+          {
+            relativePath: 'SNES/Super Mario World (USA).sfc',
+            fileName: 'Super Mario World (USA).sfc',
+          },
+        ],
+      });
+
+      expect(report.detectedMode).toBe('single_platform');
+      expect(report.matchedReleaseIds.has('smw-snes-usa')).toBe(true);
+      expect(report.diff.releases.unchangedBackedUpCount).toBe(1);
     });
   });
 
@@ -612,7 +1043,7 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
         title: 'Super Mario World',
         platform_name: 'Super Nintendo Entertainment System',
         rom_name: 'Super Mario World (USA).sfc',
-        backup_status: 1, // Currently backed up
+        backup_status: 1,
       },
       {
         id: 'rel-2',
@@ -620,7 +1051,7 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
         title: 'Chrono Trigger',
         platform_name: 'Super Nintendo Entertainment System',
         rom_name: 'Chrono Trigger (USA).sfc',
-        backup_status: 0, // Currently NOT backed up
+        backup_status: 0,
       },
       {
         id: 'rel-3',
@@ -628,7 +1059,7 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
         title: 'Secret of Mana',
         platform_name: 'Super Nintendo Entertainment System',
         rom_name: 'Secret of Mana (USA).sfc',
-        backup_status: 1, // Currently backed up, but file lost!
+        backup_status: 1,
       },
       {
         id: 'rel-4',
@@ -636,7 +1067,7 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
         title: 'EarthBound',
         platform_name: 'Super Nintendo Entertainment System',
         rom_name: 'EarthBound (USA).sfc',
-        backup_status: 0, // Currently NOT backed up and still no file
+        backup_status: 0,
       },
     ];
 
@@ -672,33 +1103,19 @@ describe('Backup Scanner & Cross-Platform Reconciler', () => {
     ];
 
     it('correctly calculates releases and games diff transitions', () => {
-      // Matched files: rel-1 (SMW) and rel-2 (Chrono Trigger)
       const matched = new Set(['rel-1', 'rel-2']);
-
       const diff = computeBackupNetDiffs(priorReleases, priorGames, matched);
 
-      // Releases:
-      // rel-2: 0 -> 1 (newly backed up)
       expect(diff.releases.newlyBackedUp.map((r) => r.id)).toEqual(['rel-2']);
-      // rel-3: 1 -> 0 (lost backup)
       expect(diff.releases.lostBackup.map((r) => r.id)).toEqual(['rel-3']);
-      // rel-1: 1 -> 1 (unchanged backed up)
       expect(diff.releases.unchangedBackedUpCount).toBe(1);
-      // rel-4: 0 -> 0 (unchanged unbacked)
       expect(diff.releases.unchangedUnbackedCount).toBe(1);
-      // Total target backed up: rel-1 + rel-2 = 2
       expect(diff.releases.totalTargetBackedUp).toBe(2);
 
-      // Games:
-      // Game 102 (Chrono Trigger): 0 -> 1 (newly backed up)
       expect(diff.games.newlyBackedUp.map((g) => g.stable_id)).toEqual([102]);
-      // Game 103 (Secret of Mana): 1 -> 0 (lost backup)
       expect(diff.games.lostBackup.map((g) => g.stable_id)).toEqual([103]);
-      // Game 101 (SMW): 1 -> 1 (unchanged backed up)
       expect(diff.games.unchangedBackedUpCount).toBe(1);
-      // Game 104 (EarthBound): 0 -> 0 (unchanged unbacked)
       expect(diff.games.unchangedUnbackedCount).toBe(1);
-      // Total target backed up: 101 + 102 = 2
       expect(diff.games.totalTargetBackedUp).toBe(2);
     });
 
