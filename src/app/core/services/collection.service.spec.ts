@@ -767,6 +767,54 @@ describe('CollectionService', () => {
       }
     });
 
+    it('hydrates KitThemeService from upstream OIDC /api/auth/status preferences', async () => {
+      const themeService = TestBed.inject(
+        (await import('@wesdizzle/app-kit/angular')).KitThemeService,
+      );
+      themeService.init('collection-theme', [], 'light');
+      expect(themeService.theme()).toBe('light');
+
+      service.setCurrentUserForTesting({
+        id: 1,
+        username: 'collector',
+        role: 'admin',
+        isPublic: true,
+        homeRegion: 'USA',
+        displayName: 'Collector',
+        bio: null,
+      });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            authenticated: true,
+            authorized: true,
+            user: {
+              id: 1,
+              username: 'collector',
+              role: 'admin',
+              preferences: { theme: 'dark' },
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+
+      try {
+        const active = await service.verifyUpstreamOidcSession(
+          'https://auth.example.com',
+        );
+        expect(active).toBe(true);
+        expect(themeService.theme()).toBe('dark');
+        expect(localStorage.getItem('collection-theme')).toBe('dark');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
     it('redirects protected /collection/* routes to / when session becomes unauthenticated', async () => {
       service.setCurrentUserForTesting({
         id: 1,

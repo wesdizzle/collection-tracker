@@ -29,10 +29,12 @@ import {
 import { CollectionRouteReuseStrategy } from '../routing/collection-route-reuse-strategy';
 import { ProfileModalService } from './profile-modal.service';
 import {
+  KitThemeService,
   checkUpstreamOidcStatus,
   clearSilentSsoAttempt,
   getCurrentReturnToPath,
   markSilentSsoAttempt,
+  notifyActiveThemeService,
   shouldAttemptSilentSso,
 } from '@wesdizzle/app-kit/angular';
 import {
@@ -63,6 +65,7 @@ export class CollectionService implements OnDestroy {
   private router = inject(Router);
   private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
   private profileModalService = inject(ProfileModalService, { optional: true });
+  private themeService = inject(KitThemeService, { optional: true });
 
   /**
    * Persistence state for UI navigation (Split by tab).
@@ -197,6 +200,10 @@ export class CollectionService implements OnDestroy {
    * back to the landing page ('/').
    */
   private handleUnauthenticatedState(wasAuthenticated: boolean): void {
+    notifyActiveThemeService({
+      issuerUrl: null,
+      authenticated: false,
+    });
     this._currentUser.set(null);
     this._journalEntriesMap.set(new Map());
     this._journalLoaded.set(false);
