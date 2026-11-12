@@ -15,6 +15,8 @@ import { normalizeTitleForMatching, titlesMatch } from './title_matching.js';
 import { extractRegions, isPlatformMatch } from './source_format.js';
 import { getRomGroupingKey, stripDiscIndicator } from './queries.js';
 import {
+  extractRevisionFromVariant,
+  extractVersionFromVariant,
   parseNxdumptoolFilename,
   resolveBestSwitchRevisionMatch,
 } from './switch_revisions.js';
@@ -250,20 +252,23 @@ export const GAME_EXTENSIONS = new Set([
 export function stripEditionSuffix(title: string): string {
   return title
     .replace(
-      /:\s*(crewmate|definitive|deluxe|special|collector'?s?|anniversary|remastered|legacy|hd|plus|\d+th anniversary)\s*edition/gi,
+      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|\d+th anniversary|nintendo switch 2)\s*edition/gi,
       '',
     )
     .replace(
-      /\s*-\s*(crewmate|definitive|deluxe|special|collector'?s?|anniversary|remastered|legacy|hd|plus)\s*edition/gi,
+      /\s*-\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|nintendo switch 2)\s*edition/gi,
       '',
     )
     .replace(
-      /\s+(definitive|deluxe|special|collector'?s?|anniversary|remastered|legacy)\s+edition/gi,
+      /\s+(definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted)\s+edition/gi,
       '',
     )
-    .replace(/:\s*deluxe$/i, '')
+    .replace(/:\s*(?:ultra\s+)?deluxe$/i, '')
     .replace(/\s*\+\s*the hidden treasure of area zero/gi, '')
     .replace(/\s*\+\s*booster course pass/gi, '')
+    .replace(/\s*\+\s*expansion pass/gi, '')
+    .replace(/\s*\+\s*star-crossed world/gi, '')
+    .replace(/\s*\+\s*jamboree tv/gi, '')
     .trim();
 }
 
@@ -805,6 +810,48 @@ export function extractDiscNumber(
 }
 
 /**
+ * Selects the preferred release candidate among equal-confidence matches:
+ * 1. Owned release (`ownership_status === 1`) with compatible region
+ * 2. Any owned release (`ownership_status === 1`)
+ * 3. Region-compatible release
+ * 4. Physical cartridge release (excluding Mini / Virtual Console re-releases)
+ * 5. First candidate in list
+ */
+function preferOwnedRelease<
+  T extends {
+    ownership_status?: number;
+    region: string | null;
+    variants?: string | null;
+  },
+>(candidates: T[], fileRegion?: string | null): T {
+  if (candidates.length <= 1) return candidates[0];
+
+  const ownedRegionMatch = candidates.find(
+    (r) =>
+      r.ownership_status === 1 &&
+      (!fileRegion || !r.region || regionsMatch(fileRegion, r.region)),
+  );
+  if (ownedRegionMatch) return ownedRegionMatch;
+
+  const ownedMatch = candidates.find((r) => r.ownership_status === 1);
+  if (ownedMatch) return ownedMatch;
+
+  if (fileRegion) {
+    const regionMatch = candidates.find(
+      (r) => r.region && regionsMatch(fileRegion, r.region),
+    );
+    if (regionMatch) return regionMatch;
+  }
+
+  const physicalCart = candidates.find(
+    (r) => !r.variants?.match(/mini|virtual console/i),
+  );
+  if (physicalCart) return physicalCart;
+
+  return candidates[0];
+}
+
+/**
  * Resolves the best physical release match along with its confidence tier:
  * - `'exact'`: Direct ROM base match, Serial Code / Title ID match, or normalized Redump/Track1/Multi-Disc ROM base match.
  * - `'clean_fallback'`: Untagged base-name + region fallback.
@@ -820,6 +867,7 @@ export function findBestReleaseMatchWithConfidence(
   const fileRegion = extractRegions(filename);
 
   // 1. Direct case-insensitive base name match with compatible extension
+  const directCandidates: ReleaseRow[] = [];
   for (const r of releases) {
     if (!r.rom_name) continue;
     const romParts = getGameFileParts(r.rom_name);
@@ -832,11 +880,17 @@ export function findBestReleaseMatchWithConfidence(
       (GAME_EXTENSIONS.has(fileExt) && GAME_EXTENSIONS.has(romExt));
 
     if (baseMatches && extMatches) {
-      return { release: r, confidence: 'exact' };
+      directCandidates.push(r);
     }
   }
+  if (directCandidates.length > 0) {
+    return {
+      release: preferOwnedRelease(directCandidates, fileRegion),
+      confidence: 'exact',
+    };
+  }
 
-  // 1b. Title ID / Serial Code match (e.g. PCSE00120, PCSE-00120, PCSB00074, SLUS-20001)
+  // 1b. Title ID / Serial Code match (e.g. PCSE00120, PCSE-00120, PCSB00074, SLUS-20001, CUSA-11970)
   const fileBaseRaw = getBaseName(filename);
   if (
     /^[A-Z]{3,4}-?\d{4,5}$/i.test(fileBaseRaw) ||
@@ -845,15 +899,21 @@ export function findBestReleaseMatchWithConfidence(
     const cleanFileCode = (fileBaseRaw || fileParts.base)
       .replace(/[^a-z0-9]/gi, '')
       .toUpperCase();
-    const serialMatch = releases.find((r) => {
-      if (!r.serial_code) return false;
-      const cleanRelCode = r.serial_code
-        .replace(/[^a-z0-9]/gi, '')
-        .toUpperCase();
+    const serialCandidates = releases.filter((r) => {
+      const codeSource =
+        r.serial_code ||
+        (r.variants && /^[A-Z]{3,4}-?\d{4,5}$/i.test(r.variants.trim())
+          ? r.variants.trim()
+          : null);
+      if (!codeSource) return false;
+      const cleanRelCode = codeSource.replace(/[^a-z0-9]/gi, '').toUpperCase();
       return cleanRelCode === cleanFileCode;
     });
-    if (serialMatch) {
-      return { release: serialMatch, confidence: 'exact' };
+    if (serialCandidates.length > 0) {
+      return {
+        release: preferOwnedRelease(serialCandidates, fileRegion),
+        confidence: 'exact',
+      };
     }
   }
 
@@ -878,18 +938,22 @@ export function findBestReleaseMatchWithConfidence(
   }
 
   if (matchingCandidates.length > 0) {
+    let discFiltered = matchingCandidates;
     if (fileDisc) {
-      const discMatch = matchingCandidates.find(
+      const discMatches = matchingCandidates.filter(
         (r) => extractDiscNumber(r.rom_name) === fileDisc,
       );
-      if (discMatch) return { release: discMatch, confidence: 'exact' };
+      if (discMatches.length > 0) discFiltered = discMatches;
     } else {
-      const disc1Match = matchingCandidates.find(
+      const disc1Matches = matchingCandidates.filter(
         (r) => extractDiscNumber(r.rom_name) === '1',
       );
-      if (disc1Match) return { release: disc1Match, confidence: 'exact' };
+      if (disc1Matches.length > 0) discFiltered = disc1Matches;
     }
-    return { release: matchingCandidates[0], confidence: 'exact' };
+    return {
+      release: preferOwnedRelease(discFiltered, fileRegion),
+      confidence: 'exact',
+    };
   }
 
   // 3. Cleaned base name match with region compatibility (e.g. Retro-Bit World reprint matching USA backup)
@@ -920,26 +984,18 @@ export function findBestReleaseMatchWithConfidence(
     const confidence: ReleaseMatchConfidence =
       fileRegion && cleanCandidates.length === 1 ? 'exact' : 'clean_fallback';
 
+    let discFilteredClean = cleanCandidates;
     if (fileDisc) {
-      const discMatch = cleanCandidates.find(
+      const discMatches = cleanCandidates.filter(
         (r) => extractDiscNumber(r.rom_name) === fileDisc,
       );
-      if (discMatch) return { release: discMatch, confidence };
+      if (discMatches.length > 0) discFilteredClean = discMatches;
     }
 
-    const ownedCandidate = cleanCandidates.find(
-      (r) => r.ownership_status === 1,
-    );
-    if (ownedCandidate) return { release: ownedCandidate, confidence };
-
-    const physicalCartCandidate = cleanCandidates.find(
-      (r) => !r.variants?.match(/mini|virtual console/i),
-    );
-    if (physicalCartCandidate) {
-      return { release: physicalCartCandidate, confidence };
-    }
-
-    return { release: cleanCandidates[0], confidence };
+    return {
+      release: preferOwnedRelease(discFilteredClean, fileRegion),
+      confidence,
+    };
   }
 
   return null;
@@ -1060,6 +1116,39 @@ export function isPackInDemoRelease(r: {
 }
 
 /**
+ * Strips trailing bundle/pack descriptors as well as edition suffixes for multi-game
+ * cartridge title comparison (e.g. "Subnautica + Subnautica Below Zero Double Pack" -> "Subnautica + Subnautica Below Zero").
+ */
+function stripMultiGamePackaging(title: string): string {
+  return stripEditionSuffix(
+    title
+      .replace(
+        /\s*(?:[-:]\s*)?\b(?:double pack|twin pack|triple pack|pawsome pack|bundle)\b$/i,
+        '',
+      )
+      .trim(),
+  );
+}
+
+/**
+ * Splits a multi-game catalog title into constituent sub-game titles, expanding shorthand
+ * patterns such as "Pikmin 1+2 Bundle", "Pico Park 1+2", or "Axiom Verge 1 & 2 Double Pack".
+ */
+function splitCatalogMultiGameTitle(title: string): string[] {
+  const cleaned = stripMultiGamePackaging(title);
+  const shorthand12 = cleaned.match(/^(.+?)\s+1\s*(?:\+|&|\/)\s*2$/i);
+  if (shorthand12) {
+    const prefix = shorthand12[1].trim();
+    return [prefix, `${prefix} 2`];
+  }
+  const parts = cleaned
+    .split(/\s*(?:\+|\/|&)\s*/)
+    .map((p) => stripMultiGamePackaging(p.trim()))
+    .filter(Boolean);
+  return parts.length > 1 ? parts : [];
+}
+
+/**
  * Matches a Nintendo Switch 1 (26) or Switch 2 (27) `nxdumptool` filename against
  * catalog releases on that platform.
  */
@@ -1088,6 +1177,28 @@ export function matchSwitchNxdumptoolRelease(
       'atari recharged collection 4',
     '20xx + 30xx': '20xx / 30xx',
     'axiom verge + axiom verge 2': 'axiom verge 1 & 2 double pack',
+    'child of light + valiant hearts: the great war':
+      'child of light: ultimate edition + valiant hearts: the great war',
+    'child of light: ultimate edition + valiant hearts: the great war':
+      'child of light: ultimate edition + valiant hearts: the great war',
+    'ori and the blind forest: definitive edition + ori and the will of the wisps':
+      'ori: the collection',
+    'ori and the blind forest + ori and the will of the wisps':
+      'ori: the collection',
+    'guacamelee! super turbo championship edition + guacamelee! 2':
+      'guacamelee! one-two punch collection',
+    'pikmin + pikmin 2': 'pikmin 1+2 bundle',
+    'pikmin 1 + pikmin 2': 'pikmin 1+2 bundle',
+    'pico park + pico park 2': 'pico park 1+2',
+    'subnautica + subnautica: below zero':
+      'subnautica + subnautica below zero double pack',
+    'bioshock remastered + bioshock 2 remastered + bioshock infinite: the complete edition':
+      'bioshock: the collection',
+    'doom (1993) + doom ii + doom 3': 'doom: the classics collection',
+    'monument valley + monument valley 2 + monument valley 3':
+      'monument valley: the trilogy',
+    "oddworld: new 'n' tasty + oddworld: munch's oddysee + oddworld: stranger's wrath":
+      'oddworld collection',
   };
 
   // Deduplicate games on this platform by game_id (stable_id)
@@ -1108,8 +1219,13 @@ export function matchSwitchNxdumptoolRelease(
 
   let matchedGameId: number | null = null;
   const compKey = parsed.compositeTitle.toLowerCase();
-  if (compMappings[compKey]) {
-    const targetNorm = normalizeTitleForMatching(compMappings[compKey]);
+  const strippedCompKey = parsed.segments
+    .map((s) => stripMultiGamePackaging(s.cleanTitle).toLowerCase())
+    .join(' + ');
+
+  const mappedTarget = compMappings[compKey] || compMappings[strippedCompKey];
+  if (mappedTarget) {
+    const targetNorm = normalizeTitleForMatching(mappedTarget);
     const found = platformGames.find(
       (g) =>
         normalizeTitleForMatching(g.base_title) === targetNorm ||
@@ -1118,21 +1234,112 @@ export function matchSwitchNxdumptoolRelease(
     if (found) matchedGameId = found.stable_id;
   }
 
+  // Generic multi-game cartridge matching (run BEFORE single-segment matching so multi-game
+  // cards do not prematurely match a standalone single game on the same platform)
+  if (matchedGameId === null && parsed.segments.length > 1) {
+    const compNorm = normalizeTitleForMatching(
+      stripMultiGamePackaging(parsed.compositeTitle),
+    );
+    const compNormRoman = normalizeTitleForMatching(
+      stripMultiGamePackaging(parsed.compositeTitle),
+      true,
+    );
+    const segNorms = parsed.segments.map((s) =>
+      normalizeTitleForMatching(stripMultiGamePackaging(s.cleanTitle)),
+    );
+    const segNormsRoman = parsed.segments.map((s) =>
+      normalizeTitleForMatching(stripMultiGamePackaging(s.cleanTitle), true),
+    );
+
+    // 1. Direct or edition-stripped composite title match
+    const directCompositeMatch = platformGames.find((g) => {
+      const gClean = stripMultiGamePackaging(g.base_title);
+      const tClean = stripMultiGamePackaging(g.title);
+      return (
+        normalizeTitleForMatching(gClean) === compNorm ||
+        normalizeTitleForMatching(tClean) === compNorm ||
+        normalizeTitleForMatching(gClean, true) === compNormRoman ||
+        normalizeTitleForMatching(tClean, true) === compNormRoman
+      );
+    });
+
+    if (directCompositeMatch) {
+      matchedGameId = directCompositeMatch.stable_id;
+    }
+
+    // 2. Constituent segment-by-segment match against `+`, `/`, or `&` catalog titles
+    if (matchedGameId === null) {
+      const splitMatch = platformGames.find((g) => {
+        const parts = splitCatalogMultiGameTitle(g.base_title);
+        if (parts.length !== parsed.segments.length) return false;
+        return parts.every((part, idx) => {
+          const pNorm = normalizeTitleForMatching(part);
+          const pNormRoman = normalizeTitleForMatching(part, true);
+          return (
+            pNorm === segNorms[idx] ||
+            pNormRoman === segNormsRoman[idx] ||
+            titlesMatch(
+              part,
+              parsed.segments[idx].cleanTitle,
+              filename,
+              platformId,
+            )
+          );
+        });
+      });
+      if (splitMatch) {
+        matchedGameId = splitMatch.stable_id;
+      }
+    }
+
+    // 3. Shared franchise prefix matching a single `<Franchise>: ... Collection / Trilogy / Pack / Bundle`
+    if (matchedGameId === null) {
+      const firstWords = segNorms.map((s) => s.split(/\s+/)[0] || '');
+      const sharedPrefix = firstWords[0];
+      if (
+        sharedPrefix &&
+        sharedPrefix.length >= 3 &&
+        firstWords.every((w) => w === sharedPrefix)
+      ) {
+        const franchiseCollections = platformGames.filter((g) => {
+          const gNorm = normalizeTitleForMatching(g.base_title);
+          return (
+            gNorm.startsWith(`${sharedPrefix} `) &&
+            /\b(collection|trilogy|pack|bundle)\b/i.test(g.base_title)
+          );
+        });
+        if (franchiseCollections.length === 1) {
+          matchedGameId = franchiseCollections[0].stable_id;
+        }
+      }
+    }
+  }
+
+  // Single-segment exact & edition-stripped matching
   if (matchedGameId === null) {
     for (const seg of parsed.segments) {
       const segNorm = normalizeTitleForMatching(seg.cleanTitle);
-      const found = platformGames.find((g) => {
+      const exactFound = platformGames.find((g) => {
         const gNorm = normalizeTitleForMatching(g.base_title);
         const titleNorm = normalizeTitleForMatching(g.title);
+        return gNorm === segNorm || titleNorm === segNorm;
+      });
+      if (exactFound) {
+        matchedGameId = exactFound.stable_id;
+        break;
+      }
+
+      const strippedSegNorm = normalizeTitleForMatching(
+        stripEditionSuffix(seg.cleanTitle),
+      );
+      const strippedFound = platformGames.find((g) => {
         const strippedNorm = normalizeTitleForMatching(
           stripEditionSuffix(g.base_title),
         );
-        return (
-          gNorm === segNorm || titleNorm === segNorm || strippedNorm === segNorm
-        );
+        return strippedNorm === segNorm || strippedNorm === strippedSegNorm;
       });
-      if (found) {
-        matchedGameId = found.stable_id;
+      if (strippedFound) {
+        matchedGameId = strippedFound.stable_id;
         break;
       }
     }
@@ -1178,9 +1385,30 @@ export function matchSwitchNxdumptoolRelease(
   const defaultRel =
     gameRels.find((r) => r.ownership_status === 1) || gameRels[0];
 
+  // Prioritize owned releases and releases matching defaultRel's region so equal-revision
+  // candidates across regions never lose to alphabetical region ordering ("Europe" < "USA")
+  const sortedGameRels = [...gameRels].sort((a, b) => {
+    const aOwned = a.ownership_status === 1 ? 1 : 0;
+    const bOwned = b.ownership_status === 1 ? 1 : 0;
+    if (aOwned !== bOwned) return bOwned - aOwned;
+    const aReg =
+      defaultRel?.region &&
+      a.region &&
+      regionsMatch(defaultRel.region, a.region)
+        ? 1
+        : 0;
+    const bReg =
+      defaultRel?.region &&
+      b.region &&
+      regionsMatch(defaultRel.region, b.region)
+        ? 1
+        : 0;
+    return bReg - aReg;
+  });
+
   // Build CanonicalRelease candidates from the game's catalog releases
   const canonicalCandidates: Array<CanonicalRelease & { _releaseId: string }> =
-    gameRels.map((r, idx) => ({
+    sortedGameRels.map((r, idx) => ({
       id: r.canonical_release_id ?? idx + 1,
       _releaseId: r.id,
       platform_id: r.platform_id,
@@ -1201,9 +1429,16 @@ export function matchSwitchNxdumptoolRelease(
     defaultRel?.region,
   );
 
-  const targetRel =
+  const bestRevReleaseId = (
+    bestRev as (CanonicalRelease & { _releaseId?: string }) | null
+  )?._releaseId;
+
+  let targetRel =
     (bestRev
-      ? gameRels.find(
+      ? (bestRevReleaseId
+          ? sortedGameRels.find((r) => r.id === bestRevReleaseId)
+          : undefined) ||
+        sortedGameRels.find(
           (r) =>
             (bestRev.id && r.canonical_release_id === bestRev.id) ||
             (bestRev.variants &&
@@ -1214,7 +1449,7 @@ export function matchSwitchNxdumptoolRelease(
                 !r.region ||
                 r.region.toLowerCase() === bestRev.region.toLowerCase())),
         ) ||
-        gameRels.find(
+        sortedGameRels.find(
           (r) =>
             bestRev.variants &&
             r.variants &&
@@ -1225,6 +1460,42 @@ export function matchSwitchNxdumptoolRelease(
 
   if (!targetRel) {
     return null;
+  }
+
+  // Guard against false cross-region or unindexed-variant switches when the user owns defaultRel:
+  // nxdumptool filenames do not carry region tags, so if defaultRel is owned and either:
+  // (a) has identical revision/version metadata to targetRel across a different region, or
+  // (b) is an untagged default SKU (`variants === null`) and the dump is a base `[v0]` cartridge
+  //     whereas targetRel is in a different region,
+  // preserve the user's owned release (`defaultRel`).
+  if (
+    defaultRel &&
+    defaultRel.ownership_status === 1 &&
+    targetRel.id !== defaultRel.id
+  ) {
+    const defVer = extractVersionFromVariant(defaultRel.variants);
+    const tgtVer = extractVersionFromVariant(targetRel.variants);
+    const defRev = extractRevisionFromVariant(defaultRel.variants);
+    const tgtRev = extractRevisionFromVariant(targetRel.variants);
+
+    const sameVersionAndRev =
+      Boolean(defaultRel.variants && targetRel.variants) &&
+      (defaultRel.variants!.toLowerCase().trim() ===
+        targetRel.variants!.toLowerCase().trim() ||
+        (defVer !== null && defVer === tgtVer && defRev === tgtRev));
+
+    const isCrossRegionUntaggedBase =
+      !defaultRel.variants &&
+      (parsed.segments[0]?.versionInt ?? 0) === 0 &&
+      Boolean(
+        defaultRel.region &&
+        targetRel.region &&
+        !regionsMatch(defaultRel.region, targetRel.region),
+      );
+
+    if (sameVersionAndRev || isCrossRegionUntaggedBase) {
+      targetRel = defaultRel;
+    }
   }
 
   return {
@@ -1249,6 +1520,164 @@ export function matchSwitchNxdumptoolRelease(
       canonical_release_id: targetRel.canonical_release_id,
     },
     confidence: 'exact',
+  };
+}
+
+/**
+ * Fallback matcher for catalog releases whose `rom_name` is `null` (or `-default` placeholder
+ * releases, such as modern disc/cartridge games not yet linked to a Redump/No-Intro DAT filename).
+ *
+ * Returns `'exact'` when matched by an explicit disc/cartridge serial code (e.g. `CUSA-11970`),
+ * or `'clean_fallback'` when matched by normalized title against an unlinked release so that
+ * `computeOwnershipSwitches` never proposes a false SKU switch from a title-only fallback.
+ */
+export function matchUnlinkedCatalogRelease(
+  filename: string,
+  platformId: number,
+  platReleases: CatalogReleaseCandidate[],
+): ReleaseMatchResult | null {
+  const fileParts = getGameFileParts(filename);
+  const fileBaseRaw = getBaseName(filename);
+  const fileExt = fileParts.ext.toLowerCase();
+  const fileRegion = extractRegions(filename);
+
+  const toReleaseRow = (r: CatalogReleaseCandidate): ReleaseRow => ({
+    id: r.id,
+    game_id: r.game_id,
+    title: r.title,
+    base_title: r.base_title,
+    game_slug: r.game_slug,
+    platform_id: r.platform_id,
+    platform_name: r.platform_name,
+    rom_name: r.rom_name || filename,
+    stable_id: r.game_id,
+    region: r.region,
+    ownership_status: r.ownership_status,
+    backup_status: r.backup_status,
+    has_case: r.has_case,
+    has_manual: r.has_manual,
+    variants: r.variants,
+    rom_crc: r.rom_crc,
+    serial_code: r.serial_code,
+    canonical_release_id: r.canonical_release_id,
+    is_pack_in: r.is_pack_in,
+  });
+
+  // 1. Check serial code / Title ID across all releases on the platform (including rom_name === null)
+  if (
+    /^[A-Z]{3,4}-?\d{4,5}$/i.test(fileBaseRaw) ||
+    /^[A-Z]{3,4}-?\d{4,5}$/i.test(fileParts.base)
+  ) {
+    const cleanFileCode = (fileBaseRaw || fileParts.base)
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase();
+    const serialCandidates = platReleases.filter((r) => {
+      const codeSource =
+        r.serial_code ||
+        (r.variants && /^[A-Z]{3,4}-?\d{4,5}$/i.test(r.variants.trim())
+          ? r.variants.trim()
+          : null);
+      if (!codeSource) return false;
+      return (
+        codeSource.replace(/[^a-z0-9]/gi, '').toUpperCase() === cleanFileCode
+      );
+    });
+    if (serialCandidates.length > 0) {
+      const chosen = preferOwnedRelease(serialCandidates, fileRegion);
+      return { release: toReleaseRow(chosen), confidence: 'exact' };
+    }
+  }
+
+  if (!GAME_EXTENSIONS.has(fileExt)) {
+    return null;
+  }
+
+  // 2. Match clean title against games on the platform that have unlinked releases (`!r.rom_name` or `-default`)
+  const gamesMap = new Map<
+    number,
+    { stable_id: number; title: string; base_title: string }
+  >();
+  for (const r of platReleases) {
+    if (!gamesMap.has(r.game_id)) {
+      gamesMap.set(r.game_id, {
+        stable_id: r.game_id,
+        title: r.title,
+        base_title: r.base_title || r.title,
+      });
+    }
+  }
+  const platformGames = Array.from(gamesMap.values());
+
+  const fileNorm = normalizeTitleForMatching(fileParts.base);
+  const strippedFileNorm = normalizeTitleForMatching(
+    stripEditionSuffix(fileParts.base),
+  );
+  if (!fileNorm) {
+    return null;
+  }
+
+  let matchedGame = platformGames.find((g) => {
+    const gNorm = normalizeTitleForMatching(g.base_title);
+    const tNorm = normalizeTitleForMatching(g.title);
+    return gNorm === fileNorm || tNorm === fileNorm;
+  });
+
+  if (!matchedGame && strippedFileNorm) {
+    matchedGame = platformGames.find((g) => {
+      const strippedGNorm = normalizeTitleForMatching(
+        stripEditionSuffix(g.base_title),
+      );
+      return (
+        strippedGNorm === fileNorm ||
+        strippedGNorm === strippedFileNorm ||
+        normalizeTitleForMatching(g.base_title) === strippedFileNorm
+      );
+    });
+  }
+
+  if (!matchedGame) {
+    const segments = getTitleSegments(fileParts.base);
+    if (segments.length > 1) {
+      for (const seg of segments) {
+        const segNorm = normalizeTitleForMatching(seg);
+        if (!segNorm) continue;
+        const found = platformGames.find(
+          (g) =>
+            normalizeTitleForMatching(g.base_title) === segNorm ||
+            normalizeTitleForMatching(g.title) === segNorm,
+        );
+        if (found) {
+          matchedGame = found;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!matchedGame) {
+    matchedGame = platformGames.find((g) =>
+      titlesMatch(fileParts.base, g.base_title, filename, platformId),
+    );
+  }
+
+  if (!matchedGame) {
+    return null;
+  }
+
+  const gameRels = platReleases.filter(
+    (r) => r.game_id === matchedGame!.stable_id,
+  );
+  const unlinkedRels = gameRels.filter(
+    (r) => !r.rom_name || r.id.endsWith('-default'),
+  );
+  if (unlinkedRels.length === 0) {
+    return null;
+  }
+
+  const chosen = preferOwnedRelease(unlinkedRels, fileRegion);
+  return {
+    release: toReleaseRow(chosen),
+    confidence: 'clean_fallback',
   };
 }
 
@@ -1766,6 +2195,14 @@ export function scanBackupEntries(options: {
         matchResult = findBestReleaseMatchWithConfidence(
           entry.fileName,
           romReleases,
+        );
+      }
+
+      if (!matchResult) {
+        matchResult = matchUnlinkedCatalogRelease(
+          entry.fileName,
+          platform.id,
+          platReleases,
         );
       }
 

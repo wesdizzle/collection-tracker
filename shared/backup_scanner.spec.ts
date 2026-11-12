@@ -1033,6 +1033,238 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
       expect(report.matchedReleaseIds.has('smw-snes-usa')).toBe(true);
       expect(report.diff.releases.unchangedBackedUpCount).toBe(1);
     });
+
+    it('preserves owned USA release for 1-2-Switch when Europe, Japan, and USA share canonical_release_id and Europe is sorted first', () => {
+      const switchReleases: CatalogReleaseCandidate[] = [
+        {
+          id: '1-2-switch-nintendo-switch-eur',
+          game_id: 1471,
+          game_slug: '1-2-switch',
+          title: '1-2-Switch',
+          base_title: '1-2-Switch',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'Europe',
+          variants: 'Rev 000 (v1.0.0)',
+          canonical_release_id: 1192153,
+          ownership_status: 0,
+          backup_status: 0,
+        },
+        {
+          id: '1-2-switch-nintendo-switch-jpn',
+          game_id: 1471,
+          game_slug: '1-2-switch',
+          title: '1-2-Switch',
+          base_title: '1-2-Switch',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'Japan',
+          variants: 'Rev 000 (v1.0.0)',
+          canonical_release_id: 1192153,
+          ownership_status: 0,
+          backup_status: 0,
+        },
+        {
+          id: '1-2-switch-nintendo-switch-usa',
+          game_id: 1471,
+          game_slug: '1-2-switch',
+          title: '1-2-Switch',
+          base_title: '1-2-Switch',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.0)',
+          canonical_release_id: 1192153,
+          ownership_status: 1,
+          backup_status: 1,
+          has_case: 1,
+          has_manual: 0,
+        },
+        {
+          id: '1-2-switch-nintendo-switch-usa-rev1',
+          game_id: 1471,
+          game_slug: '1-2-switch',
+          title: '1-2-Switch',
+          base_title: '1-2-Switch',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 001 (v1.1.0)',
+          canonical_release_id: 1192151,
+          ownership_status: 0,
+          backup_status: 0,
+        },
+      ];
+
+      const report = scanBackupEntries({
+        rootFolderName: 'Switch',
+        platforms: mockPlatforms,
+        catalogReleases: switchReleases,
+        entries: [
+          {
+            relativePath:
+              'Switch/1-2-Switch [01000320000CC000][v0] [NKA][NC][NT].xci',
+            fileName: '1-2-Switch [01000320000CC000][v0] [NKA][NC][NT].xci',
+          },
+        ],
+      });
+
+      expect(
+        report.matchedReleaseIds.has('1-2-switch-nintendo-switch-usa'),
+      ).toBe(true);
+      expect(
+        report.matchedReleaseIds.has('1-2-switch-nintendo-switch-eur'),
+      ).toBe(false);
+      expect(report.ownershipSwitches).toHaveLength(0);
+    });
+
+    it('matches multi-game Switch cartridges including Child of Light + Valiant Hearts, Pikmin 1+2 Bundle, and Ori: The Collection', () => {
+      const multiGameCatalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'col-vh-usa',
+          game_id: 1512,
+          game_slug: 'child-of-light-valiant-hearts',
+          title:
+            'Child of Light: Ultimate Edition + Valiant Hearts: The Great War',
+          base_title:
+            'Child of Light: Ultimate Edition + Valiant Hearts: The Great War',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.0, 1.0.0)',
+          canonical_release_id: 1192227,
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'ori-standalone-1',
+          game_id: 1581,
+          title: 'Ori and the Blind Forest: Definitive Edition',
+          base_title: 'Ori and the Blind Forest: Definitive Edition',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.0)',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+        {
+          id: 'ori-collection-usa',
+          game_id: 1583,
+          title: 'Ori: The Collection',
+          base_title: 'Ori: The Collection',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.1, 1.2.0)',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'pikmin-12-usa',
+          game_id: 1621,
+          title: 'Pikmin 1+2 Bundle',
+          base_title: 'Pikmin 1+2 Bundle',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.1, 1.0.1)',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+      ];
+
+      const report = scanBackupEntries({
+        rootFolderName: 'Switch',
+        platforms: mockPlatforms,
+        catalogReleases: multiGameCatalog,
+        entries: [
+          {
+            relativePath:
+              'Switch/Child of Light [01007D000AD8A000][v0] + Valiant Hearts_ The Great War [010099700B01A000][v0] [NKA][NC][NT].xci',
+            fileName:
+              'Child of Light [01007D000AD8A000][v0] + Valiant Hearts_ The Great War [010099700B01A000][v0] [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Switch/Ori and the Blind Forest_ Definitive Edition 1.0.1 [010061B00DA7E000][v65536] + Ori and the Will of the Wisps 1.2.0 [01001A900E240000][v131072] [NKA][NC][NT].xci',
+            fileName:
+              'Ori and the Blind Forest_ Definitive Edition 1.0.1 [010061B00DA7E000][v65536] + Ori and the Will of the Wisps 1.2.0 [01001A900E240000][v131072] [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Switch/Pikmin 1.0.1 [010035301AA46000][v65536] + Pikmin 2 1.0.1 [0100DC001AA48000][v65536] [NKA][NC][NT].xci',
+            fileName:
+              'Pikmin 1.0.1 [010035301AA46000][v65536] + Pikmin 2 1.0.1 [0100DC001AA48000][v65536] [NKA][NC][NT].xci',
+          },
+        ],
+      });
+
+      expect(report.matchedReleaseIds.has('col-vh-usa')).toBe(true);
+      expect(report.matchedReleaseIds.has('ori-collection-usa')).toBe(true);
+      expect(report.matchedReleaseIds.has('ori-standalone-1')).toBe(false);
+      expect(report.matchedReleaseIds.has('pikmin-12-usa')).toBe(true);
+      expect(report.ignoredUnmatchedFiles).toHaveLength(0);
+      expect(report.ownershipSwitches).toHaveLength(0);
+    });
+
+    it('matches unlinked catalog releases (rom_name === null) via clean_fallback without proposing false ownership switches', () => {
+      const unlinkedCatalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'zelda-tp-hd-eur-default',
+          game_id: 2001,
+          title: 'The Legend of Zelda: Twilight Princess HD',
+          base_title: 'The Legend of Zelda: Twilight Princess HD',
+          platform_id: 15,
+          platform_name: 'Super Nintendo Entertainment System',
+          rom_name: null,
+          region: 'Europe',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+        {
+          id: 'zelda-tp-hd-usa-default',
+          game_id: 2001,
+          title: 'The Legend of Zelda: Twilight Princess HD',
+          base_title: 'The Legend of Zelda: Twilight Princess HD',
+          platform_id: 15,
+          platform_name: 'Super Nintendo Entertainment System',
+          rom_name: null,
+          region: 'USA',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+      ];
+
+      const report = scanBackupEntries({
+        rootFolderName: 'SNES',
+        platforms: mockPlatforms,
+        catalogReleases: unlinkedCatalog,
+        entries: [
+          {
+            relativePath:
+              'SNES/The Legend of Zelda - Twilight Princess HD (USA).sfc',
+            fileName: 'The Legend of Zelda - Twilight Princess HD (USA).sfc',
+          },
+        ],
+      });
+
+      expect(report.matchedReleaseIds.has('zelda-tp-hd-usa-default')).toBe(
+        true,
+      );
+      expect(
+        report.matchConfidenceByReleaseId.get('zelda-tp-hd-usa-default'),
+      ).toBe('clean_fallback');
+      expect(report.ownershipSwitches).toHaveLength(0);
+    });
   });
 
   describe('computeBackupNetDiffs & Markdown Diff Generation', () => {

@@ -6,6 +6,9 @@ import {
   parseSwitchRevisionsCsv,
   parseNxdumptoolFilename,
   resolveBestSwitchRevisionMatch,
+  extractVersionFromVariant,
+  splitVariantVersions,
+  extractRevisionFromVariant,
   SwitchSheetTabConfig,
 } from './switch_revisions.js';
 import { CanonicalRelease } from './canonical_releases.js';
@@ -201,6 +204,76 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
       );
       const match = resolveBestSwitchRevisionMatch(parsed, mockReleases);
       expect(match?.variants).toBe('Rev 000 (v1.0)');
+    });
+
+    it('should parse multi-game comma/slash variants and bare dotted Rev versions accurately', () => {
+      expect(extractVersionFromVariant('Rev 000 (v1.0.0, 1.0.0)')).toBe(
+        '1.0.0, 1.0.0',
+      );
+      expect(
+        splitVariantVersions(
+          extractVersionFromVariant('Rev 000 (v1.0.0, 1.0.0)'),
+        ),
+      ).toEqual(['1', '1']);
+      expect(
+        splitVariantVersions(
+          extractVersionFromVariant('Rev 000 (v1.1.1, 1.3.6)'),
+        ),
+      ).toEqual(['1.1.1', '1.3.6']);
+      expect(
+        splitVariantVersions(
+          extractVersionFromVariant(
+            'Rev 00 59L (v1: 1.0.6432, 2: 1.0.48921, 3: 1.0.35118)',
+          ),
+        ),
+      ).toEqual(['1.0.6432', '1.0.48921', '1.0.35118']);
+      expect(extractVersionFromVariant('Rev 001 (v1.1_65791)')).toBe(
+        '1.1_65791',
+      );
+      expect(extractVersionFromVariant('Rev 001 (v1.4.4-sw2p)')).toBe(
+        '1.4.4-sw2p',
+      );
+      expect(extractVersionFromVariant('Rev 1.0.2795')).toBe('1.0.2795');
+
+      expect(extractRevisionFromVariant('Rev 000 (v1.0.0, 1.0.0)')).toBe(0);
+      expect(extractRevisionFromVariant('Rev 1.0.2795')).toBeNull();
+      expect(extractRevisionFromVariant('Rev 1.4.0, rev002')).toBe(2);
+    });
+
+    it('should not let Step 4 patchLevel override an exact Step 3 displayVersion match', () => {
+      const candidates: CanonicalRelease[] = [
+        {
+          platform_id: 26,
+          raw_title: 'Test Game',
+          normalized_title: 'test game',
+          region: 'USA',
+          variants: 'Rev 001 (v1.2.0)',
+          rom_name: null,
+          rom_crc: null,
+          serial_code: null,
+          source: 'nintendo_revised',
+          is_verified_physical: 1,
+        },
+        {
+          platform_id: 26,
+          raw_title: 'Test Game',
+          normalized_title: 'test game',
+          region: 'USA',
+          variants: 'Rev 002 (v1.3.0)',
+          rom_name: null,
+          rom_crc: null,
+          serial_code: null,
+          source: 'nintendo_revised',
+          is_verified_physical: 1,
+        },
+      ];
+
+      // Patch level is 2 (v131072), but displayVersion is explicitly 1.2.0 (which is on Rev 001)
+      const parsed = parseNxdumptoolFilename(
+        'Test Game 1.2.0 [0100ABCDEF000000][v131072] [NKA][NC][NT].xci',
+      );
+      const match = resolveBestSwitchRevisionMatch(parsed, candidates, 'USA');
+      expect(match?.variants).toBe('Rev 001 (v1.2.0)');
     });
   });
 });

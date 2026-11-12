@@ -633,6 +633,51 @@ export function normalizeVersionString(
 }
 
 /**
+ * Extracts the raw version string from canonical variants (e.g. "Rev 001 (v1.1)" -> "1.1",
+ * "Rev 000 (v1.0.0, 1.0.0)" -> "1.0.0, 1.0.0", or "Rev 1.0.2795" -> "1.0.2795").
+ */
+export function extractVersionFromVariant(
+  variant: string | null | undefined,
+): string | null {
+  if (!variant) return null;
+  const parenMatch = variant.match(/\(v([^)?]+)\)/i);
+  if (parenMatch) return parenMatch[1].trim();
+  const revVerMatch = variant.match(/\bRev\s+([0-9]+\.[0-9][0-9a-z.,_/\s-]*)/i);
+  if (revVerMatch) {
+    return revVerMatch[1].replace(/,\s*rev\s*\d+.*$/i, '').trim();
+  }
+  const bareVerMatch = variant.trim().match(/^v([0-9][0-9a-z._/-]*)$/i);
+  return bareVerMatch ? bareVerMatch[1].trim() : null;
+}
+
+/**
+ * Splits a raw multi-game variant version string on `/` or `,`, strips `1:`, `2:` prefixes,
+ * and normalizes each constituent version string.
+ */
+export function splitVariantVersions(
+  rawVer: string | null | undefined,
+): string[] {
+  if (!rawVer) return [];
+  return rawVer
+    .split(/[/,]/)
+    .map((part) => part.replace(/^\s*\d+\s*:\s*/, '').trim())
+    .map((part) => normalizeVersionString(part))
+    .filter((v): v is string => Boolean(v));
+}
+
+/**
+ * Extracts the integer revision number from canonical variants (e.g. "Rev 001 (v1.1)" -> 1,
+ * "Rev 1.4.0, rev002" -> 2, ignoring dotted versions like "Rev 1.0.2795").
+ */
+export function extractRevisionFromVariant(
+  variant: string | null | undefined,
+): number | null {
+  if (!variant) return null;
+  const match = variant.match(/\bRev\s*(\d+)(?![.\d])/i);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/**
  * Resolves the best matching canonical release row from a list of candidate releases
  * for an nxdumptool backup dump.
  */
@@ -674,48 +719,36 @@ export function resolveBestSwitchRevisionMatch(
   const primarySegment = parsedDump.segments[0];
   if (!primarySegment) return matchPreferred(activeCandidates);
 
-  // Helper: extract version string from canonical variants (e.g. "Rev 001 (v1.1)" -> "1.1" or "v1.0.5/1.0.3" -> "1.0.5/1.0.3")
-  const extractVersionFromVariant = (variant: string | null): string | null => {
-    if (!variant) return null;
-    const match = variant.match(/\(v([0-9./\s]+)\)/i);
-    return match ? match[1].trim() : null;
-  };
-
-  // Helper: extract revision number from canonical variants (e.g. "Rev 001 (v1.1)" -> 1)
-  const extractRevisionFromVariant = (
-    variant: string | null,
-  ): number | null => {
-    if (!variant) return null;
-    const match = variant.match(/Rev\s*(\d+)/i);
-    return match ? parseInt(match[1], 10) : null;
-  };
-
-  // 1. If multi-game dump, check for slash-joined multi-versions (e.g. "1.0.5/1.0.3" matching segments)
+  // 1. If multi-game dump, check for slash- or comma-joined multi-versions (e.g. "1.0.5/1.0.3" or "1.1.1, 1.3.6" matching segments)
   if (parsedDump.isMultiGame && parsedDump.segments.length > 1) {
     const dumpVers = parsedDump.segments
       .map((s) => normalizeVersionString(s.displayVersion))
       .filter((v): v is string => Boolean(v));
-    const multiCandidates = activeCandidates.filter((rel) => {
-      const rawVer = extractVersionFromVariant(rel.variants);
-      if (rawVer && rawVer.includes('/')) {
-        const subVers = rawVer.split('/').map(normalizeVersionString);
-        return dumpVers.every((dv) => subVers.includes(dv));
-      }
-      return false;
-    });
-    if (multiCandidates.length > 0) return matchPreferred(multiCandidates);
+    if (dumpVers.length > 0) {
+      const multiCandidates = activeCandidates.filter((rel) => {
+        const subVers = splitVariantVersions(
+          extractVersionFromVariant(rel.variants),
+        );
+        return (
+          subVers.length > 1 && dumpVers.every((dv) => subVers.includes(dv))
+        );
+      });
+      if (multiCandidates.length > 0) return matchPreferred(multiCandidates);
+    }
   }
 
   // 2. If dump has an explicit displayVersion (e.g., "1.1", "1.0.2", "1.1.100.3")
   if (primarySegment.displayVersion) {
     const targetNorm = normalizeVersionString(primarySegment.displayVersion);
-    const verCandidates = activeCandidates.filter((rel) => {
-      const candRaw = extractVersionFromVariant(rel.variants);
-      if (!candRaw) return false;
-      const subVers = candRaw.split('/').map(normalizeVersionString);
-      return subVers.includes(targetNorm);
-    });
-    if (verCandidates.length > 0) return matchPreferred(verCandidates);
+    if (targetNorm) {
+      const verCandidates = activeCandidates.filter((rel) => {
+        const subVers = splitVariantVersions(
+          extractVersionFromVariant(rel.variants),
+        );
+        return subVers.includes(targetNorm);
+      });
+      if (verCandidates.length > 0) return matchPreferred(verCandidates);
+    }
   }
 
   // 3. If versionInt === 0 ([v0]), match base revision (Rev 000 / Rev 00 / lowest version)
@@ -727,8 +760,15 @@ export function resolveBestSwitchRevisionMatch(
     if (rev0Candidates.length > 0) return matchPreferred(rev0Candidates);
   }
 
-  // 4. If versionInt > 0, match patchLevel against Rev number
-  if (primarySegment.patchLevel > 0) {
+  // 4. If versionInt > 0, match patchLevel against Rev number only when displayVersion is absent
+  // or when no candidate has a parseable version string
+  const anyCandidateHasVersion = activeCandidates.some(
+    (r) => extractVersionFromVariant(r.variants) !== null,
+  );
+  if (
+    primarySegment.patchLevel > 0 &&
+    (!primarySegment.displayVersion || !anyCandidateHasVersion)
+  ) {
     const revCandidates = activeCandidates.filter((r) => {
       const rev = extractRevisionFromVariant(r.variants);
       return rev === primarySegment.patchLevel;
