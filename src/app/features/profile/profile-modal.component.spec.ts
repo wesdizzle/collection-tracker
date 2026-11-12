@@ -349,9 +349,14 @@ describe('ProfileModalComponent', () => {
 
   it('should format multi-region toy badges and expose PrioritySeeking = 4', () => {
     expect(OwnershipStatus.PrioritySeeking).toBe(4);
-    expect(formatToyRegionBadge('USA, Europe, Japan, Australia')).toBe('World');
-    expect(formatToyRegionBadge('USA, Europe, Japan')).toBe('World');
+    expect(formatToyRegionBadge('USA, Europe, Japan, Australia')).toBe(
+      'USA, Europe, Japan, Australia',
+    );
+    expect(formatToyRegionBadge('USA, Europe, Japan')).toBe(
+      'USA, Europe, Japan',
+    );
     expect(formatToyRegionBadge('Japan')).toBe('Japan');
     expect(formatToyRegionBadge('USA, Japan')).toBe('USA, Japan');
+    expect(formatToyRegionBadge(null)).toBe('USA');
   });
 });

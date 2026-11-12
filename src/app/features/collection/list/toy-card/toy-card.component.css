@@ -72,12 +72,15 @@
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
+  max-width: calc(100% - 3.75rem);
   padding: 0.2rem 0.45rem;
   background: rgba(0, 0, 0, 0.8);
   border-radius: var(--radius-tag, 6px);
   font-family: var(--font-body);
   font-size: 0.65rem;
   font-weight: 700;
+  line-height: 1.25;
+  text-align: right;
   color: #fff;
   z-index: 2;
 }

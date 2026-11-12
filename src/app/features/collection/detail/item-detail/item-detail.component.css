@@ -176,6 +176,7 @@ button.stat-pill {
   position: absolute;
   top: var(--spacing-12);
   right: var(--spacing-12);
+  max-width: calc(100% - 1.5rem);
   padding: 0.25rem 0.5rem;
   background: rgba(0, 0, 0, 0.75);
   border-radius: var(--radius-tag, 6px);
@@ -183,6 +184,7 @@ button.stat-pill {
   font-size: 0.75rem;
   font-weight: 700;
   color: #fff;
+  text-align: right;
   z-index: 10;
 }
 

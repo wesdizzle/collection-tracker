@@ -247,6 +247,12 @@
               <div class="region-overlay" [title]="'Region: ' + g.region">
                 {{ g.region }}
               </div>
+            } @else if (toy(); as t) {
+              @if (t.region) {
+                <div class="region-overlay" [title]="'Region: ' + t.region">
+                  {{ t.region }}
+                </div>
+              }
             }
           </div>
         </div>
@@ -718,6 +724,12 @@
                 <span class="label">Type</span>
                 <span class="value">{{ t.type }}</span>
               </div>
+              @if (t.region) {
+                <div class="meta-box">
+                  <span class="label">Regions</span>
+                  <span class="value">{{ t.region }}</span>
+                </div>
+              }
               @if (
                 t.line === 'Skylanders'
                   ? t.series_name

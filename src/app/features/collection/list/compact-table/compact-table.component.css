@@ -265,6 +265,12 @@
   align-items: center;
 }
 
+.toys-table .col-region {
+  width: auto;
+  min-width: 150px;
+  flex: 1;
+}
+
 .compact-region-flag {
   display: inline-block;
   padding: 0.1rem 0.35rem;

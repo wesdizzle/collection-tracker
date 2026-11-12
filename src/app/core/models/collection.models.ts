@@ -832,29 +832,15 @@ export interface CatalogSeedStatus {
 }
 
 /**
- * Formats a toy's comma-separated region list for compact card/row badges.
- * Displays 'World' when a toy released across 3+ major territories (e.g. 'USA, Europe, Japan, Australia'
- * or 'USA, Europe, Australia'), while preserving single/dual-region exclusives (e.g. 'Japan', 'USA').
+ * Formats a toy's comma-separated region list for card/row badges.
+ * Preserves the full verifiable region list (e.g. 'USA, Europe, Japan, Australia', 'Japan', 'USA').
  */
 export function formatToyRegionBadge(
   region: string | null | undefined,
 ): string {
   if (!region) return 'USA';
   const trimmed = region.trim();
-  if (!trimmed) return 'USA';
-  if (trimmed.toLowerCase() === 'world') return 'World';
-  const tokens = trimmed
-    .split(',')
-    .map((r) => r.trim().toLowerCase())
-    .filter(Boolean);
-  if (
-    tokens.length >= 3 &&
-    tokens.includes('usa') &&
-    tokens.includes('europe')
-  ) {
-    return 'World';
-  }
-  return trimmed;
+  return trimmed || 'USA';
 }
 
 export interface PublicUserProfile {
