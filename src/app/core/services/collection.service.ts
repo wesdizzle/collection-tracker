@@ -53,6 +53,8 @@ import {
   PagedScanSeriesResult,
   JournalEntry,
   UserProfile,
+  UserTrackingRule,
+  CatalogSeedStatus,
   PublicUserProfile,
   AuthMeResponse,
 } from '../models/collection.models';
@@ -230,6 +232,8 @@ export class CollectionService implements OnDestroy {
       if (
         currentPath === '/collection' ||
         currentPath.startsWith('/collection/') ||
+        currentPath === '/discovery' ||
+        currentPath.startsWith('/discovery/') ||
         currentPath === '/profile' ||
         currentPath.startsWith('/profile/')
       ) {
@@ -475,6 +479,64 @@ export class CollectionService implements OnDestroy {
     return this.http.get<string[]>('/api/user/regions');
   }
 
+  public getTrackingRules(): Observable<UserTrackingRule[]> {
+    return this.http
+      .get<
+        UserTrackingRule[] | { rules?: UserTrackingRule[] }
+      >('/api/user/tracking-rules')
+      .pipe(
+        map((res) => {
+          const list = Array.isArray(res) ? res : res?.rules || [];
+          return list.map((r) => ({
+            ...r,
+            target_value: r.target_value || r.match_value || '',
+            match_value: r.match_value || r.target_value || '',
+          }));
+        }),
+      );
+  }
+
+  public saveTrackingRule(payload: {
+    rule_type: 'series' | 'platform' | 'toy_line' | 'toy_series';
+    target_value?: string;
+    match_value?: string;
+    is_ignored?: boolean;
+    apply_retroactive?: boolean;
+    clear_existing_seeking?: boolean;
+  }): Observable<unknown> {
+    const val = payload.match_value || payload.target_value || '';
+    return this.http.post('/api/user/tracking-rules', {
+      ...payload,
+      match_value: val,
+      target_value: val,
+      clearExistingSeeking: payload.clear_existing_seeking,
+    });
+  }
+
+  public deleteTrackingRule(
+    ruleType: 'series' | 'platform' | 'toy_line' | 'toy_series',
+    targetValue: string,
+  ): Observable<unknown> {
+    return this.http.delete(
+      `/api/user/tracking-rules?rule_type=${encodeURIComponent(ruleType)}&match_value=${encodeURIComponent(targetValue)}&target_value=${encodeURIComponent(targetValue)}`,
+    );
+  }
+
+  public getCatalogSeedStatus(): Observable<CatalogSeedStatus> {
+    return this.http.get<CatalogSeedStatus>('/api/admin/catalog-seed');
+  }
+
+  public updateCatalogSeedControl(payload: {
+    paused?: boolean;
+    stage?: '2A' | '2B' | 'done';
+    cursor?: number;
+  }): Observable<CatalogSeedStatus> {
+    return this.http.post<CatalogSeedStatus>(
+      '/api/admin/catalog-seed',
+      payload,
+    );
+  }
+
   public getPublicUser(username: string): Observable<PublicUserProfile> {
     return this.http.get<PublicUserProfile>(
       `/api/u/${encodeURIComponent(username)}`,
@@ -510,6 +572,9 @@ export class CollectionService implements OnDestroy {
   public getTabRoute(
     tab: 'games' | 'toys' | 'insights' | 'discovery' | string = 'games',
   ): string[] {
+    if (tab === 'discovery') {
+      return ['/discovery'];
+    }
     if (
       this._isPublicView() &&
       this._publicProfile() &&
@@ -523,6 +588,9 @@ export class CollectionService implements OnDestroy {
   public getTabUrl(
     tab: 'games' | 'toys' | 'insights' | 'discovery' | string = 'games',
   ): string {
+    if (tab === 'discovery') {
+      return '/discovery';
+    }
     if (
       this._isPublicView() &&
       this._publicProfile() &&

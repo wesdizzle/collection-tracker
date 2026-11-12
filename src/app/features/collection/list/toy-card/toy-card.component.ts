@@ -5,7 +5,10 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { RouterModule } from '@angular/router';
-import { Toy } from '../../../../core/models/collection.models';
+import {
+  Toy,
+  formatToyRegionBadge,
+} from '../../../../core/models/collection.models';
 
 @Component({
   selector: 'app-toy-card',
@@ -19,6 +22,10 @@ export class ToyCardComponent {
   toy = input.required<Toy>();
 
   toggleStatus = output<{ event: MouseEvent; toy: Toy }>();
+
+  formatRegion(region: string | null | undefined): string {
+    return formatToyRegionBadge(region);
+  }
 
   onToggleStatusClick(event: MouseEvent): void {
     event.preventDefault();

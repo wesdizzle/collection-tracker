@@ -124,11 +124,8 @@ export const routes: Routes = [
           },
           {
             path: 'discovery',
-            title: 'Discovery Management',
-            loadComponent: () =>
-              import('./features/discovery/list/discovery-list/discovery-list.component').then(
-                (m) => m.DiscoveryListComponent,
-              ),
+            redirectTo: '/discovery',
+            pathMatch: 'full',
           },
           {
             path: 'insights',
@@ -147,6 +144,26 @@ export const routes: Routes = [
               ),
           },
         ],
+      },
+      {
+        path: 'discovery',
+        title: 'Discovery Management',
+        canActivate: [
+          async () => {
+            const cs = inject(CollectionService);
+            cs.exitPublicView();
+            const router = inject(Router);
+            await cs.ensureAuthLoaded();
+            if (!cs.isAdmin()) {
+              return router.createUrlTree(['/collection/games']);
+            }
+            return true;
+          },
+        ],
+        loadComponent: () =>
+          import('./features/discovery/list/discovery-list/discovery-list.component').then(
+            (m) => m.DiscoveryListComponent,
+          ),
       },
       {
         path: ':type/:id',

@@ -18,8 +18,10 @@ import worker, {
   markDbDirty,
   performScheduledBackup,
   resetWorkerRateLimits,
+  resolveAmiiboRegionsAndMetadata,
   syncOrResolveOidcUser,
   syncWorkerBoutiquePreOrders,
+  syncWorkerBroadCatalogPopulation,
   syncWorkerLaunchDayNotifications,
   syncWorkerRetailDeals,
 } from './worker';
@@ -4832,6 +4834,216 @@ describe('Worker API Logic', () => {
         expect(res.status).toBe(400);
         const err = (await res.json()) as { error: string };
         expect(err.error).toContain('same game');
+      });
+    });
+
+    describe('PrioritySeeking, User Tracking Rules & Broad Catalog Population', () => {
+      it('resolveAmiiboRegionsAndMetadata derives multi-region strings and metadata_json.releases from AmiiboAPI release dates', () => {
+        const worldwide = resolveAmiiboRegionsAndMetadata({
+          na: '2014-11-21',
+          eu: '2014-11-28',
+          jp: '2014-12-06',
+          au: '2014-11-29',
+        });
+        expect(worldwide.region).toBe('USA, Europe, Japan, Australia');
+        expect(worldwide.defaultDate).toBe('2014-11-21');
+        expect(JSON.parse(worldwide.metadataJson || '{}')).toEqual({
+          releases: {
+            USA: '2014-11-21',
+            Europe: '2014-11-28',
+            Japan: '2014-12-06',
+            Australia: '2014-11-29',
+          },
+        });
+
+        const jpOnly = resolveAmiiboRegionsAndMetadata({
+          na: null,
+          eu: null,
+          jp: '2017-03-25',
+          au: null,
+        });
+        expect(jpOnly.region).toBe('Japan');
+        expect(jpOnly.defaultDate).toBe('2017-03-25');
+      });
+
+      it('reactively auto-tracks a canonical_series and marks existing unowned games in that series as Seeking (2) when toggling a game to Owned (1)', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, region)
+          VALUES
+            (701, 'pikmin-1', 'Pikmin', 20, 'Pikmin', 'USA'),
+            (702, 'pikmin-2', 'Pikmin 2', 20, 'Pikmin', 'USA');
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES
+            ('pikmin-1-usa', 701, 'USA'),
+            ('pikmin-2-usa', 702, 'USA');
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        const res = await worker.fetch(
+          new Request('http://localhost/api/collection/toggle', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: `${SESSION_COOKIE}=${token}`,
+            },
+            body: JSON.stringify({
+              id: 'pikmin-1-usa',
+              type: 'game',
+              status: 1,
+              field: 'ownership_status',
+            }),
+          }),
+          mockEnv,
+        );
+
+        expect(res.status).toBe(200);
+
+        const rule = db
+          .prepare(
+            "SELECT rule_type, match_value, target_status, is_ignored FROM user_tracking_rules WHERE user_id = 1 AND rule_type = 'series' AND match_value = 'Pikmin'",
+          )
+          .get() as {
+          rule_type: string;
+          match_value: string;
+          target_status: number;
+          is_ignored: number;
+        };
+        expect(rule).toEqual({
+          rule_type: 'series',
+          match_value: 'Pikmin',
+          target_status: 2,
+          is_ignored: 0,
+        });
+
+        const pikmin2Status = db
+          .prepare(
+            "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'pikmin-2-usa'",
+          )
+          .get() as { ownership_status: number };
+        expect(pikmin2Status).toEqual({ ownership_status: 2 });
+      });
+
+      it('supports /api/user/tracking-rules GET/POST/DELETE and clears existing Seeking (2) when ignoring a series', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, region)
+          VALUES (710, 'fifa-23', 'FIFA 23', 35, 'FIFA', 'USA');
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES ('fifa-23-usa', 710, 'USA');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+          VALUES (1, 'fifa-23-usa', 2);
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        // Ignore FIFA series and clear existing seeking
+        const postRes = await worker.fetch(
+          new Request('http://localhost/api/user/tracking-rules', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: `${SESSION_COOKIE}=${token}`,
+            },
+            body: JSON.stringify({
+              rule_type: 'series',
+              target_value: 'FIFA',
+              is_ignored: true,
+              clear_existing_seeking: true,
+            }),
+          }),
+          mockEnv,
+        );
+        expect(postRes.status).toBe(200);
+
+        const fifaStatus = db
+          .prepare(
+            "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'fifa-23-usa'",
+          )
+          .get() as { ownership_status: number };
+        expect(fifaStatus.ownership_status).toBe(0);
+
+        const getRes = await worker.fetch(
+          new Request('http://localhost/api/user/tracking-rules', {
+            headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+          }),
+          mockEnv,
+        );
+        expect(getRes.status).toBe(200);
+        const rules = (await getRes.json()) as Array<{
+          rule_type: string;
+          target_value: string;
+          is_ignored: number;
+        }>;
+        expect(rules).toContainEqual(
+          expect.objectContaining({
+            rule_type: 'series',
+            target_value: 'FIFA',
+            is_ignored: 1,
+          }),
+        );
+
+        const delRes = await worker.fetch(
+          new Request(
+            'http://localhost/api/user/tracking-rules?rule_type=series&target_value=FIFA',
+            {
+              method: 'DELETE',
+              headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+            },
+          ),
+          mockEnv,
+        );
+        expect(delRes.status).toBe(200);
+      });
+
+      it('syncWorkerBroadCatalogPopulation populates canonical releases into games and evaluates user_tracking_rules', async () => {
+        db.exec(`
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical)
+          VALUES (5001, 26, 'F-Zero 99 Physical Edition (USA)', 'fzero99physicaledition', 'USA', 1);
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES (1, 'platform', '26', 2, 'home', 0);
+        `);
+
+        const result = await syncWorkerBroadCatalogPopulation(mockEnv);
+        expect(result.ingestedGames).toBeGreaterThanOrEqual(1);
+        expect(result.ingestedReleases).toBeGreaterThanOrEqual(1);
+
+        const newGame = db
+          .prepare(
+            "SELECT stable_id, title, physical_status FROM games WHERE title = 'F-Zero 99 Physical Edition'",
+          )
+          .get() as {
+          stable_id: number;
+          title: string;
+          physical_status: string;
+        };
+        expect(newGame).toBeTruthy();
+        expect(newGame.physical_status).toBe('verified_physical');
+
+        const trackedRelease = db
+          .prepare(
+            `SELECT ugr.ownership_status
+             FROM user_game_releases ugr
+             JOIN game_releases gr ON gr.id = ugr.release_id
+             WHERE ugr.user_id = 1 AND gr.game_id = ?`,
+          )
+          .get(newGame.stable_id) as { ownership_status: number };
+        expect(trackedRelease).toEqual({ ownership_status: 2 });
       });
     });
   });

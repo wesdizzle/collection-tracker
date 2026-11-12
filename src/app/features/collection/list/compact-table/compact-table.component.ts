@@ -11,6 +11,7 @@ import {
   FilterState,
   getMediaIconName,
   normalizeBudgetToken,
+  formatToyRegionBadge,
 } from '../../../../core/models/collection.models';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
@@ -127,6 +128,10 @@ export class CompactTableComponent {
   public isUpcomingDate(releaseDate: string | null | undefined): boolean {
     if (!releaseDate) return false;
     return new Date(releaseDate) > new Date();
+  }
+
+  public formatToyRegion(region: string | null | undefined): string {
+    return formatToyRegionBadge(region);
   }
 
   private normalizeBudgetToken(token: string): string | null {

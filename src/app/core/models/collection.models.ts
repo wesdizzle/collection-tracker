@@ -10,6 +10,7 @@ export enum OwnershipStatus {
   Owned = 1,
   Seeking = 2,
   Ordered = 3,
+  PrioritySeeking = 4,
 }
 
 export enum PlayStatus {
@@ -389,7 +390,12 @@ export interface PhysicalAnnouncementScope {
 
 export interface DealNotificationPreferences {
   enabled: boolean;
-  scope: 'seeking_only' | 'seeking_and_unowned' | 'all';
+  scope:
+    | 'priority_seeking_only'
+    | 'all_seeking'
+    | 'seeking_only'
+    | 'seeking_and_unowned'
+    | 'all';
   minDiscountPct: number;
   maxPriceCents?: number | null;
   platformIds: number[];
@@ -796,6 +802,59 @@ export interface UserProfile {
   homeRegion: string;
   displayName: string | null;
   bio: string | null;
+  autoTrackSeriesOnAdd?: boolean;
+}
+
+export interface UserTrackingRule {
+  user_id?: number;
+  rule_type: 'series' | 'platform' | 'toy_line' | 'toy_series';
+  match_value?: string;
+  target_value?: string;
+  target_status?: number;
+  auto_status?: number;
+  region_scope?: 'home' | 'any';
+  is_ignored: number;
+  created_at?: string;
+}
+
+export interface CatalogSeedStatus {
+  paused: boolean;
+  stage: '2A' | '2B' | 'done' | string;
+  cursor: number;
+  cursorId?: number;
+  dailyWriteBudget: number;
+  writesUsedToday: number;
+  dailyWritesUsed?: number;
+  dailyDate?: string;
+  gamesIngestedToday?: number;
+  releasesIngestedToday?: number;
+  lastUpdatedAt?: string | null;
+}
+
+/**
+ * Formats a toy's comma-separated region list for compact card/row badges.
+ * Displays 'World' when a toy released across 3+ major territories (e.g. 'USA, Europe, Japan, Australia'
+ * or 'USA, Europe, Australia'), while preserving single/dual-region exclusives (e.g. 'Japan', 'USA').
+ */
+export function formatToyRegionBadge(
+  region: string | null | undefined,
+): string {
+  if (!region) return 'USA';
+  const trimmed = region.trim();
+  if (!trimmed) return 'USA';
+  if (trimmed.toLowerCase() === 'world') return 'World';
+  const tokens = trimmed
+    .split(',')
+    .map((r) => r.trim().toLowerCase())
+    .filter(Boolean);
+  if (
+    tokens.length >= 3 &&
+    tokens.includes('usa') &&
+    tokens.includes('europe')
+  ) {
+    return 'World';
+  }
+  return trimmed;
 }
 
 export interface PublicUserProfile {

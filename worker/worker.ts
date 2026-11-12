@@ -53,6 +53,7 @@ import {
   buildToyDetailQuery,
   DEFAULT_USER_HOME_REGION,
 } from '../shared/queries';
+import { isRegionMatchingHome } from '../shared/source_format';
 import {
   detectPhysicalReleaseStatus,
   CanonicalRelease,
@@ -532,6 +533,8 @@ const WORKER_HTML_CSP = buildCspHeader({
 
 const JSON_BODY_MUTATION_PATHS = new Set([
   '/api/user/profile',
+  '/api/user/tracking-rules',
+  '/api/admin/catalog-seed',
   '/api/collection/toggle',
   '/api/collection/backups/apply',
   '/api/collection/sort',
@@ -556,6 +559,7 @@ const BACKUP_TABLES = [
   'sync_state',
   'journal_entries',
   'users',
+  'user_tracking_rules',
   'user_game_releases',
   'user_games',
   'user_toys',
@@ -628,6 +632,445 @@ interface DbUserRow {
   home_region: string | null;
   display_name: string | null;
   bio: string | null;
+  auto_track_series_on_add?: number | null;
+}
+
+/**
+ * Derives verifiable comma-separated region list and regional release dates JSON
+ * from AmiiboAPI's `release` object (`{ na, eu, jp, au }`).
+ */
+export function resolveAmiiboRegionsAndMetadata(
+  release?: {
+    na?: string | null;
+    eu?: string | null;
+    jp?: string | null;
+    au?: string | null;
+  } | null,
+  existingMetadataJson?: string | null,
+): {
+  region: string;
+  defaultDate: string | null;
+  metadataJson: string | null;
+} {
+  const regions: string[] = [];
+  const releasesMap: Record<string, string> = {};
+
+  if (release?.na) {
+    regions.push('USA');
+    releasesMap['USA'] = release.na;
+  }
+  if (release?.eu) {
+    regions.push('Europe');
+    releasesMap['Europe'] = release.eu;
+  }
+  if (release?.jp) {
+    regions.push('Japan');
+    releasesMap['Japan'] = release.jp;
+  }
+  if (release?.au) {
+    regions.push('Australia');
+    releasesMap['Australia'] = release.au;
+  }
+
+  const region = regions.length > 0 ? regions.join(', ') : 'USA';
+  const defaultDate =
+    release?.na || release?.jp || release?.eu || release?.au || null;
+
+  let parsedMeta: Record<string, unknown> = {};
+  if (existingMetadataJson) {
+    try {
+      const parsed = JSON.parse(existingMetadataJson);
+      if (parsed && typeof parsed === 'object') {
+        parsedMeta = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Ignore malformed JSON
+    }
+  }
+
+  if (Object.keys(releasesMap).length > 0) {
+    parsedMeta['releases'] = releasesMap;
+  }
+
+  const metadataJson =
+    Object.keys(parsedMeta).length > 0 ? JSON.stringify(parsedMeta) : null;
+
+  return { region, defaultDate, metadataJson };
+}
+
+/**
+ * Reactive series auto-tracking:
+ * When a user marks a game as Owned (1), Seeking (2), Ordered (3), or PrioritySeeking (4),
+ * if the user has `auto_track_series_on_add = 1` (default) and the game's `canonical_series`
+ * is not explicitly ignored (`is_ignored = 1`), this function:
+ * 1. Upserts `(user_id, 'series', canonical_series)` into `user_tracking_rules` (tracking all future games).
+ * 2. Marks all existing Unowned (0) games in that `canonical_series` (matching the user's home region) as Seeking (2).
+ */
+export async function applyReactiveSeriesAutoTracking(
+  env: Env,
+  userId: number,
+  gameStableId: number,
+  explicitCanonicalSeries?: string | null,
+): Promise<{ trackedSeries: string | null; autoAddedCount: number }> {
+  try {
+    let autoTrack = 1;
+    let homeRegion = 'USA';
+    try {
+      const userRow = await env.DB.prepare(
+        "SELECT COALESCE(auto_track_series_on_add, 1) as auto_track, COALESCE(home_region, 'USA') as home_region FROM users WHERE id = ?",
+      )
+        .bind(userId)
+        .first<{ auto_track: number; home_region: string }>();
+      if (userRow) {
+        autoTrack = Number(userRow.auto_track ?? 1);
+        homeRegion = userRow.home_region || 'USA';
+      }
+    } catch {
+      // Fallback if auto_track_series_on_add column is not yet present in unmigrated test DB
+      const fallbackUser = await env.DB.prepare(
+        'SELECT home_region FROM users WHERE id = ?',
+      )
+        .bind(userId)
+        .first<{ home_region: string | null }>()
+        .catch(() => null);
+      if (fallbackUser?.home_region) {
+        homeRegion = fallbackUser.home_region;
+      }
+    }
+
+    if (autoTrack === 0) {
+      return { trackedSeries: null, autoAddedCount: 0 };
+    }
+
+    let canonicalSeries = explicitCanonicalSeries?.trim() || null;
+    if (!canonicalSeries && gameStableId > 0) {
+      const gameRow = await env.DB.prepare(
+        'SELECT canonical_series FROM games WHERE stable_id = ?',
+      )
+        .bind(gameStableId)
+        .first<{ canonical_series: string | null }>();
+      canonicalSeries = gameRow?.canonical_series?.trim() || null;
+    }
+
+    if (!canonicalSeries) {
+      return { trackedSeries: null, autoAddedCount: 0 };
+    }
+
+    // Check if user_tracking_rules table exists and whether this series is ignored
+    let existingRule: {
+      target_status: number;
+      region_scope: string;
+      is_ignored: number;
+    } | null = null;
+    try {
+      existingRule = await env.DB.prepare(
+        `SELECT target_status, region_scope, is_ignored
+         FROM user_tracking_rules
+         WHERE user_id = ? AND rule_type = 'series' AND match_value = ?`,
+      )
+        .bind(userId, canonicalSeries)
+        .first<{
+          target_status: number;
+          region_scope: string;
+          is_ignored: number;
+        }>();
+    } catch {
+      // Table not created in unmigrated environment
+      return { trackedSeries: null, autoAddedCount: 0 };
+    }
+
+    if (existingRule && Number(existingRule.is_ignored) === 1) {
+      return { trackedSeries: null, autoAddedCount: 0 };
+    }
+
+    const targetStatus = existingRule?.target_status || 2;
+    const regionScope = existingRule?.region_scope || 'home';
+
+    if (!existingRule) {
+      await env.DB.prepare(
+        `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+         VALUES (?, 'series', ?, 2, 'home', 0)
+         ON CONFLICT(user_id, rule_type, match_value) DO NOTHING`,
+      )
+        .bind(userId, canonicalSeries)
+        .run();
+    }
+
+    // Find all sibling games in this canonical_series and their releases
+    const { results: seriesReleases } = await env.DB.prepare(
+      `SELECT g.stable_id, r.id as release_id, COALESCE(r.region, g.region) as region, r.variants,
+              COALESCE(ugr.ownership_status, 0) as ownership_status
+       FROM games g
+       JOIN game_releases r ON r.game_id = g.stable_id
+       LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?
+       WHERE g.canonical_series = ?
+       ORDER BY g.stable_id ASC, CASE WHEN r.variants IS NULL OR r.variants = '' THEN 0 ELSE 1 END ASC, r.id ASC`,
+    )
+      .bind(userId, canonicalSeries)
+      .all<{
+        stable_id: number;
+        release_id: string;
+        region: string | null;
+        variants: string | null;
+        ownership_status: number;
+      }>();
+
+    const byGame = new Map<
+      number,
+      Array<{
+        release_id: string;
+        region: string | null;
+        variants: string | null;
+        ownership_status: number;
+      }>
+    >();
+    for (const row of seriesReleases || []) {
+      let list = byGame.get(row.stable_id);
+      if (!list) {
+        list = [];
+        byGame.set(row.stable_id, list);
+      }
+      list.push(row);
+    }
+
+    const statements: D1PreparedStatement[] = [];
+    for (const [stableId, rels] of byGame.entries()) {
+      if (stableId === gameStableId) continue;
+      // Skip if user already has any positive status (Owned=1, Seeking=2, Ordered=3, PrioritySeeking=4) on any release of this game
+      if (rels.some((r) => Number(r.ownership_status) > 0)) {
+        continue;
+      }
+
+      const matchingRels =
+        regionScope === 'any'
+          ? rels
+          : rels.filter((r) => isRegionMatchingHome(r.region, homeRegion));
+
+      if (matchingRels.length === 0) continue;
+
+      const chosen = matchingRels[0];
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+           VALUES (?, ?, ?, 0)
+           ON CONFLICT(user_id, release_id) DO UPDATE SET
+             ownership_status = excluded.ownership_status
+           WHERE user_game_releases.ownership_status = 0`,
+        ).bind(userId, chosen.release_id, targetStatus),
+      );
+    }
+
+    if (statements.length > 0) {
+      for (let i = 0; i < statements.length; i += 100) {
+        await env.DB.batch(statements.slice(i, i + 100));
+      }
+    }
+
+    return {
+      trackedSeries: canonicalSeries,
+      autoAddedCount: statements.length,
+    };
+  } catch (err) {
+    console.warn(
+      '[AutoTrackSeries] Error applying reactive series tracking:',
+      err,
+    );
+    return { trackedSeries: null, autoAddedCount: 0 };
+  }
+}
+
+/**
+ * Evaluates active `user_tracking_rules` (series and platform rules) for newly added games
+ * and automatically marks matching releases as Seeking (2) or PrioritySeeking (4).
+ */
+export async function evaluateTrackingRulesForNewGames(
+  env: Env,
+  newGames: Array<{
+    stableId: number;
+    platformId: number;
+    canonicalSeries?: string | null;
+    releases: Array<{ id: string; region: string | null }>;
+  }>,
+): Promise<number> {
+  if (!newGames || newGames.length === 0) return 0;
+  try {
+    const { results: ruleRows } = await env.DB.prepare(
+      `SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope,
+              COALESCE(u.home_region, 'USA') as home_region
+       FROM user_tracking_rules r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')`,
+    ).all<{
+      user_id: number;
+      rule_type: 'series' | 'platform';
+      match_value: string;
+      target_status: number;
+      region_scope: string;
+      home_region: string;
+    }>();
+
+    const rules = ruleRows || [];
+    if (rules.length === 0) return 0;
+
+    const statements: D1PreparedStatement[] = [];
+    for (const game of newGames) {
+      if (!game.releases || game.releases.length === 0) continue;
+      const seriesLower = (game.canonicalSeries || '').trim().toLowerCase();
+      const platStr = String(game.platformId);
+
+      // Group matching rules by user_id (taking highest target_status if both series & platform match)
+      const matchedByUser = new Map<
+        number,
+        { targetStatus: number; regionScope: string; homeRegion: string }
+      >();
+
+      for (const rule of rules) {
+        const valLower = rule.match_value.trim().toLowerCase();
+        const isMatch =
+          (rule.rule_type === 'series' &&
+            seriesLower &&
+            valLower === seriesLower) ||
+          (rule.rule_type === 'platform' && valLower === platStr);
+
+        if (isMatch) {
+          const prev = matchedByUser.get(rule.user_id);
+          if (!prev || rule.target_status > prev.targetStatus) {
+            matchedByUser.set(rule.user_id, {
+              targetStatus: rule.target_status || 2,
+              regionScope: rule.region_scope || 'home',
+              homeRegion: rule.home_region || 'USA',
+            });
+          }
+        }
+      }
+
+      for (const [userId, match] of matchedByUser.entries()) {
+        const candidateRels =
+          match.regionScope === 'any'
+            ? game.releases
+            : game.releases.filter((r) =>
+                isRegionMatchingHome(r.region, match.homeRegion),
+              );
+        if (candidateRels.length === 0) continue;
+
+        const targetRel = candidateRels[0];
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+             VALUES (?, ?, ?, 0)
+             ON CONFLICT(user_id, release_id) DO UPDATE SET
+               ownership_status = excluded.ownership_status
+             WHERE user_game_releases.ownership_status = 0`,
+          ).bind(userId, targetRel.id, match.targetStatus),
+        );
+      }
+    }
+
+    if (statements.length > 0) {
+      for (let i = 0; i < statements.length; i += 100) {
+        await env.DB.batch(statements.slice(i, i + 100));
+      }
+    }
+    return statements.length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Evaluates active `user_tracking_rules` (toy_line and toy_series rules) for newly added toys
+ * and automatically marks matching toys as Seeking (2) or PrioritySeeking (4).
+ */
+export async function evaluateTrackingRulesForNewToys(
+  env: Env,
+  newToys: Array<{
+    id: string;
+    line: string;
+    series: string;
+    region: string | null;
+  }>,
+): Promise<number> {
+  if (!newToys || newToys.length === 0) return 0;
+  try {
+    const { results: ruleRows } = await env.DB.prepare(
+      `SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope,
+              COALESCE(u.home_region, 'USA') as home_region
+       FROM user_tracking_rules r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.is_ignored = 0 AND r.rule_type IN ('toy_line', 'toy_series')`,
+    ).all<{
+      user_id: number;
+      rule_type: 'toy_line' | 'toy_series';
+      match_value: string;
+      target_status: number;
+      region_scope: string;
+      home_region: string;
+    }>();
+
+    const rules = ruleRows || [];
+    if (rules.length === 0) return 0;
+
+    const statements: D1PreparedStatement[] = [];
+    for (const toy of newToys) {
+      const lineLower = (toy.line || '').trim().toLowerCase();
+      const seriesLower = (toy.series || '').trim().toLowerCase();
+
+      const matchedByUser = new Map<
+        number,
+        { targetStatus: number; regionScope: string; homeRegion: string }
+      >();
+
+      for (const rule of rules) {
+        const valLower = rule.match_value.trim().toLowerCase();
+        const isMatch =
+          (rule.rule_type === 'toy_line' &&
+            lineLower &&
+            valLower === lineLower) ||
+          (rule.rule_type === 'toy_series' &&
+            seriesLower &&
+            valLower === seriesLower);
+
+        if (isMatch) {
+          const prev = matchedByUser.get(rule.user_id);
+          if (!prev || rule.target_status > prev.targetStatus) {
+            matchedByUser.set(rule.user_id, {
+              targetStatus: rule.target_status || 2,
+              regionScope: rule.region_scope || 'home',
+              homeRegion: rule.home_region || 'USA',
+            });
+          }
+        }
+      }
+
+      for (const [userId, match] of matchedByUser.entries()) {
+        if (
+          match.regionScope !== 'any' &&
+          !isRegionMatchingHome(toy.region, match.homeRegion)
+        ) {
+          continue;
+        }
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO user_toys (user_id, toy_id, ownership_status, updated_at)
+             VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(user_id, toy_id) DO UPDATE SET
+               ownership_status = excluded.ownership_status,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE user_toys.ownership_status = 0`,
+          ).bind(userId, toy.id, match.targetStatus),
+        );
+      }
+    }
+
+    if (statements.length > 0) {
+      for (let i = 0; i < statements.length; i += 100) {
+        await env.DB.batch(statements.slice(i, i + 100));
+      }
+    }
+    return statements.length;
+  } catch {
+    return 0;
+  }
 }
 
 async function resolveUniqueOidcUsername(
@@ -1257,11 +1700,20 @@ Disallow: /
       const accountHubUrl = getAccountHubUrl(env);
 
       if (sessionUser) {
-        const profile = (await env.DB.prepare(
-          'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
-        )
-          .bind(sessionUser.id)
-          .first()) as DbUserRow | null;
+        let profile: DbUserRow | null = null;
+        try {
+          profile = (await env.DB.prepare(
+            'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add FROM users WHERE id = ?',
+          )
+            .bind(sessionUser.id)
+            .first()) as DbUserRow | null;
+        } catch {
+          profile = (await env.DB.prepare(
+            'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
+          )
+            .bind(sessionUser.id)
+            .first()) as DbUserRow | null;
+        }
 
         if (profile) {
           return new Response(
@@ -1278,6 +1730,11 @@ Disallow: /
                 homeRegion: profile.home_region || 'USA',
                 displayName: profile.display_name,
                 bio: profile.bio,
+                autoTrackSeriesOnAdd:
+                  profile.auto_track_series_on_add !== undefined &&
+                  profile.auto_track_series_on_add !== null
+                    ? Boolean(profile.auto_track_series_on_add)
+                    : true,
               },
             }),
             { headers: privateHeaders },
@@ -1311,11 +1768,20 @@ Disallow: /
       }
 
       if (request.method === 'GET') {
-        const profile = (await env.DB.prepare(
-          'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
-        )
-          .bind(sessionUser.id)
-          .first()) as DbUserRow | null;
+        let profile: DbUserRow | null = null;
+        try {
+          profile = (await env.DB.prepare(
+            'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add FROM users WHERE id = ?',
+          )
+            .bind(sessionUser.id)
+            .first()) as DbUserRow | null;
+        } catch {
+          profile = (await env.DB.prepare(
+            'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
+          )
+            .bind(sessionUser.id)
+            .first()) as DbUserRow | null;
+        }
 
         if (!profile) {
           return Response.json({ error: 'User not found' }, { status: 404 });
@@ -1330,6 +1796,11 @@ Disallow: /
             homeRegion: profile.home_region || 'USA',
             displayName: profile.display_name,
             bio: profile.bio,
+            autoTrackSeriesOnAdd:
+              profile.auto_track_series_on_add !== undefined &&
+              profile.auto_track_series_on_add !== null
+                ? Boolean(profile.auto_track_series_on_add)
+                : true,
           },
           {
             headers: { 'Cache-Control': 'private, no-cache, no-store' },
@@ -1343,6 +1814,7 @@ Disallow: /
           homeRegion?: string;
           displayName?: unknown;
           bio?: unknown;
+          autoTrackSeriesOnAdd?: boolean;
         } | null;
 
         if (!body || typeof body !== 'object') {
@@ -1407,6 +1879,10 @@ Disallow: /
           updates.push('bio = ?');
           updateParams.push(body.bio ? body.bio.trim().slice(0, 500) : null);
         }
+        if (body.autoTrackSeriesOnAdd !== undefined) {
+          updates.push('auto_track_series_on_add = ?');
+          updateParams.push(body.autoTrackSeriesOnAdd ? 1 : 0);
+        }
 
         updateParams.push(sessionUser.id);
         await env.DB.prepare(
@@ -1415,11 +1891,20 @@ Disallow: /
           .bind(...updateParams)
           .run();
 
-        const profile = (await env.DB.prepare(
-          'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
-        )
-          .bind(sessionUser.id)
-          .first()) as DbUserRow | null;
+        let profile: DbUserRow | null = null;
+        try {
+          profile = (await env.DB.prepare(
+            'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add FROM users WHERE id = ?',
+          )
+            .bind(sessionUser.id)
+            .first()) as DbUserRow | null;
+        } catch {
+          profile = (await env.DB.prepare(
+            'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
+          )
+            .bind(sessionUser.id)
+            .first()) as DbUserRow | null;
+        }
 
         if (!profile) {
           return Response.json({ error: 'User not found' }, { status: 404 });
@@ -1440,6 +1925,11 @@ Disallow: /
           homeRegion: profile.home_region || 'USA',
           displayName: profile.display_name,
           bio: profile.bio,
+          autoTrackSeriesOnAdd:
+            profile.auto_track_series_on_add !== undefined &&
+            profile.auto_track_series_on_add !== null
+              ? Boolean(profile.auto_track_series_on_add)
+              : true,
         });
 
         // If homeRegion changed, re-mint session cookie
@@ -1462,6 +1952,223 @@ Disallow: /
         }
 
         return res;
+      }
+
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    // Endpoint: GET/POST/DELETE /api/user/tracking-rules
+    else if (path === '/api/user/tracking-rules') {
+      if (!sessionUser) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      if (request.method === 'GET') {
+        let rules: unknown[] = [];
+        try {
+          const res = await env.DB.prepare(
+            `SELECT rule_type, match_value, match_value as target_value, target_status, region_scope, is_ignored, created_at
+             FROM user_tracking_rules
+             WHERE user_id = ?
+             ORDER BY is_ignored ASC, rule_type ASC, match_value COLLATE NOCASE ASC`,
+          )
+            .bind(sessionUser.id)
+            .all();
+          rules = res.results || [];
+        } catch {
+          rules = [];
+        }
+        return Response.json(rules, {
+          headers: { 'Cache-Control': 'private, no-cache, no-store' },
+        });
+      }
+
+      if (request.method === 'POST') {
+        const body = (await request.json().catch(() => null)) as {
+          rule_type?: string;
+          match_value?: string;
+          target_value?: string;
+          target_status?: number;
+          region_scope?: string;
+          is_ignored?: number | boolean;
+          applyToExisting?: boolean;
+          clearExistingSeeking?: boolean;
+          clear_existing_seeking?: boolean;
+        } | null;
+
+        const validRuleTypes = ['series', 'platform', 'toy_line', 'toy_series'];
+        const rawMatchVal = body?.match_value ?? body?.target_value;
+        if (
+          !body ||
+          !body.rule_type ||
+          !validRuleTypes.includes(body.rule_type) ||
+          !rawMatchVal ||
+          !String(rawMatchVal).trim()
+        ) {
+          return Response.json(
+            {
+              error: 'Valid rule_type and non-empty match_value are required.',
+            },
+            { status: 400 },
+          );
+        }
+
+        const ruleType = body.rule_type;
+        const matchValue = String(rawMatchVal).trim();
+        const targetStatus = body.target_status === 4 ? 4 : 2;
+        const regionScope = body.region_scope === 'any' ? 'any' : 'home';
+        const isIgnored = body.is_ignored ? 1 : 0;
+
+        await env.DB.prepare(
+          `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id, rule_type, match_value) DO UPDATE SET
+             target_status = excluded.target_status,
+             region_scope = excluded.region_scope,
+             is_ignored = excluded.is_ignored`,
+        )
+          .bind(
+            sessionUser.id,
+            ruleType,
+            matchValue,
+            targetStatus,
+            regionScope,
+            isIgnored,
+          )
+          .run();
+
+        let autoAddedCount = 0;
+        let clearedCount = 0;
+        const shouldClearSeeking =
+          body.clearExistingSeeking === true ||
+          body.clear_existing_seeking === true;
+
+        if (
+          isIgnored === 0 &&
+          body.applyToExisting !== false &&
+          ruleType === 'series'
+        ) {
+          const res = await applyReactiveSeriesAutoTracking(
+            env,
+            sessionUser.id,
+            0,
+            matchValue,
+          );
+          autoAddedCount = res.autoAddedCount;
+        } else if (
+          isIgnored === 1 &&
+          shouldClearSeeking &&
+          ruleType === 'series'
+        ) {
+          const clearRes = await env.DB.prepare(
+            `UPDATE user_game_releases
+             SET ownership_status = 0
+             WHERE user_id = ?
+               AND ownership_status = 2
+               AND release_id IN (
+                 SELECT r.id FROM game_releases r
+                 JOIN games g ON g.stable_id = r.game_id
+                 WHERE g.canonical_series = ?
+               )`,
+          )
+            .bind(sessionUser.id, matchValue)
+            .run();
+          clearedCount = Number(clearRes.meta?.changes || 0);
+        }
+
+        await invalidateEdgeApiCache(request.url, {
+          userId: sessionUser.id,
+          username: sessionUser.username,
+        });
+        await markDbDirty(env);
+
+        return Response.json({
+          success: true,
+          rule: {
+            rule_type: ruleType,
+            match_value: matchValue,
+            target_value: matchValue,
+            target_status: targetStatus,
+            region_scope: regionScope,
+            is_ignored: isIgnored,
+          },
+          autoAddedCount,
+          clearedCount,
+        });
+      }
+
+      if (request.method === 'DELETE') {
+        const ruleType = (url.searchParams.get('rule_type') || '').trim();
+        const matchValue = (
+          url.searchParams.get('match_value') ||
+          url.searchParams.get('target_value') ||
+          ''
+        ).trim();
+        if (!ruleType || !matchValue) {
+          return Response.json(
+            { error: 'rule_type and match_value query params are required.' },
+            { status: 400 },
+          );
+        }
+
+        await env.DB.prepare(
+          `DELETE FROM user_tracking_rules
+           WHERE user_id = ? AND rule_type = ? AND match_value = ?`,
+        )
+          .bind(sessionUser.id, ruleType, matchValue)
+          .run();
+
+        await markDbDirty(env);
+        return Response.json({ success: true });
+      }
+
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    // Endpoint: GET/POST /api/admin/catalog-seed
+    else if (path === '/api/admin/catalog-seed') {
+      if (!isAuthorizedAdmin(request, env, sessionUser)) {
+        return Response.json(
+          { error: 'Unauthorized: Admin authentication required.' },
+          { status: 403 },
+        );
+      }
+
+      if (request.method === 'GET') {
+        const status = await getBroadCatalogSeedStatus(env);
+        return Response.json(status, {
+          headers: { 'Cache-Control': 'private, no-cache, no-store' },
+        });
+      }
+
+      if (request.method === 'POST') {
+        const body = (await request.json().catch(() => null)) as {
+          paused?: boolean;
+          runBatchNow?: boolean;
+        } | null;
+
+        if (body && typeof body.paused === 'boolean') {
+          await env.DB.prepare(
+            `INSERT INTO sync_state (key, value, updated_at)
+             VALUES ('broad_catalog_seed_paused', ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+          )
+            .bind(body.paused ? '1' : '0')
+            .run();
+        }
+
+        let batchResult: unknown = undefined;
+        if (body?.runBatchNow) {
+          batchResult = await syncWorkerBroadCatalogPopulation(env);
+          await invalidateEdgeApiCache(request.url);
+        }
+
+        const status = await getBroadCatalogSeedStatus(env);
+        return Response.json({
+          success: true,
+          status,
+          batchResult,
+        });
       }
 
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
@@ -1530,12 +2237,13 @@ Disallow: /
       const parts = path.split('/');
       const username = decodeURIComponent(parts[3] || '').trim();
       const user = (await env.DB.prepare(
-        'SELECT id, username, is_public FROM users WHERE username = ? COLLATE NOCASE',
+        'SELECT id, username, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
       )
         .bind(username)
         .first()) as {
         id: number;
         username: string;
+        home_region?: string | null;
         is_public: number;
       } | null;
 
@@ -1548,8 +2256,12 @@ Disallow: /
 
       const query = buildToysListQuery(user.id);
       const { results } = await env.DB.prepare(query).bind(user.id).all();
+      const homeRegion = user.home_region || 'USA';
       if (results && results.length > 0) {
-        postProcessToyListRows(results as Record<string, unknown>[]);
+        postProcessToyListRows(
+          results as Record<string, unknown>[],
+          homeRegion,
+        );
       }
 
       const res = Response.json(results || [], {
@@ -1927,8 +2639,14 @@ Disallow: /
       const { results } = userId
         ? await env.DB.prepare(query).bind(userId).all()
         : await env.DB.prepare(query).all();
+      const effectiveHomeRegion = sessionUser
+        ? sessionUser.homeRegion
+        : DEFAULT_USER_HOME_REGION;
       if (results && results.length > 0) {
-        postProcessToyListRows(results as Record<string, unknown>[]);
+        postProcessToyListRows(
+          results as Record<string, unknown>[],
+          effectiveHomeRegion,
+        );
       }
       const bodyJson = JSON.stringify(results || []);
       const cacheableRes = new Response(bodyJson, {
@@ -3179,15 +3897,18 @@ Disallow: /
               ? a.gameSeries
               : a.amiiboSeries || 'Other';
 
-          const defaultRegion = a.release?.na
-            ? 'USA'
-            : a.release?.jp
-              ? 'Japan'
-              : a.release?.eu
-                ? 'Europe'
-                : 'USA';
-          const defaultDate =
-            a.release?.na || a.release?.jp || a.release?.eu || null;
+          const {
+            region: defaultRegion,
+            defaultDate,
+            metadataJson,
+          } = resolveAmiiboRegionsAndMetadata(
+            a.release as {
+              na?: string | null;
+              eu?: string | null;
+              jp?: string | null;
+              au?: string | null;
+            },
+          );
 
           const poseExpansions = MULTI_POSE_AMIIBO_EXPANSIONS[amiiboId];
           if (poseExpansions && poseExpansions.length > 0) {
@@ -3211,6 +3932,7 @@ Disallow: /
                 image_url: a.image,
                 release_date: defaultDate,
                 region: defaultRegion,
+                metadata_json: metadataJson,
               });
             }
             continue;
@@ -3231,6 +3953,7 @@ Disallow: /
             image_url: a.image,
             release_date: defaultDate,
             region: defaultRegion,
+            metadata_json: metadataJson,
           });
         }
 
@@ -3905,6 +4628,7 @@ Disallow: /
             .run();
         } else {
           // ownership_status, has_case, has_manual, or backup_status on user_game_releases
+          let toggledGameStableId: number | null = null;
           const release = (await env.DB.prepare(
             'SELECT id, game_id, region, variants, rom_name FROM game_releases WHERE id = ?',
           )
@@ -3918,6 +4642,7 @@ Disallow: /
           } | null;
 
           if (release) {
+            toggledGameStableId = release.game_id;
             if (
               field === 'ownership_status' ||
               field === 'has_case' ||
@@ -3983,6 +4708,7 @@ Disallow: /
                 { status: 404 },
               );
             }
+            toggledGameStableId = game.stable_id;
 
             const { results: releases } = await env.DB.prepare(
               'SELECT id FROM game_releases WHERE game_id = ? ORDER BY id ASC',
@@ -4043,6 +4769,18 @@ Disallow: /
                 .bind(currentUserId, releaseId, normalizedStatus)
                 .run();
             }
+          }
+
+          if (
+            field === 'ownership_status' &&
+            Number(normalizedStatus) > 0 &&
+            toggledGameStableId !== null
+          ) {
+            await applyReactiveSeriesAutoTracking(
+              env,
+              currentUserId,
+              toggledGameStableId,
+            );
           }
         }
       } else {
@@ -4994,6 +5732,12 @@ Disallow: /
           .run();
       }
 
+      const addedReleasesForTracking: Array<{
+        id: string;
+        region: string | null;
+      }> = [];
+      let anyPositiveOwnership = (game.ownership_status || 0) > 0;
+
       if (game.platform_id === 0) {
         // Virtual Platform 0 represents untracked / wishlist games with 0 releases.
         // Do not create default releases.
@@ -5010,6 +5754,8 @@ Disallow: /
             baseRelSlug = `${rawSlug}-${relSuffix++}`;
           }
           usedRelSlugs.add(baseRelSlug);
+          const relRegion = rel.region ? normalizeRegionStr(rel.region) : null;
+          addedReleasesForTracking.push({ id: baseRelSlug, region: relRegion });
 
           statements.push(
             env.DB.prepare(
@@ -5043,7 +5789,7 @@ Disallow: /
             ).bind(
               baseRelSlug,
               finalStableId,
-              rel.region ? normalizeRegionStr(rel.region) : null,
+              relRegion,
               rel.variants || null,
               rel.also_released_as || null,
               rel.rom_name || null,
@@ -5057,6 +5803,9 @@ Disallow: /
 
           const ownStatus =
             rel.ownership_status ?? (game.ownership_status || 0);
+          if (ownStatus > 0) {
+            anyPositiveOwnership = true;
+          }
           const bkpStatus = rel.backup_status ?? 0;
           if (ownStatus > 0 || bkpStatus > 0) {
             userStatements.push(
@@ -5080,6 +5829,7 @@ Disallow: /
         }
       } else {
         const defaultRelId = `${candidateGameId}-default`;
+        addedReleasesForTracking.push({ id: defaultRelId, region: gameRegion });
         await env.DB.prepare(
           `
             INSERT INTO game_releases (
@@ -5120,6 +5870,26 @@ Disallow: /
             .bind(currentUserId, defaultRelId, ownStatus)
             .run();
         }
+      }
+
+      if (finalStableId > 0 && addedReleasesForTracking.length > 0) {
+        await evaluateTrackingRulesForNewGames(env, [
+          {
+            stableId: finalStableId,
+            platformId: game.platform_id,
+            canonicalSeries: canonicalSeries,
+            releases: addedReleasesForTracking,
+          },
+        ]);
+      }
+
+      if (finalStableId > 0 && anyPositiveOwnership) {
+        await applyReactiveSeriesAutoTracking(
+          env,
+          currentUserId,
+          finalStableId,
+          canonicalSeries,
+        );
       }
 
       invalidateSeriesScanCache();
@@ -5187,10 +5957,16 @@ Disallow: /
         `amiibo-${slugify(toy.name)}-${slugify(toy.series_name || 'amiibo')}`;
 
       const existingToy = (await env.DB.prepare(
-        `SELECT id, stable_id FROM toys WHERE (amiibo_id IS NOT NULL AND amiibo_id = ?) OR id = ? OR name = ? COLLATE NOCASE`,
+        `SELECT id, stable_id, line, series, region FROM toys WHERE (amiibo_id IS NOT NULL AND amiibo_id = ?) OR id = ? OR name = ? COLLATE NOCASE`,
       )
         .bind(toy.amiibo_id || candidateId, candidateId, toy.name)
-        .first()) as { id: string; stable_id: number } | null;
+        .first()) as {
+        id: string;
+        stable_id: number;
+        line: string | null;
+        series: string | null;
+        region: string | null;
+      } | null;
 
       const currentUserId = sessionUser ? sessionUser.id : 1;
 
@@ -5201,7 +5977,8 @@ Disallow: /
                  image_url = COALESCE(?, image_url),
                  scl_url = COALESCE(?, scl_url),
                  metadata_json = COALESCE(?, metadata_json),
-                 amiibo_id = COALESCE(?, amiibo_id)
+                 amiibo_id = COALESCE(?, amiibo_id),
+                 region = COALESCE(?, region)
              WHERE stable_id = ?`,
         )
           .bind(
@@ -5209,6 +5986,7 @@ Disallow: /
             toy.scl_url || null,
             toy.metadata_json || null,
             toy.amiibo_id || null,
+            toy.region || null,
             existingToy.stable_id,
           )
           .run();
@@ -5224,6 +6002,16 @@ Disallow: /
         )
           .bind(currentUserId, existingToy.id, ownStatus)
           .run();
+
+        await evaluateTrackingRulesForNewToys(env, [
+          {
+            id: existingToy.id,
+            line: toy.line || existingToy.line || 'amiibo',
+            series:
+              toy.series || toy.series_name || existingToy.series || 'Other',
+            region: toy.region || existingToy.region || 'USA',
+          },
+        ]);
 
         await invalidateEdgeApiCache(request.url, {
           userId: currentUserId,
@@ -5269,6 +6057,7 @@ Disallow: /
         }
       }
 
+      const toyRegion = toy.region || 'USA';
       await env.DB.prepare(
         `
           INSERT INTO toys (
@@ -5293,7 +6082,7 @@ Disallow: /
           toy.amiibo_id || null,
           toy.metadata_json || null,
           sortIndex,
-          toy.region || 'USA',
+          toyRegion,
         )
         .run();
 
@@ -5308,6 +6097,15 @@ Disallow: /
       )
         .bind(currentUserId, candidateId, ownStatus)
         .run();
+
+      await evaluateTrackingRulesForNewToys(env, [
+        {
+          id: candidateId,
+          line: toyLine,
+          series: seriesLabel,
+          region: toyRegion,
+        },
+      ]);
 
       await invalidateEdgeApiCache(request.url, {
         userId: currentUserId,
@@ -5996,6 +6794,33 @@ export default {
       );
     }
 
+    // 2. Broad physical catalog population (budgeted at 60,000 billable writes/day across 48 ticks)
+    const seedStart = Date.now();
+    try {
+      const seedRes = await syncWorkerBroadCatalogPopulation(env);
+      if (!seedRes.skipped || seedRes.ingestedGames > 0) {
+        await logCronExecution(
+          env,
+          'broad_catalog_seed',
+          'SUCCESS',
+          Date.now() - seedStart,
+          `Stage ${seedRes.stage}: ingested ${seedRes.ingestedGames} games / ${seedRes.ingestedReleases} releases (${seedRes.writesUsed} writes, cursor ${seedRes.cursor})`,
+          seedRes,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[WorkerCron] Broad catalog population failed:', err);
+      await logCronExecution(
+        env,
+        'broad_catalog_seed',
+        'ERROR',
+        Date.now() - seedStart,
+        `Failed: ${msg}`,
+        { error: msg },
+      );
+    }
+
     // 3. Check 1-hour interval tasks (Boutique Pre-Orders)
     const nowMs = Date.now();
     let lastBoutiqueRun = 0;
@@ -6445,7 +7270,12 @@ export async function dispatchDealPushNotifications(
       const subUserId = sub.user_id || 1;
       let prefs: {
         enabled?: boolean;
-        scope?: 'seeking_only' | 'seeking_and_unowned' | 'all';
+        scope?:
+          | 'priority_seeking_only'
+          | 'all_seeking'
+          | 'seeking_only'
+          | 'seeking_and_unowned'
+          | 'all';
         minDiscountPct?: number;
         maxPriceCents?: number | null;
         platformIds?: number[];
@@ -6488,11 +7318,18 @@ export async function dispatchDealPushNotifications(
         const userKey = `${subUserId}:${stableId}`;
         const effectiveOwnership = userOwnershipMap.get(userKey) ?? 0;
 
-        if (scope === 'seeking_only' && effectiveOwnership !== 2) {
+        if (scope === 'priority_seeking_only' && effectiveOwnership !== 4) {
+          continue;
+        } else if (
+          (scope === 'all_seeking' || scope === 'seeking_only') &&
+          effectiveOwnership !== 2 &&
+          effectiveOwnership !== 4
+        ) {
           continue;
         } else if (
           scope === 'seeking_and_unowned' &&
           effectiveOwnership !== 2 &&
+          effectiveOwnership !== 4 &&
           effectiveOwnership !== 0
         ) {
           continue;
@@ -7289,7 +8126,7 @@ async function dispatchPhysicalAnnouncementNotifications(
           if (isSpecialEdition) {
             return scopeSpecialEditions;
           }
-          if (subOwnershipStatus === 2) {
+          if (subOwnershipStatus === 2 || subOwnershipStatus === 4) {
             return scopeSeeking;
           }
           if (
@@ -7750,5 +8587,552 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     refreshedIgdbCount: igdbFreshMap.size,
     updatedGamesCount: statements.length,
     cursorOffset: nextOffset,
+  };
+}
+
+export const DAILY_CATALOG_WRITE_BUDGET = 60000;
+
+export function cleanCanonicalDisplayTitle(rawTitle: string): string {
+  if (!rawTitle) return '';
+  // Strip DAT/Nintendo Revised parenthetical metadata tags like (USA), (Europe), (En,Fr,De), (Rev 1)
+  const cleaned = rawTitle
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || rawTitle.trim();
+}
+
+export async function getBroadCatalogSeedStatus(env: Env): Promise<{
+  stage: '2A' | '2B' | 'done';
+  paused: boolean;
+  cursor: number;
+  dailyWriteBudget: number;
+  writesUsedToday: number;
+  gamesIngestedToday: number;
+  releasesIngestedToday: number;
+  lastUpdatedAt: string | null;
+}> {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let stage: '2A' | '2B' | 'done' = '2A';
+  let paused = false;
+  let cursor = 0;
+  let writesUsedToday = 0;
+  let gamesIngestedToday = 0;
+  let releasesIngestedToday = 0;
+  let lastUpdatedAt: string | null = null;
+
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT key, value, updated_at FROM sync_state
+       WHERE key IN ('catalog_seed_stage', 'catalog_seed_paused', 'catalog_seed_cursor', 'catalog_seed_daily_writes')`,
+    ).all<{ key: string; value: string; updated_at: string }>();
+
+    for (const row of results || []) {
+      if (row.key === 'catalog_seed_stage') {
+        if (row.value === '2A' || row.value === '2B' || row.value === 'done') {
+          stage = row.value;
+        }
+      } else if (row.key === 'catalog_seed_paused') {
+        paused = row.value === '1';
+      } else if (row.key === 'catalog_seed_cursor') {
+        const parsed = parseInt(row.value, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          cursor = parsed;
+        }
+        lastUpdatedAt = row.updated_at || lastUpdatedAt;
+      } else if (row.key === 'catalog_seed_daily_writes') {
+        try {
+          const parsed = JSON.parse(row.value) as {
+            date?: string;
+            writes?: number;
+            games?: number;
+            releases?: number;
+          };
+          if (parsed && parsed.date === todayStr) {
+            writesUsedToday = Number(parsed.writes) || 0;
+            gamesIngestedToday = Number(parsed.games) || 0;
+            releasesIngestedToday = Number(parsed.releases) || 0;
+          }
+        } catch {
+          // ignore malformed JSON
+        }
+        lastUpdatedAt = row.updated_at || lastUpdatedAt;
+      }
+    }
+  } catch {
+    // Fallback if sync_state table is unmigrated
+  }
+
+  return {
+    stage,
+    paused,
+    cursor,
+    dailyWriteBudget: DAILY_CATALOG_WRITE_BUDGET,
+    writesUsedToday,
+    gamesIngestedToday,
+    releasesIngestedToday,
+    lastUpdatedAt,
+  };
+}
+
+/**
+ * Autonomous Broad Physical Release Ingestion (`DAILY_CATALOG_WRITE_BUDGET = 60,000` writes/day).
+ * Stage 2A ingests all verified USA/World physical releases first (`canonical_releases`),
+ * followed by Stage 2B for international exclusives, and evaluates `user_tracking_rules`
+ * so matching games enter users' libraries as `Seeking (2)` while everything else enters as `Unowned (0)`.
+ */
+export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
+  skipped: boolean;
+  reason?: string;
+  stage: '2A' | '2B' | 'done';
+  cursor: number;
+  ingestedGames: number;
+  ingestedReleases: number;
+  writesUsed: number;
+}> {
+  const status = await getBroadCatalogSeedStatus(env);
+  if (status.paused) {
+    return {
+      skipped: true,
+      reason: 'paused',
+      stage: status.stage,
+      cursor: status.cursor,
+      ingestedGames: 0,
+      ingestedReleases: 0,
+      writesUsed: 0,
+    };
+  }
+
+  if (status.writesUsedToday >= DAILY_CATALOG_WRITE_BUDGET) {
+    return {
+      skipped: true,
+      reason: 'daily_budget_reached',
+      stage: status.stage,
+      cursor: status.cursor,
+      ingestedGames: 0,
+      ingestedReleases: 0,
+      writesUsed: 0,
+    };
+  }
+
+  // 48 ticks per 24h -> ~1,250 billable writes per 30-min tick (~60-65 games/tick)
+  const tickWriteBudget = Math.min(
+    1250,
+    DAILY_CATALOG_WRITE_BUDGET - status.writesUsedToday,
+  );
+
+  let currentStage = status.stage;
+  let currentCursor = status.cursor;
+
+  const fetchStageSlice = async (
+    stageToQuery: '2A' | '2B' | 'done',
+    afterId: number,
+  ) => {
+    if (stageToQuery === '2A') {
+      const res = await env.DB.prepare(
+        `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code
+         FROM canonical_releases
+         WHERE id > ?
+           AND is_verified_physical = 1
+           AND region IN ('USA', 'World', 'USA, Europe', 'Japan, USA', 'USA, Australia', 'USA, Korea')
+         ORDER BY id ASC
+         LIMIT 200`,
+      )
+        .bind(afterId)
+        .all<{
+          id: number;
+          platform_id: number;
+          raw_title: string;
+          normalized_title: string;
+          region: string | null;
+          variants: string | null;
+          rom_name: string | null;
+          rom_crc: string | null;
+          serial_code: string | null;
+        }>();
+      return res.results || [];
+    } else if (stageToQuery === '2B') {
+      const res = await env.DB.prepare(
+        `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code
+         FROM canonical_releases
+         WHERE id > ?
+           AND is_verified_physical = 1
+           AND (region IS NULL OR region NOT IN ('USA', 'World', 'USA, Europe', 'Japan, USA', 'USA, Australia', 'USA, Korea'))
+         ORDER BY id ASC
+         LIMIT 200`,
+      )
+        .bind(afterId)
+        .all<{
+          id: number;
+          platform_id: number;
+          raw_title: string;
+          normalized_title: string;
+          region: string | null;
+          variants: string | null;
+          rom_name: string | null;
+          rom_crc: string | null;
+          serial_code: string | null;
+        }>();
+      return res.results || [];
+    } else {
+      const res = await env.DB.prepare(
+        `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code
+         FROM canonical_releases
+         WHERE id > ?
+           AND is_verified_physical = 1
+         ORDER BY id ASC
+         LIMIT 100`,
+      )
+        .bind(afterId)
+        .all<{
+          id: number;
+          platform_id: number;
+          raw_title: string;
+          normalized_title: string;
+          region: string | null;
+          variants: string | null;
+          rom_name: string | null;
+          rom_crc: string | null;
+          serial_code: string | null;
+        }>();
+      return res.results || [];
+    }
+  };
+
+  let slice = await fetchStageSlice(currentStage, currentCursor);
+  if (slice.length === 0) {
+    if (currentStage === '2A') {
+      currentStage = '2B';
+      currentCursor = 0;
+      slice = await fetchStageSlice('2B', 0);
+    }
+    if (slice.length === 0 && currentStage === '2B') {
+      const maxIdRow = await env.DB.prepare(
+        'SELECT COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
+      ).first<{ max_id: number }>();
+      currentCursor = maxIdRow?.max_id ?? 0;
+      if (status.stage !== 'done') {
+        await env.DB.batch([
+          env.DB.prepare(
+            `INSERT INTO sync_state (key, value, updated_at)
+             VALUES ('catalog_seed_stage', 'done', CURRENT_TIMESTAMP)
+             ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = CURRENT_TIMESTAMP`,
+          ),
+          env.DB.prepare(
+            `INSERT INTO sync_state (key, value, updated_at)
+             VALUES ('catalog_seed_cursor', ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+          ).bind(String(currentCursor)),
+        ]);
+      }
+      return {
+        skipped: true,
+        reason: 'completed',
+        stage: 'done',
+        cursor: currentCursor,
+        ingestedGames: 0,
+        ingestedReleases: 0,
+        writesUsed: 0,
+      };
+    }
+    if (slice.length === 0) {
+      return {
+        skipped: true,
+        reason: 'no_new_canonical_releases',
+        stage: currentStage,
+        cursor: currentCursor,
+        ingestedGames: 0,
+        ingestedReleases: 0,
+        writesUsed: 0,
+      };
+    }
+  }
+
+  // Group slice rows by (platform_id, normalized_title) while preserving highest canonical ID seen per group
+  const groupsMap = new Map<
+    string,
+    {
+      platform_id: number;
+      normalized_title: string;
+      raw_title: string;
+      maxSliceId: number;
+    }
+  >();
+  for (const row of slice) {
+    const key = `${row.platform_id}::${row.normalized_title}`;
+    const existing = groupsMap.get(key);
+    if (!existing) {
+      groupsMap.set(key, {
+        platform_id: row.platform_id,
+        normalized_title: row.normalized_title,
+        raw_title: row.raw_title,
+        maxSliceId: row.id,
+      });
+    } else if (row.id > existing.maxSliceId) {
+      existing.maxSliceId = row.id;
+    }
+  }
+
+  const distinctPlatforms = Array.from(
+    new Set(Array.from(groupsMap.values()).map((g) => g.platform_id)),
+  );
+  const platformPlaceholders = distinctPlatforms.map(() => '?').join(',');
+  const [platformsRes, existingGamesRes] = await Promise.all([
+    env.DB.prepare(
+      `SELECT id, display_name FROM platforms WHERE id IN (${platformPlaceholders})`,
+    )
+      .bind(...distinctPlatforms)
+      .all<{ id: number; display_name: string }>(),
+    env.DB.prepare(
+      `SELECT stable_id, id, title, platform_id FROM games WHERE platform_id IN (${platformPlaceholders})`,
+    )
+      .bind(...distinctPlatforms)
+      .all<{
+        stable_id: number;
+        id: string;
+        title: string;
+        platform_id: number;
+      }>(),
+  ]);
+
+  const platformNameById = new Map<number, string>();
+  for (const p of platformsRes.results || []) {
+    platformNameById.set(p.id, p.display_name);
+  }
+
+  const existingGameByPlatformNorm = new Map<
+    string,
+    { stable_id: number; id: string }
+  >();
+  const usedGameSlugs = new Set<string>();
+  const maxSortByPlatform = new Map<number, number>();
+  for (const g of existingGamesRes.results || []) {
+    usedGameSlugs.add(g.id);
+    const norm = normalizeTitleForMatching(g.title);
+    if (norm) {
+      existingGameByPlatformNorm.set(`${g.platform_id}::${norm}`, {
+        stable_id: g.stable_id,
+        id: g.id,
+      });
+    }
+  }
+
+  const slugify = (s: string) =>
+    (s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+  let tickWritesUsed = 0;
+  let ingestedGamesCount = 0;
+  let ingestedReleasesCount = 0;
+  let nextCursor = currentCursor;
+  const newlyIngestedForTracking: Array<{
+    stableId: number;
+    platformId: number;
+    canonicalSeries: string;
+    releases: Array<{ id: string; region: string | null }>;
+  }> = [];
+
+  for (const group of groupsMap.values()) {
+    // Fetch all verified canonical releases for this (platform_id, normalized_title) via idx_canonical_platform_norm
+    const allRelRes = await env.DB.prepare(
+      `SELECT id, raw_title, region, variants, rom_name, rom_crc, serial_code
+       FROM canonical_releases
+       WHERE platform_id = ? AND normalized_title = ? AND is_verified_physical = 1
+       ORDER BY id ASC`,
+    )
+      .bind(group.platform_id, group.normalized_title)
+      .all<{
+        id: number;
+        raw_title: string;
+        region: string | null;
+        variants: string | null;
+        rom_name: string | null;
+        rom_crc: string | null;
+        serial_code: string | null;
+      }>();
+
+    const canonicalRels = allRelRes.results || [];
+    if (canonicalRels.length === 0) {
+      nextCursor = Math.max(nextCursor, group.maxSliceId);
+      continue;
+    }
+
+    const existingGame = existingGameByPlatformNorm.get(
+      `${group.platform_id}::${group.normalized_title}`,
+    );
+    if (existingGame) {
+      // Game already exists in catalog; advance cursor with 0 writes
+      nextCursor = Math.max(nextCursor, group.maxSliceId);
+      continue;
+    }
+
+    // Estimate billable writes: 1 game row (1 + 7 = 8 writes) + M release rows (M * (1 + 6) = 7M writes)
+    const estimatedWrites = 8 + canonicalRels.length * 7;
+    if (
+      tickWritesUsed > 0 &&
+      tickWritesUsed + estimatedWrites > tickWriteBudget
+    ) {
+      break;
+    }
+
+    const preferredRel =
+      canonicalRels.find(
+        (r) =>
+          r.region === 'USA' ||
+          r.region === 'World' ||
+          (r.region && r.region.includes('USA')),
+      ) || canonicalRels[0];
+    const displayTitle = cleanCanonicalDisplayTitle(
+      preferredRel.raw_title || group.raw_title,
+    );
+    const platformName =
+      platformNameById.get(group.platform_id) ||
+      `platform-${group.platform_id}`;
+    const baseSlug = `${slugify(displayTitle)}-${slugify(platformName)}`;
+    let candidateGameId = baseSlug;
+    let suffix = 1;
+    while (usedGameSlugs.has(candidateGameId)) {
+      candidateGameId = `${baseSlug}-${suffix++}`;
+    }
+    usedGameSlugs.add(candidateGameId);
+
+    const canonicalSeries = computeGameCanonicalSeries({
+      title: displayTitle,
+    });
+    const gameRegion = preferredRel.region || 'USA';
+    const nextSort = (maxSortByPlatform.get(group.platform_id) ?? 1000) + 1;
+    maxSortByPlatform.set(group.platform_id, nextSort);
+
+    await env.DB.prepare(
+      `INSERT INTO games (
+         id, title, platform_id, sort_index, region,
+         manually_verified, physical_status, verification_tier, canonical_series
+       ) VALUES (?, ?, ?, ?, ?, 0, 'verified_physical', 1, ?)`,
+    )
+      .bind(
+        candidateGameId,
+        displayTitle,
+        group.platform_id,
+        nextSort,
+        gameRegion,
+        canonicalSeries,
+      )
+      .run();
+
+    const insertedGame = await env.DB.prepare(
+      'SELECT stable_id FROM games WHERE id = ?',
+    )
+      .bind(candidateGameId)
+      .first<{ stable_id: number }>();
+
+    const stableId = insertedGame?.stable_id ?? 0;
+    if (!stableId) {
+      nextCursor = Math.max(nextCursor, group.maxSliceId);
+      continue;
+    }
+
+    existingGameByPlatformNorm.set(
+      `${group.platform_id}::${group.normalized_title}`,
+      { stable_id: stableId, id: candidateGameId },
+    );
+
+    const relStatements: D1PreparedStatement[] = [];
+    const addedReleases: Array<{ id: string; region: string | null }> = [];
+    const usedRelSlugs = new Set<string>();
+
+    for (let i = 0; i < canonicalRels.length; i++) {
+      const cr = canonicalRels[i];
+      const rawRelSlug = `${candidateGameId}-${cr.rom_crc || slugify(cr.serial_code || cr.rom_name || cr.region || `rel-${i + 1}`)}`;
+      let relSlug = rawRelSlug;
+      let relCounter = 1;
+      while (usedRelSlugs.has(relSlug)) {
+        relSlug = `${rawRelSlug}-${relCounter++}`;
+      }
+      usedRelSlugs.add(relSlug);
+      addedReleases.push({ id: relSlug, region: cr.region || gameRegion });
+
+      relStatements.push(
+        env.DB.prepare(
+          `INSERT INTO game_releases (
+             id, game_id, region, variants, rom_name, rom_crc, canonical_release_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`,
+        ).bind(
+          relSlug,
+          stableId,
+          cr.region || gameRegion,
+          cr.variants || null,
+          cr.rom_name || null,
+          cr.rom_crc || null,
+          cr.id,
+        ),
+      );
+    }
+
+    if (relStatements.length > 0) {
+      await env.DB.batch(relStatements);
+    }
+
+    newlyIngestedForTracking.push({
+      stableId: stableId,
+      platformId: group.platform_id,
+      canonicalSeries: canonicalSeries,
+      releases: addedReleases,
+    });
+
+    tickWritesUsed += estimatedWrites;
+    ingestedGamesCount++;
+    ingestedReleasesCount += canonicalRels.length;
+    nextCursor = Math.max(nextCursor, group.maxSliceId);
+  }
+
+  if (newlyIngestedForTracking.length > 0) {
+    const matchedSeekingRows = await evaluateTrackingRulesForNewGames(
+      env,
+      newlyIngestedForTracking,
+    );
+    // Each user_game_releases row insert incurs 1 + 1 = 2 billable writes
+    const ruleWrites = matchedSeekingRows * 2;
+    tickWritesUsed += ruleWrites;
+    invalidateSeriesScanCache();
+    await markDbDirty(env);
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const updatedDaily = {
+    date: todayStr,
+    writes: status.writesUsedToday + tickWritesUsed,
+    games: status.gamesIngestedToday + ingestedGamesCount,
+    releases: status.releasesIngestedToday + ingestedReleasesCount,
+  };
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('catalog_seed_stage', ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+    ).bind(currentStage),
+    env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('catalog_seed_cursor', ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+    ).bind(String(nextCursor)),
+    env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('catalog_seed_daily_writes', ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+    ).bind(JSON.stringify(updatedDaily)),
+  ]);
+
+  return {
+    skipped: false,
+    stage: currentStage,
+    cursor: nextCursor,
+    ingestedGames: ingestedGamesCount,
+    ingestedReleases: ingestedReleasesCount,
+    writesUsed: tickWritesUsed,
   };
 }

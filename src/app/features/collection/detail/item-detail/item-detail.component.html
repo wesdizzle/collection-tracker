@@ -41,7 +41,9 @@
               class="stat-pill interactive ownership-pill"
               [class.active]="g.ownership_status !== 0"
               [class.owned]="g.ownership_status === 1"
-              [class.seeking]="g.ownership_status === 2"
+              [class.seeking]="
+                g.ownership_status === 2 || g.ownership_status === 4
+              "
               [class.ordered]="g.ownership_status === 3"
               (click)="onEditOwnership(g, 'game')"
             >
@@ -54,13 +56,28 @@
               <span>{{
                 g.ownership_status === 1
                   ? 'Owned'
-                  : g.ownership_status === 2
-                    ? 'Seeking'
-                    : g.ownership_status === 3
-                      ? 'Ordered'
-                      : 'Unowned'
+                  : g.ownership_status === 4
+                    ? 'Priority Seeking'
+                    : g.ownership_status === 2
+                      ? 'Seeking'
+                      : g.ownership_status === 3
+                        ? 'Ordered'
+                        : 'Unowned'
               }}</span>
             </button>
+            @if (g.canonical_series) {
+              <button
+                type="button"
+                class="stat-pill interactive"
+                (click)="onIgnoreSeries(g)"
+                [title]="
+                  'Unfollow or ignore auto-tracking for ' + g.canonical_series
+                "
+              >
+                <span class="icon"><app-icon name="close" [size]="14" /></span>
+                <span>Ignore Series</span>
+              </button>
+            }
           }
           @if (g.igdb_id && g.igdb_url) {
             <a
@@ -170,7 +187,9 @@
               class="stat-pill interactive ownership-pill"
               [class.active]="t.ownership_status !== 0"
               [class.owned]="t.ownership_status === 1"
-              [class.seeking]="t.ownership_status === 2"
+              [class.seeking]="
+                t.ownership_status === 2 || t.ownership_status === 4
+              "
               [class.ordered]="t.ownership_status === 3"
               (click)="onEditOwnership(t, 'toy')"
             >
@@ -183,11 +202,13 @@
               <span>{{
                 t.ownership_status === 1
                   ? 'Owned'
-                  : t.ownership_status === 2
-                    ? 'Seeking'
-                    : t.ownership_status === 3
-                      ? 'Ordered'
-                      : 'Unowned'
+                  : t.ownership_status === 4
+                    ? 'Priority Seeking'
+                    : t.ownership_status === 2
+                      ? 'Seeking'
+                      : t.ownership_status === 3
+                        ? 'Ordered'
+                        : 'Unowned'
               }}</span>
             </button>
           }

@@ -90,6 +90,10 @@ export class CollectionFiltersComponent implements OnDestroy {
     return this.filters().ownership === 2 && !this.filters().deals_only;
   });
 
+  public readonly isPrioritySeekingActive = computed(() => {
+    return this.filters().ownership === 4 && !this.filters().deals_only;
+  });
+
   public readonly isDealsActive = computed(() => {
     return (
       Boolean(this.filters().deals_only) &&
@@ -106,6 +110,7 @@ export class CollectionFiltersComponent implements OnDestroy {
       | 'owned'
       | 'home_region_and_owned'
       | 'all'
+      | 'priority_seeking'
       | 'seeking'
       | 'deals'
       | 'upcoming',
@@ -132,6 +137,12 @@ export class CollectionFiltersComponent implements OnDestroy {
       this.filtersChange.emit({
         ...this.filters(),
         ownership: 1,
+        deals_only: false,
+      });
+    } else if (status === 'priority_seeking') {
+      this.filtersChange.emit({
+        ...this.filters(),
+        ownership: 4,
         deals_only: false,
       });
     } else if (status === 'seeking') {
@@ -284,6 +295,7 @@ export class CollectionFiltersComponent implements OnDestroy {
       | 'seeking_or_unowned'
       | 'home_region_and_owned'
       | 1
+      | 4
       | 2
       | 3
       | 0;
@@ -293,6 +305,7 @@ export class CollectionFiltersComponent implements OnDestroy {
     { value: 'home_region_and_owned', label: 'Home Region & Owned' },
     { value: 'seeking_or_unowned', label: 'Seeking or Unowned' },
     { value: 1, label: 'Owned' },
+    { value: 4, label: 'Priority Seeking' },
     { value: 2, label: 'Seeking' },
     { value: 3, label: 'Ordered' },
     { value: 0, label: 'Unowned' },

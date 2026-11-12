@@ -76,6 +76,15 @@
         <button
           type="button"
           class="status-pill-btn state-layer"
+          [class.active]="isPrioritySeekingActive()"
+          (click)="selectQuickStatus('priority_seeking')"
+          title="High-priority target games and toys"
+        >
+          Priority Seeking
+        </button>
+        <button
+          type="button"
+          class="status-pill-btn state-layer"
           [class.active]="isSeekingActive()"
           (click)="selectQuickStatus('seeking')"
         >

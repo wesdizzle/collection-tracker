@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 
-export type ProfileModalView = 'profile' | 'notifications';
+export type ProfileModalView = 'profile' | 'notifications' | 'tracking';
 
 @Injectable({
   providedIn: 'root',

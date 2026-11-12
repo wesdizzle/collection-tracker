@@ -793,8 +793,10 @@ export class ItemDetailComponent {
     switch (status) {
       case 1:
         return 'owned';
-      case 2:
+      case 4:
         return 'seeking';
+      case 2:
+        return 'wishlist';
       case 3:
         return 'ordered';
       default:
@@ -847,6 +849,7 @@ export class ItemDetailComponent {
       'Select the ownership status for this item:',
       [
         { value: 1, label: 'Owned' },
+        { value: 4, label: 'Priority Seeking' },
         { value: 2, label: 'Seeking' },
         { value: 3, label: 'Ordered' },
         { value: 0, label: 'Unowned' },
@@ -867,6 +870,49 @@ export class ItemDetailComponent {
                 ownership_status: numVal,
               });
             }
+          });
+      },
+    );
+  }
+
+  onIgnoreSeries(game: Game) {
+    if (
+      !this.collectionService.canShowPersonalState() ||
+      !game.canonical_series
+    )
+      return;
+    const seriesName = game.canonical_series;
+    this.collectionService.showOptions(
+      'Ignore / Unfollow Series',
+      `Stop auto-tracking future games in "${seriesName}"?`,
+      [
+        {
+          value: 'clear',
+          label: 'Ignore series & set existing Seeking games to Unowned',
+        },
+        {
+          value: 'keep',
+          label: 'Ignore series (keep existing Seeking games)',
+        },
+      ],
+      (value: string | number) => {
+        const clearExisting = String(value) === 'clear';
+        this.collectionService
+          .saveTrackingRule({
+            rule_type: 'series',
+            target_value: seriesName,
+            is_ignored: true,
+            clear_existing_seeking: clearExisting,
+          })
+          .subscribe(() => {
+            if (clearExisting && game.ownership_status === 2) {
+              game.ownership_status = 0;
+              this.itemOverride.set({ ...game, ownership_status: 0 });
+              this.collectionService.patchGameOptimistic(game.id, {
+                ownership_status: 0,
+              });
+            }
+            void this.collectionService.refreshAll();
           });
       },
     );

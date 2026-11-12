@@ -126,12 +126,16 @@ export class CollectionInsightsComponent implements OnInit {
   });
 
   public readonly wishlistToys = computed<Toy[]>(() =>
-    this.collectionService.toys().filter((t) => t.ownership_status === 2),
+    this.collectionService
+      .toys()
+      .filter((t) => t.ownership_status === 2 || t.ownership_status === 4),
   );
 
   public readonly seekingGamesCount = computed<number>(
     () =>
-      this.collectionService.games().filter((g) => g.ownership_status === 2)
+      this.collectionService
+        .games()
+        .filter((g) => g.ownership_status === 2 || g.ownership_status === 4)
         .length,
   );
 

@@ -369,18 +369,21 @@ const COMMON_PLATFORMS: PlatformOption[] = [
                 <button
                   type="button"
                   class="segmented-btn"
-                  [class.active]="localPrefs.scope === 'seeking_only'"
-                  (click)="setScope('seeking_only')"
+                  [class.active]="localPrefs.scope === 'priority_seeking_only'"
+                  (click)="setScope('priority_seeking_only')"
                 >
-                  Seeking Only
+                  Priority Seeking
                 </button>
                 <button
                   type="button"
                   class="segmented-btn"
-                  [class.active]="localPrefs.scope === 'seeking_and_unowned'"
-                  (click)="setScope('seeking_and_unowned')"
+                  [class.active]="
+                    localPrefs.scope === 'all_seeking' ||
+                    localPrefs.scope === 'seeking_only'
+                  "
+                  (click)="setScope('all_seeking')"
                 >
-                  Seeking & Unowned
+                  All Seeking
                 </button>
                 <button
                   type="button"
@@ -1070,8 +1073,11 @@ export class NotificationSettingsModalComponent {
 
   public scopeDescription(): string {
     switch (this.localPrefs.scope) {
+      case 'priority_seeking_only':
+        return 'Alerts will only trigger for high-priority target games marked Priority Seeking.';
+      case 'all_seeking':
       case 'seeking_only':
-        return 'Alerts will only trigger for items on your active Seeking wishlist.';
+        return 'Alerts will trigger for both Priority Seeking and Seeking wishlist games.';
       case 'seeking_and_unowned':
         return 'Alerts will trigger for Seeking wishlist games plus any unowned game.';
       case 'all':
@@ -1119,7 +1125,14 @@ export class NotificationSettingsModalComponent {
     }
   }
 
-  public setScope(scope: 'seeking_only' | 'seeking_and_unowned' | 'all'): void {
+  public setScope(
+    scope:
+      | 'priority_seeking_only'
+      | 'all_seeking'
+      | 'seeking_only'
+      | 'seeking_and_unowned'
+      | 'all',
+  ): void {
     this._localPrefs.update((p) => ({ ...p, scope }));
   }
 

@@ -1,6 +1,7 @@
 export type IconName =
   | 'owned'
   | 'seeking'
+  | 'wishlist'
   | 'ordered'
   | 'unowned'
   | 'hourglass'
@@ -70,6 +71,10 @@ export const ICON_CATALOG: Record<IconName, IconDef> = {
   seeking: {
     viewBox: '0 0 24 24',
     svgInner: `<circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16.5 16.5 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
+  },
+  wishlist: {
+    viewBox: '0 0 24 24',
+    svgInner: `<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" fill="currentColor" fill-opacity="0.18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
   },
   ordered: {
     viewBox: '0 0 24 24',

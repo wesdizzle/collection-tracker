@@ -2153,10 +2153,16 @@ function getToyAmiiboTypeOrder(line: unknown, type: unknown): number {
 
 /**
  * Sorts toy list rows in-place in JavaScript using precomputed Schwartzian sort keys,
- * avoiding SQLite's `USE TEMP B-TREE FOR ORDER BY` (+1,490 D1 `rows_read` per call).
+ * avoiding SQLite's `USE TEMP B-TREE FOR ORDER BY` (+1,490 D1 `rows_read` per call),
+ * and optionally resolves regional release_date from metadata_json.releases.
  */
-export function postProcessToyListRows(rows: Record<string, unknown>[]): void {
+export function postProcessToyListRows(
+  rows: Record<string, unknown>[],
+  homeRegion?: string | null,
+): void {
   if (!rows || rows.length === 0) return;
+
+  const targetRegion = (homeRegion || DEFAULT_USER_HOME_REGION).trim();
 
   const keyed = new Array<{
     row: Record<string, unknown>;
@@ -2175,6 +2181,29 @@ export function postProcessToyListRows(rows: Record<string, unknown>[]): void {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
+    const metaRaw = row['metadata_json'] as string | null | undefined;
+    if (
+      metaRaw &&
+      typeof metaRaw === 'string' &&
+      metaRaw.includes('"releases"')
+    ) {
+      try {
+        const parsed = JSON.parse(metaRaw) as {
+          releases?: Record<string, string | null>;
+        };
+        if (parsed.releases && typeof parsed.releases === 'object') {
+          const regDate =
+            parsed.releases[targetRegion] ||
+            (targetRegion === 'UK' ? parsed.releases['Europe'] : null) ||
+            (targetRegion === 'Canada' ? parsed.releases['USA'] : null);
+          if (regDate) {
+            row['release_date'] = regDate;
+          }
+        }
+      } catch {
+        // Ignore malformed metadata_json
+      }
+    }
     const rawSeriesIdx = row['series_index'] as number | null | undefined;
     const seriesIdx =
       rawSeriesIdx === null || rawSeriesIdx === undefined ? null : rawSeriesIdx;

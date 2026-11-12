@@ -143,9 +143,21 @@ CREATE TABLE IF NOT EXISTS users (
     home_region TEXT NOT NULL DEFAULT 'USA',
     display_name TEXT,
     bio TEXT,
+    auto_track_series_on_add INTEGER NOT NULL DEFAULT 1 CHECK (auto_track_series_on_add IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS user_tracking_rules (
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    rule_type TEXT NOT NULL CHECK (rule_type IN ('series', 'platform', 'toy_line', 'toy_series')),
+    match_value TEXT NOT NULL,
+    target_status INTEGER NOT NULL DEFAULT 2,
+    region_scope TEXT NOT NULL DEFAULT 'home' CHECK (region_scope IN ('home', 'any')),
+    is_ignored INTEGER NOT NULL DEFAULT 0 CHECK (is_ignored IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, rule_type, match_value)
+) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS user_game_releases (
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -231,7 +243,6 @@ CREATE INDEX IF NOT EXISTS idx_games_platform_id ON games (platform_id);
 CREATE INDEX IF NOT EXISTS idx_games_canonical_series ON games (canonical_series);
 CREATE INDEX IF NOT EXISTS idx_games_bundle_parent ON games (bundle_parent_id);
 CREATE INDEX IF NOT EXISTS idx_games_physical_status ON games (physical_status);
-CREATE INDEX IF NOT EXISTS idx_games_release_medium ON games (release_medium);
 CREATE INDEX IF NOT EXISTS idx_games_retail_on_sale ON games (retail_on_sale);
 CREATE INDEX IF NOT EXISTS idx_games_title_nocase ON games (title COLLATE NOCASE);
 

@@ -57,6 +57,7 @@ const TABLE_HYDRATION_ORDER = [
   'canonical_releases',
   'ignored_items',
   'users',
+  'user_tracking_rules',
   'games',
   'game_releases',
   'toys',

@@ -100,14 +100,14 @@ describe('CollectionLayoutComponent', () => {
 
       expect(headerInner).toBeTruthy();
       expect(mainNav).toBeTruthy();
-      expect(navLinks.length).toBe(4);
+      expect(navLinks.length).toBe(3);
 
       const labels = navLinks.map((el) =>
         el.querySelector('.label')?.textContent?.trim(),
       );
-      expect(labels).toEqual(['Games', 'Toys', 'Insights', 'Discovery']);
+      expect(labels).toEqual(['Games', 'Toys', 'Insights']);
 
-      // When non-admin, Discovery tab is hidden
+      // When non-admin, top navigation still has Games, Toys, Insights (Discovery lives in Profile Modal Admin Panel)
       collectionService.setAdminForTesting(false);
       fixture.detectChanges();
       const nonAdminNavLinks = headerInner.querySelectorAll('.nav-item');

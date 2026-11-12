@@ -124,12 +124,17 @@
 }
 
 .status-2 {
-  background: #2563eb;
+  background: #e11d48;
   color: #fff;
 }
 
 .status-3 {
   background: #b45309;
+  color: #fff;
+}
+
+.status-4 {
+  background: #2563eb;
   color: #fff;
 }
 

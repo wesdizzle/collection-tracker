@@ -299,36 +299,35 @@ export class CommandPaletteComponent implements AfterViewInit {
       },
     ];
     if (this.isPersonalView()) {
-      items.push(
-        {
-          id: 'nav-insights',
-          title: 'Collection Insights',
-          subtitle: 'Stats, era decade breakdown, & completion graphs',
-          category: 'Navigation',
-          icon: 'flame',
-          url: '/collection/insights',
-          action: () => this.navigate('/collection/insights'),
-        },
-        {
+      items.push({
+        id: 'nav-insights',
+        title: 'Collection Insights',
+        subtitle: 'Stats, era decade breakdown, & completion graphs',
+        category: 'Navigation',
+        icon: 'flame',
+        url: '/collection/insights',
+        action: () => this.navigate('/collection/insights'),
+      });
+      if (this.collectionService.isAdmin?.() ?? true) {
+        items.push({
           id: 'nav-discovery',
           title: 'Discovery Management',
           subtitle: 'Track missing releases and scan candidates',
           category: 'Navigation',
           icon: 'compass',
-          url: '/collection/discovery',
-          action: () => this.navigate('/collection/discovery'),
-        },
-        {
-          id: 'nav-backups',
-          title: 'Scan Local Backups',
-          subtitle:
-            'Match local ROM filenames against your catalog & apply diff',
-          category: 'Navigation',
-          icon: 'disc',
-          url: '/collection/backups',
-          action: () => this.navigate('/collection/backups'),
-        },
-      );
+          url: '/discovery',
+          action: () => this.navigate('/discovery'),
+        });
+      }
+      items.push({
+        id: 'nav-backups',
+        title: 'Scan Local Backups',
+        subtitle: 'Match local ROM filenames against your catalog & apply diff',
+        category: 'Navigation',
+        icon: 'disc',
+        url: '/collection/backups',
+        action: () => this.navigate('/collection/backups'),
+      });
     }
     return items;
   }
@@ -386,11 +385,21 @@ export class CommandPaletteComponent implements AfterViewInit {
           action: () => this.navigate(gamesUrl, { play_status: '2' }),
         },
         {
-          id: 'filter-seeking',
-          title: 'Seeking Wishlist',
-          subtitle: 'Games marked as actively seeking',
+          id: 'filter-priority-seeking',
+          title: 'Priority Seeking',
+          subtitle: 'High-priority target games',
           category: 'Quick Filters',
           icon: 'seeking',
+          url: gamesUrl,
+          queryParams: { ownership: '4' },
+          action: () => this.navigate(gamesUrl, { ownership: '4' }),
+        },
+        {
+          id: 'filter-seeking',
+          title: 'Seeking Wishlist',
+          subtitle: 'Games marked as seeking',
+          category: 'Quick Filters',
+          icon: 'wishlist',
           url: gamesUrl,
           queryParams: { ownership: '2' },
           action: () => this.navigate(gamesUrl, { ownership: '2' }),

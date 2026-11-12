@@ -174,6 +174,8 @@ export class CollectionListComponent
       if (qs === 'deals') {
         qpFilters.deals_only = true;
         qpFilters.ownership = 0;
+      } else if (qs === 'priority_seeking') {
+        qpFilters.ownership = 4;
       } else if (qs === 'seeking') {
         qpFilters.ownership = 2;
       } else if (qs === 'home_region_and_owned') {
@@ -592,6 +594,7 @@ export class CollectionListComponent
       const status = g.ownership_status ?? 0;
       if (f.ownership === 'seeking_or_unowned') {
         const isSeekingOrUnowned =
+          status === OwnershipStatus.PrioritySeeking ||
           status === OwnershipStatus.Seeking ||
           status === OwnershipStatus.Unowned;
         if (!isSeekingOrUnowned) return false;
@@ -1115,6 +1118,7 @@ export class CollectionListComponent
       const status = toy.ownership_status ?? 0;
       if (f.ownership === 'seeking_or_unowned') {
         const isSeekingOrUnowned =
+          status === OwnershipStatus.PrioritySeeking ||
           status === OwnershipStatus.Seeking ||
           status === OwnershipStatus.Unowned;
         if (!isSeekingOrUnowned) return false;
@@ -1751,13 +1755,14 @@ export class CollectionListComponent
       [
         { label: 'Unowned', value: 0 },
         { label: 'Owned', value: 1 },
+        { label: 'Priority Seeking', value: 4 },
         { label: 'Seeking', value: 2 },
         { label: 'Ordered', value: 3 },
       ],
       (newValue) => {
         const numValue =
           typeof newValue === 'string' ? parseInt(newValue, 10) : newValue;
-        if (isNaN(numValue) || numValue < 0 || numValue > 3) return;
+        if (isNaN(numValue) || numValue < 0 || numValue > 4) return;
 
         item.ownership_status = numValue;
         if (type === 'game') {

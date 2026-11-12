@@ -191,7 +191,10 @@ export class CollectionLayoutComponent {
     if (cleanUrl.startsWith('/collection/insights')) {
       return 'insights';
     }
-    if (cleanUrl.startsWith('/collection/discovery')) {
+    if (
+      cleanUrl.startsWith('/discovery') ||
+      cleanUrl.startsWith('/collection/discovery')
+    ) {
       return 'discovery';
     }
     if (
@@ -223,13 +226,6 @@ export class CollectionLayoutComponent {
         label: 'Insights',
         href: '/collection/insights',
       });
-      if (this.isAdmin()) {
-        tabs.push({
-          id: 'discovery',
-          label: 'Discovery',
-          href: '/collection/discovery',
-        });
-      }
     }
     return tabs;
   });

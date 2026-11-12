@@ -8,7 +8,11 @@ import { of, throwError } from 'rxjs';
 import { ProfileModalComponent } from './profile-modal.component';
 import { CollectionService } from '../../core/services/collection.service';
 import { ProfileModalService } from '../../core/services/profile-modal.service';
-import { UserProfile } from '../../core/models/collection.models';
+import {
+  UserProfile,
+  OwnershipStatus,
+  formatToyRegionBadge,
+} from '../../core/models/collection.models';
 
 describe('ProfileModalComponent', () => {
   let component: ProfileModalComponent;
@@ -273,5 +277,81 @@ describe('ProfileModalComponent', () => {
 
     expect(modalService.isOpen()).toBe(false);
     expect(navSpy).toHaveBeenCalledWith(['/collection/backups']);
+  });
+
+  it('should navigate to /discovery when Discovery & Admin Panel button is clicked by admin', () => {
+    const router = TestBed.inject(Router);
+    const navSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    modalService.open();
+    fixture.detectChanges();
+
+    const discoveryBtn = fixture.nativeElement.querySelector(
+      '[data-testid="profile-discovery-btn"]',
+    ) as HTMLButtonElement;
+    expect(discoveryBtn).toBeTruthy();
+
+    discoveryBtn.click();
+    fixture.detectChanges();
+
+    expect(modalService.isOpen()).toBe(false);
+    expect(navSpy).toHaveBeenCalledWith(['/discovery']);
+  });
+
+  it('should transition to tracking rules view and support adding and removing rules', () => {
+    vi.spyOn(collectionService, 'getTrackingRules').mockReturnValue(
+      of([
+        {
+          user_id: 1,
+          rule_type: 'series',
+          target_value: 'Metroid',
+          auto_status: OwnershipStatus.Seeking,
+          is_ignored: 0,
+        },
+      ]),
+    );
+    const saveSpy = vi
+      .spyOn(collectionService, 'saveTrackingRule')
+      .mockReturnValue(of({ status: 'ok' }));
+    const deleteSpy = vi
+      .spyOn(collectionService, 'deleteTrackingRule')
+      .mockReturnValue(of({ status: 'ok' }));
+
+    modalService.open();
+    fixture.detectChanges();
+
+    const trackingBtn = fixture.nativeElement.querySelector(
+      '[data-testid="profile-tracking-rules-btn"]',
+    ) as HTMLButtonElement;
+    expect(trackingBtn).toBeTruthy();
+
+    trackingBtn.click();
+    fixture.detectChanges();
+
+    expect(modalService.activeView()).toBe('tracking');
+    expect(component.trackingRules().length).toBe(1);
+
+    component.newRuleType = 'series';
+    component.newRuleTarget = 'The Legend of Zelda';
+    component.newRuleIgnored = false;
+    component.addRule();
+
+    expect(saveSpy).toHaveBeenCalledWith({
+      rule_type: 'series',
+      target_value: 'The Legend of Zelda',
+      is_ignored: false,
+      clear_existing_seeking: false,
+    });
+
+    component.removeRule(component.trackingRules()[0]);
+    expect(deleteSpy).toHaveBeenCalledWith('series', 'Metroid');
+  });
+
+  it('should format multi-region toy badges and expose PrioritySeeking = 4', () => {
+    expect(OwnershipStatus.PrioritySeeking).toBe(4);
+    expect(formatToyRegionBadge('USA, Europe, Japan, Australia')).toBe('World');
+    expect(formatToyRegionBadge('USA, Europe, Japan')).toBe('World');
+    expect(formatToyRegionBadge('Japan')).toBe('Japan');
+    expect(formatToyRegionBadge('USA, Japan')).toBe('USA, Japan');
   });
 });
