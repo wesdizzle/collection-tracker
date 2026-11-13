@@ -6805,7 +6805,7 @@ export default {
           'broad_catalog_seed',
           'SUCCESS',
           Date.now() - seedStart,
-          `Stage ${seedRes.stage}: ingested ${seedRes.ingestedGames} games / ${seedRes.ingestedReleases} releases (${seedRes.writesUsed} writes, cursor ${seedRes.cursor})`,
+          `Stage ${seedRes.stage}: ingested ${seedRes.ingestedGames} games (${seedRes.igdbMatched ?? 0} IGDB-matched) / ${seedRes.ingestedReleases} releases (${seedRes.writesUsed} writes, cursor ${seedRes.cursor})`,
           seedRes,
         );
       }
@@ -6817,6 +6817,33 @@ export default {
         'broad_catalog_seed',
         'ERROR',
         Date.now() - seedStart,
+        `Failed: ${msg}`,
+        { error: msg },
+      );
+    }
+
+    // 2b. One-time IGDB metadata backfill for games seeded without metadata (shares the daily budget)
+    const backfillStart = Date.now();
+    try {
+      const bfRes = await syncWorkerIgdbMetadataBackfill(env);
+      if (!bfRes.skipped) {
+        await logCronExecution(
+          env,
+          'igdb_metadata_backfill',
+          'SUCCESS',
+          Date.now() - backfillStart,
+          `Matched ${bfRes.matched}/${bfRes.scanned} games missing IGDB metadata (${bfRes.writesUsed} writes, cursor ${bfRes.cursor})`,
+          bfRes,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[WorkerCron] IGDB metadata backfill failed:', err);
+      await logCronExecution(
+        env,
+        'igdb_metadata_backfill',
+        'ERROR',
+        Date.now() - backfillStart,
         `Failed: ${msg}`,
         { error: msg },
       );
@@ -8683,6 +8710,155 @@ export async function syncWorkerIgdbSeriesAndCanonical(
 
 export const DAILY_CATALOG_WRITE_BUDGET = 60000;
 
+export interface IgdbGameMeta {
+  igdb_id: number;
+  igdb_url: string | null;
+  image_url: string | null;
+  summary: string | null;
+  genres: string | null;
+  collections: string | null;
+  franchises: string | null;
+  metadata_json: string | null;
+}
+
+interface IgdbSearchCandidate {
+  id: number;
+  name?: string;
+  url?: string;
+  summary?: string;
+  cover?: { image_id?: string; url?: string };
+  genres?: Array<{ name: string }>;
+  collections?: Array<{ name: string }>;
+  franchises?: Array<{ name: string }>;
+  platforms?: number[];
+  alternative_names?: Array<{ name: string; comment?: string }>;
+  game_localizations?: Array<{ name?: string; region?: number }>;
+}
+
+const IGDB_MULTIQUERY_MAX = 10;
+
+function sanitizeIgdbSearchTerm(title: string): string {
+  return (title || '')
+    .replace(/["\\]/g, '')
+    .replace(/[\r\n;{}]/g, ' ')
+    .trim();
+}
+
+/**
+ * Strictly selects the IGDB candidate whose normalized name (or an alternative name)
+ * exactly equals `normalizedTitle` and that lists `igdbPlatformId`. Ambiguous or fuzzy
+ * candidates are rejected: no metadata is preferred over wrong metadata.
+ */
+export function selectStrictIgdbMatch(
+  candidates: IgdbSearchCandidate[],
+  normalizedTitle: string,
+  igdbPlatformId: number,
+): IgdbSearchCandidate | null {
+  if (!normalizedTitle) return null;
+  const onPlatform = (candidates || []).filter(
+    (c) => Array.isArray(c.platforms) && c.platforms.includes(igdbPlatformId),
+  );
+  const byName = onPlatform.find(
+    (c) => normalizeTitleForMatching(c.name || '') === normalizedTitle,
+  );
+  if (byName) return byName;
+  return (
+    onPlatform.find((c) =>
+      (c.alternative_names || []).some(
+        (a) => normalizeTitleForMatching(a.name || '') === normalizedTitle,
+      ),
+    ) || null
+  );
+}
+
+function toIgdbGameMeta(c: IgdbSearchCandidate): IgdbGameMeta {
+  let imageUrl: string | null = null;
+  if (c.cover?.image_id) {
+    imageUrl = `https://images.igdb.com/igdb/image/upload/t_cover_big/${c.cover.image_id}.jpg`;
+  } else if (c.cover?.url) {
+    imageUrl = (
+      c.cover.url.startsWith('//') ? `https:${c.cover.url}` : c.cover.url
+    ).replace('/t_thumb/', '/t_cover_big/');
+  }
+  const hasLocalized =
+    (c.game_localizations && c.game_localizations.length > 0) ||
+    (c.alternative_names && c.alternative_names.length > 0);
+  return {
+    igdb_id: c.id,
+    igdb_url: c.url || null,
+    image_url: imageUrl,
+    summary: c.summary || null,
+    genres: c.genres?.map((g) => g.name).join(', ') || null,
+    collections: c.collections?.map((x) => x.name).join(', ') || null,
+    franchises: c.franchises?.map((x) => x.name).join(', ') || null,
+    metadata_json: hasLocalized
+      ? JSON.stringify({
+          game_localizations: c.game_localizations || [],
+          alternative_names: c.alternative_names || [],
+        })
+      : null,
+  };
+}
+
+/**
+ * Batch-resolves IGDB metadata for catalog titles via IGDB `multiquery`
+ * (≤10 sub-queries per request). Never throws: on missing credentials or IGDB
+ * errors it returns whatever was resolved so far (possibly an empty map).
+ */
+export async function fetchIgdbMetadataForTitles(
+  env: Env,
+  items: Array<{
+    key: string;
+    title: string;
+    normalizedTitle: string;
+    igdbPlatformId: number | null;
+  }>,
+): Promise<Map<string, IgdbGameMeta>> {
+  const out = new Map<string, IgdbGameMeta>();
+  if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) return out;
+
+  const eligible = items.filter(
+    (i) =>
+      i.igdbPlatformId &&
+      i.igdbPlatformId > 0 &&
+      i.normalizedTitle &&
+      sanitizeIgdbSearchTerm(i.title).length > 0,
+  );
+
+  for (let start = 0; start < eligible.length; start += IGDB_MULTIQUERY_MAX) {
+    const chunk = eligible.slice(start, start + IGDB_MULTIQUERY_MAX);
+    const body = chunk
+      .map((item, idx) => {
+        const term = sanitizeIgdbSearchTerm(item.title);
+        // NOTE: IGDB `search` returns no rows inside multiquery sub-queries, so use
+        // case-insensitive substring filters and apply strict normalized matching locally.
+        return `query games "q${idx}" { fields id, name, url, summary, cover.image_id, cover.url, genres.name, collections.name, franchises.name, platforms, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region; where platforms = (${item.igdbPlatformId}) & (name ~ *"${term}"* | alternative_names.name ~ *"${term}"*); sort id asc; limit 50; };`;
+      })
+      .join('\n');
+    try {
+      const res = (await queryIGDBEdge('multiquery', body, env)) as Array<{
+        name: string;
+        result?: IgdbSearchCandidate[];
+      }>;
+      for (const entry of res || []) {
+        const idx = parseInt((entry.name || '').replace(/^q/, ''), 10);
+        const item = Number.isFinite(idx) ? chunk[idx] : undefined;
+        if (!item) continue;
+        const match = selectStrictIgdbMatch(
+          entry.result || [],
+          item.normalizedTitle,
+          item.igdbPlatformId as number,
+        );
+        if (match) out.set(item.key, toIgdbGameMeta(match));
+      }
+    } catch (err) {
+      console.error('[IGDB] multiquery metadata lookup failed:', err);
+      break;
+    }
+  }
+  return out;
+}
+
 export function cleanCanonicalDisplayTitle(rawTitle: string): string {
   if (!rawTitle) return '';
   // Strip DAT/Nintendo Revised parenthetical metadata tags like (USA), (Europe), (En,Fr,De), (Rev 1)
@@ -8781,6 +8957,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   ingestedGames: number;
   ingestedReleases: number;
   writesUsed: number;
+  igdbMatched?: number;
 }> {
   const status = await getBroadCatalogSeedStatus(env);
   if (status.paused) {
@@ -8971,10 +9148,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   const platformPlaceholders = distinctPlatforms.map(() => '?').join(',');
   const [platformsRes, existingGamesRes] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, display_name FROM platforms WHERE id IN (${platformPlaceholders})`,
+      `SELECT id, display_name, igdb_id FROM platforms WHERE id IN (${platformPlaceholders})`,
     )
       .bind(...distinctPlatforms)
-      .all<{ id: number; display_name: string }>(),
+      .all<{ id: number; display_name: string; igdb_id: number | null }>(),
     env.DB.prepare(
       `SELECT stable_id, id, title, platform_id FROM games WHERE platform_id IN (${platformPlaceholders})`,
     )
@@ -8988,8 +9165,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   ]);
 
   const platformNameById = new Map<number, string>();
+  const platformIgdbIdById = new Map<number, number | null>();
   for (const p of platformsRes.results || []) {
     platformNameById.set(p.id, p.display_name);
+    platformIgdbIdById.set(p.id, p.igdb_id ?? null);
   }
 
   const existingGameByPlatformNorm = new Map<
@@ -9018,7 +9197,31 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   let tickWritesUsed = 0;
   let ingestedGamesCount = 0;
   let ingestedReleasesCount = 0;
+  let igdbMatchedCount = 0;
   let nextCursor = currentCursor;
+
+  // Resolve IGDB metadata up front for groups that will be inserted, so each new game
+  // row carries igdb_id / cover / summary in its single INSERT (no follow-up UPDATE).
+  const igdbLookupItems: Array<{
+    key: string;
+    title: string;
+    normalizedTitle: string;
+    igdbPlatformId: number | null;
+  }> = [];
+  for (const [key, group] of groupsMap) {
+    if (existingGameByPlatformNorm.has(key)) continue;
+    const title = cleanCanonicalDisplayTitle(group.raw_title);
+    igdbLookupItems.push({
+      key,
+      title,
+      normalizedTitle: normalizeTitleForMatching(title),
+      igdbPlatformId: platformIgdbIdById.get(group.platform_id) ?? null,
+    });
+  }
+  const igdbMetaByGroup = await fetchIgdbMetadataForTitles(
+    env,
+    igdbLookupItems,
+  );
   const newlyIngestedForTracking: Array<{
     stableId: number;
     platformId: number;
@@ -9060,8 +9263,12 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       continue;
     }
 
-    // Estimate billable writes: 1 game row (1 + 7 = 8 writes) + M release rows (M * (1 + 6) = 7M writes)
-    const estimatedWrites = 8 + canonicalRels.length * 7;
+    // Estimate billable writes: 1 game row + 7 always-populated indexes (+1 partial idx_games_igdb_id
+    // when igdb_id is set) + M release rows (M * (1 + 6) = 7M writes)
+    const igdbMeta =
+      igdbMetaByGroup.get(`${group.platform_id}::${group.normalized_title}`) ||
+      null;
+    const estimatedWrites = (igdbMeta ? 9 : 8) + canonicalRels.length * 7;
     if (
       tickWritesUsed > 0 &&
       tickWritesUsed + estimatedWrites > tickWriteBudget
@@ -9092,6 +9299,8 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
 
     const canonicalSeries = computeGameCanonicalSeries({
       title: displayTitle,
+      collections: igdbMeta?.collections ?? undefined,
+      franchises: igdbMeta?.franchises ?? undefined,
     });
     const gameRegion = preferredRel.region || 'USA';
     const nextSort = (maxSortByPlatform.get(group.platform_id) ?? 1000) + 1;
@@ -9100,8 +9309,9 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     await env.DB.prepare(
       `INSERT INTO games (
          id, title, platform_id, sort_index, region,
-         manually_verified, physical_status, verification_tier, canonical_series
-       ) VALUES (?, ?, ?, ?, ?, 0, 'verified_physical', 1, ?)`,
+         manually_verified, physical_status, verification_tier, canonical_series,
+         igdb_id, igdb_url, image_url, summary, genres, collections, franchises, metadata_json
+       ) VALUES (?, ?, ?, ?, ?, 0, 'verified_physical', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         candidateGameId,
@@ -9110,8 +9320,17 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         nextSort,
         gameRegion,
         canonicalSeries,
+        igdbMeta?.igdb_id ?? null,
+        igdbMeta?.igdb_url ?? null,
+        igdbMeta?.image_url ?? null,
+        igdbMeta?.summary ?? null,
+        igdbMeta?.genres ?? null,
+        igdbMeta?.collections ?? null,
+        igdbMeta?.franchises ?? null,
+        igdbMeta?.metadata_json ?? null,
       )
       .run();
+    if (igdbMeta) igdbMatchedCount++;
 
     const insertedGame = await env.DB.prepare(
       'SELECT stable_id FROM games WHERE id = ?',
@@ -9225,5 +9444,179 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     ingestedGames: ingestedGamesCount,
     ingestedReleases: ingestedReleasesCount,
     writesUsed: tickWritesUsed,
+    igdbMatched: igdbMatchedCount,
+  };
+}
+
+/**
+ * One-time IGDB metadata backfill for games seeded before inline IGDB enrichment existed.
+ * Walks `games` by primary key (`igdb_backfill_cursor`), only touching rows with no
+ * igdb_id, image_url, or summary (so hand-curated games are never modified). Each matched
+ * UPDATE costs ~2 billable writes (row + partial idx_games_igdb_id) and is charged to the
+ * shared `catalog_seed_daily_writes` budget.
+ */
+export async function syncWorkerIgdbMetadataBackfill(
+  env: Env,
+  options?: { batchSize?: number },
+): Promise<{
+  skipped: boolean;
+  reason?: string;
+  scanned: number;
+  matched: number;
+  cursor: number;
+  writesUsed: number;
+}> {
+  const batchSize = options?.batchSize ?? 100;
+  let cursor = 0;
+  let done = false;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT key, value FROM sync_state WHERE key IN ('igdb_backfill_cursor', 'igdb_backfill_done')`,
+    ).all<{ key: string; value: string }>();
+    for (const row of results || []) {
+      if (row.key === 'igdb_backfill_cursor') {
+        const parsed = parseInt(row.value, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) cursor = parsed;
+      } else if (row.key === 'igdb_backfill_done') {
+        done = row.value === '1';
+      }
+    }
+  } catch {
+    // unmigrated sync_state
+  }
+  const base = { scanned: 0, matched: 0, cursor, writesUsed: 0 };
+  if (done) return { skipped: true, reason: 'completed', ...base };
+  if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) {
+    return { skipped: true, reason: 'igdb_not_configured', ...base };
+  }
+
+  const status = await getBroadCatalogSeedStatus(env);
+  const estimatedMaxWrites = batchSize * 2 + 2;
+  if (
+    status.writesUsedToday + estimatedMaxWrites >
+    DAILY_CATALOG_WRITE_BUDGET
+  ) {
+    return { skipped: true, reason: 'daily_budget_reached', ...base };
+  }
+
+  // PK range scan over games; platforms joined by primary key.
+  const { results: rows } = await env.DB.prepare(
+    `SELECT g.stable_id, g.title, g.platform_id, p.igdb_id AS igdb_platform_id
+     FROM games g
+     LEFT JOIN platforms p ON p.id = g.platform_id
+     WHERE g.stable_id > ?
+     ORDER BY g.stable_id ASC
+     LIMIT ?`,
+  )
+    .bind(cursor, batchSize)
+    .all<{
+      stable_id: number;
+      title: string;
+      platform_id: number;
+      igdb_platform_id: number | null;
+    }>();
+
+  const slice = rows || [];
+  if (slice.length === 0) {
+    await env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('igdb_backfill_done', '1', CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = CURRENT_TIMESTAMP`,
+    ).run();
+    return { skipped: true, reason: 'completed', ...base };
+  }
+
+  const ids = slice.map((r) => r.stable_id);
+  const { results: missingRows } = await env.DB.prepare(
+    `SELECT stable_id FROM games
+     WHERE stable_id IN (${ids.map(() => '?').join(',')})
+       AND igdb_id IS NULL AND image_url IS NULL AND summary IS NULL`,
+  )
+    .bind(...ids)
+    .all<{ stable_id: number }>();
+  const missingIds = new Set((missingRows || []).map((r) => r.stable_id));
+
+  const candidates = slice.filter((r) => missingIds.has(r.stable_id));
+  const metaById = await fetchIgdbMetadataForTitles(
+    env,
+    candidates.map((r) => ({
+      key: String(r.stable_id),
+      title: r.title,
+      normalizedTitle: normalizeTitleForMatching(r.title),
+      igdbPlatformId: r.igdb_platform_id,
+    })),
+  );
+
+  const statements: D1PreparedStatement[] = [];
+  for (const r of candidates) {
+    const meta = metaById.get(String(r.stable_id));
+    if (!meta) continue;
+    const canonicalSeries = computeGameCanonicalSeries({
+      title: r.title,
+      collections: meta.collections ?? undefined,
+      franchises: meta.franchises ?? undefined,
+    });
+    statements.push(
+      env.DB.prepare(
+        `UPDATE games SET
+           igdb_id = ?, igdb_url = ?, image_url = ?, summary = ?, genres = ?,
+           collections = ?, franchises = ?,
+           metadata_json = COALESCE(metadata_json, ?),
+           canonical_series = COALESCE(NULLIF(?, ''), canonical_series)
+         WHERE stable_id = ? AND igdb_id IS NULL`,
+      ).bind(
+        meta.igdb_id,
+        meta.igdb_url,
+        meta.image_url,
+        meta.summary,
+        meta.genres,
+        meta.collections,
+        meta.franchises,
+        meta.metadata_json,
+        canonicalSeries || null,
+        r.stable_id,
+      ),
+    );
+  }
+
+  const nextCursor = slice[slice.length - 1].stable_id;
+  const writesUsed = statements.length * 2;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const updatedDaily = {
+    date: todayStr,
+    writes: status.writesUsedToday + writesUsed,
+    games: status.gamesIngestedToday,
+    releases: status.releasesIngestedToday,
+  };
+
+  statements.push(
+    env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('igdb_backfill_cursor', ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+    ).bind(String(nextCursor)),
+  );
+  if (writesUsed > 0) {
+    statements.push(
+      env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES ('catalog_seed_daily_writes', ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+      ).bind(JSON.stringify(updatedDaily)),
+    );
+  }
+  await env.DB.batch(statements);
+
+  if (writesUsed > 0) {
+    invalidateSeriesScanCache();
+    await markDbDirty(env);
+  }
+
+  return {
+    skipped: false,
+    scanned: candidates.length,
+    matched: writesUsed / 2,
+    cursor: nextCursor,
+    writesUsed,
   };
 }

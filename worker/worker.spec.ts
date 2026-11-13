@@ -19,12 +19,15 @@ import worker, {
   performScheduledBackup,
   resetWorkerRateLimits,
   resolveAmiiboRegionsAndMetadata,
+  selectStrictIgdbMatch,
   syncOrResolveOidcUser,
   syncWorkerBoutiquePreOrders,
   syncWorkerBroadCatalogPopulation,
+  syncWorkerIgdbMetadataBackfill,
   syncWorkerLaunchDayNotifications,
   syncWorkerRetailDeals,
 } from './worker';
+import { normalizeTitleForMatching } from '../shared/title_matching';
 
 const CANONICAL_SCHEMA_SQL = fs.readFileSync(
   path.resolve(__dirname, '../migrations/schema.sql'),
@@ -5019,7 +5022,14 @@ describe('Worker API Logic', () => {
           VALUES (1, 'platform', '26', 2, 'home', 0);
         `);
 
-        const result = await syncWorkerBroadCatalogPopulation(mockEnv);
+        const result = await (async () => {
+          stubIgdbFetch({});
+          try {
+            return await syncWorkerBroadCatalogPopulation(mockEnv);
+          } finally {
+            vi.unstubAllGlobals();
+          }
+        })();
         expect(result.ingestedGames).toBeGreaterThanOrEqual(1);
         expect(result.ingestedReleases).toBeGreaterThanOrEqual(1);
 
@@ -5044,6 +5054,199 @@ describe('Worker API Logic', () => {
           )
           .get(newGame.stable_id) as { ownership_status: number };
         expect(trackedRelease).toEqual({ ownership_status: 2 });
+      });
+
+      const stubIgdbFetch = (
+        resultsByTitle: Record<string, unknown[]>,
+        opts?: { igdbStatus?: number },
+      ) => {
+        const igdbBodies: string[] = [];
+        const fetchMock = vi.fn(
+          async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+            if (url.startsWith('https://id.twitch.tv/')) {
+              return Response.json({
+                access_token: 'tok',
+                expires_in: 3600,
+              });
+            }
+            if (url === 'https://api.igdb.com/v4/multiquery') {
+              const body = String(init?.body || '');
+              igdbBodies.push(body);
+              if (opts?.igdbStatus && opts.igdbStatus !== 200) {
+                return new Response('boom', { status: opts.igdbStatus });
+              }
+              const out = [
+                ...body.matchAll(
+                  /query games "(q\d+)" \{.*?name ~ \*"([^"]*)"\*/g,
+                ),
+              ].map((m) => ({
+                name: m[1],
+                result: resultsByTitle[m[2]] || [],
+              }));
+              return Response.json(out);
+            }
+            return new Response('unexpected', { status: 500 });
+          },
+        );
+        vi.stubGlobal('fetch', fetchMock);
+        return { fetchMock, igdbBodies };
+      };
+
+      const alienIgdb = {
+        id: 4242,
+        name: 'Alien',
+        url: 'https://www.igdb.com/games/alien--1',
+        summary: 'Atari 2600 maze game.',
+        cover: { image_id: 'abc123' },
+        genres: [{ name: 'Arcade' }],
+        collections: [{ name: 'Alien' }],
+        franchises: [{ name: 'Alien' }],
+        platforms: [59],
+        alternative_names: [],
+        game_localizations: [],
+      };
+
+      it('selectStrictIgdbMatch accepts exact name/alternative-name matches on the platform and rejects near-misses', () => {
+        const norm = normalizeTitleForMatching('Alien');
+        expect(selectStrictIgdbMatch([alienIgdb], norm, 59)?.id).toBe(4242);
+        // platform mismatch
+        expect(selectStrictIgdbMatch([alienIgdb], norm, 18)).toBeNull();
+        // near-miss title
+        expect(
+          selectStrictIgdbMatch(
+            [{ ...alienIgdb, id: 1, name: 'Aliens' }],
+            norm,
+            59,
+          ),
+        ).toBeNull();
+        // alternative name match
+        expect(
+          selectStrictIgdbMatch(
+            [
+              {
+                ...alienIgdb,
+                id: 7,
+                name: 'Alien: The Game',
+                alternative_names: [{ name: 'Alien' }],
+              },
+            ],
+            norm,
+            59,
+          )?.id,
+        ).toBe(7);
+      });
+
+      it('syncWorkerBroadCatalogPopulation inserts IGDB metadata inline when strictly matched and still inserts unmatched games', async () => {
+        db.exec(`
+          UPDATE platforms SET igdb_id = 59 WHERE id = 26;
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical)
+          VALUES (6001, 26, 'Alien (USA)', '${normalizeTitleForMatching('Alien')}', 'USA', 1),
+                 (6002, 26, 'Obscure Thing (USA)', '${normalizeTitleForMatching('Obscure Thing')}', 'USA', 1);
+        `);
+        const { igdbBodies } = stubIgdbFetch({ Alien: [alienIgdb] });
+        try {
+          const result = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(result.igdbMatched).toBe(1);
+          expect(igdbBodies.length).toBe(1);
+          expect(igdbBodies[0]).toContain('where platforms = (59)');
+
+          const alien = db
+            .prepare(
+              "SELECT igdb_id, igdb_url, image_url, summary, genres FROM games WHERE title = 'Alien' AND platform_id = 26",
+            )
+            .get();
+          expect(alien).toEqual({
+            igdb_id: 4242,
+            igdb_url: 'https://www.igdb.com/games/alien--1',
+            image_url:
+              'https://images.igdb.com/igdb/image/upload/t_cover_big/abc123.jpg',
+            summary: 'Atari 2600 maze game.',
+            genres: 'Arcade',
+          });
+          const obscure = db
+            .prepare(
+              "SELECT igdb_id, image_url FROM games WHERE title = 'Obscure Thing' AND platform_id = 26",
+            )
+            .get();
+          expect(obscure).toEqual({ igdb_id: null, image_url: null });
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerBroadCatalogPopulation keeps seeding without metadata when IGDB fails', async () => {
+        db.exec(`
+          UPDATE platforms SET igdb_id = 59 WHERE id = 26;
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical)
+          VALUES (6101, 26, 'Alien (USA)', '${normalizeTitleForMatching('Alien')}', 'USA', 1);
+        `);
+        stubIgdbFetch({}, { igdbStatus: 500 });
+        try {
+          const result = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(result.ingestedGames).toBeGreaterThanOrEqual(1);
+          expect(result.igdbMatched).toBe(0);
+          const alien = db
+            .prepare(
+              "SELECT igdb_id FROM games WHERE title = 'Alien' AND platform_id = 26",
+            )
+            .get();
+          expect(alien).toEqual({ igdb_id: null });
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerIgdbMetadataBackfill fills only bare games, advances its cursor, and marks itself done', async () => {
+        db.exec(`
+          UPDATE platforms SET igdb_id = 59 WHERE id = 26;
+          INSERT INTO games (id, title, platform_id, physical_status)
+          VALUES ('alien-bf', 'Alien', 26, 'verified_physical');
+          INSERT INTO games (id, title, platform_id, summary, physical_status)
+          VALUES ('alien-curated', 'Alien', 26, 'Hand written', 'verified_physical');
+        `);
+        stubIgdbFetch({ Alien: [alienIgdb] });
+        try {
+          const first = await syncWorkerIgdbMetadataBackfill(mockEnv, {
+            batchSize: 1000,
+          });
+          expect(first.skipped).toBe(false);
+          expect(first.matched).toBe(1);
+          expect(first.writesUsed).toBe(2);
+
+          const rows = db
+            .prepare(
+              "SELECT id, igdb_id, summary FROM games WHERE id IN ('alien-bf', 'alien-curated') ORDER BY id",
+            )
+            .all();
+          expect(rows).toEqual([
+            {
+              id: 'alien-bf',
+              igdb_id: 4242,
+              summary: 'Atari 2600 maze game.',
+            },
+            { id: 'alien-curated', igdb_id: null, summary: 'Hand written' },
+          ]);
+
+          const second = await syncWorkerIgdbMetadataBackfill(mockEnv, {
+            batchSize: 1000,
+          });
+          expect(second).toMatchObject({
+            skipped: true,
+            reason: 'completed',
+          });
+          const doneRow = db
+            .prepare(
+              "SELECT value FROM sync_state WHERE key = 'igdb_backfill_done'",
+            )
+            .get();
+          expect(doneRow).toEqual({ value: '1' });
+
+          const third = await syncWorkerIgdbMetadataBackfill(mockEnv);
+          expect(third).toMatchObject({ skipped: true, reason: 'completed' });
+        } finally {
+          vi.unstubAllGlobals();
+        }
       });
     });
   });
