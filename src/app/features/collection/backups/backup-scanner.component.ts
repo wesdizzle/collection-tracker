@@ -388,19 +388,34 @@ export class BackupScannerComponent implements OnInit {
       return;
     }
 
-    const setBackedUp = Array.from(this.selectedSetIds());
-    const clearBackedUp = this.pruneMissingBackups()
-      ? Array.from(this.selectedClearIds())
-      : [];
     const selectedSwitchSet = this.selectedSwitchGameIds();
-    const ownershipTransfers = report.ownershipSwitches
-      .filter((s) => selectedSwitchSet.has(s.gameId))
-      .map((s) => ({
-        fromReleaseIds: s.fromReleaseIds,
-        toReleaseIds: s.toReleaseIds,
-        hasCase: s.hasCase,
-        hasManual: s.hasManual,
-      }));
+    const selectedSwitches = report.ownershipSwitches.filter((s) =>
+      selectedSwitchSet.has(s.gameId),
+    );
+    const setIdSet = new Set<string>(this.selectedSetIds());
+    for (const s of selectedSwitches) {
+      for (const tid of s.toReleaseIds) {
+        setIdSet.add(tid);
+      }
+    }
+    const clearIdSet = new Set<string>(
+      this.pruneMissingBackups() ? this.selectedClearIds() : [],
+    );
+    if (this.pruneMissingBackups()) {
+      for (const s of selectedSwitches) {
+        for (const fid of s.fromReleaseIds) {
+          clearIdSet.add(fid);
+        }
+      }
+    }
+    const setBackedUp = Array.from(setIdSet);
+    const clearBackedUp = Array.from(clearIdSet);
+    const ownershipTransfers = selectedSwitches.map((s) => ({
+      fromReleaseIds: s.fromReleaseIds,
+      toReleaseIds: s.toReleaseIds,
+      hasCase: s.hasCase,
+      hasManual: s.hasManual,
+    }));
 
     this.isApplying.set(true);
     this.scanError.set(null);

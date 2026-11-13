@@ -203,6 +203,154 @@ export interface BaseGameMetadata {
 }
 
 /**
+ * Known title discrepancies in the "Past Revisions SW1" spreadsheet tab where
+ * editors used shorthand titles, word transpositions, or edition suffixes that
+ * differ from the main-tab game title.
+ */
+export const PAST_REVISION_TITLE_ALIASES: Record<string, string> = {
+  [normalizeTitleForMatching(
+    'Dragon Quest XI: Echoes of an Elusive Age - Definitive Edition',
+  )]: normalizeTitleForMatching('Dragon Quest XI S: Echoes of an Elusive Age'),
+  [normalizeTitleForMatching('Hotline Miami 1 and 2')]:
+    normalizeTitleForMatching('Hotline Miami Collection'),
+  [normalizeTitleForMatching("Luigi's Mansion")]:
+    normalizeTitleForMatching("Luigi's Mansion 3"),
+  [normalizeTitleForMatching('Mario Kart Deluxe 8 + Booster Course Pass')]:
+    normalizeTitleForMatching('Mario Kart 8 Deluxe + Booster Course Pass'),
+  [normalizeTitleForMatching('Monster Boy and the Cursed Kingdom (USA)')]:
+    normalizeTitleForMatching('Monster Boy and the Cursed Kingdom'),
+  [normalizeTitleForMatching('Monster Boy and the Cursed Kingdom (KOR)')]:
+    normalizeTitleForMatching('Monster Boy and the Cursed Kingdom'),
+  [normalizeTitleForMatching('Pikmin 3')]:
+    normalizeTitleForMatching('Pikmin 3 Deluxe'),
+  [normalizeTitleForMatching('Shovel Knight')]: normalizeTitleForMatching(
+    'Shovel Knight: Treasure Trove',
+  ),
+};
+
+export interface ImpliedPastRevision {
+  rawTitle: string;
+  revisionNum: string;
+  versionOnCart: string;
+  comments: string;
+}
+
+/**
+ * Retail Switch games where all regional rows on the main spreadsheet tab were
+ * updated to Rev 001+ and editors omitted the base Rev 000 launch print from
+ * the "Past Revisions SW1" tab.
+ */
+export const SWITCH_IMPLIED_PAST_REVISIONS: ImpliedPastRevision[] = [
+  {
+    rawTitle: 'Donkey Kong Country: Tropical Freeze',
+    revisionNum: '000',
+    versionOnCart: '1.0.0',
+    comments: 'Implied base print (overwritten on main tab by Rev 001)',
+  },
+  {
+    rawTitle: "Dr. Kawashima's Brain Training for Nintendo Switch",
+    revisionNum: '000',
+    versionOnCart: '1.0.0',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Miitopia',
+    revisionNum: '000',
+    versionOnCart: '1.0.0',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Pikmin 4',
+    revisionNum: '000',
+    versionOnCart: '1.0.0',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Pokémon Mystery Dungeon: Rescue Team DX',
+    revisionNum: '000',
+    versionOnCart: '1.0.0',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Super Mario Party Jamboree',
+    revisionNum: '000',
+    versionOnCart: '1.0.0',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Xenoblade Chronicles X : Definitive Edition',
+    revisionNum: '000',
+    versionOnCart: '1.0.0',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Kingdom Hearts: Melody of Memory',
+    revisionNum: '000',
+    versionOnCart: '1.00',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Minecraft',
+    revisionNum: '000',
+    versionOnCart: '1.0.0',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Terraria',
+    revisionNum: '000',
+    versionOnCart: '1.0',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Doki Doki Literature Club Plus!',
+    revisionNum: '000',
+    versionOnCart: '1.0.2',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Spiritfarer',
+    revisionNum: '000',
+    versionOnCart: '1.8',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+  {
+    rawTitle: 'Stray',
+    revisionNum: '000',
+    versionOnCart: '1.0.2',
+    comments: 'Implied base print (overwritten on main tab)',
+  },
+];
+
+/**
+ * Extracts the 5-character Nintendo Switch master ROM product code (e.g. "AB4PA" from
+ * "LA-H-AB4PA-USA" or "LB-AAYYA-USA-0"). Regions sharing the exact same 5-character code
+ * share the same master ROM build family.
+ */
+export function extractSwitchProductCode5(
+  serialCode: string | null | undefined,
+): string | null {
+  if (!serialCode) return null;
+  const match = serialCode
+    .trim()
+    .toUpperCase()
+    .match(/^L[A-Z]-(?:H-)?([A-Z0-9]{5})\b/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Checks whether a spreadsheet comment explicitly notes that a higher revision (001/002/003)
+ * was the initial physical cartridge print run (so no Rev 000 physical cartridge existed).
+ */
+export function isLaunchPrintHigherRevisionComment(
+  comments: string | null | undefined,
+): boolean {
+  if (!comments) return false;
+  return /revision\s+00[1-9]\s+is\s+(?:probably\s+)?the\s+only\s+one\s+available|cartridges\s+from\s+the\s+launch\s+print\s+are\s+00[1-9]|only\s+revised\s+cartridge\s+00[1-9]/i.test(
+    comments,
+  );
+}
+
+/**
  * Detects explicit regional indicators from comments or game titles in Past Revisions rows.
  */
 export function detectExplicitPastRevisionRegions(
@@ -214,25 +362,39 @@ export function detectExplicitPastRevisionRegions(
     combined.includes('EUR COPIES ONLY') ||
     combined.includes('EUROPE ONLY') ||
     combined.includes('SRG RELEASE') ||
-    combined.includes('SUPER RARE GAMES')
+    combined.includes('SUPER RARE GAMES') ||
+    /\(EUR\)/i.test(rawTitle)
   ) {
     return ['Europe'];
   }
-  if (combined.includes('JPN COPIES ONLY') || combined.includes('JAPAN ONLY')) {
+  if (
+    combined.includes('JPN COPIES ONLY') ||
+    combined.includes('JAPAN ONLY') ||
+    /\(JPN\)/i.test(rawTitle)
+  ) {
     return ['Japan'];
   }
   if (
     combined.includes('USA COPIES ONLY') ||
     combined.includes('US COPIES ONLY') ||
     combined.includes('LRG RELEASE') ||
-    combined.includes('LIMITED RUN')
+    combined.includes('LIMITED RUN') ||
+    /\(USA\)/i.test(rawTitle)
   ) {
     return ['USA'];
   }
-  if (combined.includes('KOR COPIES ONLY') || combined.includes('KOREA ONLY')) {
+  if (
+    combined.includes('KOR COPIES ONLY') ||
+    combined.includes('KOREA ONLY') ||
+    /\(KOR\)/i.test(rawTitle)
+  ) {
     return ['Korea'];
   }
-  if (combined.includes('ASIA COPIES ONLY') || combined.includes('ASIA ONLY')) {
+  if (
+    combined.includes('ASIA COPIES ONLY') ||
+    combined.includes('ASIA ONLY') ||
+    /\(ASI(?:A)?\)/i.test(rawTitle)
+  ) {
     return ['Asia'];
   }
   const titleRegion = extractRegions(rawTitle);
@@ -365,6 +527,125 @@ export function parseSwitchRevisionsCsv(
     }
   }
 
+  // Pass 1b: Main-tab comment expansion & shared 5-character product code base-revision propagation
+  const mainRowsByGameKey = new Map<string, RawSpreadsheetRow[]>();
+  for (const row of parsedMainRows) {
+    const norm = normalizeTitleForMatching(row.gameName);
+    if (!norm) continue;
+    const gKey = `${row.platformId}::${norm}`;
+    let list = mainRowsByGameKey.get(gKey);
+    if (!list) {
+      list = [];
+      mainRowsByGameKey.set(gKey, list);
+    }
+    list.push(row);
+  }
+
+  const synthesizedMainRows: RawSpreadsheetRow[] = [];
+  for (const gameRows of mainRowsByGameKey.values()) {
+    // 1. Comment: "Revisions 000 and 001 are identical" (e.g., Dungeon Encounters)
+    for (const row of gameRows) {
+      if (
+        /^0*1$/.test(row.revisionNum) &&
+        /revisions?\s+000\s+and\s+001\s+are\s+identical/i.test(row.comments)
+      ) {
+        synthesizedMainRows.push({
+          ...row,
+          revisionNum: row.revisionNum.length === 2 ? '00' : '000',
+          isPastRevision: true,
+        });
+      }
+    }
+
+    // 2. Group rows by 5-character Nintendo product code (e.g. AB4PA in LA-H-AB4PA-EUR / LA-H-AB4PA-USA)
+    const rowsByCode5 = new Map<
+      string,
+      Array<{ row: RawSpreadsheetRow; revInt: number }>
+    >();
+    for (const row of gameRows) {
+      const code5 = extractSwitchProductCode5(row.frontCartCode);
+      if (!code5 || !/^\d+$/.test(row.revisionNum)) continue;
+      const revInt = parseInt(row.revisionNum, 10);
+      let group = rowsByCode5.get(code5);
+      if (!group) {
+        group = [];
+        rowsByCode5.set(code5, group);
+      }
+      group.push({ row, revInt });
+    }
+
+    for (const group of rowsByCode5.values()) {
+      if (group.length < 2) continue;
+
+      // Comment: "This includes 000 and 001 cartridges" (e.g., Bloodstained EUR row)
+      const rev1Entry = group.find((g) => g.revInt === 1);
+      if (rev1Entry) {
+        for (const { row, revInt } of group) {
+          if (
+            revInt === 0 &&
+            /includes\s+000\s+and\s+001\s+cartridges/i.test(row.comments)
+          ) {
+            synthesizedMainRows.push({
+              ...row,
+              revisionNum: rev1Entry.row.revisionNum,
+              versionOnCart: rev1Entry.row.versionOnCart,
+            });
+          }
+        }
+      }
+
+      // Find minimum numeric revision in this 5-character product code family
+      let minEntry = group[0];
+      for (const entry of group) {
+        if (entry.revInt < minEntry.revInt) {
+          minEntry = entry;
+        }
+      }
+
+      // Only propagate when the minimum revision is not restricted to a single region
+      if (
+        detectExplicitPastRevisionRegions(minEntry.row.comments, '') !== null ||
+        /only\s+has\s+000/i.test(minEntry.row.comments)
+      ) {
+        continue;
+      }
+
+      // Propagate base revision to sibling regions in the exact same 5-char product code family
+      // that only list a strictly higher revision on the main tab
+      const minRevByRegion = new Map<string, number>();
+      for (const { row, revInt } of group) {
+        const normReg =
+          normalizeSpreadsheetRegion(row.region) || row.region || 'World';
+        const prev = minRevByRegion.get(normReg);
+        if (prev === undefined || revInt < prev) {
+          minRevByRegion.set(normReg, revInt);
+        }
+      }
+
+      for (const { row } of group) {
+        const normReg =
+          normalizeSpreadsheetRegion(row.region) || row.region || 'World';
+        const regionLowest = minRevByRegion.get(normReg);
+        if (
+          regionLowest !== undefined &&
+          regionLowest > minEntry.revInt &&
+          !isLaunchPrintHigherRevisionComment(row.comments)
+        ) {
+          synthesizedMainRows.push({
+            ...row,
+            revisionNum: minEntry.row.revisionNum,
+            versionOnCart: minEntry.row.versionOnCart,
+            downloadAvailable: minEntry.row.downloadAvailable,
+            downloadSize: minEntry.row.downloadSize,
+            isPastRevision: true,
+          });
+          // Mark region as having minEntry.revInt so we only synthesize once per region
+          minRevByRegion.set(normReg, minEntry.revInt);
+        }
+      }
+    }
+  }
+
   // Pass 2: Parse Past Revisions tabs (SW1 gid=609274111, SW2 gid=1855432644)
   for (const { tab, csv } of tabContents) {
     if (!tab.isPastRevisions) continue;
@@ -386,15 +667,30 @@ export function parseSwitchRevisionsCsv(
       const versionOnCart = (row[2] || '').trim();
       const comments = (row[3] || '').trim();
 
-      // Look up base game from main tabs
-      const norm = normalizeTitleForMatching(lastSeenGameName);
-      const baseMeta = baseGamesByPlatform.get(tab.platformId)?.get(norm);
+      // Look up base game from main tabs (supporting known Past Revisions title aliases & region suffixes)
+      const rawNorm = normalizeTitleForMatching(lastSeenGameName);
+      const strippedTitle = lastSeenGameName
+        .replace(/\s*\((?:USA|EUR|JPN|KOR|ASI|ASIA|AUS|WORLD)\)\s*$/i, '')
+        .trim();
+      const strippedNorm = normalizeTitleForMatching(strippedTitle);
+      const resolvedNorm =
+        PAST_REVISION_TITLE_ALIASES[rawNorm] ||
+        PAST_REVISION_TITLE_ALIASES[strippedNorm] ||
+        strippedNorm ||
+        rawNorm;
+      const wasAliasResolved =
+        Boolean(PAST_REVISION_TITLE_ALIASES[rawNorm]) ||
+        Boolean(PAST_REVISION_TITLE_ALIASES[strippedNorm]);
+
+      const baseMeta = baseGamesByPlatform
+        .get(tab.platformId)
+        ?.get(resolvedNorm);
       const explicitRegions = detectExplicitPastRevisionRegions(
         comments,
         lastSeenGameName,
       );
       const cleanRevNum = pastRevNum.trim();
-      const gameName = baseMeta?.rawTitle || lastSeenGameName;
+      const gameName = baseMeta?.rawTitle || strippedTitle || lastSeenGameName;
 
       if (explicitRegions && explicitRegions.length > 0) {
         for (const reg of explicitRegions) {
@@ -405,7 +701,7 @@ export function parseSwitchRevisionsCsv(
             downloadAvailable: 'No',
             downloadSize: 'N/A',
             region: reg,
-            frontCartCode: '',
+            frontCartCode: baseMeta?.regions.get(reg)?.frontCartCode || '',
             comments,
             platformId: tab.platformId,
             isPastRevision: true,
@@ -422,6 +718,51 @@ export function parseSwitchRevisionsCsv(
           frontCartCode: '',
           comments,
           platformId: tab.platformId,
+          isPastRevision: true,
+        });
+
+        // When recovering a dropped Past Revisions row via PAST_REVISION_TITLE_ALIASES,
+        // also materialize regional rows across the base game's cataloged regions.
+        if (wasAliasResolved && baseMeta && baseMeta.regions.size > 0) {
+          for (const [reg, regInfo] of baseMeta.regions.entries()) {
+            parsedPastRows.push({
+              gameName,
+              revisionNum: cleanRevNum,
+              versionOnCart,
+              downloadAvailable: 'No',
+              downloadSize: 'N/A',
+              region: reg,
+              frontCartCode: regInfo.frontCartCode || '',
+              comments,
+              platformId: tab.platformId,
+              isPastRevision: true,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Pass 3: Apply curated SWITCH_IMPLIED_PAST_REVISIONS for retail games whose base Rev 000
+  // rows were overwritten across all regions on the main tab and omitted from Past Revisions
+  const sw1BaseGames = baseGamesByPlatform.get(26);
+  if (sw1BaseGames && sw1BaseGames.size > 0) {
+    for (const implied of SWITCH_IMPLIED_PAST_REVISIONS) {
+      const norm = normalizeTitleForMatching(implied.rawTitle);
+      const baseMeta = sw1BaseGames.get(norm);
+      if (!baseMeta || baseMeta.regions.size === 0) continue;
+
+      for (const [reg, regInfo] of baseMeta.regions.entries()) {
+        parsedPastRows.push({
+          gameName: baseMeta.rawTitle,
+          revisionNum: implied.revisionNum,
+          versionOnCart: implied.versionOnCart,
+          downloadAvailable: 'No',
+          downloadSize: 'N/A',
+          region: reg,
+          frontCartCode: regInfo.frontCartCode || '',
+          comments: implied.comments,
+          platformId: 26,
           isPastRevision: true,
         });
       }
@@ -481,6 +822,7 @@ export function parseSwitchRevisionsCsv(
   };
 
   for (const r of parsedMainRows) processRow(r);
+  for (const r of synthesizedMainRows) processRow(r);
   for (const r of parsedPastRows) processRow(r);
 
   return Array.from(releasesMap.values());
@@ -572,7 +914,9 @@ export function parseNxdumptoolFilename(
     let displayVersion: string | null = null;
     let titleWithoutVersion = rawTitlePart;
 
-    const versionSuffixMatch = rawTitlePart.match(/\s+(\d+(?:\.\d+)+)$/);
+    const versionSuffixMatch = rawTitlePart.match(
+      /\s+v?(\d+(?:\.\d+)+[a-z0-9_-]*)$/i,
+    );
     if (versionSuffixMatch) {
       displayVersion = versionSuffixMatch[1];
       titleWithoutVersion = rawTitlePart

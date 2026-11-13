@@ -111,6 +111,106 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
       expect(acRev4?.region).toBe('Europe');
       expect(acRev4?.publisher).toBe('EUR COPIES ONLY');
     });
+
+    it('propagates base revisions across shared 5-char product codes, parses multi-revision comments, resolves Past Revisions aliases, and applies implied base revisions while respecting distinct regional builds and launch-print comments', () => {
+      const mainTab: SwitchSheetTabConfig = {
+        gid: '1882179329',
+        name: 'S1: Third Party/Indies',
+        platformId: 26,
+      };
+      const mainCsv = [
+        'Game Name,Revision #,Version on Cart,Download Available?,Download Size,Regions,Front Cart Code,Additional Comments,Last Checked',
+        'Bloodstained: Ritual of the Night,000,0.10,Yes,1GB,EUR,LA-H-AB4PA-EUR,This includes 000 and 001 cartridges.,30/05/2024',
+        ',001,1.03,Yes,1GB,USA,LA-H-AB4PA-USA,Download updates to 1.4,30/05/2024',
+        'A Space for the Unbound,000,1.0.0.0,Yes,100MB,JPN,LA-H-A7XPB-JPN,Updates to 1.0.33.0,30/05/2024',
+        ',001,1.0.33.1,No,N/A,USA,LA-H-A7XPA-USA,Complete on cart,30/05/2024',
+        'Animal Well,002,1.0.2,No,N/A,USA,LA-H-BG22A-USA,Revision 002 is probably the only one available,30/05/2024',
+        'Dungeon Encounters,001,1.02,No,N/A,ASIA,LA-H-A3D6A-ASI,"Revisions 000 and 001 are identical, no patch and complete on cart.",30/05/2024',
+        "Luigi's Mansion 3,001,1.2.1,Yes,500MB,USA,LA-H-AG3JA-USA,Updates to 1.4.0,30/05/2024",
+        'Monster Boy and the Cursed Kingdom,002,1.0.5,No,N/A,USA,LA-H-AEUCB-USA,Complete on cart,30/05/2024',
+        'Donkey Kong Country: Tropical Freeze,001,1.0.1,Yes,100MB,USA,LA-H-AFWTA-USA,Updates to 1.0.2,30/05/2024',
+      ].join('\n');
+
+      const pastTab: SwitchSheetTabConfig = {
+        gid: '609274111',
+        name: 'Past Revisions SW1',
+        platformId: 26,
+        isPastRevisions: true,
+      };
+      const pastCsv = [
+        'Game Name,Past Revision #,Version on Cart,Additional Comments',
+        "Luigi's Mansion,000,1.0.0,Base print",
+        'Monster Boy and the Cursed Kingdom (USA),001,1.0.1,USA intermediate print',
+      ].join('\n');
+
+      const releases = parseSwitchRevisionsCsv([
+        { tab: mainTab, csv: mainCsv },
+        { tab: pastTab, csv: pastCsv },
+      ]);
+
+      // 1. Bloodstained (shared AB4PA code + "This includes 000 and 001 cartridges" comment):
+      // Both EUR and USA receive Rev 000 (v0.10) and Rev 001 (v1.03)
+      const bloodstained = releases.filter(
+        (r) => r.raw_title === 'Bloodstained: Ritual of the Night',
+      );
+      expect(
+        bloodstained.map((r) => `${r.region}:${r.variants}`).sort(),
+      ).toEqual([
+        'Europe:Rev 000 (v0.10)',
+        'Europe:Rev 001 (v1.03)',
+        'USA:Rev 000 (v0.10)',
+        'USA:Rev 001 (v1.03)',
+      ]);
+
+      // 2. A Space for the Unbound (distinct 5-char codes A7XPB vs A7XPA):
+      // JPN Rev 000 is NOT falsely propagated to USA
+      const spaceUnbound = releases.filter(
+        (r) => r.raw_title === 'A Space for the Unbound',
+      );
+      expect(
+        spaceUnbound.map((r) => `${r.region}:${r.variants}`).sort(),
+      ).toEqual(['Japan:Rev 000 (v1.0.0.0)', 'USA:Rev 001 (v1.0.33.1)']);
+
+      // 3. Animal Well ("Revision 002 is probably the only one available"):
+      // Does NOT synthesize a false Rev 000
+      const animalWell = releases.filter((r) => r.raw_title === 'Animal Well');
+      expect(animalWell.map((r) => `${r.region}:${r.variants}`)).toEqual([
+        'USA:Rev 002 (v1.0.2)',
+      ]);
+
+      // 4. Dungeon Encounters ("Revisions 000 and 001 are identical"):
+      const dungeonEnc = releases.filter(
+        (r) => r.raw_title === 'Dungeon Encounters',
+      );
+      expect(dungeonEnc.map((r) => `${r.region}:${r.variants}`).sort()).toEqual(
+        ['Asia:Rev 000 (v1.02)', 'Asia:Rev 001 (v1.02)'],
+      );
+
+      // 5. Luigi's Mansion 3 (alias from "Luigi's Mansion" in Past Revisions SW1):
+      const luigi = releases.filter((r) => r.raw_title === "Luigi's Mansion 3");
+      expect(
+        luigi.some(
+          (r) => r.region === 'USA' && r.variants === 'Rev 000 (v1.0.0)',
+        ),
+      ).toBe(true);
+
+      // 6. Monster Boy and the Cursed Kingdom (USA) suffix in Past Revisions:
+      const monsterBoy = releases.filter(
+        (r) => r.raw_title === 'Monster Boy and the Cursed Kingdom',
+      );
+      expect(monsterBoy.map((r) => `${r.region}:${r.variants}`).sort()).toEqual(
+        ['USA:Rev 001 (v1.0.1)', 'USA:Rev 002 (v1.0.5)'],
+      );
+
+      // 7. Donkey Kong Country: Tropical Freeze (SWITCH_IMPLIED_PAST_REVISIONS):
+      const dkctf = releases.filter(
+        (r) => r.raw_title === 'Donkey Kong Country: Tropical Freeze',
+      );
+      expect(dkctf.map((r) => `${r.region}:${r.variants}`).sort()).toEqual([
+        'USA:Rev 000 (v1.0.0)',
+        'USA:Rev 001 (v1.0.1)',
+      ]);
+    });
   });
 
   describe('parseNxdumptoolFilename', () => {
@@ -159,6 +259,37 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
       expect(parsed.segments[1].cleanTitle).toBe('30XX');
       expect(parsed.segments[1].displayVersion).toBe('1.3.6');
       expect(parsed.compositeTitle).toBe('20XX + 30XX');
+    });
+
+    it('should strip v-prefixed and letter-suffixed display versions from titles', () => {
+      const dave = parseNxdumptoolFilename(
+        'DAVE THE DIVER v1.0.2.651 [010097F018538000][v720896] + The Art of DAVE THE DIVER [01005EC01E6A4000][v0] [NKA][NC][NT].xci',
+      );
+      expect(dave.segments[0].cleanTitle).toBe('DAVE THE DIVER');
+      expect(dave.segments[0].displayVersion).toBe('1.0.2.651');
+      expect(dave.compositeTitle).toBe(
+        'DAVE THE DIVER + The Art of DAVE THE DIVER',
+      );
+
+      const ender = parseNxdumptoolFilename(
+        'ENDER LILIES_ Quietus of the Knights 1.1.5c [0100CCF012E9A000][v458752] [NKA][NC][NT].xci',
+      );
+      expect(ender.segments[0].cleanTitle).toBe(
+        'ENDER LILIES: Quietus of the Knights',
+      );
+      expect(ender.segments[0].displayVersion).toBe('1.1.5c');
+
+      const etherborn = parseNxdumptoolFilename(
+        'Etherborn 1.0.3s [01000E200BE10000][v196608] [NKA][NC][NT].xci',
+      );
+      expect(etherborn.segments[0].cleanTitle).toBe('Etherborn');
+      expect(etherborn.segments[0].displayVersion).toBe('1.0.3s');
+
+      const fp2 = parseNxdumptoolFilename(
+        'Freedom Planet 2 1.2.8r [01009A301B6D8000][v196608] [NKA][NC][NT].xci',
+      );
+      expect(fp2.segments[0].cleanTitle).toBe('Freedom Planet 2');
+      expect(fp2.segments[0].displayVersion).toBe('1.2.8r');
     });
   });
 

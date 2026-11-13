@@ -252,15 +252,15 @@ export const GAME_EXTENSIONS = new Set([
 export function stripEditionSuffix(title: string): string {
   return title
     .replace(
-      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|\d+th anniversary|nintendo switch 2)\s*edition/gi,
+      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|nes|\d+th anniversary)\s*edition/gi,
       '',
     )
     .replace(
-      /\s*-\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|nintendo switch 2)\s*edition/gi,
+      /\s*-\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|nes)\s*edition/gi,
       '',
     )
     .replace(
-      /\s+(definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted)\s+edition/gi,
+      /\s+(definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|deathinitive|warmastered|owltimate|fully yoked)\s+edition/gi,
       '',
     )
     .replace(/:\s*(?:ultra\s+)?deluxe$/i, '')
@@ -1199,6 +1199,12 @@ export function matchSwitchNxdumptoolRelease(
       'monument valley: the trilogy',
     "oddworld: new 'n' tasty + oddworld: munch's oddysee + oddworld: stranger's wrath":
       'oddworld collection',
+    'dave the diver + the art of dave the diver':
+      'dave the diver: anniversary edition',
+    'final fantasy + final fantasy ii + final fantasy iii + final fantasy iv + final fantasy v':
+      'final fantasy: pixel remaster collection',
+    'final fantasy + final fantasy ii + final fantasy iii + final fantasy iv + final fantasy v + final fantasy vi':
+      'final fantasy: pixel remaster collection',
   };
 
   // Deduplicate games on this platform by game_id (stable_id)
@@ -1294,22 +1300,40 @@ export function matchSwitchNxdumptoolRelease(
 
     // 3. Shared franchise prefix matching a single `<Franchise>: ... Collection / Trilogy / Pack / Bundle`
     if (matchedGameId === null) {
-      const firstWords = segNorms.map((s) => s.split(/\s+/)[0] || '');
-      const sharedPrefix = firstWords[0];
-      if (
-        sharedPrefix &&
-        sharedPrefix.length >= 3 &&
-        firstWords.every((w) => w === sharedPrefix)
-      ) {
-        const franchiseCollections = platformGames.filter((g) => {
-          const gNorm = normalizeTitleForMatching(g.base_title);
-          return (
-            gNorm.startsWith(`${sharedPrefix} `) &&
-            /\b(collection|trilogy|pack|bundle)\b/i.test(g.base_title)
-          );
-        });
-        if (franchiseCollections.length === 1) {
-          matchedGameId = franchiseCollections[0].stable_id;
+      const segWordArrays = parsed.segments.map((s) =>
+        stripMultiGamePackaging(s.cleanTitle)
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(Boolean),
+      );
+      if (segWordArrays.length > 0 && segWordArrays[0].length > 0) {
+        const firstSegWords = segWordArrays[0];
+        let commonWordCount = 0;
+        while (
+          commonWordCount < firstSegWords.length &&
+          segWordArrays.every(
+            (arr) => arr[commonWordCount] === firstSegWords[commonWordCount],
+          )
+        ) {
+          commonWordCount++;
+        }
+        const sharedPrefixNorm = normalizeTitleForMatching(
+          firstSegWords.slice(0, Math.max(1, commonWordCount)).join(' '),
+        );
+        if (sharedPrefixNorm && sharedPrefixNorm.length >= 3) {
+          const franchiseCollections = platformGames.filter((g) => {
+            const gNorm = normalizeTitleForMatching(g.base_title, true);
+            return (
+              gNorm.startsWith(sharedPrefixNorm) &&
+              /\b(collection|trilogy|pack|bundle|anniversary)\b/i.test(
+                g.base_title,
+              )
+            );
+          });
+          if (franchiseCollections.length === 1) {
+            matchedGameId = franchiseCollections[0].stable_id;
+          }
         }
       }
     }
@@ -2266,8 +2290,7 @@ export function scanBackupEntries(options: {
     game_id: r.game_id,
     title: r.base_title || r.title,
     platform_name: r.platform_name,
-    rom_name:
-      r.rom_name || matchedFileByReleaseId.get(r.id) || formatSkuLabel([r]),
+    rom_name: r.rom_name || formatSkuLabel([r]),
     backup_status: r.backup_status ? 1 : 0,
     ownership_status: r.ownership_status,
     region: r.region,
@@ -2287,18 +2310,31 @@ export function scanBackupEntries(options: {
     }
   }
 
-  const diff = computeBackupNetDiffs(
-    priorReleases,
-    Array.from(gamesById.values()),
-    matchedReleaseIds,
-  );
-
   const ownershipSwitches = computeOwnershipSwitches(
     scannedCatalogReleases,
     matchedReleaseIds,
     matchConfidenceByReleaseId,
     matchedFileByReleaseId,
   );
+
+  const switchFromReleaseIds = new Set<string>();
+  for (const sw of ownershipSwitches) {
+    for (const fid of sw.fromReleaseIds) {
+      switchFromReleaseIds.add(fid);
+    }
+  }
+
+  const diff = computeBackupNetDiffs(
+    priorReleases,
+    Array.from(gamesById.values()),
+    matchedReleaseIds,
+  );
+
+  if (switchFromReleaseIds.size > 0) {
+    diff.releases.lostBackup = diff.releases.lostBackup.filter(
+      (r) => !switchFromReleaseIds.has(r.id),
+    );
+  }
 
   return {
     rootFolderName,

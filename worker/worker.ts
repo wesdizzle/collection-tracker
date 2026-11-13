@@ -62,6 +62,7 @@ import {
   fetchSwitchSpreadsheetTabs,
   parseSwitchRevisionsCsv,
 } from '../shared/switch_revisions';
+import { stripEditionSuffix } from '../shared/backup_scanner';
 import { normalizeTitleForMatching } from '../shared/title_matching';
 import { MULTI_POSE_AMIIBO_EXPANSIONS } from '../shared/amiibo_poses';
 import { computeGameCanonicalSeries } from '../shared/canonical_series';
@@ -7429,10 +7430,9 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
 }> {
   const tabContents = await fetchSwitchSpreadsheetTabs();
 
-  // Compute SHA-256 hash of all tab CSV contents combined
-  const combinedCsv = tabContents
-    .map((t) => `${t.tab.gid}:${t.csv}`)
-    .join('||');
+  // Compute SHA-256 hash of all tab CSV contents combined (prefixed with parser schema version)
+  const combinedCsv =
+    'v2||' + tabContents.map((t) => `${t.tab.gid}:${t.csv}`).join('||');
   const encoder = new TextEncoder();
   const data = encoder.encode(combinedCsv);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -7492,15 +7492,15 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
     existingMap.set(key, r);
   }
 
-  const incomingKeys = new Set<string>();
+  // Preserve historical canonical_releases rows as an append-only ledger so revisions
+  // overwritten on the main spreadsheet tab without a Past Revisions entry are never lost.
   const statements: D1PreparedStatement[] = [];
   let added = 0;
   let updated = 0;
-  let deleted = 0;
+  const deleted = 0;
 
   for (const rel of canonicalReleases) {
     const key = `${rel.platform_id}::${rel.normalized_title}::${rel.region || 'World'}::${rel.variants || 'Standard'}`;
-    incomingKeys.add(key);
     const existing = existingMap.get(key);
     if (!existing) {
       statements.push(
@@ -7529,27 +7529,17 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
     }
   }
 
-  for (const [key, existing] of existingMap.entries()) {
-    if (!incomingKeys.has(key)) {
-      statements.push(
-        env.DB.prepare('DELETE FROM canonical_releases WHERE id = ?').bind(
-          existing.id,
-        ),
-      );
-      deleted++;
-    }
-  }
-
   // Execute in batches of 100 statements
   for (let i = 0; i < statements.length; i += 100) {
     await env.DB.batch(statements.slice(i, i + 100));
   }
 
-  // Update physical_status on Switch games
+  // Update physical_status on Switch games and materialize any missing regional revisions into game_releases
   const gamesRes = await env.DB.prepare(
-    'SELECT stable_id, title, platform_id, physical_status FROM games WHERE platform_id IN (26, 27)',
+    'SELECT stable_id, id, title, platform_id, physical_status FROM games WHERE platform_id IN (26, 27)',
   ).all<{
     stable_id: number;
+    id: string;
     title: string;
     platform_id: number;
     physical_status: string | null;
@@ -7564,8 +7554,10 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
   let verifiedGames = 0;
   for (const g of gamesRes.results || []) {
     const norm = normalizeTitleForMatching(g.title);
+    const strippedNorm = normalizeTitleForMatching(stripEditionSuffix(g.title));
     if (
-      canonicalByPlatformNorm.has(`${g.platform_id}::${norm}`) &&
+      (canonicalByPlatformNorm.has(`${g.platform_id}::${norm}`) ||
+        canonicalByPlatformNorm.has(`${g.platform_id}::${strippedNorm}`)) &&
       g.physical_status !== 'verified_physical'
     ) {
       gameStatements.push(
@@ -7577,8 +7569,107 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
     }
   }
 
+  if (added > 0) {
+    const [allCanonicalRes, existingGameRelsRes] = await Promise.all([
+      env.DB.prepare(
+        "SELECT id, platform_id, normalized_title, region, variants FROM canonical_releases WHERE platform_id IN (26, 27) AND source = 'nintendo_revised'",
+      ).all<{
+        id: number;
+        platform_id: number;
+        normalized_title: string;
+        region: string | null;
+        variants: string | null;
+      }>(),
+      env.DB.prepare(
+        'SELECT gr.id, gr.game_id, gr.region, gr.variants, gr.canonical_release_id FROM game_releases gr JOIN games g ON g.stable_id = gr.game_id WHERE g.platform_id IN (26, 27)',
+      ).all<{
+        id: string;
+        game_id: number;
+        region: string | null;
+        variants: string | null;
+        canonical_release_id: number | null;
+      }>(),
+    ]);
+
+    const canonicalByKey = new Map<
+      string,
+      Array<(typeof allCanonicalRes.results)[0]>
+    >();
+    for (const cr of allCanonicalRes.results || []) {
+      const k = `${cr.platform_id}::${cr.normalized_title}`;
+      let list = canonicalByKey.get(k);
+      if (!list) {
+        list = [];
+        canonicalByKey.set(k, list);
+      }
+      list.push(cr);
+    }
+
+    const existingRelSet = new Set<string>();
+    const unlinkedByGameReg = new Map<string, string>();
+    for (const gr of existingGameRelsRes.results || []) {
+      existingRelSet.add(
+        `${gr.game_id}::${gr.region || 'World'}::${gr.variants || 'Standard'}`,
+      );
+      if (!gr.variants && !gr.canonical_release_id) {
+        unlinkedByGameReg.set(`${gr.game_id}::${gr.region || 'USA'}`, gr.id);
+      }
+    }
+
+    const slugify = (s: string) =>
+      (s || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    for (const g of gamesRes.results || []) {
+      const norm = normalizeTitleForMatching(g.title);
+      const strippedNorm = normalizeTitleForMatching(
+        stripEditionSuffix(g.title),
+      );
+      const rawCrs =
+        canonicalByKey.get(`${g.platform_id}::${norm}`) ||
+        canonicalByKey.get(`${g.platform_id}::${strippedNorm}`) ||
+        [];
+      const crs = rawCrs
+        .slice()
+        .sort((a, b) => (a.variants || '').localeCompare(b.variants || ''));
+      for (const cr of crs) {
+        const reg = cr.region || 'World';
+        if (reg === 'World') continue;
+        const relKey = `${g.stable_id}::${reg}::${cr.variants || 'Standard'}`;
+        if (existingRelSet.has(relKey)) continue;
+
+        const unlinkedRelId = unlinkedByGameReg.get(`${g.stable_id}::${reg}`);
+        if (unlinkedRelId && (cr.variants || '').startsWith('Rev 000')) {
+          existingRelSet.add(relKey);
+          unlinkedByGameReg.delete(`${g.stable_id}::${reg}`);
+          gameStatements.push(
+            env.DB.prepare(
+              'UPDATE game_releases SET variants = ?, canonical_release_id = ? WHERE id = ?',
+            ).bind(cr.variants, cr.id, unlinkedRelId),
+          );
+          continue;
+        }
+
+        existingRelSet.add(relKey);
+        const relId = `${g.id}-rev-${slugify(reg)}-${slugify(cr.variants || 'standard')}`;
+        gameStatements.push(
+          env.DB.prepare(
+            `INSERT INTO game_releases (id, game_id, region, variants, canonical_release_id)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO NOTHING`,
+          ).bind(relId, g.stable_id, reg, cr.variants, cr.id),
+        );
+      }
+    }
+  }
+
   for (let i = 0; i < gameStatements.length; i += 100) {
     await env.DB.batch(gameStatements.slice(i, i + 100));
+  }
+  if (gameStatements.length > 0) {
+    await markDbDirty(env);
   }
 
   // Save new hash into sync_state

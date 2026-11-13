@@ -1263,7 +1263,196 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
       expect(
         report.matchConfidenceByReleaseId.get('zelda-tp-hd-usa-default'),
       ).toBe('clean_fallback');
+      expect(report.ownershipSwitches).toBeDefined();
       expect(report.ownershipSwitches).toHaveLength(0);
+    });
+
+    it('matches Darkest Dungeon Ancestral Edition, Dave the Diver Anniversary Edition, truncated Final Fantasy I-VI, and letter-suffixed Switch versions while deduplicating ownership switches from lostBackup and preserving SKU labels', () => {
+      const switchCatalog: CatalogReleaseCandidate[] = [
+        {
+          id: 'dd-ancestral-usa',
+          game_id: 3001,
+          title: 'Darkest Dungeon: Ancestral Edition',
+          base_title: 'Darkest Dungeon: Ancestral Edition',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.0)',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'dave-diver-usa',
+          game_id: 3002,
+          title: 'Dave the Diver: Anniversary Edition',
+          base_title: 'Dave the Diver: Anniversary Edition',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.2.651)',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'ff-pixel-usa',
+          game_id: 3003,
+          title: 'Final Fantasy: Pixel Remaster Collection',
+          base_title: 'Final Fantasy: Pixel Remaster Collection',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.0)',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'ender-lilies-usa',
+          game_id: 3004,
+          title: 'Ender Lilies: Quietus of the Knights',
+          base_title: 'Ender Lilies: Quietus of the Knights',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 002 (v1.1.5c)',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'etherborn-usa',
+          game_id: 3005,
+          title: 'Etherborn',
+          base_title: 'Etherborn',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.0.3s)',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'fp2-usa',
+          game_id: 3006,
+          title: 'Freedom Planet 2',
+          base_title: 'Freedom Planet 2',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v1.2.8r)',
+          ownership_status: 1,
+          backup_status: 0,
+        },
+        {
+          id: 'bloodstained-usa-rev1',
+          game_id: 3007,
+          title: 'Bloodstained: Ritual of the Night',
+          base_title: 'Bloodstained: Ritual of the Night',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 001 (v1.03)',
+          ownership_status: 1,
+          backup_status: 1,
+          has_case: 1,
+        },
+        {
+          id: 'bloodstained-usa-rev0',
+          game_id: 3007,
+          title: 'Bloodstained: Ritual of the Night',
+          base_title: 'Bloodstained: Ritual of the Night',
+          platform_id: 26,
+          platform_name: 'Nintendo Switch',
+          rom_name: null,
+          region: 'USA',
+          variants: 'Rev 000 (v0.10)',
+          ownership_status: 0,
+          backup_status: 0,
+        },
+      ];
+
+      const report = scanBackupEntries({
+        rootFolderName: 'Nintendo Switch',
+        platforms: mockPlatforms,
+        catalogReleases: switchCatalog,
+        entries: [
+          {
+            relativePath:
+              'Nintendo Switch/Darkest Dungeon [01008A700989A000][v0] [NKA][NC][NT].xci',
+            fileName:
+              'Darkest Dungeon [01008A700989A000][v0] [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Nintendo Switch/DAVE THE DIVER v1.0.2.651 [010097F018538000][v720896] + The Art of DAVE THE DIVER [01005EC01E6A4000][v0] [NKA][NC][NT].xci',
+            fileName:
+              'DAVE THE DIVER v1.0.2.651 [010097F018538000][v720896] + The Art of DAVE THE DIVER [01005EC01E6A4000][v0] [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Nintendo Switch/FINAL FANTASY [01000EA014150000][v0] + FINAL FANTASY II [01006B7014156000][v0] + FINAL FANTASY III [01002E2014158000][v0] + FINAL FANTASY IV [01004B301415A000][v65536] + FINAL FANTASY V [0100AA201415C000][v65536] + FINAL FANTASY VI [0100 [NKA][NC][NT].xci',
+            fileName:
+              'FINAL FANTASY [01000EA014150000][v0] + FINAL FANTASY II [01006B7014156000][v0] + FINAL FANTASY III [01002E2014158000][v0] + FINAL FANTASY IV [01004B301415A000][v65536] + FINAL FANTASY V [0100AA201415C000][v65536] + FINAL FANTASY VI [0100 [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Nintendo Switch/ENDER LILIES_ Quietus of the Knights 1.1.5c [0100CCF012E9A000][v458752] [NKA][NC][NT].xci',
+            fileName:
+              'ENDER LILIES_ Quietus of the Knights 1.1.5c [0100CCF012E9A000][v458752] [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Nintendo Switch/Etherborn 1.0.3s [01000E200BE10000][v196608] [NKA][NC][NT].xci',
+            fileName:
+              'Etherborn 1.0.3s [01000E200BE10000][v196608] [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Nintendo Switch/Freedom Planet 2 1.2.8r [01009A301B6D8000][v196608] [NKA][NC][NT].xci',
+            fileName:
+              'Freedom Planet 2 1.2.8r [01009A301B6D8000][v196608] [NKA][NC][NT].xci',
+          },
+          {
+            relativePath:
+              'Nintendo Switch/Bloodstained_ Ritual of the Night [0100BF500207C000][v0] [NKA][NC][NT].xci',
+            fileName:
+              'Bloodstained_ Ritual of the Night [0100BF500207C000][v0] [NKA][NC][NT].xci',
+          },
+        ],
+      });
+
+      expect(report.ignoredUnmatchedFiles).toHaveLength(0);
+      expect(report.matchedReleaseIds.has('dd-ancestral-usa')).toBe(true);
+      expect(report.matchedReleaseIds.has('dave-diver-usa')).toBe(true);
+      expect(report.matchedReleaseIds.has('ff-pixel-usa')).toBe(true);
+      expect(report.matchedReleaseIds.has('ender-lilies-usa')).toBe(true);
+      expect(report.matchedReleaseIds.has('etherborn-usa')).toBe(true);
+      expect(report.matchedReleaseIds.has('fp2-usa')).toBe(true);
+      expect(report.matchedReleaseIds.has('bloodstained-usa-rev0')).toBe(true);
+
+      // Bloodstained proposes same-region switch USA Rev 001 -> USA Rev 000 (pre-selected)
+      expect(report.ownershipSwitches).toHaveLength(1);
+      expect(report.ownershipSwitches[0]).toMatchObject({
+        gameId: 3007,
+        fromReleaseIds: ['bloodstained-usa-rev1'],
+        toReleaseIds: ['bloodstained-usa-rev0'],
+        isRegionChange: false,
+        defaultSelected: true,
+      });
+
+      // Bloodstained's old release ('bloodstained-usa-rev1') is NOT duplicated in lostBackup
+      expect(report.diff.releases.lostBackup).toHaveLength(0);
+
+      // Newly backed up rows without a database rom_name display their SKU label (region • version)
+      const ddRow = report.diff.releases.newlyBackedUp.find(
+        (r) => r.id === 'dd-ancestral-usa',
+      );
+      expect(ddRow?.rom_name).toBe('USA • Rev 000 (v1.0.0)');
     });
   });
 
