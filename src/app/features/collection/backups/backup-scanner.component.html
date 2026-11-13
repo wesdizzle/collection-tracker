@@ -609,6 +609,85 @@
 
       <details class="scanner-details">
         <summary>
+          Already Synced (1 → 1) ({{ filteredUnchangedReleases().length }})
+        </summary>
+        <div class="details-body">
+          <p class="details-helper">
+            Releases already marked backed up that this scan confirmed again. No
+            changes are applied for these.
+          </p>
+          @if (filteredUnchangedReleases().length === 0) {
+            <p class="empty-section-note">No already-synced releases.</p>
+          } @else {
+            <div class="diff-table-wrapper">
+              <table class="diff-table">
+                <thead>
+                  <tr>
+                    <th>Game</th>
+                    <th>Platform</th>
+                    <th>Catalog Release / ROM</th>
+                    <th>Matched File</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (r of filteredUnchangedReleases(); track r.id) {
+                    <tr>
+                      <td>{{ r.title }}</td>
+                      <td>{{ r.platform_name }}</td>
+                      <td class="cell-mono">{{ r.rom_name }}</td>
+                      <td class="cell-mono text-muted">
+                        {{ r.matched_filename }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      </details>
+
+      @if (filteredDuplicateFiles().length > 0) {
+        <details class="scanner-details">
+          <summary>
+            Duplicate Matches ({{ filteredDuplicateFiles().length }})
+          </summary>
+          <div class="details-body">
+            <p class="details-helper">
+              These files matched a catalog release that an earlier file had
+              already matched, so they did not change anything. Check them for
+              misidentified dumps.
+            </p>
+            <div class="diff-table-wrapper">
+              <table class="diff-table">
+                <thead>
+                  <tr>
+                    <th>Platform</th>
+                    <th>Filename</th>
+                    <th>Release</th>
+                    <th>First Matched File</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (f of filteredDuplicateFiles(); track f.relativePath) {
+                    <tr>
+                      <td>{{ f.platformName }}</td>
+                      <td class="cell-mono">{{ f.fileName }}</td>
+                      <td class="cell-mono">{{ f.releaseId }}</td>
+                      <td class="cell-mono text-muted">
+                        {{ f.firstMatchedFile }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      }
+
+      <details class="scanner-details">
+        <summary>
           Ignored Unmatched Files ({{ filteredIgnoredFiles().length }})
         </summary>
         <div class="details-body">

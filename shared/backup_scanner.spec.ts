@@ -1456,6 +1456,86 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
     });
   });
 
+  describe('shared-CRC propagation, duplicate matches & already-synced list', () => {
+    const me3Catalog: CatalogReleaseCandidate[] = [
+      {
+        id: 'me3-standalone-d1',
+        game_id: 7001,
+        title: 'Mass Effect 3',
+        base_title: 'Mass Effect 3',
+        platform_id: 48,
+        platform_name: 'Xbox 360',
+        rom_name:
+          'Mass Effect 3 (World) (En,Ja,Fr,De,Es,It,Pl,Ru) (Disc 1).iso',
+        rom_crc: '20b2108a',
+        region: 'World',
+        ownership_status: 1,
+        backup_status: 1,
+      },
+      {
+        id: 'me-trilogy-d1',
+        game_id: 7002,
+        title: 'Mass Effect Trilogy',
+        base_title: 'Mass Effect Trilogy',
+        platform_id: 48,
+        platform_name: 'Xbox 360',
+        rom_name:
+          'Mass Effect 3 (World) (En,Ja,Fr,De,Es,It,Pl,Ru) (Disc 1).iso',
+        rom_crc: '20b2108a',
+        region: 'USA, Europe',
+        ownership_status: 2,
+        backup_status: 0,
+      },
+    ];
+    const x360: PlatformRow = {
+      id: 48,
+      name: 'xbox-360',
+      display_name: 'Xbox 360',
+      brand: 'Microsoft',
+      launch_date: '2005-11-22',
+      parent_platform_id: null,
+    };
+
+    it('does not propagate a shared-CRC match to a Seeking compilation, lists already-synced releases, and records duplicate file matches', () => {
+      const file =
+        'Mass Effect 3 (World) (En,Ja,Fr,De,Es,It,Pl,Ru) (Disc 1).iso';
+      const report = scanBackupEntries({
+        rootFolderName: 'Xbox 360',
+        platforms: [x360],
+        catalogReleases: me3Catalog,
+        entries: [
+          { relativePath: `Xbox 360/${file}`, fileName: file },
+          { relativePath: `Xbox 360/copy/${file}`, fileName: file },
+        ],
+      });
+
+      expect(report.matchedReleaseIds.has('me3-standalone-d1')).toBe(true);
+      expect(report.matchedReleaseIds.has('me-trilogy-d1')).toBe(false);
+      expect(report.diff.releases.newlyBackedUp).toHaveLength(0);
+      expect(report.unchangedBackedUpReleases.map((r) => r.id)).toEqual([
+        'me3-standalone-d1',
+      ]);
+      expect(report.duplicateMatchedFiles).toHaveLength(1);
+      expect(report.duplicateMatchedFiles[0].releaseId).toBe(
+        'me3-standalone-d1',
+      );
+    });
+
+    it('still propagates a shared-CRC match to an owned compilation', () => {
+      const file =
+        'Mass Effect 3 (World) (En,Ja,Fr,De,Es,It,Pl,Ru) (Disc 1).iso';
+      const report = scanBackupEntries({
+        rootFolderName: 'Xbox 360',
+        platforms: [x360],
+        catalogReleases: me3Catalog.map((r) =>
+          r.id === 'me-trilogy-d1' ? { ...r, ownership_status: 1 } : r,
+        ),
+        entries: [{ relativePath: `Xbox 360/${file}`, fileName: file }],
+      });
+      expect(report.matchedReleaseIds.has('me-trilogy-d1')).toBe(true);
+    });
+  });
+
   describe('computeBackupNetDiffs & Markdown Diff Generation', () => {
     const priorReleases: ReleaseDiffRow[] = [
       {

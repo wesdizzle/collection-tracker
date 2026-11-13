@@ -154,6 +154,14 @@ export interface IgnoredBackupFile {
   reason: 'unmatched_catalog_release' | 'unrecognized_platform_folder';
 }
 
+export interface DuplicateMatchedFile {
+  relativePath: string;
+  fileName: string;
+  platformName: string;
+  releaseId: string;
+  firstMatchedFile: string;
+}
+
 export interface BackupScanReport {
   rootFolderName: string;
   detectedMode: 'multi_platform_root' | 'single_platform' | 'platform_override';
@@ -172,6 +180,10 @@ export interface BackupScanReport {
   diff: NetDiffResult;
   ownershipSwitches: OwnershipSwitchProposal[];
   ignoredUnmatchedFiles: IgnoredBackupFile[];
+  /** Files whose best match was a release already matched by an earlier file. */
+  duplicateMatchedFiles: DuplicateMatchedFile[];
+  /** Releases already backed up that were confirmed again by this scan (1 → 1). */
+  unchangedBackedUpReleases: ReleaseDiffRow[];
 }
 
 /**
@@ -2156,6 +2168,7 @@ export function scanBackupEntries(options: {
   const matchedReleaseIds = new Set<string>();
   const matchedFileByReleaseId = new Map<string, string>();
   const matchConfidenceByReleaseId = new Map<string, ReleaseMatchConfidence>();
+  const duplicateMatchedFiles: DuplicateMatchedFile[] = [];
   const scannedPlatformsSummary: Array<{
     id: number;
     name: string;
@@ -2238,11 +2251,20 @@ export function scanBackupEntries(options: {
           matchConfidenceByReleaseId.set(matched.id, confidence);
           platMatchedReleases++;
           totalMatchedReleases++;
-        } else if (
-          confidence === 'exact' &&
-          matchConfidenceByReleaseId.get(matched.id) !== 'exact'
-        ) {
-          matchConfidenceByReleaseId.set(matched.id, 'exact');
+        } else {
+          duplicateMatchedFiles.push({
+            relativePath: entry.relativePath,
+            fileName: entry.fileName,
+            platformName: platformDisplayName,
+            releaseId: matched.id,
+            firstMatchedFile: matchedFileByReleaseId.get(matched.id) || '',
+          });
+          if (
+            confidence === 'exact' &&
+            matchConfidenceByReleaseId.get(matched.id) !== 'exact'
+          ) {
+            matchConfidenceByReleaseId.set(matched.id, 'exact');
+          }
         }
 
         // Propagate shared rom_crc across identical-hash sibling releases of the same game or owned compilations
@@ -2251,8 +2273,7 @@ export function scanBackupEntries(options: {
             (r) =>
               r.rom_crc === matched.rom_crc &&
               !matchedReleaseIds.has(r.id) &&
-              (r.game_id === matched.game_id ||
-                (r.ownership_status !== undefined && r.ownership_status > 0)),
+              (r.game_id === matched.game_id || r.ownership_status === 1),
           );
           for (const dup of identicalHashReleases) {
             matchedReleaseIds.add(dup.id);
@@ -2351,5 +2372,9 @@ export function scanBackupEntries(options: {
     diff,
     ownershipSwitches,
     ignoredUnmatchedFiles,
+    duplicateMatchedFiles,
+    unchangedBackedUpReleases: priorReleases.filter(
+      (r) => r.backup_status === 1 && matchedReleaseIds.has(r.id),
+    ),
   };
 }

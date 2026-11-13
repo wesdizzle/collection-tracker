@@ -20,6 +20,7 @@ import {
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import {
   BackupScanReport,
+  DuplicateMatchedFile,
   IgnoredBackupFile,
   OwnershipSwitchProposal,
   ReleaseDiffRow,
@@ -157,6 +158,34 @@ export class BackupScannerComponent implements OnInit {
         f.fileName.toLowerCase().includes(q) ||
         f.relativePath.toLowerCase().includes(q) ||
         (f.platformName && f.platformName.toLowerCase().includes(q)),
+    );
+  });
+
+  public filteredUnchangedReleases = computed<ReleaseDiffRow[]>(() => {
+    const report = this.scanReport();
+    if (!report) return [];
+    const rows = report.unchangedBackedUpReleases ?? [];
+    const q = this.searchQuery().trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) =>
+        r.title.toLowerCase().includes(q) ||
+        r.platform_name.toLowerCase().includes(q) ||
+        (r.matched_filename ?? '').toLowerCase().includes(q),
+    );
+  });
+
+  public filteredDuplicateFiles = computed<DuplicateMatchedFile[]>(() => {
+    const report = this.scanReport();
+    if (!report) return [];
+    const rows = report.duplicateMatchedFiles ?? [];
+    const q = this.searchQuery().trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (f) =>
+        f.fileName.toLowerCase().includes(q) ||
+        f.releaseId.toLowerCase().includes(q) ||
+        f.platformName.toLowerCase().includes(q),
     );
   });
 
