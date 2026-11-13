@@ -246,14 +246,12 @@ CREATE INDEX IF NOT EXISTS idx_games_physical_status ON games (physical_status);
 CREATE INDEX IF NOT EXISTS idx_games_retail_on_sale ON games (retail_on_sale);
 CREATE INDEX IF NOT EXISTS idx_games_title_nocase ON games (title COLLATE NOCASE);
 
-CREATE INDEX IF NOT EXISTS idx_canonical_crc ON canonical_releases (rom_crc);
 CREATE INDEX IF NOT EXISTS idx_canonical_normalized_title ON canonical_releases (normalized_title);
 CREATE INDEX IF NOT EXISTS idx_canonical_platform_norm ON canonical_releases (platform_id, normalized_title);
 CREATE INDEX IF NOT EXISTS idx_canonical_releases_packin_host
     ON canonical_releases (platform_id, packin_host_normalized_title)
     WHERE packin_host_normalized_title IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_canonical_rom_name ON canonical_releases (rom_name);
-CREATE INDEX IF NOT EXISTS idx_canonical_serial ON canonical_releases (serial_code);
 
 CREATE INDEX IF NOT EXISTS idx_game_releases_canonical_release_id ON game_releases (canonical_release_id);
 CREATE INDEX IF NOT EXISTS idx_game_releases_game_id ON game_releases (game_id);

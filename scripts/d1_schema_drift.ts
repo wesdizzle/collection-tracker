@@ -28,15 +28,11 @@ const reportOnly = process.argv.includes('--report');
 const IGNORED = new Set(['d1_migrations', 'sqlite_sequence']);
 
 /**
- * Known, deliberately accepted drift. Creating these remotely costs one billable write per
- * canonical_releases row (very large table), and seeding works via idx_canonical_normalized_title.
+ * Known, deliberately accepted drift. Creating this remotely costs one billable write per
+ * canonical_releases row (83k+ rows), and seeding works via idx_canonical_normalized_title.
  * Reported as warnings, not failures.
  */
-const ACCEPTED_MISSING = new Set([
-  'index:idx_canonical_crc',
-  'index:idx_canonical_platform_norm',
-  'index:idx_canonical_serial',
-]);
+const ACCEPTED_MISSING = new Set(['index:idx_canonical_platform_norm']);
 const isIgnored = (name: string) =>
   IGNORED.has(name) ||
   name.startsWith('sqlite_autoindex_') ||
