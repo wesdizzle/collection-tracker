@@ -225,4 +225,54 @@ describe('BackupScannerComponent', () => {
     fixture.detectChanges();
     expect(component.isPlatformDropdownOpen()).toBe(false);
   });
+
+  it('supports declaring unowned newly backed up releases as owned with case and manual checkboxes', () => {
+    const mockFileList = [
+      {
+        name: 'Chrono Trigger (USA).sfc',
+        webkitRelativePath: 'SNES/Chrono Trigger (USA).sfc',
+      },
+      {
+        name: 'Chrono Trigger (Japan).sfc',
+        webkitRelativePath: 'SNES/Chrono Trigger (Japan).sfc',
+      },
+    ];
+
+    const crawl =
+      component.backupScannerService.crawlFromFileList(mockFileList);
+    component['applyCrawlResult'](crawl);
+    fixture.detectChanges();
+
+    // ct-jpn is unowned (ownership_status: 0) and newly backed up
+    expect(component.isSetSelected('ct-jpn')).toBe(true);
+    expect(component.isDeclaredOwned('ct-jpn')).toBe(false);
+    expect(component.isDeclaredCase('ct-jpn')).toBe(false);
+    expect(component.isDeclaredManual('ct-jpn')).toBe(false);
+
+    // Checking Case auto-checks Owned and ensures Apply is checked
+    component.toggleDeclareCase('ct-jpn', true);
+    expect(component.isDeclaredOwned('ct-jpn')).toBe(true);
+    expect(component.isDeclaredCase('ct-jpn')).toBe(true);
+    expect(component.isDeclaredManual('ct-jpn')).toBe(false);
+
+    // Checking Manual keeps Owned checked
+    component.toggleDeclareManual('ct-jpn', true);
+    expect(component.isDeclaredManual('ct-jpn')).toBe(true);
+
+    component.onApplySelectedDiff();
+    expect(applyDiffSpy).toHaveBeenCalledWith({
+      setBackedUp: ['ct-jpn'],
+      clearBackedUp: [],
+      ownershipTransfers: [],
+      ownershipDeclarations: [
+        { releaseId: 'ct-jpn', hasCase: 1, hasManual: 1 },
+      ],
+    });
+
+    // Unchecking Owned clears Case and Manual
+    component.toggleDeclareOwned('ct-jpn', false);
+    expect(component.isDeclaredOwned('ct-jpn')).toBe(false);
+    expect(component.isDeclaredCase('ct-jpn')).toBe(false);
+    expect(component.isDeclaredManual('ct-jpn')).toBe(false);
+  });
 });

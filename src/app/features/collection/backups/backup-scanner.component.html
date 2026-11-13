@@ -185,9 +185,13 @@
         <span>
           Backup sync applied:
           <strong>{{ applied.setCount }}</strong> newly backed up,
-          <strong>{{ applied.clearCount }}</strong> cleared, and
+          <strong>{{ applied.clearCount }}</strong> cleared,
           <strong>{{ applied.transferredCount }}</strong> ownership
-          {{ applied.transferredCount === 1 ? 'switch' : 'switches' }}.
+          {{ applied.transferredCount === 1 ? 'switch' : 'switches' }}
+          @if (applied.declaredOwnedCount > 0) {
+            , and <strong>{{ applied.declaredOwnedCount }}</strong> marked owned
+          }
+          .
         </span>
       </div>
     }
@@ -440,6 +444,22 @@
             >
               Deselect All
             </button>
+            @if (unownedNewlyBackedUpCount() > 0) {
+              <button
+                type="button"
+                class="btn-inline"
+                (click)="setAllUnownedAsOwned(true)"
+              >
+                Mark All Owned
+              </button>
+              <button
+                type="button"
+                class="btn-inline"
+                (click)="setAllUnownedAsOwned(false)"
+              >
+                Clear Owned
+              </button>
+            }
           </div>
         }
       </div>
@@ -458,6 +478,9 @@
                 <th>Game Title</th>
                 <th>Catalog Release / ROM</th>
                 <th>Matched Local File</th>
+                <th class="col-check">Owned</th>
+                <th class="col-check">Case</th>
+                <th class="col-check">Manual</th>
               </tr>
             </thead>
             <tbody>
@@ -476,10 +499,74 @@
                   <td>
                     <span class="platform-pill">{{ rel.platform_name }}</span>
                   </td>
-                  <td class="cell-title">{{ rel.title }}</td>
+                  <td class="cell-title">
+                    <span>{{ rel.title }}</span>
+                    @if (rel.ownership_status !== 1) {
+                      <span class="ownership-hint-pill">
+                        {{
+                          rel.ownership_status === 2 ||
+                          rel.ownership_status === 4
+                            ? 'Seeking'
+                            : 'Unowned'
+                        }}
+                      </span>
+                    }
+                  </td>
                   <td class="cell-mono">{{ rel.rom_name }}</td>
                   <td class="cell-mono">
                     {{ rel.matched_filename || rel.rom_name }}
+                  </td>
+                  <td class="col-check">
+                    @if (rel.ownership_status === 1) {
+                      <span class="owned-badge">Owned</span>
+                    } @else {
+                      <input
+                        type="checkbox"
+                        [checked]="isDeclaredOwned(rel.id)"
+                        (change)="
+                          toggleDeclareOwned(
+                            rel.id,
+                            $any($event.target).checked
+                          )
+                        "
+                        [attr.aria-label]="'Mark owned: ' + rel.title"
+                      />
+                    }
+                  </td>
+                  <td class="col-check">
+                    @if (rel.ownership_status === 1) {
+                      <span class="text-muted">{{
+                        rel.has_case === 1 ? '✓' : '—'
+                      }}</span>
+                    } @else {
+                      <input
+                        type="checkbox"
+                        [checked]="isDeclaredCase(rel.id)"
+                        (change)="
+                          toggleDeclareCase(rel.id, $any($event.target).checked)
+                        "
+                        [attr.aria-label]="'Has case: ' + rel.title"
+                      />
+                    }
+                  </td>
+                  <td class="col-check">
+                    @if (rel.ownership_status === 1) {
+                      <span class="text-muted">{{
+                        rel.has_manual === 1 ? '✓' : '—'
+                      }}</span>
+                    } @else {
+                      <input
+                        type="checkbox"
+                        [checked]="isDeclaredManual(rel.id)"
+                        (change)="
+                          toggleDeclareManual(
+                            rel.id,
+                            $any($event.target).checked
+                          )
+                        "
+                        [attr.aria-label]="'Has manual: ' + rel.title"
+                      />
+                    }
                   </td>
                 </tr>
               }

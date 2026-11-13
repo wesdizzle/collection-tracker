@@ -4625,6 +4625,7 @@ describe('Worker API Logic', () => {
           setCount: 1,
           clearCount: 1,
           transferredCount: 0,
+          declaredOwnedCount: 0,
         });
 
         const aliceRows = db
@@ -4727,6 +4728,7 @@ describe('Worker API Logic', () => {
           setCount: 1,
           clearCount: 0,
           transferredCount: 1,
+          declaredOwnedCount: 0,
         });
 
         const ff7Rels = db
@@ -4837,6 +4839,95 @@ describe('Worker API Logic', () => {
         expect(res.status).toBe(400);
         const err = (await res.json()) as { error: string };
         expect(err.error).toContain('same game');
+      });
+
+      it('declares ownership with has_case and has_manual via ownershipDeclarations without clearing existing flags', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id)
+          VALUES (60, 'metroid-snes', 'Super Metroid', 1);
+          INSERT INTO game_releases (id, game_id, region, variants, rom_name)
+          VALUES ('sm-usa', 60, 'USA', null, 'Super Metroid (USA).sfc'),
+                 ('sm-jpn', 60, 'Japan', null, 'Super Metroid (Japan).sfc');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+          VALUES (1, 'sm-jpn', 2, 0, 0, 1);
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'user',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        const res = await worker.fetch(
+          new Request('http://localhost/api/collection/backups/apply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: `${SESSION_COOKIE}=${token}`,
+            },
+            body: JSON.stringify({
+              setBackedUp: ['sm-usa', 'sm-jpn'],
+              clearBackedUp: [],
+              ownershipDeclarations: [
+                { releaseId: 'sm-usa', hasCase: 1, hasManual: 0 },
+                { releaseId: 'sm-jpn', hasCase: 1, hasManual: 0 },
+              ],
+            }),
+          }),
+          mockEnv,
+        );
+
+        expect(res.status).toBe(200);
+        const data = (await res.json()) as {
+          success: boolean;
+          setCount: number;
+          clearCount: number;
+          transferredCount: number;
+          declaredOwnedCount: number;
+        };
+        expect(data).toEqual({
+          success: true,
+          setCount: 2,
+          clearCount: 0,
+          transferredCount: 0,
+          declaredOwnedCount: 2,
+        });
+
+        const rows = db
+          .prepare(
+            `SELECT release_id, ownership_status, backup_status, has_case, has_manual
+             FROM user_game_releases
+             WHERE user_id = 1 AND release_id IN ('sm-usa', 'sm-jpn')
+             ORDER BY release_id`,
+          )
+          .all() as Array<{
+          release_id: string;
+          ownership_status: number;
+          backup_status: number;
+          has_case: number;
+          has_manual: number;
+        }>;
+
+        expect(rows).toEqual([
+          {
+            release_id: 'sm-jpn',
+            ownership_status: 1,
+            backup_status: 1,
+            has_case: 1,
+            has_manual: 1, // preserved existing has_manual = 1 via MAX
+          },
+          {
+            release_id: 'sm-usa',
+            ownership_status: 1,
+            backup_status: 1,
+            has_case: 1,
+            has_manual: 0,
+          },
+        ]);
       });
     });
 

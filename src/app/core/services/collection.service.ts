@@ -1582,11 +1582,17 @@ export class CollectionService implements OnDestroy {
       hasCase?: number;
       hasManual?: number;
     }>;
+    ownershipDeclarations?: Array<{
+      releaseId: string;
+      hasCase?: number;
+      hasManual?: number;
+    }>;
   }): Observable<{
     success: boolean;
     setCount: number;
     clearCount: number;
     transferredCount: number;
+    declaredOwnedCount?: number;
   }> {
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
@@ -1598,7 +1604,19 @@ export class CollectionService implements OnDestroy {
       );
     }
 
-    const requestBody = {
+    const requestBody: {
+      setBackedUp: string[];
+      clearBackedUp: string[];
+      ownershipTransfers: Array<{
+        fromReleaseIds: string[];
+        toReleaseIds: string[];
+      }>;
+      ownershipDeclarations?: Array<{
+        releaseId: string;
+        hasCase: number;
+        hasManual: number;
+      }>;
+    } = {
       setBackedUp: payload.setBackedUp,
       clearBackedUp: payload.clearBackedUp,
       ownershipTransfers: (payload.ownershipTransfers || []).map((t) => ({
@@ -1606,6 +1624,18 @@ export class CollectionService implements OnDestroy {
         toReleaseIds: t.toReleaseIds,
       })),
     };
+    if (
+      payload.ownershipDeclarations &&
+      payload.ownershipDeclarations.length > 0
+    ) {
+      requestBody.ownershipDeclarations = payload.ownershipDeclarations.map(
+        (d) => ({
+          releaseId: d.releaseId,
+          hasCase: d.hasCase ? 1 : 0,
+          hasManual: d.hasManual ? 1 : 0,
+        }),
+      );
+    }
 
     return this.http
       .post<{
@@ -1613,11 +1643,23 @@ export class CollectionService implements OnDestroy {
         setCount: number;
         clearCount: number;
         transferredCount: number;
+        declaredOwnedCount?: number;
       }>('/api/collection/backups/apply', requestBody)
       .pipe(
         tap(() => {
           const setIdSet = new Set(payload.setBackedUp);
           const clearIdSet = new Set(payload.clearBackedUp);
+          const declareOwnedMap = new Map<
+            string,
+            { hasCase: number; hasManual: number }
+          >();
+          for (const d of payload.ownershipDeclarations || []) {
+            const prev = declareOwnedMap.get(d.releaseId);
+            declareOwnedMap.set(d.releaseId, {
+              hasCase: Math.max(prev?.hasCase ?? 0, d.hasCase ? 1 : 0),
+              hasManual: Math.max(prev?.hasManual ?? 0, d.hasManual ? 1 : 0),
+            });
+          }
           const transferFromSet = new Set<string>();
           const transferToMap = new Map<
             string,
@@ -1679,6 +1721,16 @@ export class CollectionService implements OnDestroy {
                   meta.hasManual,
                 );
                 changed = true;
+              } else if (declareOwnedMap.has(g.id)) {
+                const decl = declareOwnedMap.get(g.id)!;
+                nextOwnership = OwnershipStatus.Owned;
+                nextBackup = 1;
+                nextCase = Math.max(Number(g.has_case || 0), decl.hasCase);
+                nextManual = Math.max(
+                  Number(g.has_manual || 0),
+                  decl.hasManual,
+                );
+                changed = true;
               }
 
               let nextReleases = g.releases;
@@ -1710,6 +1762,16 @@ export class CollectionService implements OnDestroy {
                     rManual = Math.max(
                       Number(r.has_manual || 0),
                       meta.hasManual,
+                    );
+                    rMod = true;
+                  } else if (declareOwnedMap.has(r.id)) {
+                    const decl = declareOwnedMap.get(r.id)!;
+                    rOwn = OwnershipStatus.Owned;
+                    rBackup = 1;
+                    rCase = Math.max(Number(r.has_case || 0), decl.hasCase);
+                    rManual = Math.max(
+                      Number(r.has_manual || 0),
+                      decl.hasManual,
                     );
                     rMod = true;
                   }

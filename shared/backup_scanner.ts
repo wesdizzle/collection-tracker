@@ -96,6 +96,8 @@ export interface ReleaseDiffRow {
   rom_name: string;
   backup_status: number;
   ownership_status?: number;
+  has_case?: number;
+  has_manual?: number;
   region?: string | null;
   variants?: string | null;
   matched_filename?: string;
@@ -2314,6 +2316,8 @@ export function scanBackupEntries(options: {
     rom_name: r.rom_name || formatSkuLabel([r]),
     backup_status: r.backup_status ? 1 : 0,
     ownership_status: r.ownership_status,
+    has_case: r.has_case ?? 0,
+    has_manual: r.has_manual ?? 0,
     region: r.region,
     variants: r.variants ?? null,
     matched_filename: matchedFileByReleaseId.get(r.id),

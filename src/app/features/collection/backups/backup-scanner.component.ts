@@ -69,6 +69,15 @@ export class BackupScannerComponent implements OnInit {
   /** Selected game IDs (`stable_id`) for `Ownership Switches` */
   public selectedSwitchGameIds = signal<Set<number>>(new Set());
 
+  /** Release IDs declared as Owned (`ownership_status = 1`) in `+ Newly Backed Up` */
+  public declaredOwnedIds = signal<Set<string>>(new Set());
+
+  /** Release IDs declared with Case (`has_case = 1`) in `+ Newly Backed Up` */
+  public declaredCaseIds = signal<Set<string>>(new Set());
+
+  /** Release IDs declared with Manual (`has_manual = 1`) in `+ Newly Backed Up` */
+  public declaredManualIds = signal<Set<string>>(new Set());
+
   /** Error and status banners */
   public scanError = signal<string | null>(null);
   public isApplying = signal<boolean>(false);
@@ -76,6 +85,7 @@ export class BackupScannerComponent implements OnInit {
     setCount: number;
     clearCount: number;
     transferredCount: number;
+    declaredOwnedCount: number;
   } | null>(null);
 
   /** Sorted hardware platforms for the optional Platform Scope override dropdown */
@@ -198,6 +208,14 @@ export class BackupScannerComponent implements OnInit {
   public selectedSwitchCount = computed(
     () => this.selectedSwitchGameIds().size,
   );
+
+  public unownedNewlyBackedUpCount = computed(() => {
+    const report = this.scanReport();
+    if (!report) return 0;
+    return report.diff.releases.newlyBackedUp.filter(
+      (r) => r.ownership_status !== 1,
+    ).length;
+  });
 
   public totalSelectedMutations = computed(
     () =>
@@ -334,6 +352,92 @@ export class BackupScannerComponent implements OnInit {
           .map((s) => s.gameId),
       ),
     );
+
+    // Reset per-item ownership/CIB declarations for newly discovered backups
+    this.declaredOwnedIds.set(new Set());
+    this.declaredCaseIds.set(new Set());
+    this.declaredManualIds.set(new Set());
+  }
+
+  public isDeclaredOwned(releaseId: string): boolean {
+    return this.declaredOwnedIds().has(releaseId);
+  }
+
+  public isDeclaredCase(releaseId: string): boolean {
+    return this.declaredCaseIds().has(releaseId);
+  }
+
+  public isDeclaredManual(releaseId: string): boolean {
+    return this.declaredManualIds().has(releaseId);
+  }
+
+  public toggleDeclareOwned(releaseId: string, checked: boolean): void {
+    this.declaredOwnedIds.update((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(releaseId);
+      else next.delete(releaseId);
+      return next;
+    });
+    if (checked) {
+      this.toggleSetSelection(releaseId, true);
+    } else {
+      this.declaredCaseIds.update((prev) => {
+        if (!prev.has(releaseId)) return prev;
+        const next = new Set(prev);
+        next.delete(releaseId);
+        return next;
+      });
+      this.declaredManualIds.update((prev) => {
+        if (!prev.has(releaseId)) return prev;
+        const next = new Set(prev);
+        next.delete(releaseId);
+        return next;
+      });
+    }
+  }
+
+  public toggleDeclareCase(releaseId: string, checked: boolean): void {
+    this.declaredCaseIds.update((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(releaseId);
+      else next.delete(releaseId);
+      return next;
+    });
+    if (checked) {
+      this.toggleDeclareOwned(releaseId, true);
+    }
+  }
+
+  public toggleDeclareManual(releaseId: string, checked: boolean): void {
+    this.declaredManualIds.update((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(releaseId);
+      else next.delete(releaseId);
+      return next;
+    });
+    if (checked) {
+      this.toggleDeclareOwned(releaseId, true);
+    }
+  }
+
+  public setAllUnownedAsOwned(checked: boolean): void {
+    const report = this.scanReport();
+    if (!report) return;
+    const unownedIds = report.diff.releases.newlyBackedUp
+      .filter((r) => r.ownership_status !== 1)
+      .map((r) => r.id);
+    if (checked) {
+      this.declaredOwnedIds.set(new Set(unownedIds));
+      this.selectedSetIds.update((prev) => {
+        const next = new Set(prev);
+        for (const id of unownedIds) next.add(id);
+        return next;
+      });
+    } else {
+      this.declaredOwnedIds.set(new Set());
+      this.declaredCaseIds.set(new Set());
+      this.declaredManualIds.set(new Set());
+    }
   }
 
   public isSetSelected(releaseId: string): boolean {
@@ -446,6 +550,14 @@ export class BackupScannerComponent implements OnInit {
       hasManual: s.hasManual,
     }));
 
+    const ownershipDeclarations = setBackedUp
+      .filter((id) => this.declaredOwnedIds().has(id))
+      .map((id) => ({
+        releaseId: id,
+        hasCase: this.declaredCaseIds().has(id) ? 1 : 0,
+        hasManual: this.declaredManualIds().has(id) ? 1 : 0,
+      }));
+
     this.isApplying.set(true);
     this.scanError.set(null);
     this.applySuccessBanner.set(null);
@@ -455,6 +567,7 @@ export class BackupScannerComponent implements OnInit {
         setBackedUp,
         clearBackedUp,
         ownershipTransfers,
+        ...(ownershipDeclarations.length > 0 ? { ownershipDeclarations } : {}),
       })
       .subscribe({
         next: (res) => {
@@ -463,6 +576,8 @@ export class BackupScannerComponent implements OnInit {
             setCount: res.setCount,
             clearCount: res.clearCount,
             transferredCount: res.transferredCount,
+            declaredOwnedCount:
+              res.declaredOwnedCount ?? ownershipDeclarations.length,
           });
           const crawl = this.lastCrawl();
           if (crawl) {

@@ -4902,6 +4902,7 @@ Disallow: /
         setBackedUp?: unknown;
         clearBackedUp?: unknown;
         ownershipTransfers?: unknown;
+        ownershipDeclarations?: unknown;
       } | null;
 
       if (!body || typeof body !== 'object') {
@@ -4914,16 +4915,18 @@ Disallow: /
       const rawSet = body.setBackedUp ?? [];
       const rawClear = body.clearBackedUp ?? [];
       const rawTransfers = body.ownershipTransfers ?? [];
+      const rawDeclarations = body.ownershipDeclarations ?? [];
 
       if (
         !Array.isArray(rawSet) ||
         !Array.isArray(rawClear) ||
-        !Array.isArray(rawTransfers)
+        !Array.isArray(rawTransfers) ||
+        !Array.isArray(rawDeclarations)
       ) {
         return Response.json(
           {
             error:
-              'setBackedUp, clearBackedUp, and ownershipTransfers must be arrays.',
+              'setBackedUp, clearBackedUp, ownershipTransfers, and ownershipDeclarations must be arrays.',
           },
           { status: 400 },
         );
@@ -4932,7 +4935,8 @@ Disallow: /
       if (
         rawSet.length > 10000 ||
         rawClear.length > 10000 ||
-        rawTransfers.length > 2000
+        rawTransfers.length > 2000 ||
+        rawDeclarations.length > 10000
       ) {
         return Response.json(
           { error: 'Backup batch payload exceeds maximum size.' },
@@ -4987,6 +4991,52 @@ Disallow: /
             { status: 400 },
           );
         }
+      }
+
+      const declarationMap = new Map<
+        string,
+        { hasCase: number; hasManual: number }
+      >();
+      for (const rawDecl of rawDeclarations) {
+        if (!rawDecl || typeof rawDecl !== 'object') {
+          return Response.json(
+            { error: 'Invalid ownershipDeclaration entry.' },
+            { status: 400 },
+          );
+        }
+        const declObj = rawDecl as {
+          releaseId?: unknown;
+          hasCase?: unknown;
+          hasManual?: unknown;
+        };
+        const releaseId =
+          typeof declObj.releaseId === 'string' ? declObj.releaseId.trim() : '';
+        if (!releaseId) {
+          return Response.json(
+            {
+              error:
+                'ownershipDeclarations must contain non-empty releaseId strings.',
+            },
+            { status: 400 },
+          );
+        }
+        if (clearIdSet.has(releaseId)) {
+          return Response.json(
+            {
+              error: `Release ID "${releaseId}" cannot be present in both ownershipDeclarations and clearBackedUp.`,
+            },
+            { status: 400 },
+          );
+        }
+        const hasCase =
+          declObj.hasCase === 1 || declObj.hasCase === true ? 1 : 0;
+        const hasManual =
+          declObj.hasManual === 1 || declObj.hasManual === true ? 1 : 0;
+        const existing = declarationMap.get(releaseId);
+        declarationMap.set(releaseId, {
+          hasCase: Math.max(existing?.hasCase ?? 0, hasCase),
+          hasManual: Math.max(existing?.hasManual ?? 0, hasManual),
+        });
       }
 
       const parsedTransfers: Array<{
@@ -5244,14 +5294,53 @@ Disallow: /
 
       for (const id of setIds) {
         if (handledSetIds.has(id)) continue;
+        const decl = declarationMap.get(id);
+        if (decl) {
+          handledSetIds.add(id);
+          statements.push(
+            env.DB.prepare(
+              `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+               SELECT ?, id, 1, 1, ?, ? FROM game_releases WHERE id = ?
+               ON CONFLICT(user_id, release_id) DO UPDATE SET
+                 ownership_status = 1,
+                 backup_status = 1,
+                 has_case = MAX(user_game_releases.has_case, excluded.has_case),
+                 has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
+               WHERE user_game_releases.ownership_status IS NOT 1
+                  OR user_game_releases.backup_status IS NOT 1
+                  OR user_game_releases.has_case < excluded.has_case
+                  OR user_game_releases.has_manual < excluded.has_manual`,
+            ).bind(currentUserId, decl.hasCase, decl.hasManual, id),
+          );
+        } else {
+          statements.push(
+            env.DB.prepare(
+              `INSERT INTO user_game_releases (user_id, release_id, backup_status)
+               SELECT ?, id, 1 FROM game_releases WHERE id = ?
+               ON CONFLICT(user_id, release_id) DO UPDATE SET
+                 backup_status = 1
+               WHERE user_game_releases.backup_status IS NOT 1`,
+            ).bind(currentUserId, id),
+          );
+        }
+      }
+
+      for (const [id, decl] of declarationMap.entries()) {
+        if (handledSetIds.has(id)) continue;
         statements.push(
           env.DB.prepare(
-            `INSERT INTO user_game_releases (user_id, release_id, backup_status)
-             SELECT ?, id, 1 FROM game_releases WHERE id = ?
+            `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+             SELECT ?, id, 1, 1, ?, ? FROM game_releases WHERE id = ?
              ON CONFLICT(user_id, release_id) DO UPDATE SET
-               backup_status = 1
-             WHERE user_game_releases.backup_status IS NOT 1`,
-          ).bind(currentUserId, id),
+               ownership_status = 1,
+               backup_status = 1,
+               has_case = MAX(user_game_releases.has_case, excluded.has_case),
+               has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
+             WHERE user_game_releases.ownership_status IS NOT 1
+                OR user_game_releases.backup_status IS NOT 1
+                OR user_game_releases.has_case < excluded.has_case
+                OR user_game_releases.has_manual < excluded.has_manual`,
+          ).bind(currentUserId, decl.hasCase, decl.hasManual, id),
         );
       }
 
@@ -5276,7 +5365,8 @@ Disallow: /
           username: sessionUser.username,
         });
         await markDbDirty(env, 'games', 'backups-apply', {
-          clearBoutiqueHash: verifiedTransfers.length > 0,
+          clearBoutiqueHash:
+            verifiedTransfers.length > 0 || declarationMap.size > 0,
         });
       }
 
@@ -5285,6 +5375,7 @@ Disallow: /
         setCount: setIds.length,
         clearCount: clearIds.length,
         transferredCount: verifiedTransfers.length,
+        declaredOwnedCount: declarationMap.size,
       });
     }
 
