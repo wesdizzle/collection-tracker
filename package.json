@@ -8,6 +8,7 @@
     "dev": "tsx scripts/dev.ts",
     "db:pull": "tsx scripts/d1_pull.ts",
     "d1:cost-guard": "tsx scripts/d1_cost_guard.ts",
+    "d1:schema-drift": "tsx scripts/d1_schema_drift.ts",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "npm run test:ng && npm run test:node",

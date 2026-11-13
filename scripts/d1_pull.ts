@@ -94,6 +94,37 @@ async function pullFromR2() {
   console.log(
     `\n✅ Successfully pulled remote state from R2 into local SQLite! (${totalRestored} rows hydrated, 0 D1 reads consumed)`,
   );
+  reportSnapshotAge();
+}
+
+/** R2 snapshots are taken by the daily backup cron, so they can be many hours old. */
+const SNAPSHOT_STALE_HOURS = 6;
+
+function reportSnapshotAge(): void {
+  const db = new Database(localDbPath, { readonly: true });
+  try {
+    const row = db
+      .prepare('SELECT MAX(updated_at) AS ts FROM sync_state')
+      .get() as { ts: string | null } | undefined;
+    if (!row?.ts) {
+      console.log(
+        '[D1Pull] ⚠️  Could not determine snapshot age (sync_state is empty).',
+      );
+      return;
+    }
+    const snapshotMs = Date.parse(`${row.ts.replace(' ', 'T')}Z`);
+    const ageHours = (Date.now() - snapshotMs) / 3_600_000;
+    const msg = `[D1Pull] Snapshot reflects remote state as of ${row.ts} UTC (~${ageHours.toFixed(1)}h old).`;
+    if (ageHours > SNAPSHOT_STALE_HOURS) {
+      console.log(
+        `${msg}\n[D1Pull] ⚠️  Snapshot is older than ${SNAPSHOT_STALE_HOURS}h: rows written since then (e.g. cron catalog seeding) are NOT present locally. canonical_releases and cron_execution_logs are never included in snapshots.`,
+      );
+    } else {
+      console.log(msg);
+    }
+  } finally {
+    db.close();
+  }
 }
 
 async function pullFromDirectD1() {
