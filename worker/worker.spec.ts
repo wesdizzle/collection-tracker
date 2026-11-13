@@ -4871,10 +4871,10 @@ describe('Worker API Logic', () => {
 
       it('reactively auto-tracks a canonical_series and marks existing unowned games in that series as Seeking (2) when toggling a game to Owned (1)', async () => {
         db.exec(`
-          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, region)
+          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, collections, region)
           VALUES
-            (701, 'pikmin-1', 'Pikmin', 20, 'Pikmin', 'USA'),
-            (702, 'pikmin-2', 'Pikmin 2', 20, 'Pikmin', 'USA');
+            (701, 'pikmin-1', 'Pikmin', 20, 'Pikmin', 'Pikmin', 'USA'),
+            (702, 'pikmin-2', 'Pikmin 2', 20, 'Pikmin', 'Pikmin', 'USA');
           INSERT INTO game_releases (id, game_id, region)
           VALUES
             ('pikmin-1-usa', 701, 'USA'),
@@ -5054,6 +5054,54 @@ describe('Worker API Logic', () => {
           )
           .get(newGame.stable_id) as { ownership_status: number };
         expect(trackedRelease).toEqual({ ownership_status: 2 });
+      });
+
+      it('syncWorkerBroadCatalogPopulation only applies series rules to metadata-backed series and skips compilation-extracted ROMs', async () => {
+        db.exec(`
+          UPDATE platforms SET igdb_id = 59 WHERE id = 26;
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, is_verified_physical)
+          VALUES (6201, 26, 'Tennis (USA)', '${normalizeTitleForMatching('Tennis')}', 'USA', 'Tennis (USA).a26', 1),
+                 (6202, 26, 'Star Fox 64 (USA)', '${normalizeTitleForMatching('Star Fox 64')}', 'USA', 'Star Fox 64 (USA).a26', 1),
+                 (6203, 26, 'Baseball', '${normalizeTitleForMatching('Baseball')}', 'USA', 'Baseball (USA) (Activision Anthology - Remix Edition).a26', 1);
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES (1, 'series', 'Tennis', 2, 'home', 0),
+                 (1, 'series', 'Star Fox', 2, 'home', 0),
+                 (1, 'series', 'Baseball', 2, 'home', 0);
+        `);
+        stubIgdbFetch({
+          'Star Fox 64': [
+            {
+              id: 2591,
+              name: 'Star Fox 64',
+              platforms: [59],
+              collections: [{ name: 'Star Fox' }],
+              franchises: [{ name: 'Star Fox' }],
+            },
+          ],
+        });
+        try {
+          await syncWorkerBroadCatalogPopulation(mockEnv);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+
+        const statusFor = (title: string) =>
+          db
+            .prepare(
+              `SELECT ugr.ownership_status
+               FROM games g
+               JOIN game_releases gr ON gr.game_id = g.stable_id
+               LEFT JOIN user_game_releases ugr ON ugr.release_id = gr.id AND ugr.user_id = 1
+               WHERE g.title = ? AND g.platform_id = 26`,
+            )
+            .get(title) as { ownership_status: number | null } | undefined;
+
+        // Generic title-only series must not trigger the "Tennis" rule
+        expect(statusFor('Tennis')).toEqual({ ownership_status: null });
+        // IGDB-backed series triggers the "Star Fox" rule
+        expect(statusFor('Star Fox 64')).toEqual({ ownership_status: 2 });
+        // Compilation-extracted ROM is never ingested
+        expect(statusFor('Baseball')).toBeUndefined();
       });
 
       const stubIgdbFetch = (

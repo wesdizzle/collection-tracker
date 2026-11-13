@@ -53,7 +53,10 @@ import {
   buildToyDetailQuery,
   DEFAULT_USER_HOME_REGION,
 } from '../shared/queries';
-import { isRegionMatchingHome } from '../shared/source_format';
+import {
+  isIgnoredFormatRelease,
+  isRegionMatchingHome,
+} from '../shared/source_format';
 import {
   detectPhysicalReleaseStatus,
   CanonicalRelease,
@@ -65,7 +68,10 @@ import {
 import { stripEditionSuffix } from '../shared/backup_scanner';
 import { normalizeTitleForMatching } from '../shared/title_matching';
 import { MULTI_POSE_AMIIBO_EXPANSIONS } from '../shared/amiibo_poses';
-import { computeGameCanonicalSeries } from '../shared/canonical_series';
+import {
+  computeGameCanonicalSeries,
+  computeGameCanonicalSeriesWithSource,
+} from '../shared/canonical_series';
 import {
   fetchAllRetailDeals,
   matchBestBuyProduct,
@@ -700,6 +706,24 @@ export function resolveAmiiboRegionsAndMetadata(
 }
 
 /**
+ * A game's canonical_series may drive automatic series tracking only when it is backed by
+ * IGDB metadata or curated rules, not when it is merely the game's own title.
+ */
+export function isSeriesTrackable(game: {
+  title: string;
+  collections?: string | null;
+  franchises?: string | null;
+}): boolean {
+  return (
+    computeGameCanonicalSeriesWithSource({
+      title: game.title,
+      collections: game.collections ?? undefined,
+      franchises: game.franchises ?? undefined,
+    }).source !== 'title_fallback'
+  );
+}
+
+/**
  * Reactive series auto-tracking:
  * When a user marks a game as Owned (1), Seeking (2), Ordered (3), or PrioritySeeking (4),
  * if the user has `auto_track_series_on_add = 1` (default) and the game's `canonical_series`
@@ -744,13 +768,32 @@ export async function applyReactiveSeriesAutoTracking(
     }
 
     let canonicalSeries = explicitCanonicalSeries?.trim() || null;
-    if (!canonicalSeries && gameStableId > 0) {
+    if (gameStableId > 0) {
       const gameRow = await env.DB.prepare(
-        'SELECT canonical_series FROM games WHERE stable_id = ?',
+        'SELECT title, collections, franchises, canonical_series FROM games WHERE stable_id = ?',
       )
         .bind(gameStableId)
-        .first<{ canonical_series: string | null }>();
-      canonicalSeries = gameRow?.canonical_series?.trim() || null;
+        .first<{
+          title: string | null;
+          collections: string | null;
+          franchises: string | null;
+          canonical_series: string | null;
+        }>();
+      if (!canonicalSeries) {
+        canonicalSeries = gameRow?.canonical_series?.trim() || null;
+      }
+      // Generic title-derived series (e.g. "Tennis", "Golf") are not real series identities;
+      // never create follow rules from them.
+      if (
+        gameRow &&
+        !isSeriesTrackable({
+          title: gameRow.title || '',
+          collections: gameRow.collections,
+          franchises: gameRow.franchises,
+        })
+      ) {
+        return { trackedSeries: null, autoAddedCount: 0 };
+      }
     }
 
     if (!canonicalSeries) {
@@ -799,7 +842,8 @@ export async function applyReactiveSeriesAutoTracking(
 
     // Find all sibling games in this canonical_series and their releases
     const { results: seriesReleases } = await env.DB.prepare(
-      `SELECT g.stable_id, r.id as release_id, COALESCE(r.region, g.region) as region, r.variants,
+      `SELECT g.stable_id, g.title, g.collections, g.franchises,
+              r.id as release_id, COALESCE(r.region, g.region) as region, r.variants,
               COALESCE(ugr.ownership_status, 0) as ownership_status
        FROM games g
        JOIN game_releases r ON r.game_id = g.stable_id
@@ -810,12 +854,16 @@ export async function applyReactiveSeriesAutoTracking(
       .bind(userId, canonicalSeries)
       .all<{
         stable_id: number;
+        title: string | null;
+        collections: string | null;
+        franchises: string | null;
         release_id: string;
         region: string | null;
         variants: string | null;
         ownership_status: number;
       }>();
 
+    const untrackableGames = new Set<number>();
     const byGame = new Map<
       number,
       Array<{
@@ -830,6 +878,15 @@ export async function applyReactiveSeriesAutoTracking(
       if (!list) {
         list = [];
         byGame.set(row.stable_id, list);
+        if (
+          !isSeriesTrackable({
+            title: row.title || '',
+            collections: row.collections,
+            franchises: row.franchises,
+          })
+        ) {
+          untrackableGames.add(row.stable_id);
+        }
       }
       list.push(row);
     }
@@ -837,6 +894,8 @@ export async function applyReactiveSeriesAutoTracking(
     const statements: D1PreparedStatement[] = [];
     for (const [stableId, rels] of byGame.entries()) {
       if (stableId === gameStableId) continue;
+      // Siblings that only share a generic title-derived series are not real series members
+      if (untrackableGames.has(stableId)) continue;
       // Skip if user already has any positive status (Owned=1, Seeking=2, Ordered=3, PrioritySeeking=4) on any release of this game
       if (rels.some((r) => Number(r.ownership_status) > 0)) {
         continue;
@@ -890,6 +949,8 @@ export async function evaluateTrackingRulesForNewGames(
     stableId: number;
     platformId: number;
     canonicalSeries?: string | null;
+    /** false when canonicalSeries is only the game's own title (must not match series rules) */
+    seriesTrackable?: boolean;
     releases: Array<{ id: string; region: string | null }>;
   }>,
 ): Promise<number> {
@@ -916,7 +977,10 @@ export async function evaluateTrackingRulesForNewGames(
     const statements: D1PreparedStatement[] = [];
     for (const game of newGames) {
       if (!game.releases || game.releases.length === 0) continue;
-      const seriesLower = (game.canonicalSeries || '').trim().toLowerCase();
+      const seriesLower =
+        game.seriesTrackable === false
+          ? ''
+          : (game.canonicalSeries || '').trim().toLowerCase();
       const platStr = String(game.platformId);
 
       // Group matching rules by user_id (taking highest target_status if both series & platform match)
@@ -5879,6 +5943,11 @@ Disallow: /
             stableId: finalStableId,
             platformId: game.platform_id,
             canonicalSeries: canonicalSeries,
+            seriesTrackable: isSeriesTrackable({
+              title: game.title,
+              collections: game.collections,
+              franchises: game.franchises,
+            }),
             releases: addedReleasesForTracking,
           },
         ]);
@@ -9127,7 +9196,15 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       maxSliceId: number;
     }
   >();
+  // canonical_releases.is_verified_physical can be stale; re-apply the current non-retail
+  // format filter (compilation extractions, Virtual Console, Anthology dumps, ...).
+  const sliceMaxId = slice.reduce((m, r) => Math.max(m, r.id), currentCursor);
   for (const row of slice) {
+    if (
+      isIgnoredFormatRelease(row.raw_title, row.rom_name || '', row.platform_id)
+    ) {
+      continue;
+    }
     const key = `${row.platform_id}::${row.normalized_title}`;
     const existing = groupsMap.get(key);
     if (!existing) {
@@ -9140,6 +9217,31 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     } else if (row.id > existing.maxSliceId) {
       existing.maxSliceId = row.id;
     }
+  }
+
+  if (groupsMap.size === 0) {
+    // Entire slice was non-retail: just advance the cursor past it.
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES ('catalog_seed_stage', ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+      ).bind(currentStage),
+      env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES ('catalog_seed_cursor', ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+      ).bind(String(sliceMaxId)),
+    ]);
+    return {
+      skipped: false,
+      stage: currentStage,
+      cursor: sliceMaxId,
+      ingestedGames: 0,
+      ingestedReleases: 0,
+      writesUsed: 0,
+      igdbMatched: 0,
+    };
   }
 
   const distinctPlatforms = Array.from(
@@ -9226,9 +9328,11 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     stableId: number;
     platformId: number;
     canonicalSeries: string;
+    seriesTrackable: boolean;
     releases: Array<{ id: string; region: string | null }>;
   }> = [];
 
+  let stoppedEarly = false;
   for (const group of groupsMap.values()) {
     // Fetch all verified canonical releases for this (platform_id, normalized_title) via idx_canonical_platform_norm
     const allRelRes = await env.DB.prepare(
@@ -9248,7 +9352,14 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         serial_code: string | null;
       }>();
 
-    const canonicalRels = allRelRes.results || [];
+    const canonicalRels = (allRelRes.results || []).filter(
+      (r) =>
+        !isIgnoredFormatRelease(
+          r.raw_title,
+          r.rom_name || '',
+          group.platform_id,
+        ),
+    );
     if (canonicalRels.length === 0) {
       nextCursor = Math.max(nextCursor, group.maxSliceId);
       continue;
@@ -9273,6 +9384,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       tickWritesUsed > 0 &&
       tickWritesUsed + estimatedWrites > tickWriteBudget
     ) {
+      stoppedEarly = true;
       break;
     }
 
@@ -9390,6 +9502,11 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       stableId: stableId,
       platformId: group.platform_id,
       canonicalSeries: canonicalSeries,
+      seriesTrackable: isSeriesTrackable({
+        title: displayTitle,
+        collections: igdbMeta?.collections,
+        franchises: igdbMeta?.franchises,
+      }),
       releases: addedReleases,
     });
 
@@ -9397,6 +9514,11 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     ingestedGamesCount++;
     ingestedReleasesCount += canonicalRels.length;
     nextCursor = Math.max(nextCursor, group.maxSliceId);
+  }
+
+  // If every group in the slice was handled, also skip past filtered-out non-retail rows.
+  if (!stoppedEarly) {
+    nextCursor = Math.max(nextCursor, sliceMaxId);
   }
 
   if (newlyIngestedForTracking.length > 0) {

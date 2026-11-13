@@ -228,6 +228,24 @@ export function stripTrailingNumbers(s: string): string {
   return result.trim();
 }
 
+export type CanonicalSeriesSource = 'curated' | 'metadata' | 'title_fallback';
+
+/**
+ * Like `computeGameCanonicalSeries`, but also reports where the series came from:
+ * - `curated`: explicit redirects / hand-written franchise rules
+ * - `metadata`: chosen from IGDB collections/franchises
+ * - `title_fallback`: derived from the bare title (e.g. "Tennis", "Golf"); NOT a reliable series
+ *   identity and must not drive automatic series tracking.
+ */
+export function computeGameCanonicalSeriesWithSource(game: GameMetadata): {
+  series: string;
+  source: CanonicalSeriesSource;
+} {
+  const out: { source: CanonicalSeriesSource } = { source: 'curated' };
+  const series = computeGameCanonicalSeriesInternal(game, out);
+  return { series, source: out.source };
+}
+
 /**
  * Computes the canonical series name for a given game using hierarchical rules and scoring.
  *
@@ -235,6 +253,13 @@ export function stripTrailingNumbers(s: string): string {
  * @returns The resolved canonical series name
  */
 export function computeGameCanonicalSeries(game: GameMetadata): string {
+  return computeGameCanonicalSeriesInternal(game, { source: 'curated' });
+}
+
+function computeGameCanonicalSeriesInternal(
+  game: GameMetadata,
+  out: { source: CanonicalSeriesSource },
+): string {
   const cleanTitle = stripCreatorPrefix(game.title || '');
   const titleLower = cleanTitle.toLowerCase();
   const rawCollections = (game.collections || '')
@@ -1021,6 +1046,7 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
       });
 
       if (scores.length > 0 && scores[0].score > 0) {
+        out.source = 'metadata';
         const winner = scores[0].item;
         if (EXPLICIT_SPINOFF_REDIRECTS[winner]) {
           return EXPLICIT_SPINOFF_REDIRECTS[winner] as string;
@@ -1035,6 +1061,7 @@ export function computeGameCanonicalSeries(game: GameMetadata): string {
   }
 
   // FALLBACK
+  out.source = 'title_fallback';
   const prefix = stripTrailingNumbers(
     stripCreatorPrefix(cleanTitle.split(':')[0].trim()),
   );

@@ -1,6 +1,38 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import { computeGameCanonicalSeries } from './canonical_series.js';
+import {
+  computeGameCanonicalSeries,
+  computeGameCanonicalSeriesWithSource,
+} from './canonical_series.js';
+
+describe('computeGameCanonicalSeriesWithSource', () => {
+  it('classifies bare generic titles as title_fallback', () => {
+    for (const title of ['Tennis', 'Golf', 'Baseball', 'Star Fox']) {
+      assert.deepEqual(computeGameCanonicalSeriesWithSource({ title }), {
+        series: title,
+        source: 'title_fallback',
+      });
+    }
+  });
+
+  it('classifies IGDB-collection-backed series as metadata', () => {
+    assert.deepEqual(
+      computeGameCanonicalSeriesWithSource({
+        title: 'Star Fox 64',
+        collections: 'Star Fox',
+        franchises: 'Star Fox',
+      }),
+      { series: 'Star Fox', source: 'metadata' },
+    );
+  });
+
+  it('classifies hand-written franchise rules as curated and agrees with computeGameCanonicalSeries', () => {
+    const game = { title: 'Super Mario Bros. 3' };
+    const detailed = computeGameCanonicalSeriesWithSource(game);
+    assert.equal(detailed.source, 'curated');
+    assert.equal(detailed.series, computeGameCanonicalSeries(game));
+  });
+});
 
 describe('Canonical Series Logic Integrity Suite', () => {
   it('should map explicit spinoffs and localization titles correctly', () => {
