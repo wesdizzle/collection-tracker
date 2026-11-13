@@ -27,12 +27,8 @@ const reportOnly = process.argv.includes('--report');
 // Objects that legitimately exist only on one side
 const IGNORED = new Set(['d1_migrations', 'sqlite_sequence']);
 
-/**
- * Known, deliberately accepted drift. Creating this remotely costs one billable write per
- * canonical_releases row (83k+ rows), and seeding works via idx_canonical_normalized_title.
- * Reported as warnings, not failures.
- */
-const ACCEPTED_MISSING = new Set(['index:idx_canonical_platform_norm']);
+// Known, deliberately accepted drift (none currently). Reported as warnings, not failures.
+const ACCEPTED_MISSING = new Set<string>();
 const isIgnored = (name: string) =>
   IGNORED.has(name) ||
   name.startsWith('sqlite_autoindex_') ||
