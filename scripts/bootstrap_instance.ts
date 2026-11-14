@@ -135,7 +135,7 @@ export async function bootstrapInstance(
     if ((phase === 'all' || phase === 'dats') && !options.skipDatsSync) {
       if (options.downloadDats || !hasAnyDatFiles(datsDir)) {
         console.log('3. Downloading canonical Redump & No-Intro DAT files...');
-        await downloadAllCanonicalDats({ datsRootDir: datsDir });
+        await downloadAllCanonicalDats();
       }
       if (hasAnyDatFiles(datsDir)) {
         console.log(

@@ -4,7 +4,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import {
   REDUMP_TARGETS,
@@ -18,12 +17,12 @@ import {
 } from './download_canonical_dats.js';
 
 describe('Canonical DAT Downloader', () => {
-  let tempTestDir: string;
+  const tempTestDir = path.join(process.cwd(), 'scripts', 'temp', 'test_dats');
 
   beforeEach(() => {
-    tempTestDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'canonical-dats-spec-'),
-    );
+    if (!fs.existsSync(tempTestDir)) {
+      fs.mkdirSync(tempTestDir, { recursive: true });
+    }
   });
 
   afterEach(() => {
@@ -41,6 +40,7 @@ describe('Canonical DAT Downloader', () => {
     expect(REDUMP_TARGETS.length).toBeGreaterThanOrEqual(15);
     expect(NO_INTRO_TARGETS.length).toBeGreaterThanOrEqual(25);
 
+    // Verify key platforms exist in targets
     const redumpSlugs = REDUMP_TARGETS.map((t) => t.slug);
     expect(redumpSlugs).toContain('psx');
     expect(redumpSlugs).toContain('ps2');
@@ -228,6 +228,69 @@ describe('Canonical DAT Downloader', () => {
     expect(result.fileName).toBe('Nintendo - Wii U - Datfile (541).dat');
   });
 
+  it('should fetch and save canonical PlayStation Vita PSVgameSD releases directly from mirror', async () => {
+    const mockVitaXml = `<?xml version="1.0"?>
+<datafile>
+  <header>
+    <name>Unofficial - Sony - PlayStation Vita (PSVgameSD)</name>
+  </header>
+  <game name="Persona 4 Golden (USA)" id="z100">
+    <description>Persona 4 Golden (USA)</description>
+    <game_id>PCSE00120</game_id>
+    <rom name="Persona 4 Golden (USA).psv" size="3300000000" crc="12345678" serial="PCSE-00120"/>
+  </game>
+</datafile>`;
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => mockVitaXml,
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const vitaTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'PlayStation Vita',
+    )!;
+    expect(vitaTarget).toBeDefined();
+
+    const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Sony - PlayStation Vita (PSVgameSD).dat');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://data.spludlow.co.uk/no-intro/unofficial/Unofficial%20-%20Sony%20-%20PlayStation%20Vita%20(PSVgameSD).xml',
+      expect.any(Object),
+    );
+
+    const savedPath = path.join(tempTestDir, result.fileName!);
+    expect(fs.existsSync(savedPath)).toBe(true);
+    const content = fs.readFileSync(savedPath, 'utf8');
+    expect(content).toContain('<datafile>');
+    expect(content).toContain('Persona 4 Golden (USA)');
+  });
+
+  it('should preserve existing PlayStation Vita DAT if network request fails', async () => {
+    const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const vitaTarget = NO_INTRO_TARGETS.find(
+      (t) => t.name === 'PlayStation Vita',
+    )!;
+    const preExistingPath = path.join(
+      tempTestDir,
+      'Sony - PlayStation Vita (PSVgameSD).dat',
+    );
+    fs.writeFileSync(
+      preExistingPath,
+      '<datafile><game name="Pre-existing Vita Game"/></datafile>',
+      'utf8',
+    );
+
+    const result = await downloadNoIntroDat(vitaTarget, tempTestDir);
+    expect(result.success).toBe(true);
+    expect(result.fileName).toBe('Sony - PlayStation Vita (PSVgameSD).dat');
+    expect(fs.existsSync(preExistingPath)).toBe(true);
+  });
+
   describe('applyCanonicalDatPatches', () => {
     it('should enrich CLRMamePro Sega Genesis DAT with the 2 MB standalone Sonic & Knuckles entry', () => {
       const input = `clrmamepro (
@@ -354,21 +417,26 @@ game (
       const testNoIntro = path.join(tempTestDir, 'No-Intro');
       fs.mkdirSync(testNoIntro, { recursive: true });
 
+      // Create duplicate Atari 2600 files:
+      // 1. Lower quality clrmamepro
       fs.writeFileSync(
         path.join(testNoIntro, 'Atari - 2600.dat'),
         'clrmamepro ( name "Atari - 2600" )',
         'utf8',
       );
+      // 2. High quality Datomatic XML with timestamp in filename
       fs.writeFileSync(
         path.join(testNoIntro, 'Atari - Atari 2600 (20260517-054406).dat'),
         '<?xml version="1.0"?><datafile xmlns:xsi="https://datomatic.no-intro.org"><header><name>Atari - Atari 2600</name></header></datafile>',
         'utf8',
       );
+      // 3. Untracked platform that should be pruned
       fs.writeFileSync(
         path.join(testNoIntro, 'Casio - PV-1000.dat'),
         'clrmamepro ( name "Casio - PV-1000" )',
         'utf8',
       );
+      // 4. Unwanted subfolder
       const unwantedSubdir = path.join(testNoIntro, 'Source Code');
       fs.mkdirSync(unwantedSubdir, { recursive: true });
 
@@ -390,6 +458,7 @@ game (
       const testNoIntro = path.join(tempTestDir, 'No-Intro');
       fs.mkdirSync(testNoIntro, { recursive: true });
 
+      // Place a legacy Switch DAT directly in No-Intro
       fs.writeFileSync(
         path.join(
           testNoIntro,
@@ -399,6 +468,7 @@ game (
         'utf8',
       );
 
+      // Place a loose No-Intro DAT in the root dats directory
       fs.writeFileSync(
         path.join(tempTestDir, 'Nintendo - Game Boy.dat'),
         'clrmamepro ( name "Nintendo - Game Boy" )',
@@ -408,6 +478,7 @@ game (
       const result = pruneAndDeduplicateDats(tempTestDir);
       expect(result.removedCount).toBeGreaterThanOrEqual(1);
 
+      // Verify loose file was migrated into No-Intro
       expect(
         fs.existsSync(path.join(tempTestDir, 'Nintendo - Game Boy.dat')),
       ).toBe(false);
@@ -415,6 +486,7 @@ game (
         fs.existsSync(path.join(testNoIntro, 'Nintendo - Game Boy.dat')),
       ).toBe(true);
 
+      // Verify legacy Switch file was pruned
       expect(
         fs.existsSync(path.join(testNoIntro, 'Nintendo - Nintendo Switch.dat')),
       ).toBe(false);
@@ -439,12 +511,14 @@ game (
       fs.mkdirSync(srcNoIntro, { recursive: true });
       fs.mkdirSync(dstNoIntro, { recursive: true });
 
+      // Source has 1 canonical DAT
       fs.writeFileSync(
         path.join(srcNoIntro, 'Nintendo - Game Boy.dat'),
         '<datafile><header><name>Nintendo - Game Boy</name></header></datafile>',
         'utf8',
       );
 
+      // Destination has obsolete duplicate
       fs.writeFileSync(
         path.join(dstNoIntro, 'Nintendo - Game Boy (Old).dat'),
         'obsolete',

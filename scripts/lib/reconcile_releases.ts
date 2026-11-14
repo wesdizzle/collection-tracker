@@ -10,7 +10,6 @@
 
 import type Database from 'better-sqlite3';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { getLocalDatabase } from './db.js';
@@ -146,10 +145,14 @@ export function reconcileGameReleasesWithCanonical(
   options: ReconcileOptions = {},
 ): ReconcileResult {
   const isDryRun = options.dryRun ?? false;
-  const sqlPath =
-    options.sqlOutputPath ??
-    path.join(os.tmpdir(), 'reconcile_game_releases.sql');
+  const tempDir = path.resolve(process.cwd(), 'scripts', 'temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+  const defaultSqlPath = path.join(tempDir, 'reconcile_game_releases.sql');
+  const sqlPath = options.sqlOutputPath ?? defaultSqlPath;
 
+  // Sync existing game_releases metadata (canonical_release_id, also_released_as, variants) from canonical_releases
   if (!isDryRun) {
     try {
       db.prepare(
@@ -170,6 +173,7 @@ export function reconcileGameReleasesWithCanonical(
     }
   }
 
+  // Query releases that need ROM names
   const candidateQuery = `
     SELECT gr.id, gr.game_id, g.id as game_slug, g.platform_id, g.title, gr.region, gr.variants,
            gr.rom_name, gr.rom_crc, gr.canonical_release_id
@@ -193,6 +197,7 @@ export function reconcileGameReleasesWithCanonical(
     canonical_release_id: number | null;
   }>;
 
+  // Track already-assigned ROM names and CRCs per game_id and per platform_id to prevent duplicate overwrites
   const usedRomsByGameId = new Map<number, Set<string>>();
   const usedRomsByPlatformId = new Map<number, Set<string>>();
   const usedCrcsByGameId = new Map<number, Set<string>>();
@@ -243,6 +248,7 @@ export function reconcileGameReleasesWithCanonical(
     }
   }
 
+  // Map parent platform relationships (e.g. PSVR 51 -> PS4 34, PSVR2 52 -> PS5 35)
   const parentPlatformMap = new Map<number, number>();
   try {
     const platformRows = db
@@ -268,6 +274,7 @@ export function reconcileGameReleasesWithCanonical(
     }
   }
 
+  // Query all canonical DAT releases
   const crTableInfo = db.pragma('table_info(canonical_releases)') as Array<{
     name: string;
   }>;
@@ -302,6 +309,7 @@ export function reconcileGameReleasesWithCanonical(
     rom_crc: string | null;
   }>;
 
+  // Group DAT releases by platform_id -> normalized_title -> list
   const datByPlatformNorm = new Map<
     number,
     Map<string, typeof allDatReleases>
@@ -311,6 +319,7 @@ export function reconcileGameReleasesWithCanonical(
       datByPlatformNorm.set(r.platform_id, new Map());
     }
     const normMap = datByPlatformNorm.get(r.platform_id)!;
+    // If packin_host_normalized_title is present, group strictly under the host game!
     const targetNormKey = r.packin_host_normalized_title || r.normalized_title;
     if (!normMap.has(targetNormKey)) {
       normMap.set(targetNormKey, []);
@@ -334,11 +343,14 @@ export function reconcileGameReleasesWithCanonical(
       ? datByPlatformNorm.get(parentId)
       : undefined;
 
+    // Helper to search a specific norm map
     const searchMap = (map?: Map<string, typeof allDatReleases>) => {
       if (!map) return undefined;
+      // Strategy 1: Exact normalized title match
       const norm = normalizeTitleForMatching(rel.title);
       let cand = map.get(norm);
 
+      // Strategy 2: Clean parentheticals
       if (!cand || cand.length === 0) {
         const clean = cleanTitleWithoutParentheticals(rel.title);
         if (clean !== rel.title) {
@@ -346,6 +358,7 @@ export function reconcileGameReleasesWithCanonical(
         }
       }
 
+      // Strategy 3: Strip common edition suffixes
       if (!cand || cand.length === 0) {
         const stripped = stripEditionSuffix(rel.title);
         if (stripped !== rel.title) {
@@ -353,6 +366,7 @@ export function reconcileGameReleasesWithCanonical(
         }
       }
 
+      // Strategy 4: Subtitle prefix splitting (e.g. Job Simulator: The 2050 Archives -> Job Simulator)
       if ((!cand || cand.length === 0) && rel.title.includes(':')) {
         const prefix = rel.title.split(':')[0].trim();
         const rawCands = map.get(normalizeTitleForMatching(prefix));
@@ -394,6 +408,7 @@ export function reconcileGameReleasesWithCanonical(
     });
     if (availableCandidates.length === 0) continue;
 
+    // Prefer candidates matching rel.variants when present
     let variantFiltered = availableCandidates;
     if (rel.variants && rel.variants.trim()) {
       const targetVarLower = rel.variants.toLowerCase().trim();
@@ -416,6 +431,7 @@ export function reconcileGameReleasesWithCanonical(
         }
       }
     } else {
+      // When rel.variants is null, prefer Standard (null variants) over special editions/demos if available
       const standardOnly = availableCandidates.filter((c) => !c.variants);
       if (standardOnly.length > 0) {
         variantFiltered = standardOnly;
@@ -469,10 +485,12 @@ export function reconcileGameReleasesWithCanonical(
       );
     }
 
+    // Graduate game physical_status to 'verified_physical' upon matching canonical DAT signature
     sqlStatements.push(
       `UPDATE games SET physical_status = 'verified_physical' WHERE stable_id = ${rel.game_id} AND physical_status IN ('not_yet_physical', 'physical_pending', 'unverified');`,
     );
 
+    // If best is Disc 1 of a multi-disc set, automatically ensure Disc 2+ exist for this game
     const bestGroupKey = getRomGroupingKey(best.rom_name);
     if (bestGroupKey.startsWith('multi:')) {
       const siblingDiscs = availableCandidates
@@ -509,6 +527,7 @@ export function reconcileGameReleasesWithCanonical(
       }
     }
 
+    // If this game hosts retail pack-in demo/bonus discs, automatically ensure they exist under this game!
     const packInDiscs = availableCandidates.filter(
       (c) => c.packin_host_normalized_title && !usedSet.has(c.rom_name),
     );
@@ -557,35 +576,49 @@ export function reconcileGameReleasesWithCanonical(
       if (!cands || cands.length === 0) continue;
 
       const usedSet = usedRomsByGameId.get(g.stable_id) ?? new Set<string>();
+      const usedCrcSet = usedCrcsByGameId.get(g.stable_id) ?? new Set<string>();
       const platUsedSet =
         usedRomsByPlatformId.get(g.platform_id) ?? new Set<string>();
-      const usedCrcSet = usedCrcsByGameId.get(g.stable_id) ?? new Set<string>();
       const platUsedCrcSet =
         usedCrcsByPlatformId.get(g.platform_id) ?? new Set<string>();
 
       for (const c of cands) {
         if (usedSet.has(c.rom_name) || platUsedSet.has(c.rom_name)) continue;
+        const crcNorm = c.rom_crc ? c.rom_crc.toLowerCase() : null;
         if (
-          c.rom_crc &&
-          (usedCrcSet.has(c.rom_crc.toLowerCase()) ||
-            platUsedCrcSet.has(c.rom_crc.toLowerCase()))
+          crcNorm &&
+          (usedCrcSet.has(crcNorm) || platUsedCrcSet.has(crcNorm))
         ) {
           continue;
         }
-        const romBase = c.rom_name
+
+        // Exclude re-homed box set constituent ROMs from being added onto standalone base games
+        const baseNameWithoutExt = c.rom_name
           .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
           .trim()
           .toLowerCase();
-        if (BOX_SET_ROM_GROUPING_MAP[romBase]) continue;
+        if (BOX_SET_ROM_GROUPING_MAP[baseNameWithoutExt]) {
+          continue;
+        }
 
+        if (
+          !titlesMatch(
+            g.title,
+            c.raw_title,
+            c.rom_name || c.raw_title,
+            g.platform_id,
+          )
+        ) {
+          continue;
+        }
         usedSet.add(c.rom_name);
-        platUsedSet.add(c.rom_name);
         usedRomsByGameId.set(g.stable_id, usedSet);
+        platUsedSet.add(c.rom_name);
         usedRomsByPlatformId.set(g.platform_id, platUsedSet);
-        if (c.rom_crc) {
-          usedCrcSet.add(c.rom_crc.toLowerCase());
-          platUsedCrcSet.add(c.rom_crc.toLowerCase());
+        if (crcNorm) {
+          usedCrcSet.add(crcNorm);
           usedCrcsByGameId.set(g.stable_id, usedCrcSet);
+          platUsedCrcSet.add(crcNorm);
           usedCrcsByPlatformId.set(g.platform_id, platUsedCrcSet);
         }
         const newId = `${g.slug}-dat-${c.id}`;
@@ -614,8 +647,10 @@ export function reconcileGameReleasesWithCanonical(
   sqlStatements.push('PRAGMA foreign_keys = ON;');
   sqlStatements.push('');
 
+  // Write SQL migration file
   fs.writeFileSync(sqlPath, sqlStatements.join('\n'), 'utf8');
 
+  // Apply to local database in a transaction if not dry run
   if (!isDryRun && updates.length > 0) {
     const grTableInfo = db.pragma('table_info(game_releases)') as Array<{
       name: string;
@@ -639,6 +674,7 @@ export function reconcileGameReleasesWithCanonical(
           WHERE id = ?
         `);
 
+    // Check if physical_status column exists before running update
     const tableInfo = db.pragma('table_info(games)') as Array<{ name: string }>;
     const hasPhysicalStatus = tableInfo.some(
       (c) => c.name === 'physical_status',
@@ -651,6 +687,7 @@ export function reconcileGameReleasesWithCanonical(
         `)
       : null;
 
+    // Check if user_game_releases table exists to cascade primary key renames
     const ugrTableInfo = db.pragma('table_info(user_game_releases)') as Array<{
       name: string;
     }>;

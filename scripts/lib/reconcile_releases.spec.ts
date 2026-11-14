@@ -71,13 +71,9 @@ describe('reconcile_releases', () => {
 
   describe('reconcileGameReleasesWithCanonical', () => {
     let db: Database.Database;
-    let testSqlPath: string;
+    const testSqlPath = path.join(os.tmpdir(), 'test_reconcile_output.sql');
 
     beforeEach(() => {
-      testSqlPath = path.join(
-        os.tmpdir(),
-        `test_reconcile_output_${Date.now()}_${Math.random().toString(36).slice(2)}.sql`,
-      );
       db = new Database(':memory:');
       db.exec(`
         CREATE TABLE platforms (id INTEGER PRIMARY KEY, name TEXT, parent_platform_id INTEGER);
@@ -158,6 +154,7 @@ describe('reconcile_releases', () => {
       expect(updated.rom_name).toBe("Yoku's Island Express (World).xci");
       expect(updated.rom_crc).toBe('a95adadb');
 
+      // Verify child platform (PSVR -> PS4) reconciled and upgraded ID
       const psvrUpdated = db
         .prepare('SELECT * FROM game_releases WHERE game_id = ?')
         .get(2739) as {
@@ -316,6 +313,8 @@ describe('reconcile_releases', () => {
 
       try {
         const report = auditSqlCost(tmpSqlPath, 5000, tmpBaselinePath);
+        // CREATE INDEX on 3 existing rows = 3 billable writes, and K becomes 2 (idx_items_name + idx_items_category).
+        // INSERT OR REPLACE of existing row id=1 incurs 2 * (1 + K) = 2 * (1 + 2) = 6 billable writes.
         expect(report.tableBreakdown['items']?.rowsChanged).toBe(5);
         expect(report.tableBreakdown['items']?.billableWrites).toBe(9);
         expect(report.totalBillableWrites).toBe(9);

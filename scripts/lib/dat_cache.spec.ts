@@ -7,7 +7,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import {
   isPlatformMatch,
@@ -19,12 +18,15 @@ import {
 
 describe('DAT Cache', () => {
   let mockDb: Database.Database;
-  let tempRoot: string;
-  let tempDir: string;
-  let datsDir: string;
-  let testDatPath: string;
+  const tempDir = path.join(process.cwd(), 'scripts', 'temp');
+  const datsDir = path.join(process.cwd(), 'dats');
+  const testDatPath = path.join(
+    datsDir,
+    'Nintendo - Game Boy Advance - Datfile (Test).xml',
+  );
 
   beforeEach(() => {
+    // Set up in-memory database for testing platforms
     mockDb = new Database(':memory:');
     mockDb.exec(`
       CREATE TABLE platforms (
@@ -34,22 +36,25 @@ describe('DAT Cache', () => {
       );
     `);
 
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dat-cache-spec-'));
-    tempDir = path.join(tempRoot, 'cache');
-    datsDir = path.join(tempRoot, 'dats');
-    fs.mkdirSync(tempDir, { recursive: true });
-    fs.mkdirSync(datsDir, { recursive: true });
-    testDatPath = path.join(
-      datsDir,
-      'Nintendo - Game Boy Advance - Datfile (Test).xml',
-    );
+    // Ensure the directories exist
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    if (!fs.existsSync(datsDir)) {
+      fs.mkdirSync(datsDir, { recursive: true });
+    }
   });
 
   afterEach(() => {
-    mockDb.close();
-    if (fs.existsSync(tempRoot)) {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
+    // Clean up created files
+    if (fs.existsSync(testDatPath)) {
+      fs.unlinkSync(testDatPath);
     }
+    const cacheFile = path.join(tempDir, 'dat_cache_24.json');
+    if (fs.existsSync(cacheFile)) {
+      fs.unlinkSync(cacheFile);
+    }
+    mockDb.close();
   });
 
   describe('isPlatformMatch', () => {
@@ -141,6 +146,7 @@ describe('DAT Cache', () => {
     });
 
     it('should ignore extracted compilation ROMs and digital-only releases', () => {
+      // Super Mario Sunshine extracted from Switch compilation
       expect(
         isIgnoredFormatRelease(
           'Super Mario Sunshine (World)',
@@ -149,6 +155,7 @@ describe('DAT Cache', () => {
         ),
       ).toBe(true);
 
+      // Animal Crossing NES minigame extracts
       expect(
         isIgnoredFormatRelease(
           'Baseball (USA, Europe)',
@@ -157,6 +164,7 @@ describe('DAT Cache', () => {
         ),
       ).toBe(true);
 
+      // GameCube compilation extracts on N64
       expect(
         isIgnoredFormatRelease(
           'Legend of Zelda, The - Ocarina of Time (USA)',
@@ -165,6 +173,7 @@ describe('DAT Cache', () => {
         ),
       ).toBe(true);
 
+      // Zelda Collection extract on NES
       expect(
         isIgnoredFormatRelease(
           'Zelda II - The Adventure of Link (USA)',
@@ -173,6 +182,7 @@ describe('DAT Cache', () => {
         ),
       ).toBe(true);
 
+      // Digital-only release tag
       expect(
         isIgnoredFormatRelease(
           "Wonder Boy III - The Dragon's Trap (World)",
@@ -181,6 +191,7 @@ describe('DAT Cache', () => {
         ),
       ).toBe(true);
 
+      // Legacy compilation extracts
       expect(
         isIgnoredFormatRelease(
           'Combat (USA, Europe) (Atari Anthology)',
@@ -203,6 +214,7 @@ describe('DAT Cache', () => {
         ),
       ).toBe(true);
 
+      // Preserves authentic physical releases
       expect(
         isIgnoredFormatRelease('Asteroids (USA)', 'Asteroids (USA).a26', 2),
       ).toBe(false);
@@ -225,12 +237,14 @@ describe('DAT Cache', () => {
 
   describe('getPlatformDatReleases', () => {
     it('should load XML DAT and generate JSON cache on demand', () => {
+      // 1. Seed the GBA platform in mock database
       mockDb
         .prepare(
           'INSERT INTO platforms (id, name, display_name) VALUES (?, ?, ?)',
         )
         .run(24, 'Game Boy Advance', 'Game Boy Advance');
 
+      // 2. Create a mock GBA XML DAT file
       const xmlContent = `<?xml version="1.0"?>
 <datafile>
     <header>
@@ -244,10 +258,8 @@ describe('DAT Cache', () => {
 </datafile>`;
       fs.writeFileSync(testDatPath, xmlContent, 'utf-8');
 
-      const releases = getPlatformDatReleases(mockDb, 24, false, {
-        datsDir,
-        cacheDir: tempDir,
-      });
+      // 3. Trigger cache retrieval/compilation
+      const releases = getPlatformDatReleases(mockDb, 24);
 
       expect(releases).toHaveLength(1);
       expect(releases[0].name).toBe('Super Mario Advance (USA, Europe)');
@@ -255,6 +267,7 @@ describe('DAT Cache', () => {
       expect(releases[0].romCrc).toBe('1234abcd');
       expect(releases[0].region).toBe('USA, Europe');
 
+      // 4. Verify that the JSON cache file was generated
       const cacheFile = path.join(tempDir, 'dat_cache_24.json');
       expect(fs.existsSync(cacheFile)).toBe(true);
 
