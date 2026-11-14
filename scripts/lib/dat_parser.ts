@@ -7,6 +7,7 @@
 
 import * as fs from 'fs';
 import { XMLParser } from 'fast-xml-parser';
+import { hasNonEnglishOnlyLanguageTag } from '../../shared/source_format.js';
 
 export interface DatRom {
   name: string;
@@ -62,7 +63,7 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
     ignoreAttributes: false,
     attributeNamePrefix: '',
     parseAttributeValue: false,
-    isArray: (name) => ['game', 'rom'].includes(name),
+    isArray: (name: string) => ['game', 'rom'].includes(name),
   });
 
   const parsed = parser.parse(fileContent);
@@ -83,10 +84,17 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
 
   for (const rawGame of rawGames) {
     if (!rawGame.name) continue;
+    if (
+      rawGame.isbios === 'yes' ||
+      rawGame.isdevice === 'yes' ||
+      rawGame.ismechanical === 'yes'
+    ) {
+      continue;
+    }
     const gameName = String(rawGame.name);
 
-    // Filter out unofficial/pirate games at the release level
-    if (isUnofficialPattern.test(gameName)) {
+    // Filter out BIOS and unofficial/pirate games at the release level
+    if (gameName.includes('[BIOS]') || isUnofficialPattern.test(gameName)) {
       continue;
     }
 
@@ -132,6 +140,25 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
     });
   }
 
+  // Datomatic No-Intro XMLs are ordered by archive number rather than release name;
+  // sort them deterministically (preferring unrestricted/English prints, then alphabetically)
+  // to match canonical No-Intro DAT ordering.
+  const isNoIntroArchiveXml =
+    String(header.url || '')
+      .toLowerCase()
+      .includes('no-intro') ||
+    (Array.isArray(rawGames) &&
+      rawGames.length > 0 &&
+      rawGames[0]?.archive !== undefined);
+  if (isNoIntroArchiveXml) {
+    releases.sort((a, b) => {
+      const aNonEn = hasNonEnglishOnlyLanguageTag(a.name) ? 1 : 0;
+      const bNonEn = hasNonEnglishOnlyLanguageTag(b.name) ? 1 : 0;
+      if (aNonEn !== bNonEn) return aNonEn - bNonEn;
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+  }
+
   return {
     platformName,
     releases,
@@ -156,7 +183,7 @@ function parseClrMameProDat(fileContent: string): DatFileContent {
     if (!nameMatch) continue;
 
     const gameName = nameMatch[1].trim();
-    if (isUnofficialPattern.test(gameName)) {
+    if (gameName.includes('[BIOS]') || isUnofficialPattern.test(gameName)) {
       continue;
     }
 

@@ -38,6 +38,7 @@ import {
   classifyCartridgeBudgetWithRecords,
 } from './lib/budget_sources.js';
 import { findRetailPackInDisc } from '../shared/special_labels.js';
+import { extractDiscLabel } from '../shared/source_format.js';
 import { normalizeTitleForMatching } from '../shared/title_matching.js';
 import { runWithD1CostGuard } from './d1_cost_guard.js';
 
@@ -189,6 +190,11 @@ export async function syncCanonicalSources(
       : db.prepare(
           `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id = ?`,
         );
+    const updateLinkedReleaseRomStmt = isDryRun
+      ? null
+      : db.prepare(
+          `UPDATE game_releases SET rom_name = ?, rom_crc = ? WHERE canonical_release_id = ?`,
+        );
     const deleteStmt = isDryRun
       ? null
       : db.prepare(`DELETE FROM canonical_releases WHERE id = ?`);
@@ -293,26 +299,90 @@ export async function syncCanonicalSources(
         }>;
 
         const existingByKey = new Map<string, typeof existingRows>();
+        const existingByCrc = new Map<string, typeof existingRows>();
+        const existingByGroup = new Map<string, typeof existingRows>();
         for (const row of existingRows) {
           const key = `${row.rom_name || ''}::${row.raw_title}::${row.region || ''}`;
           const list = existingByKey.get(key) || [];
           list.push(row);
           existingByKey.set(key, list);
+
+          if (row.rom_crc) {
+            const crcKey = row.rom_crc.toLowerCase();
+            const crcList = existingByCrc.get(crcKey) || [];
+            crcList.push(row);
+            existingByCrc.set(crcKey, crcList);
+          }
+
+          const discLabel = extractDiscLabel(row.rom_name) || 'Single';
+          const groupKey = `${row.normalized_title}::${row.region || 'World'}::${row.variants || 'Standard'}::${discLabel}`;
+          const grpList = existingByGroup.get(groupKey) || [];
+          grpList.push(row);
+          existingByGroup.set(groupKey, grpList);
         }
 
         const seenExistingIds = new Set<number>();
-        let platInserted = 0;
-        let platUpdated = 0;
-        let platDeleted = 0;
+        const matchedExistingByIndex = new Map<
+          number,
+          (typeof existingRows)[number]
+        >();
 
-        for (const rel of deduplicated) {
+        // Pass 1: Claim exact (rom_name, raw_title, region) matches first
+        for (let idx = 0; idx < deduplicated.length; idx++) {
+          const rel = deduplicated[idx];
           const key = `${rel.rom_name || ''}::${rel.raw_title}::${rel.region || ''}`;
           const candidates = (existingByKey.get(key) || []).filter(
             (r) => !seenExistingIds.has(r.id),
           );
+          if (candidates.length > 0) {
+            const romCrcVal = rel.rom_crc || null;
+            const match =
+              candidates.find((r) => r.rom_crc === romCrcVal) || candidates[0];
+            matchedExistingByIndex.set(idx, match);
+            seenExistingIds.add(match.id);
+          }
+        }
+
+        // Pass 2: Fallback match by identical CRC or (normalized_title, region, variants, discLabel)
+        for (let idx = 0; idx < deduplicated.length; idx++) {
+          if (matchedExistingByIndex.has(idx)) continue;
+          const rel = deduplicated[idx];
+          const romCrcVal = rel.rom_crc ? rel.rom_crc.toLowerCase() : null;
+          let fallbackMatch: (typeof existingRows)[number] | undefined;
+
+          if (romCrcVal) {
+            const crcCandidates = (existingByCrc.get(romCrcVal) || []).filter(
+              (r) => !seenExistingIds.has(r.id),
+            );
+            fallbackMatch =
+              crcCandidates.find(
+                (r) => r.normalized_title === rel.normalized_title,
+              ) || crcCandidates[0];
+          }
+
+          if (!fallbackMatch) {
+            const discLabel = extractDiscLabel(rel.rom_name) || 'Single';
+            const groupKey = `${rel.normalized_title}::${rel.region || 'World'}::${rel.variants || 'Standard'}::${discLabel}`;
+            const grpCandidates = (existingByGroup.get(groupKey) || []).filter(
+              (r) => !seenExistingIds.has(r.id),
+            );
+            fallbackMatch = grpCandidates[0];
+          }
+
+          if (fallbackMatch) {
+            matchedExistingByIndex.set(idx, fallbackMatch);
+            seenExistingIds.add(fallbackMatch.id);
+          }
+        }
+
+        let platInserted = 0;
+        let platUpdated = 0;
+        let platDeleted = 0;
+
+        for (let idx = 0; idx < deduplicated.length; idx++) {
+          const rel = deduplicated[idx];
           const romCrcVal = rel.rom_crc || null;
-          const existing =
-            candidates.find((r) => r.rom_crc === romCrcVal) || candidates[0];
+          const existing = matchedExistingByIndex.get(idx);
 
           const regionVal = rel.region || null;
           const variantsVal = rel.variants || null;
@@ -350,12 +420,15 @@ export async function syncCanonicalSources(
             insertedCount++;
             platInserted++;
           } else {
-            seenExistingIds.add(existing.id);
             const hasDiff =
+              existing.raw_title !== rel.raw_title ||
               existing.normalized_title !== rel.normalized_title ||
+              existing.region !== regionVal ||
               existing.variants !== variantsVal ||
               existing.also_released_as !== alsoReleasedVal ||
               existing.packin_host_normalized_title !== packinVal ||
+              existing.redump_disc_id !== redumpIdVal ||
+              existing.rom_name !== romNameVal ||
               existing.rom_crc !== romCrcVal ||
               existing.serial_code !== serialVal ||
               existing.barcode !== barcodeVal ||
@@ -381,34 +454,79 @@ export async function syncCanonicalSources(
                   existing.id,
                 );
               }
+              const whereClause = existing.rom_name
+                ? `WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)}`
+                : `WHERE id = ${existing.id}`;
               sqlStatements.push(
-                `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, also_released_as = ${escapeSql(alsoReleasedVal)}, packin_host_normalized_title = ${escapeSql(packinVal)}, redump_disc_id = ${escapeSql(redumpIdVal)}, rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} WHERE id = ${existing.id};`,
+                `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, also_released_as = ${escapeSql(alsoReleasedVal)}, packin_host_normalized_title = ${escapeSql(packinVal)}, redump_disc_id = ${escapeSql(redumpIdVal)}, rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} ${whereClause};`,
               );
+              if (
+                (existing.rom_name !== romNameVal ||
+                  existing.rom_crc !== romCrcVal) &&
+                hasLinkedReleaseStmt.get(existing.id)
+              ) {
+                if (updateLinkedReleaseRomStmt) {
+                  updateLinkedReleaseRomStmt.run(
+                    romNameVal,
+                    romCrcVal,
+                    existing.id,
+                  );
+                }
+                const linkedWhere = romNameVal
+                  ? `WHERE canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSql(romNameVal)} AND platform_id = ${plat.id} LIMIT 1)`
+                  : `WHERE canonical_release_id = ${existing.id}`;
+                sqlStatements.push(
+                  `UPDATE game_releases SET rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)} ${linkedWhere};`,
+                );
+              }
               updatedCount++;
               platUpdated++;
             }
           }
         }
 
-        for (const existing of existingRows) {
-          if (!seenExistingIds.has(existing.id)) {
-            if (hasLinkedReleaseStmt.get(existing.id)) {
-              if (unlinkReleaseStmt) {
-                unlinkReleaseStmt.run(existing.id);
-              }
-              sqlStatements.push(
-                `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id = ${existing.id};`,
-              );
-            }
-            if (deleteStmt) {
-              deleteStmt.run(existing.id);
-            }
+        const rowsToDelete = existingRows.filter(
+          (existing) => !seenExistingIds.has(existing.id),
+        );
+        const romsToDelete = rowsToDelete
+          .map((r) => r.rom_name)
+          .filter((r): r is string => Boolean(r));
+        const idsWithoutRom = rowsToDelete
+          .filter((r) => !r.rom_name)
+          .map((r) => r.id);
+
+        const UNLINK_CHUNK = 50;
+        for (let i = 0; i < romsToDelete.length; i += UNLINK_CHUNK) {
+          const chunk = romsToDelete.slice(i, i + UNLINK_CHUNK);
+          sqlStatements.push(
+            `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name IN (${chunk.map((r) => escapeSql(r)).join(', ')}));`,
+          );
+        }
+        for (let i = 0; i < idsWithoutRom.length; i += UNLINK_CHUNK) {
+          const chunk = idsWithoutRom.slice(i, i + UNLINK_CHUNK);
+          sqlStatements.push(
+            `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (${chunk.join(', ')});`,
+          );
+        }
+
+        for (const existing of rowsToDelete) {
+          if (hasLinkedReleaseStmt.get(existing.id) && unlinkReleaseStmt) {
+            unlinkReleaseStmt.run(existing.id);
+          }
+          if (deleteStmt) {
+            deleteStmt.run(existing.id);
+          }
+          if (existing.rom_name) {
+            sqlStatements.push(
+              `DELETE FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)};`,
+            );
+          } else {
             sqlStatements.push(
               `DELETE FROM canonical_releases WHERE id = ${existing.id};`,
             );
-            deletedCount++;
-            platDeleted++;
           }
+          deletedCount++;
+          platDeleted++;
         }
 
         console.log(

@@ -324,6 +324,38 @@ export function isRegionOrLanguageOrDisc(
 }
 
 /**
+ * Checks if a release name contains a language parenthetical that excludes English
+ * (e.g. "(Fr,De)", "(Es,It)", "(De)", "(Ja)").
+ * Used during DAT deduplication to prefer unrestricted or English-inclusive releases
+ * over non-English-only regional sub-prints.
+ */
+export function hasNonEnglishOnlyLanguageTag(releaseName: string): boolean {
+  const matches = releaseName.match(/\(([^)]+)\)/g);
+  if (!matches) return false;
+  const englishTokens = new Set(['en', 'en-us', 'en-gb', 'english']);
+
+  for (const rawMatch of matches) {
+    const inner = rawMatch.slice(1, -1).toLowerCase().trim();
+    if (!inner || RECOGNIZED_REGIONS.has(inner)) continue;
+    const tokens = inner
+      .split(/[,/+\\]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (
+      tokens.length > 0 &&
+      tokens.every(
+        (t) => RECOGNIZED_LANGUAGES.has(t) && !RECOGNIZED_REGIONS.has(t),
+      )
+    ) {
+      if (!tokens.some((t) => englishTokens.has(t))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Determines whether a parenthetical on a numbered multi-disc release is a true
  * edition/revision/hardware variant (returns true) vs. a per-disc content subtitle
  * like "(Red Dead Redemption Single Player)", "(Subsistence)", "(Dante)" (returns false).
@@ -608,15 +640,27 @@ export function isIgnoredFormatRelease(
   }
 
   const combined = `${relLower} ${romLower}`;
+  if (
+    (platformId !== 33 && combined.includes('[b]')) ||
+    combined.includes('[bios]') ||
+    /\bboot\s+rom\b/i.test(combined) ||
+    /\b(?:test\s+cartridge|64dd\s+hardware\s+test|aging\s+cassette|nitro-eva|ntr\s+aging)\b/i.test(
+      combined,
+    )
+  ) {
+    return true;
+  }
+
   const parentheticals = combined.match(/\(([^)]+)\)/g);
   if (parentheticals) {
     for (const rawParen of parentheticals) {
       const inner = rawParen.slice(1, -1).trim();
-      // Ignore unreleased prototypes, development betas, kiosk demos, and samples
+      // Ignore unreleased prototypes, development betas, kiosk demos, samples, and non-game utility/test programs
       if (
-        /\b(?:beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo)\b/i.test(
+        /\b(?:beta|proto|prototype|demo|kiosk|sample|taikenban|trial version|promo|test program|enhancement chip|interactive sampler cd|demonstration movie|sdk)\b/i.test(
           inner,
-        )
+        ) ||
+        /^(?:program|application)$/i.test(inner)
       ) {
         return true;
       }

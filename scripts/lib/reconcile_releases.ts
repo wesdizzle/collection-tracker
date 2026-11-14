@@ -152,25 +152,130 @@ export function reconcileGameReleasesWithCanonical(
   const defaultSqlPath = path.join(tempDir, 'reconcile_game_releases.sql');
   const sqlPath = options.sqlOutputPath ?? defaultSqlPath;
 
-  // Sync existing game_releases metadata (canonical_release_id, also_released_as, variants) from canonical_releases
-  if (!isDryRun) {
-    try {
-      db.prepare(
-        `UPDATE game_releases
-         SET canonical_release_id = (SELECT id FROM canonical_releases WHERE canonical_releases.rom_name = game_releases.rom_name LIMIT 1)
-         WHERE (canonical_release_id IS NULL OR canonical_release_id NOT IN (SELECT id FROM canonical_releases))
-           AND rom_name IS NOT NULL`,
-      ).run();
+  const relinkSqlStatements: string[] = [];
+  const escapeSqlGlobal = (s: string | null | undefined) =>
+    s !== null && s !== undefined ? `'${s.replace(/'/g, "''")}'` : 'NULL';
 
+  // Sync existing game_releases metadata (canonical_release_id, rom_name, rom_crc, also_released_as, variants) from canonical_releases
+  try {
+    const grTableInfoPre = db.pragma('table_info(game_releases)') as Array<{
+      name: string;
+    }>;
+    const hasGrAlsoPre = grTableInfoPre.some(
+      (c) => c.name === 'also_released_as',
+    );
+    const crTableInfoPre = db.pragma(
+      'table_info(canonical_releases)',
+    ) as Array<{
+      name: string;
+    }>;
+    const hasCrAlsoPre = crTableInfoPre.some(
+      (c) => c.name === 'also_released_as',
+    );
+    const selectCrAlsoPre = hasCrAlsoPre
+      ? 'also_released_as'
+      : 'NULL as also_released_as';
+
+    const unlinkedWithRom = db
+      .prepare(
+        `SELECT gr.id, gr.game_id, g.platform_id, g.title, gr.region, gr.variants, gr.rom_name, gr.rom_crc
+         FROM game_releases gr
+         JOIN games g ON gr.game_id = g.stable_id
+         WHERE gr.rom_name IS NOT NULL
+           AND (gr.canonical_release_id IS NULL OR gr.canonical_release_id NOT IN (SELECT id FROM canonical_releases))
+           ${options.platformId ? 'AND g.platform_id = ' + Number(options.platformId) : ''}`,
+      )
+      .all() as Array<{
+      id: string;
+      game_id: number;
+      platform_id: number;
+      title: string;
+      region: string | null;
+      variants: string | null;
+      rom_name: string;
+      rom_crc: string | null;
+    }>;
+
+    if (unlinkedWithRom.length > 0) {
+      const findByRomStmt = db.prepare(
+        `SELECT id, rom_name, rom_crc, variants, ${selectCrAlsoPre} FROM canonical_releases WHERE platform_id = ? AND rom_name = ? LIMIT 1`,
+      );
+      const findByCrcStmt = db.prepare(
+        `SELECT id, rom_name, rom_crc, variants, ${selectCrAlsoPre} FROM canonical_releases WHERE platform_id = ? AND LOWER(rom_crc) = LOWER(?) LIMIT 1`,
+      );
+      const isCanonicalUsedOnGameStmt = db.prepare(
+        `SELECT 1 FROM game_releases WHERE game_id = ? AND canonical_release_id = ? AND id != ? LIMIT 1`,
+      );
+
+      for (const gr of unlinkedWithRom) {
+        let match = findByRomStmt.get(gr.platform_id, gr.rom_name) as
+          | {
+              id: number;
+              rom_name: string;
+              rom_crc: string | null;
+              variants: string | null;
+              also_released_as: string | null;
+            }
+          | undefined;
+
+        if (!match && gr.rom_crc) {
+          match = findByCrcStmt.get(gr.platform_id, gr.rom_crc) as
+            | typeof match
+            | undefined;
+        }
+
+        if (
+          match &&
+          !isCanonicalUsedOnGameStmt.get(gr.game_id, match.id, gr.id)
+        ) {
+          if (!isDryRun) {
+            if (hasGrAlsoPre) {
+              db.prepare(
+                `UPDATE game_releases
+                 SET canonical_release_id = ?, rom_name = ?, rom_crc = ?,
+                     variants = COALESCE(variants, ?),
+                     also_released_as = COALESCE(also_released_as, ?)
+                 WHERE id = ?`,
+              ).run(
+                match.id,
+                match.rom_name,
+                match.rom_crc,
+                match.variants,
+                match.also_released_as,
+                gr.id,
+              );
+            } else {
+              db.prepare(
+                `UPDATE game_releases
+                 SET canonical_release_id = ?, rom_name = ?, rom_crc = ?,
+                     variants = COALESCE(variants, ?)
+                 WHERE id = ?`,
+              ).run(
+                match.id,
+                match.rom_name,
+                match.rom_crc,
+                match.variants,
+                gr.id,
+              );
+            }
+          }
+          relinkSqlStatements.push(
+            `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSqlGlobal(match.rom_name)} AND platform_id = ${gr.platform_id} LIMIT 1), rom_name = ${escapeSqlGlobal(match.rom_name)}, rom_crc = ${escapeSqlGlobal(match.rom_crc)}, variants = COALESCE(variants, ${escapeSqlGlobal(match.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSqlGlobal(match.also_released_as)}) WHERE id = ${escapeSqlGlobal(gr.id)};`,
+          );
+        }
+      }
+    }
+
+    if (!isDryRun && hasGrAlsoPre && hasCrAlsoPre) {
       db.prepare(
         `UPDATE game_releases
          SET also_released_as = (SELECT also_released_as FROM canonical_releases WHERE id = game_releases.canonical_release_id),
              variants = COALESCE(game_releases.variants, (SELECT variants FROM canonical_releases WHERE id = game_releases.canonical_release_id))
          WHERE canonical_release_id IS NOT NULL`,
       ).run();
-    } catch {
-      // canonical_releases table may be unpopulated in test mocks
     }
+  } catch {
+    // canonical_releases table may be unpopulated in test mocks
   }
 
   // Query releases that need ROM names
@@ -202,6 +307,11 @@ export function reconcileGameReleasesWithCanonical(
   const usedRomsByPlatformId = new Map<number, Set<string>>();
   const usedCrcsByGameId = new Map<number, Set<string>>();
   const usedCrcsByPlatformId = new Map<number, Set<string>>();
+  const existingReleaseIds = new Set(
+    (
+      db.prepare('SELECT id FROM game_releases').all() as Array<{ id: string }>
+    ).map((r) => r.id),
+  );
   const existingRoms = db
     .prepare(
       `SELECT gr.game_id, g.platform_id, gr.rom_name, gr.rom_crc
@@ -332,8 +442,8 @@ export function reconcileGameReleasesWithCanonical(
   const sqlStatements: string[] = [
     '-- Automatic Game Releases Reconciliation for Cloudflare D1',
     `-- Generated on: ${new Date().toISOString()}`,
-    'PRAGMA foreign_keys = OFF;',
     '',
+    ...relinkSqlStatements,
   ];
 
   for (const rel of candidateReleases) {
@@ -448,10 +558,15 @@ export function reconcileGameReleasesWithCanonical(
       usedCrcsByGameId.set(rel.game_id, usedCrcSet);
     }
 
-    const newId =
+    const candidateNewId =
       rel.id.endsWith('-default') && best.rom_crc
         ? `${rel.game_slug || rel.id.replace(/-default$/, '')}-${best.rom_crc.toLowerCase()}`
         : rel.id;
+    const newId =
+      candidateNewId !== rel.id && !existingReleaseIds.has(candidateNewId)
+        ? candidateNewId
+        : rel.id;
+    existingReleaseIds.add(newId);
 
     updates.push({
       releaseId: rel.id,
@@ -473,12 +588,33 @@ export function reconcileGameReleasesWithCanonical(
       s !== null ? `'${s.replace(/'/g, "''")}'` : 'NULL';
 
     if (newId !== rel.id) {
-      sqlStatements.push(
-        `UPDATE game_releases SET id = ${escapeSql(newId)}, canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)}) WHERE id = ${escapeSql(rel.id)};`,
-      );
-      sqlStatements.push(
-        `UPDATE user_game_releases SET release_id = ${escapeSql(newId)} WHERE release_id = ${escapeSql(rel.id)};`,
-      );
+      let hasUserRef = false;
+      try {
+        hasUserRef = Boolean(
+          db
+            .prepare(
+              'SELECT 1 FROM user_game_releases WHERE release_id = ? LIMIT 1',
+            )
+            .get(rel.id),
+        );
+      } catch {
+        // user_game_releases table may not exist in minimal test mocks
+      }
+      if (hasUserRef) {
+        sqlStatements.push(
+          `INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id, barcode, also_released_as, image_url) SELECT ${escapeSql(newId)}, game_id, region, COALESCE(variants, ${escapeSql(best.variants)}), ${escapeSql(best.rom_name)}, ${escapeSql(best.rom_crc)}, release_date, ${best.id}, barcode, COALESCE(also_released_as, ${escapeSql(best.also_released_as)}), image_url FROM game_releases WHERE id = ${escapeSql(rel.id)};`,
+        );
+        sqlStatements.push(
+          `UPDATE user_game_releases SET release_id = ${escapeSql(newId)} WHERE release_id = ${escapeSql(rel.id)};`,
+        );
+        sqlStatements.push(
+          `DELETE FROM game_releases WHERE id = ${escapeSql(rel.id)};`,
+        );
+      } else {
+        sqlStatements.push(
+          `UPDATE game_releases SET id = ${escapeSql(newId)}, canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)}) WHERE id = ${escapeSql(rel.id)};`,
+        );
+      }
     } else {
       sqlStatements.push(
         `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)}) WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
@@ -644,8 +780,6 @@ export function reconcileGameReleasesWithCanonical(
   }
 
   sqlStatements.push('');
-  sqlStatements.push('PRAGMA foreign_keys = ON;');
-  sqlStatements.push('');
 
   // Write SQL migration file
   fs.writeFileSync(sqlPath, sqlStatements.join('\n'), 'utf8');
@@ -735,7 +869,12 @@ export function reconcileGameReleasesWithCanonical(
       }
     });
 
-    applyTx();
+    db.pragma('foreign_keys = OFF');
+    try {
+      applyTx();
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
   }
 
   return {
