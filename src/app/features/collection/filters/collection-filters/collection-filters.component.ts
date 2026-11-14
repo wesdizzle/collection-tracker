@@ -2,33 +2,30 @@
  * COLLECTION FILTERS COMPONENT
  *
  * Provides the user interface for filtering the collection by status,
- * platform, line, type, and series.
- *
- * DESIGN RATIONALE:
- * - **Collapsible Design**: Implements a 'showFilters' signal to toggle
- *   visibility on mobile, keeping the interface clean for browsing.
- * - **Signal Inputs**: Uses modern Angular 21 signal inputs (`input()`) for
- *   optimal change detection and developer ergonomics.
- * - **Unified Modal Dropdown Design System**: Replaces OS-native select and datalist
- *   popups with custom Material 3 glassmorphic floating modal dropdown menus.
- * - **One-Way Data Flow**: Emits a `filtersChange` output rather than mutating
- *   inputs, following the "Data Down, Actions Up" architecture.
+ * platform, line, type, and series using the shared `@wesdizzle/app-kit/angular`
+ * `<kit-filter-bar>`, `<kit-select>`, `<kit-combobox>`, and `<kit-multiselect>` primitives.
  */
 
 import {
+  ChangeDetectionStrategy,
   Component,
+  OnDestroy,
+  computed,
   input,
   output,
   signal,
-  computed,
-  HostListener,
-  ElementRef,
-  inject,
-  OnDestroy,
-  ChangeDetectionStrategy,
 } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { DatePipe } from '@angular/common';
+import {
+  KitComboboxComponent,
+  KitFilterBarComponent,
+  KitFilterPill,
+  KitMultiSelectComponent,
+  KitSelectComponent,
+  KitSelectGroup,
+  KitSelectOption,
+  activeKitDropdownId,
+  closeAllKitDropdowns,
+} from '@wesdizzle/app-kit/angular';
 import {
   FilterState,
   PlatformGroup,
@@ -39,7 +36,13 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
 @Component({
   selector: 'app-collection-filters',
   standalone: true,
-  imports: [FormsModule, DatePipe, IconComponent],
+  imports: [
+    IconComponent,
+    KitFilterBarComponent,
+    KitSelectComponent,
+    KitComboboxComponent,
+    KitMultiSelectComponent,
+  ],
   templateUrl: './collection-filters.component.html',
   styleUrls: ['./collection-filters.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -67,7 +70,7 @@ export class CollectionFiltersComponent implements OnDestroy {
   /** --- Internal UI State --- */
   public showFilters = signal(false);
   public showDrawer = signal(false);
-  public activeDropdown = signal<string | null>(null);
+  public activeDropdown = activeKitDropdownId;
 
   /** Quick Status Helpers */
   public readonly isOwnedActive = computed(() => {
@@ -104,6 +107,82 @@ export class CollectionFiltersComponent implements OnDestroy {
   public readonly isUpcomingActive = computed(() => {
     return this.filters().ownership === 'upcoming';
   });
+
+  public readonly quickPills = computed<readonly KitFilterPill[]>(() => {
+    const pills: KitFilterPill[] = [
+      {
+        id: 'owned',
+        label: 'Owned',
+        active: this.isOwnedActive(),
+      },
+      {
+        id: 'home_region_and_owned',
+        label: 'Home Region & Owned',
+        active: this.isHomeRegionAndOwnedActive(),
+        title:
+          'All owned items, plus seeking/unowned items from your home region',
+      },
+      {
+        id: 'all',
+        label: 'All',
+        active: this.isAllActive(),
+      },
+      {
+        id: 'priority_seeking',
+        label: 'Priority Seeking',
+        active: this.isPrioritySeekingActive(),
+        title: 'High-priority target games and toys',
+      },
+      {
+        id: 'seeking',
+        label: 'Seeking',
+        active: this.isSeekingActive(),
+      },
+    ];
+
+    if (this.currentTab() === 'games') {
+      pills.push({
+        id: 'upcoming',
+        label: 'Physical Watch',
+        active: this.isUpcomingActive(),
+      });
+    }
+
+    pills.push(
+      {
+        id: 'retail_available',
+        label: 'At Retail',
+        active: Boolean(this.filters().retail_available),
+        title: 'Filter to items currently available at retail',
+      },
+      {
+        id: 'deals',
+        label: 'Deals',
+        active: this.isDealsActive(),
+        variant: 'deals',
+        icon: 'flame',
+      },
+    );
+
+    return pills;
+  });
+
+  public onQuickPillClick(pillId: string): void {
+    if (pillId === 'retail_available') {
+      this.toggleRetailAvailable();
+      return;
+    }
+    this.selectQuickStatus(
+      pillId as
+        | 'owned'
+        | 'home_region_and_owned'
+        | 'all'
+        | 'priority_seeking'
+        | 'seeking'
+        | 'deals'
+        | 'upcoming',
+    );
+  }
 
   public selectQuickStatus(
     status:
@@ -361,25 +440,52 @@ export class CollectionFiltersComponent implements OnDestroy {
     { value: 'discount_desc', label: 'Deepest Sale Discount' },
   ];
 
-  private elementRef = inject(ElementRef);
+  readonly platformAllOption: KitSelectOption<number | undefined> = {
+    value: undefined,
+    label: 'All Platforms',
+  };
+
+  readonly platformSelectGroups = computed<
+    readonly KitSelectGroup<number | undefined>[]
+  >(() =>
+    this.platformGroups().map((group) => ({
+      label: group.brand,
+      options: group.platforms.map((p) => ({
+        value: p.id,
+        label: p.display_name || p.name,
+        indent: Boolean(p.parent_platform_id),
+      })),
+    })),
+  );
+
+  readonly lineAllOption: KitSelectOption<string> = {
+    value: '',
+    label: 'All Lines',
+  };
+
+  readonly lineSelectOptions = computed<readonly KitSelectOption<string>[]>(
+    () => this.uniqueLines().map((l) => ({ value: l, label: l })),
+  );
+
+  readonly typeAllOption: KitSelectOption<string> = {
+    value: '',
+    label: 'All Types',
+  };
+
+  readonly typeSelectOptions = computed<readonly KitSelectOption<string>[]>(
+    () => this.uniqueTypes().map((t) => ({ value: t, label: t })),
+  );
 
   public filtersChange = output<FilterState>();
   public viewModeChange = output<ViewMode>();
 
-  onViewModeSelect(mode: ViewMode) {
-    if (this.viewMode() !== mode) {
-      this.viewModeChange.emit(mode);
+  onViewModeSelect(mode: string) {
+    const typedMode = mode as ViewMode;
+    if (this.viewMode() !== typedMode) {
+      this.viewModeChange.emit(typedMode);
     }
   }
 
-  /**
-   * Emits a change event when a filter value is updated.
-   * Handles string-to-boolean conversion for specialized inputs like 'seriesExact'
-   * to maintain strict typing in the model layer.
-   *
-   * @param key The FilterState property to update.
-   * @param value The new value for the property.
-   */
   onPartialChange(key: keyof FilterState, value: unknown) {
     let processedValue: unknown = value;
     if (value === 'true') processedValue = true;
@@ -400,7 +506,7 @@ export class CollectionFiltersComponent implements OnDestroy {
   }
 
   closeDropdown() {
-    this.activeDropdown.set(null);
+    closeAllKitDropdowns();
   }
 
   selectOption(key: keyof FilterState, value: unknown) {
@@ -607,21 +713,5 @@ export class CollectionFiltersComponent implements OnDestroy {
     if (selected.length === 0) return 'All Regions';
     if (selected.length <= 2) return selected.join(', ');
     return `${selected.length} Selected`;
-  }
-
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent) {
-    const target = event.target as HTMLElement;
-    if (
-      !target.closest('.dropdown-wrapper') &&
-      !target.closest('.combobox-wrapper')
-    ) {
-      this.closeDropdown();
-    }
-  }
-
-  @HostListener('document:keydown.escape')
-  onEscape() {
-    this.closeDropdown();
   }
 }
