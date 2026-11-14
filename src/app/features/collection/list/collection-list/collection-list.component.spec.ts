@@ -2263,4 +2263,129 @@ describe('CollectionListComponent', () => {
       fixture.nativeElement.querySelectorAll('.compact-disc-chip').length,
     ).toBe(0);
   });
+
+  it('should filter games and toys by retail_available and deals_only, and rank groupedToys by retail_asc / discount_desc', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'game-out-of-print',
+        title: 'Retro Out of Print Game',
+        platform: 'NES',
+        platform_id: 1,
+        ownership_status: 0,
+        retail_price: null,
+        retail_on_sale: 0,
+      },
+      {
+        stable_id: 2,
+        id: 'game-in-stock-regular',
+        title: 'Fangamer Regular Price Game',
+        platform: 'Nintendo Switch',
+        platform_id: 26,
+        ownership_status: 0,
+        retail_price: 3400,
+        retail_on_sale: 0,
+        retail_store: 'Fangamer',
+        retail_url: 'https://www.fangamer.com/products/game',
+      },
+      {
+        stable_id: 3,
+        id: 'game-on-sale',
+        title: 'VGP Sale Game',
+        platform: 'Nintendo Switch',
+        platform_id: 26,
+        ownership_status: 0,
+        retail_price: 1999,
+        retail_regular_price: 3999,
+        retail_discount_pct: 50,
+        retail_on_sale: 1,
+        retail_store: 'VGP',
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        stable_id: 10,
+        id: 'toy-retro',
+        name: 'Spyro Series 1',
+        line: 'Skylanders',
+        type: 'Figure',
+        series_name: "Spyro's Adventure",
+        series_line: 'Skylanders',
+        release_date: '2011-10-16',
+        ownership_status: 0,
+        image_url: '',
+        retail_price: null,
+        retail_on_sale: 0,
+      },
+      {
+        stable_id: 11,
+        id: 'toy-regular-retail',
+        name: 'Samus',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Metroid',
+        series_line: 'amiibo',
+        release_date: '2021-10-08',
+        ownership_status: 0,
+        image_url: '',
+        retail_price: 2199,
+        retail_on_sale: 0,
+        retail_store: 'PNP Games',
+      },
+      {
+        stable_id: 12,
+        id: 'toy-on-sale',
+        name: 'Kirby',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Kirby',
+        series_line: 'amiibo',
+        release_date: '2016-06-10',
+        ownership_status: 0,
+        image_url: '',
+        retail_price: 1299,
+        retail_regular_price: 2199,
+        retail_discount_pct: 41,
+        retail_on_sale: 1,
+        retail_store: 'VGP',
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await initPromise;
+
+    // 1. Games: retail_available includes both regular-price in-stock and on-sale items
+    component.filters.set({ ownership: 'all', retail_available: true });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-in-stock-regular',
+      'game-on-sale',
+    ]);
+
+    // 2. Toys: retail_available includes both regular-price in-stock and on-sale toys
+    expect(component.filteredToys().map((t) => t.id)).toEqual([
+      'toy-on-sale',
+      'toy-regular-retail',
+    ]);
+
+    // 3. Toys: deals_only includes only on-sale toys
+    component.filters.set({ ownership: 'all', deals_only: true });
+    expect(component.filteredToys().map((t) => t.id)).toEqual(['toy-on-sale']);
+
+    // 4. Toys: sortBy retail_asc flattens groupedToys and ranks by lowest price
+    component.filters.set({
+      ownership: 'all',
+      retail_available: true,
+      sortBy: 'retail_asc',
+    });
+    expect(component.groupedToys().length).toBe(1);
+    expect(component.groupedToys()[0].lineName).toContain(
+      'All Lines (Ranked by Lowest Retail Price)',
+    );
+    expect(
+      component.groupedToys()[0].seriesGroups[0].toys.map((t) => t.id),
+    ).toEqual(['toy-on-sale', 'toy-regular-retail']);
+  });
 });

@@ -74,10 +74,12 @@ import {
 } from '../shared/canonical_series';
 import {
   fetchAllRetailDeals,
-  matchBestBuyProduct,
+  matchRetailGameProduct,
+  matchRetailToyProduct,
   CandidateGame,
+  CandidateToy,
   RetailDealItem,
-} from '../shared/bestbuy';
+} from '../shared/retail';
 import {
   sendWebPushNotification,
   resolveVapidSubject,
@@ -7301,11 +7303,46 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
 
   const bestDealByGame = new Map<number, RetailDealItem>();
   for (const deal of deals) {
-    const stableId = matchBestBuyProduct(deal, candidates);
+    if (!deal.onSale) continue;
+    const stableId = matchRetailGameProduct(deal, candidates);
     if (stableId !== null) {
       const existing = bestDealByGame.get(stableId);
       if (!existing || deal.salePrice < existing.salePrice) {
         bestDealByGame.set(stableId, deal);
+      }
+    }
+  }
+
+  let toyCandidates: CandidateToy[] = [];
+  let prevToyRetailRows: Array<{ id: string }> = [];
+  try {
+    const toyRows = await env.DB.prepare(
+      `SELECT id, name, line, series, type, region FROM toys`,
+    ).all<CandidateToy>();
+    toyCandidates = toyRows.results || [];
+
+    const prevToys = await env.DB.prepare(
+      `SELECT id FROM toys WHERE retail_store IN ('Best Buy', 'VGP', 'PNP Games') AND (retail_on_sale != 0 OR retail_price IS NOT NULL OR retail_url IS NOT NULL)`,
+    ).all<{ id: string }>();
+    prevToyRetailRows = prevToys.results || [];
+  } catch {
+    // Toys table or retail columns may not exist in minimal test schemas
+  }
+
+  const bestItemByToy = new Map<string, RetailDealItem>();
+  if (toyCandidates.length > 0) {
+    for (const item of deals) {
+      const toyId = matchRetailToyProduct(item, toyCandidates);
+      if (toyId !== null) {
+        const existing = bestItemByToy.get(toyId);
+        if (
+          !existing ||
+          (item.onSale && !existing.onSale) ||
+          (item.onSale === existing.onSale &&
+            item.salePrice < existing.salePrice)
+        ) {
+          bestItemByToy.set(toyId, item);
+        }
       }
     }
   }
@@ -7361,7 +7398,73 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
       const slice = expiredSaleIds.slice(i, i + EXP_CHUNK);
       statements.push(
         env.DB.prepare(
-          `UPDATE games SET retail_on_sale = 0 WHERE stable_id IN (${slice.map(() => '?').join(',')}) AND retail_on_sale != 0`,
+          `UPDATE games
+           SET retail_on_sale = 0,
+               retail_price = COALESCE(retail_regular_price, retail_price),
+               retail_discount_pct = 0
+           WHERE stable_id IN (${slice.map(() => '?').join(',')}) AND retail_on_sale != 0`,
+        ).bind(...slice),
+      );
+    }
+  }
+
+  for (const [toyId, item] of bestItemByToy.entries()) {
+    const salePriceCents = Math.round(item.salePrice * 100);
+    const regularPriceCents = Math.round(item.regularPrice * 100);
+    const discountPct = item.onSale
+      ? Math.round(Number(item.percentSavings) || 0)
+      : 0;
+    const onSaleInt = item.onSale && discountPct > 0 ? 1 : 0;
+
+    statements.push(
+      env.DB.prepare(
+        `UPDATE toys
+         SET retail_price = ?,
+             retail_regular_price = ?,
+             retail_discount_pct = ?,
+             retail_on_sale = ?,
+             retail_store = ?,
+             retail_url = ?,
+             retail_updated_at = ?
+         WHERE id = ?
+           AND (retail_on_sale IS NOT ? OR retail_price IS NOT ? OR retail_regular_price IS NOT ? OR retail_discount_pct IS NOT ? OR retail_store IS NOT ? OR retail_url IS NOT ?)`,
+      ).bind(
+        salePriceCents,
+        regularPriceCents,
+        discountPct,
+        onSaleInt,
+        item.store,
+        item.url,
+        nowIso,
+        toyId,
+        onSaleInt,
+        salePriceCents,
+        regularPriceCents,
+        discountPct,
+        item.store,
+        item.url,
+      ),
+    );
+  }
+
+  const expiredToyIds = prevToyRetailRows
+    .map((r) => r.id)
+    .filter((id) => !bestItemByToy.has(id));
+  if (expiredToyIds.length > 0) {
+    const EXP_CHUNK = 80;
+    for (let i = 0; i < expiredToyIds.length; i += EXP_CHUNK) {
+      const slice = expiredToyIds.slice(i, i + EXP_CHUNK);
+      statements.push(
+        env.DB.prepare(
+          `UPDATE toys
+           SET retail_on_sale = 0,
+               retail_price = NULL,
+               retail_regular_price = NULL,
+               retail_discount_pct = 0,
+               retail_store = NULL,
+               retail_url = NULL
+           WHERE id IN (${slice.map(() => '?').join(',')})
+             AND (retail_on_sale != 0 OR retail_price IS NOT NULL OR retail_url IS NOT NULL)`,
         ).bind(...slice),
       );
     }
@@ -7385,7 +7488,7 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
   }
 
   return {
-    matchedCount: bestDealByGame.size,
+    matchedCount: bestDealByGame.size + bestItemByToy.size,
     totalDeals: deals.length,
     sources,
     notifications: notificationResult,
@@ -8039,6 +8142,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
     const priceCents =
       po.priceCents ?? (po.priceUsd ? Math.round(po.priceUsd * 100) : null);
+    const regularPriceCents = po.regularPriceCents ?? priceCents;
+    const discountPct = po.onSale ? (po.discountPct ?? 0) : 0;
+    const onSaleInt = po.onSale && discountPct > 0 ? 1 : 0;
 
     if (match) {
       const isGraduatingFromNoPlatform = match.platform_id === 0;
@@ -8076,6 +8182,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
                    physical_status = 'likely_physical',
                    retail_url = ?,
                    retail_price = COALESCE(?, retail_price),
+                   retail_regular_price = COALESCE(?, retail_regular_price),
+                   retail_discount_pct = ?,
+                   retail_on_sale = ?,
                    retail_store = ?
                WHERE stable_id = ?`,
             ).bind(
@@ -8083,6 +8192,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
               newSlug,
               po.productUrl,
               priceCents,
+              regularPriceCents,
+              discountPct,
+              onSaleInt,
               po.store,
               match.stable_id,
             ),
@@ -8104,12 +8216,18 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
                SET physical_status = ?,
                    retail_url = ?,
                    retail_price = COALESCE(?, retail_price),
+                   retail_regular_price = COALESCE(?, retail_regular_price),
+                   retail_discount_pct = ?,
+                   retail_on_sale = ?,
                    retail_store = ?
                WHERE stable_id = ?`,
             ).bind(
               nextPhysicalStatus,
               po.productUrl,
               priceCents,
+              regularPriceCents,
+              discountPct,
+              onSaleInt,
               po.store,
               match.stable_id,
             ),

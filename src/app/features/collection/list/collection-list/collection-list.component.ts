@@ -51,6 +51,7 @@ import {
   OwnershipStatus,
   PlayStatus,
   isRegionMatchingHome,
+  isItemAvailableAtRetail,
   normalizeBudgetToken,
   SERIES_CROSS_LANGUAGE_ALIASES,
 } from '../../../../core/models/collection.models';
@@ -125,6 +126,7 @@ export class CollectionListComponent
         tagExact: false,
         sortBy: 'default',
         deals_only: false,
+        retail_available: false,
         budget_label: 'all',
       });
       this.displayLimit.set(100);
@@ -199,6 +201,11 @@ export class CollectionListComponent
     if (qp['deals_only'] !== undefined) {
       qpFilters.deals_only =
         String(qp['deals_only']) === 'true' || String(qp['deals_only']) === '1';
+    }
+    if (qp['retail_available'] !== undefined) {
+      qpFilters.retail_available =
+        String(qp['retail_available']) === 'true' ||
+        String(qp['retail_available']) === '1';
     }
     if (qp['search'] || qp['name'] || qp['q']) {
       qpFilters.name = String(qp['search'] || qp['name'] || qp['q']);
@@ -622,10 +629,13 @@ export class CollectionListComponent
         return false;
       }
 
-      // Deals Only Filter
+      // Deals Only & Available at Retail Filters
       if (f.deals_only) {
         const isOnSale = Boolean(g.retail_on_sale);
         if (!isOnSale) return false;
+      }
+      if (f.retail_available) {
+        if (!isItemAvailableAtRetail(g)) return false;
       }
 
       // Play Status Filter
@@ -1140,6 +1150,14 @@ export class CollectionListComponent
         return false;
       }
 
+      // Deals Only & Available at Retail Filters
+      if (f.deals_only) {
+        if (!toy.retail_on_sale) return false;
+      }
+      if (f.retail_available) {
+        if (!isItemAvailableAtRetail(toy)) return false;
+      }
+
       // Line Filter (e.g. Amiibo, Skylanders)
       if (f.line && toy.line !== f.line) return false;
 
@@ -1207,6 +1225,8 @@ export class CollectionListComponent
      */
     const decoratedToys = filteredToysList.map((toy) => ({
       item: toy,
+      retailPrice: toy.retail_price ?? null,
+      discountPct: toy.retail_discount_pct ?? 0,
       normLine: this.normalizeForSort(toy.line),
       seriesIndex: toy.series_index ?? 9999,
       normSeries: this.normalizeForSort(toy.series_name || ''),
@@ -1218,17 +1238,60 @@ export class CollectionListComponent
     }));
 
     decoratedToys.sort((a, b) => {
-      // 1. Line (ASC)
-      if (a.normLine !== b.normLine) {
-        return a.normLine.localeCompare(b.normLine);
+      // Retail Price Sorting (Low to High)
+      if (f.sortBy === 'retail_asc') {
+        if (a.retailPrice !== null || b.retailPrice !== null) {
+          if (a.retailPrice === null) return 1;
+          if (b.retailPrice === null) return -1;
+          if (a.retailPrice !== b.retailPrice)
+            return a.retailPrice - b.retailPrice;
+        }
       }
 
-      // 2. Series Sort Index or Name (ASC)
-      if (a.seriesIndex !== b.seriesIndex) {
-        return a.seriesIndex - b.seriesIndex;
+      // Deepest Sale Discount Sorting (High to Low)
+      if (f.sortBy === 'discount_desc') {
+        if (a.discountPct !== b.discountPct)
+          return b.discountPct - a.discountPct;
+        const priceA = a.retailPrice ?? 999999;
+        const priceB = b.retailPrice ?? 999999;
+        if (priceA !== priceB) return priceA - priceB;
       }
-      if (a.normSeries !== b.normSeries) {
-        return a.normSeries.localeCompare(b.normSeries);
+
+      // Release Date Sorting
+      if (f.sortBy === 'release_desc' || f.sortBy === 'release_asc') {
+        const isDesc = f.sortBy === 'release_desc';
+        const aKnown = a.releaseDate !== '9999-99-99';
+        const bKnown = b.releaseDate !== '9999-99-99';
+        if (aKnown && bKnown) {
+          if (a.releaseDate !== b.releaseDate) {
+            return isDesc
+              ? b.releaseDate.localeCompare(a.releaseDate)
+              : a.releaseDate.localeCompare(b.releaseDate);
+          }
+        } else if (aKnown !== bKnown) {
+          return aKnown ? -1 : 1;
+        }
+      }
+
+      const isBypassLineGroupSort =
+        f.sortBy === 'retail_asc' ||
+        f.sortBy === 'discount_desc' ||
+        f.sortBy === 'release_desc' ||
+        f.sortBy === 'release_asc';
+
+      if (!isBypassLineGroupSort) {
+        // 1. Line (ASC)
+        if (a.normLine !== b.normLine) {
+          return a.normLine.localeCompare(b.normLine);
+        }
+
+        // 2. Series Sort Index or Name (ASC)
+        if (a.seriesIndex !== b.seriesIndex) {
+          return a.seriesIndex - b.seriesIndex;
+        }
+        if (a.normSeries !== b.normSeries) {
+          return a.normSeries.localeCompare(b.normSeries);
+        }
       }
 
       // 3. Toy-level sorting
@@ -1277,6 +1340,40 @@ export class CollectionListComponent
   public groupedToys = computed(() => {
     const displayed = this.displayToys();
     const allFiltered = this.filteredToys();
+    const f = this.filters();
+
+    const isFlatSort =
+      f.sortBy === 'retail_asc' ||
+      f.sortBy === 'discount_desc' ||
+      f.sortBy === 'release_desc' ||
+      f.sortBy === 'release_asc';
+
+    if (isFlatSort) {
+      const sortLabel =
+        f.sortBy === 'retail_asc'
+          ? 'Ranked by Lowest Retail Price'
+          : f.sortBy === 'discount_desc'
+            ? 'Ranked by Biggest Sale %'
+            : f.sortBy === 'release_desc'
+              ? 'Ranked by Release Date (Newest First)'
+              : 'Ranked by Release Date (Oldest First)';
+      const lineTitle = f.line
+        ? `${f.line} (${sortLabel})`
+        : `All Lines (${sortLabel})`;
+      return [
+        {
+          lineName: lineTitle,
+          seriesGroups: [
+            {
+              seriesName: sortLabel,
+              toys: displayed,
+              totalCount: allFiltered.length,
+            },
+          ],
+          totalCount: allFiltered.length,
+        },
+      ];
+    }
 
     // 1. Get total counts per line and per series from ALL filtered toys
     const lineCounts = new Map<string, number>();

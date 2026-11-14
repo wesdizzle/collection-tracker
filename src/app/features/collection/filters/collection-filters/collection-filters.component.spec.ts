@@ -138,6 +138,31 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters!.deals_only).toBe(false);
   });
 
+  it('should toggle retail_available and render retail/deals controls on both games and toys tabs', () => {
+    let emittedFilters: FilterState | undefined;
+    component.filtersChange.subscribe((f) => {
+      emittedFilters = f;
+    });
+
+    component.toggleRetailAvailable();
+    expect(emittedFilters?.retail_available).toBe(true);
+
+    fixture.componentRef.setInput('currentTab', 'toys');
+    fixture.componentRef.setInput('filters', {
+      ownership: 'all',
+      retail_available: true,
+    });
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('#filter-retail-available'),
+    ).toBeTruthy();
+    expect(
+      fixture.nativeElement.querySelector('#filter-deals-only'),
+    ).toBeTruthy();
+    expect(component.activeFilterCount()).toBe(1);
+  });
+
   it('should render and select budget label status options', () => {
     expect(component.getBudgetLabelStatusLabel()).toBe('All');
 

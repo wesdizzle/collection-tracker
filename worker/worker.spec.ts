@@ -4343,10 +4343,20 @@ describe('Worker API Logic', () => {
             )
             .get() as { retail_on_sale: number; retail_price: number };
           const expiredRow = db
-            .prepare('SELECT retail_on_sale FROM games WHERE stable_id = 981')
-            .get() as { retail_on_sale: number };
+            .prepare(
+              'SELECT retail_on_sale, retail_price, retail_discount_pct FROM games WHERE stable_id = 981',
+            )
+            .get() as {
+            retail_on_sale: number;
+            retail_price: number;
+            retail_discount_pct: number;
+          };
           expect(activeRow).toEqual({ retail_on_sale: 1, retail_price: 2189 });
-          expect(expiredRow.retail_on_sale).toBe(0);
+          expect(expiredRow).toEqual({
+            retail_on_sale: 0,
+            retail_price: 5999,
+            retail_discount_pct: 0,
+          });
 
           // Run 2 with identical retail feed -> 0 D1 row writes!
           gameRowWrites = 0;

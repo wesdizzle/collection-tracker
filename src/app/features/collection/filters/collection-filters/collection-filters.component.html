@@ -99,18 +99,27 @@
           >
             Physical Watch
           </button>
-          <button
-            type="button"
-            class="status-pill-btn deals-pill state-layer"
-            [class.active]="isDealsActive()"
-            (click)="selectQuickStatus('deals')"
-          >
-            <span class="pill-fire-icon"
-              ><app-icon name="flame" [size]="14"
-            /></span>
-            Deals
-          </button>
         }
+        <button
+          type="button"
+          class="status-pill-btn state-layer"
+          [class.active]="filters().retail_available"
+          (click)="toggleRetailAvailable()"
+          title="Filter to items currently available at retail"
+        >
+          At Retail
+        </button>
+        <button
+          type="button"
+          class="status-pill-btn deals-pill state-layer"
+          [class.active]="isDealsActive()"
+          (click)="selectQuickStatus('deals')"
+        >
+          <span class="pill-fire-icon"
+            ><app-icon name="flame" [size]="14"
+          /></span>
+          Deals
+        </button>
       </div>
 
       <!-- Compact Sort By -->
@@ -1219,24 +1228,35 @@
           </div>
         </div>
 
-        <!-- Secondary Action Buttons (Games Tab) -->
-        @if (currentTab() === 'games') {
-          <div class="secondary-actions-group">
-            <button
-              type="button"
-              class="m3-input deals-toggle-btn state-layer"
-              [class.active]="filters().deals_only"
-              (click)="toggleDealsOnly()"
-              id="filter-deals-only"
-              title="Show only games currently on sale or clearance"
-            >
-              <span class="deals-icon"
-                ><app-icon name="flame" [size]="16"
-              /></span>
-              <span>Deals Only</span>
-            </button>
-          </div>
-        }
+        <!-- Secondary Action Buttons -->
+        <div class="secondary-actions-group">
+          <button
+            type="button"
+            class="m3-input deals-toggle-btn state-layer"
+            [class.active]="filters().retail_available"
+            (click)="toggleRetailAvailable()"
+            id="filter-retail-available"
+            title="Show only items currently available at retail"
+          >
+            <span class="deals-icon"
+              ><app-icon name="storefront" [size]="16"
+            /></span>
+            <span>Available at Retail</span>
+          </button>
+          <button
+            type="button"
+            class="m3-input deals-toggle-btn state-layer"
+            [class.active]="filters().deals_only"
+            (click)="toggleDealsOnly()"
+            id="filter-deals-only"
+            title="Show only items currently on sale or clearance"
+          >
+            <span class="deals-icon"
+              ><app-icon name="flame" [size]="16"
+            /></span>
+            <span>Deals Only</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>

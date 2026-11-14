@@ -100,10 +100,10 @@ export class CompactTableComponent {
   }
 
   public getGamePriceBadge(
-    game: Game,
+    item: Game | Toy,
   ): { cents: number; label: string } | null {
-    if (game.retail_price) {
-      return { cents: game.retail_price, label: game.retail_store || 'Retail' };
+    if (item.retail_price) {
+      return { cents: item.retail_price, label: item.retail_store || 'Retail' };
     }
     return null;
   }

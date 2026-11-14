@@ -11,7 +11,7 @@
  * Normalizes pre-order game titles, extracts target platforms, and identifies physical releases.
  */
 
-import { DEFAULT_CAD_TO_USD_RATE } from './bestbuy.js';
+import { DEFAULT_CAD_TO_USD_RATE } from './retail.js';
 
 export interface ShopifyProductItem {
   id?: number | string;
@@ -54,7 +54,13 @@ export type BoutiqueStoreName =
   | 'Super Rare Games'
   | 'iam8bit'
   | 'Fangamer'
-  | 'Strictly Limited Games';
+  | 'Strictly Limited Games'
+  | 'NIS America'
+  | 'Aksys Games'
+  | 'Clear River Games'
+  | 'Serenity Forge'
+  | 'Premium Edition Games'
+  | 'CastleMania';
 
 export interface BoutiquePreOrder {
   store: BoutiqueStoreName;
@@ -66,6 +72,9 @@ export interface BoutiquePreOrder {
   imageUrl?: string;
   priceUsd?: number;
   priceCents?: number;
+  regularPriceCents?: number;
+  discountPct?: number;
+  onSale?: boolean;
   edition?: string | null;
   region?: string | null;
   isAvailable: boolean;
@@ -79,6 +88,12 @@ export const STORE_DEFAULT_REGIONS: Record<BoutiqueStoreName, string> = {
   iam8bit: 'USA',
   Fangamer: 'USA',
   'Strictly Limited Games': 'Europe',
+  'NIS America': 'USA',
+  'Aksys Games': 'USA',
+  'Clear River Games': 'Europe',
+  'Serenity Forge': 'USA',
+  'Premium Edition Games': 'USA',
+  CastleMania: 'USA',
 };
 
 export interface BoutiqueFeedConfig {
@@ -118,6 +133,42 @@ export const BOUTIQUE_FEED_CONFIGS: BoutiqueFeedConfig[] = [
     store: 'Strictly Limited Games',
     url: 'https://strictlylimitedgames.com/collections/all/products.json?limit=250',
     baseUrl: 'https://strictlylimitedgames.com',
+    type: 'shopify',
+  },
+  {
+    store: 'NIS America',
+    url: 'https://store.nisamerica.com/collections/games/products.json?limit=250',
+    baseUrl: 'https://store.nisamerica.com',
+    type: 'shopify',
+  },
+  {
+    store: 'Aksys Games',
+    url: 'https://store.aksysgames.com/products.json?limit=250',
+    baseUrl: 'https://store.aksysgames.com',
+    type: 'shopify',
+  },
+  {
+    store: 'Clear River Games',
+    url: 'https://shop.clearrivergames.com/products.json?limit=250',
+    baseUrl: 'https://shop.clearrivergames.com',
+    type: 'shopify',
+  },
+  {
+    store: 'Serenity Forge',
+    url: 'https://store.serenityforge.com/products.json?limit=250',
+    baseUrl: 'https://store.serenityforge.com',
+    type: 'shopify',
+  },
+  {
+    store: 'Premium Edition Games',
+    url: 'https://premiumeditiongames.com/products.json?limit=250',
+    baseUrl: 'https://premiumeditiongames.com',
+    type: 'shopify',
+  },
+  {
+    store: 'CastleMania',
+    url: 'https://castlemaniagames.com/products.json?limit=250',
+    baseUrl: 'https://castlemaniagames.com',
     type: 'shopify',
   },
 ];
@@ -433,6 +484,9 @@ export async function fetchBoutiquePreOrders(
 
           let priceUsd: number | undefined;
           let priceCents: number | undefined;
+          let regularPriceCents: number | undefined;
+          let discountPct: number | undefined;
+          let onSale: boolean | undefined;
           if (Array.isArray(item.variants) && item.variants.length > 0) {
             const rawPrice = parseFloat(String(item.variants[0].price || ''));
             if (!isNaN(rawPrice)) {
@@ -440,6 +494,20 @@ export async function fetchBoutiquePreOrders(
                 ? Math.round(rawPrice * DEFAULT_CAD_TO_USD_RATE * 100) / 100
                 : rawPrice;
               priceCents = Math.round(priceUsd * 100);
+
+              const rawCompare = parseFloat(
+                String(item.variants[0].compare_at_price || ''),
+              );
+              if (!isNaN(rawCompare) && rawCompare > rawPrice) {
+                const regUsd = config.isCad
+                  ? Math.round(rawCompare * DEFAULT_CAD_TO_USD_RATE * 100) / 100
+                  : rawCompare;
+                regularPriceCents = Math.round(regUsd * 100);
+                discountPct = Math.round(
+                  ((regularPriceCents - priceCents) / regularPriceCents) * 100,
+                );
+                onSale = discountPct > 0;
+              }
             }
           }
 
@@ -459,6 +527,9 @@ export async function fetchBoutiquePreOrders(
             imageUrl,
             priceUsd,
             priceCents,
+            regularPriceCents,
+            discountPct,
+            onSale,
             edition: cleaned.edition,
             region,
             isAvailable,

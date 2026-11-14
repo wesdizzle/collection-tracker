@@ -94,5 +94,52 @@
       }
     </div>
     <h3 class="card-title">{{ toy().name }}</h3>
+
+    @if (toy().retail_on_sale && toy().retail_price) {
+      <div class="mt-2xs flex items-center gap-2xs flex-wrap">
+        <span
+          class="deal-sale-badge"
+          [title]="
+            'On Sale at ' +
+            (toy().retail_store || 'Retail') +
+            (toy().retail_regular_price
+              ? ' (Reg: $' +
+                (toy().retail_regular_price! / 100).toFixed(2) +
+                ')'
+              : '')
+          "
+        >
+          <app-icon name="flame" [size]="14" />
+          {{
+            toy().retail_discount_pct
+              ? toy().retail_discount_pct + '% OFF · '
+              : ''
+          }}{{ '$' + (toy().retail_price! / 100).toFixed(2) }}
+        </span>
+        @if (
+          toy().retail_regular_price &&
+          toy().retail_regular_price! > toy().retail_price!
+        ) {
+          <span class="deal-strikethrough-price">
+            {{ '$' + (toy().retail_regular_price! / 100).toFixed(2) }}
+          </span>
+        }
+      </div>
+    } @else if (
+      !toy().retail_on_sale && (toy().retail_price || toy().retail_url)
+    ) {
+      <div class="mt-2xs">
+        <span
+          class="preorder-store-badge"
+          [title]="'Available at ' + (toy().retail_store || 'Retail')"
+        >
+          <app-icon name="storefront" [size]="12" />
+          {{ toy().retail_store || 'Retail' }}
+          @if (toy().retail_price) {
+            • {{ '$' + (toy().retail_price! / 100).toFixed(2) }}
+          }
+        </span>
+      </div>
+    }
   </div>
 </div>

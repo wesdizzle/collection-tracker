@@ -562,13 +562,22 @@ export class ItemDetailComponent {
   public storeRegionLabel(store: string | null | undefined): string {
     if (!store) return 'Physical Edition';
     const s = store.toLowerCase();
-    if (s.includes('super rare') || s.includes('strictly limited')) {
+    if (
+      s.includes('super rare') ||
+      s.includes('strictly limited') ||
+      s.includes('clear river')
+    ) {
       return 'European Physical Edition';
     }
     if (
       s.includes('fangamer') ||
       s.includes('limited run') ||
       s.includes('iam8bit') ||
+      s.includes('nis america') ||
+      s.includes('aksys') ||
+      s.includes('serenity forge') ||
+      s.includes('premium edition') ||
+      s.includes('castlemania') ||
       s.includes('vgp') ||
       s.includes('pnp')
     ) {
@@ -1186,5 +1195,29 @@ export class ItemDetailComponent {
       query += ' loose';
     }
     return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query.trim())}`;
+  }
+
+  getBestBuyToyUrl(toy: Toy): string {
+    if (toy.retail_url && toy.retail_store === 'Best Buy') {
+      return toy.retail_url;
+    }
+    const query = `${toy.name} ${toy.line || ''}`.trim();
+    return `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(query)}`;
+  }
+
+  getVgpToyUrl(toy: Toy): string {
+    if (toy.retail_url && toy.retail_store === 'VGP') {
+      return toy.retail_url;
+    }
+    const query = `${toy.name} ${toy.line || ''}`.trim();
+    return `https://videogamesplus.ca/search?q=${encodeURIComponent(query)}`;
+  }
+
+  getPnpToyUrl(toy: Toy): string {
+    if (toy.retail_url && toy.retail_store === 'PNP Games') {
+      return toy.retail_url;
+    }
+    const query = `${toy.name} ${toy.line || ''}`.trim();
+    return `https://pnpgamesonline.com/?s=${encodeURIComponent(query)}&post_type=product`;
   }
 }

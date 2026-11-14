@@ -661,11 +661,47 @@ describe('ItemDetailComponent', () => {
       const marketSection = compiled.querySelector('.market-section');
       expect(marketSection).toBeTruthy();
       expect(marketSection?.textContent).toContain(
-        'Research & Marketplace Links',
+        'Retail Deals & Store Links',
       );
 
       const ebayLinks = compiled.querySelectorAll('a[href*="ebay.com"]');
       expect(ebayLinks.length).toBeGreaterThan(0);
+      expect(
+        compiled.querySelectorAll('a[href*="videogamesplus.ca"]').length,
+      ).toBe(1);
+      expect(
+        compiled.querySelectorAll('a[href*="pnpgamesonline.com"]').length,
+      ).toBe(1);
+    });
+
+    it('should render deal banner when toy is on sale at retail', async () => {
+      const saleToy: Toy = {
+        ...mockToy,
+        name: 'Samus',
+        line: 'amiibo',
+        series_name: 'Metroid',
+        retail_on_sale: 1,
+        retail_price: 1499,
+        retail_regular_price: 2199,
+        retail_discount_pct: 32,
+        retail_store: 'VGP',
+        retail_url: 'https://videogamesplus.ca/products/samus-amiibo',
+      };
+
+      vi.spyOn(collectionService, 'getToyById').mockReturnValue(of(saleToy));
+      paramMapSubject.next(
+        convertToParamMap({ id: 'samus-amiibo-metroid', type: 'toy' }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const dealBanner = compiled.querySelector('.deal-banner');
+      expect(dealBanner).toBeTruthy();
+      expect(dealBanner?.textContent).toContain('32% OFF');
+      expect(dealBanner?.textContent).toContain('$14.99');
+      expect(dealBanner?.textContent).toContain('VGP');
     });
 
     it('should not mark past released unowned games as upcoming pre-release', async () => {

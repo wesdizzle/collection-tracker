@@ -24,7 +24,7 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **Testing**: Vitest
 - **Build**: Angular CLI (`ng build` with esbuild)
 - **Edge API & Hosting**: Cloudflare Workers (`worker/worker.ts`), unified across production edge and local Wrangler development (`npx wrangler dev --local --port 8787`)
-- **Isomorphic Domain Library (`shared/`)**: Pure TypeScript modules (`shared/backup_scanner.ts`, `shared/title_matching.ts`, `shared/canonical_releases.ts`, `shared/switch_revisions.ts`, `shared/queries.ts`, `shared/bestbuy.ts`, `shared/physical_feeds.ts`) shared directly between the Angular browser app and Cloudflare Worker without Node.js dependencies
+- **Isomorphic Domain Library (`shared/`)**: Pure TypeScript modules (`shared/backup_scanner.ts`, `shared/title_matching.ts`, `shared/canonical_releases.ts`, `shared/switch_revisions.ts`, `shared/queries.ts`, `shared/retail.ts`, `shared/physical_feeds.ts`) shared directly between the Angular browser app and Cloudflare Worker without Node.js dependencies
 - **Database**: Cloudflare D1 (SQLite-compatible) in production; Wrangler local D1 SQLite for local staging and development
 - **Storage**: Cloudflare R2 for automated daily snapshots
 

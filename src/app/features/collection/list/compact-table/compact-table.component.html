@@ -421,6 +421,7 @@
         <span class="col-series" title="Series">Series</span>
         <span class="col-year" title="Release Year">Year</span>
         <span class="col-region" title="Region">Region</span>
+        <span class="col-price" title="Retail Price">Price</span>
       </div>
 
       <div class="compact-table-body toys-body">
@@ -553,6 +554,36 @@
               >
                 {{ formatToyRegion(toy.region) }}
               </span>
+            </div>
+
+            <div class="col-price">
+              @if (toy.retail_on_sale && toy.retail_price) {
+                <span
+                  class="deal-sale-badge compact-badge"
+                  [title]="
+                    'On Sale at ' +
+                    (toy.retail_store || 'Retail') +
+                    (toy.retail_regular_price
+                      ? ' (Reg: $' +
+                        (toy.retail_regular_price / 100).toFixed(2) +
+                        ')'
+                      : '')
+                  "
+                >
+                  <app-icon name="flame" [size]="12" />
+                  {{ '$' + (toy.retail_price / 100).toFixed(2) }}
+                </span>
+              } @else if (getGamePriceBadge(toy); as badge) {
+                <span
+                  class="retail-price-badge compact-badge"
+                  [title]="badge.label + ': $' + (badge.cents / 100).toFixed(2)"
+                >
+                  {{ '$' + (badge.cents / 100).toFixed(2) }}
+                  {{ badge.label }}
+                </span>
+              } @else {
+                <span class="empty-cell-dash">-</span>
+              }
             </div>
           </div>
         }

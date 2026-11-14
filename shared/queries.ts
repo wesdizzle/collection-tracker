@@ -369,6 +369,7 @@ export function buildToysListQuery(userId?: number | null): string {
 
   return `
     SELECT f.*,
+           COALESCE(f.retail_on_sale, 0) as retail_on_sale,
            ${ownershipCol} as ownership_status,
            fs.line as series_line,
            COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) as series_name,
@@ -389,6 +390,7 @@ export function buildToyDetailQuery(userId?: number | null): string {
 
   return `
     SELECT f.*,
+           COALESCE(f.retail_on_sale, 0) as retail_on_sale,
            ${ownershipCol} as ownership_status,
            fs.line as series_line,
            COALESCE(CASE WHEN f.line = 'Skylanders' THEN NULL ELSE f.series END, fs.name) as series_name,

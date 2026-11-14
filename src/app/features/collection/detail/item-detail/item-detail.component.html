@@ -988,11 +988,95 @@
         <div class="market-header flex justify-between items-center mb-md">
           <h2 class="text-xl font-bold flex items-center gap-xs m-0">
             <span class="flex items-center gap-xs"
-              ><app-icon name="storefront" [size]="20" /> Research & Marketplace
+              ><app-icon name="storefront" [size]="20" /> Retail Deals & Store
               Links</span
             >
           </h2>
+          @if (t.retail_updated_at) {
+            <span class="text-xs text-secondary">
+              Updated: {{ t.retail_updated_at }}
+            </span>
+          }
         </div>
+
+        @if (t.retail_on_sale && t.retail_price) {
+          <div
+            class="deal-banner p-md rounded-lg mb-md flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+          >
+            <div class="deal-info">
+              <div class="flex items-center gap-sm flex-wrap">
+                <span class="deal-badge-pill font-bold">
+                  <app-icon name="flame" [size]="14" />
+                  {{
+                    t.retail_discount_pct
+                      ? t.retail_discount_pct + '% OFF'
+                      : 'ON SALE'
+                  }}
+                </span>
+                <span class="text-xl font-extrabold text-on-surface">
+                  {{ '$' + (t.retail_price / 100).toFixed(2) }}
+                </span>
+                @if (
+                  t.retail_regular_price &&
+                  t.retail_regular_price > t.retail_price
+                ) {
+                  <span class="text-sm line-through text-secondary">
+                    Reg:
+                    {{ '$' + (t.retail_regular_price / 100).toFixed(2) }}
+                  </span>
+                }
+                <span class="text-sm font-semibold text-secondary">
+                  at {{ t.retail_store || 'Retail' }}
+                </span>
+              </div>
+            </div>
+            @if (t.retail_url) {
+              <a
+                [href]="t.retail_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn-retail-buy"
+              >
+                View on {{ t.retail_store || 'Store' }} ↗
+              </a>
+            }
+          </div>
+        } @else if (!t.retail_on_sale && (t.retail_url || t.retail_price)) {
+          <div
+            class="deal-banner p-md rounded-lg mb-md flex flex-col md:flex-row items-start md:items-center justify-between gap-md"
+            style="
+              background: var(--m3-surface-container-high);
+              border-color: var(--m3-outline-variant);
+            "
+          >
+            <div class="deal-info">
+              <div class="flex items-center gap-sm flex-wrap">
+                @if (t.retail_price) {
+                  <span class="text-xl font-extrabold text-on-surface">
+                    {{ '$' + (t.retail_price / 100).toFixed(2) }}
+                  </span>
+                }
+                <span class="text-sm font-semibold text-secondary">
+                  Available at {{ t.retail_store || 'Retailer' }} ({{
+                    storeRegionLabel(t.retail_store)
+                  }})
+                </span>
+              </div>
+            </div>
+            @if (t.retail_url) {
+              <a
+                [href]="t.retail_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn-retail-buy"
+              >
+                View on {{ t.retail_store || 'Store' }} ({{
+                  storeRegionLabel(t.retail_store)
+                }}) ↗
+              </a>
+            }
+          </div>
+        }
 
         <div class="retail-links-bar mt-md flex flex-wrap items-center gap-sm">
           <span
@@ -1025,6 +1109,33 @@
             title="Search eBay for sealed in box figure"
           >
             <app-icon name="seeking" [size]="14" /> eBay (Sealed/NIB)
+          </a>
+          <a
+            [href]="getBestBuyToyUrl(t)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill bestbuy"
+            title="Check Best Buy"
+          >
+            <app-icon name="shopping-cart" [size]="14" /> Best Buy
+          </a>
+          <a
+            [href]="getVgpToyUrl(t)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill"
+            title="Search VideoGamesPlus (VGP)"
+          >
+            <app-icon name="storefront" [size]="14" /> VGP
+          </a>
+          <a
+            [href]="getPnpToyUrl(t)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="jump-link-pill"
+            title="Search PNP Games"
+          >
+            <app-icon name="storefront" [size]="14" /> PNP Games
           </a>
         </div>
       </section>

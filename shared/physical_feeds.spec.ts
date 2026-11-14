@@ -190,7 +190,7 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(results[0].imageUrl).toBe('https://cdn.shopify.com/p4g.jpg');
     });
 
-    it('should strictly contain only the 5 boutique limited-print publishers', () => {
+    it('should contain the configured boutique & physical publisher storefronts', () => {
       const storeNames = BOUTIQUE_FEED_CONFIGS.map((c) => c.store);
       expect(storeNames).toEqual([
         'Limited Run Games',
@@ -198,9 +198,55 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
         'iam8bit',
         'Fangamer',
         'Strictly Limited Games',
+        'NIS America',
+        'Aksys Games',
+        'Clear River Games',
+        'Serenity Forge',
+        'Premium Edition Games',
+        'CastleMania',
       ]);
       expect(storeNames).not.toContain('VGP');
       expect(storeNames).not.toContain('PNP Games');
+    });
+
+    it('should extract regularPriceCents, discountPct, and onSale when compare_at_price is higher than price', async () => {
+      const mockShopify = {
+        products: [
+          {
+            id: 55555,
+            title: 'Disgaea 7 Complete (Switch)',
+            handle: 'disgaea-7-switch',
+            variants: [
+              {
+                price: '39.99',
+                compare_at_price: '59.99',
+                available: true,
+              },
+            ],
+          },
+        ],
+      };
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockShopify,
+      });
+      const singleStore: BoutiqueFeedConfig[] = [
+        {
+          store: 'NIS America',
+          url: 'https://store.nisamerica.com/collections/games/products.json?limit=250',
+          baseUrl: 'https://store.nisamerica.com',
+          type: 'shopify',
+        },
+      ];
+      const results = await fetchBoutiquePreOrders(
+        mockFetch as unknown as typeof fetch,
+        singleStore,
+      );
+      expect(results).toHaveLength(1);
+      expect(results[0].priceCents).toBe(3999);
+      expect(results[0].regularPriceCents).toBe(5999);
+      expect(results[0].discountPct).toBe(33);
+      expect(results[0].onSale).toBe(true);
     });
 
     it('should fetch and parse WooCommerce product catalogs with CAD conversion', async () => {

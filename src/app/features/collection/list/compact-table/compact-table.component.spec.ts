@@ -205,7 +205,7 @@ describe('CompactTableComponent', () => {
       fixture.detectChanges();
     });
 
-    it('should render toys header and toy row without price column', () => {
+    it('should render toys header and toy row with price column', () => {
       const el = fixture.nativeElement as HTMLElement;
       expect(el.querySelector('.toys-header')).toBeTruthy();
       expect(el.querySelector('.row-title-text')?.textContent).toContain(
@@ -214,8 +214,28 @@ describe('CompactTableComponent', () => {
       expect(
         el.querySelector('.compact-table-body .col-toy-type')?.textContent,
       ).toContain('Figure');
-      expect(el.querySelector('.toys-header .col-price')).toBeNull();
-      expect(el.querySelector('.toys-row .col-price')).toBeNull();
+      expect(el.querySelector('.toys-header .col-price')).toBeTruthy();
+      expect(el.querySelector('.toys-row .col-price')).toBeTruthy();
+    });
+
+    it('should render toy sale and retail price badges in price column', () => {
+      fixture.componentRef.setInput('toys', [
+        {
+          ...mockToys[0],
+          retail_on_sale: 1,
+          retail_price: 1499,
+          retail_regular_price: 2199,
+          retail_store: 'PNP Games',
+        },
+      ]);
+      fixture.detectChanges();
+
+      const priceCol = fixture.nativeElement.querySelector(
+        '.toys-row .col-price',
+      ) as HTMLElement;
+      expect(priceCol.querySelector('.deal-sale-badge')?.textContent).toContain(
+        '$14.99',
+      );
     });
 
     it('should render toy thumbnail when image_url is present, and placeholder when absent', () => {

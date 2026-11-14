@@ -180,6 +180,25 @@ export interface Toy {
   sort_index?: number;
   series_index?: number;
   details?: string | null;
+  retail_price?: number | null;
+  retail_regular_price?: number | null;
+  retail_discount_pct?: number | null;
+  retail_on_sale?: number | boolean | null;
+  retail_store?: string | null;
+  retail_url?: string | null;
+  retail_updated_at?: string | null;
+}
+
+export function isItemAvailableAtRetail(item: {
+  retail_price?: number | null;
+  retail_url?: string | null;
+  retail_on_sale?: number | boolean | null;
+}): boolean {
+  return Boolean(
+    (item.retail_price && item.retail_price > 0) ||
+    item.retail_url ||
+    item.retail_on_sale,
+  );
 }
 
 export interface ToySeriesGroup {
@@ -261,6 +280,7 @@ export interface FilterState {
   tagExact?: boolean;
   seriesOrName?: string;
   deals_only?: boolean;
+  retail_available?: boolean;
   sortBy?:
     | 'default'
     | 'retail_asc'

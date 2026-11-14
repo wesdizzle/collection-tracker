@@ -179,6 +179,7 @@ export class CollectionFiltersComponent implements OnDestroy {
     if (f.type) count++;
     if (f.series) count++;
     if (f.tag) count++;
+    if (f.retail_available) count++;
     if (
       f.ownership === 3 ||
       f.ownership === 0 ||
@@ -219,6 +220,7 @@ export class CollectionFiltersComponent implements OnDestroy {
       tagExact: false,
       sortBy: 'default',
       deals_only: false,
+      retail_available: false,
       budget_label: 'all',
     });
   }
@@ -414,6 +416,11 @@ export class CollectionFiltersComponent implements OnDestroy {
   toggleDealsOnly() {
     const current = Boolean(this.filters().deals_only);
     this.onPartialChange('deals_only', !current);
+  }
+
+  toggleRetailAvailable() {
+    const current = Boolean(this.filters().retail_available);
+    this.onPartialChange('retail_available', !current);
   }
 
   public filteredNamesList = computed(() => {

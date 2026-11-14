@@ -113,6 +113,13 @@ CREATE TABLE IF NOT EXISTS toys (
     region TEXT,
     type TEXT,
     series TEXT,
+    retail_price INTEGER,
+    retail_regular_price INTEGER,
+    retail_discount_pct INTEGER,
+    retail_on_sale INTEGER NOT NULL DEFAULT 0,
+    retail_store TEXT,
+    retail_url TEXT,
+    retail_updated_at TEXT,
     FOREIGN KEY (series_id) REFERENCES toy_series (id)
 );
 

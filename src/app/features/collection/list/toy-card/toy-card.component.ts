@@ -9,11 +9,12 @@ import {
   Toy,
   formatToyRegionBadge,
 } from '../../../../core/models/collection.models';
+import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
   selector: 'app-toy-card',
   standalone: true,
-  imports: [RouterModule],
+  imports: [RouterModule, IconComponent],
   templateUrl: './toy-card.component.html',
   styleUrls: ['./toy-card.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,

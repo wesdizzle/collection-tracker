@@ -60,4 +60,41 @@ describe('ToyCardComponent', () => {
     statusBtn.click();
     expect(emitted).toBe(true);
   });
+
+  it('should render deal-sale-badge when toy is on sale and preorder-store-badge when available at regular price', () => {
+    fixture.componentRef.setInput('toy', {
+      ...mockToy,
+      retail_on_sale: 1,
+      retail_price: 1299,
+      retail_regular_price: 1999,
+      retail_discount_pct: 35,
+      retail_store: 'VGP',
+    });
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.deal-sale-badge')?.textContent).toContain(
+      '35% OFF · $12.99',
+    );
+    expect(
+      el.querySelector('.deal-strikethrough-price')?.textContent,
+    ).toContain('$19.99');
+
+    fixture.componentRef.setInput('toy', {
+      ...mockToy,
+      retail_on_sale: 0,
+      retail_price: 2199,
+      retail_store: 'PNP Games',
+      retail_url: 'https://pnpgamesonline.com/mario-amiibo',
+    });
+    fixture.detectChanges();
+
+    expect(el.querySelector('.deal-sale-badge')).toBeNull();
+    expect(el.querySelector('.preorder-store-badge')?.textContent).toContain(
+      'PNP Games',
+    );
+    expect(el.querySelector('.preorder-store-badge')?.textContent).toContain(
+      '$21.99',
+    );
+  });
 });
