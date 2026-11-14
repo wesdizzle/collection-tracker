@@ -16,7 +16,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -73,6 +73,85 @@ const TABLE_HYDRATION_ORDER = [
 
 const isDirectD1 = process.argv.includes('--direct-d1');
 
+export function hydrateCanonicalReleasesFromSnapshotFile(
+  dbPath: string,
+  snapshotJsonPath: string,
+): number {
+  const parsed = JSON.parse(fs.readFileSync(snapshotJsonPath, 'utf-8')) as {
+    tables?: { canonical_releases?: Array<Record<string, unknown>> };
+  };
+  const rows = parsed?.tables?.canonical_releases;
+  if (!Array.isArray(rows)) return 0;
+
+  const SAFE_COL_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  const db = new Database(dbPath);
+  try {
+    db.pragma('foreign_keys = OFF');
+    const tx = db.transaction(() => {
+      db.prepare('DELETE FROM "canonical_releases"').run();
+      if (rows.length === 0) return;
+      const columns = Object.keys(rows[0]).filter((c) => SAFE_COL_RE.test(c));
+      const colList = columns.map((c) => `"${c}"`).join(', ');
+      const placeholders = columns.map(() => '?').join(', ');
+      const insertStmt = db.prepare(
+        `INSERT INTO "canonical_releases" (${colList}) VALUES (${placeholders})`,
+      );
+      for (const row of rows) {
+        insertStmt.run(...columns.map((c) => row[c] ?? null));
+      }
+    });
+    tx();
+    db.pragma('foreign_keys = ON');
+  } finally {
+    db.close();
+  }
+  return rows.length;
+}
+
+function pullCanonicalReleasesFromR2(targetDbPath: string): number | null {
+  const objectKey = 'snapshots/canonical_releases.json';
+  const tempCanonicalPath = path.join(
+    os.tmpdir(),
+    `_r2_canonical_${process.pid}_${Date.now()}.json`,
+  );
+  try {
+    const r2Res = spawnSync(
+      'npx',
+      [
+        'wrangler',
+        'r2',
+        'object',
+        'get',
+        `collection-backups/${objectKey}`,
+        '--file',
+        tempCanonicalPath,
+        '--remote',
+      ],
+      {
+        cwd: rootDir,
+        stdio: 'pipe',
+        shell: process.platform === 'win32',
+        timeout: 60_000,
+      },
+    );
+    if (r2Res.status !== 0 || !fs.existsSync(tempCanonicalPath)) {
+      return null;
+    }
+    return hydrateCanonicalReleasesFromSnapshotFile(
+      targetDbPath,
+      tempCanonicalPath,
+    );
+  } finally {
+    if (fs.existsSync(tempCanonicalPath)) {
+      try {
+        fs.unlinkSync(tempCanonicalPath);
+      } catch {
+        // Ignore cleanup error
+      }
+    }
+  }
+}
+
 async function pullFromR2() {
   console.log(
     '[D1Pull] Initiating zero-D1-read pull from Cloudflare R2 (collection-backups)...',
@@ -85,6 +164,11 @@ async function pullFromR2() {
     tableOrder: TABLE_HYDRATION_ORDER,
   });
 
+  const canonicalCount = pullCanonicalReleasesFromR2(localDbPath);
+  if (canonicalCount !== null) {
+    rowCounts['canonical_releases'] = canonicalCount;
+  }
+
   let totalRestored = 0;
   for (const [table, count] of Object.entries(rowCounts)) {
     totalRestored += count;
@@ -94,13 +178,13 @@ async function pullFromR2() {
   console.log(
     `\n✅ Successfully pulled remote state from R2 into local SQLite! (${totalRestored} rows hydrated, 0 D1 reads consumed)`,
   );
-  reportSnapshotAge();
+  reportSnapshotAge(canonicalCount !== null);
 }
 
 /** R2 snapshots are taken by the daily backup cron, so they can be many hours old. */
 const SNAPSHOT_STALE_HOURS = 6;
 
-function reportSnapshotAge(): void {
+function reportSnapshotAge(hasCanonicalSnapshot = false): void {
   const db = new Database(localDbPath, { readonly: true });
   try {
     const row = db
@@ -116,8 +200,11 @@ function reportSnapshotAge(): void {
     const ageHours = (Date.now() - snapshotMs) / 3_600_000;
     const msg = `[D1Pull] Snapshot reflects remote state as of ${row.ts} UTC (~${ageHours.toFixed(1)}h old).`;
     if (ageHours > SNAPSHOT_STALE_HOURS) {
+      const canonicalNote = hasCanonicalSnapshot
+        ? 'cron_execution_logs are never included in snapshots.'
+        : 'snapshots/canonical_releases.json was not yet found in R2; cron_execution_logs are never included in snapshots.';
       console.log(
-        `${msg}\n[D1Pull] ⚠️  Snapshot is older than ${SNAPSHOT_STALE_HOURS}h: rows written since then (e.g. cron catalog seeding) are NOT present locally. canonical_releases and cron_execution_logs are never included in snapshots.`,
+        `${msg}\n[D1Pull] ⚠️  Snapshot is older than ${SNAPSHOT_STALE_HOURS}h: rows written since then (e.g. cron catalog seeding) are NOT present locally. ${canonicalNote}`,
       );
     } else {
       console.log(msg);
@@ -215,7 +302,14 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('[D1Pull] Failed to pull database:', err);
-  process.exit(1);
-});
+const isMainModule =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) ===
+    path.resolve(fileURLToPath(import.meta.url));
+
+if (isMainModule) {
+  main().catch((err) => {
+    console.error('[D1Pull] Failed to pull database:', err);
+    process.exit(1);
+  });
+}

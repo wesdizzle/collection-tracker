@@ -124,8 +124,10 @@ The Cloudflare Worker implements an edge-native background engine (`worker/worke
 
 1. **Rolling IGDB Series & Franchise Sync**: Refreshes upstream IGDB series, franchises, and canonical grouping in 100-game batches using a persistent cursor (`igdb_sync_offset`).
 2. **Hourly Boutique Storefront Feeds**: Scrapes limited-print physical storefront feeds (LRG, SRG, iam8bit, Fangamer, Strictly Limited) every 55 minutes, evaluating stock availability, region alignment, and existing collection ownership before dispatching push alerts.
-3. **Automated Daily R2 Snapshots**: Dumps all D1 tables into structured, timestamped JSON backups in Cloudflare R2 at 23:30 UTC whenever data has changed, automatically pruning snapshots older than 30 days.
-4. **Launch-Day Transitions**: Automatically transitions announced titles (`announced_unreleased`, `physical_pending`) whose release date has arrived into the active catalog.
+3. **Daily Switch Revision & Amiibo Catalog Sync**: At 23:30 UTC, synchronizes Nintendo Switch & Switch 2 physical cartridge revisions from the Nintendo Revised community spreadsheet (`syncWorkerSwitchRevisions`) and synchronizes new or updated Amiibo figures/cards from AmiiboAPI (`syncWorkerAmiiboCatalog`), gated by SHA-256 payload hashes in `sync_state` so unchanged days incur 0 D1 writes.
+4. **Broad Physical Catalog Promotion & IGDB Backfill**: Gradually promotes verified physical entries from `canonical_releases` into `games` and `game_releases` within daily Free Tier write budgets (`syncWorkerBroadCatalogPopulation`) and enriches bare entries with IGDB metadata (`syncWorkerIgdbMetadataBackfill`).
+5. **Automated Daily R2 Snapshots**: Dumps core D1 tables (`snapshots/latest.json`) and diff-guarded `canonical_releases` (`snapshots/canonical_releases.json`, triggered only when `canonical_releases_dirty = '1'` or row metadata changes) into Cloudflare R2 at 23:30 UTC, automatically pruning snapshots older than 30 days.
+6. **Launch-Day Transitions**: Automatically transitions announced titles (`announced_unreleased`, `physical_pending`) whose release date has arrived into the active catalog.
 
 ### Web Push Notifications Engine
 
@@ -214,23 +216,27 @@ Configure a public OIDC client in your identity provider with Authorization Code
 
 ### Development, Database & Quality Gates
 
-| Command                                             | Description                                                                             |
-| :-------------------------------------------------- | :-------------------------------------------------------------------------------------- |
-| `npm start`                                         | Runs Angular dev server via `ng serve`                                                  |
-| `npm run dev`                                       | Initializes local D1 schema and runs Wrangler local Worker + Angular dev server         |
-| `npm run db:pull`                                   | Pulls latest production snapshot from Cloudflare R2 into local Wrangler D1 (0 D1 reads) |
-| `npm run d1:cost-guard`                             | Verifies static schema index bounds (`1 + K`) and `EXPLAIN QUERY PLAN` on critical SQL  |
-| `npm run d1:cost-guard -- --file=<sql> [--confirm]` | Pre-flight cost guard validating write budgets and index plans for migrations           |
-| `npm run build`                                     | Compiles production Angular bundle to `dist/tracker`                                    |
-| `npm run deploy`                                    | Builds bundle and deploys Worker + Assets with secret-injected `database_id`            |
-| `npm run secrets:push`                              | Uploads configured secrets from `.dev.vars` / env to Cloudflare Worker                  |
-| `npm test`                                          | Runs frontend (`test:ng`) and shared/worker/scripts (`test:node`) test suites           |
-| `npm run test:ng`                                   | Runs frontend unit tests via Vitest                                                     |
-| `npm run test:node`                                 | Runs isomorphic `shared/`, `worker/`, and `scripts/` tests via Vitest                   |
-| `npm run type-check`                                | Runs TypeScript compiler checks (`tsc --noEmit`)                                        |
-| `npm run lint`                                      | Runs ESLint                                                                             |
-| `npm run format:check`                              | Verifies codebase formatting via Prettier                                               |
-| `npm run ci-check`                                  | Runs lint, format:check, type-check, d1:cost-guard, tests, and production build         |
+| Command                                             | Description                                                                            |
+| :-------------------------------------------------- | :------------------------------------------------------------------------------------- |
+| `npm start`                                         | Runs Angular dev server via `ng serve`                                                 |
+| `npm run dev`                                       | Initializes local D1 schema and runs Wrangler local Worker + Angular dev server        |
+| `npm run db:pull`                                   | Pulls latest production snapshot + `canonical_releases` from R2 into local D1          |
+| `npm run db:bootstrap`                              | Initializes schema, seeds 547 retired toys, and syncs canonical DATs into local SQLite |
+| `npm run dats:download`                             | Downloads public Redump & No-Intro XML/CLRMamePro DAT files into `/dats`               |
+| `npm run dats:sync`                                 | Parses `/dats`, updates `canonical_releases` deltas, and reconciles `game_releases`    |
+| `npm run dats:update`                               | Runs `dats:download` followed by `dats:sync` for periodic offline DAT maintenance      |
+| `npm run d1:cost-guard`                             | Verifies static schema index bounds (`1 + K`) and `EXPLAIN QUERY PLAN` on critical SQL |
+| `npm run d1:cost-guard -- --file=<sql> [--confirm]` | Pre-flight cost guard validating write budgets and index plans for migrations          |
+| `npm run build`                                     | Compiles production Angular bundle to `dist/tracker`                                   |
+| `npm run deploy`                                    | Builds bundle and deploys Worker + Assets with secret-injected `database_id`           |
+| `npm run secrets:push`                              | Uploads configured secrets from `.dev.vars` / env to Cloudflare Worker                 |
+| `npm test`                                          | Runs frontend (`test:ng`) and shared/worker/scripts (`test:node`) test suites          |
+| `npm run test:ng`                                   | Runs frontend unit tests via Vitest                                                    |
+| `npm run test:node`                                 | Runs isomorphic `shared/`, `worker/`, and `scripts/` tests via Vitest                  |
+| `npm run type-check`                                | Runs TypeScript compiler checks (`tsc --noEmit`)                                       |
+| `npm run lint`                                      | Runs ESLint                                                                            |
+| `npm run format:check`                              | Verifies codebase formatting via Prettier                                              |
+| `npm run ci-check`                                  | Runs lint, format:check, type-check, d1:cost-guard, tests, and production build        |
 
 ## Custom Branding & Environment Configuration
 

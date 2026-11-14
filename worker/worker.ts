@@ -1488,6 +1488,168 @@ export async function markDbDirty(
   }
 }
 
+/**
+ * Flags `canonical_releases` as dirty in `sync_state` (diff-guarded so already-dirty state incurs 0 writes)
+ * so the next daily backup window snapshots `canonical_releases` to R2 (`snapshots/canonical_releases.json`).
+ */
+export async function markCanonicalReleasesDirty(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('canonical_releases_dirty', '1', datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = datetime('now')
+       WHERE sync_state.value != '1'`,
+    ).run();
+  } catch (err) {
+    console.warn(
+      '[WorkerBackup] Failed to mark canonical_releases dirty:',
+      err,
+    );
+  }
+}
+
+/**
+ * Diff-guarded daily R2 backup for `canonical_releases` (`snapshots/canonical_releases.json`).
+ * Only reads and uploads `canonical_releases` (in primary-key pages) when `canonical_releases_dirty = '1'`
+ * or when the R2 object's `customMetadata` (`rowCount`, `maxId`) does not match D1.
+ */
+export async function performCanonicalReleasesBackup(
+  env: Env,
+  options: { pageSize?: number; force?: boolean } = {},
+): Promise<{
+  key: string;
+  rowCount: number;
+  maxId: number;
+  skipped: boolean;
+}> {
+  const latestCanonicalKey = 'snapshots/canonical_releases.json';
+  const pageSize = options.pageSize ?? 20000;
+  if (!env.BACKUP_BUCKET) {
+    return { key: 'none', rowCount: 0, maxId: 0, skipped: true };
+  }
+
+  const [dirtyRow, statsRow] = await Promise.all([
+    env.DB.prepare(
+      "SELECT value FROM sync_state WHERE key = 'canonical_releases_dirty'",
+    )
+      .first<{ value: string }>()
+      .catch(() => null),
+    env.DB.prepare(
+      'SELECT COUNT(*) AS cnt, COALESCE(MAX(id), 0) AS max_id FROM canonical_releases',
+    )
+      .first<{ cnt: number; max_id: number }>()
+      .catch(() => ({ cnt: 0, max_id: 0 })),
+  ]);
+
+  const isDirty = dirtyRow?.value === '1';
+  const rowCount = Number(statsRow?.cnt ?? 0);
+  const maxId = Number(statsRow?.max_id ?? 0);
+
+  if (!options.force && !isDirty) {
+    if (rowCount === 0) {
+      return { key: 'none', rowCount: 0, maxId: 0, skipped: true };
+    }
+    try {
+      let existingRowCount: string | undefined;
+      let existingMaxId: string | undefined;
+      if (typeof env.BACKUP_BUCKET.head === 'function') {
+        const headObj = await env.BACKUP_BUCKET.head(latestCanonicalKey);
+        existingRowCount = headObj?.customMetadata?.['rowCount'];
+        existingMaxId = headObj?.customMetadata?.['maxId'];
+      } else if (typeof env.BACKUP_BUCKET.get === 'function') {
+        const getObj = await env.BACKUP_BUCKET.get(latestCanonicalKey);
+        existingRowCount = getObj?.customMetadata?.['rowCount'];
+        existingMaxId = getObj?.customMetadata?.['maxId'];
+      }
+      if (
+        existingRowCount === String(rowCount) &&
+        existingMaxId === String(maxId)
+      ) {
+        return {
+          key: 'none',
+          rowCount,
+          maxId,
+          skipped: true,
+        };
+      }
+    } catch {
+      // Proceed with backup if R2 metadata check fails
+    }
+  }
+
+  if (rowCount === 0 && !isDirty && !options.force) {
+    return { key: 'none', rowCount: 0, maxId: 0, skipped: true };
+  }
+
+  const allRows: Record<string, unknown>[] = [];
+  let cursor = 0;
+  while (true) {
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM canonical_releases WHERE id > ? ORDER BY id ASC LIMIT ?',
+    )
+      .bind(cursor, pageSize)
+      .all<Record<string, unknown>>();
+    const batch = results || [];
+    if (batch.length === 0) break;
+    for (const r of batch) {
+      allRows.push(r);
+    }
+    const lastId = Number(batch[batch.length - 1]?.['id'] ?? 0);
+    if (!lastId || lastId <= cursor || batch.length < pageSize) break;
+    cursor = lastId;
+  }
+
+  const actualCount = allRows.length;
+  const actualMaxId =
+    actualCount > 0 ? Number(allRows[actualCount - 1]?.['id'] ?? maxId) : 0;
+
+  const tablesJson = `{"canonical_releases":${JSON.stringify(allRows)}}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest(
+    'SHA-256',
+    encoder.encode(tablesJson),
+  );
+  const sha256 = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const timestamp = new Date().toISOString();
+  const metadataJson = JSON.stringify({
+    timestamp,
+    date: timestamp.slice(0, 10),
+    version: 1,
+    totalRows: actualCount,
+    rowCount: actualCount,
+    maxId: actualMaxId,
+    sha256,
+    tableCounts: { canonical_releases: actualCount },
+  });
+  const payload = `{"timestamp":${JSON.stringify(timestamp)},"version":"1.0","metadata":${metadataJson},"tables":${tablesJson}}`;
+
+  await env.BACKUP_BUCKET.put(latestCanonicalKey, payload, {
+    httpMetadata: { contentType: 'application/json' },
+    customMetadata: {
+      sha256,
+      totalRows: String(actualCount),
+      rowCount: String(actualCount),
+      maxId: String(actualMaxId),
+    },
+  });
+
+  await env.DB.prepare(
+    `INSERT INTO sync_state (key, value, updated_at)
+     VALUES ('canonical_releases_dirty', '0', datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')`,
+  ).run();
+
+  return {
+    key: latestCanonicalKey,
+    rowCount: actualCount,
+    maxId: actualMaxId,
+    skipped: false,
+  };
+}
+
 async function handleFetch(
   request: Request,
   env: Env,
@@ -7235,6 +7397,63 @@ export default {
         );
       }
 
+      // 5. Scheduled Amiibo catalog sync (daily window, SHA-256 hash-gated)
+      console.log(
+        '[WorkerCron] Executing scheduled Amiibo catalog sync (AmiiboAPI)...',
+      );
+      const amiiboStart = Date.now();
+      try {
+        const res = await syncWorkerAmiiboCatalog(env);
+        await logCronExecution(
+          env,
+          'amiibo_catalog',
+          'SUCCESS',
+          Date.now() - amiiboStart,
+          res.hashMatch
+            ? 'AmiiboAPI catalog unchanged (0 writes)'
+            : `Synced Amiibo catalog (+${res.addedCount} / ~${res.updatedCount}, ${res.writesUsed} writes)`,
+          res,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[WorkerCron] Amiibo catalog sync failed:', err);
+        await logCronExecution(
+          env,
+          'amiibo_catalog',
+          'ERROR',
+          Date.now() - amiiboStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
+
+      // 6. Diff-guarded canonical_releases R2 backup (only dumps when dirty or out of sync with R2)
+      const canonicalBackupStart = Date.now();
+      try {
+        const crBackupRes = await performCanonicalReleasesBackup(env);
+        if (!crBackupRes.skipped) {
+          await logCronExecution(
+            env,
+            'canonical_releases_backup',
+            'SUCCESS',
+            Date.now() - canonicalBackupStart,
+            `Backed up ${crBackupRes.rowCount} canonical_releases rows to R2 (${crBackupRes.key})`,
+            crBackupRes,
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[WorkerCron] Canonical releases R2 backup failed:', err);
+        await logCronExecution(
+          env,
+          'canonical_releases_backup',
+          'ERROR',
+          Date.now() - canonicalBackupStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
+
       // Prune cron execution logs older than 7 days (zero-churn retention)
       try {
         await env.DB.prepare(
@@ -7960,6 +8179,9 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
   }
   if (gameStatements.length > 0) {
     await markDbDirty(env);
+  }
+  if (added > 0 || updated > 0 || deleted > 0) {
+    await markCanonicalReleasesDirty(env);
   }
 
   // Save new hash into sync_state
@@ -9948,6 +10170,448 @@ export async function syncWorkerIgdbMetadataBackfill(
     scanned: candidates.length,
     matched: writesUsed / 2,
     cursor: nextCursor,
+    writesUsed,
+  };
+}
+
+/**
+ * Synchronizes the Amiibo figure, card, yarn, band, and wooden-block catalog from AmiiboAPI
+ * (`https://amiiboapi.org/api/amiibo/`) into Cloudflare D1 during the daily cron window.
+ *
+ * Uses a SHA-256 hash guard (`amiibo_catalog_hash` in `sync_state`) so unchanged days incur
+ * 0 D1 table reads and 0 writes. When upstream items are added or regional release dates update,
+ * expands multi-pose Amiibo (`MULTI_POSE_AMIIBO_EXPANSIONS`), auto-creates new `toy_series` rows,
+ * chunks writes within `maxWritesPerRun` to respect Free Tier write limits, and evaluates
+ * `user_tracking_rules` for newly added items.
+ */
+export async function syncWorkerAmiiboCatalog(
+  env: Env,
+  options: { maxWritesPerRun?: number } = {},
+): Promise<{
+  checked: boolean;
+  hashMatch: boolean;
+  addedCount: number;
+  updatedCount: number;
+  writesUsed: number;
+}> {
+  const maxWritesPerRun = options.maxWritesPerRun ?? 6000;
+  const response = await fetch('https://amiiboapi.org/api/amiibo/', {
+    headers: { 'User-Agent': 'CollectionTracker/1.0' },
+  });
+  if (!response.ok) {
+    throw new Error(`AmiiboAPI failed: ${response.status}`);
+  }
+
+  let rawText = '';
+  let data: {
+    amiibo?: Array<{
+      head: string;
+      tail: string;
+      name: string;
+      amiiboSeries: string;
+      gameSeries?: string;
+      type?: string;
+      image?: string;
+      release?: {
+        na?: string | null;
+        jp?: string | null;
+        eu?: string | null;
+        au?: string | null;
+      };
+    }>;
+  } | null = null;
+
+  if (typeof response.text === 'function') {
+    rawText = await response.text();
+    if (rawText.trim()) {
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = null;
+      }
+    }
+  }
+  if (!data && typeof response.json === 'function') {
+    data = (await response.json().catch(() => null)) as typeof data;
+    if (data && !rawText) {
+      rawText = JSON.stringify(data);
+    }
+  }
+
+  const amiiboList = data?.amiibo;
+  if (!Array.isArray(amiiboList) || amiiboList.length === 0) {
+    return {
+      checked: true,
+      hashMatch: false,
+      addedCount: 0,
+      updatedCount: 0,
+      writesUsed: 0,
+    };
+  }
+
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest(
+    'SHA-256',
+    encoder.encode('v1||' + (rawText || JSON.stringify(amiiboList))),
+  );
+  const currentHash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const lastHashRow = await env.DB.prepare(
+    "SELECT value FROM sync_state WHERE key = 'amiibo_catalog_hash'",
+  ).first<{ value: string }>();
+
+  if (lastHashRow?.value === currentHash) {
+    return {
+      checked: true,
+      hashMatch: true,
+      addedCount: 0,
+      updatedCount: 0,
+      writesUsed: 0,
+    };
+  }
+
+  interface ExistingAmiiboRow {
+    stable_id: number;
+    id: string;
+    name: string;
+    amiibo_id: string | null;
+    series_id: string | null;
+    series: string | null;
+    type: string | null;
+    image_url: string | null;
+    release_date: string | null;
+    region: string | null;
+    metadata_json: string | null;
+    sort_index: number | null;
+  }
+
+  const [existingToysRes, existingSeriesRes, ignoredRes] = await Promise.all([
+    env.DB.prepare(
+      `SELECT stable_id, id, name, amiibo_id, series_id, series, type, image_url, release_date, region, metadata_json, sort_index
+       FROM toys WHERE line = 'amiibo'`,
+    ).all<ExistingAmiiboRow>(),
+    env.DB.prepare(
+      `SELECT id, name FROM toy_series WHERE line = 'amiibo'`,
+    ).all<{ id: string; name: string }>(),
+    env.DB.prepare(`SELECT id FROM ignored_items`).all<{ id: string }>(),
+  ]);
+
+  const ignoredSet = new Set<string>(
+    (ignoredRes.results || []).map((r) => r.id),
+  );
+  const seriesIdByNameLower = new Map<string, string>();
+  for (const s of existingSeriesRes.results || []) {
+    seriesIdByNameLower.set(s.name.toLowerCase().trim(), s.id);
+  }
+
+  const existingById = new Map<string, ExistingAmiiboRow>();
+  const existingByAmiiboId = new Map<string, ExistingAmiiboRow>();
+  const existingByNameLower = new Map<string, ExistingAmiiboRow>();
+  let maxSortIndex = 0;
+
+  for (const row of existingToysRes.results || []) {
+    if (row.id) existingById.set(row.id, row);
+    if (row.amiibo_id) existingByAmiiboId.set(row.amiibo_id, row);
+    if (row.name) existingByNameLower.set(row.name.toLowerCase().trim(), row);
+    if (row.sort_index && row.sort_index > maxSortIndex) {
+      maxSortIndex = row.sort_index;
+    }
+  }
+
+  const slugify = (s: string) =>
+    (s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+  interface CandidateAmiiboItem {
+    id: string;
+    amiibo_id: string;
+    name: string;
+    series_name: string;
+    type: string;
+    image_url: string | null;
+    release_date: string | null;
+    region: string;
+    metadata_json: string | null;
+    isMultiPose: boolean;
+  }
+
+  const candidates: CandidateAmiiboItem[] = [];
+  for (const a of amiiboList) {
+    const amiiboId = `${a.head || ''}${a.tail || ''}`.trim();
+    if (!amiiboId || !a.name) continue;
+    const cleanName = a.name.toLowerCase().trim();
+    const lowerSeries = (a.amiiboSeries || '').toLowerCase();
+    const lowerGame = (a.gameSeries || '').toLowerCase();
+    if (
+      lowerSeries.includes('skylanders') ||
+      lowerGame.includes('skylanders') ||
+      cleanName.includes('hammer slam bowser') ||
+      cleanName.includes('turbo charge donkey kong')
+    ) {
+      continue;
+    }
+
+    const effectiveSeries =
+      a.amiiboSeries === 'Others' && a.gameSeries
+        ? a.gameSeries
+        : a.amiiboSeries || 'Other';
+
+    const {
+      region: defaultRegion,
+      defaultDate,
+      metadataJson,
+    } = resolveAmiiboRegionsAndMetadata(a.release);
+
+    const poseExpansions = MULTI_POSE_AMIIBO_EXPANSIONS[amiiboId];
+    if (poseExpansions && poseExpansions.length > 0) {
+      for (const p of poseExpansions) {
+        const poseName = `${a.name}${p.nameSuffix}`;
+        const poseId = p.slugSuffix ? `${amiiboId}${p.slugSuffix}` : amiiboId;
+        candidates.push({
+          id: poseId,
+          amiibo_id: amiiboId,
+          name: poseName,
+          series_name: effectiveSeries,
+          type: a.type || 'Figure',
+          image_url: a.image || null,
+          release_date: defaultDate,
+          region: defaultRegion,
+          metadata_json: metadataJson,
+          isMultiPose: true,
+        });
+      }
+      continue;
+    }
+
+    candidates.push({
+      id: amiiboId,
+      amiibo_id: amiiboId,
+      name: a.name,
+      series_name: effectiveSeries,
+      type: a.type || 'Figure',
+      image_url: a.image || null,
+      release_date: defaultDate,
+      region: defaultRegion,
+      metadata_json: metadataJson,
+      isMultiPose: false,
+    });
+  }
+
+  const seriesStatements: D1PreparedStatement[] = [];
+  const toyStatements: D1PreparedStatement[] = [];
+  const newlyAddedToys: Array<{
+    id: string;
+    line: string;
+    series: string;
+    region: string | null;
+  }> = [];
+
+  let writesUsed = 0;
+  let addedCount = 0;
+  let updatedCount = 0;
+  let stoppedEarly = false;
+
+  for (const cand of candidates) {
+    if (ignoredSet.has(cand.id) || ignoredSet.has(cand.amiibo_id)) {
+      continue;
+    }
+
+    const existing = cand.isMultiPose
+      ? existingById.get(cand.id) ||
+        existingByNameLower.get(cand.name.toLowerCase().trim())
+      : existingById.get(cand.id) ||
+        existingByAmiiboId.get(cand.amiibo_id) ||
+        existingByNameLower.get(cand.name.toLowerCase().trim());
+
+    if (!existing) {
+      // 1 toy row + 5 secondary indexes = 6 billable writes (+2 if creating a new toy_series row)
+      const seriesKey = cand.series_name.toLowerCase().trim();
+      let seriesId = seriesIdByNameLower.get(seriesKey) || null;
+      const needsNewSeries = !seriesId && Boolean(seriesKey);
+      const estimatedWrites = 6 + (needsNewSeries ? 2 : 0);
+
+      if (writesUsed > 0 && writesUsed + estimatedWrites > maxWritesPerRun) {
+        stoppedEarly = true;
+        break;
+      }
+
+      if (needsNewSeries) {
+        seriesId = `amiibo-${slugify(cand.series_name)}`;
+        seriesIdByNameLower.set(seriesKey, seriesId);
+        seriesStatements.push(
+          env.DB.prepare(
+            `INSERT OR IGNORE INTO toy_series (id, line, name) VALUES (?, 'amiibo', ?)`,
+          ).bind(seriesId, cand.series_name),
+        );
+      }
+
+      maxSortIndex++;
+      toyStatements.push(
+        env.DB.prepare(
+          `INSERT INTO toys (
+             id, name, line, series_id, series, type, release_date,
+             image_url, amiibo_id, verified, metadata_json, sort_index, region
+           ) VALUES (?, ?, 'amiibo', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`,
+        ).bind(
+          cand.id,
+          cand.name,
+          seriesId,
+          cand.series_name,
+          cand.type,
+          cand.release_date,
+          cand.image_url,
+          cand.amiibo_id,
+          cand.metadata_json,
+          maxSortIndex,
+          cand.region,
+        ),
+      );
+
+      const newRow: ExistingAmiiboRow = {
+        stable_id: 0,
+        id: cand.id,
+        name: cand.name,
+        amiibo_id: cand.amiibo_id,
+        series_id: seriesId,
+        series: cand.series_name,
+        type: cand.type,
+        image_url: cand.image_url,
+        release_date: cand.release_date,
+        region: cand.region,
+        metadata_json: cand.metadata_json,
+        sort_index: maxSortIndex,
+      };
+      existingById.set(cand.id, newRow);
+      if (!cand.isMultiPose) {
+        existingByAmiiboId.set(cand.amiibo_id, newRow);
+      }
+      existingByNameLower.set(cand.name.toLowerCase().trim(), newRow);
+
+      newlyAddedToys.push({
+        id: cand.id,
+        line: 'amiibo',
+        series: cand.series_name,
+        region: cand.region,
+      });
+
+      writesUsed += estimatedWrites;
+      addedCount++;
+    } else {
+      const regionChanged = Boolean(
+        cand.region && existing.region !== cand.region,
+      );
+      const dateChanged = Boolean(
+        cand.release_date && existing.release_date !== cand.release_date,
+      );
+      const imageMissing = Boolean(!existing.image_url && cand.image_url);
+      const amiiboIdMissing = Boolean(!existing.amiibo_id && cand.amiibo_id);
+
+      let mergedMetaJson = existing.metadata_json;
+      let metaChanged = false;
+      if (cand.metadata_json) {
+        try {
+          const candMeta = JSON.parse(cand.metadata_json) as {
+            releases?: Record<string, string>;
+          };
+          const existMeta = existing.metadata_json
+            ? (JSON.parse(existing.metadata_json) as Record<string, unknown>)
+            : {};
+          const existReleases = (existMeta['releases'] || {}) as Record<
+            string,
+            string
+          >;
+          const candReleases = candMeta.releases || {};
+          for (const [reg, dt] of Object.entries(candReleases)) {
+            if (dt && existReleases[reg] !== dt) {
+              existReleases[reg] = dt;
+              metaChanged = true;
+            }
+          }
+          if (metaChanged) {
+            existMeta['releases'] = existReleases;
+            mergedMetaJson = JSON.stringify(existMeta);
+          }
+        } catch {
+          // Ignore malformed metadata_json
+        }
+      }
+
+      if (
+        regionChanged ||
+        dateChanged ||
+        imageMissing ||
+        amiiboIdMissing ||
+        metaChanged
+      ) {
+        if (writesUsed > 0 && writesUsed + 6 > maxWritesPerRun) {
+          stoppedEarly = true;
+          break;
+        }
+        toyStatements.push(
+          env.DB.prepare(
+            `UPDATE toys
+             SET region = ?,
+                 release_date = COALESCE(?, release_date),
+                 image_url = COALESCE(image_url, ?),
+                 amiibo_id = COALESCE(amiibo_id, ?),
+                 metadata_json = ?,
+                 verified = 1
+             WHERE stable_id = ?`,
+          ).bind(
+            cand.region || existing.region || 'USA',
+            cand.release_date,
+            cand.image_url,
+            cand.amiibo_id,
+            mergedMetaJson,
+            existing.stable_id,
+          ),
+        );
+        writesUsed += 6;
+        updatedCount++;
+      }
+    }
+  }
+
+  for (let i = 0; i < seriesStatements.length; i += 100) {
+    await env.DB.batch(seriesStatements.slice(i, i + 100));
+  }
+  for (let i = 0; i < toyStatements.length; i += 100) {
+    await env.DB.batch(toyStatements.slice(i, i + 100));
+  }
+
+  if (newlyAddedToys.length > 0) {
+    const matchedToyRuleRows = await evaluateTrackingRulesForNewToys(
+      env,
+      newlyAddedToys,
+    );
+    writesUsed += matchedToyRuleRows * 2;
+  }
+
+  if (addedCount > 0 || updatedCount > 0) {
+    await markDbDirty(env);
+  }
+
+  if (!stoppedEarly) {
+    await env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('amiibo_catalog_hash', ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    )
+      .bind(currentHash)
+      .run();
+    writesUsed += 1;
+  }
+
+  return {
+    checked: true,
+    hashMatch: false,
+    addedCount,
+    updatedCount,
     writesUsed,
   };
 }

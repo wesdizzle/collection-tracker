@@ -15,12 +15,15 @@ import {
 import worker, {
   Env,
   isAuthorizedAdmin,
+  markCanonicalReleasesDirty,
   markDbDirty,
+  performCanonicalReleasesBackup,
   performScheduledBackup,
   resetWorkerRateLimits,
   resolveAmiiboRegionsAndMetadata,
   selectStrictIgdbMatch,
   syncOrResolveOidcUser,
+  syncWorkerAmiiboCatalog,
   syncWorkerBoutiquePreOrders,
   syncWorkerBroadCatalogPopulation,
   syncWorkerIgdbMetadataBackfill,
@@ -5396,6 +5399,231 @@ describe('Worker API Logic', () => {
         } finally {
           vi.unstubAllGlobals();
         }
+      });
+    });
+
+    describe('syncWorkerAmiiboCatalog & performCanonicalReleasesBackup', () => {
+      it('syncWorkerAmiiboCatalog inserts new Amiibo, expands multi-pose figures, skips Skylanders crossovers, evaluates tracking rules, and fast-paths on hash match', async () => {
+        db.exec(`
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES (1, 'toy_series', 'Super Smash Bros.', 2, 'home', 0);
+        `);
+
+        const payload = {
+          amiibo: [
+            {
+              head: '00000000',
+              tail: '00000002',
+              name: 'Mario',
+              amiiboSeries: 'Super Smash Bros.',
+              gameSeries: 'Super Mario',
+              character: 'Mario',
+              type: 'Figure',
+              image:
+                'https://raw.githubusercontent.com/N3evin/AmiiboAPI/master/images/icon_00000000-00000002.png',
+              release: {
+                na: '2014-11-21',
+                eu: '2014-11-28',
+                jp: '2014-12-06',
+                au: '2014-11-29',
+              },
+            },
+            {
+              head: '07800000',
+              tail: '002d0002',
+              name: 'Mr. Game & Watch',
+              amiiboSeries: 'Super Smash Bros.',
+              gameSeries: 'Game & Watch',
+              character: 'Mr. Game & Watch',
+              type: 'Figure',
+              image: 'https://example.com/gnw.png',
+              release: {
+                na: '2015-09-25',
+                eu: '2015-09-25',
+                jp: '2015-12-10',
+                au: null,
+              },
+            },
+            {
+              head: '00000100',
+              tail: '00150002',
+              name: 'Hammer Slam Bowser',
+              amiiboSeries: 'Skylanders SuperChargers',
+              gameSeries: 'Super Mario',
+              character: 'Bowser',
+              type: 'Figure',
+              image: 'https://example.com/bowser-sky.png',
+              release: {
+                na: '2015-09-20',
+                eu: null,
+                jp: null,
+                au: null,
+              },
+            },
+          ],
+        };
+
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(
+            async () => new Response(JSON.stringify(payload), { status: 200 }),
+          ),
+        );
+
+        try {
+          const first = await syncWorkerAmiiboCatalog(mockEnv);
+          expect(first.hashMatch).toBe(false);
+          // Mario (1) + Mr. Game & Watch expanded into 4 poses = 5 added, Skylanders Bowser skipped
+          expect(first.addedCount).toBe(5);
+          expect(first.updatedCount).toBe(0);
+          expect(first.writesUsed).toBeGreaterThan(0);
+
+          const mario = db
+            .prepare(
+              "SELECT id, name, series_id, release_date, metadata_json FROM toys WHERE id = '0000000000000002'",
+            )
+            .get() as Record<string, unknown>;
+          expect(mario).toMatchObject({
+            id: '0000000000000002',
+            name: 'Mario',
+            series_id: 'amiibo-super-smash-bros',
+            release_date: '2014-11-21',
+          });
+
+          const gnwPoses = db
+            .prepare(
+              "SELECT id, name FROM toys WHERE id LIKE '07800000002d0002%' ORDER BY id",
+            )
+            .all() as { id: string; name: string }[];
+          expect(gnwPoses).toEqual([
+            { id: '07800000002d0002', name: 'Mr. Game & Watch (Default)' },
+            { id: '07800000002d0002-bell', name: 'Mr. Game & Watch (Bell)' },
+            { id: '07800000002d0002-judge', name: 'Mr. Game & Watch (Judge)' },
+            {
+              id: '07800000002d0002-parachute',
+              name: 'Mr. Game & Watch (Parachute)',
+            },
+          ]);
+
+          const skylandersCross = db
+            .prepare("SELECT id FROM toys WHERE id = '0000010000150002'")
+            .get();
+          expect(skylandersCross).toBeUndefined();
+
+          // Verify user_tracking_rules auto-tracked the 5 new Smash Amiibo for user 1
+          const trackedCount = db
+            .prepare(
+              "SELECT COUNT(*) as c FROM user_toys WHERE user_id = 1 AND toy_id != 'link-amiibo'",
+            )
+            .get() as { c: number };
+          expect(trackedCount.c).toBe(5);
+
+          // Second run with identical payload must hit SHA-256 hash fast-path with 0 writes
+          const second = await syncWorkerAmiiboCatalog(mockEnv);
+          expect(second).toEqual({
+            checked: true,
+            addedCount: 0,
+            updatedCount: 0,
+            writesUsed: 0,
+            hashMatch: true,
+          });
+
+          // Third run with updated release date updates only the changed row
+          payload.amiibo[0].release.jp = '2014-12-07';
+          const third = await syncWorkerAmiiboCatalog(mockEnv);
+          expect(third.hashMatch).toBe(false);
+          expect(third.addedCount).toBe(0);
+          expect(third.updatedCount).toBe(1);
+
+          const updatedMario = db
+            .prepare(
+              "SELECT metadata_json FROM toys WHERE id = '0000000000000002'",
+            )
+            .get() as { metadata_json: string };
+          expect(JSON.parse(updatedMario.metadata_json)).toMatchObject({
+            releases: {
+              USA: '2014-11-21',
+              Europe: '2014-11-28',
+              Japan: '2014-12-07',
+              Australia: '2014-11-29',
+            },
+          });
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('performCanonicalReleasesBackup writes snapshots/canonical_releases.json when dirty or out of sync and skips when clean', async () => {
+        db.exec(`
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source)
+          VALUES
+            (10, 1, 'Game A (USA)', 'gamea', 'USA', 1, 'dat'),
+            (20, 1, 'Game B (Europe)', 'gameb', 'Europe', 1, 'nintendo_revised');
+        `);
+
+        await markCanonicalReleasesDirty(mockEnv);
+        const dirtyBefore = db
+          .prepare(
+            "SELECT value FROM sync_state WHERE key = 'canonical_releases_dirty'",
+          )
+          .get() as { value: string };
+        expect(dirtyBefore.value).toBe('1');
+
+        // First backup: dirty = '1' -> writes R2 snapshot and clears dirty flag
+        const first = await performCanonicalReleasesBackup(mockEnv, {
+          pageSize: 1,
+        });
+        expect(first).toEqual({
+          key: 'snapshots/canonical_releases.json',
+          skipped: false,
+          rowCount: 2,
+          maxId: 20,
+        });
+
+        const dirtyAfter = db
+          .prepare(
+            "SELECT value FROM sync_state WHERE key = 'canonical_releases_dirty'",
+          )
+          .get() as { value: string };
+        expect(dirtyAfter.value).toBe('0');
+
+        const storedObj = await mockBucket.get(
+          'snapshots/canonical_releases.json',
+        );
+        expect(storedObj).not.toBeNull();
+        expect(storedObj?.customMetadata).toMatchObject({
+          rowCount: '2',
+          maxId: '20',
+        });
+        const parsed = JSON.parse(storedObj!.body) as {
+          metadata: { rowCount: number; maxId: number };
+          tables: { canonical_releases: { id: number; raw_title: string }[] };
+        };
+        expect(parsed.metadata.rowCount).toBe(2);
+        expect(parsed.metadata.maxId).toBe(20);
+        expect(parsed.tables.canonical_releases).toHaveLength(2);
+
+        // Second backup: clean and R2 metadata matches -> skipped without full table scan
+        const second = await performCanonicalReleasesBackup(mockEnv);
+        expect(second).toEqual({
+          key: 'none',
+          skipped: true,
+          rowCount: 2,
+          maxId: 20,
+        });
+
+        // Third backup: row added directly (e.g. offline DAT sync without dirty flag) -> metadata mismatch triggers backup
+        db.exec(`
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source)
+          VALUES (30, 1, 'Game C (Japan)', 'gamec', 'Japan', 1, 'dat');
+        `);
+        const third = await performCanonicalReleasesBackup(mockEnv);
+        expect(third).toEqual({
+          key: 'snapshots/canonical_releases.json',
+          skipped: false,
+          rowCount: 3,
+          maxId: 30,
+        });
       });
     });
   });
