@@ -278,7 +278,7 @@ a {
     opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Material State Layer Logic */
+/* Material State Layer Logic (aligned with @wesdizzle/app-kit tokens) */
 .state-layer {
   position: relative;
   overflow: hidden;
@@ -290,7 +290,8 @@ a {
   inset: 0;
   background: currentColor;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--kit-motion-duration-fast, 150ms)
+    var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1));
   pointer-events: none;
 }
 
@@ -309,10 +310,14 @@ a {
   background: var(--m3-surface-container);
   border-radius: var(--radius-lg);
   transition:
-    transform 0.25s cubic-bezier(0.2, 0, 0, 1),
-    box-shadow 0.25s cubic-bezier(0.2, 0, 0, 1),
-    border-color 0.25s cubic-bezier(0.2, 0, 0, 1),
-    background-color 0.25s cubic-bezier(0.2, 0, 0, 1);
+    transform var(--kit-motion-duration-medium, 220ms)
+      var(--kit-motion-easing-expressive, cubic-bezier(0.16, 1, 0.3, 1)),
+    box-shadow var(--kit-motion-duration-medium, 220ms)
+      var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    border-color var(--kit-motion-duration-medium, 220ms)
+      var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    background-color var(--kit-motion-duration-medium, 220ms)
+      var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1));
   border: 1px solid var(--m3-outline-variant);
   overflow: hidden;
 }
@@ -344,10 +349,14 @@ a {
   background: transparent;
   gap: var(--spacing-8);
   transition:
-    background-color 0.2s cubic-bezier(0.2, 0, 0, 1),
-    color 0.2s cubic-bezier(0.2, 0, 0, 1),
-    border-color 0.2s cubic-bezier(0.2, 0, 0, 1),
-    transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+    background-color var(--kit-motion-duration-fast, 150ms)
+      var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    color var(--kit-motion-duration-fast, 150ms)
+      var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    border-color var(--kit-motion-duration-fast, 150ms)
+      var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)),
+    transform var(--kit-motion-duration-fast, 150ms)
+      var(--kit-motion-easing-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 
 .m3-chip.active {
@@ -370,7 +379,8 @@ a {
 }
 
 .animate-expressive {
-  animation: expressiveEntrance 0.35s cubic-bezier(0.2, 0, 0, 1);
+  animation: expressiveEntrance var(--kit-motion-duration-enter, 280ms)
+    var(--kit-motion-easing-expressive, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 .glass-panel {
