@@ -672,6 +672,8 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         platOption?.matched_releases ||
         (game.platform_id === pid ? game.matched_releases : []) ||
         [];
+      const platformReleaseDate =
+        platOption?.first_release_date ?? game.first_release_date ?? null;
 
       const payload = {
         game: {
@@ -691,7 +693,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
           physical_status:
             platOption?.physical_status || game.physical_status || 'unverified',
           verification_tier: game.verification_tier || 0,
-          release_date: game.first_release_date || null,
+          release_date: platformReleaseDate,
         },
         releases: releases.map((r) => ({
           region: r.region || null,
@@ -700,7 +702,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
           rom_crc: r.romCrc || null,
           ownership_status: 0,
           backup_status: 0,
-          release_date: r.releaseDate || null,
+          release_date: r.releaseDate || platformReleaseDate || null,
           canonical_release_id: r.canonical_release_id || null,
           serial_code: r.serial_code || null,
           barcode: r.barcode || null,
@@ -1023,6 +1025,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     const selectedReleases = allReleases.filter((r) =>
       selectedKeys.has(r.romCrc || r.romName || r.name),
     );
+    const platOption = game.physical_platforms?.find(
+      (p) => p.platform_id === platformId,
+    );
+    const platformReleaseDate =
+      platOption?.first_release_date ?? game.first_release_date ?? null;
 
     const payload = {
       game: {
@@ -1041,7 +1048,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         backup_status: this.backupStatus(),
         physical_status: game.physical_status || 'unverified',
         verification_tier: game.verification_tier || 0,
-        release_date: game.first_release_date || null,
+        release_date: platformReleaseDate,
       },
       releases: selectedReleases.map((r) => ({
         region: r.region || null,
@@ -1050,7 +1057,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
         rom_crc: r.romCrc || null,
         ownership_status: this.ownershipStatus(),
         backup_status: this.backupStatus(),
-        release_date: r.releaseDate || null,
+        release_date: r.releaseDate || platformReleaseDate || null,
         canonical_release_id: r.canonical_release_id || null,
         serial_code: r.serial_code || null,
         barcode: r.barcode || null,
@@ -1350,7 +1357,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
             rom_crc: r.romCrc || null,
             ownership_status: 0,
             backup_status: 0,
-            release_date: r.releaseDate || null,
+            release_date: r.releaseDate || game.first_release_date || null,
             canonical_release_id: r.canonical_release_id || null,
             serial_code: r.serial_code || null,
             barcode: r.barcode || null,
@@ -1427,7 +1434,7 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
               rom_crc: r.romCrc || null,
               ownership_status: 0,
               backup_status: 0,
-              release_date: r.releaseDate || null,
+              release_date: r.releaseDate || game.first_release_date || null,
               canonical_release_id: r.canonical_release_id || null,
               serial_code: r.serial_code || null,
               barcode: r.barcode || null,

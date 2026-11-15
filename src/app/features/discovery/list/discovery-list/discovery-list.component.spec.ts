@@ -907,4 +907,57 @@ describe('DiscoveryListComponent', () => {
     );
     expect(component.toastMessage()).toContain('as unowned');
   });
+
+  it('should prefer platform-specific first_release_date over global first_release_date when ingesting a port', async () => {
+    const portGame: IGDBSearchResult = {
+      id: 'igdb-26192',
+      name: 'The Last of Us Part II Remastered',
+      platform: 'PlayStation 5',
+      platform_id: 33,
+      image_url: 'https://images.igdb.com/coa1gr.jpg',
+      first_release_date: '2020-06-19',
+      physical_platforms: [
+        {
+          platform_id: 33,
+          platform_name: 'PlayStation 5',
+          physical_status: 'verified_physical',
+          is_physical: true,
+          is_owned: false,
+          first_release_date: '2024-01-19',
+          matched_releases_count: 1,
+          matched_releases: [
+            {
+              name: 'The Last of Us Part II Remastered (USA)',
+              romName: 'TLOU2R.iso',
+              romCrc: 'CAFE1234',
+              region: 'USA',
+              variants: null,
+              releaseDate: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    mockCollectionService.searchGames.mockReturnValueOnce(of([portGame]));
+    await component.triggerSearch('The Last of Us Part II', '0');
+
+    await component.ingestSelectedForGame(portGame);
+
+    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        game: expect.objectContaining({
+          title: 'The Last of Us Part II Remastered',
+          platform_id: 33,
+          release_date: '2024-01-19',
+        }),
+        releases: [
+          expect.objectContaining({
+            region: 'USA',
+            release_date: '2024-01-19',
+          }),
+        ],
+      }),
+    );
+  });
 });

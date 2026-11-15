@@ -458,6 +458,323 @@ export async function getCachedPlatformMetadata(env: Env): Promise<{
   return cachedPlatformMetadata;
 }
 
+export interface IgdbReleaseDateEntry {
+  platform?: number | { id: number };
+  region?: number;
+  release_region?: number;
+  date?: number;
+}
+
+export interface IgdbRelatedEditionRef {
+  id: number;
+  name?: string;
+  platforms?: Array<number | { id: number }>;
+}
+
+const IGDB_RELEASE_REGION_PREFERENCES: Record<
+  string,
+  { primary: number[]; secondary: number[] }
+> = {
+  NA: { primary: [2], secondary: [8] },
+  USA: { primary: [2], secondary: [8] },
+  US: { primary: [2], secondary: [8] },
+  'NORTH AMERICA': { primary: [2], secondary: [8] },
+  CANADA: { primary: [2], secondary: [8] },
+  EU: { primary: [1], secondary: [8] },
+  EUROPE: { primary: [1], secondary: [8] },
+  UK: { primary: [1], secondary: [8] },
+  GERMANY: { primary: [1], secondary: [8] },
+  FRANCE: { primary: [1], secondary: [8] },
+  SPAIN: { primary: [1], secondary: [8] },
+  ITALY: { primary: [1], secondary: [8] },
+  AU: { primary: [3], secondary: [1, 8] },
+  AUSTRALIA: { primary: [3], secondary: [1, 8] },
+  NZ: { primary: [4, 3], secondary: [1, 8] },
+  'NEW ZEALAND': { primary: [4, 3], secondary: [1, 8] },
+  JP: { primary: [5], secondary: [7, 8] },
+  JAPAN: { primary: [5], secondary: [7, 8] },
+  AS: { primary: [7, 5], secondary: [8] },
+  ASIA: { primary: [7, 5], secondary: [8] },
+  KR: { primary: [9], secondary: [7, 8] },
+  KOREA: { primary: [9], secondary: [7, 8] },
+  CH: { primary: [6], secondary: [7, 8] },
+  CHINA: { primary: [6], secondary: [7, 8] },
+  BR: { primary: [10], secondary: [2, 8] },
+  BRAZIL: { primary: [10], secondary: [2, 8] },
+  WW: { primary: [8], secondary: [2, 1, 5] },
+  WORLD: { primary: [8], secondary: [2, 1, 5] },
+  WORLDWIDE: { primary: [8], secondary: [2, 1, 5] },
+};
+
+export function extractIgdbPlatformIds(
+  platforms?: Array<number | { id: number }>,
+): number[] {
+  if (!Array.isArray(platforms)) return [];
+  const out: number[] = [];
+  for (const p of platforms) {
+    const id = typeof p === 'number' ? p : p?.id;
+    if (typeof id === 'number' && Number.isFinite(id)) {
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+export function getIgdbCompanionPlatformIds(igdbPlatformId: number): number[] {
+  switch (igdbPlatformId) {
+    case 18:
+      return [18, 99];
+    case 99:
+      return [99, 18];
+    case 19:
+      return [19, 58];
+    case 58:
+      return [58, 19];
+    case 48:
+      return [48, 165];
+    case 165:
+      return [165, 48];
+    case 167:
+      return [167, 390];
+    case 390:
+      return [390, 167];
+    default:
+      return [igdbPlatformId];
+  }
+}
+
+function toIsoDateFromIgdbValue(
+  val: number | string | null | undefined,
+): string | null {
+  if (val === null || val === undefined || val === '') return null;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+  }
+  if (typeof val === 'number' && Number.isFinite(val)) {
+    const iso = new Date(val * 1000).toISOString().split('T')[0];
+    return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+  }
+  return null;
+}
+
+function subtractDaysFromIsoDate(isoDate: string, days: number): string {
+  const ms = Date.parse(`${isoDate}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return isoDate;
+  return new Date(ms - days * 86400 * 1000).toISOString().split('T')[0];
+}
+
+/**
+ * Resolves the platform-specific (and region-preferred) ISO release date (`YYYY-MM-DD`)
+ * from an IGDB `release_dates` array, enforcing hardware launch date floors and supporting
+ * companion hardware IDs (Famicom `99` <-> NES `18`, Super Famicom `58` <-> SNES `19`,
+ * PlayStation VR `165` <-> PS4 `48`, PlayStation VR2 `390` <-> PS5 `167`).
+ * Only falls back to `fallbackFirstReleaseDate` when no platform-specific entry exists
+ * and `fallbackFirstReleaseDate >= platformLaunchDate`.
+ */
+export function resolveIgdbPlatformReleaseDate(
+  releaseDates: IgdbReleaseDateEntry[] | undefined | null,
+  igdbPlatformId: number | null | undefined,
+  platformLaunchDate: string | null | undefined,
+  preferredRegion?: string | null,
+  fallbackFirstReleaseDate?: number | string | null,
+): string | null {
+  const launchFloor = toIsoDateFromIgdbValue(platformLaunchDate);
+  const fallbackIso = toIsoDateFromIgdbValue(fallbackFirstReleaseDate);
+
+  if (
+    !igdbPlatformId ||
+    !Array.isArray(releaseDates) ||
+    releaseDates.length === 0
+  ) {
+    if (fallbackIso && (!launchFloor || fallbackIso >= launchFloor)) {
+      return fallbackIso;
+    }
+    return null;
+  }
+
+  const regionParts = (preferredRegion || 'USA')
+    .split(',')
+    .map((p) => p.trim().toUpperCase())
+    .filter(Boolean);
+  const isJapanPreferred =
+    regionParts.length > 0 &&
+    (regionParts[0] === 'JAPAN' || regionParts[0] === 'JP');
+
+  const primaryRegionIds = new Set<number>();
+  const secondaryRegionIds = new Set<number>();
+  for (const part of regionParts) {
+    const pref = IGDB_RELEASE_REGION_PREFERENCES[part];
+    if (pref) {
+      for (const r of pref.primary) primaryRegionIds.add(r);
+      for (const r of pref.secondary) secondaryRegionIds.add(r);
+    }
+  }
+  if (primaryRegionIds.size === 0) {
+    primaryRegionIds.add(2);
+    secondaryRegionIds.add(8);
+  }
+
+  const platformCandidates: Array<{ platId: number; floor: string | null }> =
+    [];
+  if (igdbPlatformId === 18 || igdbPlatformId === 99) {
+    if (isJapanPreferred || igdbPlatformId === 99) {
+      platformCandidates.push(
+        { platId: 99, floor: '1983-07-15' },
+        { platId: 18, floor: '1983-07-15' },
+      );
+    } else {
+      platformCandidates.push(
+        { platId: 18, floor: launchFloor || '1985-10-18' },
+        { platId: 99, floor: '1983-07-15' },
+      );
+    }
+  } else if (igdbPlatformId === 19 || igdbPlatformId === 58) {
+    if (isJapanPreferred || igdbPlatformId === 58) {
+      platformCandidates.push(
+        { platId: 58, floor: '1990-11-21' },
+        { platId: 19, floor: '1990-11-21' },
+      );
+    } else {
+      platformCandidates.push(
+        { platId: 19, floor: launchFloor || '1991-08-23' },
+        { platId: 58, floor: '1990-11-21' },
+      );
+    }
+  } else if (igdbPlatformId === 48 || igdbPlatformId === 165) {
+    const primary = igdbPlatformId;
+    const secondary = igdbPlatformId === 48 ? 165 : 48;
+    platformCandidates.push(
+      { platId: primary, floor: launchFloor || '2013-11-15' },
+      { platId: secondary, floor: '2013-11-15' },
+    );
+  } else if (igdbPlatformId === 167 || igdbPlatformId === 390) {
+    const primary = igdbPlatformId;
+    const secondary = igdbPlatformId === 167 ? 390 : 167;
+    platformCandidates.push(
+      { platId: primary, floor: launchFloor || '2020-11-12' },
+      { platId: secondary, floor: '2020-11-12' },
+    );
+  } else {
+    platformCandidates.push({ platId: igdbPlatformId, floor: launchFloor });
+  }
+
+  for (const { platId, floor } of platformCandidates) {
+    const explicitPlatFloor = floor ? subtractDaysFromIsoDate(floor, 60) : null;
+    const validForPlat: Array<{ isoDate: string; reg: number | undefined }> =
+      [];
+    for (const entry of releaseDates) {
+      const entryPlat =
+        typeof entry.platform === 'number'
+          ? entry.platform
+          : entry.platform?.id;
+      if (entryPlat !== platId) continue;
+      const isoDate = toIsoDateFromIgdbValue(entry.date);
+      if (!isoDate) continue;
+      if (explicitPlatFloor && isoDate < explicitPlatFloor) continue;
+      const reg = entry.release_region ?? entry.region;
+      validForPlat.push({ isoDate, reg });
+    }
+
+    if (validForPlat.length === 0) continue;
+
+    validForPlat.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+
+    const primaryMatch = validForPlat.find(
+      (v) => v.reg !== undefined && primaryRegionIds.has(v.reg),
+    );
+    if (primaryMatch) return primaryMatch.isoDate;
+
+    const secondaryMatch = validForPlat.find(
+      (v) =>
+        v.reg === undefined || v.reg === null || secondaryRegionIds.has(v.reg),
+    );
+    if (secondaryMatch) return secondaryMatch.isoDate;
+
+    return validForPlat[0].isoDate;
+  }
+
+  if (fallbackIso && (!launchFloor || fallbackIso >= launchFloor)) {
+    return fallbackIso;
+  }
+  return null;
+}
+
+/**
+ * Determines whether a base game candidate on a target platform should be suppressed
+ * because its global `first_release_date` predates `platformLaunchDate` and IGDB links
+ * a dedicated Remaster, Expanded Game, or Port on that target platform (or because a
+ * related edition on that platform is already owned in the user's collection).
+ */
+export function shouldSuppressCrossGenBasePlatform(options: {
+  game: {
+    id: number;
+    name?: string | null;
+    first_release_date?: number | string | null;
+    remasters?: IgdbRelatedEditionRef[];
+    expanded_games?: IgdbRelatedEditionRef[];
+    ports?: IgdbRelatedEditionRef[];
+  };
+  igdbPlatformId: number;
+  platformLaunchDate?: string | null;
+  isBaseVerifiedPhysicalOnPlatform?: boolean;
+  isRelatedIgdbIdOwnedOnPlatform?: (relatedIgdbId: number) => boolean;
+}): boolean {
+  const {
+    game,
+    igdbPlatformId,
+    platformLaunchDate,
+    isBaseVerifiedPhysicalOnPlatform = false,
+    isRelatedIgdbIdOwnedOnPlatform,
+  } = options;
+
+  const related = [
+    ...(game.remasters || []),
+    ...(game.expanded_games || []),
+    ...(game.ports || []),
+  ];
+  if (related.length === 0) return false;
+
+  const targetPlatSet = new Set(getIgdbCompanionPlatformIds(igdbPlatformId));
+  const launchFloor = toIsoDateFromIgdbValue(platformLaunchDate);
+  const firstRelIso = toIsoDateFromIgdbValue(game.first_release_date);
+  const predatesPlatformLaunch = Boolean(
+    launchFloor && firstRelIso && firstRelIso < launchFloor,
+  );
+  const normBaseName = normalizeTitleForMatching(game.name || '');
+
+  for (const rel of related) {
+    if (!rel || typeof rel.id !== 'number' || rel.id === game.id) continue;
+    const relPlats = extractIgdbPlatformIds(rel.platforms);
+    const relOnPlatform =
+      relPlats.length === 0 || relPlats.some((pid) => targetPlatSet.has(pid));
+    if (!relOnPlatform) continue;
+
+    const isOwned = Boolean(isRelatedIgdbIdOwnedOnPlatform?.(rel.id));
+    const normRelName = normalizeTitleForMatching(rel.name || '');
+    const isSameOrRemasterName =
+      !normRelName ||
+      normRelName === normBaseName ||
+      normRelName === `${normBaseName}remastered` ||
+      normRelName.startsWith(normBaseName);
+
+    if (isOwned && (predatesPlatformLaunch || normRelName === normBaseName)) {
+      return true;
+    }
+
+    if (
+      predatesPlatformLaunch &&
+      !isBaseVerifiedPhysicalOnPlatform &&
+      isSameOrRemasterName &&
+      relPlats.some((pid) => targetPlatSet.has(pid))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Retrieves a valid Twitch Access Token for IGDB API queries.
  * Caches token in isolate memory to avoid redundant authentication requests.
@@ -2980,7 +3297,7 @@ Disallow: /
       const whereClause = `where ${baseWhere} & (game_type = null | (game_type != 5 & game_type != 12)) & (category = null | (category != 5 & category != 12));`;
       const igdbQuery = `
           search "${sanitizedQuery}";
-          fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher;
+          fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date, remasters.id, remasters.name, remasters.platforms, expanded_games.id, expanded_games.name, expanded_games.platforms, ports.id, ports.name, ports.platforms, involved_companies.company.name, involved_companies.publisher;
           ${whereClause}
           limit 30;
         `;
@@ -3009,11 +3326,10 @@ Disallow: /
             region?: number;
             cover?: { url?: string };
           }>;
-          release_dates?: Array<{
-            platform?: number;
-            region?: number;
-            date?: number;
-          }>;
+          release_dates?: IgdbReleaseDateEntry[];
+          remasters?: IgdbRelatedEditionRef[];
+          expanded_games?: IgdbRelatedEditionRef[];
+          ports?: IgdbRelatedEditionRef[];
           involved_companies?: Array<{
             company?: { name: string };
             publisher?: boolean;
@@ -3033,7 +3349,7 @@ Disallow: /
         ) {
           const globalQuery = `
               search "${sanitizedQuery}";
-              fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher;
+              fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date, remasters.id, remasters.name, remasters.platforms, expanded_games.id, expanded_games.name, expanded_games.platforms, ports.id, ports.name, ports.platforms, involved_companies.company.name, involved_companies.publisher;
               where (game_type = null | (game_type != 5 & game_type != 12)) & (category = null | (category != 5 & category != 12));
               limit 30;
             `;
@@ -3087,8 +3403,22 @@ Disallow: /
         const ps5Plat = igdbToPlatform.get(167);
         if (ps5Plat) igdbToPlatform.set(390, ps5Plat);
 
-        // Fast targeted lookup for candidate IGDB IDs and titles rather than full table scan
-        const candidateIgdbIds = officialResults.map((g) => g.id);
+        // Fast targeted lookup for candidate IGDB IDs (including related remasters/ports) and titles rather than full table scan
+        const candidateIgdbIds = Array.from(
+          new Set(
+            officialResults
+              .flatMap((g) => [
+                g.id,
+                ...(g.remasters || []).map((r) => r.id),
+                ...(g.expanded_games || []).map((r) => r.id),
+                ...(g.ports || []).map((r) => r.id),
+              ])
+              .filter(
+                (id): id is number =>
+                  typeof id === 'number' && Number.isFinite(id),
+              ),
+          ),
+        );
         const candidateTitles = Array.from(
           new Set(officialResults.map((g) => g.name).filter(Boolean)),
         );
@@ -3252,6 +3582,7 @@ Disallow: /
               is_physical: boolean;
               is_owned: boolean;
               matched_releases_count: number;
+              first_release_date: string | null;
               matched_releases: Array<{
                 name: string;
                 romName: string;
@@ -3273,9 +3604,12 @@ Disallow: /
               existingSet.has(`title-${cleanTitle}-0`) ||
               existingSet.has(`norm-${normTitle}-0`);
 
+            const seenLocalPlatformIds = new Set<number>();
+
             for (const p of candidatePlatforms) {
               const localPlat = igdbToPlatform.get(p.id);
               if (!localPlat) continue;
+              if (seenLocalPlatformIds.has(localPlat.id)) continue;
 
               const verification = detectPhysicalReleaseStatus({
                 platformId: localPlat.id,
@@ -3295,11 +3629,40 @@ Disallow: /
                 continue;
               }
 
+              if (
+                shouldSuppressCrossGenBasePlatform({
+                  game: g,
+                  igdbPlatformId: p.id,
+                  platformLaunchDate: localPlat.launchDate,
+                  isBaseVerifiedPhysicalOnPlatform:
+                    verification.physical_status === 'verified_physical',
+                  isRelatedIgdbIdOwnedOnPlatform: (relId) =>
+                    existingSet.has(`igdb-${relId}-${localPlat.id}`),
+                })
+              ) {
+                continue;
+              }
+
+              seenLocalPlatformIds.add(localPlat.id);
+
               const isAlreadyOwned =
                 existingSet.has(`igdb-${g.id}-${localPlat.id}`) ||
                 existingSet.has(`title-${cleanTitle}-${localPlat.id}`) ||
                 existingSet.has(`norm-${normTitle}-${localPlat.id}`) ||
                 (!verification.is_physical && isWatchedOnNoPlatform);
+
+              const optionRegion =
+                verification.physical_regions.length === 1 &&
+                verification.physical_regions[0] === 'Japan'
+                  ? 'Japan'
+                  : 'USA';
+              const platformFirstReleaseDate = resolveIgdbPlatformReleaseDate(
+                g.release_dates,
+                p.id,
+                localPlat.launchDate,
+                optionRegion,
+                g.first_release_date,
+              );
 
               const matchedReleasesFormatted =
                 verification.matched_releases.map((mr) => ({
@@ -3308,7 +3671,14 @@ Disallow: /
                   romCrc: mr.rom_crc || null,
                   region: mr.region || null,
                   variants: mr.variants || null,
-                  releaseDate: null,
+                  releaseDate:
+                    resolveIgdbPlatformReleaseDate(
+                      g.release_dates,
+                      p.id,
+                      localPlat.launchDate,
+                      mr.region || optionRegion,
+                      g.first_release_date,
+                    ) || platformFirstReleaseDate,
                   canonical_release_id: mr.id || null,
                   serial_code: mr.serial_code || null,
                   barcode: mr.barcode || null,
@@ -3327,6 +3697,7 @@ Disallow: /
                 is_physical: verification.is_physical,
                 is_owned: isAlreadyOwned,
                 matched_releases_count: matchedReleasesFormatted.length,
+                first_release_date: platformFirstReleaseDate,
                 matched_releases: matchedReleasesFormatted,
                 verification,
               });
@@ -3367,11 +3738,7 @@ Disallow: /
                   : 'USA',
               matched_releases: primary.matched_releases,
               verification_reasons: primary.verification.reasons,
-              first_release_date: g.first_release_date
-                ? new Date(g.first_release_date * 1000)
-                    .toISOString()
-                    .split('T')[0]
-                : null,
+              first_release_date: primary.first_release_date,
               physical_platforms: physicalPlatformOptions.map((po) => ({
                 platform_id: po.platform_id,
                 platform_name: po.platform_name,
@@ -3379,6 +3746,7 @@ Disallow: /
                 is_physical: po.is_physical,
                 is_owned: po.is_owned,
                 matched_releases_count: po.matched_releases_count,
+                first_release_date: po.first_release_date,
                 matched_releases: po.matched_releases,
               })),
             };
@@ -3418,7 +3786,7 @@ Disallow: /
       try {
         const rawGames = (await queryIGDBEdge(
           'games',
-          `fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher; where id = ${cleanIgdbId}; limit 1;`,
+          `fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date, involved_companies.company.name, involved_companies.publisher; where id = ${cleanIgdbId}; limit 1;`,
           env,
         )) as Array<{
           id: number;
@@ -3439,11 +3807,7 @@ Disallow: /
             region?: number;
             cover?: { url?: string };
           }>;
-          release_dates?: Array<{
-            platform?: number;
-            region?: number;
-            date?: number;
-          }>;
+          release_dates?: IgdbReleaseDateEntry[];
           involved_companies?: Array<{
             company?: { name: string };
             publisher?: boolean;
@@ -3470,6 +3834,8 @@ Disallow: /
 
         let localPlatformId = platformId;
         let platformLaunchDate: string | null = null;
+        let targetIgdbPlatformId: number | null =
+          g.platforms && g.platforms.length > 0 ? g.platforms[0].id : null;
         let platformDisplayName =
           g.platforms && g.platforms.length > 0
             ? g.platforms[0].name
@@ -3491,6 +3857,10 @@ Disallow: /
             localPlatformId = platformRow.id;
             platformDisplayName = platformRow.display_name || platformRow.name;
             platformLaunchDate = platformRow.launch_date;
+            targetIgdbPlatformId =
+              PLATFORM_MAP[platformRow.display_name] ||
+              PLATFORM_MAP[platformRow.name] ||
+              targetIgdbPlatformId;
           }
         }
 
@@ -3559,6 +3929,19 @@ Disallow: /
           canonicalReleases: canonicalRows,
         });
 
+        const primaryRegion =
+          verification.physical_regions.length === 1 &&
+          verification.physical_regions[0] === 'Japan'
+            ? 'Japan'
+            : 'USA';
+        const platformFirstReleaseDate = resolveIgdbPlatformReleaseDate(
+          g.release_dates,
+          targetIgdbPlatformId,
+          platformLaunchDate,
+          primaryRegion,
+          g.first_release_date,
+        );
+
         const matchedReleasesFormatted = verification.matched_releases.map(
           (mr) => ({
             name: mr.raw_title,
@@ -3567,7 +3950,14 @@ Disallow: /
             region: mr.region || null,
             variants: mr.variants || null,
             also_released_as: mr.also_released_as || null,
-            releaseDate: null,
+            releaseDate:
+              resolveIgdbPlatformReleaseDate(
+                g.release_dates,
+                targetIgdbPlatformId,
+                platformLaunchDate,
+                mr.region || primaryRegion,
+                g.first_release_date,
+              ) || platformFirstReleaseDate,
             canonical_release_id: mr.id || null,
             serial_code: mr.serial_code || null,
             barcode: mr.barcode || null,
@@ -3595,11 +3985,8 @@ Disallow: /
           verification_tier: verification.verification_tier,
           is_physical: verification.is_physical,
           physical_regions: verification.physical_regions,
-          region:
-            verification.physical_regions.length === 1 &&
-            verification.physical_regions[0] === 'Japan'
-              ? 'Japan'
-              : 'USA',
+          region: primaryRegion,
+          first_release_date: platformFirstReleaseDate,
           verification_reasons: verification.reasons,
         };
 
@@ -3796,11 +4183,10 @@ Disallow: /
             region?: number;
             cover?: { url?: string };
           }>;
-          release_dates?: Array<{
-            platform?: number;
-            region?: number;
-            date?: number;
-          }>;
+          release_dates?: IgdbReleaseDateEntry[];
+          remasters?: IgdbRelatedEditionRef[];
+          expanded_games?: IgdbRelatedEditionRef[];
+          ports?: IgdbRelatedEditionRef[];
           involved_companies?: Array<{
             company?: { name: string };
             publisher?: boolean;
@@ -3815,10 +4201,11 @@ Disallow: /
         }
 
         const igdbFields =
-          'id, name, cover.url, cover.image_id, first_release_date, summary, genres.name, url, collections.name, franchises.name, platforms.id, platforms.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.date, involved_companies.company.name, involved_companies.publisher';
+          'id, name, cover.url, cover.image_id, first_release_date, summary, genres.name, url, collections.name, franchises.name, platforms.id, platforms.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, game_localizations.cover.url, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date, remasters.id, remasters.name, remasters.platforms, expanded_games.id, expanded_games.name, expanded_games.platforms, ports.id, ports.name, ports.platforms, involved_companies.company.name, involved_companies.publisher';
 
         const candidateEntries: Array<{
           game: EdgeSeriesGame;
+          igdbPlatformId: number;
           mapped: {
             id: number;
             displayName: string;
@@ -3917,7 +4304,11 @@ Disallow: /
                   continue;
                 }
                 emittedKeys.add(emitKey);
-                candidateEntries.push({ game: g, mapped });
+                candidateEntries.push({
+                  game: g,
+                  igdbPlatformId: plat.id,
+                  mapped,
+                });
               }
             }
           } catch (mqErr) {
@@ -3957,7 +4348,7 @@ Disallow: /
           }
         }
 
-        for (const { game: g, mapped } of candidateEntries) {
+        for (const { game: g, igdbPlatformId, mapped } of candidateEntries) {
           let imageUrl: string | null = null;
           if (g.cover?.image_id) {
             imageUrl = `https://images.igdb.com/igdb/image/upload/t_cover_big/${g.cover.image_id}.jpg`;
@@ -3990,6 +4381,33 @@ Disallow: /
             continue;
           }
 
+          if (
+            shouldSuppressCrossGenBasePlatform({
+              game: g,
+              igdbPlatformId,
+              platformLaunchDate: mapped.launchDate,
+              isBaseVerifiedPhysicalOnPlatform:
+                verification.physical_status === 'verified_physical',
+              isRelatedIgdbIdOwnedOnPlatform: (relId) =>
+                ownedKeys.has(`igdb:${relId}:${mapped.id}`),
+            })
+          ) {
+            continue;
+          }
+
+          const primaryRegion =
+            verification.physical_regions.length === 1 &&
+            verification.physical_regions[0] === 'Japan'
+              ? 'Japan'
+              : 'USA';
+          const platformFirstReleaseDate = resolveIgdbPlatformReleaseDate(
+            g.release_dates,
+            igdbPlatformId,
+            mapped.launchDate,
+            primaryRegion,
+            g.first_release_date,
+          );
+
           const matchedReleasesFormatted = verification.matched_releases.map(
             (mr) => ({
               name: mr.raw_title,
@@ -3997,7 +4415,14 @@ Disallow: /
               romCrc: mr.rom_crc || null,
               region: mr.region || null,
               variants: mr.variants || null,
-              releaseDate: null,
+              releaseDate:
+                resolveIgdbPlatformReleaseDate(
+                  g.release_dates,
+                  igdbPlatformId,
+                  mapped.launchDate,
+                  mr.region || primaryRegion,
+                  g.first_release_date,
+                ) || platformFirstReleaseDate,
               canonical_release_id: mr.id || null,
               serial_code: mr.serial_code || null,
               barcode: mr.barcode || null,
@@ -4021,22 +4446,14 @@ Disallow: /
             franchises: g.franchises?.map((f) => f.name).join(', ') || null,
             genres: g.genres?.map((ge) => ge.name).join(', ') || null,
             igdb_url: g.url || null,
-            region:
-              verification.physical_regions.length === 1 &&
-              verification.physical_regions[0] === 'Japan'
-                ? 'Japan'
-                : 'USA',
+            region: primaryRegion,
             releases: matchedReleasesFormatted,
             physical_status: verification.physical_status,
             verification_tier: verification.verification_tier,
             is_physical: verification.is_physical,
             physical_regions: verification.physical_regions,
             verification_reasons: verification.reasons,
-            first_release_date: g.first_release_date
-              ? new Date(g.first_release_date * 1000)
-                  .toISOString()
-                  .split('T')[0]
-              : null,
+            first_release_date: platformFirstReleaseDate,
           });
         }
 
@@ -9221,18 +9638,23 @@ export interface IgdbGameMeta {
   metadata_json: string | null;
 }
 
-interface IgdbSearchCandidate {
+export interface IgdbSearchCandidate {
   id: number;
   name?: string;
   url?: string;
   summary?: string;
+  first_release_date?: number | string | null;
   cover?: { image_id?: string; url?: string };
   genres?: Array<{ name: string }>;
   collections?: Array<{ name: string }>;
   franchises?: Array<{ name: string }>;
-  platforms?: number[];
+  platforms?: Array<number | { id: number }>;
   alternative_names?: Array<{ name: string; comment?: string }>;
   game_localizations?: Array<{ name?: string; region?: number }>;
+  release_dates?: IgdbReleaseDateEntry[];
+  remasters?: Array<number | IgdbRelatedEditionRef>;
+  expanded_games?: Array<number | IgdbRelatedEditionRef>;
+  ports?: Array<number | IgdbRelatedEditionRef>;
 }
 
 const IGDB_MULTIQUERY_MAX = 10;
@@ -9246,18 +9668,75 @@ function sanitizeIgdbSearchTerm(title: string): string {
 
 /**
  * Strictly selects the IGDB candidate whose normalized name (or an alternative name)
- * exactly equals `normalizedTitle` and that lists `igdbPlatformId`. Ambiguous or fuzzy
+ * exactly equals `normalizedTitle` and that lists `igdbPlatformId`. When a matched base
+ * game's `first_release_date` predates `platformLaunchDate` (or links a dedicated remaster/port
+ * on `igdbPlatformId`), prefers the native platform edition in `candidates`. Ambiguous or fuzzy
  * candidates are rejected: no metadata is preferred over wrong metadata.
  */
 export function selectStrictIgdbMatch(
   candidates: IgdbSearchCandidate[],
   normalizedTitle: string,
   igdbPlatformId: number,
+  options?: {
+    platformLaunchDate?: string | null;
+    hasBaseCanonicalRelease?: boolean;
+  },
 ): IgdbSearchCandidate | null {
   if (!normalizedTitle) return null;
-  const onPlatform = (candidates || []).filter(
-    (c) => Array.isArray(c.platforms) && c.platforms.includes(igdbPlatformId),
+  const companionIds = new Set(getIgdbCompanionPlatformIds(igdbPlatformId));
+  const onPlatform = (candidates || []).filter((c) =>
+    extractIgdbPlatformIds(c.platforms).some((pid) => companionIds.has(pid)),
   );
+  const exactMatches = onPlatform.filter(
+    (c) =>
+      normalizeTitleForMatching(c.name || '') === normalizedTitle ||
+      (c.alternative_names || []).some(
+        (a) => normalizeTitleForMatching(a.name || '') === normalizedTitle,
+      ),
+  );
+
+  for (const match of exactMatches) {
+    const relatedIds = new Set<number>(
+      [
+        ...(match.remasters || []),
+        ...(match.expanded_games || []),
+        ...(match.ports || []),
+      ]
+        .map((r) => (typeof r === 'number' ? r : r?.id))
+        .filter(
+          (id): id is number => typeof id === 'number' && id !== match.id,
+        ),
+    );
+    const launchFloor = toIsoDateFromIgdbValue(options?.platformLaunchDate);
+    const firstRelIso = toIsoDateFromIgdbValue(match.first_release_date);
+    const predatesLaunch = Boolean(
+      launchFloor && firstRelIso && firstRelIso < launchFloor,
+    );
+
+    if (
+      !options?.hasBaseCanonicalRelease &&
+      (predatesLaunch || relatedIds.size > 0)
+    ) {
+      const relatedCandidate = onPlatform.find((c) => {
+        if (c.id === match.id) return false;
+        const cNorm = normalizeTitleForMatching(c.name || '');
+        if (relatedIds.has(c.id)) {
+          if (cNorm === normalizedTitle) return true;
+          if (predatesLaunch && cNorm === `${normalizedTitle}remastered`) {
+            return true;
+          }
+        }
+        if (predatesLaunch && cNorm === `${normalizedTitle}remastered`) {
+          return true;
+        }
+        return false;
+      });
+      if (relatedCandidate) {
+        return relatedCandidate;
+      }
+    }
+  }
+
   const byName = onPlatform.find(
     (c) => normalizeTitleForMatching(c.name || '') === normalizedTitle,
   );

@@ -326,6 +326,7 @@ export interface DiscoveryPlatformOption {
   is_owned: boolean;
   matched_releases_count: number;
   matched_releases?: DiscoveryRelease[];
+  first_release_date?: string | null;
 }
 
 export interface IGDBSearchResult {

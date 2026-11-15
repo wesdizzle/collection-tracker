@@ -5625,6 +5625,143 @@ describe('Worker API Logic', () => {
           maxId: 30,
         });
       });
+
+      it('resolveIgdbPlatformReleaseDate resolves platform-specific and regional release dates while respecting companion hardware and launch bounds', async () => {
+        const {
+          resolveIgdbPlatformReleaseDate,
+          shouldSuppressCrossGenBasePlatform,
+          selectStrictIgdbMatch,
+        } = await import('./worker');
+        const { normalizeTitleForMatching } =
+          await import('../shared/title_matching');
+
+        // 1. Rejects global first_release_date that predates platformLaunchDate when no valid platform release_date exists
+        const tlou2Base = {
+          id: 26192,
+          name: 'The Last of Us Part II',
+          first_release_date: Math.floor(
+            Date.parse('2020-06-19T00:00:00Z') / 1000,
+          ),
+          platforms: [{ id: 48 }, { id: 167 }],
+          release_dates: [
+            {
+              platform: 48,
+              date: Math.floor(Date.parse('2020-06-19T00:00:00Z') / 1000),
+              release_region: 8,
+            },
+          ],
+          remasters: [
+            {
+              id: 277143,
+              name: 'The Last of Us Part II Remastered',
+              platforms: [167],
+            },
+          ],
+        };
+
+        // On PS4 (48, launch 2013-11-15) -> 2020-06-19
+        expect(
+          resolveIgdbPlatformReleaseDate(
+            tlou2Base.release_dates,
+            48,
+            '2013-11-15',
+            'USA',
+            tlou2Base.first_release_date,
+          ),
+        ).toBe('2020-06-19');
+        // On PS5 (167, launch 2020-11-12) -> null because 2020-06-19 predates PS5 launch and no platform 167 release_date exists
+        expect(
+          resolveIgdbPlatformReleaseDate(
+            tlou2Base.release_dates,
+            167,
+            '2020-11-12',
+            'USA',
+            tlou2Base.first_release_date,
+          ),
+        ).toBeNull();
+
+        // 2. Companion platform resolution: NES (18) <-> Famicom (99)
+        const punchOut = {
+          id: 2155,
+          name: "Mike Tyson's Punch-Out!!",
+          first_release_date: Math.floor(
+            Date.parse('1987-10-18T00:00:00Z') / 1000,
+          ),
+          release_dates: [
+            {
+              platform: 18, // NES
+              date: Math.floor(Date.parse('1987-10-18T00:00:00Z') / 1000),
+              release_region: 2, // North America
+            },
+            {
+              platform: 99, // Famicom
+              date: Math.floor(Date.parse('1987-11-21T00:00:00Z') / 1000),
+              release_region: 5, // Japan
+            },
+          ],
+        };
+
+        expect(
+          resolveIgdbPlatformReleaseDate(
+            punchOut.release_dates,
+            18,
+            '1985-10-18',
+            'USA',
+            punchOut.first_release_date,
+          ),
+        ).toBe('1987-10-18');
+        expect(
+          resolveIgdbPlatformReleaseDate(
+            punchOut.release_dates,
+            18,
+            '1985-10-18',
+            'Japan',
+            punchOut.first_release_date,
+          ),
+        ).toBe('1987-11-21');
+
+        // 3. Cross-gen suppression & strict match disambiguation
+        const tlou2Remastered = {
+          id: 277143,
+          name: 'The Last of Us Part II Remastered',
+          first_release_date: Math.floor(
+            Date.parse('2024-01-19T00:00:00Z') / 1000,
+          ),
+          platforms: [{ id: 167 }],
+          release_dates: [
+            {
+              platform: 167,
+              date: Math.floor(Date.parse('2024-01-19T00:00:00Z') / 1000),
+              release_region: 8,
+            },
+          ],
+        };
+
+        // Base game on PS5 (167) is suppressed when Remastered (277143) is on PS5
+        expect(
+          shouldSuppressCrossGenBasePlatform({
+            game: tlou2Base,
+            igdbPlatformId: 167,
+            platformLaunchDate: '2020-11-12',
+          }),
+        ).toBe(true);
+        expect(
+          shouldSuppressCrossGenBasePlatform({
+            game: tlou2Base,
+            igdbPlatformId: 48,
+            platformLaunchDate: '2013-11-15',
+          }),
+        ).toBe(false);
+
+        // selectStrictIgdbMatch prefers The Last of Us Part II Remastered (277143) on PS5 (167) over the 2020 PS4 base game (26192)
+        const strictMatch = selectStrictIgdbMatch(
+          [tlou2Base, tlou2Remastered],
+          normalizeTitleForMatching('The Last of Us Part II'),
+          167,
+          { platformLaunchDate: '2020-11-12' },
+        );
+        expect(strictMatch?.id).toBe(277143);
+      });
     });
   });
 });
