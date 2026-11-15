@@ -26,14 +26,14 @@
 
   <!-- Metric Summary Cards Row -->
   <section class="summary-cards-grid">
-    <div class="stat-card">
+    <div class="stat-card kit-stagger-item" [style.--stagger-index]="0">
       <div class="stat-card-header">
         <span class="stat-label">Play Backlog Progress</span>
         <span class="card-icon-badge primary-badge">
           <app-icon name="play" [size]="20" />
         </span>
       </div>
-      <div class="stat-main-value">{{ playStatusStats().playedPct }}%</div>
+      <div class="stat-main-value">{{ animatedPlayedPct() }}%</div>
       <div class="stat-subtext">
         <span>{{ playStatusStats().played }} Played</span>
         @if (playStatusStats().playing > 0) {
@@ -45,7 +45,7 @@
       </div>
     </div>
 
-    <div class="stat-card">
+    <div class="stat-card kit-stagger-item" [style.--stagger-index]="1">
       <div class="stat-card-header">
         <span class="stat-label">Games Owned</span>
         <span class="card-icon-badge secondary-badge">
@@ -53,7 +53,7 @@
         </span>
       </div>
       <div class="stat-main-value">
-        {{ ownedGames().length }}
+        {{ animatedOwnedGamesCount() }}
       </div>
       <div class="stat-subtext">
         <span>{{ cibCount() }} CIB ({{ cibPct() }}%)</span>
@@ -63,7 +63,7 @@
       </div>
     </div>
 
-    <div class="stat-card">
+    <div class="stat-card kit-stagger-item" [style.--stagger-index]="2">
       <div class="stat-card-header">
         <span class="stat-label">Physical Backup Health</span>
         <span
@@ -74,7 +74,7 @@
           <app-icon name="verified-badge" [size]="20" />
         </span>
       </div>
-      <div class="stat-main-value">{{ backupRatePct() }}%</div>
+      <div class="stat-main-value">{{ animatedBackupRatePct() }}%</div>
       <div class="stat-subtext">
         <span
           >{{ backedUpOwnedGames().length }} /
@@ -83,7 +83,7 @@
       </div>
     </div>
 
-    <div class="stat-card">
+    <div class="stat-card kit-stagger-item" [style.--stagger-index]="3">
       <div class="stat-card-header">
         <span class="stat-label">Toys Owned</span>
         <span class="card-icon-badge tertiary-badge">
@@ -91,7 +91,7 @@
         </span>
       </div>
       <div class="stat-main-value">
-        {{ ownedToys().length }}
+        {{ animatedOwnedToysCount() }}
       </div>
       <div class="stat-subtext">
         @if (catalogToysCount() > 0) {
@@ -208,12 +208,12 @@
           </div>
         </div>
 
-        <div class="meter-bar-container">
-          <div
-            class="meter-bar-fill"
-            [style.width.%]="backupRatePct()"
-            [class.high]="backupRatePct() >= 80"
-          ></div>
+        <div class="insights-meter-wrap">
+          <kit-segmented-meter
+            [segments]="backupMeterSegments()"
+            [heightPx]="12"
+            ariaLabel="ROM preservation rate"
+          />
         </div>
 
         <div class="backup-stats-row">
@@ -280,38 +280,12 @@
         </div>
 
         <!-- Segmented Condition Bar -->
-        <div class="segmented-condition-bar">
-          @if (cibPct() > 0) {
-            <div
-              class="condition-segment cib-segment"
-              [style.width.%]="cibPct()"
-              [title]="
-                'Complete in Box: ' + cibCount() + ' (' + cibPct() + '%)'
-              "
-            ></div>
-          }
-          @if (boxedPct() > 0) {
-            <div
-              class="condition-segment boxed-segment"
-              [style.width.%]="boxedPct()"
-              [title]="
-                'Game + Box / Case (No Manual): ' +
-                boxedOnlyCount() +
-                ' (' +
-                boxedPct() +
-                '%)'
-              "
-            ></div>
-          }
-          @if (loosePct() > 0) {
-            <div
-              class="condition-segment loose-segment"
-              [style.width.%]="loosePct()"
-              [title]="
-                'Loose Disc/Cart: ' + looseCount() + ' (' + loosePct() + '%)'
-              "
-            ></div>
-          }
+        <div class="insights-meter-wrap">
+          <kit-segmented-meter
+            [segments]="conditionMeterSegments()"
+            [heightPx]="14"
+            ariaLabel="Packaging condition breakdown"
+          />
         </div>
 
         <div class="condition-legend">
@@ -438,7 +412,10 @@
 
         <div class="decade-histogram">
           @for (d of decadeDistribution(); track d.decade) {
-            <div class="decade-row">
+            <div
+              class="decade-row kit-stagger-item"
+              [style.--stagger-index]="$index < 12 ? $index : 12"
+            >
               <div class="decade-info">
                 <span class="decade-name">{{ d.eraName }}</span>
                 <span class="decade-meta">
@@ -506,7 +483,8 @@
             <a
               [routerLink]="['/collection']"
               [queryParams]="{ platform_id: p.id }"
-              class="platform-item clickable state-layer"
+              class="platform-item clickable state-layer kit-stagger-item"
+              [style.--stagger-index]="$index < 12 ? $index : 12"
               title="Filter collection to {{ p.name }}"
             >
               <div class="platform-item-header">

@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   signal,
   input,
   output,
@@ -34,6 +35,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
     <div
       class="modal-backdrop fade-in"
       [class.embedded-backdrop]="embedded()"
+      [class.closing]="isClosing()"
       (click)="onBackdropClick($event)"
       [attr.role]="embedded() ? null : 'dialog'"
       [attr.aria-modal]="embedded() ? null : 'true'"
@@ -74,7 +76,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
           <button
             type="button"
             class="close-button state-layer"
-            (click)="close.emit()"
+            (click)="requestClose()"
             aria-label="Close settings"
           >
             <app-icon name="close" [size]="18" />
@@ -546,7 +548,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             <button
               type="button"
               class="btn-secondary"
-              (click)="embedded() ? back.emit() : close.emit()"
+              (click)="embedded() ? back.emit() : requestClose()"
             >
               {{ embedded() ? 'Back' : 'Cancel' }}
             </button>
@@ -585,6 +587,32 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         z-index: 2000;
         padding: 1rem;
         overscroll-behavior: contain;
+        transition: opacity var(--kit-motion-duration-fast, 180ms)
+          var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1));
+      }
+
+      .modal-backdrop.fade-in {
+        animation: notifBackdropIn var(--kit-motion-duration-fast, 180ms)
+          var(--kit-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1)) forwards;
+      }
+
+      @keyframes notifBackdropIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .modal-backdrop.closing {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .modal-backdrop.closing .modal-card {
+        opacity: 0;
+        transform: scale(0.96) translateY(10px);
       }
 
       .modal-backdrop.embedded-backdrop {
@@ -614,6 +642,24 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         flex-direction: column;
         box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
         color: var(--m3-on-surface);
+        transition:
+          opacity var(--kit-motion-duration-medium, 200ms)
+            var(--kit-motion-easing-exit, cubic-bezier(0.4, 0, 1, 1)),
+          transform var(--kit-motion-duration-medium, 200ms)
+            var(--kit-motion-easing-exit, cubic-bezier(0.4, 0, 1, 1));
+        animation: notifCardEnter var(--kit-motion-duration-enter, 260ms)
+          var(--kit-motion-easing-expressive, cubic-bezier(0.16, 1, 0.3, 1));
+      }
+
+      @keyframes notifCardEnter {
+        from {
+          opacity: 0;
+          transform: scale(0.96) translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
       }
 
       .modal-card.embedded-card {
@@ -1050,6 +1096,7 @@ export class NotificationSettingsModalComponent {
   public readonly close = output<void>();
 
   public readonly notificationService = inject(NotificationService);
+  private readonly destroyRef = inject(DestroyRef);
 
   public readonly platforms = COMMON_PLATFORMS;
   public readonly discountOptions = [0, 15, 20, 25, 50];
@@ -1059,6 +1106,23 @@ export class NotificationSettingsModalComponent {
   public readonly testMessage = signal<string | null>(null);
   public readonly testSuccess = signal<boolean>(false);
   public readonly saveMessage = signal<string | null>(null);
+  public readonly isClosing = signal<boolean>(false);
+
+  private closeTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.closeTimer !== null) {
+        clearTimeout(this.closeTimer);
+        this.closeTimer = null;
+      }
+      if (this.saveCloseTimer !== null) {
+        clearTimeout(this.saveCloseTimer);
+        this.saveCloseTimer = null;
+      }
+    });
+  }
 
   private readonly _localPrefs = signal<DealNotificationPreferences>({
     ...this.notificationService.preferences(),
@@ -1097,16 +1161,39 @@ export class NotificationSettingsModalComponent {
     return Math.round(this.localPrefs.maxPriceCents / 100);
   }
 
+  public requestClose(): void {
+    if (this.embedded()) {
+      this.back.emit();
+      return;
+    }
+    if (this.isClosing()) return;
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: no-preference)').matches ===
+        true
+    ) {
+      this.isClosing.set(true);
+      this.closeTimer = setTimeout(() => {
+        this.closeTimer = null;
+        this.isClosing.set(false);
+        this.close.emit();
+      }, 200);
+      return;
+    }
+    this.close.emit();
+  }
+
   public onBackdropClick(event: MouseEvent): void {
     if (!this.embedded() && event.target === event.currentTarget) {
-      this.close.emit();
+      this.requestClose();
     }
   }
 
   @HostListener('window:keydown.escape')
   public onEscapeKey(): void {
     if (!this.embedded()) {
-      this.close.emit();
+      this.requestClose();
     }
   }
 
@@ -1277,13 +1364,10 @@ export class NotificationSettingsModalComponent {
     );
     if (ok) {
       this.saveMessage.set('✓ Saved!');
-      setTimeout(() => {
+      this.saveCloseTimer = setTimeout(() => {
+        this.saveCloseTimer = null;
         this.saveMessage.set(null);
-        if (this.embedded()) {
-          this.back.emit();
-        } else {
-          this.close.emit();
-        }
+        this.requestClose();
       }, 700);
     } else {
       this.saveMessage.set('Failed to save preferences.');

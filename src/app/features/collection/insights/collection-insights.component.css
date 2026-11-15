@@ -246,6 +246,10 @@
   color: #22c55e;
 }
 
+.insights-meter-wrap {
+  margin-bottom: var(--spacing-16);
+}
+
 /* Meter Bar */
 .meter-bar-container {
   width: 100%;
@@ -559,7 +563,8 @@
   height: 100%;
   background: var(--m3-primary);
   border-radius: var(--radius-full);
-  transition: width 0.6s cubic-bezier(0.2, 0, 0, 1);
+  transition: width var(--kit-motion-duration-enter, 600ms)
+    var(--kit-motion-easing-expressive, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 .platform-item-footer {
@@ -618,7 +623,8 @@
   height: 100%;
   background: linear-gradient(90deg, var(--m3-primary), var(--m3-tertiary));
   border-radius: var(--radius-full);
-  transition: width 0.6s cubic-bezier(0.2, 0, 0, 1);
+  transition: width var(--kit-motion-duration-enter, 600ms)
+    var(--kit-motion-easing-expressive, cubic-bezier(0.16, 1, 0.3, 1));
   min-width: 2px;
 }
 

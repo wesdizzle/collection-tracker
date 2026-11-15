@@ -8,6 +8,11 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
+import {
+  KitMeterSegment,
+  KitSegmentedMeterComponent,
+  createAnimatedNumber,
+} from '@wesdizzle/app-kit/angular';
 import { CollectionService } from '../../../core/services/collection.service';
 import { Game, Toy } from '../../../core/models/collection.models';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
@@ -45,7 +50,12 @@ export interface MerchantStat {
 @Component({
   selector: 'app-collection-insights',
   standalone: true,
-  imports: [CommonModule, RouterModule, IconComponent],
+  imports: [
+    CommonModule,
+    RouterModule,
+    IconComponent,
+    KitSegmentedMeterComponent,
+  ],
   templateUrl: './collection-insights.component.html',
   styleUrl: './collection-insights.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -494,5 +504,61 @@ export class CollectionInsightsComponent implements OnInit {
       averagePricePaidDollars,
       topMerchants,
     };
+  });
+
+  /** --- Animated KPI Display Signals & Segmented Meter Models --- */
+  public readonly animatedPlayedPct = createAnimatedNumber(
+    computed(() => this.playStatusStats().playedPct),
+  );
+  public readonly animatedOwnedGamesCount = createAnimatedNumber(
+    computed(() => this.ownedGames().length),
+  );
+  public readonly animatedBackupRatePct = createAnimatedNumber(
+    this.backupRatePct,
+  );
+  public readonly animatedOwnedToysCount = createAnimatedNumber(
+    computed(() => this.ownedToys().length),
+  );
+
+  public readonly backupMeterSegments = computed<KitMeterSegment[]>(() => [
+    {
+      id: 'backup-rate',
+      label: 'Preserved physical releases',
+      pct: this.backupRatePct(),
+      color: this.backupRatePct() >= 80 ? '#22c55e' : 'var(--m3-primary)',
+      title: `${this.backedUpOwnedGames().length} / ${this.physicalOwnedGames().length} preserved (${this.backupRatePct()}%)`,
+    },
+  ]);
+
+  public readonly conditionMeterSegments = computed<KitMeterSegment[]>(() => {
+    const segs: KitMeterSegment[] = [];
+    if (this.cibPct() > 0) {
+      segs.push({
+        id: 'cib',
+        label: 'Complete in Box (CIB)',
+        pct: this.cibPct(),
+        color: 'var(--m3-primary)',
+        title: `Complete in Box: ${this.cibCount()} (${this.cibPct()}%)`,
+      });
+    }
+    if (this.boxedPct() > 0) {
+      segs.push({
+        id: 'boxed',
+        label: 'Game + Box / Case (No Manual)',
+        pct: this.boxedPct(),
+        color: 'var(--m3-tertiary)',
+        title: `Game + Box / Case (No Manual): ${this.boxedOnlyCount()} (${this.boxedPct()}%)`,
+      });
+    }
+    if (this.loosePct() > 0) {
+      segs.push({
+        id: 'loose',
+        label: 'Loose Disc/Cart',
+        pct: this.loosePct(),
+        color: 'var(--m3-outline)',
+        title: `Loose Disc/Cart: ${this.looseCount()} (${this.loosePct()}%)`,
+      });
+    }
+    return segs;
   });
 }
