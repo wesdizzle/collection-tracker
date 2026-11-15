@@ -152,6 +152,18 @@ function pullCanonicalReleasesFromR2(targetDbPath: string): number | null {
   }
 }
 
+function syncBaselineDbFromLocal(): void {
+  const dataDir = path.join(rootDir, 'data');
+  const baselinePath = path.join(dataDir, 'remote_baseline.db');
+  if (path.resolve(localDbPath) === path.resolve(baselinePath)) {
+    return;
+  }
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  fs.copyFileSync(localDbPath, baselinePath);
+}
+
 async function pullFromR2() {
   console.log(
     '[D1Pull] Initiating zero-D1-read pull from Cloudflare R2 (collection-backups)...',
@@ -174,6 +186,8 @@ async function pullFromR2() {
     totalRestored += count;
     console.log(`  • ${table}: ${count} rows`);
   }
+
+  syncBaselineDbFromLocal();
 
   console.log(
     `\n✅ Successfully pulled remote state from R2 into local SQLite! (${totalRestored} rows hydrated, 0 D1 reads consumed)`,
@@ -279,6 +293,8 @@ async function pullFromDirectD1() {
     } finally {
       newDb.close();
     }
+
+    syncBaselineDbFromLocal();
 
     console.log(
       '✅ Successfully pulled remote Cloudflare D1 state directly into local D1!',

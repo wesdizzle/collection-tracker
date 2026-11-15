@@ -1597,6 +1597,7 @@ export async function syncOrResolveOidcUser(
           previousUsername: prevUsername,
         });
       }
+      await markDbDirty(env);
       existing = {
         ...existing,
         oidc_sub: existing.oidc_sub || sub,
@@ -1617,6 +1618,7 @@ export async function syncOrResolveOidcUser(
   )
     .bind(uniqueUsername, sub, claimDisplayName)
     .run();
+  await markDbDirty(env);
 
   const created = (await env.DB.prepare(
     `${selectCols} WHERE oidc_sub = ? AND oidc_sub IS NOT NULL`,
