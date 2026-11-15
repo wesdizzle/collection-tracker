@@ -10,6 +10,7 @@
         [src]="toy().image_url"
         alt="Toy"
         class="card-art toy-art"
+        [style.view-transition-name]="getCoverViewTransitionName(toy())"
         loading="lazy"
         decoding="async"
         referrerpolicy="no-referrer"

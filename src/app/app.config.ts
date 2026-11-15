@@ -7,11 +7,15 @@ import {
   provideRouter,
   withComponentInputBinding,
   withInMemoryScrolling,
+  withViewTransitions,
   RouteReuseStrategy,
 } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideServiceWorker } from '@angular/service-worker';
-import { KIT_THEME_CONFIG } from '@wesdizzle/app-kit/angular';
+import {
+  KIT_THEME_CONFIG,
+  isKitReducedMotionPreferred,
+} from '@wesdizzle/app-kit/angular';
 
 import { routes } from './app.routes';
 import { CollectionRouteReuseStrategy } from './core/routing/collection-route-reuse-strategy';
@@ -32,6 +36,14 @@ export const appConfig: ApplicationConfig = {
     provideRouter(
       routes,
       withComponentInputBinding(),
+      withViewTransitions({
+        skipInitialTransition: true,
+        onViewTransitionCreated: ({ transition }) => {
+          if (isKitReducedMotionPreferred()) {
+            transition.skipTransition();
+          }
+        },
+      }),
       withInMemoryScrolling({
         scrollPositionRestoration: 'disabled',
         anchorScrolling: 'enabled',

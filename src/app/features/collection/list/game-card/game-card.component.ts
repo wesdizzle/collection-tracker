@@ -99,6 +99,13 @@ export class GameCardComponent {
     return getMediaIconName(game.display_name || game.platform, backedUp);
   }
 
+  public getCoverViewTransitionName(game: Game): string | null {
+    const rawId = game.id || game.stable_id;
+    if (!rawId) return null;
+    const safeId = String(rawId).replace(/[^a-zA-Z0-9_-]/g, '-');
+    return `catalog-media-game-${safeId}`;
+  }
+
   public isUpcomingDate(releaseDate: string | null | undefined): boolean {
     if (!releaseDate) return false;
     return new Date(releaseDate) > new Date();

@@ -28,6 +28,13 @@ export class ToyCardComponent {
     return formatToyRegionBadge(region);
   }
 
+  getCoverViewTransitionName(toy: Toy): string | null {
+    const rawId = toy.id || toy.stable_id;
+    if (!rawId) return null;
+    const safeId = String(rawId).replace(/[^a-zA-Z0-9_-]/g, '-');
+    return `catalog-media-toy-${safeId}`;
+  }
+
   onToggleStatusClick(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();

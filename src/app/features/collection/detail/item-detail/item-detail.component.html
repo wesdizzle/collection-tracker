@@ -238,6 +238,7 @@
                 alt="Cover Art"
                 [class.glitch-load]="type() !== 'toy'"
                 [class.toy-detail-art]="type() === 'toy'"
+                [style.view-transition-name]="mediaViewTransitionName()"
                 referrerpolicy="no-referrer"
               />
             } @else {

@@ -528,3 +528,21 @@ a {
 .mr-auto {
   margin-right: auto;
 }
+
+/* Router View Transitions (M3 Expressive cross-fade & cover art morphing) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--kit-motion-duration-medium, 220ms);
+  animation-timing-function: var(
+    --kit-motion-easing-expressive,
+    cubic-bezier(0.16, 1, 0.3, 1)
+  );
+}
+
+::view-transition-group(*) {
+  animation-duration: var(--kit-motion-duration-enter, 280ms);
+  animation-timing-function: var(
+    --kit-motion-easing-expressive,
+    cubic-bezier(0.16, 1, 0.3, 1)
+  );
+}

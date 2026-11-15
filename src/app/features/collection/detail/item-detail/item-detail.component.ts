@@ -208,6 +208,20 @@ export class ItemDetailComponent {
     },
   );
 
+  public readonly mediaViewTransitionName = computed<string | null>(() => {
+    const itemType = this.type();
+    if (itemType !== 'game' && itemType !== 'toy') return null;
+    const g = this.game();
+    const t = this.toy();
+    const rawId =
+      itemType === 'game'
+        ? g?.id || g?.stable_id || this.routeId()
+        : t?.id || t?.stable_id || this.routeId();
+    if (!rawId) return null;
+    const safeId = String(rawId).replace(/[^a-zA-Z0-9_-]/g, '-');
+    return `catalog-media-${itemType}-${safeId}`;
+  });
+
   /**
    * Computed signal deriving the acquisition journal entry for the current game or toy
    * directly from CollectionService's already-loaded journal state.

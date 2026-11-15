@@ -10,6 +10,7 @@
         [src]="game().image_url"
         alt="Cover"
         class="card-art"
+        [style.view-transition-name]="getCoverViewTransitionName(game())"
         loading="lazy"
         decoding="async"
         referrerpolicy="no-referrer"
