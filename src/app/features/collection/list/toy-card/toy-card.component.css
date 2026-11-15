@@ -99,11 +99,19 @@
   cursor: pointer;
   z-index: 2;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  transition: transform 0.15s ease;
+  transition:
+    transform var(--kit-motion-duration-fast, 150ms)
+      var(--kit-motion-easing-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
+    background-color var(--kit-motion-duration-fast, 150ms) ease,
+    box-shadow var(--kit-motion-duration-fast, 150ms) ease;
 }
 
 .status-badge:hover {
-  transform: scale(1.1);
+  transform: scale(1.12);
+}
+
+.status-badge:active {
+  transform: scale(0.92);
 }
 
 .status-0 {

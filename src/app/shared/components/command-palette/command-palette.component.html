@@ -55,9 +55,7 @@
       (input)="onInputChange($event)"
       placeholder="Search games, toys, platforms, commands..."
     />
-    <kbd class="palette-kbd esc-badge" (click)="paletteService.close()"
-      >ESC</kbd
-    >
+    <kbd class="palette-kbd esc-badge" (click)="requestDismiss()">ESC</kbd>
   </div>
 
   <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">

@@ -12,7 +12,10 @@ import {
   AfterViewInit,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { BottomSheetDragController } from '@wesdizzle/app-kit/angular';
+import {
+  BottomSheetDragController,
+  canAnimateKitDialogExit,
+} from '@wesdizzle/app-kit/angular';
 import { CommandPaletteService } from '../../../core/services/command-palette.service';
 import { CollectionService } from '../../../core/services/collection.service';
 import { getMediaIconName } from '../../../core/models/collection.models';
@@ -129,8 +132,9 @@ export class CommandPaletteComponent implements AfterViewInit {
 
   public isEntering = signal(false);
   public isClosing = signal(false);
+  private closeTimer: ReturnType<typeof setTimeout> | null = null;
   public readonly sheetDrag = new BottomSheetDragController(59);
-  public readonly sheetTransformY = this.sheetDrag.dragOffsetY;
+  public readonly sheetTransformY = this.sheetDrag.effectiveTransformY;
   public readonly isDraggingSheet = this.sheetDrag.isDragging;
 
   public readonly effectiveTransformY = computed<number | null>(() => {
@@ -200,6 +204,10 @@ export class CommandPaletteComponent implements AfterViewInit {
     });
 
     this.destroyRef.onDestroy(() => {
+      if (this.closeTimer !== null) {
+        clearTimeout(this.closeTimer);
+        this.closeTimer = null;
+      }
       if (typeof document !== 'undefined') {
         document.body.style.overflow = '';
       }
@@ -244,6 +252,21 @@ export class CommandPaletteComponent implements AfterViewInit {
     }
   }
 
+  public requestDismiss(): void {
+    if (this.isClosing()) return;
+    if (canAnimateKitDialogExit(this.dialogRef?.nativeElement)) {
+      this.isClosing.set(true);
+      this.closeTimer = setTimeout(() => {
+        this.closeTimer = null;
+        this.paletteService.close();
+        this.isClosing.set(false);
+        this.sheetDrag.reset();
+      }, 200);
+      return;
+    }
+    this.paletteService.close();
+  }
+
   public onDialogClick(event: MouseEvent): void {
     const dialog = this.dialogRef?.nativeElement;
     if (!dialog) return;
@@ -254,13 +277,13 @@ export class CommandPaletteComponent implements AfterViewInit {
       rect.left <= event.clientX &&
       event.clientX <= rect.left + rect.width;
     if (!isInDialog) {
-      this.paletteService.close();
+      this.requestDismiss();
     }
   }
 
   public onDialogCancel(event: Event): void {
     event.preventDefault();
-    this.paletteService.close();
+    this.requestDismiss();
   }
 
   private getGamesTabUrl(): string {
@@ -673,7 +696,7 @@ export class CommandPaletteComponent implements AfterViewInit {
 
     if (event.key === 'Escape') {
       event.preventDefault();
-      this.paletteService.close();
+      this.requestDismiss();
     } else if (event.key === 'ArrowDown') {
       event.preventDefault();
       this.moveSelection(1);
