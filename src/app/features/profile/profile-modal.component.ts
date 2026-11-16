@@ -237,12 +237,16 @@ import {
             @if (catalogSeedStatus(); as seed) {
               <span
                 class="notif-status-badge"
-                [class.active]="!seed.paused && seed.stage !== 'completed'"
+                [class.active]="
+                  !seed.paused &&
+                  seed.stage !== 'done' &&
+                  seed.stage !== 'completed'
+                "
                 [title]="
                   'Stage ' +
                   seed.stage.toUpperCase() +
                   ': ' +
-                  seed.dailyWritesUsed +
+                  (seed.dailyWritesUsed ?? seed.writesUsedToday) +
                   ' / ' +
                   seed.dailyWriteBudget +
                   ' writes today'
@@ -251,7 +255,7 @@ import {
                 {{
                   seed.paused
                     ? 'Seed Paused'
-                    : seed.stage === 'completed'
+                    : seed.stage === 'done' || seed.stage === 'completed'
                       ? 'Seeded'
                       : 'Stage ' + seed.stage.toUpperCase()
                 }}

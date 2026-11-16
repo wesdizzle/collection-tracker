@@ -11,7 +11,12 @@
  *   plus guarded SKU-level ownership transfers preserving `has_case` and `has_manual`).
  */
 
-import { normalizeTitleForMatching, titlesMatch } from './title_matching.js';
+import {
+  normalizeTitleForMatching,
+  stripEditionSuffix,
+  titlesMatch,
+} from './title_matching.js';
+export { stripEditionSuffix } from './title_matching.js';
 import { extractRegions, isPlatformMatch } from './source_format.js';
 import { getRomGroupingKey, stripDiscIndicator } from './queries.js';
 import {
@@ -258,33 +263,6 @@ export const GAME_EXTENSIONS = new Set([
   '.wua',
   '.xiso.iso',
 ]);
-
-/**
- * Strips common edition suffixes, subtitles, and DLC add-on phrases from titles
- * so base releases can match their canonical cartridge dumps.
- */
-export function stripEditionSuffix(title: string): string {
-  return title
-    .replace(
-      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|nes|\d+th anniversary)\s*edition/gi,
-      '',
-    )
-    .replace(
-      /\s*-\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|nes)\s*edition/gi,
-      '',
-    )
-    .replace(
-      /\s+(definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|deathinitive|warmastered|owltimate|fully yoked)\s+edition/gi,
-      '',
-    )
-    .replace(/:\s*(?:ultra\s+)?deluxe$/i, '')
-    .replace(/\s*\+\s*the hidden treasure of area zero/gi, '')
-    .replace(/\s*\+\s*booster course pass/gi, '')
-    .replace(/\s*\+\s*expansion pass/gi, '')
-    .replace(/\s*\+\s*star-crossed world/gi, '')
-    .replace(/\s*\+\s*jamboree tv/gi, '')
-    .trim();
-}
 
 /**
  * Extracts the basename of a path string (handling both `/` and `\`).

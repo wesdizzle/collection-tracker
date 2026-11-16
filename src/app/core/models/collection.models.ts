@@ -850,6 +850,38 @@ export interface CatalogSeedStatus {
   gamesIngestedToday?: number;
   releasesIngestedToday?: number;
   lastUpdatedAt?: string | null;
+  canonicalMinId?: number;
+  canonicalMaxId?: number;
+  currentPlatformName?: string | null;
+  maxGameStableId?: number;
+  igdbBackfill?: {
+    cursor: number;
+    lastWrapDate: string | null;
+    matchedTotal: number;
+    rulesAppliedTotal: number;
+    lastRunAt: string | null;
+  };
+  igdbRolling?: {
+    cursorOffset: number;
+    refreshedTotal: number;
+    updatedTotal: number;
+    selfHealedRulesTotal: number;
+    lastRunAt: string | null;
+  };
+  upstreamSources?: {
+    switchRevisionsUpdatedAt: string | null;
+    amiiboCatalogUpdatedAt: string | null;
+  };
+}
+
+export interface CronExecutionLogEntry {
+  id: number;
+  job_name: string;
+  status: string;
+  duration_ms: number;
+  summary: string | null;
+  details: unknown;
+  created_at: string;
 }
 
 /**

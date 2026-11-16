@@ -5349,13 +5349,17 @@ describe('Worker API Logic', () => {
         }
       });
 
-      it('syncWorkerIgdbMetadataBackfill fills only bare games, advances its cursor, and marks itself done', async () => {
+      it('syncWorkerIgdbMetadataBackfill fills only bare games, evaluates tracking rules, and wraps its cursor once per day', async () => {
         db.exec(`
           UPDATE platforms SET igdb_id = 59 WHERE id = 26;
-          INSERT INTO games (id, title, platform_id, physical_status)
-          VALUES ('alien-bf', 'Alien', 26, 'verified_physical');
-          INSERT INTO games (id, title, platform_id, summary, physical_status)
-          VALUES ('alien-curated', 'Alien', 26, 'Hand written', 'verified_physical');
+          INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+          VALUES (9101, 'alien-bf', 'Alien', 26, 'verified_physical');
+          INSERT INTO games (stable_id, id, title, platform_id, summary, physical_status)
+          VALUES (9102, 'alien-curated', 'Alien', 26, 'Hand written', 'verified_physical');
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES ('alien-bf-usa', 9101, 'USA');
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES (1, 'series', 'Alien', 2, 'home', 0);
         `);
         stubIgdbFetch({ Alien: [alienIgdb] });
         try {
@@ -5364,11 +5368,12 @@ describe('Worker API Logic', () => {
           });
           expect(first.skipped).toBe(false);
           expect(first.matched).toBe(1);
-          expect(first.writesUsed).toBe(2);
+          expect(first.rulesApplied).toBe(1);
+          expect(first.writesUsed).toBe(4);
 
           const rows = db
             .prepare(
-              "SELECT id, igdb_id, summary FROM games WHERE id IN ('alien-bf', 'alien-curated') ORDER BY id",
+              "SELECT id, igdb_id, summary, canonical_series FROM games WHERE id IN ('alien-bf', 'alien-curated') ORDER BY id",
             )
             .all();
           expect(rows).toEqual([
@@ -5376,28 +5381,224 @@ describe('Worker API Logic', () => {
               id: 'alien-bf',
               igdb_id: 4242,
               summary: 'Atari 2600 maze game.',
+              canonical_series: 'Alien',
             },
-            { id: 'alien-curated', igdb_id: null, summary: 'Hand written' },
+            {
+              id: 'alien-curated',
+              igdb_id: null,
+              summary: 'Hand written',
+              canonical_series: null,
+            },
           ]);
+
+          const trackedRel = db
+            .prepare(
+              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'alien-bf-usa'",
+            )
+            .get() as { ownership_status: number } | undefined;
+          expect(trackedRel?.ownership_status).toBe(2);
 
           const second = await syncWorkerIgdbMetadataBackfill(mockEnv, {
             batchSize: 1000,
           });
           expect(second).toMatchObject({
             skipped: true,
-            reason: 'completed',
+            reason: 'wrapped_to_start',
+            cursor: 0,
           });
-          const doneRow = db
+          const wrapRow = db
             .prepare(
-              "SELECT value FROM sync_state WHERE key = 'igdb_backfill_done'",
+              "SELECT value FROM sync_state WHERE key = 'igdb_backfill_last_wrap_date'",
             )
-            .get();
-          expect(doneRow).toEqual({ value: '1' });
+            .get() as { value: string };
+          expect(wrapRow?.value).toBe(new Date().toISOString().slice(0, 10));
 
-          const third = await syncWorkerIgdbMetadataBackfill(mockEnv);
-          expect(third).toMatchObject({ skipped: true, reason: 'completed' });
+          // Re-scanning later the same UTC day finishes with completed when no bare games remain
+          const third = await syncWorkerIgdbMetadataBackfill(mockEnv, {
+            batchSize: 1000,
+          });
+          expect(third.skipped).toBe(false);
+          expect(third.matched).toBe(0);
+
+          const fourth = await syncWorkerIgdbMetadataBackfill(mockEnv, {
+            batchSize: 1000,
+          });
+          expect(fourth).toMatchObject({ skipped: true, reason: 'completed' });
         } finally {
           vi.unstubAllGlobals();
+        }
+      });
+
+      it('POST /api/admin/catalog-seed persists catalog_seed_paused and returns enriched telemetry', async () => {
+        db.exec(`
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical)
+          VALUES (7001, 26, 'Telemetry Game (USA)', 'telemetrygame', 'USA', 1);
+          INSERT INTO games (stable_id, id, title, platform_id)
+          VALUES (8001, 'telemetry-game', 'Telemetry Game', 26);
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        const postRes = await worker.fetch(
+          new Request('http://localhost/api/admin/catalog-seed', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: `${SESSION_COOKIE}=${token}`,
+            },
+            body: JSON.stringify({ paused: true }),
+          }),
+          mockEnv,
+        );
+        expect(postRes.status).toBe(200);
+        const postJson = (await postRes.json()) as {
+          success: boolean;
+          status: {
+            paused: boolean;
+            canonicalMinId: number;
+            canonicalMaxId: number;
+            maxGameStableId: number;
+            igdbBackfill: { cursor: number };
+            igdbRolling: { cursorOffset: number };
+            upstreamSources: { switchRevisionsUpdatedAt: string | null };
+          };
+        };
+        expect(postJson.success).toBe(true);
+        expect(postJson.status.paused).toBe(true);
+        expect(postJson.status.canonicalMaxId).toBeGreaterThanOrEqual(7001);
+        expect(postJson.status.maxGameStableId).toBeGreaterThanOrEqual(8001);
+        expect(postJson.status.igdbBackfill).toBeDefined();
+        expect(postJson.status.igdbRolling).toBeDefined();
+        expect(postJson.status.upstreamSources).toBeDefined();
+
+        const pausedRow = db
+          .prepare(
+            "SELECT value FROM sync_state WHERE key = 'catalog_seed_paused'",
+          )
+          .get() as { value: string };
+        expect(pausedRow).toEqual({ value: '1' });
+
+        // Calling syncWorkerBroadCatalogPopulation should respect pause immediately
+        const skippedRun = await syncWorkerBroadCatalogPopulation(mockEnv);
+        expect(skippedRun).toMatchObject({ skipped: true, reason: 'paused' });
+      });
+
+      it('syncWorkerBroadCatalogPopulation in steady-state attaches new regional releases to existing games, ignores World placeholders, and evaluates rules', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, collections, physical_status)
+          VALUES (9201, 'luigis-mansion-2-hd-switch', 'Luigi''s Mansion 2 HD', 26, 'Luigi''s Mansion', 'Luigi''s Mansion', 'verified_physical');
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES ('luigis-mansion-2-hd-switch-jpn', 9201, 'Japan');
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES (1, 'series', 'Luigi''s Mansion', 2, 'home', 0);
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, serial_code, source, is_verified_physical)
+          VALUES
+            (9501, 26, 'Unknown Past Typo', '${normalizeTitleForMatching('Unknown Past Typo')}', 'World', 'Rev 000 (v1.0.0)', NULL, 'nintendo_revised', 1),
+            (9502, 26, 'Luigi''s Mansion 2 HD', '${normalizeTitleForMatching("Luigi's Mansion 2 HD")}', 'USA', 'Rev 000 (v1.0.0)', 'LA-H-BANRA-USA', 'nintendo_revised', 1);
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_stage', 'done');
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9500');
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_paused', '0');
+        `);
+
+        stubIgdbFetch({});
+        try {
+          const res = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(res.skipped).toBe(false);
+          expect(res.ingestedGames).toBe(0);
+          expect(res.ingestedReleases).toBe(1);
+          expect(res.cursor).toBe(9502);
+
+          // World placeholder without serial_code must NOT create a game
+          const placeholderGame = db
+            .prepare(
+              "SELECT id FROM games WHERE title LIKE '%Unknown Past Typo%'",
+            )
+            .get();
+          expect(placeholderGame).toBeUndefined();
+
+          // USA Switch release should be attached to existing game and marked Seeking (2)
+          const usaRel = db
+            .prepare(
+              "SELECT id, region, canonical_release_id FROM game_releases WHERE game_id = 9201 AND region = 'USA'",
+            )
+            .get() as {
+            id: string;
+            region: string;
+            canonical_release_id: number;
+          };
+          expect(usaRel.region).toBe('USA');
+          expect(usaRel.canonical_release_id).toBe(9502);
+
+          const trackingRow = db
+            .prepare(
+              'SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = ?',
+            )
+            .get(usaRel.id) as { ownership_status: number };
+          expect(trackingRow.ownership_status).toBe(2);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerIgdbSeriesAndCanonical self-heals missed tracking rules for trackable games including numbered sequel fallbacks', async () => {
+        const { syncWorkerIgdbSeriesAndCanonical } = await import('./worker');
+        const envWithIgdb: Env = {
+          ...mockEnv,
+          TWITCH_CLIENT_ID: 'test-client-id',
+          TWITCH_CLIENT_SECRET: 'test-client-secret',
+        };
+
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, igdb_id)
+          VALUES (9301, 'doom-ii-gba', 'Doom II', 1, 'Doom', NULL);
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES ('doom-ii-gba-usa', 9301, 'USA');
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES (1, 'series', 'Doom', 4, 'home', 0);
+        `);
+
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = vi
+          .fn()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({ access_token: 'tok', expires_in: 3600 }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+          );
+
+        try {
+          const res = await syncWorkerIgdbSeriesAndCanonical(envWithIgdb, {
+            batchSize: 50,
+          });
+          expect(res.selfHealedRulesCount).toBe(1);
+
+          const healedStatus = db
+            .prepare(
+              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'doom-ii-gba-usa'",
+            )
+            .get() as { ownership_status: number };
+          expect(healedStatus.ownership_status).toBe(4);
+
+          const rollingStatsRow = db
+            .prepare(
+              "SELECT value FROM sync_state WHERE key = 'igdb_rolling_stats'",
+            )
+            .get() as { value: string };
+          const stats = JSON.parse(rollingStatsRow.value) as {
+            selfHealedRulesTotal: number;
+          };
+          expect(stats.selfHealedRulesTotal).toBe(1);
+        } finally {
+          globalThis.fetch = originalFetch;
         }
       });
     });

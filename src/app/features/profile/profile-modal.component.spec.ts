@@ -347,6 +347,44 @@ describe('ProfileModalComponent', () => {
     expect(deleteSpy).toHaveBeenCalledWith('series', 'Metroid');
   });
 
+  it('should render Seeded badge for stage=done with writesUsedToday tooltip and unwrap pause toggle updates', () => {
+    vi.spyOn(collectionService, 'getCatalogSeedStatus').mockReturnValue(
+      of({
+        paused: false,
+        stage: 'done',
+        cursor: 5120,
+        dailyWriteBudget: 60000,
+        writesUsedToday: 120,
+      }),
+    );
+    const controlSpy = vi
+      .spyOn(collectionService, 'updateCatalogSeedControl')
+      .mockReturnValue(
+        of({
+          paused: true,
+          stage: 'done',
+          cursor: 5120,
+          dailyWriteBudget: 60000,
+          writesUsedToday: 120,
+        }),
+      );
+
+    modalService.open();
+    fixture.detectChanges();
+
+    const discoveryBtn = fixture.nativeElement.querySelector(
+      '[data-testid="profile-discovery-btn"]',
+    ) as HTMLButtonElement;
+    const badge = discoveryBtn?.querySelector('.notif-status-badge');
+    expect(badge?.textContent?.trim()).toBe('Seeded');
+    expect(badge?.classList.contains('active')).toBe(false);
+    expect(badge?.getAttribute('title')).toContain('120 / 60000 writes today');
+
+    component.toggleCatalogSeedPause();
+    expect(controlSpy).toHaveBeenCalledWith({ paused: true });
+    expect(component.catalogSeedStatus()?.paused).toBe(true);
+  });
+
   it('should format multi-region toy badges and expose PrioritySeeking = 4', () => {
     expect(OwnershipStatus.PrioritySeeking).toBe(4);
     expect(formatToyRegionBadge('USA, Europe, Japan, Australia')).toBe(

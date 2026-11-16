@@ -9,7 +9,10 @@
  */
 
 import { CanonicalRelease } from './canonical_releases.js';
-import { normalizeTitleForMatching } from './title_matching.js';
+import {
+  normalizeTitleForMatching,
+  stripEditionSuffix,
+} from './title_matching.js';
 import { extractRegions } from './source_format.js';
 
 export const SWITCH_REVISIONS_SPREADSHEET_ID =
@@ -451,6 +454,12 @@ export function parseSwitchRevisionsCsv(
   const baseGamesByPlatform = new Map<number, Map<string, BaseGameMetadata>>();
   baseGamesByPlatform.set(26, new Map());
   baseGamesByPlatform.set(27, new Map());
+  const baseGamesByStrippedPlatform = new Map<
+    number,
+    Map<string, BaseGameMetadata>
+  >();
+  baseGamesByStrippedPlatform.set(26, new Map());
+  baseGamesByStrippedPlatform.set(27, new Map());
 
   const parsedMainRows: RawSpreadsheetRow[] = [];
   const parsedPastRows: RawSpreadsheetRow[] = [];
@@ -497,7 +506,11 @@ export function parseSwitchRevisionsCsv(
 
       // Record base game metadata for Past Revisions inheritance
       const norm = normalizeTitleForMatching(lastSeenGameName);
+      const strippedBaseNorm = normalizeTitleForMatching(
+        stripEditionSuffix(lastSeenGameName),
+      );
       const platMap = baseGamesByPlatform.get(tab.platformId);
+      const strippedPlatMap = baseGamesByStrippedPlatform.get(tab.platformId);
       if (norm && platMap) {
         let meta = platMap.get(norm);
         if (!meta) {
@@ -506,6 +519,14 @@ export function parseSwitchRevisionsCsv(
             regions: new Map<string, BaseGameRegionInfo>(),
           };
           platMap.set(norm, meta);
+        }
+        if (
+          strippedPlatMap &&
+          strippedBaseNorm &&
+          strippedBaseNorm !== norm &&
+          !strippedPlatMap.has(strippedBaseNorm)
+        ) {
+          strippedPlatMap.set(strippedBaseNorm, meta);
         }
         const normReg = normalizeSpreadsheetRegion(region);
         if (normReg) {
@@ -682,15 +703,35 @@ export function parseSwitchRevisionsCsv(
         Boolean(PAST_REVISION_TITLE_ALIASES[rawNorm]) ||
         Boolean(PAST_REVISION_TITLE_ALIASES[strippedNorm]);
 
-      const baseMeta = baseGamesByPlatform
+      const strippedByEdition = normalizeTitleForMatching(
+        stripEditionSuffix(strippedTitle || lastSeenGameName),
+      );
+      const exactOrAliasMeta = baseGamesByPlatform
         .get(tab.platformId)
         ?.get(resolvedNorm);
+      const editionFallbackMeta =
+        exactOrAliasMeta ??
+        (strippedByEdition
+          ? baseGamesByPlatform.get(tab.platformId)?.get(strippedByEdition)
+          : undefined) ??
+        baseGamesByStrippedPlatform.get(tab.platformId)?.get(resolvedNorm) ??
+        (strippedByEdition
+          ? baseGamesByStrippedPlatform
+              .get(tab.platformId)
+              ?.get(strippedByEdition)
+          : undefined);
+      const baseMeta = editionFallbackMeta;
+      // Guard: Never invent standalone catalog rows from unmatched "Past Revisions" typos/shorthand
+      if (!baseMeta) {
+        continue;
+      }
+      const matchedViaEditionFallback = !exactOrAliasMeta;
       const explicitRegions = detectExplicitPastRevisionRegions(
         comments,
         lastSeenGameName,
       );
       const cleanRevNum = pastRevNum.trim();
-      const gameName = baseMeta?.rawTitle || strippedTitle || lastSeenGameName;
+      const gameName = baseMeta.rawTitle;
 
       if (explicitRegions && explicitRegions.length > 0) {
         for (const reg of explicitRegions) {
@@ -721,9 +762,12 @@ export function parseSwitchRevisionsCsv(
           isPastRevision: true,
         });
 
-        // When recovering a dropped Past Revisions row via PAST_REVISION_TITLE_ALIASES,
+        // When recovering a Past Revisions row via PAST_REVISION_TITLE_ALIASES or edition stripping,
         // also materialize regional rows across the base game's cataloged regions.
-        if (wasAliasResolved && baseMeta && baseMeta.regions.size > 0) {
+        if (
+          (wasAliasResolved || matchedViaEditionFallback) &&
+          baseMeta.regions.size > 0
+        ) {
           for (const [reg, regInfo] of baseMeta.regions.entries()) {
             parsedPastRows.push({
               gameName,

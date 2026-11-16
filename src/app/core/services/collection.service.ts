@@ -55,6 +55,7 @@ import {
   UserProfile,
   UserTrackingRule,
   CatalogSeedStatus,
+  CronExecutionLogEntry,
   PublicUserProfile,
   AuthMeResponse,
 } from '../models/collection.models';
@@ -530,10 +531,22 @@ export class CollectionService implements OnDestroy {
     paused?: boolean;
     stage?: '2A' | '2B' | 'done';
     cursor?: number;
+    runBatchNow?: boolean;
+    runBackfillNow?: boolean;
+    runRollingRefreshNow?: boolean;
   }): Observable<CatalogSeedStatus> {
-    return this.http.post<CatalogSeedStatus>(
-      '/api/admin/catalog-seed',
-      payload,
+    return this.http
+      .post<
+        CatalogSeedStatus | { status: CatalogSeedStatus }
+      >('/api/admin/catalog-seed', payload)
+      .pipe(map((res) => (res && 'status' in res ? res.status : res)));
+  }
+
+  public getAdminCronLogs(
+    limit = 40,
+  ): Observable<{ logs: CronExecutionLogEntry[] }> {
+    return this.http.get<{ logs: CronExecutionLogEntry[] }>(
+      `/api/admin/diagnostics/jobs?limit=${limit}`,
     );
   }
 

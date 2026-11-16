@@ -211,6 +211,50 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
         'USA:Rev 001 (v1.0.1)',
       ]);
     });
+
+    it('drops unmatched Past Revisions typo rows and resolves edition-stripped Past Revisions titles against main tabs', () => {
+      const mainTab: SwitchSheetTabConfig = {
+        gid: '1882179329',
+        name: 'S1: Third Party/Indies',
+        platformId: 26,
+      };
+      const mainCsv = [
+        'Game Name,Revision #,Version on Cart,Download Available?,Download Size,Regions,Front Cart Code,Additional Comments,Last Checked',
+        'Future Quest: Deluxe Edition,002,1.2.0,No,N/A,USA,LA-H-ABCDA-USA,Complete,01/01/2026',
+      ].join('\n');
+
+      const pastTab: SwitchSheetTabConfig = {
+        gid: '609274111',
+        name: 'Past Revisions SW1',
+        platformId: 26,
+        isPastRevisions: true,
+      };
+      const pastCsv = [
+        'Game Name,Past Revision #,Version on Cart,Additional Comments',
+        'Future Quest,000,1.0.0,Base launch cart',
+        'Unmatched Typo Game Title,000,1.0.0,Should never become a standalone release',
+      ].join('\n');
+
+      const releases = parseSwitchRevisionsCsv([
+        { tab: mainTab, csv: mainCsv },
+        { tab: pastTab, csv: pastCsv },
+      ]);
+
+      expect(
+        releases.some((r) => r.raw_title === 'Unmatched Typo Game Title'),
+      ).toBe(false);
+
+      const futureQuest = releases.filter(
+        (r) => r.raw_title === 'Future Quest: Deluxe Edition',
+      );
+      expect(
+        futureQuest.map((r) => `${r.region}:${r.variants}`).sort(),
+      ).toEqual([
+        'USA:Rev 000 (v1.0.0)',
+        'USA:Rev 002 (v1.2.0)',
+        'World:Rev 000 (v1.0.0)',
+      ]);
+    });
   });
 
   describe('parseNxdumptoolFilename', () => {

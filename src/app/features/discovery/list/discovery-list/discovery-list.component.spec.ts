@@ -33,6 +33,9 @@ describe('DiscoveryListComponent', () => {
     refreshAll: Mock;
     isAdmin: Mock;
     promptAdminLogin: Mock;
+    getCatalogSeedStatus?: Mock;
+    updateCatalogSeedControl?: Mock;
+    getAdminCronLogs?: Mock;
   };
 
   const mockAmiiboItems: AmiiboDiscoveryItem[] = [
@@ -125,6 +128,94 @@ describe('DiscoveryListComponent', () => {
       refreshAll: vi.fn().mockResolvedValue(undefined),
       isAdmin: vi.fn().mockReturnValue(true),
       promptAdminLogin: vi.fn(),
+      getCatalogSeedStatus: vi.fn().mockReturnValue(
+        of({
+          paused: false,
+          stage: '2A',
+          cursor: 1500,
+          dailyWriteBudget: 60000,
+          writesUsedToday: 15000,
+          gamesIngestedToday: 42,
+          releasesIngestedToday: 68,
+          lastUpdatedAt: '2026-11-15T17:00:00Z',
+          canonicalMinId: 1000,
+          canonicalMaxId: 2000,
+          currentPlatformName: 'Nintendo Switch',
+          maxGameStableId: 4000,
+          igdbBackfill: {
+            cursor: 2000,
+            lastWrapDate: '2026-11-15',
+            matchedTotal: 150,
+            rulesAppliedTotal: 12,
+            lastRunAt: '2026-11-15T17:15:00Z',
+          },
+          igdbRolling: {
+            cursorOffset: 1000,
+            refreshedTotal: 3200,
+            updatedTotal: 90,
+            selfHealedRulesTotal: 7,
+            lastRunAt: '2026-11-15T17:20:00Z',
+          },
+          upstreamSources: {
+            switchRevisionsUpdatedAt: '2026-11-15T06:00:00Z',
+            amiiboCatalogUpdatedAt: '2026-11-15T06:05:00Z',
+          },
+        }),
+      ),
+      updateCatalogSeedControl: vi.fn().mockImplementation((payload) =>
+        of({
+          paused: payload.paused ?? false,
+          stage: '2A',
+          cursor: payload.runBatchNow ? 1600 : 1500,
+          dailyWriteBudget: 60000,
+          writesUsedToday: 15050,
+          gamesIngestedToday: 43,
+          releasesIngestedToday: 70,
+          lastUpdatedAt: '2026-11-15T17:25:00Z',
+          canonicalMinId: 1000,
+          canonicalMaxId: 2000,
+          currentPlatformName: 'Nintendo Switch',
+          maxGameStableId: 4000,
+          igdbBackfill: {
+            cursor: payload.runBackfillNow ? 2100 : 2000,
+            lastWrapDate: '2026-11-15',
+            matchedTotal: 151,
+            rulesAppliedTotal: 13,
+            lastRunAt: '2026-11-15T17:25:00Z',
+          },
+          igdbRolling: {
+            cursorOffset: payload.runRollingRefreshNow ? 1100 : 1000,
+            refreshedTotal: 3210,
+            updatedTotal: 91,
+            selfHealedRulesTotal: 8,
+            lastRunAt: '2026-11-15T17:25:00Z',
+          },
+        }),
+      ),
+      getAdminCronLogs: vi.fn().mockReturnValue(
+        of({
+          logs: [
+            {
+              id: 10,
+              job_name: 'broad_catalog_seed',
+              status: 'SUCCESS',
+              duration_ms: 420,
+              summary: 'Stage 2A: ingested 20 games',
+              details: null,
+              created_at: '2026-11-15T17:00:00Z',
+            },
+            {
+              id: 11,
+              job_name: 'igdb_batch',
+              status: 'SUCCESS',
+              duration_ms: 310,
+              summary: 'Self-healed 2 tracking rules',
+              details: null,
+              created_at: '2026-11-15T17:05:00Z',
+            },
+          ],
+        }),
+      ),
     };
 
     await TestBed.configureTestingModule({
@@ -959,5 +1050,53 @@ describe('DiscoveryListComponent', () => {
         ],
       }),
     );
+  });
+
+  it('should load Pipeline & Health telemetry, compute progress percentages, filter cron logs, and run admin controls', async () => {
+    const pipelineTabBtn = fixture.nativeElement.querySelector(
+      '[data-testid="discovery-tab-pipeline"]',
+    ) as HTMLButtonElement;
+    expect(pipelineTabBtn).toBeTruthy();
+
+    await component.openPipelineTab();
+    fixture.detectChanges();
+
+    expect(component.activeTab()).toBe('pipeline');
+    expect(mockCollectionService.getCatalogSeedStatus).toHaveBeenCalled();
+    expect(mockCollectionService.getAdminCronLogs).toHaveBeenCalledWith(40);
+    expect(component.seedProgressPct()).toBe(50);
+    expect(component.dailyBudgetPct()).toBe(25);
+    expect(component.backfillProgressPct()).toBe(50);
+    expect(component.rollingProgressPct()).toBe(25);
+    expect(component.filteredCronLogs().length).toBe(2);
+
+    component.cronJobFilter.set('igdb_batch');
+    fixture.detectChanges();
+    expect(component.filteredCronLogs().length).toBe(1);
+    expect(component.filteredCronLogs()[0].job_name).toBe('igdb_batch');
+
+    await component.togglePipelinePause();
+    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
+      { paused: true },
+    );
+    expect(component.pipelineStatus()?.paused).toBe(true);
+
+    await component.triggerSeedBatchNow();
+    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
+      { runBatchNow: true },
+    );
+    expect(component.pipelineStatus()?.cursor).toBe(1600);
+
+    await component.triggerBackfillBatchNow();
+    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
+      { runBackfillNow: true },
+    );
+    expect(component.pipelineStatus()?.igdbBackfill?.cursor).toBe(2100);
+
+    await component.triggerRollingRefreshNow();
+    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
+      { runRollingRefreshNow: true },
+    );
+    expect(component.pipelineStatus()?.igdbRolling?.cursorOffset).toBe(1100);
   });
 });

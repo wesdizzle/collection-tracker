@@ -34,14 +34,17 @@ import {
   DiscoveryRelease,
   AmiiboDiscoveryItem,
   Toy,
+  CatalogSeedStatus,
+  CronExecutionLogEntry,
 } from '../../../../core/models/collection.models';
 import { RouterModule } from '@angular/router';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
+import { PipelineHealthComponent } from '../pipeline-health/pipeline-health.component';
 
 @Component({
   selector: 'app-discovery-list',
   standalone: true,
-  imports: [RouterModule, IconComponent],
+  imports: [RouterModule, IconComponent, PipelineHealthComponent],
   templateUrl: './discovery-list.component.html',
   styleUrls: ['./discovery-list.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -50,7 +53,59 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   public collectionService = inject(CollectionService);
 
   /** Active navigation tab. Defaults to Game Search ('search'). */
-  public activeTab = signal<'search' | 'scan' | 'amiibo'>('search');
+  public activeTab = signal<'search' | 'scan' | 'amiibo' | 'pipeline'>(
+    'search',
+  );
+
+  /** Pipeline & Self-Healing Telemetry signals. */
+  public pipelineStatus = signal<CatalogSeedStatus | null>(null);
+  public cronLogs = signal<CronExecutionLogEntry[]>([]);
+  public pipelineLoading = signal<boolean>(false);
+  public pipelineActionBusy = signal<boolean>(false);
+  public pipelineError = signal<string | null>(null);
+  public cronJobFilter = signal<string>('all');
+
+  public filteredCronLogs = computed<CronExecutionLogEntry[]>(() => {
+    const filter = this.cronJobFilter();
+    const logs = this.cronLogs();
+    if (!filter || filter === 'all') return logs;
+    return logs.filter((entry) => entry.job_name === filter);
+  });
+
+  public seedProgressPct = computed<number>(() => {
+    const s = this.pipelineStatus();
+    if (!s) return 0;
+    if (s.stage === 'done' || s.stage === 'completed') return 100;
+    const minId = s.canonicalMinId ?? 0;
+    const maxId = s.canonicalMaxId ?? 0;
+    if (maxId <= minId) return 0;
+    const raw = Math.round(((s.cursor - minId) / (maxId - minId)) * 100);
+    return Math.max(0, Math.min(100, raw));
+  });
+
+  public dailyBudgetPct = computed<number>(() => {
+    const s = this.pipelineStatus();
+    if (!s) return 0;
+    const used = s.writesUsedToday ?? s.dailyWritesUsed ?? 0;
+    const budget = s.dailyWriteBudget || 60000;
+    return Math.max(0, Math.min(100, Math.round((used / budget) * 100)));
+  });
+
+  public backfillProgressPct = computed<number>(() => {
+    const s = this.pipelineStatus();
+    const maxId = s?.maxGameStableId ?? 0;
+    const cursor = s?.igdbBackfill?.cursor ?? 0;
+    if (!s || maxId <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((cursor / maxId) * 100)));
+  });
+
+  public rollingProgressPct = computed<number>(() => {
+    const s = this.pipelineStatus();
+    const maxId = s?.maxGameStableId ?? 0;
+    const offset = s?.igdbRolling?.cursorOffset ?? 0;
+    if (!s || maxId <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((offset / maxId) * 100)));
+  });
 
   /** Manual search logic signals. */
   public searchResults = signal<IGDBSearchResult[]>([]);
@@ -1654,5 +1709,141 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
 
     this.amiiboLoading.set(false);
     this.showToast(`Successfully ingested ${count} amiibo items as unowned.`);
+  }
+
+  /**
+   * Opens the Pipeline & Health tab and refreshes telemetry and cron logs.
+   */
+  async openPipelineTab() {
+    this.activeTab.set('pipeline');
+    await this.loadPipelineDiagnostics();
+  }
+
+  /**
+   * Fetches broad catalog seed progress, self-healing telemetry, and recent cron logs.
+   */
+  async loadPipelineDiagnostics() {
+    if (
+      !this.collectionService.getCatalogSeedStatus &&
+      !this.collectionService.getAdminCronLogs
+    ) {
+      return;
+    }
+
+    this.pipelineLoading.set(true);
+    this.pipelineError.set(null);
+
+    try {
+      const [status, logsRes] = await Promise.all([
+        this.collectionService.getCatalogSeedStatus
+          ? firstValueFrom(this.collectionService.getCatalogSeedStatus())
+          : Promise.resolve(null),
+        this.collectionService.getAdminCronLogs
+          ? firstValueFrom(this.collectionService.getAdminCronLogs(40))
+          : Promise.resolve({ logs: [] as CronExecutionLogEntry[] }),
+      ]);
+      if (status) {
+        this.pipelineStatus.set(status);
+      }
+      this.cronLogs.set(logsRes?.logs || []);
+    } catch (err: unknown) {
+      console.error('[DiscoveryList] Pipeline diagnostics failed:', err);
+      this.pipelineError.set(
+        this.extractErrorMessage(
+          err,
+          'Failed to load pipeline telemetry and cron logs.',
+        ),
+      );
+    } finally {
+      this.pipelineLoading.set(false);
+    }
+  }
+
+  onCronJobFilterChange(event: Event) {
+    const val = (event.target as HTMLSelectElement).value || 'all';
+    this.cronJobFilter.set(val);
+  }
+
+  private async runPipelineControlAction(
+    payload: {
+      paused?: boolean;
+      runBatchNow?: boolean;
+      runBackfillNow?: boolean;
+      runRollingRefreshNow?: boolean;
+    },
+    successMessage: (status: CatalogSeedStatus) => string,
+    fallbackError: string,
+    reloadLogs = true,
+  ) {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    if (!this.collectionService.updateCatalogSeedControl) return;
+
+    this.pipelineActionBusy.set(true);
+    this.pipelineError.set(null);
+    try {
+      const updatedStatus = await firstValueFrom(
+        this.collectionService.updateCatalogSeedControl(payload),
+      );
+      this.pipelineStatus.set(updatedStatus);
+      this.showToast(successMessage(updatedStatus));
+      if (reloadLogs && this.collectionService.getAdminCronLogs) {
+        const logsRes = await firstValueFrom(
+          this.collectionService.getAdminCronLogs(40),
+        );
+        this.cronLogs.set(logsRes?.logs || []);
+      }
+    } catch (err: unknown) {
+      console.error('[DiscoveryList] Pipeline control action failed:', err);
+      const msg = this.extractErrorMessage(err, fallbackError);
+      this.pipelineError.set(msg);
+      this.showToast(msg);
+    } finally {
+      this.pipelineActionBusy.set(false);
+    }
+  }
+
+  async togglePipelinePause() {
+    const current = this.pipelineStatus();
+    if (!current) return;
+    const nextPaused = !current.paused;
+    await this.runPipelineControlAction(
+      { paused: nextPaused },
+      (s) =>
+        s.paused
+          ? 'Autonomous catalog seeding paused.'
+          : 'Autonomous catalog seeding resumed.',
+      'Failed to toggle catalog seed pause state.',
+      false,
+    );
+  }
+
+  async triggerSeedBatchNow() {
+    await this.runPipelineControlAction(
+      { runBatchNow: true },
+      (s) =>
+        `Catalog seed batch completed (Stage ${s.stage.toUpperCase()}, cursor ${s.cursor}).`,
+      'Failed to run catalog seed batch.',
+    );
+  }
+
+  async triggerBackfillBatchNow() {
+    await this.runPipelineControlAction(
+      { runBackfillNow: true },
+      (s) =>
+        `IGDB backfill batch completed (cursor ${s.igdbBackfill?.cursor ?? 0}).`,
+      'Failed to run IGDB backfill batch.',
+    );
+  }
+
+  async triggerRollingRefreshNow() {
+    await this.runPipelineControlAction(
+      { runRollingRefreshNow: true },
+      (s) =>
+        `Rolling IGDB self-heal check completed (offset ${s.igdbRolling?.cursorOffset ?? 0}).`,
+      'Failed to run rolling IGDB refresh.',
+    );
   }
 }
