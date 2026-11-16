@@ -8,7 +8,15 @@ import {
 } from '@angular/common/http/testing';
 import { CollectionService } from './collection.service';
 import { Game, formatJournalDate } from '../models/collection.models';
-import { clearSilentSsoAttempt } from '@wesdizzle/app-kit/angular';
+import {
+  KIT_DEGRADED_HEADER,
+  KIT_SNAPSHOT_TIMESTAMP_HEADER,
+  clearCachedKitAuthSnapshot,
+  clearSilentSsoAttempt,
+  readCachedKitAuthSnapshot,
+  writeCachedKitAuthSnapshot,
+} from '@wesdizzle/app-kit/angular';
+import { Router } from '@angular/router';
 
 /**
  * UNIT TEST: CollectionService
@@ -23,6 +31,7 @@ describe('CollectionService', () => {
 
   beforeEach(() => {
     clearSilentSsoAttempt();
+    clearCachedKitAuthSnapshot();
     sessionStorage.clear();
     localStorage.clear();
     TestBed.configureTestingModule({
@@ -44,6 +53,7 @@ describe('CollectionService', () => {
   });
 
   afterEach(() => {
+    clearCachedKitAuthSnapshot();
     sessionStorage.clear();
     localStorage.clear();
     httpMock.verify();
@@ -1022,6 +1032,260 @@ describe('CollectionService', () => {
         fetchSpy.mockRestore();
         redirectSpy.mockRestore();
       }
+    });
+  });
+
+  describe('Offline & R2 Degraded Quota Resilience', () => {
+    it('retains authenticated session and offline store data on /api/auth/me 503 without wiping state or redirecting', async () => {
+      const router = TestBed.inject(Router);
+      const navSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+
+      const getStoredSpy = vi
+        .spyOn(
+          (
+            service as unknown as {
+              offlineStore: {
+                getStoredState: (userId?: number | null) => Promise<unknown>;
+                saveStateLocally: (...args: unknown[]) => Promise<void>;
+              };
+            }
+          ).offlineStore,
+          'getStoredState',
+        )
+        .mockResolvedValue({
+          state: {
+            games: [
+              { id: 'g1', game_id: 'g1', stable_id: 1, title: 'Offline Mario' },
+            ],
+            toys: [],
+            platforms: [{ id: 1, name: 'NES', display_name: 'NES' }],
+            journalEntries: [],
+          },
+          updatedAt: Date.now() - 60_000,
+          pendingSync: false,
+        });
+      const saveStoredSpy = vi
+        .spyOn(
+          (
+            service as unknown as {
+              offlineStore: {
+                saveStateLocally: (...args: unknown[]) => Promise<void>;
+              };
+            }
+          ).offlineStore,
+          'saveStateLocally',
+        )
+        .mockResolvedValue(undefined);
+
+      // 1. Live non-degraded auth caches profile snapshot in localStorage
+      const p1 = service.refreshAuthStatus();
+      httpMock.expectOne('/api/auth/me').flush({
+        authenticated: true,
+        user: {
+          id: 1,
+          username: 'alice',
+          role: 'admin',
+          isPublic: true,
+          homeRegion: 'USA',
+          displayName: 'Alice',
+          bio: 'Collector',
+        },
+      });
+      await p1;
+      httpMock
+        .expectOne('/api/journal/entries')
+        .flush({ authorized: true, entries: [] });
+      expect(service.isAuthenticated()).toBe(true);
+      expect(readCachedKitAuthSnapshot()?.user.username).toBe('alice');
+
+      // 2. Refresh collection and save offline store snapshot
+      const refreshP = service.refreshAll();
+      httpMock
+        .expectOne('/api/games')
+        .flush([
+          { id: 'g1', game_id: 'g1', stable_id: 1, title: 'Offline Mario' },
+        ]);
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock
+        .expectOne('/api/platforms')
+        .flush([{ id: 1, name: 'NES', display_name: 'NES' }]);
+      await refreshP;
+      expect(saveStoredSpy).toHaveBeenCalled();
+
+      // 3. Simulate D1 503 on subsequent /api/auth/me -> session and games stay intact!
+      const p2 = service.refreshAuthStatus();
+      httpMock
+        .expectOne('/api/auth/me')
+        .flush(
+          { error: 'Database read quota exceeded', degraded: true },
+          { status: 503, statusText: 'Service Unavailable' },
+        );
+      await p2;
+
+      expect(service.isAuthenticated()).toBe(true);
+      expect(service.currentUser()?.username).toBe('alice');
+      expect(service.degradedMode()).toBe('offline');
+      expect(service.isDegraded()).toBe(true);
+      expect(service.games().length).toBe(1);
+      expect(navSpy).not.toHaveBeenCalled();
+
+      // 4. Cold-start /api/auth/me network error hydrates from localStorage + KitOfflineStore
+      writeCachedKitAuthSnapshot({
+        user: {
+          id: 1,
+          username: 'alice',
+          role: 'admin',
+          isPublic: true,
+          homeRegion: 'USA',
+          displayName: 'Alice',
+        },
+        accountHubUrl: null,
+        oidcIssuer: null,
+        oidcClientId: null,
+        updatedAt: Date.now(),
+      });
+      (
+        service as unknown as {
+          _games: { set(v: unknown[]): void };
+          _currentUser: { set(v: unknown): void };
+        }
+      )._games.set([]);
+      (
+        service as unknown as {
+          _currentUser: { set(v: unknown): void };
+        }
+      )._currentUser.set(null);
+
+      const p3 = service.refreshAuthStatus();
+      httpMock.expectOne('/api/auth/me').error(new ProgressEvent('error'));
+      await p3;
+
+      expect(getStoredSpy).toHaveBeenCalledWith(1);
+      expect(service.isAuthenticated()).toBe(true);
+      expect(service.games()[0].title).toBe('Offline Mario');
+
+      // 5. Explicit 401 clears cached auth session
+      const p4 = service.refreshAuthStatus();
+      httpMock
+        .expectOne('/api/auth/me')
+        .flush(
+          { error: 'Unauthorized' },
+          { status: 401, statusText: 'Unauthorized' },
+        );
+      await p4;
+      expect(service.isAuthenticated()).toBe(false);
+      expect(readCachedKitAuthSnapshot()).toBeNull();
+    });
+
+    it('detects R2 backup headers on /api/auth/me and /api/games and blocks mutations in read-only mode', async () => {
+      const pAuth = service.refreshAuthStatus();
+      httpMock.expectOne('/api/auth/me').flush(
+        {
+          authenticated: true,
+          degraded: true,
+          degradedReason: 'r2_backup',
+          snapshotTimestamp: '2026-11-16T03:00:00.000Z',
+          user: {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            isPublic: false,
+            homeRegion: 'USA',
+            displayName: 'Alice',
+            bio: null,
+          },
+        },
+        {
+          headers: {
+            [KIT_DEGRADED_HEADER]: 'r2-backup',
+            [KIT_SNAPSHOT_TIMESTAMP_HEADER]: '2026-11-16T03:00:00.000Z',
+          },
+        },
+      );
+      await pAuth;
+      httpMock
+        .expectOne('/api/journal/entries')
+        .flush({ authorized: true, entries: [] });
+
+      expect(service.degradedMode()).toBe('backup');
+      expect(service.isDegraded()).toBe(true);
+
+      const pRefresh = service.refreshAll();
+      httpMock
+        .expectOne('/api/games')
+        .flush(
+          [{ id: 'g1', game_id: 'g1', stable_id: 1, title: 'Backup Game' }],
+          {
+            headers: {
+              [KIT_DEGRADED_HEADER]: 'r2-backup',
+              [KIT_SNAPSHOT_TIMESTAMP_HEADER]: '2026-11-16T03:00:00.000Z',
+            },
+          },
+        );
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRefresh;
+
+      expect(service.degradedMode()).toBe('backup');
+      expect(service.degradedTimestamp()).toBe('2026-11-16T03:00:00.000Z');
+
+      // Verify write operations reject without hitting the network
+      const errMessages: string[] = [];
+      service.toggleOwnership('g1', 'game', 1).subscribe({
+        error: (err: Error) => errMessages.push(err.message),
+      });
+      service.updatePlayStatus('g1', 1).subscribe({
+        error: (err: Error) => errMessages.push(err.message),
+      });
+      service
+        .saveJournalEntry({
+          item_type: 'game',
+          item_id: 'g1',
+          merchant: 'Test',
+        })
+        .subscribe({
+          error: (err: Error) => errMessages.push(err.message),
+        });
+      service.updateProfile({ displayName: 'New' }).subscribe({
+        error: (err: Error) => errMessages.push(err.message),
+      });
+      service.deleteGame('g1').subscribe({
+        error: (err: Error) => errMessages.push(err.message),
+      });
+
+      expect(errMessages.length).toBe(5);
+      for (const msg of errMessages) {
+        expect(msg).toContain('Read-only mode');
+      }
+      httpMock.expectNone('/api/collection/toggle');
+      httpMock.expectNone('/api/journal');
+      httpMock.expectNone('/api/user/profile');
+      httpMock.expectNone('/api/collection/game');
+
+      // Recovery on non-degraded refresh + auth check clears degraded mode
+      const pRecoverAuth = service.refreshAuthStatus();
+      httpMock.expectOne('/api/auth/me').flush({
+        authenticated: true,
+        user: {
+          id: 1,
+          username: 'alice',
+          role: 'admin',
+          isPublic: false,
+          homeRegion: 'USA',
+          displayName: 'Alice',
+          bio: null,
+        },
+      });
+      await pRecoverAuth;
+
+      const pRecoverData = service.refreshAll();
+      httpMock.expectOne('/api/games').flush([]);
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRecoverData;
+
+      expect(service.degradedMode()).toBeNull();
+      expect(service.isDegraded()).toBe(false);
     });
   });
 });

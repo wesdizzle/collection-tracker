@@ -15,7 +15,7 @@
  */
 
 import { Injectable, OnDestroy, inject, signal, computed } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Router, RouteReuseStrategy } from '@angular/router';
 import {
   Observable,
@@ -29,13 +29,21 @@ import {
 import { CollectionRouteReuseStrategy } from '../routing/collection-route-reuse-strategy';
 import { ProfileModalService } from './profile-modal.service';
 import {
+  KIT_DEGRADED_HEADER,
+  KIT_SNAPSHOT_TIMESTAMP_HEADER,
+  KitDegradedMode,
+  KitOfflineStore,
   KitThemeService,
   checkUpstreamOidcStatus,
+  clearCachedKitAuthSnapshot,
   clearSilentSsoAttempt,
   getCurrentReturnToPath,
   markSilentSsoAttempt,
+  mergeDegradedUserProfile,
   notifyActiveThemeService,
+  readCachedKitAuthSnapshot,
   shouldAttemptSilentSso,
+  writeCachedKitAuthSnapshot,
 } from '@wesdizzle/app-kit/angular';
 import {
   Game,
@@ -59,6 +67,13 @@ import {
   PublicUserProfile,
   AuthMeResponse,
 } from '../models/collection.models';
+
+interface CollectionOfflineSnapshot {
+  games: Game[];
+  toys: Toy[];
+  platforms: Platform[];
+  journalEntries: JournalEntry[];
+}
 
 @Injectable({
   providedIn: 'root',
@@ -122,9 +137,33 @@ export class CollectionService implements OnDestroy {
   public readonly authInitialized = this._authInitialized.asReadonly();
   private _authPromise: Promise<UserProfile | null> | null = null;
   private _lastAuthCheckMs = 0;
+  private _authDegradedMode = signal<KitDegradedMode>(null);
+  private _dataDegradedMode = signal<KitDegradedMode>(null);
+  private _browserOffline = signal<boolean>(false);
+  private _degradedTimestamp = signal<string | Date | null>(null);
+  public readonly degradedMode = computed<KitDegradedMode>(() => {
+    if (this._browserOffline()) return 'offline';
+    const dataMode = this._dataDegradedMode();
+    const authMode = this._authDegradedMode();
+    if (dataMode === 'backup' || authMode === 'backup') {
+      return dataMode === 'offline' ? 'offline' : 'backup';
+    }
+    return dataMode ?? authMode ?? null;
+  });
+  public readonly degradedTimestamp = computed<string | Date | null>(
+    () => this._degradedTimestamp() ?? this._lastUpdated(),
+  );
+  public readonly isDegraded = computed(() => this.degradedMode() !== null);
+  private offlineStore = new KitOfflineStore<CollectionOfflineSnapshot>({
+    dbName: 'collection_tracker_offline_db',
+    storeName: 'collection_state',
+    keyPrefix: 'user_collection_state',
+  });
   private _visibilityListener?: () => void;
   private _focusListener?: () => void;
   private _pageshowListener?: (event: PageTransitionEvent) => void;
+  private _onlineListener?: () => void;
+  private _offlineListener?: () => void;
 
   /**
    * Initializes the service and restores any saved navigation state from sessionStorage.
@@ -132,6 +171,9 @@ export class CollectionService implements OnDestroy {
    */
   constructor() {
     if (typeof window !== 'undefined') {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        this._browserOffline.set(true);
+      }
       this.loadPersistedState();
       this.loadLastUpdated();
       this.checkAdminStatus();
@@ -155,6 +197,14 @@ export class CollectionService implements OnDestroy {
       if (this._pageshowListener) {
         window.removeEventListener('pageshow', this._pageshowListener);
         this._pageshowListener = undefined;
+      }
+      if (this._onlineListener) {
+        window.removeEventListener('online', this._onlineListener);
+        this._onlineListener = undefined;
+      }
+      if (this._offlineListener) {
+        window.removeEventListener('offline', this._offlineListener);
+        this._offlineListener = undefined;
       }
     }
   }
@@ -192,8 +242,16 @@ export class CollectionService implements OnDestroy {
           this.refreshAuthStatus().catch(() => {});
         }
       };
+      this._onlineListener = () => {
+        this._browserOffline.set(false);
+      };
+      this._offlineListener = () => {
+        this._browserOffline.set(true);
+      };
       window.addEventListener('focus', this._focusListener);
       window.addEventListener('pageshow', this._pageshowListener);
+      window.addEventListener('online', this._onlineListener);
+      window.addEventListener('offline', this._offlineListener);
     }
   }
 
@@ -203,6 +261,10 @@ export class CollectionService implements OnDestroy {
    * back to the landing page ('/').
    */
   private handleUnauthenticatedState(wasAuthenticated: boolean): void {
+    clearCachedKitAuthSnapshot();
+    this._authDegradedMode.set(null);
+    this._dataDegradedMode.set(null);
+    this._degradedTimestamp.set(null);
     notifyActiveThemeService({
       issuerUrl: null,
       authenticated: false,
@@ -247,8 +309,22 @@ export class CollectionService implements OnDestroy {
    * Applies the /api/auth/me response to signals and verifies that the
    * upstream OIDC identity provider session is still active.
    */
+  private checkDegradedReadOnly(): Observable<never> | null {
+    if (this.isDegraded()) {
+      return throwError(
+        () =>
+          new Error(
+            'Read-only mode: editing is disabled while offline or using backup data.',
+          ),
+      );
+    }
+    return null;
+  }
+
   private async applyAuthMeResponse(
     res: AuthMeResponse,
+    headerDegraded?: string | null,
+    headerTimestamp?: string | null,
   ): Promise<UserProfile | null> {
     this._lastAuthCheckMs = Date.now();
     const wasAuthenticated = this._currentUser() !== null;
@@ -266,7 +342,44 @@ export class CollectionService implements OnDestroy {
     if (res.authenticated && res.user) {
       clearSilentSsoAttempt(clientId);
       this._isAutoSigningIn.set(false);
-      this._currentUser.set(res.user);
+      const isDegradedResponse = Boolean(res.degraded || headerDegraded);
+      const cachedSnapshot = readCachedKitAuthSnapshot<UserProfile>();
+      const cachedProfile = this._currentUser() ?? cachedSnapshot?.user ?? null;
+      const effectiveUser = isDegradedResponse
+        ? mergeDegradedUserProfile(res.user, cachedProfile)
+        : res.user;
+      this._currentUser.set(effectiveUser);
+
+      if (isDegradedResponse) {
+        const mode: KitDegradedMode =
+          res.degradedReason === 'r2_backup' || headerDegraded === 'r2-backup'
+            ? 'backup'
+            : 'offline';
+        this._authDegradedMode.set(mode);
+        const ts =
+          res.snapshotTimestamp ??
+          headerTimestamp ??
+          (cachedSnapshot?.updatedAt
+            ? new Date(cachedSnapshot.updatedAt).toISOString()
+            : null);
+        if (ts) {
+          this._degradedTimestamp.set(ts);
+        }
+        await this.hydrateFromOfflineStoreIfEmpty(effectiveUser.id);
+      } else {
+        this._authDegradedMode.set(null);
+        if (this._dataDegradedMode() === null) {
+          this._degradedTimestamp.set(null);
+        }
+        writeCachedKitAuthSnapshot({
+          user: effectiveUser,
+          accountHubUrl: res.accountHubUrl ?? this._accountHubUrl(),
+          oidcIssuer: res.oidcIssuer ?? this._oidcIssuer(),
+          oidcClientId: res.oidcClientId ?? this._oidcClientId(),
+          updatedAt: Date.now(),
+        });
+      }
+
       if (issuer) {
         const upstreamActive = await this.verifyUpstreamOidcSession(issuer);
         if (!upstreamActive) {
@@ -274,10 +387,21 @@ export class CollectionService implements OnDestroy {
           return null;
         }
       }
-      if (!wasAuthenticated || !this._journalLoaded()) {
+      if (
+        !isDegradedResponse &&
+        (!wasAuthenticated || !this._journalLoaded())
+      ) {
+        this.loadAllJournalEntries().subscribe();
+      } else if (
+        isDegradedResponse &&
+        (!wasAuthenticated || !this._journalLoaded()) &&
+        res.degradedReason !== 'offline'
+      ) {
         this.loadAllJournalEntries().subscribe();
       }
     } else {
+      clearCachedKitAuthSnapshot();
+      this._authDegradedMode.set(null);
       if (
         !wasAuthenticated &&
         res.provisioned !== false &&
@@ -373,6 +497,7 @@ export class CollectionService implements OnDestroy {
       return true;
     }
     if (!status.authenticated || !status.authorized) {
+      clearCachedKitAuthSnapshot();
       await fetch('/api/auth/logout?silent=1', {
         method: 'POST',
         credentials: 'same-origin',
@@ -381,7 +506,7 @@ export class CollectionService implements OnDestroy {
       this.handleUnauthenticatedState(true);
       return false;
     }
-    if (status.authenticated && status.user) {
+    if (status.authenticated && status.user && !status.degraded) {
       const localUser = this._currentUser();
       if (
         localUser &&
@@ -407,13 +532,70 @@ export class CollectionService implements OnDestroy {
   public refreshAuthStatus(): Promise<UserProfile | null> {
     this._authPromise = firstValueFrom(
       this.http
-        .get<AuthMeResponse>('/api/auth/me')
+        .get<AuthMeResponse>('/api/auth/me', { observe: 'response' })
         .pipe(
-          catchError(() =>
-            of({ authenticated: false, user: null } as AuthMeResponse),
-          ),
+          map((resp) => ({
+            body:
+              resp.body ||
+              ({ authenticated: false, user: null } as AuthMeResponse),
+            headerDegraded: resp.headers?.get?.(KIT_DEGRADED_HEADER) ?? null,
+            headerTimestamp:
+              resp.headers?.get?.(KIT_SNAPSHOT_TIMESTAMP_HEADER) ?? null,
+          })),
+          catchError((err: unknown) => {
+            const status =
+              err instanceof HttpErrorResponse
+                ? err.status
+                : err && typeof err === 'object' && 'status' in err
+                  ? Number((err as { status: unknown }).status)
+                  : 0;
+            if (status === 401 || status === 403) {
+              return of({
+                body: { authenticated: false, user: null } as AuthMeResponse,
+                headerDegraded: null,
+                headerTimestamp: null,
+              });
+            }
+            const cachedSnapshot = readCachedKitAuthSnapshot<UserProfile>();
+            const preservedUser =
+              this._currentUser() ?? cachedSnapshot?.user ?? null;
+            if (preservedUser) {
+              return of({
+                body: {
+                  authenticated: true,
+                  user: preservedUser,
+                  oidcIssuer:
+                    cachedSnapshot?.oidcIssuer ??
+                    this._oidcIssuer() ??
+                    undefined,
+                  oidcClientId:
+                    cachedSnapshot?.oidcClientId ??
+                    this._oidcClientId() ??
+                    undefined,
+                  accountHubUrl:
+                    cachedSnapshot?.accountHubUrl ??
+                    this._accountHubUrl() ??
+                    undefined,
+                  degraded: true,
+                  degradedReason: 'offline',
+                  snapshotTimestamp: cachedSnapshot?.updatedAt
+                    ? new Date(cachedSnapshot.updatedAt).toISOString()
+                    : (this._lastUpdated()?.toISOString() ?? null),
+                } as AuthMeResponse,
+                headerDegraded: 'offline',
+                headerTimestamp: null,
+              });
+            }
+            return of({
+              body: { authenticated: false, user: null } as AuthMeResponse,
+              headerDegraded: null,
+              headerTimestamp: null,
+            });
+          }),
         ),
-    ).then((res) => this.applyAuthMeResponse(res));
+    ).then(({ body, headerDegraded, headerTimestamp }) =>
+      this.applyAuthMeResponse(body, headerDegraded, headerTimestamp),
+    );
     return this._authPromise;
   }
 
@@ -442,6 +624,10 @@ export class CollectionService implements OnDestroy {
    * Helper method for testing to set administrative status.
    */
   public setAdminForTesting(authorized: boolean): void {
+    this._authDegradedMode.set(null);
+    this._dataDegradedMode.set(null);
+    this._browserOffline.set(false);
+    this._degradedTimestamp.set(null);
     if (authorized) {
       this._currentUser.set({
         id: 1,
@@ -460,6 +646,10 @@ export class CollectionService implements OnDestroy {
   }
 
   public setCurrentUserForTesting(user: UserProfile | null): void {
+    this._authDegradedMode.set(null);
+    this._dataDegradedMode.set(null);
+    this._browserOffline.set(false);
+    this._degradedTimestamp.set(null);
     this._currentUser.set(user);
     this._authInitialized.set(true);
   }
@@ -469,6 +659,8 @@ export class CollectionService implements OnDestroy {
   }
 
   public updateProfile(data: Partial<UserProfile>): Observable<UserProfile> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     return this.http.put<UserProfile>('/api/user/profile', data).pipe(
       tap((profile) => {
         this._currentUser.set(profile);
@@ -505,6 +697,8 @@ export class CollectionService implements OnDestroy {
     apply_retroactive?: boolean;
     clear_existing_seeking?: boolean;
   }): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     const val = payload.match_value || payload.target_value || '';
     return this.http.post('/api/user/tracking-rules', {
       ...payload,
@@ -518,6 +712,8 @@ export class CollectionService implements OnDestroy {
     ruleType: 'series' | 'platform' | 'toy_line' | 'toy_series',
     targetValue: string,
   ): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     return this.http.delete(
       `/api/user/tracking-rules?rule_type=${encodeURIComponent(ruleType)}&match_value=${encodeURIComponent(targetValue)}&target_value=${encodeURIComponent(targetValue)}`,
     );
@@ -840,6 +1036,105 @@ export class CollectionService implements OnDestroy {
   private _lastUpdated = signal<Date | null>(null);
   public readonly lastUpdated = this._lastUpdated.asReadonly();
 
+  private _activeRefreshSawDegraded = false;
+  private _activeRefreshSawError = false;
+
+  private inspectDegradedHeaders(
+    headers: { get?(name: string): string | null } | null | undefined,
+  ): void {
+    const rawMode = headers?.get?.(KIT_DEGRADED_HEADER);
+    const rawTs = headers?.get?.(KIT_SNAPSHOT_TIMESTAMP_HEADER);
+    if (rawMode === 'r2-backup' || rawMode === 'offline') {
+      this._activeRefreshSawDegraded = true;
+      this._dataDegradedMode.set(
+        rawMode === 'r2-backup' ? 'backup' : 'offline',
+      );
+      if (rawTs) {
+        this._degradedTimestamp.set(rawTs);
+      }
+    }
+  }
+
+  private async hydrateFromOfflineStoreIfEmpty(
+    explicitUserId?: number | null,
+  ): Promise<boolean> {
+    if (this._isPublicView()) return false;
+    const userId = explicitUserId ?? this._currentUser()?.id ?? null;
+    if (!userId) return false;
+    if (
+      this._games().length > 0 &&
+      this._toys().length > 0 &&
+      this._platforms().length > 0
+    ) {
+      return false;
+    }
+
+    const stored = await this.offlineStore.getStoredState(userId);
+    if (!stored?.state) return false;
+
+    let hydratedAny = false;
+    if (this._games().length === 0 && stored.state.games?.length) {
+      this._games.set(stored.state.games);
+      hydratedAny = true;
+    }
+    if (this._toys().length === 0 && stored.state.toys?.length) {
+      this._toys.set(stored.state.toys);
+      hydratedAny = true;
+    }
+    if (this._platforms().length === 0 && stored.state.platforms?.length) {
+      this._platforms.set(stored.state.platforms);
+      hydratedAny = true;
+    }
+    if (
+      this._journalEntriesMap().size === 0 &&
+      stored.state.journalEntries?.length
+    ) {
+      const nextMap = new Map<string, JournalEntry>();
+      for (const entry of stored.state.journalEntries) {
+        nextMap.set(`${entry.item_type}:${entry.item_id}`, entry);
+      }
+      this._journalEntriesMap.set(nextMap);
+      this._journalLoaded.set(true);
+      hydratedAny = true;
+    }
+    if (stored.updatedAt && !this._lastUpdated()) {
+      this._lastUpdated.set(new Date(stored.updatedAt));
+    }
+    if (hydratedAny && !this._loadedOwnerContext()) {
+      this._loadedOwnerContext.set('self');
+    }
+    return hydratedAny;
+  }
+
+  private async saveOfflineSnapshot(
+    updatedAtMs: number = Date.now(),
+    onlyIfNewer = false,
+  ): Promise<void> {
+    if (this._isPublicView()) return;
+    const userId = this._currentUser()?.id ?? null;
+    if (!userId) return;
+
+    if (onlyIfNewer) {
+      const existing = await this.offlineStore.getStoredState(userId);
+      if (existing && existing.updatedAt >= updatedAtMs) {
+        return;
+      }
+    }
+
+    const snapshot: CollectionOfflineSnapshot = {
+      games: this._games(),
+      toys: this._toys(),
+      platforms: this._platforms(),
+      journalEntries: Array.from(this._journalEntriesMap().values()),
+    };
+    await this.offlineStore.saveStateLocally(
+      snapshot,
+      updatedAtMs,
+      false,
+      userId,
+    );
+  }
+
   /**
    * Orchestrates a full refresh of the collection data.
    * Fetches games, toys, and platforms in parallel to minimize load time.
@@ -850,28 +1145,66 @@ export class CollectionService implements OnDestroy {
   async refreshAll(): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
+    this._activeRefreshSawDegraded = false;
+    this._activeRefreshSawError = false;
     const targetOwner = this.getExpectedOwnerContext();
+    const hydratePromise =
+      targetOwner === 'self' && this._currentUser()?.id
+        ? this.hydrateFromOfflineStoreIfEmpty(this._currentUser()!.id)
+        : Promise.resolve(false);
     try {
       const [games, toys, platforms] = await Promise.all([
         firstValueFrom(this.getGames()),
         firstValueFrom(this.getToys()),
         firstValueFrom(this.getPlatforms()),
+        hydratePromise,
       ]);
-      this._games.set(games);
-      this._toys.set(toys);
-      this._platforms.set(platforms);
+      const finalGames =
+        this._activeRefreshSawError && games.length === 0
+          ? this._games()
+          : games;
+      const finalToys =
+        this._activeRefreshSawError && toys.length === 0 ? this._toys() : toys;
+      const finalPlatforms =
+        this._activeRefreshSawError && platforms.length === 0
+          ? this._platforms()
+          : platforms;
+      this._games.set(finalGames);
+      this._toys.set(finalToys);
+      this._platforms.set(finalPlatforms);
       this._loadedOwnerContext.set(targetOwner);
       this._refreshTrigger.update((v) => v + 1);
 
-      // Update sync timestamp if we are reasonably sure we hit the network without errors
+      if (!this._activeRefreshSawDegraded && !this._activeRefreshSawError) {
+        this._dataDegradedMode.set(null);
+        if (this._authDegradedMode() === null) {
+          this._degradedTimestamp.set(null);
+        }
+      }
+
       if (
+        !this._activeRefreshSawError &&
         !this._error() &&
+        this._dataDegradedMode() === null &&
         typeof window !== 'undefined' &&
         window.navigator.onLine
       ) {
         const now = new Date();
         this._lastUpdated.set(now);
         localStorage.setItem('app_last_updated', now.toISOString());
+        if (targetOwner === 'self' && this._currentUser()?.id) {
+          await this.saveOfflineSnapshot(now.getTime(), false);
+        }
+      } else if (
+        !this._activeRefreshSawError &&
+        this._dataDegradedMode() === 'backup' &&
+        targetOwner === 'self' &&
+        this._currentUser()?.id
+      ) {
+        const tsVal = this._degradedTimestamp();
+        const parsedMs = tsVal ? new Date(tsVal).getTime() : NaN;
+        const snapshotMs = Number.isFinite(parsedMs) ? parsedMs : 0;
+        await this.saveOfflineSnapshot(snapshotMs, true);
       }
     } catch (err: unknown) {
       console.error('[CollectionService] Global refresh failed:', err);
@@ -898,10 +1231,15 @@ export class CollectionService implements OnDestroy {
     if (platformId) {
       url += (url.includes('?') ? '&' : '?') + `platform_id=${platformId}`;
     }
-    return this.http.get<Game[]>(url).pipe(
-      map((games) => games.map((game) => this.enrichGameTitle(game))),
+    return this.http.get<Game[]>(url, { observe: 'response' }).pipe(
+      tap((resp) => this.inspectDegradedHeaders(resp.headers)),
+      map((resp) =>
+        (resp.body || []).map((game) => this.enrichGameTitle(game)),
+      ),
       catchError((err) => {
         console.error('[CollectionService] Error fetching games:', err);
+        this._activeRefreshSawError = true;
+        this._dataDegradedMode.set('offline');
         this._error.set(
           err?.message ||
             'Failed to load games collection. Please try again later.',
@@ -919,9 +1257,13 @@ export class CollectionService implements OnDestroy {
     if (this._isPublicView() && this._publicProfile()) {
       url = `/api/u/${encodeURIComponent(this._publicProfile()!.username)}/toys`;
     }
-    return this.http.get<Toy[]>(url).pipe(
+    return this.http.get<Toy[]>(url, { observe: 'response' }).pipe(
+      tap((resp) => this.inspectDegradedHeaders(resp.headers)),
+      map((resp) => resp.body || []),
       catchError((err) => {
         console.error('[CollectionService] Error fetching toys:', err);
+        this._activeRefreshSawError = true;
+        this._dataDegradedMode.set('offline');
         this._error.set(
           err?.message ||
             'Failed to load toys collection. Please try again later.',
@@ -935,15 +1277,21 @@ export class CollectionService implements OnDestroy {
    * Fetches the platform metadata list.
    */
   getPlatforms(): Observable<Platform[]> {
-    return this.http.get<Platform[]>('/api/platforms').pipe(
-      catchError((err) => {
-        console.error('[CollectionService] Error fetching platforms:', err);
-        this._error.set(
-          err?.message || 'Failed to load platforms. Please try again later.',
-        );
-        return of(this._platforms());
-      }),
-    );
+    return this.http
+      .get<Platform[]>('/api/platforms', { observe: 'response' })
+      .pipe(
+        tap((resp) => this.inspectDegradedHeaders(resp.headers)),
+        map((resp) => resp.body || []),
+        catchError((err) => {
+          console.error('[CollectionService] Error fetching platforms:', err);
+          this._activeRefreshSawError = true;
+          this._dataDegradedMode.set('offline');
+          this._error.set(
+            err?.message || 'Failed to load platforms. Please try again later.',
+          );
+          return of(this._platforms());
+        }),
+      );
   }
 
   /**
@@ -1079,6 +1427,8 @@ export class CollectionService implements OnDestroy {
    * @returns Observable denoting success status of the ingestion.
    */
   addToy(toy: Partial<Toy>): Observable<{ success: boolean; id: string }> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
@@ -1182,6 +1532,8 @@ export class CollectionService implements OnDestroy {
       }
     >;
   }): Observable<{ success: boolean; gameId: string; stableId?: number }> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
@@ -1398,6 +1750,10 @@ export class CollectionService implements OnDestroy {
    */
   public async signOut(): Promise<void> {
     const targetUrl = this.getLogoutRedirectUrl('/');
+    clearCachedKitAuthSnapshot();
+    this._authDegradedMode.set(null);
+    this._dataDegradedMode.set(null);
+    this._degradedTimestamp.set(null);
     this._currentUser.set(null);
     this._games.set([]);
     this._toys.set([]);
@@ -1452,6 +1808,8 @@ export class CollectionService implements OnDestroy {
     type: 'game' | 'toy',
     status: number,
   ): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
     }
@@ -1495,6 +1853,8 @@ export class CollectionService implements OnDestroy {
    * Updates the 'play_status' of a game.
    */
   updatePlayStatus(id: string, status: PlayStatus): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
     }
@@ -1530,6 +1890,8 @@ export class CollectionService implements OnDestroy {
    * Updates the 'backup_status' of a game.
    */
   updateBackupStatus(id: string, status: number): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
     }
@@ -1607,6 +1969,8 @@ export class CollectionService implements OnDestroy {
     transferredCount: number;
     declaredOwnedCount?: number;
   }> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
     }
@@ -1848,6 +2212,8 @@ export class CollectionService implements OnDestroy {
    * Updates the 'has_case' flag of a game release.
    */
   updateHasCase(id: string, status: number): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
     }
@@ -1881,6 +2247,8 @@ export class CollectionService implements OnDestroy {
    * Updates the 'has_manual' flag of a game release.
    */
   updateHasManual(id: string, status: number): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
     }
@@ -1919,6 +2287,8 @@ export class CollectionService implements OnDestroy {
     id: string,
     status: PhysicalStatus | string,
   ): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
@@ -1952,6 +2322,8 @@ export class CollectionService implements OnDestroy {
    * Accepts either the game ID or any of its release IDs. Admin-only.
    */
   deleteGame(id: string): Observable<{ success: boolean }> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
@@ -1978,6 +2350,8 @@ export class CollectionService implements OnDestroy {
    * The parent game remains, even if it ends up with no releases.
    */
   deleteRelease(releaseId: string): Observable<{ success: boolean }> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
@@ -2026,6 +2400,8 @@ export class CollectionService implements OnDestroy {
     type: 'game' | 'toy',
     sortIndex: number,
   ): Observable<unknown> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (!this.isAdmin()) {
       this.promptAdminLogin();
       return throwError(
@@ -2204,20 +2580,31 @@ export class CollectionService implements OnDestroy {
       .get<{
         authorized: boolean;
         entries: JournalEntry[];
-      }>('/api/journal/entries')
+        degraded?: boolean;
+      }>('/api/journal/entries', { observe: 'response' })
       .pipe(
-        tap((res) => {
-          if (res.authorized) {
+        tap((resp) => {
+          this.inspectDegradedHeaders(resp.headers);
+          const res = resp.body;
+          if (res?.authorized) {
             const nextMap = new Map<string, JournalEntry>();
             for (const entry of res.entries || []) {
               nextMap.set(`${entry.item_type}:${entry.item_id}`, entry);
             }
             this._journalEntriesMap.set(nextMap);
             this._journalLoaded.set(true);
+            if (!res.degraded && !this._dataDegradedMode()) {
+              void this.saveOfflineSnapshot(Date.now(), false);
+            }
           }
         }),
-        map((res) => (res.authorized ? res.entries || [] : [])),
-        catchError(() => of([])),
+        map((resp) => (resp.body?.authorized ? resp.body.entries || [] : [])),
+        catchError(() => {
+          this._dataDegradedMode.set(
+            this._dataDegradedMode() === 'backup' ? 'backup' : 'offline',
+          );
+          return of(Array.from(this._journalEntriesMap().values()));
+        }),
       );
   }
 
@@ -2230,6 +2617,8 @@ export class CollectionService implements OnDestroy {
       item_id: string;
     },
   ): Observable<{ success: boolean; entry: JournalEntry | null }> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
     }
@@ -2266,6 +2655,8 @@ export class CollectionService implements OnDestroy {
     itemType: 'game' | 'toy',
     itemId: string,
   ): Observable<{ success: boolean }> {
+    const blocked = this.checkDegradedReadOnly();
+    if (blocked) return blocked;
     if (this._isPublicView()) {
       return throwError(() => new Error('Cannot modify public collection'));
     }

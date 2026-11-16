@@ -32,6 +32,10 @@ import worker, {
   syncWorkerRetailDeals,
 } from './worker';
 import { normalizeTitleForMatching } from '../shared/title_matching';
+import {
+  KIT_DEGRADED_HEADER,
+  KIT_SNAPSHOT_TIMESTAMP_HEADER,
+} from '@wesdizzle/app-kit/worker';
 
 const CANONICAL_SCHEMA_SQL = fs.readFileSync(
   path.resolve(__dirname, '../migrations/schema.sql'),
@@ -6018,6 +6022,313 @@ describe('Worker API Logic', () => {
         );
         expect(strictMatch?.id).toBe(277143);
       });
+    });
+  });
+
+  describe('D1 Quota Fallback, R2 Backup & Auth Edge Cache Suite', () => {
+    it('caches non-degraded GET /api/auth/me in Edge Cache and falls back to R2 snapshot and stateless session cookie on D1 errors', async () => {
+      const secret = mockEnv.SESSION_SECRET!;
+      const token = await signSession(
+        {
+          id: 1,
+          username: 'alice',
+          role: 'admin',
+          homeRegion: 'USA',
+        },
+        secret,
+      );
+      const cookieHeader = `${HOST_SESSION_COOKIE}=${token}`;
+
+      const cacheStore = new Map<string, Response>();
+      const fakeCache = {
+        match: async (req: Request | string) => {
+          const key = typeof req === 'string' ? req : req.url;
+          const hit = cacheStore.get(key);
+          return hit ? hit.clone() : undefined;
+        },
+        put: async (req: Request | string, res: Response) => {
+          const key = typeof req === 'string' ? req : req.url;
+          cacheStore.set(key, res.clone());
+        },
+        delete: async (req: Request | string) => {
+          const key = typeof req === 'string' ? req : req.url;
+          return cacheStore.delete(key);
+        },
+      };
+      const prevCaches = (globalThis as Record<string, unknown>)['caches'];
+      (globalThis as Record<string, unknown>)['caches'] = {
+        default: fakeCache,
+      };
+
+      try {
+        // 1. Seed R2 latest.json while D1 is healthy
+        await performScheduledBackup(mockEnv);
+
+        // 2. First /api/auth/me reads D1 and populates Edge Cache
+        const prepareSpy = vi.spyOn(mockEnv.DB, 'prepare');
+        const firstRes = await worker.fetch(
+          new Request('https://example.com/api/auth/me', {
+            headers: { Cookie: cookieHeader },
+          }),
+          mockEnv,
+        );
+        expect(firstRes.status).toBe(200);
+        const firstData = (await firstRes.json()) as {
+          authenticated: boolean;
+          degraded?: boolean;
+          user: { username: string };
+        };
+        expect(firstData.authenticated).toBe(true);
+        expect(firstData.degraded).toBeUndefined();
+        expect(firstData.user.username).toBe('alice');
+        expect(prepareSpy).toHaveBeenCalled();
+
+        // 3. Repeat /api/auth/me hits Edge Cache with 0 D1 reads
+        prepareSpy.mockClear();
+        const cachedRes = await worker.fetch(
+          new Request('https://example.com/api/auth/me', {
+            headers: { Cookie: cookieHeader },
+          }),
+          mockEnv,
+        );
+        expect(cachedRes.status).toBe(200);
+        expect(prepareSpy).not.toHaveBeenCalled();
+
+        // 4. Clear Edge Cache + simulate D1 quota exhaustion -> falls back to R2 snapshot
+        cacheStore.clear();
+        const failingDb = {
+          prepare: () => ({
+            bind: () => ({
+              all: async () => {
+                throw new Error('D1_ERROR: exceeded rows read quota');
+              },
+              first: async () => {
+                throw new Error('D1_ERROR: exceeded rows read quota');
+              },
+              run: async () => {
+                throw new Error('D1_ERROR: exceeded rows read quota');
+              },
+            }),
+            all: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            first: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            run: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+          }),
+          batch: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+        } as unknown as Env['DB'];
+        const degradedEnv: Env = { ...mockEnv, DB: failingDb };
+
+        const r2Res = await worker.fetch(
+          new Request('https://example.com/api/auth/me', {
+            headers: { Cookie: cookieHeader },
+          }),
+          degradedEnv,
+        );
+        expect(r2Res.status).toBe(200);
+        expect(r2Res.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+        expect(r2Res.headers.get(KIT_SNAPSHOT_TIMESTAMP_HEADER)).toBeTruthy();
+        const r2Data = (await r2Res.json()) as {
+          authenticated: boolean;
+          degraded?: boolean;
+          degradedReason?: string;
+          user: { id: number; username: string; displayName: string | null };
+        };
+        expect(r2Data.authenticated).toBe(true);
+        expect(r2Data.degraded).toBe(true);
+        expect(r2Data.degradedReason).toBe('r2_backup');
+        expect(r2Data.user.username).toBe('alice');
+        expect(r2Data.user.displayName).toBe('Alice');
+
+        // 5. Remove R2 backup too -> falls back to stateless verified session cookie (never boots user)
+        mockBucket.storage.clear();
+        resetWorkerRateLimits();
+        const cookieRes = await worker.fetch(
+          new Request('https://example.com/api/auth/me', {
+            headers: { Cookie: cookieHeader },
+          }),
+          degradedEnv,
+        );
+        expect(cookieRes.status).toBe(200);
+        const cookieData = (await cookieRes.json()) as {
+          authenticated: boolean;
+          degraded?: boolean;
+          degradedReason?: string;
+          user: { id: number; username: string; role: string };
+        };
+        expect(cookieData.authenticated).toBe(true);
+        expect(cookieData.degraded).toBe(true);
+        expect(cookieData.degradedReason).toBe('d1_unavailable');
+        expect(cookieData.user.id).toBe(1);
+        expect(cookieData.user.username).toBe('alice');
+        expect(cookieData.user.role).toBe('admin');
+      } finally {
+        if (prevCaches === undefined) {
+          delete (globalThis as Record<string, unknown>)['caches'];
+        } else {
+          (globalThis as Record<string, unknown>)['caches'] = prevCaches;
+        }
+      }
+    });
+
+    it('falls back to R2 snapshots/latest.json for collection, detail, public profile, and journal endpoints and returns 503 without R2', async () => {
+      const secret = mockEnv.SESSION_SECRET!;
+      const token = await signSession(
+        {
+          id: 1,
+          username: 'alice',
+          role: 'admin',
+          homeRegion: 'USA',
+        },
+        secret,
+      );
+      const cookieHeader = `${HOST_SESSION_COOKIE}=${token}`;
+
+      db.prepare(
+        `INSERT INTO journal_entries (user_id, item_type, item_id, merchant, price_paid) VALUES (1, 'game', '1', 'Retro Shop', 39.99)`,
+      ).run();
+
+      await performScheduledBackup(mockEnv);
+
+      const failingDb = {
+        prepare: () => ({
+          bind: () => ({
+            all: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            first: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            run: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+          }),
+          all: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          first: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          run: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+        }),
+        batch: async () => {
+          throw new Error('D1_ERROR: exceeded rows read quota');
+        },
+      } as unknown as Env['DB'];
+      const degradedEnv: Env = { ...mockEnv, DB: failingDb };
+
+      const gamesRes = await worker.fetch(
+        new Request('https://example.com/api/games', {
+          headers: { Cookie: cookieHeader },
+        }),
+        degradedEnv,
+      );
+      expect(gamesRes.status).toBe(200);
+      expect(gamesRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+      expect(gamesRes.headers.get(KIT_SNAPSHOT_TIMESTAMP_HEADER)).toBeTruthy();
+      const games = (await gamesRes.json()) as Array<{
+        id: string;
+        title: string;
+        ownership_status: number;
+      }>;
+      expect(games.length).toBe(1);
+      expect(games[0].title).toBe('Super Mario Bros');
+      expect(games[0].ownership_status).toBe(1);
+
+      const gameDetailRes = await worker.fetch(
+        new Request('https://example.com/api/games/gb-mario', {
+          headers: { Cookie: cookieHeader },
+        }),
+        degradedEnv,
+      );
+      expect(gameDetailRes.status).toBe(200);
+      expect(gameDetailRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+      const gameDetail = (await gameDetailRes.json()) as {
+        title: string;
+        releases: unknown[];
+      };
+      expect(gameDetail.title).toBe('Super Mario Bros');
+      expect(gameDetail.releases.length).toBeGreaterThanOrEqual(1);
+
+      const toysRes = await worker.fetch(
+        new Request('https://example.com/api/toys', {
+          headers: { Cookie: cookieHeader },
+        }),
+        degradedEnv,
+      );
+      expect(toysRes.status).toBe(200);
+      expect(toysRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+      const toys = (await toysRes.json()) as Array<{
+        id: string;
+        name: string;
+      }>;
+      expect(toys.some((t) => t.name === 'Link')).toBe(true);
+
+      const toyDetailRes = await worker.fetch(
+        new Request('https://example.com/api/toys/link-amiibo'),
+        degradedEnv,
+      );
+      expect(toyDetailRes.status).toBe(200);
+      expect(toyDetailRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+
+      const platformsRes = await worker.fetch(
+        new Request('https://example.com/api/platforms'),
+        degradedEnv,
+      );
+      expect(platformsRes.status).toBe(200);
+      expect(platformsRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+      const platforms = (await platformsRes.json()) as unknown[];
+      expect(Array.isArray(platforms)).toBe(true);
+
+      const journalRes = await worker.fetch(
+        new Request('https://example.com/api/journal/entries', {
+          headers: { Cookie: cookieHeader },
+        }),
+        degradedEnv,
+      );
+      expect(journalRes.status).toBe(200);
+      expect(journalRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+      const journalData = (await journalRes.json()) as {
+        authorized: boolean;
+        entries: Array<{ merchant: string }>;
+      };
+      expect(journalData.authorized).toBe(true);
+      expect(journalData.entries[0].merchant).toBe('Retro Shop');
+
+      const publicGamesRes = await worker.fetch(
+        new Request('https://example.com/api/u/alice/games'),
+        degradedEnv,
+      );
+      expect(publicGamesRes.status).toBe(200);
+      expect(publicGamesRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+
+      // When R2 backup is missing, read endpoints return 503 degraded instead of crashing
+      mockBucket.storage.clear();
+      resetWorkerRateLimits();
+      for (const path of [
+        '/api/games',
+        '/api/toys',
+        '/api/platforms',
+        '/api/journal/entries',
+      ]) {
+        const res = await worker.fetch(
+          new Request(`https://example.com${path}`, {
+            headers: { Cookie: cookieHeader },
+          }),
+          degradedEnv,
+        );
+        expect(res.status).toBe(503);
+        const body = (await res.json()) as { degraded?: boolean };
+        expect(body.degraded).toBe(true);
+      }
     });
   });
 });

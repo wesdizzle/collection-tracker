@@ -16,6 +16,7 @@ import {
 } from '@angular/router';
 import { filter } from 'rxjs';
 import {
+  KitDegradedBannerComponent,
   KitHeaderBarComponent,
   KitHeaderTab,
   KitPublicBannerComponent,
@@ -34,6 +35,7 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
   standalone: true,
   imports: [
     RouterModule,
+    KitDegradedBannerComponent,
     KitHeaderBarComponent,
     KitPublicBannerComponent,
     IconComponent,
@@ -87,6 +89,11 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
     </kit-header-bar>
 
     <div class="layout-container">
+      <kit-degraded-banner
+        [mode]="collectionService.degradedMode()"
+        [snapshotTimestamp]="collectionService.degradedTimestamp()"
+      />
+
       @if (isPublicView() && publicProfile(); as pub) {
         <kit-public-banner
           data-testid="public-collection-banner"

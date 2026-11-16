@@ -119,7 +119,15 @@ import {
   ALLOWED_HOME_REGIONS,
   normalizeHomeRegion,
 } from './auth';
-import { performScheduledBackup as kitPerformScheduledBackup } from '@wesdizzle/app-kit/worker';
+import {
+  performScheduledBackup as kitPerformScheduledBackup,
+  KIT_DEGRADED_HEADER,
+  KIT_SNAPSHOT_TIMESTAMP_HEADER,
+  loadR2LatestSnapshot,
+  resetR2SnapshotCache,
+  isD1QuotaOrReadError,
+  R2BackupSnapshot,
+} from '@wesdizzle/app-kit/worker';
 import {
   fetchBoutiquePreOrders,
   BoutiquePreOrder,
@@ -258,6 +266,9 @@ export async function invalidateEdgeApiCache(
     );
     for (const uid of userIds) {
       await edgeCache
+        .delete(new Request(`https://edge-cache.internal/auth-me/user:${uid}`))
+        .catch(() => {});
+      await edgeCache
         .delete(new Request(`${origin}/api/toys?__uid=${uid}`))
         .catch(() => {});
       await edgeCache
@@ -313,6 +324,7 @@ const workerRateLimitBuckets = new Map<string, number[]>();
 
 export function resetWorkerRateLimits(): void {
   workerRateLimitBuckets.clear();
+  resetR2SnapshotCache();
 }
 
 function getRateLimitClientKey(
@@ -398,6 +410,7 @@ let cachedPlatformMetadata: {
 export function invalidateSeriesScanCache() {
   cachedSeriesScanMetadata = null;
   cachedPlatformMetadata = null;
+  resetR2SnapshotCache();
 }
 
 export async function getCachedPlatformMetadata(env: Env): Promise<{
@@ -962,6 +975,1003 @@ interface DbUserRow {
   display_name: string | null;
   bio: string | null;
   auto_track_series_on_add?: number | null;
+}
+
+type SnapshotTables = Record<string, Array<Record<string, unknown>>>;
+
+function buildR2DegradedHeaders(
+  timestamp: string | null | undefined,
+  baseHeaders: Record<string, string> = {},
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    ...baseHeaders,
+    [KIT_DEGRADED_HEADER]: 'r2-backup',
+  };
+  if (timestamp) {
+    headers[KIT_SNAPSHOT_TIMESTAMP_HEADER] = timestamp;
+  }
+  return headers;
+}
+
+function buildD1QuotaExceededResponse(
+  baseHeaders: Record<string, string> = {},
+): Response {
+  return Response.json(
+    {
+      error: 'Database read quota exceeded',
+      degraded: true,
+    },
+    {
+      status: 503,
+      headers: {
+        'Cache-Control': 'no-store, private',
+        ...baseHeaders,
+      },
+    },
+  );
+}
+
+function toUserProfileResponsePayload(
+  profile: DbUserRow,
+  role: SessionUser['role'],
+) {
+  return {
+    id: profile.id,
+    username: profile.username,
+    role,
+    isPublic: Boolean(profile.is_public),
+    homeRegion: profile.home_region || DEFAULT_USER_HOME_REGION,
+    displayName: profile.display_name,
+    bio: profile.bio,
+    autoTrackSeriesOnAdd:
+      profile.auto_track_series_on_add !== undefined &&
+      profile.auto_track_series_on_add !== null
+        ? Boolean(profile.auto_track_series_on_add)
+        : true,
+  };
+}
+
+function snapshotRowToDbUserRow(row: Record<string, unknown>): DbUserRow {
+  return {
+    id: Number(row['id']),
+    username: String(row['username'] || ''),
+    oidc_sub: (row['oidc_sub'] as string | null) ?? null,
+    is_public: Number(row['is_public'] ?? 0),
+    home_region: (row['home_region'] as string | null) ?? null,
+    display_name: (row['display_name'] as string | null) ?? null,
+    bio: (row['bio'] as string | null) ?? null,
+    auto_track_series_on_add:
+      row['auto_track_series_on_add'] === undefined ||
+      row['auto_track_series_on_add'] === null
+        ? 1
+        : Number(row['auto_track_series_on_add']),
+  };
+}
+
+function resolvePublicUserFromSnapshot(
+  snapshot: R2BackupSnapshot<SnapshotTables>,
+  username: string,
+): {
+  id: number;
+  username: string;
+  display_name: string | null;
+  bio: string | null;
+  home_region: string | null;
+  is_public: number;
+} | null {
+  const users = snapshot.tables?.['users'] || [];
+  const target = username.trim().toLowerCase();
+  const match = users.find(
+    (u) =>
+      String(u['username'] || '')
+        .trim()
+        .toLowerCase() === target,
+  );
+  if (!match) return null;
+  return {
+    id: Number(match['id']),
+    username: String(match['username'] || ''),
+    display_name: (match['display_name'] as string | null) ?? null,
+    bio: (match['bio'] as string | null) ?? null,
+    home_region: (match['home_region'] as string | null) ?? null,
+    is_public: Number(match['is_public'] ?? 0),
+  };
+}
+
+async function resolveUserProfileWithFallback(
+  env: Env,
+  sessionUser: SessionUser,
+): Promise<{
+  profile: DbUserRow | null;
+  degraded: boolean;
+  degradedReason: 'r2_backup' | 'd1_unavailable' | null;
+  snapshotTimestamp: string | null;
+}> {
+  let profile: DbUserRow | null = null;
+  let d1Failed = false;
+
+  try {
+    profile = (await env.DB.prepare(
+      'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add FROM users WHERE id = ?',
+    )
+      .bind(sessionUser.id)
+      .first()) as DbUserRow | null;
+  } catch (primaryErr) {
+    if (isD1QuotaOrReadError(primaryErr)) {
+      d1Failed = true;
+    } else {
+      try {
+        profile = (await env.DB.prepare(
+          'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
+        )
+          .bind(sessionUser.id)
+          .first()) as DbUserRow | null;
+      } catch {
+        d1Failed = true;
+      }
+    }
+  }
+
+  if (!d1Failed) {
+    return {
+      profile,
+      degraded: false,
+      degradedReason: null,
+      snapshotTimestamp: null,
+    };
+  }
+
+  const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+    env.BACKUP_BUCKET,
+  );
+  const r2Users = snapshot?.tables?.['users'] || [];
+  const r2Row = r2Users.find((u) => Number(u['id']) === sessionUser.id);
+  if (r2Row) {
+    return {
+      profile: snapshotRowToDbUserRow(r2Row),
+      degraded: true,
+      degradedReason: 'r2_backup',
+      snapshotTimestamp: snapshot?.timestamp ?? null,
+    };
+  }
+
+  // Stateless verified-cookie synthesis when neither D1 nor R2 backup row exists
+  return {
+    profile: {
+      id: sessionUser.id,
+      username: sessionUser.username,
+      is_public: 0,
+      home_region: sessionUser.homeRegion || DEFAULT_USER_HOME_REGION,
+      display_name: null,
+      bio: null,
+      auto_track_series_on_add: 1,
+    },
+    degraded: true,
+    degradedReason: 'd1_unavailable',
+    snapshotTimestamp: snapshot?.timestamp ?? null,
+  };
+}
+
+function buildPlatformsFromSnapshot(
+  snapshot: R2BackupSnapshot<SnapshotTables>,
+): Array<Record<string, unknown>> {
+  const platforms = snapshot.tables?.['platforms'] || [];
+  const games = snapshot.tables?.['games'] || [];
+  const directPlatformIds = new Set<number>();
+  for (const g of games) {
+    if (g['platform_id'] !== undefined && g['platform_id'] !== null) {
+      directPlatformIds.add(Number(g['platform_id']));
+    }
+  }
+  const childIdsByParent = new Map<number, number[]>();
+  for (const p of platforms) {
+    const parentId = p['parent_platform_id'];
+    if (parentId !== undefined && parentId !== null) {
+      const pid = Number(parentId);
+      const list = childIdsByParent.get(pid) || [];
+      list.push(Number(p['id']));
+      childIdsByParent.set(pid, list);
+    }
+  }
+
+  return platforms
+    .filter((p) => {
+      const id = Number(p['id']);
+      if (id === 0) return false;
+      if (
+        p['parent_platform_id'] !== undefined &&
+        p['parent_platform_id'] !== null
+      ) {
+        return false;
+      }
+      if (games.length === 0) return true;
+      if (directPlatformIds.has(id)) return true;
+      const children = childIdsByParent.get(id) || [];
+      return children.some((cid) => directPlatformIds.has(cid));
+    })
+    .sort((a, b) => {
+      const aLaunch = (a['launch_date'] as string | null) ?? null;
+      const bLaunch = (b['launch_date'] as string | null) ?? null;
+      const aNull = aLaunch === null ? 1 : 0;
+      const bNull = bLaunch === null ? 1 : 0;
+      if (aNull !== bNull) return aNull - bNull;
+      if (aLaunch !== null && bLaunch !== null && aLaunch !== bLaunch) {
+        return aLaunch < bLaunch ? -1 : 1;
+      }
+      return Number(a['id']) - Number(b['id']);
+    });
+}
+
+function buildGamesListFromSnapshot(
+  snapshot: R2BackupSnapshot<SnapshotTables>,
+  userId: number | null,
+  homeRegion: string,
+  platformIdFilter?: string | null,
+): Array<Record<string, unknown>> {
+  const platforms = snapshot.tables?.['platforms'] || [];
+  const games = snapshot.tables?.['games'] || [];
+  const releases = snapshot.tables?.['game_releases'] || [];
+  const userGames = snapshot.tables?.['user_games'] || [];
+  const userGameReleases = snapshot.tables?.['user_game_releases'] || [];
+
+  const platformById = new Map<number, Record<string, unknown>>();
+  for (const p of platforms) {
+    platformById.set(Number(p['id']), p);
+  }
+
+  let allowedPlatformIds: Set<number> | null = null;
+  if (platformIdFilter) {
+    const targetPid = Number(platformIdFilter);
+    allowedPlatformIds = new Set<number>([targetPid]);
+    for (const p of platforms) {
+      if (
+        p['parent_platform_id'] !== undefined &&
+        p['parent_platform_id'] !== null &&
+        Number(p['parent_platform_id']) === targetPid
+      ) {
+        allowedPlatformIds.add(Number(p['id']));
+      }
+    }
+  }
+
+  const releasesByGameId = new Map<number, Array<Record<string, unknown>>>();
+  for (const r of releases) {
+    const gid = Number(r['game_id']);
+    const list = releasesByGameId.get(gid) || [];
+    list.push(r);
+    releasesByGameId.set(gid, list);
+  }
+
+  const userGamesByStableId = new Map<number, Record<string, unknown>>();
+  const userReleasesByReleaseId = new Map<string, Record<string, unknown>>();
+  if (userId) {
+    for (const ug of userGames) {
+      if (Number(ug['user_id']) === userId) {
+        userGamesByStableId.set(Number(ug['game_id']), ug);
+      }
+    }
+    for (const ugr of userGameReleases) {
+      if (Number(ugr['user_id']) === userId) {
+        userReleasesByReleaseId.set(String(ugr['release_id']), ugr);
+      }
+    }
+  }
+
+  const bundleCounts = new Map<number, number>();
+  for (const g of games) {
+    const parentId = g['bundle_parent_id'];
+    if (parentId !== undefined && parentId !== null) {
+      const pid = Number(parentId);
+      bundleCounts.set(pid, (bundleCounts.get(pid) ?? 0) + 1);
+    }
+  }
+
+  const rows: Array<Record<string, unknown>> = [];
+  for (const g of games) {
+    if (g['is_hidden'] === 1) continue;
+    const platId = Number(g['platform_id']);
+    if (allowedPlatformIds && !allowedPlatformIds.has(platId)) continue;
+
+    const stableId = Number(g['stable_id']);
+    const p = platformById.get(platId);
+    const pp =
+      p &&
+      p['parent_platform_id'] !== undefined &&
+      p['parent_platform_id'] !== null
+        ? platformById.get(Number(p['parent_platform_id']))
+        : undefined;
+    const effPlatform = pp || p;
+    const ug = userId ? userGamesByStableId.get(stableId) : undefined;
+    const gameReleases = releasesByGameId.get(stableId);
+    const relList: Array<Record<string, unknown> | null> =
+      gameReleases && gameReleases.length > 0 ? gameReleases : [null];
+
+    for (const r of relList) {
+      const relId = r ? String(r['id']) : null;
+      const ugr =
+        userId && relId ? userReleasesByReleaseId.get(relId) : undefined;
+      rows.push({
+        id: relId ?? g['id'],
+        game_id: g['id'],
+        stable_id: stableId,
+        title: g['title'],
+        base_title: g['title'],
+        raw_title: null,
+        series: g['series'] ?? null,
+        canonical_series: g['canonical_series'] ?? null,
+        release_date: (r ? r['release_date'] : g['release_date']) ?? null,
+        platform_id: platId,
+        queued: ug ? Number(ug['queued'] ?? 0) : 0,
+        sort_index: g['sort_index'] ?? null,
+        image_url: r?.['image_url'] || g['image_url'] || null,
+        play_status: ug ? Number(ug['play_status'] ?? 0) : 0,
+        igdb_id: g['igdb_id'] ?? null,
+        igdb_url: g['igdb_url'] ?? null,
+        genres: g['genres'] ?? null,
+        collections: g['collections'] ?? null,
+        franchises: g['franchises'] ?? null,
+        manually_verified: g['manually_verified'] ?? 0,
+        metadata_json: g['metadata_json'] ?? null,
+        physical_status: g['physical_status'] ?? null,
+        verification_tier: g['verification_tier'] ?? null,
+        barcode: g['barcode'] ?? null,
+        release_medium: g['release_medium'] ?? null,
+        bundle_parent_id: g['bundle_parent_id'] ?? null,
+        bundle_disc_number: g['bundle_disc_number'] ?? null,
+        bundle_count: bundleCounts.get(stableId) ?? 0,
+        ownership_status: ugr ? Number(ugr['ownership_status'] ?? 0) : 0,
+        region: r?.['region'] || g['region'] || null,
+        variants: r?.['variants'] ?? null,
+        also_released_as: r?.['also_released_as'] ?? null,
+        rom_name: r?.['rom_name'] ?? null,
+        rom_crc: r?.['rom_crc'] ?? null,
+        backup_status: ugr ? Number(ugr['backup_status'] ?? 0) : 0,
+        has_case: ugr ? Number(ugr['has_case'] ?? 0) : 0,
+        has_manual: ugr ? Number(ugr['has_manual'] ?? 0) : 0,
+        retail_price: g['retail_price'] ?? null,
+        retail_regular_price: g['retail_regular_price'] ?? null,
+        retail_discount_pct: g['retail_discount_pct'] ?? null,
+        retail_on_sale: Number(g['retail_on_sale'] ?? 0),
+        retail_store: g['retail_store'] ?? null,
+        retail_url: g['retail_url'] ?? null,
+        retail_updated_at: g['retail_updated_at'] ?? null,
+        display_name:
+          platId === 0
+            ? 'Physical Watch'
+            : ((effPlatform?.['display_name'] as string | null) ?? null),
+        platform:
+          platId === 0
+            ? 'Physical Watch'
+            : ((effPlatform?.['display_name'] as string | null) ?? null),
+        brand:
+          platId === 0
+            ? null
+            : ((effPlatform?.['brand'] as string | null) ?? null),
+        platform_launch_date: effPlatform?.['launch_date'] ?? null,
+        platform_logo: effPlatform?.['image_url'] ?? null,
+        parent_platform_id: p?.['parent_platform_id'] ?? null,
+        canonical_release_id: r?.['canonical_release_id'] ?? null,
+        source: null,
+        serial_code: null,
+        is_source_verified: r?.['rom_name'] ? 1 : 0,
+      });
+    }
+  }
+
+  if (rows.length > 0) {
+    postProcessGameListRows(rows, homeRegion);
+  }
+  return rows;
+}
+
+function applyGameDetailReleasePartitionAndTitles(
+  game: DbGame,
+  typedResults: Array<
+    Record<string, unknown> & {
+      id?: string;
+      rom_name?: string | null;
+      region?: string | null;
+      variants?: string | null;
+    }
+  >,
+  effectiveHomeRegion: string,
+): void {
+  const targetKey = getRomGroupingKey(game.rom_name);
+  const isMulti = targetKey.startsWith('multi:');
+
+  if (game.platform_id === 0) {
+    // Virtual Platform 0 ("No Platform") represents untracked / physical watch list games
+    // that have not yet released on a physical console. They must never expose synthetic
+    // or placeholder physical release rows.
+    game.releases = [];
+    game.other_releases = [];
+  } else if (isMulti) {
+    game.releases = typedResults.filter(
+      (r) => getRomGroupingKey(r.rom_name) === targetKey,
+    );
+    game.other_releases = typedResults.filter(
+      (r) => getRomGroupingKey(r.rom_name) !== targetKey,
+    );
+  } else {
+    let primaryReleases = typedResults.filter((r) => r.id === game.id);
+    if (primaryReleases.length === 0) {
+      primaryReleases = typedResults.filter(
+        (r) => r.region === game.region && r.variants === game.variants,
+      );
+    }
+    if (primaryReleases.length === 0 && typedResults.length > 0) {
+      primaryReleases = [typedResults[0]];
+    }
+    // Also include companion pack-in demo/bonus discs in primaryReleases if they belong to this game and region
+    const packInReleases = typedResults.filter(
+      (r) =>
+        !primaryReleases.some((pr) => pr.id === r.id) &&
+        (r.region === game.region || (!r.region && game.region === 'USA')) &&
+        (/\b(demo|trial edition|bonus disc|sampler)\b/i.test(
+          String(r.variants || ''),
+        ) ||
+          /\b(demo|trial edition|bonus disc|sampler)\b/i.test(
+            String(r.rom_name || ''),
+          )),
+    );
+    if (packInReleases.length > 0) {
+      primaryReleases = [...primaryReleases, ...packInReleases];
+    }
+    game.releases = primaryReleases;
+    game.other_releases = typedResults.filter(
+      (r) => !primaryReleases.some((pr) => pr.id === r.id),
+    );
+  }
+
+  const extractDiscOrder = (rel: Record<string, unknown>): number => {
+    const label = String(rel['disc_label'] || '');
+    let m = label.match(/^(?:disc|disco|disque|disk)\s+(\d+)/i);
+    if (m) return parseInt(m[1], 10);
+    const rom = String(rel['rom_name'] || '');
+    m = rom.match(/\b(?:disc|disco|disque|disk)\s*(\d+)/i);
+    if (m) return parseInt(m[1], 10);
+    return 99;
+  };
+  if (game.releases.length > 1) {
+    game.releases.sort(
+      (a, b) =>
+        extractDiscOrder(a) - extractDiscOrder(b) ||
+        String(a['rom_name'] || '').localeCompare(String(b['rom_name'] || '')),
+    );
+  }
+
+  const baseTitle = game.base_title || game.title || '';
+  const parsedMeta = parseGameMetadataOnce(game.metadata_json || null);
+  game.title = resolveLocalizedReleaseTitle(
+    baseTitle,
+    game.region as string | null,
+    parsedMeta,
+    game.raw_title || game.title || '',
+    effectiveHomeRegion,
+  );
+  if (game.releases && game.releases.length > 0) {
+    for (const rel of game.releases) {
+      rel['title'] = resolveLocalizedReleaseTitle(
+        baseTitle,
+        rel['region'] as string | null,
+        parsedMeta,
+        rel['title'] as string | null,
+        effectiveHomeRegion,
+      );
+    }
+  }
+  if (game.other_releases && game.other_releases.length > 0) {
+    for (const rel of game.other_releases) {
+      rel['title'] = resolveLocalizedReleaseTitle(
+        baseTitle,
+        rel['region'] as string | null,
+        parsedMeta,
+        rel['title'] as string | null,
+        effectiveHomeRegion,
+      );
+    }
+  }
+
+  if (
+    (!game.releases || game.releases.length === 0) &&
+    game.platform_id !== 0
+  ) {
+    game.releases = [
+      {
+        id: game.id,
+        game_id: game.stable_id,
+        region: game.region || null,
+        variants: game.variants || null,
+        rom_name: game.rom_name || null,
+        rom_crc: game.rom_crc || null,
+        backup_status: game.backup_status || 0,
+        ownership_status: game.ownership_status || 0,
+        release_date: game.release_date || null,
+      },
+    ];
+  }
+}
+
+function finalizeGameDetailObject(
+  game: DbGame,
+  typedResults: Array<
+    Record<string, unknown> & {
+      id?: string;
+      rom_name?: string | null;
+      region?: string | null;
+      variants?: string | null;
+    }
+  >,
+  candidateReleases: CompanionDiscCandidateRow[],
+  bundledRows: Array<Record<string, unknown>>,
+  effectiveHomeRegion: string,
+): DbGame {
+  applyGameDetailReleasePartitionAndTitles(
+    game,
+    typedResults,
+    effectiveHomeRegion,
+  );
+
+  if (game.platform_id) {
+    enrichGameDetailWithCompanionsAndVouchers(game, candidateReleases);
+  }
+
+  if (game.stable_id) {
+    game.bundled_games = bundledRows.map((row) => ({
+      ...row,
+      platform_id: (row as { platform_id: number }).platform_id,
+    }));
+  }
+
+  return game;
+}
+
+function buildGameDetailFromSnapshot(
+  snapshot: R2BackupSnapshot<SnapshotTables>,
+  id: string,
+  userId: number | null,
+  homeRegion: string,
+): DbGame | null {
+  const games = snapshot.tables?.['games'] || [];
+  const releases = snapshot.tables?.['game_releases'] || [];
+  const platforms = snapshot.tables?.['platforms'] || [];
+  const userGames = snapshot.tables?.['user_games'] || [];
+  const userGameReleases = snapshot.tables?.['user_game_releases'] || [];
+
+  const matchedRelease = releases.find((r) => String(r['id']) === id) || null;
+  let g: Record<string, unknown> | undefined;
+  if (matchedRelease) {
+    const gid = Number(matchedRelease['game_id']);
+    g = games.find((item) => Number(item['stable_id']) === gid);
+  }
+  if (!g) {
+    g = games.find(
+      (item) => String(item['id']) === id || String(item['stable_id']) === id,
+    );
+  }
+  if (!g) return null;
+
+  const stableId = Number(g['stable_id']);
+  const platId = Number(g['platform_id']);
+  const platformById = new Map<number, Record<string, unknown>>();
+  for (const p of platforms) {
+    platformById.set(Number(p['id']), p);
+  }
+  const gameByStableId = new Map<number, Record<string, unknown>>();
+  for (const item of games) {
+    gameByStableId.set(Number(item['stable_id']), item);
+  }
+  const userReleasesByReleaseId = new Map<string, Record<string, unknown>>();
+  if (userId) {
+    for (const ugr of userGameReleases) {
+      if (Number(ugr['user_id']) === userId) {
+        userReleasesByReleaseId.set(String(ugr['release_id']), ugr);
+      }
+    }
+  }
+  const ug = userId
+    ? userGames.find(
+        (item) =>
+          Number(item['user_id']) === userId &&
+          Number(item['game_id']) === stableId,
+      )
+    : undefined;
+
+  const gameReleases = releases.filter(
+    (r) => Number(r['game_id']) === stableId,
+  );
+  let primaryRel = matchedRelease;
+  if (!primaryRel && gameReleases.length > 0) {
+    primaryRel = [...gameReleases].sort((a, b) => {
+      const aOwned = userId
+        ? Number(
+            userReleasesByReleaseId.get(String(a['id']))?.[
+              'ownership_status'
+            ] ?? 0,
+          )
+        : 0;
+      const bOwned = userId
+        ? Number(
+            userReleasesByReleaseId.get(String(b['id']))?.[
+              'ownership_status'
+            ] ?? 0,
+          )
+        : 0;
+      if (aOwned !== bOwned) return bOwned - aOwned;
+      const aReg = a['region'] === g['region'] ? 0 : 1;
+      const bReg = b['region'] === g['region'] ? 0 : 1;
+      if (aReg !== bReg) return aReg - bReg;
+      return String(a['id']).localeCompare(String(b['id']));
+    })[0];
+  }
+
+  const p = platformById.get(platId);
+  const pp =
+    p &&
+    p['parent_platform_id'] !== undefined &&
+    p['parent_platform_id'] !== null
+      ? platformById.get(Number(p['parent_platform_id']))
+      : undefined;
+  const effPlatform = pp || p;
+  const bundleCount = games.filter(
+    (item) =>
+      item['bundle_parent_id'] !== null &&
+      item['bundle_parent_id'] !== undefined &&
+      Number(item['bundle_parent_id']) === stableId,
+  ).length;
+  const fallbackReleaseDate =
+    (primaryRel?.['release_date'] as string | null | undefined) ??
+    (gameReleases.find((r) => Boolean(r['release_date']))?.['release_date'] as
+      | string
+      | null
+      | undefined) ??
+    (g['release_date'] as string | null | undefined) ??
+    null;
+  const primaryUgr =
+    userId && primaryRel
+      ? userReleasesByReleaseId.get(String(primaryRel['id']))
+      : undefined;
+
+  const game: DbGame = {
+    id: primaryRel ? String(primaryRel['id']) : String(g['id']),
+    game_id: String(g['id']),
+    stable_id: stableId,
+    title: String(g['title'] || ''),
+    base_title: String(g['title'] || ''),
+    raw_title: null,
+    series: (g['series'] as string | null) ?? null,
+    canonical_series: (g['canonical_series'] as string | null) ?? null,
+    release_date: fallbackReleaseDate,
+    platform_id: platId,
+    queued: ug ? Number(ug['queued'] ?? 0) : 0,
+    sort_index: (g['sort_index'] as number | null) ?? null,
+    image_url:
+      ((primaryRel?.['image_url'] || g['image_url']) as string | null) ?? null,
+    play_status: ug ? Number(ug['play_status'] ?? 0) : 0,
+    igdb_id: (g['igdb_id'] as string | number | null) ?? null,
+    igdb_url: (g['igdb_url'] as string | null) ?? null,
+    summary: (g['summary'] as string | null) ?? null,
+    genres: (g['genres'] as string | null) ?? null,
+    collections: (g['collections'] as string | null) ?? null,
+    franchises: (g['franchises'] as string | null) ?? null,
+    manually_verified: Number(g['manually_verified'] ?? 0),
+    metadata_json: (g['metadata_json'] as string | null) ?? null,
+    physical_status: (g['physical_status'] as string | null) ?? null,
+    verification_tier: (g['verification_tier'] as number | null) ?? null,
+    barcode: (g['barcode'] as string | null) ?? null,
+    release_medium: (g['release_medium'] as string | null) ?? null,
+    origin_metadata: (g['origin_metadata'] as string | null) ?? null,
+    bundle_parent_id: (g['bundle_parent_id'] as number | null) ?? null,
+    bundle_disc_number: (g['bundle_disc_number'] as number | null) ?? null,
+    bundle_count: bundleCount,
+    ownership_status: primaryUgr
+      ? Number(primaryUgr['ownership_status'] ?? 0)
+      : 0,
+    region: ((primaryRel?.['region'] || g['region']) as string | null) ?? null,
+    variants: (primaryRel?.['variants'] as string | null) ?? null,
+    also_released_as:
+      (primaryRel?.['also_released_as'] as string | null) ?? null,
+    rom_name: (primaryRel?.['rom_name'] as string | null) ?? null,
+    rom_crc: (primaryRel?.['rom_crc'] as string | null) ?? null,
+    backup_status: primaryUgr ? Number(primaryUgr['backup_status'] ?? 0) : 0,
+    has_case: primaryUgr ? Number(primaryUgr['has_case'] ?? 0) : 0,
+    has_manual: primaryUgr ? Number(primaryUgr['has_manual'] ?? 0) : 0,
+    display_name:
+      platId === 0
+        ? 'Physical Watch'
+        : ((effPlatform?.['display_name'] as string | null) ?? null),
+    platform:
+      platId === 0
+        ? 'Physical Watch'
+        : ((effPlatform?.['display_name'] as string | null) ?? null),
+    brand:
+      platId === 0 ? null : ((effPlatform?.['brand'] as string | null) ?? null),
+    platform_launch_date:
+      (effPlatform?.['launch_date'] as string | null) ?? null,
+    platform_logo: (effPlatform?.['image_url'] as string | null) ?? null,
+    parent_platform_id: (p?.['parent_platform_id'] as number | null) ?? null,
+  } as DbGame;
+
+  const isMulti = getRomGroupingKey(game.rom_name).startsWith('multi:');
+  const mapReleaseRow = (r: Record<string, unknown>) => {
+    const rid = String(r['id']);
+    const ugr = userId ? userReleasesByReleaseId.get(rid) : undefined;
+    return {
+      id: rid,
+      game_id: Number(r['game_id']),
+      region: (r['region'] as string | null) ?? null,
+      variants: (r['variants'] as string | null) ?? null,
+      also_released_as: (r['also_released_as'] as string | null) ?? null,
+      rom_name: (r['rom_name'] as string | null) ?? null,
+      rom_crc: (r['rom_crc'] as string | null) ?? null,
+      backup_status: ugr ? Number(ugr['backup_status'] ?? 0) : 0,
+      ownership_status: ugr ? Number(ugr['ownership_status'] ?? 0) : 0,
+      title: (r['also_released_as'] as string | null) ?? null,
+      release_date:
+        (r['release_date'] as string | null) ?? fallbackReleaseDate ?? null,
+      image_url: (r['image_url'] as string | null) ?? null,
+      has_case: ugr ? Number(ugr['has_case'] ?? 0) : 0,
+      has_manual: ugr ? Number(ugr['has_manual'] ?? 0) : 0,
+      canonical_release_id:
+        (r['canonical_release_id'] as string | null) ?? null,
+      source: null,
+      is_source_verified: r['rom_name'] ? 1 : 0,
+      serial_code: null,
+      comments: null,
+    };
+  };
+
+  const typedResults = gameReleases.map(mapReleaseRow).sort((a, b) => {
+    if (!isMulti) {
+      const regRank = (reg: string | null) =>
+        reg === game.region ? 0 : reg === 'World' ? 1 : reg === null ? 2 : 3;
+      const rDiff = regRank(a.region) - regRank(b.region);
+      if (rDiff !== 0) return rDiff;
+      const aVar = String(a.variants || '');
+      const bVar = String(b.variants || '');
+      if (aVar !== bVar) return aVar < bVar ? -1 : 1;
+    }
+    const aKey = String(a.rom_name || a.id || '');
+    const bKey = String(b.rom_name || b.id || '');
+    return aKey.localeCompare(bKey);
+  });
+
+  const candidateReleases: CompanionDiscCandidateRow[] = [];
+  if (platId) {
+    const primaryIds = new Set(typedResults.map((r) => r.id));
+    const distinctCrcs = new Set<string>(
+      typedResults
+        .map((r) => (r.rom_crc || '').trim())
+        .filter((c) => c.length > 0),
+    );
+    const relatedIds = new Set(getRelatedGameIdsForCompanion(game));
+    const relatedTitles = new Set(getRelatedGameTitlesForCompanion(game));
+    const seenIds = new Set<string>();
+
+    for (const r of releases) {
+      const rid = String(r['id']);
+      if (seenIds.has(rid)) continue;
+      const parentGame = gameByStableId.get(Number(r['game_id']));
+      if (!parentGame) continue;
+      const crc = String(r['rom_crc'] || '').trim();
+      const matchCrc = crc && distinctCrcs.has(crc) && !primaryIds.has(rid);
+      const matchRelId = relatedIds.has(Number(r['game_id']));
+      const matchTitle =
+        Number(parentGame['platform_id']) === platId &&
+        relatedTitles.has(String(parentGame['title'] || '')) &&
+        Boolean(r['rom_name']);
+      if (!matchCrc && !matchRelId && !matchTitle) continue;
+      seenIds.add(rid);
+      const ugr = userId ? userReleasesByReleaseId.get(rid) : undefined;
+      candidateReleases.push({
+        id: rid,
+        game_id: Number(r['game_id']),
+        region: (r['region'] as string | null) ?? null,
+        variants: (r['variants'] as string | null) ?? null,
+        also_released_as: (r['also_released_as'] as string | null) ?? null,
+        rom_name: (r['rom_name'] as string | null) ?? null,
+        rom_crc: (r['rom_crc'] as string | null) ?? null,
+        backup_status: ugr ? Number(ugr['backup_status'] ?? 0) : 0,
+        ownership_status: ugr ? Number(ugr['ownership_status'] ?? 0) : 0,
+        release_date: (r['release_date'] as string | null) ?? null,
+        has_case: ugr ? Number(ugr['has_case'] ?? 0) : 0,
+        has_manual: ugr ? Number(ugr['has_manual'] ?? 0) : 0,
+        game_title: String(parentGame['title'] || ''),
+        platform_id: Number(parentGame['platform_id']),
+      });
+    }
+  }
+
+  const bundledRows = games
+    .filter(
+      (item) =>
+        item['bundle_parent_id'] !== null &&
+        item['bundle_parent_id'] !== undefined &&
+        Number(item['bundle_parent_id']) === stableId,
+    )
+    .sort((a, b) => {
+      const aDisc = Number(a['bundle_disc_number'] ?? 0);
+      const bDisc = Number(b['bundle_disc_number'] ?? 0);
+      if (aDisc !== bDisc) return aDisc - bDisc;
+      return String(a['title'] || '').localeCompare(String(b['title'] || ''));
+    })
+    .map((bg) => {
+      const bgPlatId = Number(bg['platform_id']);
+      const bp = platformById.get(bgPlatId);
+      const bpp =
+        bp &&
+        bp['parent_platform_id'] !== undefined &&
+        bp['parent_platform_id'] !== null
+          ? platformById.get(Number(bp['parent_platform_id']))
+          : undefined;
+      const effBp = bpp || bp;
+      const rel = releases.find(
+        (r) => Number(r['game_id']) === Number(bg['stable_id']),
+      );
+      const ugr =
+        userId && rel
+          ? userReleasesByReleaseId.get(String(rel['id']))
+          : undefined;
+      return {
+        stable_id: Number(bg['stable_id']),
+        id: bg['id'],
+        title: bg['title'],
+        platform_id: bgPlatId,
+        bundle_disc_number: bg['bundle_disc_number'] ?? null,
+        release_medium: bg['release_medium'] ?? null,
+        origin_metadata: bg['origin_metadata'] ?? null,
+        rom_name: rel?.['rom_name'] || bg['title'],
+        backup_status: ugr ? Number(ugr['backup_status'] ?? 0) : 0,
+        platform_name: effBp?.['display_name'] ?? null,
+        platform: effBp?.['display_name'] ?? null,
+      };
+    });
+
+  return finalizeGameDetailObject(
+    game,
+    typedResults,
+    candidateReleases,
+    bundledRows,
+    homeRegion,
+  );
+}
+
+function buildToysListFromSnapshot(
+  snapshot: R2BackupSnapshot<SnapshotTables>,
+  userId: number | null,
+  homeRegion: string,
+): Array<Record<string, unknown>> {
+  const toys = snapshot.tables?.['toys'] || [];
+  const toySeries = snapshot.tables?.['toy_series'] || [];
+  const userToys = snapshot.tables?.['user_toys'] || [];
+
+  const seriesById = new Map<string, Record<string, unknown>>();
+  for (const s of toySeries) {
+    seriesById.set(String(s['id']), s);
+  }
+  const userToysByToyId = new Map<string, Record<string, unknown>>();
+  if (userId) {
+    for (const ut of userToys) {
+      if (Number(ut['user_id']) === userId) {
+        userToysByToyId.set(String(ut['toy_id']), ut);
+      }
+    }
+  }
+
+  const rows: Array<Record<string, unknown>> = [];
+  for (const f of toys) {
+    if (f['is_hidden'] === 1) continue;
+    const fs =
+      f['series_id'] !== undefined && f['series_id'] !== null
+        ? seriesById.get(String(f['series_id']))
+        : undefined;
+    const ut = userId ? userToysByToyId.get(String(f['id'])) : undefined;
+    const seriesName =
+      (f['line'] === 'Skylanders' ? null : (f['series'] as string | null)) ??
+      (fs?.['name'] as string | null) ??
+      null;
+    rows.push({
+      ...f,
+      retail_on_sale: Number(f['retail_on_sale'] ?? 0),
+      ownership_status: ut ? Number(ut['ownership_status'] ?? 0) : 0,
+      series_line: fs?.['line'] ?? null,
+      series_name: seriesName,
+      series_index: fs?.['sort_index'] ?? null,
+    });
+  }
+
+  if (rows.length > 0) {
+    postProcessToyListRows(rows, homeRegion);
+  }
+  return rows;
+}
+
+function buildToyDetailFromSnapshot(
+  snapshot: R2BackupSnapshot<SnapshotTables>,
+  id: string,
+  userId: number | null,
+): Record<string, unknown> | null {
+  const toys = snapshot.tables?.['toys'] || [];
+  const f = toys.find(
+    (item) => String(item['id']) === id || String(item['stable_id']) === id,
+  );
+  if (!f) return null;
+
+  const toySeries = snapshot.tables?.['toy_series'] || [];
+  const userToys = snapshot.tables?.['user_toys'] || [];
+  const fs =
+    f['series_id'] !== undefined && f['series_id'] !== null
+      ? toySeries.find((s) => String(s['id']) === String(f['series_id']))
+      : undefined;
+  const ut = userId
+    ? userToys.find(
+        (item) =>
+          Number(item['user_id']) === userId &&
+          String(item['toy_id']) === String(f['id']),
+      )
+    : undefined;
+  const seriesName =
+    (f['line'] === 'Skylanders' ? null : (f['series'] as string | null)) ??
+    (fs?.['name'] as string | null) ??
+    null;
+
+  return {
+    ...f,
+    retail_on_sale: Number(f['retail_on_sale'] ?? 0),
+    ownership_status: ut ? Number(ut['ownership_status'] ?? 0) : 0,
+    series_line: fs?.['line'] ?? null,
+    series_name: seriesName,
+    series_index: fs?.['sort_index'] ?? null,
+  };
+}
+
+function buildJournalEntriesFromSnapshot(
+  snapshot: R2BackupSnapshot<SnapshotTables>,
+  userId: number,
+): Array<Record<string, unknown>> {
+  const entries = snapshot.tables?.['journal_entries'] || [];
+  return entries
+    .filter((e) => Number(e['user_id']) === userId)
+    .sort((a, b) =>
+      String(b['updated_at'] || b['id'] || '').localeCompare(
+        String(a['updated_at'] || a['id'] || ''),
+      ),
+    );
+}
+
+function findJournalEntryFromSnapshot(
+  snapshot: R2BackupSnapshot<SnapshotTables>,
+  userId: number,
+  itemType: string,
+  itemId: string,
+): Record<string, unknown> | null {
+  let canonicalId = itemId;
+  if (itemType === 'game') {
+    const rel = (snapshot.tables?.['game_releases'] || []).find(
+      (r) => String(r['id']) === itemId,
+    );
+    if (rel && rel['game_id'] !== undefined && rel['game_id'] !== null) {
+      canonicalId = String(rel['game_id']);
+    } else {
+      const g = (snapshot.tables?.['games'] || []).find(
+        (item) =>
+          String(item['id']) === itemId || String(item['stable_id']) === itemId,
+      );
+      if (g && g['stable_id'] !== undefined && g['stable_id'] !== null) {
+        canonicalId = String(g['stable_id']);
+      }
+    }
+  }
+  const entries = snapshot.tables?.['journal_entries'] || [];
+  return (
+    entries.find(
+      (e) =>
+        Number(e['user_id']) === userId &&
+        String(e['item_type'] || '') === itemType &&
+        (String(e['item_id'] || '') === itemId ||
+          String(e['item_id'] || '') === canonicalId),
+    ) || null
+  );
 }
 
 /**
@@ -2252,7 +3262,7 @@ Disallow: /
 
     // Endpoint: GET /api/auth/me
     if (path === '/api/auth/me') {
-      const privateHeaders = {
+      const privateHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store, private',
       };
@@ -2261,45 +3271,60 @@ Disallow: /
       const accountHubUrl = getAccountHubUrl(env);
 
       if (sessionUser) {
-        let profile: DbUserRow | null = null;
-        try {
-          profile = (await env.DB.prepare(
-            'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add FROM users WHERE id = ?',
-          )
-            .bind(sessionUser.id)
-            .first()) as DbUserRow | null;
-        } catch {
-          profile = (await env.DB.prepare(
-            'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
-          )
-            .bind(sessionUser.id)
-            .first()) as DbUserRow | null;
+        const authCacheKey = new Request(
+          `https://edge-cache.internal/auth-me/user:${sessionUser.id}`,
+        );
+        if (edgeCache && !isNoCache) {
+          const cachedAuth = await edgeCache.match(authCacheKey);
+          if (cachedAuth) {
+            return new Response(cachedAuth.body, {
+              status: cachedAuth.status,
+              headers: privateHeaders,
+            });
+          }
         }
 
-        if (profile) {
-          return new Response(
-            JSON.stringify({
-              authenticated: true,
-              oidcIssuer,
-              oidcClientId,
-              accountHubUrl,
-              user: {
-                id: profile.id,
-                username: profile.username,
-                role: sessionUser.role,
-                isPublic: Boolean(profile.is_public),
-                homeRegion: profile.home_region || 'USA',
-                displayName: profile.display_name,
-                bio: profile.bio,
-                autoTrackSeriesOnAdd:
-                  profile.auto_track_series_on_add !== undefined &&
-                  profile.auto_track_series_on_add !== null
-                    ? Boolean(profile.auto_track_series_on_add)
-                    : true,
-              },
-            }),
-            { headers: privateHeaders },
-          );
+        const resolved = await resolveUserProfileWithFallback(env, sessionUser);
+        if (resolved.profile) {
+          const payload = {
+            authenticated: true,
+            oidcIssuer,
+            oidcClientId,
+            accountHubUrl,
+            ...(resolved.degraded
+              ? {
+                  degraded: true,
+                  degradedReason: resolved.degradedReason,
+                  snapshotTimestamp: resolved.snapshotTimestamp,
+                }
+              : {}),
+            user: toUserProfileResponsePayload(
+              resolved.profile,
+              sessionUser.role,
+            ),
+          };
+          const bodyJson = JSON.stringify(payload);
+          if (!resolved.degraded && edgeCache) {
+            await putEdgeCacheEntry(
+              edgeCache,
+              authCacheKey,
+              new Response(bodyJson, {
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Cache-Control': 'public, max-age=300',
+                },
+              }),
+              isNoCache,
+            );
+          }
+          const responseHeaders =
+            resolved.degradedReason === 'r2_backup'
+              ? buildR2DegradedHeaders(
+                  resolved.snapshotTimestamp,
+                  privateHeaders,
+                )
+              : privateHeaders;
+          return new Response(bodyJson, { headers: responseHeaders });
         }
       }
 
@@ -2329,43 +3354,21 @@ Disallow: /
       }
 
       if (request.method === 'GET') {
-        let profile: DbUserRow | null = null;
-        try {
-          profile = (await env.DB.prepare(
-            'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add FROM users WHERE id = ?',
-          )
-            .bind(sessionUser.id)
-            .first()) as DbUserRow | null;
-        } catch {
-          profile = (await env.DB.prepare(
-            'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
-          )
-            .bind(sessionUser.id)
-            .first()) as DbUserRow | null;
-        }
-
-        if (!profile) {
+        const resolved = await resolveUserProfileWithFallback(env, sessionUser);
+        if (!resolved.profile) {
           return Response.json({ error: 'User not found' }, { status: 404 });
         }
 
+        const headers =
+          resolved.degradedReason === 'r2_backup'
+            ? buildR2DegradedHeaders(resolved.snapshotTimestamp, {
+                'Cache-Control': 'private, no-cache, no-store',
+              })
+            : { 'Cache-Control': 'private, no-cache, no-store' };
+
         return Response.json(
-          {
-            id: profile.id,
-            username: profile.username,
-            role: sessionUser.role,
-            isPublic: Boolean(profile.is_public),
-            homeRegion: profile.home_region || 'USA',
-            displayName: profile.display_name,
-            bio: profile.bio,
-            autoTrackSeriesOnAdd:
-              profile.auto_track_series_on_add !== undefined &&
-              profile.auto_track_series_on_add !== null
-                ? Boolean(profile.auto_track_series_on_add)
-                : true,
-          },
-          {
-            headers: { 'Cache-Control': 'private, no-cache, no-store' },
-          },
+          toUserProfileResponsePayload(resolved.profile, sessionUser.role),
+          { headers },
         );
       }
 
@@ -2783,526 +3786,609 @@ Disallow: /
     else if (path.startsWith('/api/u/') && path.endsWith('/games')) {
       const parts = path.split('/');
       const username = decodeURIComponent(parts[3] || '').trim();
-      const user = (await env.DB.prepare(
-        'SELECT id, username, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
-      )
-        .bind(username)
-        .first()) as {
-        id: number;
-        username: string;
-        home_region: string | null;
-        is_public: number;
-      } | null;
-
-      if (
-        !user ||
-        (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
-      ) {
-        return Response.json({ error: 'User not found' }, { status: 404 });
-      }
-
       const platformId =
         url.searchParams.get('platform') || url.searchParams.get('platform_id');
-      let query = buildGamesListQuery(user.id);
-      const params: (string | number)[] = [user.id, user.id];
 
-      if (platformId) {
-        query +=
-          ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
-        params.push(platformId, platformId);
-      }
+      try {
+        const user = (await env.DB.prepare(
+          'SELECT id, username, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
+        )
+          .bind(username)
+          .first()) as {
+          id: number;
+          username: string;
+          home_region: string | null;
+          is_public: number;
+        } | null;
 
-      const { results } = await env.DB.prepare(query)
-        .bind(...params)
-        .all();
-      const homeRegion = user.home_region || 'USA';
-      if (results && results.length > 0) {
-        postProcessGameListRows(
-          results as Record<string, unknown>[],
-          homeRegion,
-        );
-      }
+        if (
+          !user ||
+          (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
+        ) {
+          return Response.json({ error: 'User not found' }, { status: 404 });
+        }
 
-      const res = Response.json(results || [], {
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': user.is_public
-            ? 'public, max-age=60, s-maxage=60'
-            : 'private, no-cache, no-store, must-revalidate',
-        },
-      });
-      if (user.is_public && isPublicCacheable && edgeCache) {
-        await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
-      }
-      return res;
-    }
+        let query = buildGamesListQuery(user.id);
+        const params: (string | number)[] = [user.id, user.id];
 
-    // Endpoint: GET /api/u/:username/toys
-    else if (path.startsWith('/api/u/') && path.endsWith('/toys')) {
-      const parts = path.split('/');
-      const username = decodeURIComponent(parts[3] || '').trim();
-      const user = (await env.DB.prepare(
-        'SELECT id, username, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
-      )
-        .bind(username)
-        .first()) as {
-        id: number;
-        username: string;
-        home_region?: string | null;
-        is_public: number;
-      } | null;
+        if (platformId) {
+          query +=
+            ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
+          params.push(platformId, platformId);
+        }
 
-      if (
-        !user ||
-        (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
-      ) {
-        return Response.json({ error: 'User not found' }, { status: 404 });
-      }
+        const { results } = await env.DB.prepare(query)
+          .bind(...params)
+          .all();
+        const homeRegion = user.home_region || 'USA';
+        if (results && results.length > 0) {
+          postProcessGameListRows(
+            results as Record<string, unknown>[],
+            homeRegion,
+          );
+        }
 
-      const query = buildToysListQuery(user.id);
-      const { results } = await env.DB.prepare(query).bind(user.id).all();
-      const homeRegion = user.home_region || 'USA';
-      if (results && results.length > 0) {
-        postProcessToyListRows(
-          results as Record<string, unknown>[],
-          homeRegion,
-        );
-      }
-
-      const res = Response.json(results || [], {
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': user.is_public
-            ? 'public, max-age=60, s-maxage=60'
-            : 'private, no-cache, no-store, must-revalidate',
-        },
-      });
-      if (user.is_public && isPublicCacheable && edgeCache) {
-        await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
-      }
-      return res;
-    }
-
-    // Endpoint: GET /api/u/:username
-    else if (path.startsWith('/api/u/') && !path.slice(7).includes('/')) {
-      const username = decodeURIComponent(path.slice(7)).trim();
-      const user = (await env.DB.prepare(
-        'SELECT id, username, display_name, bio, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
-      )
-        .bind(username)
-        .first()) as {
-        id: number;
-        username: string;
-        display_name: string | null;
-        bio: string | null;
-        home_region: string | null;
-        is_public: number;
-      } | null;
-
-      if (
-        !user ||
-        (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
-      ) {
-        return Response.json({ error: 'User not found' }, { status: 404 });
-      }
-
-      const res = Response.json(
-        {
-          username: user.username,
-          displayName: user.display_name,
-          bio: user.bio,
-          homeRegion: user.home_region || 'USA',
-        },
-        {
+        const res = Response.json(results || [], {
           headers: {
             'Content-Type': 'application/json',
             'Cache-Control': user.is_public
               ? 'public, max-age=60, s-maxage=60'
               : 'private, no-cache, no-store, must-revalidate',
           },
-        },
-      );
-      if (user.is_public && isPublicCacheable && edgeCache) {
-        await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+        });
+        if (user.is_public && isPublicCacheable && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+        }
+        return res;
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const user = resolvePublicUserFromSnapshot(snapshot, username);
+        if (
+          !user ||
+          (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
+        ) {
+          return Response.json({ error: 'User not found' }, { status: 404 });
+        }
+        const rows = buildGamesListFromSnapshot(
+          snapshot,
+          user.id,
+          user.home_region || DEFAULT_USER_HOME_REGION,
+          platformId,
+        );
+        return Response.json(rows, {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          }),
+        });
       }
-      return res;
+    }
+
+    // Endpoint: GET /api/u/:username/toys
+    else if (path.startsWith('/api/u/') && path.endsWith('/toys')) {
+      const parts = path.split('/');
+      const username = decodeURIComponent(parts[3] || '').trim();
+      try {
+        const user = (await env.DB.prepare(
+          'SELECT id, username, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
+        )
+          .bind(username)
+          .first()) as {
+          id: number;
+          username: string;
+          home_region?: string | null;
+          is_public: number;
+        } | null;
+
+        if (
+          !user ||
+          (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
+        ) {
+          return Response.json({ error: 'User not found' }, { status: 404 });
+        }
+
+        const query = buildToysListQuery(user.id);
+        const { results } = await env.DB.prepare(query).bind(user.id).all();
+        const homeRegion = user.home_region || 'USA';
+        if (results && results.length > 0) {
+          postProcessToyListRows(
+            results as Record<string, unknown>[],
+            homeRegion,
+          );
+        }
+
+        const res = Response.json(results || [], {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': user.is_public
+              ? 'public, max-age=60, s-maxage=60'
+              : 'private, no-cache, no-store, must-revalidate',
+          },
+        });
+        if (user.is_public && isPublicCacheable && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+        }
+        return res;
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const user = resolvePublicUserFromSnapshot(snapshot, username);
+        if (
+          !user ||
+          (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
+        ) {
+          return Response.json({ error: 'User not found' }, { status: 404 });
+        }
+        const rows = buildToysListFromSnapshot(
+          snapshot,
+          user.id,
+          user.home_region || DEFAULT_USER_HOME_REGION,
+        );
+        return Response.json(rows, {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          }),
+        });
+      }
+    }
+
+    // Endpoint: GET /api/u/:username
+    else if (path.startsWith('/api/u/') && !path.slice(7).includes('/')) {
+      const username = decodeURIComponent(path.slice(7)).trim();
+      try {
+        const user = (await env.DB.prepare(
+          'SELECT id, username, display_name, bio, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
+        )
+          .bind(username)
+          .first()) as {
+          id: number;
+          username: string;
+          display_name: string | null;
+          bio: string | null;
+          home_region: string | null;
+          is_public: number;
+        } | null;
+
+        if (
+          !user ||
+          (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
+        ) {
+          return Response.json({ error: 'User not found' }, { status: 404 });
+        }
+
+        const res = Response.json(
+          {
+            username: user.username,
+            displayName: user.display_name,
+            bio: user.bio,
+            homeRegion: user.home_region || 'USA',
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': user.is_public
+                ? 'public, max-age=60, s-maxage=60'
+                : 'private, no-cache, no-store, must-revalidate',
+            },
+          },
+        );
+        if (user.is_public && isPublicCacheable && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+        }
+        return res;
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const user = resolvePublicUserFromSnapshot(snapshot, username);
+        if (
+          !user ||
+          (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
+        ) {
+          return Response.json({ error: 'User not found' }, { status: 404 });
+        }
+        return Response.json(
+          {
+            username: user.username,
+            displayName: user.display_name,
+            bio: user.bio,
+            homeRegion: user.home_region || 'USA',
+          },
+          {
+            headers: buildR2DegradedHeaders(snapshot.timestamp, {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            }),
+          },
+        );
+      }
     }
 
     // Endpoint: GET /api/games
     else if (path === '/api/games') {
       const platformId =
         url.searchParams.get('platform') || url.searchParams.get('platform_id');
-      const params: (string | number)[] = [];
       const userId = sessionUser ? sessionUser.id : null;
-      let query = buildGamesListQuery(userId);
-
-      if (userId) {
-        params.push(userId, userId);
-      }
-
-      if (platformId) {
-        query +=
-          ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
-        params.push(platformId, platformId);
-      }
-
-      const { results } = await env.DB.prepare(query)
-        .bind(...params)
-        .all();
       const effectiveHomeRegion = sessionUser
         ? sessionUser.homeRegion
         : DEFAULT_USER_HOME_REGION;
-      if (results && results.length > 0) {
-        postProcessGameListRows(
-          results as Record<string, unknown>[],
-          effectiveHomeRegion,
+
+      try {
+        const params: (string | number)[] = [];
+        let query = buildGamesListQuery(userId);
+
+        if (userId) {
+          params.push(userId, userId);
+        }
+
+        if (platformId) {
+          query +=
+            ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
+          params.push(platformId, platformId);
+        }
+
+        const { results } = await env.DB.prepare(query)
+          .bind(...params)
+          .all();
+        if (results && results.length > 0) {
+          postProcessGameListRows(
+            results as Record<string, unknown>[],
+            effectiveHomeRegion,
+          );
+        }
+        const bodyJson = JSON.stringify(results || []);
+        const cacheableRes = new Response(bodyJson, {
+          headers: publicCacheHeaders,
+        });
+        if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, cacheableRes, isNoCache);
+        }
+        if (sessionUser) {
+          return new Response(bodyJson, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            },
+          });
+        }
+        return cacheableRes;
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
         );
-      }
-      const bodyJson = JSON.stringify(results || []);
-      const cacheableRes = new Response(bodyJson, {
-        headers: publicCacheHeaders,
-      });
-      if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
-        await putEdgeCacheEntry(edgeCache, cacheKey, cacheableRes, isNoCache);
-      }
-      if (sessionUser) {
-        return new Response(bodyJson, {
-          headers: {
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const rows = buildGamesListFromSnapshot(
+          snapshot,
+          userId,
+          effectiveHomeRegion,
+          platformId,
+        );
+        return new Response(JSON.stringify(rows), {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
             'Content-Type': 'application/json',
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-          },
+          }),
         });
       }
-      return cacheableRes;
     }
 
     // Endpoint: GET /api/games/:id
     else if (path.startsWith('/api/games/')) {
       const id = path.split('/').pop() || '';
       const userId = sessionUser ? sessionUser.id : null;
-      const query = buildGameDetailQuery(userId);
-      const params = getGameDetailQueryParams(id, userId);
-      const game = (await env.DB.prepare(query)
-        .bind(...params)
-        .first()) as DbGame | null;
-
-      if (!game) return Response.json({ error: 'Not found' }, { status: 404 });
-
-      const targetKey = getRomGroupingKey(game.rom_name);
-      const isMulti = targetKey.startsWith('multi:');
-      const releaseParams = userId
-        ? isMulti
-          ? [userId, game.stable_id]
-          : [userId, game.stable_id, game.region]
-        : isMulti
-          ? [game.stable_id]
-          : [game.stable_id, game.region];
-      const releaseQuery = buildGameReleasesByGameIdQuery(userId, isMulti);
-      const { results } = await env.DB.prepare(releaseQuery)
-        .bind(...releaseParams)
-        .all();
-      const typedResults = (results || []) as Array<
-        Record<string, unknown> & {
-          id?: string;
-          rom_name?: string | null;
-          region?: string | null;
-          variants?: string | null;
-        }
-      >;
-      if (game.platform_id === 0) {
-        // Virtual Platform 0 ("No Platform") represents untracked / physical watch list games
-        // that have not yet released on a physical console. They must never expose synthetic
-        // or placeholder physical release rows.
-        game.releases = [];
-        game.other_releases = [];
-      } else if (isMulti) {
-        game.releases = typedResults.filter(
-          (r) => getRomGroupingKey(r.rom_name) === targetKey,
-        );
-        game.other_releases = typedResults.filter(
-          (r) => getRomGroupingKey(r.rom_name) !== targetKey,
-        );
-      } else {
-        let primaryReleases = typedResults.filter((r) => r.id === game.id);
-        if (primaryReleases.length === 0) {
-          primaryReleases = typedResults.filter(
-            (r) => r.region === game.region && r.variants === game.variants,
-          );
-        }
-        if (primaryReleases.length === 0 && typedResults.length > 0) {
-          primaryReleases = [typedResults[0]];
-        }
-        // Also include companion pack-in demo/bonus discs in primaryReleases if they belong to this game and region
-        const packInReleases = typedResults.filter(
-          (r) =>
-            !primaryReleases.some((pr) => pr.id === r.id) &&
-            (r.region === game.region ||
-              (!r.region && game.region === 'USA')) &&
-            (/\b(demo|trial edition|bonus disc|sampler)\b/i.test(
-              String(r.variants || ''),
-            ) ||
-              /\b(demo|trial edition|bonus disc|sampler)\b/i.test(
-                String(r.rom_name || ''),
-              )),
-        );
-        if (packInReleases.length > 0) {
-          primaryReleases = [...primaryReleases, ...packInReleases];
-        }
-        game.releases = primaryReleases;
-        game.other_releases = typedResults.filter(
-          (r) => !primaryReleases.some((pr) => pr.id === r.id),
-        );
-      }
-
-      const extractDiscOrder = (rel: Record<string, unknown>): number => {
-        const label = String(rel['disc_label'] || '');
-        let m = label.match(/^(?:disc|disco|disque|disk)\s+(\d+)/i);
-        if (m) return parseInt(m[1], 10);
-        const rom = String(rel['rom_name'] || '');
-        m = rom.match(/\b(?:disc|disco|disque|disk)\s*(\d+)/i);
-        if (m) return parseInt(m[1], 10);
-        return 99;
-      };
-      if (game.releases.length > 1) {
-        game.releases.sort(
-          (a, b) =>
-            extractDiscOrder(a) - extractDiscOrder(b) ||
-            String(a['rom_name'] || '').localeCompare(
-              String(b['rom_name'] || ''),
-            ),
-        );
-      }
       const effectiveHomeRegion = sessionUser
         ? sessionUser.homeRegion
         : DEFAULT_USER_HOME_REGION;
-      const baseTitle = game.base_title || game.title || '';
-      const parsedMeta = parseGameMetadataOnce(game.metadata_json || null);
-      game.title = resolveLocalizedReleaseTitle(
-        baseTitle,
-        game.region as string | null,
-        parsedMeta,
-        game.raw_title || game.title || '',
-        effectiveHomeRegion,
-      );
-      if (game.releases && game.releases.length > 0) {
-        for (const rel of game.releases) {
-          rel['title'] = resolveLocalizedReleaseTitle(
-            baseTitle,
-            rel['region'] as string | null,
-            parsedMeta,
-            rel['title'] as string | null,
-            effectiveHomeRegion,
-          );
-        }
-      }
-      if (game.other_releases && game.other_releases.length > 0) {
-        for (const rel of game.other_releases) {
-          rel['title'] = resolveLocalizedReleaseTitle(
-            baseTitle,
-            rel['region'] as string | null,
-            parsedMeta,
-            rel['title'] as string | null,
-            effectiveHomeRegion,
-          );
-        }
-      }
 
-      if (
-        (!game.releases || game.releases.length === 0) &&
-        game.platform_id !== 0
-      ) {
-        game.releases = [
-          {
-            id: game.id,
-            game_id: game.stable_id,
-            region: game.region || null,
-            variants: game.variants || null,
-            rom_name: game.rom_name || null,
-            rom_crc: game.rom_crc || null,
-            backup_status: game.backup_status || 0,
-            ownership_status: game.ownership_status || 0,
-            release_date: game.release_date || null,
-          },
-        ];
-      }
+      try {
+        const query = buildGameDetailQuery(userId);
+        const params = getGameDetailQueryParams(id, userId);
+        const game = (await env.DB.prepare(query)
+          .bind(...params)
+          .first()) as DbGame | null;
 
-      if (game.platform_id) {
-        const candidateReleases: CompanionDiscCandidateRow[] = [];
-        const seenCandidateIds = new Set<string>();
+        if (!game)
+          return Response.json({ error: 'Not found' }, { status: 404 });
 
-        const companionGameIdQuery =
-          buildTargetedCompanionByGameIdQuery(userId);
-        const companionTitleQuery = buildTargetedCompanionByTitleQuery(userId);
-
-        // 1. Target companion releases by rom_crc across all releases in this game in a single batch query
-        const releasesToCheck =
-          game.releases && game.releases.length > 0 ? game.releases : [game];
-        const primaryReleaseIds = new Set<string>();
-        const distinctCrcs: string[] = [];
-        const seenCrcs = new Set<string>();
-        for (const rel of releasesToCheck) {
-          const relId = (rel['id'] as string | null) || null;
-          if (relId) primaryReleaseIds.add(relId);
-          const relCrc = (rel['rom_crc'] as string | null)?.trim() || '';
-          if (relCrc && !seenCrcs.has(relCrc)) {
-            seenCrcs.add(relCrc);
-            distinctCrcs.push(relCrc);
-          }
-        }
-        if (distinctCrcs.length > 0) {
-          const companionCrcBatchQuery = buildTargetedCompanionByCrcBatchQuery(
-            userId,
-            distinctCrcs.length,
-          );
-          const bindParams = userId
-            ? [userId, ...distinctCrcs]
-            : [...distinctCrcs];
-          const { results: crcRows } = await env.DB.prepare(
-            companionCrcBatchQuery,
-          )
-            .bind(...bindParams)
-            .all();
-          for (const r of (crcRows ||
-            []) as unknown as CompanionDiscCandidateRow[]) {
-            if (!primaryReleaseIds.has(r.id) && !seenCandidateIds.has(r.id)) {
-              seenCandidateIds.add(r.id);
-              candidateReleases.push(r);
-            }
-          }
-        }
-
-        // 2. Target companion releases by related game IDs (e.g. Superseded pairs)
-        const relatedIds = getRelatedGameIdsForCompanion(game);
-        for (const relStableId of relatedIds) {
-          const bindParams = userId ? [userId, relStableId] : [relStableId];
-          const { results: idRows } = await env.DB.prepare(companionGameIdQuery)
-            .bind(...bindParams)
-            .all();
-          for (const r of (idRows ||
-            []) as unknown as CompanionDiscCandidateRow[]) {
-            if (!seenCandidateIds.has(r.id)) {
-              seenCandidateIds.add(r.id);
-              candidateReleases.push(r);
-            }
-          }
-        }
-
-        // 3. Target companion releases by related game titles (e.g. Box sets and standalone counterparts)
-        const relatedTitles = getRelatedGameTitlesForCompanion(game);
-        for (const title of relatedTitles) {
-          const bindParams = userId
-            ? [userId, game.platform_id, title]
-            : [game.platform_id, title];
-          const { results: titleRows } = await env.DB.prepare(
-            companionTitleQuery,
-          )
-            .bind(...bindParams)
-            .all();
-          for (const r of (titleRows ||
-            []) as unknown as CompanionDiscCandidateRow[]) {
-            if (!seenCandidateIds.has(r.id)) {
-              seenCandidateIds.add(r.id);
-              candidateReleases.push(r);
-            }
-          }
-        }
-
-        enrichGameDetailWithCompanionsAndVouchers(game, candidateReleases);
-      }
-
-      if (game.stable_id) {
-        const bundledQuery = buildBundledGamesByParentQuery(userId);
-        const bundledParams = userId
-          ? [userId, game.stable_id]
-          : [game.stable_id];
-        const { results: bundled } = await env.DB.prepare(bundledQuery)
-          .bind(...bundledParams)
+        const targetKey = getRomGroupingKey(game.rom_name);
+        const isMulti = targetKey.startsWith('multi:');
+        const releaseParams = userId
+          ? isMulti
+            ? [userId, game.stable_id]
+            : [userId, game.stable_id, game.region]
+          : isMulti
+            ? [game.stable_id]
+            : [game.stable_id, game.region];
+        const releaseQuery = buildGameReleasesByGameIdQuery(userId, isMulti);
+        const { results } = await env.DB.prepare(releaseQuery)
+          .bind(...releaseParams)
           .all();
-        game.bundled_games = (bundled || []).map((row) => ({
-          ...row,
-          platform_id: (row as { platform_id: number }).platform_id,
-        }));
-      }
+        const typedResults = (results || []) as Array<
+          Record<string, unknown> & {
+            id?: string;
+            rom_name?: string | null;
+            region?: string | null;
+            variants?: string | null;
+          }
+        >;
 
-      if (sessionUser) {
+        applyGameDetailReleasePartitionAndTitles(
+          game,
+          typedResults,
+          effectiveHomeRegion,
+        );
+
+        if (game.platform_id) {
+          const candidateReleases: CompanionDiscCandidateRow[] = [];
+          const seenCandidateIds = new Set<string>();
+
+          const companionGameIdQuery =
+            buildTargetedCompanionByGameIdQuery(userId);
+          const companionTitleQuery =
+            buildTargetedCompanionByTitleQuery(userId);
+
+          // 1. Target companion releases by rom_crc across all releases in this game in a single batch query
+          const releasesToCheck =
+            game.releases && game.releases.length > 0 ? game.releases : [game];
+          const primaryReleaseIds = new Set<string>();
+          const distinctCrcs: string[] = [];
+          const seenCrcs = new Set<string>();
+          for (const rel of releasesToCheck) {
+            const relId = (rel['id'] as string | null) || null;
+            if (relId) primaryReleaseIds.add(relId);
+            const relCrc = (rel['rom_crc'] as string | null)?.trim() || '';
+            if (relCrc && !seenCrcs.has(relCrc)) {
+              seenCrcs.add(relCrc);
+              distinctCrcs.push(relCrc);
+            }
+          }
+          if (distinctCrcs.length > 0) {
+            const companionCrcBatchQuery =
+              buildTargetedCompanionByCrcBatchQuery(
+                userId,
+                distinctCrcs.length,
+              );
+            const bindParams = userId
+              ? [userId, ...distinctCrcs]
+              : [...distinctCrcs];
+            const { results: crcRows } = await env.DB.prepare(
+              companionCrcBatchQuery,
+            )
+              .bind(...bindParams)
+              .all();
+            for (const r of (crcRows ||
+              []) as unknown as CompanionDiscCandidateRow[]) {
+              if (!primaryReleaseIds.has(r.id) && !seenCandidateIds.has(r.id)) {
+                seenCandidateIds.add(r.id);
+                candidateReleases.push(r);
+              }
+            }
+          }
+
+          // 2. Target companion releases by related game IDs (e.g. Superseded pairs)
+          const relatedIds = getRelatedGameIdsForCompanion(game);
+          for (const relStableId of relatedIds) {
+            const bindParams = userId ? [userId, relStableId] : [relStableId];
+            const { results: idRows } = await env.DB.prepare(
+              companionGameIdQuery,
+            )
+              .bind(...bindParams)
+              .all();
+            for (const r of (idRows ||
+              []) as unknown as CompanionDiscCandidateRow[]) {
+              if (!seenCandidateIds.has(r.id)) {
+                seenCandidateIds.add(r.id);
+                candidateReleases.push(r);
+              }
+            }
+          }
+
+          // 3. Target companion releases by related game titles (e.g. Box sets and standalone counterparts)
+          const relatedTitles = getRelatedGameTitlesForCompanion(game);
+          for (const title of relatedTitles) {
+            const bindParams = userId
+              ? [userId, game.platform_id, title]
+              : [game.platform_id, title];
+            const { results: titleRows } = await env.DB.prepare(
+              companionTitleQuery,
+            )
+              .bind(...bindParams)
+              .all();
+            for (const r of (titleRows ||
+              []) as unknown as CompanionDiscCandidateRow[]) {
+              if (!seenCandidateIds.has(r.id)) {
+                seenCandidateIds.add(r.id);
+                candidateReleases.push(r);
+              }
+            }
+          }
+
+          enrichGameDetailWithCompanionsAndVouchers(game, candidateReleases);
+        }
+
+        if (game.stable_id) {
+          const bundledQuery = buildBundledGamesByParentQuery(userId);
+          const bundledParams = userId
+            ? [userId, game.stable_id]
+            : [game.stable_id];
+          const { results: bundled } = await env.DB.prepare(bundledQuery)
+            .bind(...bundledParams)
+            .all();
+          game.bundled_games = (bundled || []).map((row) => ({
+            ...row,
+            platform_id: (row as { platform_id: number }).platform_id,
+          }));
+        }
+
+        if (sessionUser) {
+          return Response.json(game, {
+            headers: {
+              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            },
+          });
+        }
+
+        return new Response(JSON.stringify(game), {
+          headers: publicCacheHeaders,
+        });
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const game = buildGameDetailFromSnapshot(
+          snapshot,
+          id,
+          userId,
+          effectiveHomeRegion,
+        );
+        if (!game) {
+          return Response.json({ error: 'Not found' }, { status: 404 });
+        }
         return Response.json(game, {
-          headers: {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-          },
+          }),
         });
       }
-
-      return new Response(JSON.stringify(game), {
-        headers: publicCacheHeaders,
-      });
     }
 
     // Endpoint: GET /api/toys
     else if (path === '/api/toys') {
       const userId = sessionUser ? sessionUser.id : null;
-      const query = buildToysListQuery(userId);
-      const { results } = userId
-        ? await env.DB.prepare(query).bind(userId).all()
-        : await env.DB.prepare(query).all();
       const effectiveHomeRegion = sessionUser
         ? sessionUser.homeRegion
         : DEFAULT_USER_HOME_REGION;
-      if (results && results.length > 0) {
-        postProcessToyListRows(
-          results as Record<string, unknown>[],
+
+      try {
+        const query = buildToysListQuery(userId);
+        const { results } = userId
+          ? await env.DB.prepare(query).bind(userId).all()
+          : await env.DB.prepare(query).all();
+        if (results && results.length > 0) {
+          postProcessToyListRows(
+            results as Record<string, unknown>[],
+            effectiveHomeRegion,
+          );
+        }
+        const bodyJson = JSON.stringify(results || []);
+        const cacheableRes = new Response(bodyJson, {
+          headers: publicCacheHeaders,
+        });
+        if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, cacheableRes, isNoCache);
+        }
+        if (sessionUser) {
+          return new Response(bodyJson, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            },
+          });
+        }
+        return cacheableRes;
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const rows = buildToysListFromSnapshot(
+          snapshot,
+          userId,
           effectiveHomeRegion,
         );
-      }
-      const bodyJson = JSON.stringify(results || []);
-      const cacheableRes = new Response(bodyJson, {
-        headers: publicCacheHeaders,
-      });
-      if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
-        await putEdgeCacheEntry(edgeCache, cacheKey, cacheableRes, isNoCache);
-      }
-      if (sessionUser) {
-        return new Response(bodyJson, {
-          headers: {
+        return new Response(JSON.stringify(rows), {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
             'Content-Type': 'application/json',
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-          },
+          }),
         });
       }
-      return cacheableRes;
     }
 
     // Endpoint: GET /api/toys/:id
     else if (path.startsWith('/api/toys/')) {
       const id = path.split('/').pop() || '';
       const userId = sessionUser ? sessionUser.id : null;
-      const query = buildToyDetailQuery(userId);
-      const toy = userId
-        ? await env.DB.prepare(query).bind(userId, id).first()
-        : await env.DB.prepare(query).bind(id).first();
-      if (!toy) return Response.json({ error: 'Not found' }, { status: 404 });
-      if (sessionUser) {
+      try {
+        const query = buildToyDetailQuery(userId);
+        const toy = userId
+          ? await env.DB.prepare(query).bind(userId, id).first()
+          : await env.DB.prepare(query).bind(id).first();
+        if (!toy) return Response.json({ error: 'Not found' }, { status: 404 });
+        if (sessionUser) {
+          return Response.json(toy, {
+            headers: {
+              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            },
+          });
+        }
+        return new Response(JSON.stringify(toy), {
+          headers: publicCacheHeaders,
+        });
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const toy = buildToyDetailFromSnapshot(snapshot, id, userId);
+        if (!toy) return Response.json({ error: 'Not found' }, { status: 404 });
         return Response.json(toy, {
-          headers: {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-          },
+          }),
         });
       }
-      return new Response(JSON.stringify(toy), {
-        headers: publicCacheHeaders,
-      });
     }
 
     // Endpoint: GET /api/platforms
     else if (path === '/api/platforms') {
-      const query = PLATFORMS_LIST_QUERY;
-      const { results } = await env.DB.prepare(query).all();
-      const res = new Response(JSON.stringify(results || []), {
-        headers: platformsCacheHeaders,
-      });
-      if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
-        await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+      try {
+        const query = PLATFORMS_LIST_QUERY;
+        const { results } = await env.DB.prepare(query).all();
+        const res = new Response(JSON.stringify(results || []), {
+          headers: platformsCacheHeaders,
+        });
+        if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
+          await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
+        }
+        return res;
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const rows = buildPlatformsFromSnapshot(snapshot);
+        return new Response(JSON.stringify(rows), {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          }),
+        });
       }
-      return res;
     }
 
     // Endpoint: GET /api/discovery/search
@@ -6968,24 +8054,47 @@ Disallow: /
         );
       }
 
-      let canonicalId = itemId;
-      if (itemType === 'game') {
-        const resolved = (await env.DB.prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
-          .bind(itemId, itemId)
-          .first()) as { game_id?: string } | null;
-        if (resolved?.game_id) {
-          canonicalId = resolved.game_id;
+      try {
+        let canonicalId = itemId;
+        if (itemType === 'game') {
+          const resolved = (await env.DB.prepare(
+            RESOLVE_CANONICAL_GAME_ID_QUERY,
+          )
+            .bind(itemId, itemId)
+            .first()) as { game_id?: string } | null;
+          if (resolved?.game_id) {
+            canonicalId = resolved.game_id;
+          }
         }
+
+        const entry = (await env.DB.prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
+          .bind(sessionUser.id, itemType, itemId, canonicalId)
+          .first()) as JournalEntryRow | null;
+
+        return Response.json(
+          { authorized: true, entry: entry || null },
+          { headers: privateHeaders },
+        );
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const entry = findJournalEntryFromSnapshot(
+          snapshot,
+          sessionUser.id,
+          itemType,
+          itemId,
+        );
+        return Response.json(
+          { authorized: true, entry, degraded: true },
+          {
+            headers: buildR2DegradedHeaders(snapshot.timestamp, privateHeaders),
+          },
+        );
       }
-
-      const entry = (await env.DB.prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
-        .bind(sessionUser.id, itemType, itemId, canonicalId)
-        .first()) as JournalEntryRow | null;
-
-      return Response.json(
-        { authorized: true, entry: entry || null },
-        { headers: privateHeaders },
-      );
     }
 
     // Endpoint: GET /api/journal/entries
@@ -7000,13 +8109,32 @@ Disallow: /
         );
       }
 
-      const { results } = await env.DB.prepare(JOURNAL_ENTRIES_ALL_QUERY)
-        .bind(sessionUser.id)
-        .all();
-      return Response.json(
-        { authorized: true, entries: results || [] },
-        { headers: privateHeaders },
-      );
+      try {
+        const { results } = await env.DB.prepare(JOURNAL_ENTRIES_ALL_QUERY)
+          .bind(sessionUser.id)
+          .all();
+        return Response.json(
+          { authorized: true, entries: results || [] },
+          { headers: privateHeaders },
+        );
+      } catch {
+        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const entries = buildJournalEntriesFromSnapshot(
+          snapshot,
+          sessionUser.id,
+        );
+        return Response.json(
+          { authorized: true, entries, degraded: true },
+          {
+            headers: buildR2DegradedHeaders(snapshot.timestamp, privateHeaders),
+          },
+        );
+      }
     }
 
     // Endpoint: POST /api/journal
@@ -7527,6 +8655,9 @@ Disallow: /
      */
     return env.ASSETS.fetch(request);
   } catch (e: unknown) {
+    if (isD1QuotaOrReadError(e)) {
+      return buildD1QuotaExceededResponse();
+    }
     const errorMessage =
       e instanceof Error ? e.message : 'Internal Server Error';
     console.error('Worker Error:', errorMessage);

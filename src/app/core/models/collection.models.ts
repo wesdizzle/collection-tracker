@@ -911,4 +911,7 @@ export interface AuthMeResponse {
   accountHubUrl?: string | null;
   provisioned?: boolean;
   email?: string;
+  degraded?: boolean;
+  degradedReason?: string;
+  snapshotTimestamp?: string | null;
 }
