@@ -149,6 +149,18 @@ export const CANONICAL_NAME_MAP: Record<string, string> = {
   hyperlightdrifter: 'Hyper Light Drifter',
 };
 
+function getSpinoffRedirect(key: string): string | null | undefined {
+  return Object.prototype.hasOwnProperty.call(EXPLICIT_SPINOFF_REDIRECTS, key)
+    ? EXPLICIT_SPINOFF_REDIRECTS[key]
+    : undefined;
+}
+
+function getCanonicalName(normKey: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(CANONICAL_NAME_MAP, normKey)
+    ? CANONICAL_NAME_MAP[normKey]
+    : undefined;
+}
+
 /**
  * Titles with numbers integral to the IP that must not have trailing digits stripped.
  */
@@ -271,15 +283,13 @@ function computeGameCanonicalSeriesInternal(
     stripCreatorPrefix(t.replace(/\([^)]*\)/g, '').trim());
 
   const seriesRaw = rawCollections
-    .filter((s) => EXPLICIT_SPINOFF_REDIRECTS[s] !== null)
-    .map((s: string) =>
-      EXPLICIT_SPINOFF_REDIRECTS[s] !== undefined ? s : cleanTag(s),
-    )
-    .filter((s) => s && EXPLICIT_SPINOFF_REDIRECTS[s] !== null);
+    .filter((s) => getSpinoffRedirect(s) !== null)
+    .map((s: string) => (getSpinoffRedirect(s) !== undefined ? s : cleanTag(s)))
+    .filter((s) => s && getSpinoffRedirect(s) !== null);
   const franchisesRaw = (game.franchises || '')
     .split(',')
     .map((s: string) => cleanTag(s))
-    .filter((s) => s && EXPLICIT_SPINOFF_REDIRECTS[s] !== null);
+    .filter((s) => s && getSpinoffRedirect(s) !== null);
 
   // STEP 1A: RUNE FACTORY & HARVEST MOON / STORY OF SEASONS DISAMBIGUATION
   if (titleLower.startsWith('rune factory')) {
@@ -313,13 +323,13 @@ function computeGameCanonicalSeriesInternal(
   }
 
   // STEP 1B: EXPLICIT TITLE REDIRECTS
-  if (EXPLICIT_SPINOFF_REDIRECTS[game.title] !== undefined) {
-    const redir = EXPLICIT_SPINOFF_REDIRECTS[game.title];
-    if (redir !== null) return redir;
+  const titleRedir = getSpinoffRedirect(game.title);
+  if (titleRedir !== undefined) {
+    if (titleRedir !== null) return titleRedir;
   }
-  if (EXPLICIT_SPINOFF_REDIRECTS[cleanTitle] !== undefined) {
-    const redir = EXPLICIT_SPINOFF_REDIRECTS[cleanTitle];
-    if (redir !== null) return redir;
+  const cleanRedir = getSpinoffRedirect(cleanTitle);
+  if (cleanRedir !== undefined) {
+    if (cleanRedir !== null) return cleanRedir;
   }
   if (titleLower.includes('xenoblade')) {
     return 'Xenoblade Chronicles';
@@ -564,7 +574,7 @@ function computeGameCanonicalSeriesInternal(
     for (const f of specificFranchises) {
       const nf = normalize(f);
       if (nf && normalize(cleanTitle).includes(nf)) {
-        return CANONICAL_NAME_MAP[nf] || f;
+        return getCanonicalName(nf) || f;
       }
     }
 
@@ -572,7 +582,7 @@ function computeGameCanonicalSeriesInternal(
     if (specificFranchises.length === 1) {
       const f = specificFranchises[0];
       if (normalize(f) !== 'fables') {
-        return CANONICAL_NAME_MAP[normalize(f)] || f;
+        return getCanonicalName(normalize(f)) || f;
       }
     }
 
@@ -882,10 +892,10 @@ function computeGameCanonicalSeriesInternal(
 
   // STEP 18: DYNAMIC CANDIDATE SCORING (Length-Weighted, Token-Boosted, Authority-Normalized)
   const resolvedSeriesRaw = seriesRaw.map(
-    (s) => (EXPLICIT_SPINOFF_REDIRECTS[s] as string) || s,
+    (s) => (getSpinoffRedirect(s) as string) || s,
   );
   const resolvedFranchisesRaw = franchisesRaw
-    .map((f) => (EXPLICIT_SPINOFF_REDIRECTS[f] as string) || f)
+    .map((f) => (getSpinoffRedirect(f) as string) || f)
     .filter((f) => {
       // Prevent cameo-only Mario/Star Fox/Castlevania franchise tags from applying when no collection is present and title doesn't match
       const nf = normalize(f);
@@ -1048,12 +1058,14 @@ function computeGameCanonicalSeriesInternal(
       if (scores.length > 0 && scores[0].score > 0) {
         out.source = 'metadata';
         const winner = scores[0].item;
-        if (EXPLICIT_SPINOFF_REDIRECTS[winner]) {
-          return EXPLICIT_SPINOFF_REDIRECTS[winner] as string;
+        const winnerRedir = getSpinoffRedirect(winner);
+        if (winnerRedir) {
+          return winnerRedir;
         }
         const normWinner = normalize(winner);
-        if (CANONICAL_NAME_MAP[normWinner]) {
-          return CANONICAL_NAME_MAP[normWinner];
+        const winnerCanonical = getCanonicalName(normWinner);
+        if (winnerCanonical) {
+          return winnerCanonical;
         }
         return winner;
       }
@@ -1065,12 +1077,14 @@ function computeGameCanonicalSeriesInternal(
   const prefix = stripTrailingNumbers(
     stripCreatorPrefix(cleanTitle.split(':')[0].trim()),
   );
-  if (EXPLICIT_SPINOFF_REDIRECTS[prefix]) {
-    return EXPLICIT_SPINOFF_REDIRECTS[prefix] as string;
+  const prefixRedir = getSpinoffRedirect(prefix);
+  if (prefixRedir) {
+    return prefixRedir;
   }
   const normPrefix = normalize(prefix);
-  if (CANONICAL_NAME_MAP[normPrefix]) {
-    return CANONICAL_NAME_MAP[normPrefix];
+  const prefixCanonical = getCanonicalName(normPrefix);
+  if (prefixCanonical) {
+    return prefixCanonical;
   }
   return prefix;
 }

@@ -988,4 +988,23 @@ describe('Canonical Series Logic Integrity Suite', () => {
       'Bloodstained',
     );
   });
+
+  it('should not collide with Object.prototype keys such as constructor', () => {
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Constructor' }),
+      'Constructor',
+    );
+    assert.deepEqual(
+      computeGameCanonicalSeriesWithSource({ title: 'Constructor' }),
+      { series: 'Constructor', source: 'title_fallback' },
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Constructor',
+        collections: 'Constructor',
+      }),
+      'Constructor',
+    );
+    assert.equal(computeGameCanonicalSeries({ title: 'toString' }), 'toString');
+  });
 });

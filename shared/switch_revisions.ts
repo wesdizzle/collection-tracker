@@ -694,14 +694,20 @@ export function parseSwitchRevisionsCsv(
         .replace(/\s*\((?:USA|EUR|JPN|KOR|ASI|ASIA|AUS|WORLD)\)\s*$/i, '')
         .trim();
       const strippedNorm = normalizeTitleForMatching(strippedTitle);
-      const resolvedNorm =
-        PAST_REVISION_TITLE_ALIASES[rawNorm] ||
-        PAST_REVISION_TITLE_ALIASES[strippedNorm] ||
-        strippedNorm ||
-        rawNorm;
-      const wasAliasResolved =
-        Boolean(PAST_REVISION_TITLE_ALIASES[rawNorm]) ||
-        Boolean(PAST_REVISION_TITLE_ALIASES[strippedNorm]);
+      const rawAlias = Object.prototype.hasOwnProperty.call(
+        PAST_REVISION_TITLE_ALIASES,
+        rawNorm,
+      )
+        ? PAST_REVISION_TITLE_ALIASES[rawNorm]
+        : undefined;
+      const strippedAlias = Object.prototype.hasOwnProperty.call(
+        PAST_REVISION_TITLE_ALIASES,
+        strippedNorm,
+      )
+        ? PAST_REVISION_TITLE_ALIASES[strippedNorm]
+        : undefined;
+      const resolvedNorm = rawAlias || strippedAlias || strippedNorm || rawNorm;
+      const wasAliasResolved = Boolean(rawAlias || strippedAlias);
 
       const strippedByEdition = normalizeTitleForMatching(
         stripEditionSuffix(strippedTitle || lastSeenGameName),

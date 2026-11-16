@@ -554,7 +554,7 @@ export function extractDiscLabel(
     .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
     .trim()
     .toLowerCase();
-  if (BOX_SET_DISC_LABELS[baseLower]) {
+  if (Object.prototype.hasOwnProperty.call(BOX_SET_DISC_LABELS, baseLower)) {
     return BOX_SET_DISC_LABELS[baseLower];
   }
   const parentheticalMatches = romName.match(/\(([^)]+)\)/g);

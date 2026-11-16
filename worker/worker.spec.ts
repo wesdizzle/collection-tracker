@@ -5573,6 +5573,36 @@ describe('Worker API Logic', () => {
         }
       });
 
+      it('syncWorkerBroadCatalogPopulation safely ingests titles matching Object.prototype properties such as Constructor', async () => {
+        db.exec(`
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical)
+          VALUES (9601, 34, 'Constructor', '${normalizeTitleForMatching('Constructor')}', 'USA', 1);
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_stage', '2A');
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9600');
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_paused', '0');
+        `);
+
+        stubIgdbFetch({});
+        try {
+          const res = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(res.skipped).toBe(false);
+          expect(res.ingestedGames).toBe(1);
+          expect(res.cursor).toBe(9601);
+
+          const inserted = db
+            .prepare(
+              "SELECT title, canonical_series FROM games WHERE title = 'Constructor' AND platform_id = 34",
+            )
+            .get() as { title: string; canonical_series: string } | undefined;
+          expect(inserted).toEqual({
+            title: 'Constructor',
+            canonical_series: 'Constructor',
+          });
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
       it('syncWorkerIgdbSeriesAndCanonical self-heals missed tracking rules for trackable games including numbered sequel fallbacks', async () => {
         const { syncWorkerIgdbSeriesAndCanonical } = await import('./worker');
         const envWithIgdb: Env = {

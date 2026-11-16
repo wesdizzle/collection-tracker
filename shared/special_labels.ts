@@ -1909,7 +1909,12 @@ export function getCuratedReleaseTags(
   const rawWithoutExt = rawLower
     .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
     .trim();
-  const subseqLabels = SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES[rawWithoutExt];
+  const subseqLabels = Object.prototype.hasOwnProperty.call(
+    SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES,
+    rawWithoutExt,
+  )
+    ? SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES[rawWithoutExt]
+    : undefined;
   if (subseqLabels) {
     for (const lbl of subseqLabels) {
       if (!tags.includes(lbl)) {

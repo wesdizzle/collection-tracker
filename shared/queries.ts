@@ -556,7 +556,9 @@ export function getRomGroupingKey(filename: string | null | undefined): string {
   const lastDot = filename.lastIndexOf('.');
   const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
   const baseLower = base.toLowerCase();
-  if (BOX_SET_ROM_GROUPING_MAP[baseLower]) {
+  if (
+    Object.prototype.hasOwnProperty.call(BOX_SET_ROM_GROUPING_MAP, baseLower)
+  ) {
     return BOX_SET_ROM_GROUPING_MAP[baseLower];
   }
   if (hasDiscIndicator(filename)) {
@@ -945,7 +947,12 @@ export function enrichGameDetailWithCompanionsAndVouchers(
       rel['companion_game_title'] = packIn.companionGameTitle;
     } else {
       rel['disc_label'] =
-        BOX_SET_DISC_LABELS[rNameWithoutExt] || extractDiscLabel(rName);
+        (Object.prototype.hasOwnProperty.call(
+          BOX_SET_DISC_LABELS,
+          rNameWithoutExt,
+        )
+          ? BOX_SET_DISC_LABELS[rNameWithoutExt]
+          : undefined) || extractDiscLabel(rName);
     }
   }
 
