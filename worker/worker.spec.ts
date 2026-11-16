@@ -14,6 +14,7 @@ import {
 } from './auth';
 import worker, {
   Env,
+  getBroadCatalogSeedStatus,
   isAuthorizedAdmin,
   markCanonicalReleasesDirty,
   markDbDirty,
@@ -5473,11 +5474,35 @@ describe('Worker API Logic', () => {
         };
         expect(postJson.success).toBe(true);
         expect(postJson.status.paused).toBe(true);
+        expect(postJson.status.canonicalMinId).toBe(7001);
         expect(postJson.status.canonicalMaxId).toBeGreaterThanOrEqual(7001);
         expect(postJson.status.maxGameStableId).toBeGreaterThanOrEqual(8001);
         expect(postJson.status.igdbBackfill).toBeDefined();
         expect(postJson.status.igdbRolling).toBeDefined();
         expect(postJson.status.upstreamSources).toBeDefined();
+
+        const fullStatus = await getBroadCatalogSeedStatus(mockEnv);
+        expect(fullStatus.canonicalMinId).toBe(7001);
+        expect(fullStatus.canonicalMaxId).toBe(7001);
+        expect(fullStatus.maxGameStableId).toBe(8001);
+
+        const prepareSpy = vi.spyOn(mockEnv.DB, 'prepare');
+        try {
+          const lightStatus = await getBroadCatalogSeedStatus(mockEnv, {
+            includeTableBounds: false,
+          });
+          expect(lightStatus.paused).toBe(true);
+          expect(lightStatus.canonicalMinId).toBe(0);
+          expect(lightStatus.canonicalMaxId).toBe(0);
+          expect(lightStatus.currentPlatformName).toBeNull();
+          expect(lightStatus.maxGameStableId).toBe(0);
+          const issuedSql = prepareSpy.mock.calls.map((c) => String(c[0]));
+          expect(
+            issuedSql.some((sql) => sql.includes('canonical_releases')),
+          ).toBe(false);
+        } finally {
+          prepareSpy.mockRestore();
+        }
 
         const pausedRow = db
           .prepare(

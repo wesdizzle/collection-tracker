@@ -197,6 +197,21 @@ export function runCollectionStaticSchemaCostGuard(
               WHERE user_game_releases.backup_status IS NOT 1`,
         params: [1, 'rel-1'],
       },
+      {
+        name: 'canonical_releases min id bound',
+        sql: 'SELECT COALESCE(MIN(id), 0) as min_id FROM canonical_releases',
+        params: [],
+      },
+      {
+        name: 'canonical_releases max id bound',
+        sql: 'SELECT COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
+        params: [],
+      },
+      {
+        name: 'active tracking rules lookup by user_id and rule_type',
+        sql: "SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope, COALESCE(u.home_region, 'USA') as home_region FROM users u CROSS JOIN user_tracking_rules r WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')",
+        params: [],
+      },
     ],
   });
 }

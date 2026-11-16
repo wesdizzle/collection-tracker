@@ -1289,9 +1289,9 @@ export async function evaluateTrackingRulesForNewGames(
     const { results: ruleRows } = await env.DB.prepare(
       `SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope,
               COALESCE(u.home_region, 'USA') as home_region
-       FROM user_tracking_rules r
-       JOIN users u ON u.id = r.user_id
-       WHERE r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')`,
+       FROM users u
+       CROSS JOIN user_tracking_rules r
+       WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')`,
     ).all<{
       user_id: number;
       rule_type: 'series' | 'platform';
@@ -1392,9 +1392,9 @@ export async function evaluateTrackingRulesForNewToys(
     const { results: ruleRows } = await env.DB.prepare(
       `SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope,
               COALESCE(u.home_region, 'USA') as home_region
-       FROM user_tracking_rules r
-       JOIN users u ON u.id = r.user_id
-       WHERE r.is_ignored = 0 AND r.rule_type IN ('toy_line', 'toy_series')`,
+       FROM users u
+       CROSS JOIN user_tracking_rules r
+       WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('toy_line', 'toy_series')`,
     ).all<{
       user_id: number;
       rule_type: 'toy_line' | 'toy_series';
@@ -8776,11 +8776,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
             0 AS ownership_status,
             0 AS has_owned_physical,
-            GROUP_CONCAT(COALESCE(r.variants, '')) AS owned_variants
+            NULL AS owned_variants
      FROM games g
-     LEFT JOIN game_releases r ON r.game_id = g.stable_id
-     WHERE g.platform_id IN (${placeholders})
-     GROUP BY g.stable_id`,
+     WHERE g.platform_id IN (${placeholders})`,
   )
     .bind(...platformsWithNoPlat)
     .all<{
@@ -9742,15 +9740,13 @@ export async function syncWorkerIgdbSeriesAndCanonical(
         Array<{ id: string; region: string | null }>
       >();
       const ownedOrSeekingGameIds = new Set<number>();
-      const gameRuleOverrides = new Set<string>();
 
       for (let i = 0; i < trackableCandidates.length; i += 80) {
         const chunk = trackableCandidates.slice(i, i + 80);
         const ids = chunk.map((c) => c.stableId);
-        const strIds = ids.map((id) => String(id));
         const ph = ids.map(() => '?').join(',');
 
-        const [relRes, activeRes, overrideRes] = await Promise.all([
+        const [relRes, activeRes] = await Promise.all([
           env.DB.prepare(
             `SELECT id, game_id, region FROM game_releases WHERE game_id IN (${ph})`,
           )
@@ -9764,11 +9760,6 @@ export async function syncWorkerIgdbSeriesAndCanonical(
           )
             .bind(...ids)
             .all<{ game_id: number }>(),
-          env.DB.prepare(
-            `SELECT match_value FROM user_tracking_rules WHERE rule_type = 'game' AND match_value IN (${ph})`,
-          )
-            .bind(...strIds)
-            .all<{ match_value: string }>(),
         ]);
 
         for (const rel of relRes.results || []) {
@@ -9782,17 +9773,13 @@ export async function syncWorkerIgdbSeriesAndCanonical(
         for (const row of activeRes.results || []) {
           ownedOrSeekingGameIds.add(row.game_id);
         }
-        for (const row of overrideRes.results || []) {
-          gameRuleOverrides.add(row.match_value);
-        }
       }
 
       const healGames = trackableCandidates
         .filter(
           (c) =>
             (releasesByGameId.get(c.stableId)?.length || 0) > 0 &&
-            !ownedOrSeekingGameIds.has(c.stableId) &&
-            !gameRuleOverrides.has(String(c.stableId)),
+            !ownedOrSeekingGameIds.has(c.stableId),
         )
         .map((c) => ({
           stableId: c.stableId,
@@ -10082,7 +10069,10 @@ export function cleanCanonicalDisplayTitle(rawTitle: string): string {
   return cleaned || rawTitle.trim();
 }
 
-export async function getBroadCatalogSeedStatus(env: Env): Promise<{
+export async function getBroadCatalogSeedStatus(
+  env: Env,
+  options?: { includeTableBounds?: boolean },
+): Promise<{
   stage: '2A' | '2B' | 'done';
   paused: boolean;
   cursor: number;
@@ -10114,6 +10104,7 @@ export async function getBroadCatalogSeedStatus(env: Env): Promise<{
     amiiboCatalogUpdatedAt: string | null;
   };
 }> {
+  const includeTableBounds = options?.includeTableBounds ?? true;
   const todayStr = new Date().toISOString().slice(0, 10);
   let stage: '2A' | '2B' | 'done' = '2A';
   let paused = false;
@@ -10245,31 +10236,36 @@ export async function getBroadCatalogSeedStatus(env: Env): Promise<{
   let canonicalMaxId = 0;
   let currentPlatformName: string | null = null;
   let maxGameStableId = 0;
-  try {
-    const [rangeRow, platRow, gameMaxRow] = await Promise.all([
-      env.DB.prepare(
-        'SELECT COALESCE(MIN(id), 0) as min_id, COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
-      ).first<{ min_id: number; max_id: number }>(),
-      env.DB.prepare(
-        `SELECT p.display_name
-         FROM canonical_releases cr
-         LEFT JOIN platforms p ON p.id = cr.platform_id
-         WHERE cr.id >= ?
-         ORDER BY cr.id ASC
-         LIMIT 1`,
-      )
-        .bind(cursor)
-        .first<{ display_name: string | null }>(),
-      env.DB.prepare(
-        'SELECT COALESCE(MAX(stable_id), 0) as max_stable_id FROM games',
-      ).first<{ max_stable_id: number }>(),
-    ]);
-    canonicalMinId = Number(rangeRow?.min_id) || 0;
-    canonicalMaxId = Number(rangeRow?.max_id) || 0;
-    currentPlatformName = platRow?.display_name ?? null;
-    maxGameStableId = Number(gameMaxRow?.max_stable_id) || 0;
-  } catch {
-    // Minimal test schemas may omit canonical_releases or platforms
+  if (includeTableBounds) {
+    try {
+      const [minRow, maxRow, platRow, gameMaxRow] = await Promise.all([
+        env.DB.prepare(
+          'SELECT COALESCE(MIN(id), 0) as min_id FROM canonical_releases',
+        ).first<{ min_id: number }>(),
+        env.DB.prepare(
+          'SELECT COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
+        ).first<{ max_id: number }>(),
+        env.DB.prepare(
+          `SELECT p.display_name
+           FROM canonical_releases cr
+           LEFT JOIN platforms p ON p.id = cr.platform_id
+           WHERE cr.id >= ?
+           ORDER BY cr.id ASC
+           LIMIT 1`,
+        )
+          .bind(cursor)
+          .first<{ display_name: string | null }>(),
+        env.DB.prepare(
+          'SELECT COALESCE(MAX(stable_id), 0) as max_stable_id FROM games',
+        ).first<{ max_stable_id: number }>(),
+      ]);
+      canonicalMinId = Number(minRow?.min_id) || 0;
+      canonicalMaxId = Number(maxRow?.max_id) || 0;
+      currentPlatformName = platRow?.display_name ?? null;
+      maxGameStableId = Number(gameMaxRow?.max_stable_id) || 0;
+    } catch {
+      // Minimal test schemas may omit canonical_releases or platforms
+    }
   }
 
   return {
@@ -10322,7 +10318,9 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   writesUsed: number;
   igdbMatched?: number;
 }> {
-  const status = await getBroadCatalogSeedStatus(env);
+  const status = await getBroadCatalogSeedStatus(env, {
+    includeTableBounds: false,
+  });
   if (status.paused) {
     return {
       skipped: true,
@@ -11080,7 +11078,9 @@ export async function syncWorkerIgdbMetadataBackfill(
     return { skipped: true, reason: 'igdb_not_configured', ...base };
   }
 
-  const status = await getBroadCatalogSeedStatus(env);
+  const status = await getBroadCatalogSeedStatus(env, {
+    includeTableBounds: false,
+  });
   const estimatedMaxWrites = batchSize * 2 + 2;
   if (
     status.writesUsedToday + estimatedMaxWrites >
@@ -11091,7 +11091,7 @@ export async function syncWorkerIgdbMetadataBackfill(
 
   // PK range scan over games; platforms joined by primary key.
   const { results: rows } = await env.DB.prepare(
-    `SELECT g.stable_id, g.title, g.platform_id, g.region, p.igdb_id AS igdb_platform_id
+    `SELECT g.stable_id, g.title, g.platform_id, g.region, g.igdb_id, g.image_url, g.summary, p.igdb_id AS igdb_platform_id
      FROM games g
      LEFT JOIN platforms p ON p.id = g.platform_id
      WHERE g.stable_id > ?
@@ -11104,6 +11104,9 @@ export async function syncWorkerIgdbMetadataBackfill(
       title: string;
       platform_id: number;
       region: string | null;
+      igdb_id: number | null;
+      image_url: string | null;
+      summary: string | null;
       igdb_platform_id: number | null;
     }>();
 
@@ -11140,17 +11143,9 @@ export async function syncWorkerIgdbMetadataBackfill(
     };
   }
 
-  const ids = slice.map((r) => r.stable_id);
-  const { results: missingRows } = await env.DB.prepare(
-    `SELECT stable_id FROM games
-     WHERE stable_id IN (${ids.map(() => '?').join(',')})
-       AND igdb_id IS NULL AND image_url IS NULL AND summary IS NULL`,
-  )
-    .bind(...ids)
-    .all<{ stable_id: number }>();
-  const missingIds = new Set((missingRows || []).map((r) => r.stable_id));
-
-  const candidates = slice.filter((r) => missingIds.has(r.stable_id));
+  const candidates = slice.filter(
+    (r) => r.igdb_id == null && r.image_url == null && r.summary == null,
+  );
   const metaById = await fetchIgdbMetadataForTitles(
     env,
     candidates.map((r) => ({
