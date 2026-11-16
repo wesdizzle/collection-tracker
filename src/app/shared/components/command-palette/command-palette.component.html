@@ -18,6 +18,7 @@
     (touchstart)="onDragHandleTouchStart($event)"
     (touchmove)="onDragHandleTouchMove($event)"
     (touchend)="onDragHandleTouchEnd()"
+    (touchcancel)="sheetDrag.reset()"
   >
     <!-- Mobile Bottom Sheet Drag Handle -->
     <div class="palette-drag-handle-bar">

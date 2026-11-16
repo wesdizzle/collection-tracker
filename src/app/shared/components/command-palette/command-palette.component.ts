@@ -787,13 +787,6 @@ export class CommandPaletteComponent implements AfterViewInit {
   public onDragHandleTouchEnd(): void {
     this.sheetDrag.onTouchEnd(() => {
       this.isClosing.set(true);
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        try {
-          navigator.vibrate(10);
-        } catch {
-          // Ignore vibration limitations
-        }
-      }
       setTimeout(() => {
         this.paletteService.close();
         this.isClosing.set(false);

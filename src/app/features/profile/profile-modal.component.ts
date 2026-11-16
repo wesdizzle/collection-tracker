@@ -290,7 +290,7 @@ import {
 
       @if (modalService.activeView() === 'tracking') {
         <div profileSubview class="tracking-subview">
-          <div class="tracking-header">
+          <div class="tracking-header modal-header">
             <button
               type="button"
               class="tracking-back-btn"

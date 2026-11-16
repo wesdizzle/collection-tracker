@@ -173,6 +173,34 @@ describe('ProfileModalComponent', () => {
     expect(closeSpy).toHaveBeenCalled();
   });
 
+  it('should snap back open instead of closing when dragged down past threshold and then pulled upward', () => {
+    vi.useFakeTimers();
+    try {
+      const closeSpy = vi.spyOn(component, 'requestClose');
+
+      component.kitModal?.onTouchStart({
+        touches: [{ clientY: 100 }],
+      } as unknown as TouchEvent);
+      vi.advanceTimersByTime(50);
+      component.kitModal?.onTouchMove({
+        touches: [{ clientY: 250 }],
+      } as unknown as TouchEvent);
+      expect(component.kitModal?.effectiveTransformY()).toBe(150);
+
+      vi.advanceTimersByTime(16);
+      component.kitModal?.onTouchMove({
+        touches: [{ clientY: 210 }],
+      } as unknown as TouchEvent);
+      expect(component.kitModal?.effectiveTransformY()).toBe(110);
+
+      component.kitModal?.onTouchEnd();
+      expect(closeSpy).not.toHaveBeenCalled();
+      expect(component.kitModal?.effectiveTransformY()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('should transition in-place to notifications view and back to profile view', () => {
     modalService.open();
     fixture.detectChanges();

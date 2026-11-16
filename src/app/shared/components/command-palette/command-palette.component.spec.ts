@@ -356,6 +356,66 @@ describe('CommandPaletteComponent', () => {
     vi.useRealTimers();
   });
 
+  it('should not call navigator.vibrate on swipe dismissal and should snap back on upward momentum', () => {
+    const vibrateSpy = vi.fn();
+    const originalVibrate = (navigator as Navigator & { vibrate?: unknown })
+      .vibrate;
+    Object.defineProperty(navigator, 'vibrate', {
+      configurable: true,
+      value: vibrateSpy,
+    });
+
+    vi.useFakeTimers();
+    try {
+      paletteService.open();
+      fixture.detectChanges();
+
+      // 1. Pull down past 60px then flick upward -> snaps back open
+      component.onDragHandleTouchStart({
+        touches: [{ clientY: 100 }],
+      } as unknown as TouchEvent);
+      vi.advanceTimersByTime(40);
+      component.onDragHandleTouchMove({
+        touches: [{ clientY: 180 }],
+      } as unknown as TouchEvent);
+      vi.advanceTimersByTime(16);
+      component.onDragHandleTouchMove({
+        touches: [{ clientY: 165 }],
+      } as unknown as TouchEvent);
+      component.onDragHandleTouchEnd();
+
+      expect(component.isClosing()).toBe(false);
+      vi.advanceTimersByTime(250);
+      expect(paletteService.isOpen()).toBe(true);
+      expect(vibrateSpy).not.toHaveBeenCalled();
+
+      // 2. Downward drag dismissal does not trigger navigator.vibrate
+      component.onDragHandleTouchStart({
+        touches: [{ clientY: 100 }],
+      } as unknown as TouchEvent);
+      vi.advanceTimersByTime(40);
+      component.onDragHandleTouchMove({
+        touches: [{ clientY: 190 }],
+      } as unknown as TouchEvent);
+      component.onDragHandleTouchEnd();
+
+      expect(component.isClosing()).toBe(true);
+      vi.advanceTimersByTime(250);
+      expect(paletteService.isOpen()).toBe(false);
+      expect(vibrateSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      if (originalVibrate === undefined) {
+        delete (navigator as { vibrate?: unknown }).vibrate;
+      } else {
+        Object.defineProperty(navigator, 'vibrate', {
+          configurable: true,
+          value: originalVibrate,
+        });
+      }
+    }
+  });
+
   it('should track interactive swipe up drag progress from service', () => {
     paletteService.startDragOpen();
     fixture.detectChanges();
