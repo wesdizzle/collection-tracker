@@ -941,7 +941,7 @@ describe('CollectionService', () => {
         await p;
         expect(service.isAutoSigningIn()).toBe(true);
         expect(redirectSpy).toHaveBeenCalledWith(
-          '/api/auth/login?return_to=%2Fcollection%2Fgames',
+          '/api/auth/login?return_to=%2Fcollection%2Fgames&prompt=none',
         );
       } finally {
         fetchSpy.mockRestore();
@@ -1286,6 +1286,122 @@ describe('CollectionService', () => {
 
       expect(service.degradedMode()).toBeNull();
       expect(service.isDegraded()).toBe(false);
+    });
+
+    it('persists cached auth snapshot during degraded /api/auth/me and prevents SSO mismatch reload loops across visibility changes', async () => {
+      clearCachedKitAuthSnapshot();
+      clearSilentSsoAttempt();
+      expect(readCachedKitAuthSnapshot()).toBeNull();
+
+      const redirectSpy = vi
+        .spyOn(
+          service as unknown as { redirectTo: (url: string) => void },
+          'redirectTo',
+        )
+        .mockImplementation(() => {});
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            authenticated: true,
+            authorized: true,
+            user: { id: 1, username: 'other_user', role: 'user' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+      try {
+        // 1. Degraded /api/auth/me still writes localStorage snapshot and does NOT redirect on upstream mismatch
+        const pDegraded = service.refreshAuthStatus();
+        httpMock.expectOne('/api/auth/me').flush(
+          {
+            authenticated: true,
+            degraded: true,
+            degradedReason: 'r2_backup',
+            snapshotTimestamp: '2026-11-16T04:00:00.000Z',
+            oidcIssuer: 'https://auth.example.com',
+            oidcClientId: 'collection-tracker',
+            user: {
+              id: 1,
+              username: 'alice',
+              role: 'admin',
+              isPublic: false,
+              homeRegion: 'USA',
+              displayName: 'Alice',
+              bio: null,
+            },
+          },
+          {
+            headers: {
+              [KIT_DEGRADED_HEADER]: 'r2-backup',
+              [KIT_SNAPSHOT_TIMESTAMP_HEADER]: '2026-11-16T04:00:00.000Z',
+            },
+          },
+        );
+        await pDegraded;
+        httpMock
+          .expectOne('/api/journal/entries')
+          .flush({ authorized: true, entries: [] });
+
+        const saved = readCachedKitAuthSnapshot();
+        expect(saved?.user?.username).toBe('alice');
+        expect(redirectSpy).not.toHaveBeenCalled();
+
+        // 2. Healthy /api/auth/me with upstream username mismatch redirects once with prompt=none, and cooldown blocks repeat loops even after visibilitychange hidden
+        const pHealthy1 = service.refreshAuthStatus();
+        httpMock.expectOne('/api/auth/me').flush({
+          authenticated: true,
+          oidcIssuer: 'https://auth.example.com',
+          oidcClientId: 'collection-tracker',
+          user: {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            isPublic: false,
+            homeRegion: 'USA',
+            displayName: 'Alice',
+            bio: null,
+          },
+        });
+        await pHealthy1;
+
+        expect(redirectSpy).toHaveBeenCalledTimes(1);
+        expect(redirectSpy).toHaveBeenCalledWith(
+          '/api/auth/login?return_to=%2F&prompt=none',
+        );
+
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          value: 'hidden',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          value: 'visible',
+        });
+
+        const pHealthy2 = service.refreshAuthStatus();
+        httpMock.expectOne('/api/auth/me').flush({
+          authenticated: true,
+          oidcIssuer: 'https://auth.example.com',
+          oidcClientId: 'collection-tracker',
+          user: {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            isPublic: false,
+            homeRegion: 'USA',
+            displayName: 'Alice',
+            bio: null,
+          },
+        });
+        await pHealthy2;
+        expect(redirectSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        fetchSpy.mockRestore();
+        redirectSpy.mockRestore();
+      }
     });
   });
 });

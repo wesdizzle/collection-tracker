@@ -1781,6 +1781,12 @@ export function parseGameMetadataOnce(
 ): ParsedGameMetadata | null {
   if (!metadataJsonOrObj) return null;
   if (typeof metadataJsonOrObj === 'object') return metadataJsonOrObj;
+  if (
+    !metadataJsonOrObj.includes('alternative_names') &&
+    !metadataJsonOrObj.includes('game_localizations')
+  ) {
+    return null;
+  }
   try {
     return JSON.parse(metadataJsonOrObj) as ParsedGameMetadata;
   } catch {
@@ -1965,9 +1971,13 @@ export function resolveLocalizedReleaseTitle(
 export function enrichAndStripGameListRow(
   row: Record<string, unknown>,
   homeRegion?: string | null,
+  preParsedMetadata?: ParsedGameMetadata | null,
 ): void {
   const metadataJson = (row['metadata_json'] as string) || null;
-  const parsedMetadata = parseGameMetadataOnce(metadataJson);
+  const parsedMetadata =
+    preParsedMetadata !== undefined
+      ? preParsedMetadata
+      : parseGameMetadataOnce(metadataJson);
 
   if (row['region'] && (parsedMetadata || row['raw_title'])) {
     row['title'] = resolveLocalizedReleaseTitle(
@@ -2076,13 +2086,28 @@ export function postProcessGameListRows(
     id: string;
   }>(rows.length);
 
+  const parsedMetadataByStableId = new Map<number, ParsedGameMetadata | null>();
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (!row['release_date'] && row['stable_id'] !== undefined) {
       row['release_date'] =
         fallbackReleaseByStableId.get(Number(row['stable_id'])) ?? null;
     }
-    enrichAndStripGameListRow(row, homeRegion);
+    const stableId =
+      row['stable_id'] !== undefined ? Number(row['stable_id']) : undefined;
+    let cachedMeta: ParsedGameMetadata | null | undefined;
+    if (stableId !== undefined) {
+      if (parsedMetadataByStableId.has(stableId)) {
+        cachedMeta = parsedMetadataByStableId.get(stableId) ?? null;
+      } else {
+        cachedMeta = parseGameMetadataOnce(
+          (row['metadata_json'] as string | ParsedGameMetadata | null) || null,
+        );
+        parsedMetadataByStableId.set(stableId, cachedMeta);
+      }
+    }
+    enrichAndStripGameListRow(row, homeRegion, cachedMeta);
 
     const launch = (row['platform_launch_date'] as string | null) || null;
     const rel = (row['release_date'] as string | null) || null;

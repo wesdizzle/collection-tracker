@@ -14,6 +14,9 @@ import {
 } from './auth';
 import worker, {
   Env,
+  R2_META_LITE_KEY,
+  R2_TOYS_LITE_KEY,
+  R2_GAMES_ACTIVE_LITE_KEY,
   getBroadCatalogSeedStatus,
   isAuthorizedAdmin,
   markCanonicalReleasesDirty,
@@ -35,6 +38,7 @@ import { normalizeTitleForMatching } from '../shared/title_matching';
 import {
   KIT_DEGRADED_HEADER,
   KIT_SNAPSHOT_TIMESTAMP_HEADER,
+  resetR2SnapshotCache,
 } from '@wesdizzle/app-kit/worker';
 
 const CANONICAL_SCHEMA_SQL = fs.readFileSync(
@@ -404,22 +408,25 @@ describe('Worker API Logic', () => {
   });
 
   it('performScheduledBackup dumps tables, deduplicates unchanged SHA-256 via head(), and saves daily snapshot to R2', async () => {
-    // Non-daily call updates latest.json
+    // Non-daily call updates latest.json and lite fallback snapshots
     const nonDailyRes = await performScheduledBackup(mockEnv, false);
     expect(nonDailyRes.rowCount).toBeGreaterThan(0);
     expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
-    expect(mockBucket.storage.size).toBe(1);
+    expect(mockBucket.storage.has(R2_META_LITE_KEY)).toBe(true);
+    expect(mockBucket.storage.has(R2_TOYS_LITE_KEY)).toBe(true);
+    expect(mockBucket.storage.has(R2_GAMES_ACTIVE_LITE_KEY)).toBe(true);
+    expect(mockBucket.storage.size).toBe(4);
 
     // Repeat call with unchanged DB skips upload via head() SHA-256 metadata check
     const unchangedRes = await performScheduledBackup(mockEnv, true);
     expect(unchangedRes.skipped).toBe(true);
-    expect(mockBucket.storage.size).toBe(1);
+    expect(mockBucket.storage.size).toBe(4);
 
-    // Mutate DB and run daily call -> saves both dated snapshot and updated latest.json
+    // Mutate DB and run daily call -> saves dated snapshot, latest.json, and updated lite snapshots
     db.prepare('UPDATE games SET sort_index = 7 WHERE stable_id = 1').run();
     const dailyRes = await performScheduledBackup(mockEnv, true);
     expect(dailyRes.rowCount).toBeGreaterThan(0);
-    expect(mockBucket.storage.size).toBe(2); // dated snapshot + latest.json
+    expect(mockBucket.storage.size).toBe(5); // dated snapshot + latest.json + 3 lite snapshots
 
     const latest = mockBucket.storage.get('snapshots/latest.json');
     expect(latest).toBeDefined();
@@ -6328,6 +6335,315 @@ describe('Worker API Logic', () => {
         expect(res.status).toBe(503);
         const body = (await res.json()) as { degraded?: boolean };
         expect(body.degraded).toBe(true);
+      }
+    });
+
+    it('skips oversized snapshots/latest.json without parsing, serves from lite snapshots, and resolves OIDC callback under D1 quota errors', async () => {
+      resetR2SnapshotCache();
+      resetOidcJwksCache();
+      resetWorkerRateLimits();
+
+      await performScheduledBackup(mockEnv, false);
+
+      // Replace snapshots/latest.json with an oversized (>5MB) corrupted payload
+      const oversizedRaw = '{invalid-json-' + 'x'.repeat(5_100_000);
+      mockBucket.storage.set('snapshots/latest.json', oversizedRaw);
+      const cancelSpy = vi.fn(async () => {});
+      const baseGet = mockBucket.get.bind(mockBucket);
+      const sizeAwareBucket = {
+        ...mockBucket,
+        get: vi.fn(async (key: string) => {
+          if (key === 'snapshots/latest.json') {
+            const raw = mockBucket.storage.get(key);
+            if (!raw) return null;
+            return {
+              size: raw.length,
+              body: { cancel: cancelSpy },
+              customMetadata: mockBucket.metadata.get(key),
+              text: async () => raw,
+            };
+          }
+          const obj = await baseGet(key);
+          if (!obj) return null;
+          const raw = mockBucket.storage.get(key) || '';
+          return {
+            ...obj,
+            size: raw.length,
+          };
+        }),
+      } as unknown as Env['BACKUP_BUCKET'];
+
+      const failingDb = {
+        prepare: () => ({
+          bind: () => ({
+            all: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            first: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            run: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+          }),
+          all: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          first: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          run: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+        }),
+        batch: async () => {
+          throw new Error('D1_ERROR: exceeded rows read quota');
+        },
+      } as unknown as Env['DB'];
+
+      const secret = mockEnv.SESSION_SECRET!;
+      const token = await signSession(
+        {
+          id: 1,
+          username: 'alice',
+          role: 'admin',
+          homeRegion: 'USA',
+        },
+        secret,
+      );
+      const cookieHeader = `${HOST_SESSION_COOKIE}=${token}`;
+      const degradedEnv: Env = {
+        ...mockEnv,
+        DB: failingDb,
+        BACKUP_BUCKET: sizeAwareBucket,
+        OIDC_ISSUER: 'https://id.example.com',
+        OIDC_CLIENT_ID: 'collection-tracker',
+      };
+
+      // 1. Serves /api/games, /api/toys, /api/platforms, and /api/auth/me cleanly from lite snapshots without touching oversized latest.json
+      for (const path of [
+        '/api/games',
+        '/api/toys',
+        '/api/platforms',
+        '/api/auth/me',
+      ]) {
+        const res = await worker.fetch(
+          new Request(`https://collection-tracker.example.com${path}`, {
+            headers: { Cookie: cookieHeader },
+          }),
+          degradedEnv,
+        );
+        expect(res.status).toBe(200);
+        if (path !== '/api/auth/me') {
+          expect(res.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+        }
+      }
+
+      // 2. When lite snapshots are removed, oversized latest.json is skipped via maxBytes (cancel called) and returns 503 instead of crashing on JSON.parse
+      mockBucket.storage.delete(R2_GAMES_ACTIVE_LITE_KEY);
+      resetR2SnapshotCache();
+      resetWorkerRateLimits();
+      const oversizedFallbackRes = await worker.fetch(
+        new Request('https://collection-tracker.example.com/api/games', {
+          headers: { Cookie: cookieHeader },
+        }),
+        degradedEnv,
+      );
+      expect(oversizedFallbackRes.status).toBe(503);
+      expect(cancelSpy).toHaveBeenCalled();
+
+      // 3. syncOrResolveOidcUser resolves R2 meta-lite user (legacy id=1 when verified ADMIN_EMAIL matches) and synthesizes verified claims when missing
+      const resolvedLegacy = await syncOrResolveOidcUser(
+        degradedEnv,
+        {
+          iss: 'https://id.example.com',
+          sub: 'sub-r2-admin',
+          aud: 'collection-tracker',
+          exp: Math.floor(Date.now() / 1000) + 600,
+          iat: Math.floor(Date.now() / 1000),
+          email: 'admin@example.com',
+          email_verified: true,
+          preferred_username: 'alice',
+        },
+        'https://collection-tracker.example.com/api/auth/callback',
+      );
+      expect(resolvedLegacy.id).toBe(1);
+      expect(resolvedLegacy.username).toBe('alice');
+
+      const resolvedClaimsOnly = await syncOrResolveOidcUser(
+        { ...degradedEnv, BACKUP_BUCKET: undefined },
+        {
+          iss: 'https://id.example.com',
+          sub: '77',
+          aud: 'collection-tracker',
+          exp: Math.floor(Date.now() / 1000) + 600,
+          iat: Math.floor(Date.now() / 1000),
+          email: 'claims@example.com',
+          email_verified: true,
+          preferred_username: 'claims_user',
+          name: 'Claims User',
+        },
+        'https://collection-tracker.example.com/api/auth/callback',
+      );
+      expect(resolvedClaimsOnly.id).toBe(77);
+      expect(resolvedClaimsOnly.username).toBe('claims_user');
+
+      // 4. GET /api/auth/callback succeeds under D1 quota errors, evicts auth-me edge cache, and silent token failure redirects to ?sso=checked
+      const cacheStore = new Map<string, Response>();
+      const deleteSpy = vi.fn(async (req: Request | string) => {
+        const key = typeof req === 'string' ? req : req.url;
+        return cacheStore.delete(key);
+      });
+      const prevCaches = (globalThis as Record<string, unknown>)['caches'];
+      (globalThis as Record<string, unknown>)['caches'] = {
+        default: {
+          match: async () => undefined,
+          put: async () => {},
+          delete: deleteSpy,
+        },
+      };
+
+      const ecKeyPair = await crypto.subtle.generateKey(
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        true,
+        ['sign', 'verify'],
+      );
+      const pubJwk = await crypto.subtle.exportKey('jwk', ecKeyPair.publicKey);
+      const b64UrlStr = (s: string) =>
+        btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const b64UrlBytes = (bytes: Uint8Array) => {
+        let bin = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          bin += String.fromCharCode(bytes[i]);
+        }
+        return btoa(bin)
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+      };
+
+      let tokenShouldFail = false;
+      let activeNonce = '';
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr =
+            typeof input === 'string'
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          if (urlStr === 'https://id.example.com/token') {
+            if (tokenShouldFail) {
+              return new Response('Quota', { status: 503 });
+            }
+            const nowSec = Math.floor(Date.now() / 1000);
+            const jwtHeader = b64UrlStr(
+              JSON.stringify({ alg: 'ES256', typ: 'JWT', kid: 'oidc-quota-1' }),
+            );
+            const jwtPayload = b64UrlStr(
+              JSON.stringify({
+                iss: 'https://id.example.com',
+                sub: 'sub-r2-admin',
+                aud: 'collection-tracker',
+                exp: nowSec + 600,
+                iat: nowSec,
+                nonce: activeNonce,
+                email: 'admin@example.com',
+                email_verified: true,
+                preferred_username: 'alice',
+                role: 'admin',
+              }),
+            );
+            const sigBuf = await crypto.subtle.sign(
+              { name: 'ECDSA', hash: 'SHA-256' },
+              ecKeyPair.privateKey,
+              new TextEncoder().encode(`${jwtHeader}.${jwtPayload}`),
+            );
+            return Response.json({
+              id_token: `${jwtHeader}.${jwtPayload}.${b64UrlBytes(new Uint8Array(sigBuf))}`,
+              access_token: 'at-r2',
+              token_type: 'Bearer',
+              expires_in: 600,
+            });
+          }
+          if (urlStr === 'https://id.example.com/.well-known/jwks.json') {
+            return Response.json({
+              keys: [
+                { ...pubJwk, kid: 'oidc-quota-1', alg: 'ES256', use: 'sig' },
+              ],
+            });
+          }
+          return new Response('Not Found', { status: 404 });
+        });
+
+      try {
+        const loginRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/api/auth/login'),
+          degradedEnv,
+        );
+        const authUrl = new URL(loginRes.headers.get('Location')!);
+        const stateParam = authUrl.searchParams.get('state')!;
+        activeNonce = authUrl.searchParams.get('nonce')!;
+        const stateCookie = loginRes.headers
+          .getSetCookie()
+          .find((c) => c.startsWith(`${HOST_OIDC_STATE_COOKIE}=`))!;
+
+        const cbRes = await worker.fetch(
+          new Request(
+            `https://collection-tracker.example.com/api/auth/callback?code=c-r2&state=${encodeURIComponent(stateParam)}`,
+            { headers: { Cookie: stateCookie.split(';')[0] } },
+          ),
+          degradedEnv,
+        );
+        expect(cbRes.status).toBe(302);
+        const sessionCookie = cbRes.headers
+          .getSetCookie()
+          .find((c) => c.startsWith(`${HOST_SESSION_COOKIE}=`));
+        expect(sessionCookie).toBeTruthy();
+        const sessToken = parseCookies(sessionCookie!)[HOST_SESSION_COOKIE];
+        const decodedSess = await verifySession(sessToken, secret);
+        expect(decodedSess?.id).toBe(1);
+        expect(decodedSess?.username).toBe('alice');
+        expect(decodedSess?.role).toBe('admin');
+        const deletedUrls = deleteSpy.mock.calls.map((c) =>
+          typeof c[0] === 'string' ? c[0] : (c[0] as Request).url,
+        );
+        expect(deletedUrls).toContain(
+          'https://edge-cache.internal/auth-me/user:1',
+        );
+
+        // Silent prompt=none callback when /token fails redirects cleanly to /?sso=checked
+        const silentLoginRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/auth/login?prompt=none',
+          ),
+          degradedEnv,
+        );
+        const silentUrl = new URL(silentLoginRes.headers.get('Location')!);
+        const silentState = silentUrl.searchParams.get('state')!;
+        const silentCookie = silentLoginRes.headers
+          .getSetCookie()
+          .find((c) => c.startsWith(`${HOST_OIDC_STATE_COOKIE}=`))!;
+        tokenShouldFail = true;
+        const silentCbRes = await worker.fetch(
+          new Request(
+            `https://collection-tracker.example.com/api/auth/callback?code=c-silent&state=${encodeURIComponent(silentState)}`,
+            { headers: { Cookie: silentCookie.split(';')[0] } },
+          ),
+          degradedEnv,
+        );
+        expect(silentCbRes.status).toBe(302);
+        expect(silentCbRes.headers.get('Location')).toBe(
+          'https://collection-tracker.example.com/?sso=checked',
+        );
+      } finally {
+        fetchSpy.mockRestore();
+        if (prevCaches === undefined) {
+          delete (globalThis as Record<string, unknown>)['caches'];
+        } else {
+          (globalThis as Record<string, unknown>)['caches'] = prevCaches;
+        }
       }
     });
   });

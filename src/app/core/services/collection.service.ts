@@ -225,9 +225,7 @@ export class CollectionService implements OnDestroy {
     };
     if (typeof document !== 'undefined') {
       this._visibilityListener = () => {
-        if (document.visibilityState === 'hidden') {
-          clearSilentSsoAttempt();
-        } else if (document.visibilityState === 'visible') {
+        if (document.visibilityState === 'visible') {
           checkOnReturn();
         }
       };
@@ -340,7 +338,6 @@ export class CollectionService implements OnDestroy {
     const issuer = res.oidcIssuer || this._oidcIssuer();
     const clientId = res.oidcClientId || this._oidcClientId();
     if (res.authenticated && res.user) {
-      clearSilentSsoAttempt(clientId);
       this._isAutoSigningIn.set(false);
       const isDegradedResponse = Boolean(res.degraded || headerDegraded);
       const cachedSnapshot = readCachedKitAuthSnapshot<UserProfile>();
@@ -371,14 +368,17 @@ export class CollectionService implements OnDestroy {
         if (this._dataDegradedMode() === null) {
           this._degradedTimestamp.set(null);
         }
-        writeCachedKitAuthSnapshot({
-          user: effectiveUser,
-          accountHubUrl: res.accountHubUrl ?? this._accountHubUrl(),
-          oidcIssuer: res.oidcIssuer ?? this._oidcIssuer(),
-          oidcClientId: res.oidcClientId ?? this._oidcClientId(),
-          updatedAt: Date.now(),
-        });
       }
+
+      writeCachedKitAuthSnapshot({
+        user: effectiveUser,
+        accountHubUrl: res.accountHubUrl ?? this._accountHubUrl(),
+        oidcIssuer: res.oidcIssuer ?? this._oidcIssuer(),
+        oidcClientId: res.oidcClientId ?? this._oidcClientId(),
+        updatedAt: isDegradedResponse
+          ? (cachedSnapshot?.updatedAt ?? Date.now())
+          : Date.now(),
+      });
 
       if (issuer) {
         const upstreamActive = await this.verifyUpstreamOidcSession(issuer);
@@ -387,6 +387,7 @@ export class CollectionService implements OnDestroy {
           return null;
         }
       }
+      clearSilentSsoAttempt(clientId);
       if (
         !isDegradedResponse &&
         (!wasAuthenticated || !this._journalLoaded())
@@ -450,7 +451,7 @@ export class CollectionService implements OnDestroy {
       const targetReturn =
         currentReturn === '/' ? '/collection/games' : currentReturn;
       this.redirectTo(
-        `/api/auth/login?return_to=${encodeURIComponent(targetReturn)}`,
+        `/api/auth/login?return_to=${encodeURIComponent(targetReturn)}&prompt=none`,
       );
       return true;
     }
@@ -483,14 +484,14 @@ export class CollectionService implements OnDestroy {
    * protected routes to the landing page.
    */
   public async verifyUpstreamOidcSession(oidcIssuer: string): Promise<boolean> {
-    if (typeof fetch !== 'function' || !oidcIssuer) {
+    if (typeof fetch !== 'function' || !oidcIssuer || this.isDegraded()) {
       return true;
     }
     const status = await checkUpstreamOidcStatus(
       oidcIssuer,
       this._oidcClientId(),
     );
-    if (!status.reachable) {
+    if (!status.reachable || status.degraded || this.isDegraded()) {
       return true;
     }
     if (!status.authenticated && status.cookiePresent === false) {
@@ -515,9 +516,14 @@ export class CollectionService implements OnDestroy {
             localUser.username.toLowerCase()) ||
           (status.user.role && status.user.role !== localUser.role))
       ) {
+        const oidcClientId = this._oidcClientId();
+        if (!shouldAttemptSilentSso(oidcClientId)) {
+          return false;
+        }
+        markSilentSsoAttempt(oidcClientId);
         const returnTo = getCurrentReturnToPath('/');
         this.redirectTo(
-          `/api/auth/login?return_to=${encodeURIComponent(returnTo)}`,
+          `/api/auth/login?return_to=${encodeURIComponent(returnTo)}&prompt=none`,
         );
         return false;
       }

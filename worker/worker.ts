@@ -907,6 +907,285 @@ const BACKUP_TABLES = [
   'user_toys',
 ] as const;
 
+export const R2_META_LITE_KEY = 'snapshots/meta-lite.json';
+export const R2_TOYS_LITE_KEY = 'snapshots/toys-lite.json';
+export const R2_GAMES_ACTIVE_LITE_KEY = 'snapshots/games-active-lite.json';
+export const MAX_FALLBACK_SNAPSHOT_BYTES = 5_000_000;
+export const MAX_GAMES_LITE_SNAPSHOT_BYTES = 8_000_000;
+
+const LITE_GAMES_SELECT_COLS = `stable_id, id, title, series, platform_id, sort_index, image_url, igdb_id, genres, region, collections, franchises, canonical_series, manually_verified, CASE WHEN metadata_json LIKE '%alternative_names%' OR metadata_json LIKE '%game_localizations%' THEN metadata_json ELSE NULL END AS metadata_json, igdb_url, physical_status, verification_tier, barcode, release_medium, bundle_parent_id, bundle_disc_number, retail_price, retail_regular_price, retail_discount_pct, retail_on_sale, retail_store, retail_url, retail_updated_at`;
+
+export async function loadMetaSnapshotForFallback(
+  bucket?: R2Bucket,
+): Promise<R2BackupSnapshot<SnapshotTables> | null> {
+  const lite = await loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    objectKey: R2_META_LITE_KEY,
+    maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
+  });
+  if (lite) return lite;
+  return loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
+  });
+}
+
+export async function loadToysSnapshotForFallback(
+  bucket?: R2Bucket,
+): Promise<R2BackupSnapshot<SnapshotTables> | null> {
+  const lite = await loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    objectKey: R2_TOYS_LITE_KEY,
+    maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
+  });
+  if (lite) return lite;
+  return loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
+  });
+}
+
+export async function loadGamesSnapshotForFallback(
+  bucket?: R2Bucket,
+): Promise<R2BackupSnapshot<SnapshotTables> | null> {
+  const lite = await loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    objectKey: R2_GAMES_ACTIVE_LITE_KEY,
+    maxBytes: MAX_GAMES_LITE_SNAPSHOT_BYTES,
+  });
+  if (lite) return lite;
+  return loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
+  });
+}
+
+function stripGameMetadataJsonInPlace(
+  rows: Array<Record<string, unknown>>,
+): void {
+  for (const g of rows) {
+    const rawMeta = g['metadata_json'];
+    if (typeof rawMeta !== 'string' || !rawMeta) {
+      g['metadata_json'] = null;
+      continue;
+    }
+    const parsed = parseGameMetadataOnce(rawMeta);
+    if (parsed && (parsed.alternative_names || parsed.game_localizations)) {
+      const minimalMeta: Record<string, unknown> = {};
+      if (parsed.alternative_names) {
+        minimalMeta['alternative_names'] = parsed.alternative_names;
+      }
+      if (parsed.game_localizations) {
+        minimalMeta['game_localizations'] = parsed.game_localizations;
+      }
+      g['metadata_json'] = JSON.stringify(minimalMeta);
+    } else {
+      g['metadata_json'] = null;
+    }
+  }
+}
+
+async function queryChunkedByColumn(
+  db: D1Database,
+  sqlPrefix: string,
+  values: Array<string | number>,
+  chunkSize = 80,
+): Promise<Array<Record<string, unknown>>> {
+  if (values.length === 0) return [];
+  const allRows: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < values.length; i += chunkSize) {
+    const chunk = values.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => '?').join(',');
+    const { results } = await db
+      .prepare(`${sqlPrefix} IN (${placeholders})`)
+      .bind(...chunk)
+      .all();
+    if (results && results.length > 0) {
+      allRows.push(...(results as Array<Record<string, unknown>>));
+    }
+  }
+  return allRows;
+}
+
+export async function writeLiteBackupSnapshots(
+  env: Env,
+  timestampOverride?: string,
+): Promise<void> {
+  if (!env.BACKUP_BUCKET) return;
+  const timestamp = timestampOverride || new Date().toISOString();
+
+  const dumpAll = async (
+    table: string,
+  ): Promise<Array<Record<string, unknown>>> => {
+    const { results } = await env.DB.prepare(`SELECT * FROM ${table}`).all();
+    return (results as Array<Record<string, unknown>>) || [];
+  };
+
+  const [
+    platforms,
+    toy_series,
+    users,
+    user_tracking_rules,
+    journal_entries,
+    sync_state,
+    toys,
+    toy_game_compatibility,
+    user_toys,
+    user_games,
+    user_game_releases,
+  ] = await Promise.all([
+    dumpAll('platforms'),
+    dumpAll('toy_series'),
+    dumpAll('users'),
+    dumpAll('user_tracking_rules'),
+    dumpAll('journal_entries'),
+    dumpAll('sync_state'),
+    dumpAll('toys'),
+    dumpAll('toy_game_compatibility'),
+    dumpAll('user_toys'),
+    dumpAll('user_games'),
+    dumpAll('user_game_releases'),
+  ]);
+
+  const countRow = (await env.DB.prepare(
+    'SELECT COUNT(*) AS cnt FROM games',
+  ).first()) as { cnt?: number } | null;
+  const totalGamesCount = Number(countRow?.cnt ?? 0);
+
+  let activeGames: Array<Record<string, unknown>>;
+  let activeReleases: Array<Record<string, unknown>>;
+
+  if (totalGamesCount <= 500) {
+    const gamesRes = await env.DB.prepare(
+      `SELECT ${LITE_GAMES_SELECT_COLS} FROM games`,
+    ).all();
+    activeGames = (gamesRes.results as Array<Record<string, unknown>>) || [];
+    activeReleases = await dumpAll('game_releases');
+  } else {
+    const activeStableIdSet = new Set<number>();
+    for (const ug of user_games) {
+      if (
+        Number(ug['queued'] ?? 0) === 1 ||
+        Number(ug['play_status'] ?? 0) > 0
+      ) {
+        activeStableIdSet.add(Number(ug['game_id']));
+      }
+    }
+    const activeReleaseIds: string[] = [];
+    for (const ugr of user_game_releases) {
+      if (
+        Number(ugr['ownership_status'] ?? 0) > 0 ||
+        Number(ugr['backup_status'] ?? 0) > 0 ||
+        Number(ugr['has_case'] ?? 0) === 1 ||
+        Number(ugr['has_manual'] ?? 0) === 1
+      ) {
+        activeReleaseIds.push(String(ugr['release_id']));
+      }
+    }
+    if (activeReleaseIds.length > 0) {
+      const relGameRows = await queryChunkedByColumn(
+        env.DB,
+        'SELECT id, game_id FROM game_releases WHERE id',
+        activeReleaseIds,
+      );
+      for (const r of relGameRows) {
+        activeStableIdSet.add(Number(r['game_id']));
+      }
+    }
+
+    const [saleRows, bundleRows] = await Promise.all([
+      env.DB.prepare(
+        'SELECT stable_id, bundle_parent_id FROM games WHERE retail_on_sale = 1',
+      ).all(),
+      env.DB.prepare(
+        'SELECT stable_id, bundle_parent_id FROM games WHERE bundle_parent_id IS NOT NULL',
+      ).all(),
+    ]);
+    for (const row of [
+      ...((saleRows.results as Array<Record<string, unknown>>) || []),
+      ...((bundleRows.results as Array<Record<string, unknown>>) || []),
+    ]) {
+      activeStableIdSet.add(Number(row['stable_id']));
+      if (
+        row['bundle_parent_id'] !== null &&
+        row['bundle_parent_id'] !== undefined
+      ) {
+        activeStableIdSet.add(Number(row['bundle_parent_id']));
+      }
+    }
+
+    const stableIds = Array.from(activeStableIdSet).filter((id) =>
+      Number.isFinite(id),
+    );
+    activeGames = await queryChunkedByColumn(
+      env.DB,
+      `SELECT ${LITE_GAMES_SELECT_COLS} FROM games WHERE stable_id`,
+      stableIds,
+    );
+    activeReleases = await queryChunkedByColumn(
+      env.DB,
+      'SELECT * FROM game_releases WHERE game_id',
+      stableIds,
+    );
+  }
+
+  stripGameMetadataJsonInPlace(activeGames);
+
+  const buildSnapshotJson = (tables: SnapshotTables): string => {
+    const tableCounts: Record<string, number> = {};
+    let totalRows = 0;
+    for (const [name, rows] of Object.entries(tables)) {
+      tableCounts[name] = rows.length;
+      totalRows += rows.length;
+    }
+    return JSON.stringify({
+      timestamp,
+      metadata: {
+        version: '1.0',
+        totalRows,
+        tableCounts,
+      },
+      tables,
+    });
+  };
+
+  await Promise.all([
+    env.BACKUP_BUCKET.put(
+      R2_META_LITE_KEY,
+      buildSnapshotJson({
+        platforms,
+        toy_series,
+        users,
+        user_tracking_rules,
+        journal_entries,
+        sync_state,
+      }),
+      { httpMetadata: { contentType: 'application/json' } },
+    ),
+    env.BACKUP_BUCKET.put(
+      R2_TOYS_LITE_KEY,
+      buildSnapshotJson({
+        platforms,
+        toy_series,
+        users,
+        toys,
+        toy_game_compatibility,
+        user_toys,
+      }),
+      { httpMetadata: { contentType: 'application/json' } },
+    ),
+    env.BACKUP_BUCKET.put(
+      R2_GAMES_ACTIVE_LITE_KEY,
+      buildSnapshotJson({
+        platforms,
+        users,
+        user_tracking_rules,
+        games: activeGames,
+        game_releases: activeReleases,
+        user_games,
+        user_game_releases,
+      }),
+      { httpMetadata: { contentType: 'application/json' } },
+    ),
+  ]);
+
+  resetR2SnapshotCache();
+}
+
 /**
  * Resolves the session signing secret.
  * On non-loopback requests, requires a strong (>= 32 char, non-placeholder) SESSION_SECRET binding.
@@ -1121,9 +1400,7 @@ async function resolveUserProfileWithFallback(
     };
   }
 
-  const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-    env.BACKUP_BUCKET,
-  );
+  const snapshot = await loadMetaSnapshotForFallback(env.BACKUP_BUCKET);
   const r2Users = snapshot?.tables?.['users'] || [];
   const r2Row = r2Users.find((u) => Number(u['id']) === sessionUser.id);
   if (r2Row) {
@@ -2548,110 +2825,159 @@ export async function syncOrResolveOidcUser(
 
   const selectCols =
     'SELECT id, username, oidc_sub, is_public, home_region, display_name, bio FROM users';
+  let fetchedExisting: DbUserRow | undefined;
 
-  let existing = (await env.DB.prepare(
-    `${selectCols} WHERE oidc_sub = ? AND oidc_sub IS NOT NULL`,
-  )
-    .bind(sub)
-    .first()) as DbUserRow | null;
+  try {
+    let existing = (await env.DB.prepare(
+      `${selectCols} WHERE oidc_sub = ? AND oidc_sub IS NOT NULL`,
+    )
+      .bind(sub)
+      .first()) as DbUserRow | null;
 
-  if (
-    !existing &&
-    claims.email_verified === true &&
-    rawEmail &&
-    env.ADMIN_EMAIL &&
-    rawEmail === env.ADMIN_EMAIL.trim().toLowerCase()
-  ) {
-    existing = (await env.DB.prepare(
-      `${selectCols} WHERE id = 1 AND oidc_sub IS NULL`,
-    ).first()) as DbUserRow | null;
-  }
-
-  if (existing) {
-    let nextUsername = existing.username;
     if (
-      rawUsername &&
-      rawUsername.toLowerCase() !== existing.username.toLowerCase()
+      !existing &&
+      claims.email_verified === true &&
+      rawEmail &&
+      env.ADMIN_EMAIL &&
+      rawEmail === env.ADMIN_EMAIL.trim().toLowerCase()
     ) {
-      const alreadyDisambiguated = existing.username
-        .toLowerCase()
-        .startsWith(`${rawUsername.toLowerCase()}_`);
-      const ownerOfRaw = (await env.DB.prepare(
-        'SELECT id FROM users WHERE username = ? COLLATE NOCASE',
-      )
-        .bind(rawUsername)
-        .first()) as { id: number } | null;
-
-      if (!ownerOfRaw || ownerOfRaw.id === existing.id) {
-        nextUsername = rawUsername;
-      } else if (!alreadyDisambiguated) {
-        nextUsername = await resolveUniqueOidcUsername(
-          env,
-          rawUsername,
-          existing.id,
-        );
-      }
+      existing = (await env.DB.prepare(
+        `${selectCols} WHERE id = 1 AND oidc_sub IS NULL`,
+      ).first()) as DbUserRow | null;
     }
 
-    const nextDisplayName = existing.display_name || claimDisplayName;
-    const usernameChanged = existing.username !== nextUsername;
-    const oidcSubMissing = !existing.oidc_sub;
-    const needsUpdate =
-      oidcSubMissing ||
-      usernameChanged ||
-      (!existing.display_name && Boolean(claimDisplayName));
+    if (existing) {
+      fetchedExisting = existing;
+      let nextUsername = existing.username;
+      if (
+        rawUsername &&
+        rawUsername.toLowerCase() !== existing.username.toLowerCase()
+      ) {
+        const alreadyDisambiguated = existing.username
+          .toLowerCase()
+          .startsWith(`${rawUsername.toLowerCase()}_`);
+        const ownerOfRaw = (await env.DB.prepare(
+          'SELECT id FROM users WHERE username = ? COLLATE NOCASE',
+        )
+          .bind(rawUsername)
+          .first()) as { id: number } | null;
 
-    if (needsUpdate) {
-      const prevUsername = existing.username;
-      await env.DB.prepare(
-        `UPDATE users
-         SET oidc_sub = COALESCE(oidc_sub, ?),
-             username = ?,
-             display_name = COALESCE(display_name, ?),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-      )
-        .bind(sub, nextUsername, claimDisplayName, existing.id)
-        .run();
-      if (usernameChanged) {
-        await invalidateEdgeApiCache(requestUrl, {
-          userId: existing.id,
+        if (!ownerOfRaw || ownerOfRaw.id === existing.id) {
+          nextUsername = rawUsername;
+        } else if (!alreadyDisambiguated) {
+          nextUsername = await resolveUniqueOidcUsername(
+            env,
+            rawUsername,
+            existing.id,
+          );
+        }
+      }
+
+      const nextDisplayName = existing.display_name || claimDisplayName;
+      const usernameChanged = existing.username !== nextUsername;
+      const oidcSubMissing = !existing.oidc_sub;
+      const needsUpdate =
+        oidcSubMissing ||
+        usernameChanged ||
+        (!existing.display_name && Boolean(claimDisplayName));
+
+      if (needsUpdate) {
+        const prevUsername = existing.username;
+        await env.DB.prepare(
+          `UPDATE users
+           SET oidc_sub = COALESCE(oidc_sub, ?),
+               username = ?,
+               display_name = COALESCE(display_name, ?),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+        )
+          .bind(sub, nextUsername, claimDisplayName, existing.id)
+          .run();
+        if (usernameChanged) {
+          await invalidateEdgeApiCache(requestUrl, {
+            userId: existing.id,
+            username: nextUsername,
+            previousUsername: prevUsername,
+          });
+        }
+        await markDbDirty(env);
+        existing = {
+          ...existing,
+          oidc_sub: existing.oidc_sub || sub,
           username: nextUsername,
-          previousUsername: prevUsername,
-        });
+          display_name: nextDisplayName,
+        };
       }
-      await markDbDirty(env);
-      existing = {
-        ...existing,
-        oidc_sub: existing.oidc_sub || sub,
-        username: nextUsername,
-        display_name: nextDisplayName,
-      };
+      return existing;
     }
-    return existing;
-  }
 
-  const uniqueUsername = await resolveUniqueOidcUsername(
-    env,
-    rawUsername || `user_${sub}`,
-  );
-  await env.DB.prepare(
-    `INSERT INTO users (username, oidc_sub, is_public, home_region, display_name)
-     VALUES (?, ?, 0, 'USA', ?)`,
-  )
-    .bind(uniqueUsername, sub, claimDisplayName)
-    .run();
-  await markDbDirty(env);
+    const uniqueUsername = await resolveUniqueOidcUsername(
+      env,
+      rawUsername || `user_${sub}`,
+    );
+    await env.DB.prepare(
+      `INSERT INTO users (username, oidc_sub, is_public, home_region, display_name)
+       VALUES (?, ?, 0, 'USA', ?)`,
+    )
+      .bind(uniqueUsername, sub, claimDisplayName)
+      .run();
+    await markDbDirty(env);
 
-  const created = (await env.DB.prepare(
-    `${selectCols} WHERE oidc_sub = ? AND oidc_sub IS NOT NULL`,
-  )
-    .bind(sub)
-    .first()) as DbUserRow | null;
-  if (!created) {
-    throw new Error('Failed to provision OIDC user in D1.');
+    const created = (await env.DB.prepare(
+      `${selectCols} WHERE oidc_sub = ? AND oidc_sub IS NOT NULL`,
+    )
+      .bind(sub)
+      .first()) as DbUserRow | null;
+    if (!created) {
+      throw new Error('Failed to provision OIDC user in D1.');
+    }
+    return created;
+  } catch (err) {
+    console.warn(
+      '[OIDC] D1 user resolution/provisioning failed; falling back to R2/claims:',
+      err,
+    );
+    if (fetchedExisting) {
+      return fetchedExisting;
+    }
+    const snapshot = await loadMetaSnapshotForFallback(env.BACKUP_BUCKET);
+    const r2Users = snapshot?.tables?.['users'] || [];
+    const bySubRow = r2Users.find(
+      (u) =>
+        u['oidc_sub'] !== null &&
+        u['oidc_sub'] !== undefined &&
+        String(u['oidc_sub']) === sub,
+    );
+    if (bySubRow) {
+      return snapshotRowToDbUserRow(bySubRow);
+    }
+    if (
+      claims.email_verified === true &&
+      rawEmail &&
+      env.ADMIN_EMAIL &&
+      rawEmail === env.ADMIN_EMAIL.trim().toLowerCase()
+    ) {
+      const legacyAdminRow = r2Users.find(
+        (u) => Number(u['id']) === 1 && !u['oidc_sub'],
+      );
+      if (legacyAdminRow) {
+        return snapshotRowToDbUserRow(legacyAdminRow);
+      }
+    }
+    const parsedId = /^\d+$/.test(sub) ? Number(sub) : 1;
+    const synthesizedId =
+      Number.isSafeInteger(parsedId) && parsedId > 0 ? parsedId : 1;
+    return {
+      id: synthesizedId,
+      username: rawUsername,
+      oidc_sub: sub,
+      is_public: 0,
+      home_region: DEFAULT_USER_HOME_REGION,
+      display_name: claimDisplayName,
+      bio: null,
+      auto_track_series_on_add: 1,
+    };
   }
-  return created;
 }
 
 /**
@@ -2797,10 +3123,21 @@ export async function performScheduledBackup(
   skipped?: boolean;
   prunedCount?: number;
 }> {
-  return kitPerformScheduledBackup(env, BACKUP_TABLES, {
+  const res = await kitPerformScheduledBackup(env, BACKUP_TABLES, {
     isDaily,
     skipIfUnchanged,
   });
+  if (
+    env.BACKUP_BUCKET &&
+    (!res.skipped || !(await env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY)))
+  ) {
+    try {
+      await writeLiteBackupSnapshots(env);
+    } catch (err) {
+      console.warn('[WorkerBackup] Failed to write lite snapshots:', err);
+    }
+  }
+  return res;
 }
 
 /**
@@ -3841,9 +4178,7 @@ Disallow: /
         }
         return res;
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadGamesSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -3915,9 +4250,7 @@ Disallow: /
         }
         return res;
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadToysSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -3987,9 +4320,7 @@ Disallow: /
         }
         return res;
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadMetaSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -4066,9 +4397,7 @@ Disallow: /
         }
         return cacheableRes;
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadGamesSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -4247,9 +4576,7 @@ Disallow: /
           headers: publicCacheHeaders,
         });
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadGamesSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -4305,9 +4632,7 @@ Disallow: /
         }
         return cacheableRes;
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadToysSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -4346,9 +4671,7 @@ Disallow: /
           headers: publicCacheHeaders,
         });
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadToysSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -4375,9 +4698,7 @@ Disallow: /
         }
         return res;
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadMetaSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -5951,7 +6272,9 @@ Disallow: /
       const oidcIssuer = getOidcIssuer(env);
       if (!code || !state || !oidcIssuer || !sessionSecret) {
         return buildCallbackErrorRedirect(
-          '/?auth_error=invalid_callback',
+          statePayload?.silent
+            ? '/?sso=checked'
+            : '/?auth_error=invalid_callback',
           'invalid-callback',
         );
       }
@@ -5985,7 +6308,9 @@ Disallow: /
 
       if (!tokenRes.ok) {
         return buildCallbackErrorRedirect(
-          '/?auth_error=token_exchange_failed',
+          statePayload?.silent
+            ? '/?sso=checked'
+            : '/?auth_error=token_exchange_failed',
           'token-exchange-failed',
         );
       }
@@ -5997,7 +6322,9 @@ Disallow: /
 
       if (!tokenData?.id_token) {
         return buildCallbackErrorRedirect(
-          '/?auth_error=missing_id_token',
+          statePayload?.silent
+            ? '/?sso=checked'
+            : '/?auth_error=missing_id_token',
           'missing-id-token',
         );
       }
@@ -6010,7 +6337,9 @@ Disallow: /
 
       if (!claims) {
         return buildCallbackErrorRedirect(
-          '/?auth_error=invalid_id_token',
+          statePayload?.silent
+            ? '/?sso=checked'
+            : '/?auth_error=invalid_id_token',
           'invalid-id-token',
         );
       }
@@ -6059,6 +6388,15 @@ Disallow: /
       );
       for (const c of serializeClearOidcStateCookies(isSecure)) {
         res.headers.append('Set-Cookie', c);
+      }
+      if (edgeCache) {
+        await edgeCache
+          .delete(
+            new Request(
+              `https://edge-cache.internal/auth-me/user:${userRow.id}`,
+            ),
+          )
+          .catch(() => {});
       }
       return res;
     }
@@ -8076,9 +8414,7 @@ Disallow: /
           { headers: privateHeaders },
         );
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadMetaSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -8118,9 +8454,7 @@ Disallow: /
           { headers: privateHeaders },
         );
       } catch {
-        const snapshot = await loadR2LatestSnapshot<SnapshotTables>(
-          env.BACKUP_BUCKET,
-        );
+        const snapshot = await loadMetaSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -8918,6 +9252,19 @@ export default {
         console.log(
           '[WorkerCron] Database unchanged since last daily backup. Skipping snapshot.',
         );
+        if (
+          env.BACKUP_BUCKET &&
+          !(await env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY))
+        ) {
+          try {
+            await writeLiteBackupSnapshots(env);
+          } catch (liteErr) {
+            console.warn(
+              '[WorkerCron] Failed to backfill lite snapshots:',
+              liteErr,
+            );
+          }
+        }
       }
     }
 
