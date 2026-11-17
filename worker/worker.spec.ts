@@ -7012,5 +7012,223 @@ describe('Worker API Logic', () => {
         vi.unstubAllGlobals();
       }
     });
+
+    it('caches GET /api/journal/entries per user, invalidates on POST/DELETE, and skips or Edge-caches deltaGames in /api/user/collection-overlay', async () => {
+      resetWorkerRateLimits();
+
+      const cacheStore = new Map<string, Response>();
+      const mockCache = {
+        match: vi.fn(async (req: RequestInfo | URL) => {
+          const key =
+            typeof req === 'string'
+              ? req
+              : req instanceof Request
+                ? req.url
+                : req.toString();
+          return cacheStore.get(key)?.clone() || undefined;
+        }),
+        put: vi.fn(async (req: RequestInfo | URL, res: Response) => {
+          const key =
+            typeof req === 'string'
+              ? req
+              : req instanceof Request
+                ? req.url
+                : req.toString();
+          cacheStore.set(key, res.clone());
+        }),
+        delete: vi.fn(async (req: RequestInfo | URL) => {
+          const key =
+            typeof req === 'string'
+              ? req
+              : req instanceof Request
+                ? req.url
+                : req.toString();
+          return cacheStore.delete(key);
+        }),
+      };
+      vi.stubGlobal('caches', { default: mockCache });
+
+      try {
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+        const cookieHeader = `${HOST_SESSION_COOKIE}=${token}`;
+
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id) VALUES (50, 'journal-test-game', 'Journal Test Game', 1)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO game_releases (id, game_id, region) VALUES ('journal-test-rel', 50, 'USA')`,
+        ).run();
+        db.prepare(
+          `INSERT INTO journal_entries (user_id, item_type, item_id, merchant, price_paid) VALUES (1, 'game', 'journal-test-game', 'Shop A', 49.99)`,
+        ).run();
+
+        const preparedSqls: string[] = [];
+        const basePrepare = mockEnv.DB.prepare.bind(mockEnv.DB);
+        const spiedEnv: Env = {
+          ...mockEnv,
+          DB: {
+            ...mockEnv.DB,
+            prepare: (sql: string) => {
+              preparedSqls.push(sql);
+              return basePrepare(sql);
+            },
+          } as unknown as Env['DB'],
+        };
+
+        // 1. First GET /api/journal/entries queries D1 and warms Edge Cache
+        const jRes1 = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/journal/entries',
+            {
+              headers: { Cookie: cookieHeader },
+            },
+          ),
+          spiedEnv,
+        );
+        expect(jRes1.status).toBe(200);
+        const jData1 = (await jRes1.json()) as {
+          entries: Array<{ merchant: string }>;
+        };
+        expect(jData1.entries).toHaveLength(1);
+        expect(
+          preparedSqls.filter((s) => s.includes('FROM journal_entries')).length,
+        ).toBe(1);
+        expect(
+          cacheStore.has('https://edge-cache.internal/journal/user:1'),
+        ).toBe(true);
+
+        // 2. Second GET /api/journal/entries hits Edge Cache (0 D1 reads)
+        const jRes2 = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/journal/entries',
+            {
+              headers: { Cookie: cookieHeader },
+            },
+          ),
+          spiedEnv,
+        );
+        expect(jRes2.status).toBe(200);
+        const jData2 = (await jRes2.json()) as {
+          entries: Array<{ merchant: string }>;
+        };
+        expect(jData2.entries[0].merchant).toBe('Shop A');
+        expect(
+          preparedSqls.filter((s) => s.includes('FROM journal_entries')).length,
+        ).toBe(1);
+
+        // 3. POST /api/journal invalidates the cached journal response
+        const postJournalRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/api/journal', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Origin: 'https://collection-tracker.example.com',
+              Cookie: cookieHeader,
+            },
+            body: JSON.stringify({
+              item_type: 'game',
+              item_id: 'journal-test-game',
+              merchant: 'Shop B',
+              price_paid: 29.99,
+            }),
+          }),
+          spiedEnv,
+        );
+        expect(postJournalRes.status).toBe(200);
+        expect(
+          cacheStore.has('https://edge-cache.internal/journal/user:1'),
+        ).toBe(false);
+
+        // 4. GET /api/user/collection-overlay skips delta query when since_stable_id >= MAX(stable_id)
+        preparedSqls.length = 0;
+        const manifest = await writeCatalogChunksToR2(spiedEnv, {
+          forceRestart: true,
+        });
+        expect(manifest?.maxStableId).toBe(50);
+
+        preparedSqls.length = 0;
+        const overlayNoDeltaRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/user/collection-overlay?since_stable_id=50',
+            { headers: { Cookie: cookieHeader } },
+          ),
+          spiedEnv,
+        );
+        expect(overlayNoDeltaRes.status).toBe(200);
+        const overlayNoDelta = (await overlayNoDeltaRes.json()) as {
+          deltaGames: unknown[];
+        };
+        expect(overlayNoDelta.deltaGames).toEqual([]);
+        expect(
+          preparedSqls.some((s) => s.includes('AND g.stable_id > ?')),
+        ).toBe(false);
+
+        // 5. Inserting a new game past since_stable_id populates Edge Cache for deltaGames and overlays user state
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id) VALUES (51, 'delta-new-game', 'Delta New Game', 1)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO game_releases (id, game_id, region) VALUES ('delta-new-rel', 51, 'USA')`,
+        ).run();
+        db.prepare(
+          `INSERT INTO user_games (user_id, game_id, play_status, queued) VALUES (1, 51, 3, 1)`,
+        ).run();
+
+        preparedSqls.length = 0;
+        const overlayDelta1 = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/user/collection-overlay?since_stable_id=50',
+            { headers: { Cookie: cookieHeader } },
+          ),
+          spiedEnv,
+        );
+        expect(overlayDelta1.status).toBe(200);
+        const d1Body = (await overlayDelta1.json()) as {
+          deltaGames: Array<{
+            id: string;
+            play_status: number;
+            queued: number;
+          }>;
+        };
+        expect(d1Body.deltaGames.map((d) => d.id)).toEqual(['delta-new-rel']);
+        expect(d1Body.deltaGames[0].play_status).toBe(3);
+        expect(d1Body.deltaGames[0].queued).toBe(1);
+        expect(
+          preparedSqls.filter((s) => s.includes('AND g.stable_id > ?')).length,
+        ).toBe(1);
+
+        // Repeat call hits in-isolate / Edge Cache for deltaGames with 0 delta D1 queries
+        const overlayDelta2 = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/user/collection-overlay?since_stable_id=50',
+            { headers: { Cookie: cookieHeader } },
+          ),
+          spiedEnv,
+        );
+        expect(overlayDelta2.status).toBe(200);
+        const d2Body = (await overlayDelta2.json()) as {
+          deltaGames: Array<{
+            id: string;
+            play_status: number;
+            queued: number;
+          }>;
+        };
+        expect(d2Body.deltaGames[0].play_status).toBe(3);
+        expect(
+          preparedSqls.filter((s) => s.includes('AND g.stable_id > ?')).length,
+        ).toBe(1);
+      } finally {
+        vi.unstubAllGlobals();
+        resetWorkerRateLimits();
+      }
+    });
   });
 });

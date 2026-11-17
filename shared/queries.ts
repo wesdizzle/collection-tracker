@@ -133,16 +133,47 @@ export function buildGamesListQuery(userId?: number | null): string {
 export const GAMES_LIST_QUERY = buildGamesListQuery(null);
 
 export const CATALOG_GAMES_CHUNK_SIZE = 3500;
+export const CATALOG_GAMES_PER_CHUNK = 1500;
+
+export const CATALOG_MAX_GAME_STABLE_ID_QUERY = `
+  SELECT COALESCE(MAX(stable_id), 0) AS max_stable_id FROM games
+`;
+
+export const CATALOG_MAX_TOY_STABLE_ID_QUERY = `
+  SELECT COALESCE(MAX(stable_id), 0) AS max_stable_id FROM toys
+`;
+
+export const GAMES_HAS_MANY_ROWS_QUERY = `
+  SELECT COUNT(*) AS cnt FROM (SELECT 1 FROM games LIMIT 501)
+`;
+
+/**
+ * Resolves the inclusive upper `stable_id` bound for the next `LIMIT` games
+ * after `stable_id > ?` using the primary key B-tree (`SEARCH games USING INTEGER PRIMARY KEY (rowid>?)`),
+ * automatically skipping any deleted-ID gaps in 0 extra row reads.
+ */
+export const CATALOG_GAMES_CHUNK_BOUND_QUERY = `
+  SELECT COALESCE(MAX(stable_id), 0) AS end_stable_id
+  FROM (
+    SELECT stable_id
+    FROM games
+    WHERE stable_id > ?
+    ORDER BY stable_id ASC
+    LIMIT ?
+  )
+`;
 
 /**
  * Queries a deterministic, user-agnostic slice of the base games + releases catalog
- * for pre-processed R2 chunk generation and single-chunk fallback writes.
+ * bounded strictly by primary key (`g.stable_id > ? AND g.stable_id <= ?`) for
+ * pre-processed R2 chunk generation and single-chunk fallback writes without OFFSET scans.
  */
 export function buildCatalogGamesChunkQuery(): string {
   return `
     ${buildGamesListQuery(null)}
+    AND g.stable_id > ?
+    AND g.stable_id <= ?
     ORDER BY g.stable_id ASC, COALESCE(r.id, g.id) ASC
-    LIMIT ? OFFSET ?
   `;
 }
 
@@ -184,6 +215,33 @@ export const USER_TOYS_OVERLAY_QUERY = `
 `;
 
 export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
+  AND g.stable_id IN (
+    SELECT r_act.game_id
+    FROM user_game_releases ugr_act
+    JOIN game_releases r_act ON r_act.id = ugr_act.release_id
+    WHERE ugr_act.user_id = ?
+      AND (
+        ugr_act.ownership_status > 0
+        OR ugr_act.backup_status > 0
+        OR ugr_act.has_case > 0
+        OR ugr_act.has_manual > 0
+      )
+    UNION
+    SELECT ug_act.game_id
+    FROM user_games ug_act
+    WHERE ug_act.user_id = ?
+      AND (ug_act.play_status > 0 OR ug_act.queued > 0)
+    UNION
+    SELECT g_sale.stable_id FROM games g_sale WHERE g_sale.retail_on_sale = 1
+    UNION
+    SELECT g_phys.stable_id FROM games g_phys WHERE g_phys.physical_status IN ('likely_physical', 'physical_pending', 'not_yet_physical')
+    UNION
+    SELECT +g_bun.stable_id FROM games g_bun WHERE g_bun.bundle_parent_id > 0
+    UNION
+    SELECT g_bun2.bundle_parent_id FROM games g_bun2 WHERE g_bun2.bundle_parent_id > 0
+    UNION
+    SELECT g_plat0.stable_id FROM games g_plat0 WHERE g_plat0.platform_id = 0
+  )
   AND (
     COALESCE(ugr.ownership_status, 0) > 0
     OR COALESCE(ugr.backup_status, 0) > 0
@@ -199,6 +257,17 @@ export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
 `;
 
 export const ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE = `
+  AND g.stable_id IN (
+    SELECT g_sale.stable_id FROM games g_sale WHERE g_sale.retail_on_sale = 1
+    UNION
+    SELECT g_phys.stable_id FROM games g_phys WHERE g_phys.physical_status IN ('likely_physical', 'physical_pending', 'not_yet_physical')
+    UNION
+    SELECT +g_bun.stable_id FROM games g_bun WHERE g_bun.bundle_parent_id > 0
+    UNION
+    SELECT g_bun2.bundle_parent_id FROM games g_bun2 WHERE g_bun2.bundle_parent_id > 0
+    UNION
+    SELECT g_plat0.stable_id FROM games g_plat0 WHERE g_plat0.platform_id = 0
+  )
   AND (
     COALESCE(g.retail_on_sale, 0) = 1
     OR (g.retail_price IS NOT NULL AND g.retail_price > 0)

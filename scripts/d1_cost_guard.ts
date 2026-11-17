@@ -33,6 +33,15 @@ import {
   stripLeadingSqlComments,
   TableWriteCost,
 } from '@wesdizzle/app-kit/scripts';
+import {
+  ACTIVE_GAMES_LIST_WHERE_CLAUSE,
+  ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE,
+  buildCatalogGamesChunkQuery,
+  buildGamesListQuery,
+  CATALOG_GAMES_CHUNK_BOUND_QUERY,
+  CATALOG_MAX_GAME_STABLE_ID_QUERY,
+  CATALOG_MAX_TOY_STABLE_ID_QUERY,
+} from '../shared/queries.js';
 
 export type StaticSchemaCostGuardResult = ReturnType<
   typeof runStaticSchemaCostGuard
@@ -236,6 +245,36 @@ export function runCollectionStaticSchemaCostGuard(
         name: 'same-day catalog delta toys lookup by stable_id PK',
         sql: 'SELECT f.stable_id, f.id, f.name FROM toys f LEFT JOIN toy_series fs ON f.series_id = fs.id WHERE f.stable_id > ?',
         params: [10],
+      },
+      {
+        name: 'catalog games chunk lookup by stable_id PK range',
+        sql: buildCatalogGamesChunkQuery(),
+        params: [0, 1500],
+      },
+      {
+        name: 'catalog games chunk upper stable_id bound lookup',
+        sql: CATALOG_GAMES_CHUNK_BOUND_QUERY,
+        params: [0, 1500],
+      },
+      {
+        name: 'games max stable_id bound',
+        sql: CATALOG_MAX_GAME_STABLE_ID_QUERY,
+        params: [],
+      },
+      {
+        name: 'toys max stable_id bound',
+        sql: CATALOG_MAX_TOY_STABLE_ID_QUERY,
+        params: [],
+      },
+      {
+        name: 'active games list query (authenticated)',
+        sql: `${buildGamesListQuery(1)} ${ACTIVE_GAMES_LIST_WHERE_CLAUSE}`,
+        params: [1, 1, 1, 1],
+      },
+      {
+        name: 'active games list query (public)',
+        sql: `${buildGamesListQuery(null)} ${ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE}`,
+        params: [],
       },
     ],
   });

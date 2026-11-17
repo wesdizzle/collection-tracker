@@ -7,7 +7,15 @@ import {
   buildTargetedCompanionByCrcBatchQuery,
   buildCatalogGamesChunkQuery,
   buildCatalogDeltaGamesQuery,
+  buildGamesListQuery,
+  ACTIVE_GAMES_LIST_WHERE_CLAUSE,
+  ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE,
+  CATALOG_GAMES_CHUNK_BOUND_QUERY,
   CATALOG_GAMES_CHUNK_SIZE,
+  CATALOG_GAMES_PER_CHUNK,
+  CATALOG_MAX_GAME_STABLE_ID_QUERY,
+  CATALOG_MAX_TOY_STABLE_ID_QUERY,
+  GAMES_HAS_MANY_ROWS_QUERY,
   USER_GAME_RELEASES_OVERLAY_QUERY,
   USER_GAMES_OVERLAY_QUERY,
   USER_TOYS_OVERLAY_QUERY,
@@ -270,6 +278,7 @@ describe('resolveLocalizedReleaseTitle', () => {
 
   it('builds indexed catalog chunk, same-day delta, and per-user overlay queries', () => {
     expect(CATALOG_GAMES_CHUNK_SIZE).toBe(3500);
+    expect(CATALOG_GAMES_PER_CHUNK).toBe(1500);
 
     const db = new Database(':memory:');
     try {
@@ -311,11 +320,78 @@ describe('resolveLocalizedReleaseTitle', () => {
         `INSERT INTO user_toys (user_id, toy_id, ownership_status) VALUES (1, 't1', 1), (1, 't2', 0)`,
       ).run();
 
+      const maxGameRow = db.prepare(CATALOG_MAX_GAME_STABLE_ID_QUERY).get() as {
+        max_stable_id: number;
+      };
+      expect(maxGameRow.max_stable_id).toBe(3);
+      const maxToyRow = db.prepare(CATALOG_MAX_TOY_STABLE_ID_QUERY).get() as {
+        max_stable_id: number;
+      };
+      expect(maxToyRow.max_stable_id).toBe(2);
+      const hasManyRow = db.prepare(GAMES_HAS_MANY_ROWS_QUERY).get() as {
+        cnt: number;
+      };
+      expect(hasManyRow.cnt).toBe(3);
+
+      const bound1 = db.prepare(CATALOG_GAMES_CHUNK_BOUND_QUERY).get(0, 2) as {
+        end_stable_id: number;
+      };
+      expect(bound1.end_stable_id).toBe(2);
       const chunkSql = buildCatalogGamesChunkQuery();
-      const page1 = db.prepare(chunkSql).all(2, 0) as Array<{ id: string }>;
-      const page2 = db.prepare(chunkSql).all(2, 2) as Array<{ id: string }>;
+      const page1 = db.prepare(chunkSql).all(0, bound1.end_stable_id) as Array<{
+        id: string;
+      }>;
+      const bound2 = db
+        .prepare(CATALOG_GAMES_CHUNK_BOUND_QUERY)
+        .get(bound1.end_stable_id, 2) as {
+        end_stable_id: number;
+      };
+      expect(bound2.end_stable_id).toBe(3);
+      const page2 = db
+        .prepare(chunkSql)
+        .all(bound1.end_stable_id, bound2.end_stable_id) as Array<{
+        id: string;
+      }>;
       expect(page1.map((r) => r.id)).toEqual(['r1', 'r2']);
       expect(page2.map((r) => r.id)).toEqual(['r3']);
+
+      const chunkPlan = db
+        .prepare(`EXPLAIN QUERY PLAN ${chunkSql}`)
+        .all(0, 2) as Array<{ detail: string }>;
+      expect(
+        chunkPlan.some((p) =>
+          p.detail.includes('SEARCH g USING INTEGER PRIMARY KEY'),
+        ),
+      ).toBe(true);
+      expect(chunkPlan.some((p) => p.detail.startsWith('SCAN '))).toBe(false);
+
+      const activeAuthSql = `${buildGamesListQuery(1)} ${ACTIVE_GAMES_LIST_WHERE_CLAUSE}`;
+      const activeAuthRows = db
+        .prepare(activeAuthSql)
+        .all(1, 1, 1, 1) as Array<{
+        id: string;
+      }>;
+      expect(activeAuthRows.map((r) => r.id)).toEqual(['r1']);
+      const activeAuthPlan = db
+        .prepare(`EXPLAIN QUERY PLAN ${activeAuthSql}`)
+        .all(1, 1, 1, 1) as Array<{ detail: string }>;
+      expect(
+        activeAuthPlan.some((p) =>
+          p.detail.includes('SEARCH g USING INTEGER PRIMARY KEY'),
+        ),
+      ).toBe(true);
+      expect(activeAuthPlan.some((p) => p.detail === 'SCAN g')).toBe(false);
+
+      const activePublicSql = `${buildGamesListQuery(null)} ${ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE}`;
+      const activePublicPlan = db
+        .prepare(`EXPLAIN QUERY PLAN ${activePublicSql}`)
+        .all() as Array<{ detail: string }>;
+      expect(
+        activePublicPlan.some((p) =>
+          p.detail.includes('SEARCH g USING INTEGER PRIMARY KEY'),
+        ),
+      ).toBe(true);
+      expect(activePublicPlan.some((p) => p.detail === 'SCAN g')).toBe(false);
 
       const deltaSql = buildCatalogDeltaGamesQuery(1);
       const deltaRows = db.prepare(deltaSql).all(1, 1, 2) as Array<{

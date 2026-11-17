@@ -48,6 +48,11 @@ import {
   buildCatalogGamesChunkQuery,
   buildCatalogDeltaGamesQuery,
   CATALOG_GAMES_CHUNK_SIZE,
+  CATALOG_GAMES_PER_CHUNK,
+  CATALOG_GAMES_CHUNK_BOUND_QUERY,
+  CATALOG_MAX_GAME_STABLE_ID_QUERY,
+  CATALOG_MAX_TOY_STABLE_ID_QUERY,
+  GAMES_HAS_MANY_ROWS_QUERY,
   USER_GAME_RELEASES_OVERLAY_QUERY,
   USER_GAMES_OVERLAY_QUERY,
   USER_TOYS_OVERLAY_QUERY,
@@ -280,6 +285,9 @@ export async function invalidateEdgeApiCache(
         .delete(new Request(`https://edge-cache.internal/auth-me/user:${uid}`))
         .catch(() => {});
       await edgeCache
+        .delete(new Request(`https://edge-cache.internal/journal/user:${uid}`))
+        .catch(() => {});
+      await edgeCache
         .delete(new Request(`${origin}/api/toys?__uid=${uid}`))
         .catch(() => {});
       await edgeCache
@@ -335,6 +343,7 @@ export async function invalidateEdgeApiCache(
     trackedEdgeCacheUrls.clear();
 
     if (options?.invalidateCatalog) {
+      cachedCatalogDeltaGames = null;
       for (const catalogPath of ['/api/catalog/games', '/api/catalog/toys']) {
         await edgeCache
           .delete(new Request(`${origin}${catalogPath}`))
@@ -362,6 +371,7 @@ export function resetWorkerRateLimits(): void {
   workerRateLimitBuckets.clear();
   cachedCatalogManifest = null;
   cachedCatalogToys = null;
+  cachedCatalogDeltaGames = null;
   resetR2SnapshotCache();
 }
 
@@ -985,6 +995,12 @@ let cachedCatalogToys: {
   expiresAt: number;
 } | null = null;
 
+let cachedCatalogDeltaGames: {
+  key: string;
+  rows: Array<Record<string, unknown>>;
+  expiresAt: number;
+} | null = null;
+
 export function getCatalogChunkR2Key(chunkIndex: number): string {
   return `${R2_CATALOG_GAMES_CHUNK_PREFIX}${chunkIndex}.json`;
 }
@@ -1268,6 +1284,7 @@ interface CatalogChunksBuildState {
   targetVersion: string;
   timestamp: string;
   nextChunk: number;
+  cursorStableId: number;
   chunkCount: number;
   totalRows: number;
   maxStableId: number;
@@ -1276,8 +1293,9 @@ interface CatalogChunksBuildState {
 
 /**
  * Generates pre-processed, user-agnostic R2 catalog chunks (`catalog/games-chunk-0..N.json`,
- * `catalog/toys-chunk-0.json`) and `catalog/manifest.json`. Supports resuming across cron
- * invocations when `maxChunksPerRun` is bounded for Free Tier CPU safety.
+ * `catalog/toys-chunk-0.json`) and `catalog/manifest.json` using primary-key cursor ranges
+ * (`CATALOG_GAMES_CHUNK_BOUND_QUERY`) without OFFSET table scans. Supports resuming across
+ * cron invocations and persists progress after every chunk.
  */
 export async function writeCatalogChunksToR2(
   env: Env,
@@ -1306,8 +1324,10 @@ export async function writeCatalogChunksToR2(
         if (
           parsed &&
           typeof parsed.nextChunk === 'number' &&
+          typeof parsed.cursorStableId === 'number' &&
           typeof parsed.chunkCount === 'number' &&
-          parsed.nextChunk < parsed.chunkCount
+          typeof parsed.maxStableId === 'number' &&
+          parsed.cursorStableId < parsed.maxStableId
         ) {
           resumeState = parsed;
         }
@@ -1322,6 +1342,7 @@ export async function writeCatalogChunksToR2(
   let maxStableId: number;
   let chunkCount: number;
   let startChunk: number;
+  let cursorStableId: number;
   let toysTotalRows: number;
   let targetVersion: string;
 
@@ -1331,23 +1352,32 @@ export async function writeCatalogChunksToR2(
     maxStableId = resumeState.maxStableId;
     chunkCount = resumeState.chunkCount;
     startChunk = resumeState.nextChunk;
+    cursorStableId = resumeState.cursorStableId;
     toysTotalRows = resumeState.toysTotalRows;
     targetVersion = resumeState.targetVersion;
   } else {
     timestamp = options.timestampOverride || new Date().toISOString();
     const [statsRow, toyRowsResult] = await Promise.all([
-      env.DB.prepare(
-        `SELECT COUNT(*) AS total_rows, COALESCE(MAX(g.stable_id), 0) AS max_stable_id
-         FROM games g
-         LEFT JOIN game_releases r ON g.stable_id = r.game_id`,
-      ).first<{ total_rows?: number; max_stable_id?: number }>(),
+      env.DB.prepare(CATALOG_MAX_GAME_STABLE_ID_QUERY).first<{
+        max_stable_id?: number;
+      }>(),
       env.DB.prepare(buildToysListQuery(null)).all(),
     ]);
 
-    totalRows = Number(statsRow?.total_rows ?? 0);
     maxStableId = Number(statsRow?.max_stable_id ?? 0);
-    chunkCount = Math.max(1, Math.ceil(totalRows / chunkSize));
+    totalRows = 0;
+    chunkCount = Math.max(1, Math.ceil(maxStableId / CATALOG_GAMES_PER_CHUNK));
     startChunk = Math.max(0, options.startChunk ?? 0);
+    if (startChunk > 0 && maxStableId > 0) {
+      const startBoundRow = await env.DB.prepare(
+        CATALOG_GAMES_CHUNK_BOUND_QUERY,
+      )
+        .bind(0, startChunk * CATALOG_GAMES_PER_CHUNK)
+        .first<{ end_stable_id?: number }>();
+      cursorStableId = Number(startBoundRow?.end_stable_id ?? 0);
+    } else {
+      cursorStableId = 0;
+    }
 
     const toyRows =
       (toyRowsResult.results as Array<Record<string, unknown>>) || [];
@@ -1381,25 +1411,40 @@ export async function writeCatalogChunksToR2(
       expiresAt: Date.now() + 60_000,
     };
 
-    targetVersion = `${timestamp.slice(0, 10)}:${totalRows}:${maxStableId}:${Date.parse(timestamp) || Date.now()}`;
+    targetVersion = `${timestamp.slice(0, 10)}:${maxStableId}:${Date.parse(timestamp) || Date.now()}`;
   }
 
-  const endChunk = Math.min(
-    chunkCount,
-    Number.isFinite(maxChunksPerRun)
-      ? startChunk + Math.max(1, Math.floor(maxChunksPerRun))
-      : chunkCount,
-  );
   const chunkQuery = buildCatalogGamesChunkQuery();
+  const chunkLimit = Number.isFinite(maxChunksPerRun)
+    ? Math.max(1, Math.floor(maxChunksPerRun))
+    : Number.POSITIVE_INFINITY;
+  let idx = startChunk;
+  let chunksProcessed = 0;
 
-  for (let idx = startChunk; idx < endChunk; idx++) {
-    const { results } = await env.DB.prepare(chunkQuery)
-      .bind(chunkSize, idx * chunkSize)
-      .all();
-    const chunkRows = (results as Array<Record<string, unknown>>) || [];
-    if (chunkRows.length > 0) {
-      postProcessGameListRows(chunkRows, DEFAULT_USER_HOME_REGION);
+  while (
+    chunksProcessed < chunkLimit &&
+    ((idx === 0 && maxStableId === 0) || cursorStableId < maxStableId)
+  ) {
+    let chunkRows: Array<Record<string, unknown>> = [];
+    let endStableId = 0;
+    if (maxStableId > 0) {
+      const endRow = await env.DB.prepare(CATALOG_GAMES_CHUNK_BOUND_QUERY)
+        .bind(cursorStableId, CATALOG_GAMES_PER_CHUNK)
+        .first<{ end_stable_id?: number }>();
+      endStableId = Number(endRow?.end_stable_id ?? 0);
+      if (endStableId <= cursorStableId) {
+        cursorStableId = maxStableId;
+        break;
+      }
+      const { results } = await env.DB.prepare(chunkQuery)
+        .bind(cursorStableId, endStableId)
+        .all();
+      chunkRows = (results as Array<Record<string, unknown>>) || [];
+      if (chunkRows.length > 0) {
+        postProcessGameListRows(chunkRows, DEFAULT_USER_HOME_REGION);
+      }
     }
+
     await env.BACKUP_BUCKET.put(
       getCatalogChunkR2Key(idx),
       JSON.stringify(chunkRows),
@@ -1413,39 +1458,62 @@ export async function writeCatalogChunksToR2(
         },
       },
     );
+
+    totalRows += chunkRows.length;
+    cursorStableId = maxStableId === 0 ? 0 : endStableId;
+    idx++;
+    chunksProcessed++;
+
+    if (maxStableId === 0) {
+      break;
+    }
+
+    if (cursorStableId < maxStableId) {
+      chunkCount = Math.max(
+        chunkCount,
+        idx +
+          Math.max(
+            1,
+            Math.ceil((maxStableId - cursorStableId) / CATALOG_GAMES_PER_CHUNK),
+          ),
+      );
+      const nextState: CatalogChunksBuildState = {
+        targetVersion,
+        timestamp,
+        nextChunk: idx,
+        cursorStableId,
+        chunkCount,
+        totalRows,
+        maxStableId,
+        toysTotalRows,
+      };
+      try {
+        await env.DB.prepare(
+          `INSERT INTO sync_state (key, value, updated_at)
+           VALUES (?, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+        )
+          .bind(CATALOG_CHUNKS_STATE_KEY, JSON.stringify(nextState))
+          .run();
+      } catch {
+        // ignore if sync_state is unavailable in minimal schemas
+      }
+    }
   }
 
-  if (endChunk < chunkCount) {
-    const nextState: CatalogChunksBuildState = {
-      targetVersion,
-      timestamp,
-      nextChunk: endChunk,
-      chunkCount,
-      totalRows,
-      maxStableId,
-      toysTotalRows,
-    };
-    try {
-      await env.DB.prepare(
-        `INSERT INTO sync_state (key, value, updated_at)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
-      )
-        .bind(CATALOG_CHUNKS_STATE_KEY, JSON.stringify(nextState))
-        .run();
-    } catch {
-      // ignore if sync_state is unavailable in minimal schemas
-    }
+  if (maxStableId > 0 && cursorStableId < maxStableId) {
     return null;
   }
 
+  const finalChunkCount = Math.max(1, idx);
+  const resolvedMaxStableId = Math.max(maxStableId, cursorStableId);
   const manifest: CatalogManifest = {
     version: targetVersion,
     timestamp,
     totalRows,
     chunkSize,
-    chunkCount,
-    maxStableId,
+    chunkCount: finalChunkCount,
+    maxStableId: resolvedMaxStableId,
     toysTotalRows,
     toysChunkCount: 1,
   };
@@ -1503,25 +1571,43 @@ export async function resolveCatalogManifest(
   }
 
   try {
-    const [gameStats, toyStats] = await Promise.all([
-      env.DB.prepare(
-        `SELECT COUNT(*) AS total_rows, COALESCE(MAX(g.stable_id), 0) AS max_stable_id
-         FROM games g
-         LEFT JOIN game_releases r ON g.stable_id = r.game_id`,
-      ).first<{ total_rows?: number; max_stable_id?: number }>(),
-      env.DB.prepare('SELECT COUNT(*) AS cnt FROM toys')
-        .first<{ cnt?: number }>()
-        .catch(() => ({ cnt: 0 })),
+    const [maxGameRow, maxToyRow] = await Promise.all([
+      env.DB.prepare(CATALOG_MAX_GAME_STABLE_ID_QUERY).first<{
+        max_stable_id?: number;
+      }>(),
+      env.DB.prepare(CATALOG_MAX_TOY_STABLE_ID_QUERY)
+        .first<{ max_stable_id?: number }>()
+        .catch(() => ({ max_stable_id: 0 })),
     ]);
 
     const timestamp = new Date().toISOString();
-    const totalRows = Number(gameStats?.total_rows ?? 0);
-    const maxStableId = Number(gameStats?.max_stable_id ?? 0);
-    const toysTotalRows = Number(toyStats?.cnt ?? 0);
+    const maxStableId = Number(maxGameRow?.max_stable_id ?? 0);
+    const maxToyStableId = Number(maxToyRow?.max_stable_id ?? 0);
+    let totalRows = maxStableId;
+    let toysTotalRows = maxToyStableId;
+
+    if (maxStableId > 0 && maxStableId <= 600) {
+      const [gameStats, toyStats] = await Promise.all([
+        env.DB.prepare(
+          `SELECT COUNT(*) AS total_rows
+           FROM games g
+           LEFT JOIN game_releases r ON g.stable_id = r.game_id`,
+        ).first<{ total_rows?: number }>(),
+        env.DB.prepare('SELECT COUNT(*) AS cnt FROM toys')
+          .first<{ cnt?: number }>()
+          .catch(() => ({ cnt: 0 })),
+      ]);
+      totalRows = Number(gameStats?.total_rows ?? maxStableId);
+      toysTotalRows = Number(toyStats?.cnt ?? maxToyStableId);
+    }
+
     const chunkSize = CATALOG_GAMES_CHUNK_SIZE;
-    const chunkCount = Math.max(1, Math.ceil(totalRows / chunkSize));
+    const chunkCount =
+      maxStableId <= 0
+        ? 1
+        : Math.max(1, Math.ceil(maxStableId / CATALOG_GAMES_PER_CHUNK));
     const manifest: CatalogManifest = {
-      version: `${timestamp.slice(0, 10)}:${totalRows}:${maxStableId}`,
+      version: `${timestamp.slice(0, 10)}:${maxStableId}:${chunkCount}`,
       timestamp,
       totalRows,
       chunkSize,
@@ -1608,9 +1694,9 @@ async function executeToysListWithR2Catalog(
   const baseChunk = await loadBaseToysCatalogChunk(env);
   if (baseChunk) {
     const [d1Stats, userToyRows] = await Promise.all([
-      env.DB.prepare(
-        'SELECT COUNT(*) AS cnt, COALESCE(MAX(stable_id), 0) AS max_id FROM toys',
-      ).first<{ cnt?: number; max_id?: number }>(),
+      env.DB.prepare(CATALOG_MAX_TOY_STABLE_ID_QUERY).first<{
+        max_stable_id?: number;
+      }>(),
       userId
         ? env.DB.prepare(USER_TOYS_OVERLAY_QUERY)
             .bind(userId)
@@ -1620,11 +1706,10 @@ async function executeToysListWithR2Catalog(
           }),
     ]);
 
-    const d1Count = Number(d1Stats?.cnt ?? 0);
-    const d1MaxId = Number(d1Stats?.max_id ?? 0);
+    const d1MaxId = Number(d1Stats?.max_stable_id ?? 0);
 
     // If toys were deleted directly in D1, re-query live D1 cleanly
-    if (d1Count >= baseChunk.rowCount) {
+    if (d1MaxId >= baseChunk.maxStableId || baseChunk.rowCount === 0) {
       let deltaRows: Array<Record<string, unknown>> = [];
       if (d1MaxId > baseChunk.maxStableId) {
         const { results: addedToys } = await env.DB.prepare(
@@ -3830,9 +3915,9 @@ async function executeGamesListQuery(
 ): Promise<GamesListQueryResult> {
   let useActiveFilter = false;
   if (!platformId && !includeUnowned) {
-    const countRow = (await db
-      .prepare('SELECT COUNT(*) AS cnt FROM games')
-      .first()) as { cnt?: number } | null;
+    const countRow = (await db.prepare(GAMES_HAS_MANY_ROWS_QUERY).first()) as {
+      cnt?: number;
+    } | null;
     useActiveFilter = Number(countRow?.cnt ?? 0) > 500;
   }
 
@@ -3854,6 +3939,9 @@ async function executeGamesListQuery(
         userId !== null
           ? ACTIVE_GAMES_LIST_WHERE_CLAUSE
           : ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE;
+      if (userId !== null) {
+        params.push(userId, userId);
+      }
     }
     const { results } = await db
       .prepare(query)
@@ -3902,6 +3990,7 @@ async function buildCollectionOverlayPayload(
   userId: number | null,
   homeRegion: string,
   sinceStableIdOverride?: number | null,
+  edgeCacheArg?: Cache | null,
 ): Promise<{
   version: string;
   timestamp: string;
@@ -3920,7 +4009,7 @@ async function buildCollectionOverlayPayload(
       ? Math.floor(sinceStableIdOverride)
       : (manifest?.maxStableId ?? 0);
 
-  const [ugrRes, ugRes, utRes, deltaRes] = await Promise.all([
+  const [ugrRes, ugRes, utRes, maxGameRow] = await Promise.all([
     userId !== null
       ? env.DB.prepare(USER_GAME_RELEASES_OVERLAY_QUERY).bind(userId).all()
       : Promise.resolve({ results: [] }),
@@ -3931,24 +4020,114 @@ async function buildCollectionOverlayPayload(
       ? env.DB.prepare(USER_TOYS_OVERLAY_QUERY).bind(userId).all()
       : Promise.resolve({ results: [] }),
     sinceStableId > 0
-      ? env.DB.prepare(buildCatalogDeltaGamesQuery(userId))
-          .bind(...(userId !== null ? [userId, userId] : []), sinceStableId)
-          .all()
-      : Promise.resolve({ results: [] }),
+      ? env.DB.prepare(CATALOG_MAX_GAME_STABLE_ID_QUERY).first<{
+          max_stable_id?: number;
+        }>()
+      : Promise.resolve({ max_stable_id: 0 }),
   ]);
 
-  const deltaGames = (deltaRes.results as Array<Record<string, unknown>>) || [];
-  if (deltaGames.length > 0) {
-    postProcessGameListRows(deltaGames, homeRegion);
+  const ugrRows = (ugrRes.results as Array<Record<string, unknown>>) || [];
+  const ugRows = (ugRes.results as Array<Record<string, unknown>>) || [];
+  const utRows = (utRes.results as Array<Record<string, unknown>>) || [];
+  const currentMaxStableId = Number(maxGameRow?.max_stable_id ?? 0);
+
+  let deltaGames: Array<Record<string, unknown>> = [];
+  if (sinceStableId > 0 && currentMaxStableId > sinceStableId) {
+    const deltaCacheKeyStr = `https://edge-cache.internal/catalog-delta/since:${sinceStableId}:max:${currentMaxStableId}:reg:${homeRegion}`;
+    let baseDelta: Array<Record<string, unknown>> | null = null;
+    if (
+      cachedCatalogDeltaGames &&
+      cachedCatalogDeltaGames.key === deltaCacheKeyStr &&
+      cachedCatalogDeltaGames.expiresAt > Date.now()
+    ) {
+      baseDelta = cachedCatalogDeltaGames.rows;
+    }
+
+    const edgeCache =
+      baseDelta === null ? (edgeCacheArg ?? (await getEdgeCache())) : null;
+    if (baseDelta === null && edgeCache) {
+      const cachedDeltaRes = await edgeCache
+        .match(new Request(deltaCacheKeyStr))
+        .catch(() => undefined);
+      if (cachedDeltaRes) {
+        const parsed = (await cachedDeltaRes.json().catch(() => null)) as Array<
+          Record<string, unknown>
+        > | null;
+        if (Array.isArray(parsed)) {
+          baseDelta = parsed;
+          cachedCatalogDeltaGames = {
+            key: deltaCacheKeyStr,
+            rows: baseDelta,
+            expiresAt: Date.now() + 60_000,
+          };
+        }
+      }
+    }
+
+    if (baseDelta === null) {
+      const deltaRes = await env.DB.prepare(buildCatalogDeltaGamesQuery(null))
+        .bind(sinceStableId)
+        .all();
+      baseDelta = (deltaRes.results as Array<Record<string, unknown>>) || [];
+      if (baseDelta.length > 0) {
+        postProcessGameListRows(baseDelta, homeRegion);
+      }
+      cachedCatalogDeltaGames = {
+        key: deltaCacheKeyStr,
+        rows: baseDelta,
+        expiresAt: Date.now() + 60_000,
+      };
+      if (edgeCache) {
+        await edgeCache
+          .put(
+            new Request(deltaCacheKeyStr),
+            new Response(JSON.stringify(baseDelta), {
+              headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+              },
+            }),
+          )
+          .catch(() => {});
+      }
+    }
+
+    if (baseDelta.length > 0) {
+      if (userId !== null) {
+        const ugrByReleaseId = new Map<string, Record<string, unknown>>();
+        for (const r of ugrRows) {
+          ugrByReleaseId.set(String(r['release_id'] ?? ''), r);
+        }
+        const ugByGameId = new Map<number, Record<string, unknown>>();
+        for (const g of ugRows) {
+          ugByGameId.set(Number(g['game_id'] ?? 0), g);
+        }
+        deltaGames = baseDelta.map((row) => {
+          const relUgr = ugrByReleaseId.get(String(row['id'] ?? ''));
+          const stableUg = ugByGameId.get(Number(row['stable_id'] ?? 0));
+          return {
+            ...row,
+            ownership_status: Number(relUgr?.['ownership_status'] ?? 0),
+            backup_status: Number(relUgr?.['backup_status'] ?? 0),
+            has_case: Number(relUgr?.['has_case'] ?? 0),
+            has_manual: Number(relUgr?.['has_manual'] ?? 0),
+            play_status: Number(stableUg?.['play_status'] ?? 0),
+            queued: Number(stableUg?.['queued'] ?? 0),
+          };
+        });
+      } else {
+        deltaGames = baseDelta.map((row) => ({ ...row }));
+      }
+    }
   }
 
   return {
     version: manifest?.version || '',
     timestamp: manifest?.timestamp || new Date().toISOString(),
     maxStableId: manifest?.maxStableId ?? sinceStableId,
-    ugr: (ugrRes.results as Array<Record<string, unknown>>) || [],
-    ug: (ugRes.results as Array<Record<string, unknown>>) || [],
-    ut: (utRes.results as Array<Record<string, unknown>>) || [],
+    ugr: ugrRows,
+    ug: ugRows,
+    ut: utRows,
     deltaGames,
   };
 }
@@ -4862,10 +5041,32 @@ Disallow: /
       }
 
       try {
-        const { results } = await env.DB.prepare(buildCatalogGamesChunkQuery())
-          .bind(CATALOG_GAMES_CHUNK_SIZE, chunkIndex * CATALOG_GAMES_CHUNK_SIZE)
-          .all();
-        const rows = (results as Array<Record<string, unknown>>) || [];
+        let startStableId = 0;
+        if (chunkIndex > 0) {
+          const startBoundRow = await env.DB.prepare(
+            CATALOG_GAMES_CHUNK_BOUND_QUERY,
+          )
+            .bind(0, chunkIndex * CATALOG_GAMES_PER_CHUNK)
+            .first<{ end_stable_id?: number }>();
+          startStableId = Number(startBoundRow?.end_stable_id ?? 0);
+        }
+        let rows: Array<Record<string, unknown>> = [];
+        if (chunkIndex === 0 || startStableId > 0) {
+          const endBoundRow = await env.DB.prepare(
+            CATALOG_GAMES_CHUNK_BOUND_QUERY,
+          )
+            .bind(startStableId, CATALOG_GAMES_PER_CHUNK)
+            .first<{ end_stable_id?: number }>();
+          const endStableId = Number(endBoundRow?.end_stable_id ?? 0);
+          if (endStableId > startStableId) {
+            const { results } = await env.DB.prepare(
+              buildCatalogGamesChunkQuery(),
+            )
+              .bind(startStableId, endStableId)
+              .all();
+            rows = (results as Array<Record<string, unknown>>) || [];
+          }
+        }
         if (rows.length > 0) {
           postProcessGameListRows(rows, DEFAULT_USER_HOME_REGION);
         }
@@ -5038,6 +5239,7 @@ Disallow: /
           userId,
           effectiveHomeRegion,
           sinceStableId,
+          edgeCache,
         );
         return Response.json(payload, { headers: privateHeaders });
       } catch {
@@ -5107,6 +5309,7 @@ Disallow: /
           user.id,
           user.home_region || DEFAULT_USER_HOME_REGION,
           sinceStableId,
+          edgeCache,
         );
         return Response.json(payload, {
           headers: {
@@ -9433,14 +9636,52 @@ Disallow: /
         );
       }
 
+      const journalCacheKey = new Request(
+        `https://edge-cache.internal/journal/user:${sessionUser.id}`,
+      );
+      if (edgeCache && !isNoCache) {
+        const cachedJournal = await edgeCache
+          .match(journalCacheKey)
+          .catch(() => undefined);
+        if (cachedJournal) {
+          return new Response(cachedJournal.body, {
+            status: cachedJournal.status,
+            headers: {
+              'Content-Type': 'application/json',
+              ...privateHeaders,
+            },
+          });
+        }
+      }
+
       try {
         const { results } = await env.DB.prepare(JOURNAL_ENTRIES_ALL_QUERY)
           .bind(sessionUser.id)
           .all();
-        return Response.json(
-          { authorized: true, entries: results || [] },
-          { headers: privateHeaders },
-        );
+        const bodyJson = JSON.stringify({
+          authorized: true,
+          entries: results || [],
+        });
+        if (edgeCache) {
+          await putEdgeCacheEntry(
+            edgeCache,
+            journalCacheKey,
+            new Response(bodyJson, {
+              headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'public, max-age=3600',
+              },
+            }),
+            isNoCache,
+            true,
+          );
+        }
+        return new Response(bodyJson, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...privateHeaders,
+          },
+        });
       } catch {
         const snapshot = await loadMetaSnapshotForFallback(env.BACKUP_BUCKET);
         if (!snapshot) {
@@ -9559,6 +9800,15 @@ Disallow: /
         .bind(sessionUser.id, itemType, canonicalId, canonicalId)
         .first()) as JournalEntryRow | null;
 
+      if (edgeCache) {
+        await edgeCache
+          .delete(
+            new Request(
+              `https://edge-cache.internal/journal/user:${sessionUser.id}`,
+            ),
+          )
+          .catch(() => {});
+      }
       await markDbDirty(env);
       return Response.json({ success: true, entry: savedEntry });
     }
@@ -9600,6 +9850,15 @@ Disallow: /
           .run();
       }
 
+      if (edgeCache) {
+        await edgeCache
+          .delete(
+            new Request(
+              `https://edge-cache.internal/journal/user:${sessionUser.id}`,
+            ),
+          )
+          .catch(() => {});
+      }
       await markDbDirty(env);
       return Response.json({ success: true });
     }
