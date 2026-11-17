@@ -1723,6 +1723,22 @@ export class CollectionListComponent
       await this.collectionService.refreshAll();
       this.restoreScroll();
     }
+    this.maybeEnsureFullCatalogForFilters(this.filters());
+  }
+
+  private maybeEnsureFullCatalogForFilters(filters: FilterState): void {
+    if (this.currentTab() !== 'games') return;
+    const needsUnowned =
+      filters.ownership === 0 ||
+      filters.ownership === 'all' ||
+      filters.ownership === 'home_region_and_owned' ||
+      (filters.ownership === 'seeking_or_unowned' && !filters.deals_only);
+    if (
+      needsUnowned &&
+      typeof this.collectionService.ensureFullCatalogLoaded === 'function'
+    ) {
+      void this.collectionService.ensureFullCatalogLoaded();
+    }
   }
 
   /**
@@ -1807,6 +1823,7 @@ export class CollectionListComponent
   onFiltersChange(newFilters: FilterState) {
     this.filters.set({ ...newFilters });
     this.displayLimit.set(100);
+    this.maybeEnsureFullCatalogForFilters(newFilters);
     if (
       this.route?.snapshot?.queryParams &&
       Object.keys(this.route.snapshot.queryParams).length > 0

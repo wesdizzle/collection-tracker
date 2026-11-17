@@ -6646,5 +6646,101 @@ describe('Worker API Logic', () => {
         }
       }
     });
+
+    it('scopes default GET /api/games to active collection rows on large catalogs (>500 games), returns full catalog with include_unowned=1, and backfills lite snapshots on daytime cron when latest.json exists', async () => {
+      const insertMany = db.transaction(() => {
+        const insertGame = db.prepare(
+          `INSERT INTO games (id, title, platform_id, release_medium) VALUES (?, ?, 1, 'physical_retail')`,
+        );
+        for (let i = 1; i <= 505; i++) {
+          insertGame.run(`bulk-game-${i}`, `Bulk Game ${i}`);
+        }
+      });
+      insertMany();
+
+      const secret = mockEnv.SESSION_SECRET!;
+      const token = await signSession(
+        {
+          id: 1,
+          username: 'alice',
+          role: 'admin',
+          homeRegion: 'USA',
+        },
+        secret,
+      );
+      const cookieHeader = `${HOST_SESSION_COOKIE}=${token}`;
+
+      // Default GET /api/games filters out unowned bulk rows (>500 games)
+      const activeRes = await worker.fetch(
+        new Request('https://collection-tracker.example.com/api/games', {
+          headers: { Cookie: cookieHeader },
+        }),
+        mockEnv,
+      );
+      expect(activeRes.status).toBe(200);
+      const activeGames = (await activeRes.json()) as Array<{ title: string }>;
+      expect(activeGames.some((g) => g.title === 'Super Mario Bros')).toBe(
+        true,
+      );
+      expect(activeGames.some((g) => g.title.startsWith('Bulk Game'))).toBe(
+        false,
+      );
+
+      // include_unowned=1 returns all games including unowned catalog rows
+      const fullRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/games?include_unowned=1',
+          { headers: { Cookie: cookieHeader } },
+        ),
+        mockEnv,
+      );
+      expect(fullRes.status).toBe(200);
+      const fullGames = (await fullRes.json()) as Array<{ title: string }>;
+      expect(fullGames.length).toBeGreaterThanOrEqual(506);
+
+      // Daytime cron backfills lite snapshots when snapshots/latest.json exists but lite keys do not
+      mockBucket.storage.clear();
+      mockBucket.storage.set('snapshots/latest.json', JSON.stringify({ v: 1 }));
+
+      const originalDate = globalThis.Date;
+      const mockNow = new Date('2026-10-18T12:00:00Z');
+      globalThis.Date = class extends originalDate {
+        constructor() {
+          super();
+          return mockNow;
+        }
+        static override now() {
+          return mockNow.getTime();
+        }
+      } as unknown as typeof Date;
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async () => {
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+            text: async () => '',
+          } as unknown as Response;
+        });
+
+      try {
+        await worker.scheduled(
+          {
+            cron: '*/30 * * * *',
+            type: 'scheduled',
+            scheduledTime: Date.now(),
+          } as unknown as ScheduledEvent,
+          mockEnv,
+          {} as ExecutionContext,
+        );
+        expect(mockBucket.storage.has(R2_META_LITE_KEY)).toBe(true);
+        expect(mockBucket.storage.has(R2_TOYS_LITE_KEY)).toBe(true);
+        expect(mockBucket.storage.has(R2_GAMES_ACTIVE_LITE_KEY)).toBe(true);
+      } finally {
+        globalThis.Date = originalDate;
+        fetchSpy.mockRestore();
+      }
+    });
   });
 });

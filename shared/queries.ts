@@ -63,7 +63,15 @@ export function buildGamesListQuery(userId?: number | null): string {
            g.collections,
            g.franchises,
            g.manually_verified,
-           g.metadata_json,
+           CASE
+             WHEN g.metadata_json IS NULL THEN NULL
+             WHEN g.metadata_json NOT LIKE '%alternative_names%' AND g.metadata_json NOT LIKE '%game_localizations%' THEN NULL
+             WHEN json_valid(g.metadata_json) THEN json_object(
+               'alternative_names', json_extract(g.metadata_json, '$.alternative_names'),
+               'game_localizations', json_extract(g.metadata_json, '$.game_localizations')
+             )
+             ELSE NULL
+           END as metadata_json,
            COALESCE(
              CASE WHEN cr.source = 'nintendo_revised' THEN 'verified_physical' ELSE NULL END,
              g.physical_status
@@ -123,6 +131,21 @@ export function buildGamesListQuery(userId?: number | null): string {
 }
 
 export const GAMES_LIST_QUERY = buildGamesListQuery(null);
+
+export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
+  AND (
+    COALESCE(ugr.ownership_status, 0) > 0
+    OR COALESCE(ugr.backup_status, 0) > 0
+    OR COALESCE(ugr.has_case, 0) > 0
+    OR COALESCE(ugr.has_manual, 0) > 0
+    OR COALESCE(ug.play_status, 0) > 0
+    OR COALESCE(ug.queued, 0) > 0
+    OR COALESCE(g.retail_on_sale, 0) = 1
+    OR (g.retail_price IS NOT NULL AND g.retail_price > 0)
+    OR g.bundle_parent_id IS NOT NULL
+    OR g.platform_id = 0
+  )
+`;
 
 export function buildGameDetailQuery(userId?: number | null): string {
   const candidateJoin = userId
@@ -1972,6 +1995,7 @@ export function enrichAndStripGameListRow(
   row: Record<string, unknown>,
   homeRegion?: string | null,
   preParsedMetadata?: ParsedGameMetadata | null,
+  preExtractedNames?: string[] | null,
 ): void {
   const metadataJson = (row['metadata_json'] as string) || null;
   const parsedMetadata =
@@ -1988,7 +2012,26 @@ export function enrichAndStripGameListRow(
       homeRegion || undefined,
     );
   }
-  if (parsedMetadata) {
+  if (preExtractedNames !== undefined) {
+    if (preExtractedNames && preExtractedNames.length > 0) {
+      const titleLower = String(row['title'] || '')
+        .trim()
+        .toLowerCase();
+      const baseLower = String(row['base_title'] || '')
+        .trim()
+        .toLowerCase();
+      const filtered: string[] = [];
+      for (const n of preExtractedNames) {
+        const lower = n.toLowerCase();
+        if (lower !== titleLower && lower !== baseLower) {
+          filtered.push(n);
+        }
+      }
+      if (filtered.length > 0) {
+        row['searchableNames'] = filtered;
+      }
+    }
+  } else if (parsedMetadata) {
     const titleLower = String(row['title'] || '')
       .trim()
       .toLowerCase();
@@ -2013,9 +2056,9 @@ export function enrichAndStripGameListRow(
       row['searchableNames'] = Array.from(extraNames);
     }
   }
-  delete row['metadata_json'];
-  delete row['origin_metadata'];
-  delete row['raw_title'];
+  row['metadata_json'] = undefined;
+  row['origin_metadata'] = undefined;
+  row['raw_title'] = undefined;
 }
 
 function stripLeadingArticleLower(str: string): string {
@@ -2087,6 +2130,7 @@ export function postProcessGameListRows(
   }>(rows.length);
 
   const parsedMetadataByStableId = new Map<number, ParsedGameMetadata | null>();
+  const candidateNamesByStableId = new Map<number, string[] | null>();
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -2097,17 +2141,36 @@ export function postProcessGameListRows(
     const stableId =
       row['stable_id'] !== undefined ? Number(row['stable_id']) : undefined;
     let cachedMeta: ParsedGameMetadata | null | undefined;
+    let cachedNames: string[] | null | undefined;
     if (stableId !== undefined) {
       if (parsedMetadataByStableId.has(stableId)) {
         cachedMeta = parsedMetadataByStableId.get(stableId) ?? null;
+        cachedNames = candidateNamesByStableId.get(stableId) ?? null;
       } else {
         cachedMeta = parseGameMetadataOnce(
           (row['metadata_json'] as string | ParsedGameMetadata | null) || null,
         );
         parsedMetadataByStableId.set(stableId, cachedMeta);
+        if (cachedMeta) {
+          const nameSet = new Set<string>();
+          for (const list of [
+            cachedMeta.alternative_names,
+            cachedMeta.game_localizations,
+          ]) {
+            if (!Array.isArray(list)) continue;
+            for (const item of list) {
+              const n = item?.name?.trim();
+              if (n) nameSet.add(n);
+            }
+          }
+          cachedNames = nameSet.size > 0 ? Array.from(nameSet) : null;
+        } else {
+          cachedNames = null;
+        }
+        candidateNamesByStableId.set(stableId, cachedNames);
       }
     }
-    enrichAndStripGameListRow(row, homeRegion, cachedMeta);
+    enrichAndStripGameListRow(row, homeRegion, cachedMeta, cachedNames);
 
     const launch = (row['platform_launch_date'] as string | null) || null;
     const rel = (row['release_date'] as string | null) || null;

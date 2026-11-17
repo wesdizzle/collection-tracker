@@ -45,6 +45,7 @@ import {
   postProcessGameListRows,
   postProcessToyListRows,
   buildGamesListQuery,
+  ACTIVE_GAMES_LIST_WHERE_CLAUSE,
   buildGameDetailQuery,
   getGameDetailQueryParams,
   buildGameReleasesByGameIdQuery,
@@ -277,6 +278,13 @@ export async function invalidateEdgeApiCache(
       for (const reg of ALLOWED_HOME_REGIONS) {
         await edgeCache
           .delete(new Request(`${origin}/api/games?__uid=${uid}&__reg=${reg}`))
+          .catch(() => {});
+        await edgeCache
+          .delete(
+            new Request(
+              `${origin}/api/games?__uid=${uid}&__reg=${reg}&include_unowned=1`,
+            ),
+          )
           .catch(() => {});
       }
     }
@@ -3329,6 +3337,77 @@ export async function performCanonicalReleasesBackup(
   };
 }
 
+async function executeGamesListQuery(
+  db: D1Database,
+  userId: number | null,
+  homeRegion: string,
+  platformId: string | null,
+  includeUnowned: boolean,
+): Promise<Array<Record<string, unknown>>> {
+  let useActiveFilter = false;
+  if (userId !== null && !platformId && !includeUnowned) {
+    const countRow = (await db
+      .prepare('SELECT COUNT(*) AS cnt FROM games')
+      .first()) as { cnt?: number } | null;
+    useActiveFilter = Number(countRow?.cnt ?? 0) > 500;
+  }
+
+  const runQuery = async (
+    activeOnly: boolean,
+  ): Promise<Array<Record<string, unknown>>> => {
+    const params: (string | number)[] = [];
+    let query = buildGamesListQuery(userId);
+    if (userId !== null) {
+      params.push(userId, userId);
+    }
+    if (platformId) {
+      query +=
+        ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
+      params.push(platformId, platformId);
+    }
+    if (activeOnly && userId !== null) {
+      query += ACTIVE_GAMES_LIST_WHERE_CLAUSE;
+    }
+    const { results } = await db
+      .prepare(query)
+      .bind(...params)
+      .all();
+    return (results as Array<Record<string, unknown>>) || [];
+  };
+
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = await runQuery(useActiveFilter);
+  } catch (err) {
+    if (userId !== null && !useActiveFilter && !isD1QuotaOrReadError(err)) {
+      console.warn(
+        '[WorkerGames] Full games query failed; retrying active-only D1 query:',
+        err,
+      );
+      rows = await runQuery(true);
+    } else {
+      throw err;
+    }
+  }
+
+  if (rows.length > 0) {
+    try {
+      postProcessGameListRows(rows, homeRegion);
+    } catch (postErr) {
+      console.warn(
+        '[WorkerGames] postProcessGameListRows failed, stripping metadata in-place:',
+        postErr,
+      );
+      for (const r of rows) {
+        r['metadata_json'] = undefined;
+        r['origin_metadata'] = undefined;
+        r['raw_title'] = undefined;
+      }
+    }
+  }
+  return rows;
+}
+
 async function handleFetch(
   request: Request,
   env: Env,
@@ -3566,8 +3645,17 @@ Disallow: /
         '__reg',
         sessionUser.homeRegion || DEFAULT_USER_HOME_REGION,
       );
+      if (url.searchParams.get('include_unowned') === '1') {
+        normalizedCacheUrl.searchParams.set('include_unowned', '1');
+      }
     } else if (sessionUser && path === '/api/toys') {
       normalizedCacheUrl.searchParams.set('__uid', String(sessionUser.id));
+    } else if (
+      path.startsWith('/api/u/') &&
+      path.endsWith('/games') &&
+      url.searchParams.get('include_unowned') === '1'
+    ) {
+      normalizedCacheUrl.searchParams.set('include_unowned', '1');
     }
     const cacheKey = new Request(normalizedCacheUrl.toString());
     if ((isPublicCacheable || isUserEdgeCacheable) && !isNoCache && edgeCache) {
@@ -4125,6 +4213,7 @@ Disallow: /
       const username = decodeURIComponent(parts[3] || '').trim();
       const platformId =
         url.searchParams.get('platform') || url.searchParams.get('platform_id');
+      const includeUnowned = url.searchParams.get('include_unowned') === '1';
 
       try {
         const user = (await env.DB.prepare(
@@ -4145,27 +4234,16 @@ Disallow: /
           return Response.json({ error: 'User not found' }, { status: 404 });
         }
 
-        let query = buildGamesListQuery(user.id);
-        const params: (string | number)[] = [user.id, user.id];
-
-        if (platformId) {
-          query +=
-            ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
-          params.push(platformId, platformId);
-        }
-
-        const { results } = await env.DB.prepare(query)
-          .bind(...params)
-          .all();
         const homeRegion = user.home_region || 'USA';
-        if (results && results.length > 0) {
-          postProcessGameListRows(
-            results as Record<string, unknown>[],
-            homeRegion,
-          );
-        }
+        const results = await executeGamesListQuery(
+          env.DB,
+          user.id,
+          homeRegion,
+          platformId,
+          includeUnowned,
+        );
 
-        const res = Response.json(results || [], {
+        const res = Response.json(results, {
           headers: {
             'Content-Type': 'application/json',
             'Cache-Control': user.is_public
@@ -4352,35 +4430,21 @@ Disallow: /
     else if (path === '/api/games') {
       const platformId =
         url.searchParams.get('platform') || url.searchParams.get('platform_id');
+      const includeUnowned = url.searchParams.get('include_unowned') === '1';
       const userId = sessionUser ? sessionUser.id : null;
       const effectiveHomeRegion = sessionUser
         ? sessionUser.homeRegion
         : DEFAULT_USER_HOME_REGION;
 
       try {
-        const params: (string | number)[] = [];
-        let query = buildGamesListQuery(userId);
-
-        if (userId) {
-          params.push(userId, userId);
-        }
-
-        if (platformId) {
-          query +=
-            ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
-          params.push(platformId, platformId);
-        }
-
-        const { results } = await env.DB.prepare(query)
-          .bind(...params)
-          .all();
-        if (results && results.length > 0) {
-          postProcessGameListRows(
-            results as Record<string, unknown>[],
-            effectiveHomeRegion,
-          );
-        }
-        const bodyJson = JSON.stringify(results || []);
+        const results = await executeGamesListQuery(
+          env.DB,
+          userId,
+          effectiveHomeRegion,
+          platformId,
+          includeUnowned,
+        );
+        const bodyJson = JSON.stringify(results);
         const cacheableRes = new Response(bodyJson, {
           headers: publicCacheHeaders,
         });
@@ -9265,6 +9329,27 @@ export default {
             );
           }
         }
+      }
+    }
+
+    if (
+      !isDailyWindow &&
+      env.BACKUP_BUCKET &&
+      typeof env.BACKUP_BUCKET.head === 'function'
+    ) {
+      try {
+        const [hasLatest, hasGamesLite] = await Promise.all([
+          env.BACKUP_BUCKET.head('snapshots/latest.json'),
+          env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY),
+        ]);
+        if (hasLatest && !hasGamesLite) {
+          await writeLiteBackupSnapshots(env);
+        }
+      } catch (liteBackfillErr) {
+        console.warn(
+          '[WorkerCron] Daytime one-time lite snapshot backfill failed:',
+          liteBackfillErr,
+        );
       }
     }
 

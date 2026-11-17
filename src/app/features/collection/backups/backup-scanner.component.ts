@@ -236,7 +236,17 @@ export class BackupScannerComponent implements OnInit {
       this.collectionService.platforms().length === 0 ||
       this.collectionService.games().length === 0
     ) {
-      void this.collectionService.refreshAll();
+      void this.collectionService.refreshAll().then(() => {
+        if (
+          typeof this.collectionService.ensureFullCatalogLoaded === 'function'
+        ) {
+          void this.collectionService.ensureFullCatalogLoaded();
+        }
+      });
+    } else if (
+      typeof this.collectionService.ensureFullCatalogLoaded === 'function'
+    ) {
+      void this.collectionService.ensureFullCatalogLoaded();
     }
   }
 

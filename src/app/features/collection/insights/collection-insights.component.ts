@@ -71,6 +71,9 @@ export class CollectionInsightsComponent implements OnInit {
     ) {
       await this.refresh();
     }
+    if (typeof this.collectionService.ensureFullCatalogLoaded === 'function') {
+      void this.collectionService.ensureFullCatalogLoaded();
+    }
     if (
       this.collectionService.isAuthenticated() &&
       !this.collectionService.journalLoaded()

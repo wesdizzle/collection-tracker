@@ -276,6 +276,7 @@ export class CollectionService implements OnDestroy {
         this._toys.set([]);
         this._loadedOwnerContext.set(null);
       }
+      this._fullCatalogLoaded.set(false);
       if (this.routeReuseStrategy instanceof CollectionRouteReuseStrategy) {
         this.routeReuseStrategy.clearAll();
       }
@@ -776,6 +777,11 @@ export class CollectionService implements OnDestroy {
     enabled: boolean,
     profile?: PublicUserProfile | null,
   ): void {
+    const prevUsername = this._publicProfile()?.username || null;
+    const nextUsername = profile?.username || null;
+    if (enabled !== this._isPublicView() || prevUsername !== nextUsername) {
+      this._fullCatalogLoaded.set(false);
+    }
     this._isPublicView.set(enabled);
     this._publicProfile.set(profile || null);
   }
@@ -941,6 +947,8 @@ export class CollectionService implements OnDestroy {
   private _error = signal<string | null>(null);
   private _refreshTrigger = signal<number>(0);
   private _loadedOwnerContext = signal<string | null>(null);
+  private _fullCatalogLoaded = signal<boolean>(false);
+  private _fullCatalogPromise: Promise<void> | null = null;
 
   /** --- Public Read-only Signal Views --- */
   public readonly games = this._games.asReadonly();
@@ -1120,17 +1128,23 @@ export class CollectionService implements OnDestroy {
     const userId = this._currentUser()?.id ?? null;
     if (!userId) return;
 
-    if (onlyIfNewer) {
-      const existing = await this.offlineStore.getStoredState(userId);
-      if (existing && existing.updatedAt >= updatedAtMs) {
-        return;
-      }
+    const existing = await this.offlineStore.getStoredState(userId);
+    if (onlyIfNewer && existing && existing.updatedAt >= updatedAtMs) {
+      return;
     }
 
+    const currentGames = this._games();
+    const currentToys = this._toys();
+    const currentPlatforms = this._platforms();
     const snapshot: CollectionOfflineSnapshot = {
-      games: this._games(),
-      toys: this._toys(),
-      platforms: this._platforms(),
+      games:
+        currentGames.length > 0 ? currentGames : (existing?.state?.games ?? []),
+      toys:
+        currentToys.length > 0 ? currentToys : (existing?.state?.toys ?? []),
+      platforms:
+        currentPlatforms.length > 0
+          ? currentPlatforms
+          : (existing?.state?.platforms ?? []),
       journalEntries: Array.from(this._journalEntriesMap().values()),
     };
     await this.offlineStore.saveStateLocally(
@@ -1153,17 +1167,13 @@ export class CollectionService implements OnDestroy {
     this._error.set(null);
     this._activeRefreshSawDegraded = false;
     this._activeRefreshSawError = false;
+    this._fullCatalogLoaded.set(false);
     const targetOwner = this.getExpectedOwnerContext();
-    const hydratePromise =
-      targetOwner === 'self' && this._currentUser()?.id
-        ? this.hydrateFromOfflineStoreIfEmpty(this._currentUser()!.id)
-        : Promise.resolve(false);
     try {
       const [games, toys, platforms] = await Promise.all([
         firstValueFrom(this.getGames()),
         firstValueFrom(this.getToys()),
         firstValueFrom(this.getPlatforms()),
-        hydratePromise,
       ]);
       const finalGames =
         this._activeRefreshSawError && games.length === 0
@@ -1178,6 +1188,18 @@ export class CollectionService implements OnDestroy {
       this._games.set(finalGames);
       this._toys.set(finalToys);
       this._platforms.set(finalPlatforms);
+
+      if (
+        (this._activeRefreshSawError || this._activeRefreshSawDegraded) &&
+        targetOwner === 'self' &&
+        this._currentUser()?.id &&
+        (finalGames.length === 0 ||
+          finalToys.length === 0 ||
+          finalPlatforms.length === 0)
+      ) {
+        await this.hydrateFromOfflineStoreIfEmpty(this._currentUser()!.id);
+      }
+
       this._loadedOwnerContext.set(targetOwner);
       this._refreshTrigger.update((v) => v + 1);
 
@@ -1229,13 +1251,20 @@ export class CollectionService implements OnDestroy {
   /**
    * Fetches the games collection, optionally filtered by platform.
    */
-  getGames(platformId?: number): Observable<Game[]> {
+  getGames(platformId?: number, includeUnowned = false): Observable<Game[]> {
     let url = '/api/games';
     if (this._isPublicView() && this._publicProfile()) {
       url = `/api/u/${encodeURIComponent(this._publicProfile()!.username)}/games`;
     }
+    const queryParams: string[] = [];
     if (platformId) {
-      url += (url.includes('?') ? '&' : '?') + `platform_id=${platformId}`;
+      queryParams.push(`platform_id=${platformId}`);
+    }
+    if (includeUnowned) {
+      queryParams.push('include_unowned=1');
+    }
+    if (queryParams.length > 0) {
+      url += (url.includes('?') ? '&' : '?') + queryParams.join('&');
     }
     return this.http.get<Game[]>(url, { observe: 'response' }).pipe(
       tap((resp) => this.inspectDegradedHeaders(resp.headers)),
@@ -1253,6 +1282,36 @@ export class CollectionService implements OnDestroy {
         return of(this._games());
       }),
     );
+  }
+
+  /**
+   * Loads the full unowned + owned catalog on demand when the user selects an
+   * unowned filter preset, opens Insights completion stats, or scans local backups.
+   */
+  public async ensureFullCatalogLoaded(): Promise<void> {
+    if (this._fullCatalogLoaded() || this.isDegraded()) {
+      return;
+    }
+    if (this._fullCatalogPromise) {
+      return this._fullCatalogPromise;
+    }
+    this._fullCatalogLoaded.set(true);
+    this._fullCatalogPromise = (async () => {
+      try {
+        const fullGames = await firstValueFrom(this.getGames(undefined, true));
+        if (fullGames.length > 0) {
+          this._games.set(fullGames);
+          this._refreshTrigger.update((v) => v + 1);
+        } else {
+          this._fullCatalogLoaded.set(false);
+        }
+      } catch {
+        this._fullCatalogLoaded.set(false);
+      } finally {
+        this._fullCatalogPromise = null;
+      }
+    })();
+    return this._fullCatalogPromise;
   }
 
   /**
@@ -2599,7 +2658,11 @@ export class CollectionService implements OnDestroy {
             }
             this._journalEntriesMap.set(nextMap);
             this._journalLoaded.set(true);
-            if (!res.degraded && !this._dataDegradedMode()) {
+            if (
+              !res.degraded &&
+              !this._dataDegradedMode() &&
+              this._games().length > 0
+            ) {
               void this.saveOfflineSnapshot(Date.now(), false);
             }
           }

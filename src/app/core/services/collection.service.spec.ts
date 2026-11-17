@@ -1403,5 +1403,110 @@ describe('CollectionService', () => {
         redirectSpy.mockRestore();
       }
     });
+
+    it('preserves existing IndexedDB games during loadAllJournalEntries() when _games is empty, waits for live requests in refreshAll(), and supports ensureFullCatalogLoaded()', async () => {
+      const storeMap = new Map<
+        number,
+        { state: { games: Game[] }; updatedAt: number }
+      >();
+      storeMap.set(1, {
+        state: {
+          games: [
+            {
+              id: 'saved-1',
+              game_id: 'saved-1',
+              stable_id: 1,
+              title: 'Existing Saved Game',
+            } as Game,
+          ],
+        },
+        updatedAt: 1000,
+      });
+
+      const internal = service as unknown as {
+        offlineStore: {
+          getStoredState: (uid: number) => Promise<unknown>;
+          saveStateLocally: (
+            state: {
+              games: Game[];
+              toys: unknown[];
+              platforms: unknown[];
+              journalEntries: unknown[];
+            },
+            updatedAtMs: number,
+            pendingSync: boolean,
+            uid: number,
+          ) => Promise<void>;
+        };
+      };
+
+      const saveSpy = vi
+        .spyOn(internal.offlineStore, 'saveStateLocally')
+        .mockImplementation(async (state, updatedAt, _pending, uid) => {
+          storeMap.set(uid, {
+            state: { games: state.games },
+            updatedAt,
+          });
+        });
+      vi.spyOn(internal.offlineStore, 'getStoredState').mockImplementation(
+        async (uid: number) => storeMap.get(uid) ?? null,
+      );
+
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'alice@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      expect(service.games().length).toBe(0);
+      service.loadAllJournalEntries().subscribe();
+      httpMock.expectOne('/api/journal/entries').flush({
+        authorized: true,
+        entries: [{ id: 1, item_type: 'game', item_id: 'saved-1' }],
+      });
+      await Promise.resolve();
+      // Journal load before games finish must NOT wipe out saved IndexedDB games
+      expect(saveSpy).not.toHaveBeenCalled();
+      expect(storeMap.get(1)?.state.games[0]?.title).toBe(
+        'Existing Saved Game',
+      );
+
+      // refreshAll() serves live D1 games and saves them without prematurely hydrating stale offline data
+      const pRefresh = service.refreshAll();
+      httpMock
+        .expectOne('/api/games')
+        .flush([
+          { id: 'live-1', game_id: 'live-1', stable_id: 2, title: 'Live Game' },
+        ]);
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRefresh;
+
+      expect(service.games().map((g) => g.title)).toEqual(['Live Game']);
+      expect(service.isDegraded()).toBe(false);
+
+      // ensureFullCatalogLoaded() fetches unowned + owned games via ?include_unowned=1 once
+      const pFull = service.ensureFullCatalogLoaded();
+      httpMock.expectOne('/api/games?include_unowned=1').flush([
+        { id: 'live-1', game_id: 'live-1', stable_id: 2, title: 'Live Game' },
+        {
+          id: 'unowned-1',
+          game_id: 'unowned-1',
+          stable_id: 3,
+          title: 'Unowned Catalog Game',
+        },
+      ]);
+      await pFull;
+      expect(service.games().length).toBe(2);
+
+      // Calling ensureFullCatalogLoaded() again is a no-op once loaded
+      await service.ensureFullCatalogLoaded();
+      httpMock.expectNone('/api/games?include_unowned=1');
+    });
   });
 });
