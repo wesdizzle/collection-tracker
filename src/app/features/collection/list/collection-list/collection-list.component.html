@@ -1,4 +1,30 @@
 <div class="animate-expressive" data-version="final-v12">
+  @if (collectionService.catalogSyncProgress().active) {
+    <div
+      class="catalog-sync-banner"
+      data-testid="catalog-sync-banner"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="catalog-sync-info">
+        <span class="catalog-sync-dot" aria-hidden="true"></span>
+        <span>
+          Syncing full catalog ({{
+            collectionService.catalogSyncProgress().loadedRows | number
+          }}
+          /
+          {{ collectionService.catalogSyncProgress().totalRows | number }}
+          games)
+        </span>
+      </div>
+      <div class="catalog-sync-track" aria-hidden="true">
+        <div
+          class="catalog-sync-fill"
+          [style.width.%]="collectionService.catalogSyncProgress().percent"
+        ></div>
+      </div>
+    </div>
+  }
   <app-collection-filters
     [currentTab]="currentTab()"
     [platformGroups]="platformGroups()"

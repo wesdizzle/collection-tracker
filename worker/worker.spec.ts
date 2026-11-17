@@ -17,6 +17,11 @@ import worker, {
   R2_META_LITE_KEY,
   R2_TOYS_LITE_KEY,
   R2_GAMES_ACTIVE_LITE_KEY,
+  R2_CATALOG_MANIFEST_KEY,
+  R2_CATALOG_TOYS_CHUNK_KEY,
+  X_CATALOG_PARTIAL_HEADER,
+  X_CATALOG_CHUNK_SIZE_HEADER,
+  getCatalogChunkR2Key,
   getBroadCatalogSeedStatus,
   isAuthorizedAdmin,
   markCanonicalReleasesDirty,
@@ -33,6 +38,7 @@ import worker, {
   syncWorkerIgdbMetadataBackfill,
   syncWorkerLaunchDayNotifications,
   syncWorkerRetailDeals,
+  writeCatalogChunksToR2,
 } from './worker';
 import { normalizeTitleForMatching } from '../shared/title_matching';
 import {
@@ -6740,6 +6746,270 @@ describe('Worker API Logic', () => {
       } finally {
         globalThis.Date = originalDate;
         fetchSpy.mockRestore();
+      }
+    });
+
+    it('runs post-midnight (00:05 UTC) R2 catalog chunk generation, serves immutable Edge-Cached chunks untouched by user mutations, and serves live D1 user overlay + same-day delta', async () => {
+      // Seed 505 unowned games so catalog exceeds 500 threshold and triggers X-Catalog-Partial: 1
+      const insertMany = db.transaction(() => {
+        const insertGame = db.prepare(
+          `INSERT INTO games (id, title, platform_id, release_medium) VALUES (?, ?, 1, 'physical_retail')`,
+        );
+        const insertRel = db.prepare(
+          `INSERT INTO game_releases (id, game_id, region) VALUES (?, ?, 'USA')`,
+        );
+        for (let i = 1; i <= 505; i++) {
+          const info = insertGame.run(`r2-game-${i}`, `R2 Catalog Game ${i}`);
+          insertRel.run(`r2-rel-${i}`, info.lastInsertRowid);
+        }
+      });
+      insertMany();
+
+      await markDbDirty(mockEnv);
+
+      const originalDate = globalThis.Date;
+      const postMidnight = new Date('2026-11-17T00:05:00Z');
+      globalThis.Date = class extends originalDate {
+        constructor() {
+          super();
+          return postMidnight;
+        }
+        static override now() {
+          return postMidnight.getTime();
+        }
+      } as unknown as typeof Date;
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async () => {
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+            text: async () => '',
+          } as unknown as Response;
+        });
+
+      const cacheStore = new Map<string, Response>();
+      const mockCache = {
+        match: vi.fn(async (req: RequestInfo | URL) => {
+          const key =
+            typeof req === 'string'
+              ? req
+              : req instanceof Request
+                ? req.url
+                : req.toString();
+          return cacheStore.get(key)?.clone() || undefined;
+        }),
+        put: vi.fn(async (req: RequestInfo | URL, res: Response) => {
+          const key =
+            typeof req === 'string'
+              ? req
+              : req instanceof Request
+                ? req.url
+                : req.toString();
+          cacheStore.set(key, res.clone());
+        }),
+        delete: vi.fn(async (req: RequestInfo | URL) => {
+          const key =
+            typeof req === 'string'
+              ? req
+              : req instanceof Request
+                ? req.url
+                : req.toString();
+          return cacheStore.delete(key);
+        }),
+      };
+      vi.stubGlobal('caches', { default: mockCache });
+
+      try {
+        // 1. Post-midnight 00:05 UTC cron triggers daily backup & R2 catalog chunk generation
+        await worker.scheduled(
+          {
+            cron: '*/30 * * * *',
+            type: 'scheduled',
+            scheduledTime: postMidnight.getTime(),
+          } as unknown as ScheduledEvent,
+          mockEnv,
+          {} as ExecutionContext,
+        );
+        expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
+        expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(true);
+        expect(mockBucket.storage.has(R2_CATALOG_TOYS_CHUNK_KEY)).toBe(true);
+
+        const manifestRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/catalog/games?manifest=1',
+          ),
+          mockEnv,
+        );
+        expect(manifestRes.status).toBe(200);
+        const manifest = (await manifestRes.json()) as {
+          version: string;
+          totalRows: number;
+          chunkCount: number;
+          maxStableId: number;
+        };
+        expect(manifest.totalRows).toBeGreaterThanOrEqual(506);
+        expect(manifest.chunkCount).toBe(1);
+        expect(manifest.maxStableId).toBeGreaterThan(500);
+
+        // 2. Signed-in GET /api/games returns active slice with X-Catalog-Partial: 1
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+        const cookieHeader = `${HOST_SESSION_COOKIE}=${token}`;
+
+        const partialRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/api/games', {
+            headers: { Cookie: cookieHeader },
+          }),
+          mockEnv,
+        );
+        expect(partialRes.status).toBe(200);
+        expect(partialRes.headers.get(X_CATALOG_PARTIAL_HEADER)).toBe('1');
+        expect(partialRes.headers.get(X_CATALOG_CHUNK_SIZE_HEADER)).toBe(
+          '3500',
+        );
+
+        // 3. GET /api/catalog/games?chunk=0 streams R2 chunk with 24h immutable Edge Cache
+        const chunkUrl = `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(manifest.version)}`;
+        const chunkRes1 = await worker.fetch(
+          new Request(chunkUrl, { headers: { Cookie: cookieHeader } }),
+          mockEnv,
+        );
+        expect(chunkRes1.status).toBe(200);
+        expect(chunkRes1.headers.get('Cache-Control')).toContain('immutable');
+        const chunkData = (await chunkRes1.json()) as Array<{ id: string }>;
+        expect(chunkData.length).toBeGreaterThanOrEqual(506);
+        expect(cacheStore.has(chunkUrl)).toBe(true);
+
+        // 4. User toggle mutation must NOT evict immutable /api/catalog/games Edge Cache
+        const toggleRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/collection/toggle',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Origin: 'https://collection-tracker.example.com',
+                Cookie: cookieHeader,
+              },
+              body: JSON.stringify({
+                id: 'r2-rel-1',
+                type: 'game',
+                status: 2,
+                field: 'ownership_status',
+              }),
+            },
+          ),
+          mockEnv,
+        );
+        expect(toggleRes.status).toBe(200);
+        expect(cacheStore.has(chunkUrl)).toBe(true);
+
+        // 5. Same-day new game + live user state returned by /api/user/collection-overlay and /api/u/alice/collection-overlay
+        const newGameInfo = db
+          .prepare(
+            `INSERT INTO games (id, title, platform_id, release_medium) VALUES ('same-day-new', 'Same Day Discovery', 1, 'physical_retail')`,
+          )
+          .run();
+        db.prepare(
+          `INSERT INTO game_releases (id, game_id, region) VALUES ('same-day-rel', ?, 'USA')`,
+        ).run(newGameInfo.lastInsertRowid);
+        db.prepare(
+          `INSERT INTO user_games (user_id, game_id, play_status, queued) VALUES (1, ?, 2, 1)`,
+        ).run(newGameInfo.lastInsertRowid);
+
+        const overlayRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/user/collection-overlay',
+            { headers: { Cookie: cookieHeader } },
+          ),
+          mockEnv,
+        );
+        expect(overlayRes.status).toBe(200);
+        const overlay = (await overlayRes.json()) as {
+          ugr: Array<{ release_id: string; ownership_status: number }>;
+          ug: Array<{ game_id: number; play_status: number; queued: number }>;
+          deltaGames: Array<{ id: string; title: string; play_status: number }>;
+        };
+        expect(
+          overlay.ugr.some(
+            (r) => r.release_id === 'r2-rel-1' && r.ownership_status === 2,
+          ),
+        ).toBe(true);
+        expect(overlay.deltaGames.map((d) => d.id)).toContain('same-day-rel');
+        expect(
+          overlay.deltaGames.find((d) => d.id === 'same-day-rel')?.play_status,
+        ).toBe(2);
+
+        const publicOverlayRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/u/alice/collection-overlay',
+          ),
+          mockEnv,
+        );
+        expect(publicOverlayRes.status).toBe(200);
+        const publicOverlay = (await publicOverlayRes.json()) as {
+          deltaGames: Array<{ id: string }>;
+        };
+        expect(publicOverlay.deltaGames.map((d) => d.id)).toContain(
+          'same-day-rel',
+        );
+
+        // 6. GET /api/toys merges R2 catalog/toys-chunk-0.json base with live D1 user_toys and delta toys
+        db.prepare(
+          `INSERT INTO toys (id, name, line, series_id, sort_index) VALUES ('zelda-amiibo', 'Zelda', 'amiibo', 'smash', 1)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO user_toys (user_id, toy_id, ownership_status) VALUES (1, 'link-amiibo', 1)`,
+        ).run();
+
+        const toysRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/api/toys', {
+            headers: { Cookie: cookieHeader },
+          }),
+          mockEnv,
+        );
+        expect(toysRes.status).toBe(200);
+        const toys = (await toysRes.json()) as Array<{
+          id: string;
+          ownership_status: number;
+        }>;
+        expect(toys.find((t) => t.id === 'link-amiibo')?.ownership_status).toBe(
+          1,
+        );
+        expect(toys.some((t) => t.id === 'zelda-amiibo')).toBe(true);
+
+        // 7. Single-chunk D1 write-through when R2 catalog chunk is missing
+        mockBucket.storage.delete(getCatalogChunkR2Key(0));
+        cacheStore.clear();
+        const writeThroughRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/catalog/games?chunk=0&v=cold-test',
+          ),
+          mockEnv,
+        );
+        expect(writeThroughRes.status).toBe(200);
+        expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(true);
+
+        // Direct writeCatalogChunksToR2 supports resumable maxChunksPerRun cursor
+        mockBucket.storage.clear();
+        const forcedManifest = await writeCatalogChunksToR2(mockEnv, {
+          forceRestart: true,
+        });
+        expect(forcedManifest?.chunkCount).toBe(1);
+      } finally {
+        globalThis.Date = originalDate;
+        fetchSpy.mockRestore();
+        vi.unstubAllGlobals();
       }
     });
   });

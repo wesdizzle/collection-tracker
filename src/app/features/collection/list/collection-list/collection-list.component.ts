@@ -34,7 +34,7 @@ import {
   NgZone,
 } from '@angular/core';
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
-import { ViewportScroller } from '@angular/common';
+import { ViewportScroller, DecimalPipe } from '@angular/common';
 import { Subscription } from 'rxjs';
 import { CollectionService } from '../../../../core/services/collection.service';
 
@@ -79,6 +79,7 @@ interface GameGroup {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterModule,
+    DecimalPipe,
     CollectionFiltersComponent,
     GameCardComponent,
     ToyCardComponent,

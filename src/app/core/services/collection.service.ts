@@ -66,6 +66,9 @@ import {
   CronExecutionLogEntry,
   PublicUserProfile,
   AuthMeResponse,
+  CatalogManifest,
+  UserCollectionOverlayResponse,
+  CatalogSyncProgress,
 } from '../models/collection.models';
 
 interface CollectionOfflineSnapshot {
@@ -73,6 +76,7 @@ interface CollectionOfflineSnapshot {
   toys: Toy[];
   platforms: Platform[];
   journalEntries: JournalEntry[];
+  catalogVersion?: string | null;
 }
 
 @Injectable({
@@ -277,6 +281,18 @@ export class CollectionService implements OnDestroy {
         this._loadedOwnerContext.set(null);
       }
       this._fullCatalogLoaded.set(false);
+      this._fullCatalogPromise = null;
+      this._catalogIsPartial.set(false);
+      this._currentCatalogVersion = null;
+      this._activeCatalogSyncId++;
+      this._catalogSyncProgress.set({
+        active: false,
+        loadedRows: 0,
+        totalRows: 0,
+        loadedChunks: 0,
+        totalChunks: 0,
+        percent: 0,
+      });
       if (this.routeReuseStrategy instanceof CollectionRouteReuseStrategy) {
         this.routeReuseStrategy.clearAll();
       }
@@ -781,6 +797,18 @@ export class CollectionService implements OnDestroy {
     const nextUsername = profile?.username || null;
     if (enabled !== this._isPublicView() || prevUsername !== nextUsername) {
       this._fullCatalogLoaded.set(false);
+      this._fullCatalogPromise = null;
+      this._catalogIsPartial.set(false);
+      this._currentCatalogVersion = null;
+      this._activeCatalogSyncId++;
+      this._catalogSyncProgress.set({
+        active: false,
+        loadedRows: 0,
+        totalRows: 0,
+        loadedChunks: 0,
+        totalChunks: 0,
+        percent: 0,
+      });
     }
     this._isPublicView.set(enabled);
     this._publicProfile.set(profile || null);
@@ -949,6 +977,17 @@ export class CollectionService implements OnDestroy {
   private _loadedOwnerContext = signal<string | null>(null);
   private _fullCatalogLoaded = signal<boolean>(false);
   private _fullCatalogPromise: Promise<void> | null = null;
+  private _catalogIsPartial = signal<boolean>(false);
+  private _currentCatalogVersion: string | null = null;
+  private _activeCatalogSyncId = 0;
+  private _catalogSyncProgress = signal<CatalogSyncProgress>({
+    active: false,
+    loadedRows: 0,
+    totalRows: 0,
+    loadedChunks: 0,
+    totalChunks: 0,
+    percent: 0,
+  });
 
   /** --- Public Read-only Signal Views --- */
   public readonly games = this._games.asReadonly();
@@ -958,6 +997,8 @@ export class CollectionService implements OnDestroy {
   public readonly error = this._error.asReadonly();
   public readonly refreshTrigger = this._refreshTrigger.asReadonly();
   public readonly loadedOwnerContext = this._loadedOwnerContext.asReadonly();
+  public readonly catalogIsPartial = this._catalogIsPartial.asReadonly();
+  public readonly catalogSyncProgress = this._catalogSyncProgress.asReadonly();
 
   public getExpectedOwnerContext(): string {
     return this._isPublicView() && this._publicProfile()
@@ -1136,9 +1177,16 @@ export class CollectionService implements OnDestroy {
     const currentGames = this._games();
     const currentToys = this._toys();
     const currentPlatforms = this._platforms();
+    const preserveExistingFullCatalog =
+      this._catalogIsPartial() &&
+      !this._fullCatalogLoaded() &&
+      (existing?.state?.games?.length ?? 0) > currentGames.length;
     const snapshot: CollectionOfflineSnapshot = {
-      games:
-        currentGames.length > 0 ? currentGames : (existing?.state?.games ?? []),
+      games: preserveExistingFullCatalog
+        ? existing!.state.games
+        : currentGames.length > 0
+          ? currentGames
+          : (existing?.state?.games ?? []),
       toys:
         currentToys.length > 0 ? currentToys : (existing?.state?.toys ?? []),
       platforms:
@@ -1146,6 +1194,11 @@ export class CollectionService implements OnDestroy {
           ? currentPlatforms
           : (existing?.state?.platforms ?? []),
       journalEntries: Array.from(this._journalEntriesMap().values()),
+      catalogVersion: preserveExistingFullCatalog
+        ? (existing?.state?.catalogVersion ?? null)
+        : (this._currentCatalogVersion ??
+          existing?.state?.catalogVersion ??
+          null),
     };
     await this.offlineStore.saveStateLocally(
       snapshot,
@@ -1168,6 +1221,17 @@ export class CollectionService implements OnDestroy {
     this._activeRefreshSawDegraded = false;
     this._activeRefreshSawError = false;
     this._fullCatalogLoaded.set(false);
+    this._fullCatalogPromise = null;
+    this._catalogIsPartial.set(false);
+    this._activeCatalogSyncId++;
+    this._catalogSyncProgress.set({
+      active: false,
+      loadedRows: 0,
+      totalRows: 0,
+      loadedChunks: 0,
+      totalChunks: 0,
+      percent: 0,
+    });
     const targetOwner = this.getExpectedOwnerContext();
     try {
       const [games, toys, platforms] = await Promise.all([
@@ -1234,6 +1298,14 @@ export class CollectionService implements OnDestroy {
         const snapshotMs = Number.isFinite(parsedMs) ? parsedMs : 0;
         await this.saveOfflineSnapshot(snapshotMs, true);
       }
+
+      if (
+        !this._activeRefreshSawError &&
+        !this._activeRefreshSawDegraded &&
+        this._catalogIsPartial()
+      ) {
+        void this.ensureFullCatalogLoaded(true);
+      }
     } catch (err: unknown) {
       console.error('[CollectionService] Global refresh failed:', err);
       const errorMessage =
@@ -1267,7 +1339,14 @@ export class CollectionService implements OnDestroy {
       url += (url.includes('?') ? '&' : '?') + queryParams.join('&');
     }
     return this.http.get<Game[]>(url, { observe: 'response' }).pipe(
-      tap((resp) => this.inspectDegradedHeaders(resp.headers)),
+      tap((resp) => {
+        this.inspectDegradedHeaders(resp.headers);
+        if (!platformId && !includeUnowned) {
+          this._catalogIsPartial.set(
+            resp.headers?.get?.('X-Catalog-Partial') === '1',
+          );
+        }
+      }),
       map((resp) =>
         (resp.body || []).map((game) => this.enrichGameTitle(game)),
       ),
@@ -1284,31 +1363,376 @@ export class CollectionService implements OnDestroy {
     );
   }
 
-  /**
-   * Loads the full unowned + owned catalog on demand when the user selects an
-   * unowned filter preset, opens Insights completion stats, or scans local backups.
-   */
-  public async ensureFullCatalogLoaded(): Promise<void> {
-    if (this._fullCatalogLoaded() || this.isDegraded()) {
+  private applyOverlayToCatalogGame(
+    rawGame: Game,
+    ugrByReleaseId: Map<string, UserCollectionOverlayResponse['ugr'][number]>,
+    ugByStableId: Map<number, UserCollectionOverlayResponse['ug'][number]>,
+    phase1ById: Map<string, Game>,
+  ): Game {
+    const enriched = this.enrichGameTitle(rawGame);
+    const phase1Match = phase1ById.get(enriched.id);
+    const ugRow = ugByStableId.get(Number(enriched.stable_id));
+    const ugrSelf = ugrByReleaseId.get(enriched.id);
+
+    let nextReleases = enriched.releases;
+    if (Array.isArray(enriched.releases)) {
+      nextReleases = enriched.releases.map((r) => {
+        const relUgr = ugrByReleaseId.get(r.id);
+        return {
+          ...r,
+          ownership_status: Number(relUgr?.ownership_status ?? 0),
+          backup_status: Number(relUgr?.backup_status ?? 0),
+          has_case: Number(relUgr?.has_case ?? 0),
+          has_manual: Number(relUgr?.has_manual ?? 0),
+        };
+      });
+    }
+
+    let nextDiscBackups = enriched.discBackups;
+    if (Array.isArray(enriched.discIds)) {
+      nextDiscBackups = enriched.discIds.map((discId) =>
+        Number(ugrByReleaseId.get(discId)?.backup_status ?? 0),
+      );
+    }
+
+    const rolledUpBackupStatus =
+      Array.isArray(nextDiscBackups) && nextDiscBackups.length > 0
+        ? nextDiscBackups.every((b) => Number(b) === 1)
+          ? 1
+          : 0
+        : Number(ugrSelf?.backup_status ?? 0);
+
+    const overlaid: Game = {
+      ...enriched,
+      ownership_status: Number(
+        ugrSelf?.ownership_status ?? 0,
+      ) as OwnershipStatus,
+      play_status: Number(ugRow?.play_status ?? 0) as PlayStatus,
+      queued: Number(ugRow?.queued ?? 0),
+      backup_status: rolledUpBackupStatus,
+      has_case: Number(ugrSelf?.has_case ?? 0),
+      has_manual: Number(ugrSelf?.has_manual ?? 0),
+      ...(nextReleases !== undefined ? { releases: nextReleases } : {}),
+      ...(nextDiscBackups !== undefined
+        ? { discBackups: nextDiscBackups }
+        : {}),
+    };
+
+    if (!phase1Match) {
+      return overlaid;
+    }
+
+    return {
+      ...overlaid,
+      ownership_status: phase1Match.ownership_status,
+      play_status: phase1Match.play_status,
+      queued: phase1Match.queued ?? overlaid.queued,
+      backup_status: phase1Match.backup_status,
+      has_case: phase1Match.has_case ?? overlaid.has_case,
+      has_manual: phase1Match.has_manual ?? overlaid.has_manual,
+      releases: phase1Match.releases ?? overlaid.releases,
+      discBackups: phase1Match.discBackups ?? overlaid.discBackups,
+      retail_price: phase1Match.retail_price ?? overlaid.retail_price,
+      retail_regular_price:
+        phase1Match.retail_regular_price ?? overlaid.retail_regular_price,
+      retail_discount_pct:
+        phase1Match.retail_discount_pct ?? overlaid.retail_discount_pct,
+      retail_on_sale: phase1Match.retail_on_sale ?? overlaid.retail_on_sale,
+      retail_store: phase1Match.retail_store ?? overlaid.retail_store,
+      retail_url: phase1Match.retail_url ?? overlaid.retail_url,
+      retail_updated_at:
+        phase1Match.retail_updated_at ?? overlaid.retail_updated_at,
+    };
+  }
+
+  private async loadFullCatalogInChunks(syncId: number): Promise<void> {
+    const userId = !this._isPublicView()
+      ? (this._currentUser()?.id ?? null)
+      : null;
+    const overlayBaseUrl =
+      this._isPublicView() && this._publicProfile()
+        ? `/api/u/${encodeURIComponent(this._publicProfile()!.username)}/collection-overlay`
+        : '/api/user/collection-overlay';
+
+    const [manifestResp, existingSnapshot] = await Promise.all([
+      firstValueFrom(
+        this.http.get<CatalogManifest>('/api/catalog/games?manifest=1', {
+          observe: 'response',
+        }),
+      ),
+      userId ? this.offlineStore.getStoredState(userId) : Promise.resolve(null),
+    ]);
+    this.inspectDegradedHeaders(manifestResp.headers);
+    if (syncId !== this._activeCatalogSyncId) {
       return;
     }
+
+    const manifest = manifestResp.body;
+    if (!manifest || !manifest.version) {
+      this._fullCatalogLoaded.set(false);
+      return;
+    }
+
+    const overlayUrl = `${overlayBaseUrl}?since_stable_id=${encodeURIComponent(
+      String(manifest.maxStableId || 0),
+    )}`;
+    const overlayResp = await firstValueFrom(
+      this.http.get<UserCollectionOverlayResponse>(overlayUrl, {
+        observe: 'response',
+      }),
+    );
+    this.inspectDegradedHeaders(overlayResp.headers);
+    if (syncId !== this._activeCatalogSyncId) {
+      return;
+    }
+
+    const overlay = overlayResp.body || {
+      version: manifest.version,
+      timestamp: manifest.timestamp,
+      ugr: [],
+      ug: [],
+      deltaGames: [],
+    };
+
+    const ugrByReleaseId = new Map<
+      string,
+      UserCollectionOverlayResponse['ugr'][number]
+    >();
+    for (const row of overlay.ugr || []) {
+      ugrByReleaseId.set(row.release_id, row);
+    }
+
+    const ugByStableId = new Map<
+      number,
+      UserCollectionOverlayResponse['ug'][number]
+    >();
+    for (const row of overlay.ug || []) {
+      ugByStableId.set(Number(row.game_id), row);
+    }
+
+    const phase1Games = this._games();
+    const phase1ById = new Map<string, Game>();
+    for (const game of phase1Games) {
+      phase1ById.set(game.id, game);
+    }
+
+    if (
+      !this._isPublicView() &&
+      existingSnapshot?.state?.catalogVersion === manifest.version &&
+      (existingSnapshot.state.games?.length ?? 0) >= manifest.totalRows &&
+      manifest.totalRows > 0
+    ) {
+      const mergedMap = new Map<string, Game>();
+      for (const cachedGame of existingSnapshot.state.games) {
+        const overlaid = this.applyOverlayToCatalogGame(
+          cachedGame,
+          ugrByReleaseId,
+          ugByStableId,
+          phase1ById,
+        );
+        mergedMap.set(overlaid.id, overlaid);
+      }
+      for (const deltaGame of overlay.deltaGames || []) {
+        const overlaidDelta = this.applyOverlayToCatalogGame(
+          deltaGame,
+          ugrByReleaseId,
+          ugByStableId,
+          phase1ById,
+        );
+        mergedMap.set(overlaidDelta.id, overlaidDelta);
+      }
+      const merged = Array.from(mergedMap.values());
+      this._games.set(merged);
+      this._currentCatalogVersion = manifest.version;
+      this._fullCatalogLoaded.set(true);
+      this._catalogIsPartial.set(false);
+      this._refreshTrigger.update((v) => v + 1);
+      this._catalogSyncProgress.set({
+        active: false,
+        loadedRows: merged.length,
+        totalRows: Math.max(manifest.totalRows, merged.length),
+        loadedChunks: manifest.chunkCount,
+        totalChunks: manifest.chunkCount,
+        percent: 100,
+      });
+      if (userId) {
+        await this.saveOfflineSnapshot(Date.now(), false);
+      }
+      return;
+    }
+
+    const mergedMap = new Map<string, Game>();
+    for (const game of phase1Games) {
+      mergedMap.set(game.id, game);
+    }
+    for (const deltaGame of overlay.deltaGames || []) {
+      const overlaidDelta = this.applyOverlayToCatalogGame(
+        deltaGame,
+        ugrByReleaseId,
+        ugByStableId,
+        phase1ById,
+      );
+      mergedMap.set(overlaidDelta.id, overlaidDelta);
+    }
+
+    const totalChunks = Math.max(0, Number(manifest.chunkCount || 0));
+    const initialTotalRows = Math.max(
+      Number(manifest.totalRows || 0),
+      mergedMap.size,
+    );
+
+    if (totalChunks === 0) {
+      const merged = Array.from(mergedMap.values());
+      this._games.set(merged);
+      this._currentCatalogVersion = manifest.version;
+      this._fullCatalogLoaded.set(true);
+      this._catalogIsPartial.set(false);
+      this._refreshTrigger.update((v) => v + 1);
+      this._catalogSyncProgress.set({
+        active: false,
+        loadedRows: merged.length,
+        totalRows: Math.max(initialTotalRows, merged.length),
+        loadedChunks: 0,
+        totalChunks: 0,
+        percent: 100,
+      });
+      if (!this._isPublicView() && userId) {
+        await this.saveOfflineSnapshot(Date.now(), false);
+      }
+      return;
+    }
+
+    this._catalogSyncProgress.set({
+      active: true,
+      loadedRows: mergedMap.size,
+      totalRows: initialTotalRows,
+      loadedChunks: 0,
+      totalChunks,
+      percent: 0,
+    });
+
+    let loadedChunks = 0;
+    let nextChunkIndex = 0;
+
+    const runChunkWorker = async (): Promise<void> => {
+      while (true) {
+        if (syncId !== this._activeCatalogSyncId) {
+          return;
+        }
+        const chunkIndex = nextChunkIndex++;
+        if (chunkIndex >= totalChunks) {
+          return;
+        }
+        const chunkUrl = `/api/catalog/games?chunk=${chunkIndex}&v=${encodeURIComponent(manifest.version)}`;
+        const chunkRows = await firstValueFrom(this.http.get<Game[]>(chunkUrl));
+        if (syncId !== this._activeCatalogSyncId) {
+          return;
+        }
+        for (const rawRow of chunkRows || []) {
+          const overlaid = this.applyOverlayToCatalogGame(
+            rawRow,
+            ugrByReleaseId,
+            ugByStableId,
+            phase1ById,
+          );
+          mergedMap.set(overlaid.id, overlaid);
+        }
+        loadedChunks++;
+        const nextGames = Array.from(mergedMap.values());
+        const effectiveTotalRows = Math.max(initialTotalRows, nextGames.length);
+        const percent = Math.min(
+          100,
+          Math.round((loadedChunks / totalChunks) * 100),
+        );
+        this._games.set(nextGames);
+        this._refreshTrigger.update((v) => v + 1);
+        this._catalogSyncProgress.set({
+          active: loadedChunks < totalChunks,
+          loadedRows: nextGames.length,
+          totalRows: effectiveTotalRows,
+          loadedChunks,
+          totalChunks,
+          percent,
+        });
+      }
+    };
+
+    const concurrency = Math.min(2, totalChunks);
+    await Promise.all(
+      Array.from({ length: concurrency }, () => runChunkWorker()),
+    );
+
+    if (syncId !== this._activeCatalogSyncId) {
+      return;
+    }
+
+    const finalGames = Array.from(mergedMap.values());
+    this._games.set(finalGames);
+    this._currentCatalogVersion = manifest.version;
+    this._fullCatalogLoaded.set(true);
+    this._catalogIsPartial.set(false);
+    this._refreshTrigger.update((v) => v + 1);
+    this._catalogSyncProgress.set({
+      active: false,
+      loadedRows: finalGames.length,
+      totalRows: Math.max(initialTotalRows, finalGames.length),
+      loadedChunks: totalChunks,
+      totalChunks,
+      percent: 100,
+    });
+    if (!this._isPublicView() && userId) {
+      await this.saveOfflineSnapshot(Date.now(), false);
+    }
+  }
+
+  /**
+   * Loads the full unowned + owned catalog on demand or progressively in
+   * background chunks when the initial /api/games response is partial.
+   */
+  public async ensureFullCatalogLoaded(forceChunked = false): Promise<void> {
     if (this._fullCatalogPromise) {
       return this._fullCatalogPromise;
     }
+    if (this._fullCatalogLoaded() || this.isDegraded()) {
+      return;
+    }
+    const useChunkedPipeline = forceChunked || this._catalogIsPartial();
+    const syncId = this._activeCatalogSyncId;
     this._fullCatalogLoaded.set(true);
     this._fullCatalogPromise = (async () => {
       try {
-        const fullGames = await firstValueFrom(this.getGames(undefined, true));
-        if (fullGames.length > 0) {
-          this._games.set(fullGames);
-          this._refreshTrigger.update((v) => v + 1);
+        if (useChunkedPipeline) {
+          await this.loadFullCatalogInChunks(syncId);
         } else {
-          this._fullCatalogLoaded.set(false);
+          const fullGames = await firstValueFrom(
+            this.getGames(undefined, true),
+          );
+          if (syncId !== this._activeCatalogSyncId) {
+            return;
+          }
+          if (fullGames.length > 0) {
+            this._games.set(fullGames);
+            this._refreshTrigger.update((v) => v + 1);
+          } else {
+            this._fullCatalogLoaded.set(false);
+          }
         }
       } catch {
-        this._fullCatalogLoaded.set(false);
+        if (syncId === this._activeCatalogSyncId) {
+          this._fullCatalogLoaded.set(false);
+          this._catalogSyncProgress.set({
+            active: false,
+            loadedRows: this._games().length,
+            totalRows: this._games().length,
+            loadedChunks: 0,
+            totalChunks: 0,
+            percent: 0,
+          });
+        }
       } finally {
-        this._fullCatalogPromise = null;
+        if (syncId === this._activeCatalogSyncId) {
+          this._fullCatalogPromise = null;
+        }
       }
     })();
     return this._fullCatalogPromise;

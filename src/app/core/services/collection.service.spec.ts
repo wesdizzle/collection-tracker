@@ -1508,5 +1508,359 @@ describe('CollectionService', () => {
       await service.ensureFullCatalogLoaded();
       httpMock.expectNone('/api/games?include_unowned=1');
     });
+
+    it('automatically syncs R2 catalog chunks on X-Catalog-Partial: 1, merges live D1 overlay + delta games, and persists catalogVersion', async () => {
+      const storeMap = new Map<
+        number,
+        {
+          state: { games: Game[]; catalogVersion?: string | null };
+          updatedAt: number;
+        }
+      >();
+      const internal = service as unknown as {
+        offlineStore: {
+          getStoredState: (uid: number) => Promise<unknown>;
+          saveStateLocally: (
+            state: {
+              games: Game[];
+              toys: unknown[];
+              platforms: unknown[];
+              journalEntries: unknown[];
+              catalogVersion?: string | null;
+            },
+            updatedAtMs: number,
+            pendingSync: boolean,
+            uid: number,
+          ) => Promise<void>;
+        };
+      };
+      vi.spyOn(internal.offlineStore, 'getStoredState').mockImplementation(
+        async (uid: number) => storeMap.get(uid) ?? null,
+      );
+      vi.spyOn(internal.offlineStore, 'saveStateLocally').mockImplementation(
+        async (state, updatedAt, _pending, uid) => {
+          storeMap.set(uid, {
+            state: {
+              games: state.games,
+              catalogVersion: state.catalogVersion ?? null,
+            },
+            updatedAt,
+          });
+        },
+      );
+
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'alice@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      const pRefresh = service.refreshAll();
+      httpMock.expectOne('/api/games').flush(
+        [
+          {
+            id: 'owned-1',
+            game_id: 'owned-1',
+            stable_id: 1,
+            title: 'Owned Game',
+            platform: 'Switch',
+            platform_id: 1,
+            ownership_status: 1,
+            play_status: 2,
+            backup_status: 1,
+          },
+        ],
+        { headers: { 'X-Catalog-Partial': '1' } },
+      );
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRefresh;
+
+      expect(service.catalogIsPartial()).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+        version: 'v2026-11-17',
+        timestamp: '2026-11-17T00:05:00Z',
+        totalRows: 4,
+        chunkSize: 2,
+        chunkCount: 2,
+        maxStableId: 4,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=4')
+        .flush({
+          version: 'v2026-11-17',
+          timestamp: '2026-11-17T00:05:00Z',
+          maxStableId: 4,
+          ugr: [
+            {
+              release_id: 'owned-1',
+              ownership_status: 1,
+              backup_status: 1,
+              has_case: 1,
+              has_manual: 1,
+            },
+            {
+              release_id: 'catalog-2',
+              ownership_status: 2,
+              backup_status: 0,
+              has_case: 0,
+              has_manual: 0,
+            },
+          ],
+          ug: [{ game_id: 1, play_status: 2, queued: 1 }],
+          deltaGames: [
+            {
+              id: 'delta-5',
+              game_id: 'delta-5',
+              stable_id: 5,
+              title: 'Added After Midnight',
+              platform: 'Switch',
+              platform_id: 1,
+              ownership_status: 0,
+              play_status: 0,
+              backup_status: 0,
+            },
+          ],
+        });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(service.catalogSyncProgress().active).toBe(true);
+      expect(service.catalogSyncProgress().totalChunks).toBe(2);
+
+      const chunk0Req = httpMock.expectOne(
+        '/api/catalog/games?chunk=0&v=v2026-11-17',
+      );
+      const chunk1Req = httpMock.expectOne(
+        '/api/catalog/games?chunk=1&v=v2026-11-17',
+      );
+
+      chunk0Req.flush([
+        {
+          id: 'owned-1',
+          game_id: 'owned-1',
+          stable_id: 1,
+          title: 'Owned Game',
+          platform: 'Switch',
+          platform_id: 1,
+          ownership_status: 0,
+          play_status: 0,
+          backup_status: 0,
+        },
+        {
+          id: 'catalog-2',
+          game_id: 'catalog-2',
+          stable_id: 2,
+          title: 'Seeking Game',
+          platform: 'Switch',
+          platform_id: 1,
+          ownership_status: 0,
+          play_status: 0,
+          backup_status: 0,
+        },
+      ]);
+      chunk1Req.flush([
+        {
+          id: 'catalog-3',
+          game_id: 'catalog-3',
+          stable_id: 3,
+          title: 'Unowned Game Three',
+          platform: 'Switch',
+          platform_id: 1,
+          ownership_status: 0,
+          play_status: 0,
+          backup_status: 0,
+        },
+        {
+          id: 'catalog-4',
+          game_id: 'catalog-4',
+          stable_id: 4,
+          title: 'Unowned Game Four',
+          platform: 'Switch',
+          platform_id: 1,
+          ownership_status: 0,
+          play_status: 0,
+          backup_status: 0,
+        },
+      ]);
+
+      await service.ensureFullCatalogLoaded();
+
+      expect(service.catalogSyncProgress().active).toBe(false);
+      expect(service.catalogSyncProgress().percent).toBe(100);
+      expect(service.catalogIsPartial()).toBe(false);
+      expect(service.games().length).toBe(5);
+
+      const owned = service.games().find((g) => g.id === 'owned-1');
+      const seeking = service.games().find((g) => g.id === 'catalog-2');
+      const delta = service.games().find((g) => g.id === 'delta-5');
+      expect(owned?.ownership_status).toBe(1);
+      expect(owned?.queued).toBe(1);
+      expect(seeking?.ownership_status).toBe(2);
+      expect(delta?.title).toBe('Added After Midnight');
+      expect(storeMap.get(1)?.state.catalogVersion).toBe('v2026-11-17');
+      expect(storeMap.get(1)?.state.games.length).toBe(5);
+    });
+
+    it('skips R2 chunk fetches when IndexedDB matches manifest.version and resets stale ownership via live overlay', async () => {
+      const storeMap = new Map<
+        number,
+        {
+          state: { games: Game[]; catalogVersion?: string | null };
+          updatedAt: number;
+        }
+      >();
+      storeMap.set(1, {
+        state: {
+          catalogVersion: 'v2026-11-17',
+          games: [
+            {
+              id: 'stale-unowned-1',
+              game_id: 'stale-unowned-1',
+              stable_id: 1,
+              title: 'Previously Owned',
+              platform: 'Switch',
+              platform_id: 1,
+              ownership_status: 1,
+              play_status: 3,
+              queued: 1,
+              backup_status: 1,
+            } as Game,
+            {
+              id: 'active-owned-2',
+              game_id: 'active-owned-2',
+              stable_id: 2,
+              title: 'Still Owned',
+              platform: 'Switch',
+              platform_id: 1,
+              ownership_status: 0,
+              play_status: 0,
+              backup_status: 0,
+            } as Game,
+          ],
+        },
+        updatedAt: 1000,
+      });
+
+      const internal = service as unknown as {
+        offlineStore: {
+          getStoredState: (uid: number) => Promise<unknown>;
+          saveStateLocally: (
+            state: {
+              games: Game[];
+              toys: unknown[];
+              platforms: unknown[];
+              journalEntries: unknown[];
+              catalogVersion?: string | null;
+            },
+            updatedAtMs: number,
+            pendingSync: boolean,
+            uid: number,
+          ) => Promise<void>;
+        };
+      };
+      vi.spyOn(internal.offlineStore, 'getStoredState').mockImplementation(
+        async (uid: number) => storeMap.get(uid) ?? null,
+      );
+      vi.spyOn(internal.offlineStore, 'saveStateLocally').mockImplementation(
+        async (state, updatedAt, _pending, uid) => {
+          storeMap.set(uid, {
+            state: {
+              games: state.games,
+              catalogVersion: state.catalogVersion ?? null,
+            },
+            updatedAt,
+          });
+        },
+      );
+
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'alice@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      const pRefresh = service.refreshAll();
+      httpMock.expectOne('/api/games').flush(
+        [
+          {
+            id: 'active-owned-2',
+            game_id: 'active-owned-2',
+            stable_id: 2,
+            title: 'Still Owned',
+            platform: 'Switch',
+            platform_id: 1,
+            ownership_status: 1,
+            play_status: 2,
+            backup_status: 0,
+          },
+        ],
+        { headers: { 'X-Catalog-Partial': '1' } },
+      );
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRefresh;
+
+      // Phase 1 snapshot save must preserve the full IndexedDB catalogVersion & games
+      expect(storeMap.get(1)?.state.catalogVersion).toBe('v2026-11-17');
+      expect(storeMap.get(1)?.state.games.length).toBe(2);
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+        version: 'v2026-11-17',
+        timestamp: '2026-11-17T00:05:00Z',
+        totalRows: 2,
+        chunkSize: 3500,
+        chunkCount: 1,
+        maxStableId: 2,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=2')
+        .flush({
+          version: 'v2026-11-17',
+          timestamp: '2026-11-17T00:05:00Z',
+          maxStableId: 2,
+          ugr: [
+            {
+              release_id: 'active-owned-2',
+              ownership_status: 1,
+              backup_status: 0,
+              has_case: 1,
+              has_manual: 0,
+            },
+          ],
+          ug: [{ game_id: 2, play_status: 2, queued: 0 }],
+          deltaGames: [],
+        });
+
+      await service.ensureFullCatalogLoaded();
+      httpMock.expectNone('/api/catalog/games?chunk=0&v=v2026-11-17');
+
+      const staleReset = service
+        .games()
+        .find((g) => g.id === 'stale-unowned-1');
+      const liveOwned = service.games().find((g) => g.id === 'active-owned-2');
+      expect(staleReset?.ownership_status).toBe(0);
+      expect(staleReset?.play_status).toBe(0);
+      expect(staleReset?.queued).toBe(0);
+      expect(staleReset?.backup_status).toBe(0);
+      expect(liveOwned?.ownership_status).toBe(1);
+      expect(liveOwned?.play_status).toBe(2);
+    });
   });
 });

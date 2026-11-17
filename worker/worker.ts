@@ -45,7 +45,15 @@ import {
   postProcessGameListRows,
   postProcessToyListRows,
   buildGamesListQuery,
+  buildCatalogGamesChunkQuery,
+  buildCatalogDeltaGamesQuery,
+  CATALOG_GAMES_CHUNK_SIZE,
+  USER_GAME_RELEASES_OVERLAY_QUERY,
+  USER_GAMES_OVERLAY_QUERY,
+  USER_TOYS_OVERLAY_QUERY,
+  TOYS_DELTA_LIST_QUERY,
   ACTIVE_GAMES_LIST_WHERE_CLAUSE,
+  ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE,
   buildGameDetailQuery,
   getGameDetailQueryParams,
   buildGameReleasesByGameIdQuery,
@@ -218,11 +226,12 @@ async function putEdgeCacheEntry(
   cacheKey: Request,
   response: Response,
   isNoCache: boolean,
+  skipTracking = false,
 ): Promise<void> {
   if (isNoCache) {
     await edgeCache.delete(cacheKey).catch(() => {});
   }
-  if (trackedEdgeCacheUrls.size < 250) {
+  if (!skipTracking && trackedEdgeCacheUrls.size < 250) {
     trackedEdgeCacheUrls.add(cacheKey.url);
   }
   await edgeCache.put(cacheKey, response.clone()).catch(() => {});
@@ -232,6 +241,7 @@ export interface EdgeCacheInvalidationOptions {
   userId?: number;
   username?: string;
   previousUsername?: string;
+  invalidateCatalog?: boolean;
 }
 
 /**
@@ -323,6 +333,24 @@ export async function invalidateEdgeApiCache(
       await edgeCache.delete(new Request(urlStr)).catch(() => {});
     }
     trackedEdgeCacheUrls.clear();
+
+    if (options?.invalidateCatalog) {
+      for (const catalogPath of ['/api/catalog/games', '/api/catalog/toys']) {
+        await edgeCache
+          .delete(new Request(`${origin}${catalogPath}`))
+          .catch(() => {});
+        await edgeCache
+          .delete(new Request(`${origin}${catalogPath}?manifest=1`))
+          .catch(() => {});
+        try {
+          await edgeCache.delete(new Request(`${origin}${catalogPath}`), {
+            ignoreSearch: true,
+          });
+        } catch {
+          // ignoreSearch may not be supported in all environments
+        }
+      }
+    }
   } catch (err) {
     console.warn('[invalidateEdgeApiCache] Failed to purge edge cache:', err);
   }
@@ -332,6 +360,8 @@ const workerRateLimitBuckets = new Map<string, number[]>();
 
 export function resetWorkerRateLimits(): void {
   workerRateLimitBuckets.clear();
+  cachedCatalogManifest = null;
+  cachedCatalogToys = null;
   resetR2SnapshotCache();
 }
 
@@ -418,6 +448,8 @@ let cachedPlatformMetadata: {
 export function invalidateSeriesScanCache() {
   cachedSeriesScanMetadata = null;
   cachedPlatformMetadata = null;
+  cachedCatalogManifest = null;
+  cachedCatalogToys = null;
   resetR2SnapshotCache();
 }
 
@@ -918,8 +950,44 @@ const BACKUP_TABLES = [
 export const R2_META_LITE_KEY = 'snapshots/meta-lite.json';
 export const R2_TOYS_LITE_KEY = 'snapshots/toys-lite.json';
 export const R2_GAMES_ACTIVE_LITE_KEY = 'snapshots/games-active-lite.json';
+export const R2_CATALOG_MANIFEST_KEY = 'catalog/manifest.json';
+export const R2_CATALOG_GAMES_CHUNK_PREFIX = 'catalog/games-chunk-';
+export const R2_CATALOG_TOYS_CHUNK_KEY = 'catalog/toys-chunk-0.json';
+export const X_CATALOG_PARTIAL_HEADER = 'X-Catalog-Partial';
+export const X_CATALOG_VERSION_HEADER = 'X-Catalog-Version';
+export const X_CATALOG_TOTAL_ROWS_HEADER = 'X-Catalog-Total-Rows';
+export const X_CATALOG_CHUNK_SIZE_HEADER = 'X-Catalog-Chunk-Size';
+export const X_CATALOG_CHUNK_COUNT_HEADER = 'X-Catalog-Chunk-Count';
 export const MAX_FALLBACK_SNAPSHOT_BYTES = 5_000_000;
 export const MAX_GAMES_LITE_SNAPSHOT_BYTES = 8_000_000;
+
+export interface CatalogManifest {
+  version: string;
+  timestamp: string;
+  totalRows: number;
+  chunkSize: number;
+  chunkCount: number;
+  maxStableId: number;
+  toysTotalRows: number;
+  toysChunkCount: number;
+}
+
+let cachedCatalogManifest: {
+  manifest: CatalogManifest;
+  expiresAt: number;
+} | null = null;
+
+let cachedCatalogToys: {
+  rows: Array<Record<string, unknown>>;
+  rowCount: number;
+  maxStableId: number;
+  timestamp: string;
+  expiresAt: number;
+} | null = null;
+
+export function getCatalogChunkR2Key(chunkIndex: number): string {
+  return `${R2_CATALOG_GAMES_CHUNK_PREFIX}${chunkIndex}.json`;
+}
 
 const LITE_GAMES_SELECT_COLS = `stable_id, id, title, series, platform_id, sort_index, image_url, igdb_id, genres, region, collections, franchises, canonical_series, manually_verified, CASE WHEN metadata_json LIKE '%alternative_names%' OR metadata_json LIKE '%game_localizations%' THEN metadata_json ELSE NULL END AS metadata_json, igdb_url, physical_status, verification_tier, barcode, release_medium, bundle_parent_id, bundle_disc_number, retail_price, retail_regular_price, retail_discount_pct, retail_on_sale, retail_store, retail_url, retail_updated_at`;
 
@@ -1192,6 +1260,417 @@ export async function writeLiteBackupSnapshots(
   ]);
 
   resetR2SnapshotCache();
+}
+
+const CATALOG_CHUNKS_STATE_KEY = 'catalog_chunks_state';
+
+interface CatalogChunksBuildState {
+  targetVersion: string;
+  timestamp: string;
+  nextChunk: number;
+  chunkCount: number;
+  totalRows: number;
+  maxStableId: number;
+  toysTotalRows: number;
+}
+
+/**
+ * Generates pre-processed, user-agnostic R2 catalog chunks (`catalog/games-chunk-0..N.json`,
+ * `catalog/toys-chunk-0.json`) and `catalog/manifest.json`. Supports resuming across cron
+ * invocations when `maxChunksPerRun` is bounded for Free Tier CPU safety.
+ */
+export async function writeCatalogChunksToR2(
+  env: Env,
+  options: {
+    startChunk?: number;
+    maxChunksPerRun?: number;
+    timestampOverride?: string;
+    forceRestart?: boolean;
+  } = {},
+): Promise<CatalogManifest | null> {
+  if (!env.BACKUP_BUCKET) return null;
+
+  const chunkSize = CATALOG_GAMES_CHUNK_SIZE;
+  const maxChunksPerRun = options.maxChunksPerRun ?? Infinity;
+
+  let resumeState: CatalogChunksBuildState | null = null;
+  if (!options.forceRestart && options.startChunk === undefined) {
+    try {
+      const stateRow = await env.DB.prepare(
+        `SELECT value FROM sync_state WHERE key = ?`,
+      )
+        .bind(CATALOG_CHUNKS_STATE_KEY)
+        .first<{ value: string }>();
+      if (stateRow?.value) {
+        const parsed = JSON.parse(stateRow.value) as CatalogChunksBuildState;
+        if (
+          parsed &&
+          typeof parsed.nextChunk === 'number' &&
+          typeof parsed.chunkCount === 'number' &&
+          parsed.nextChunk < parsed.chunkCount
+        ) {
+          resumeState = parsed;
+        }
+      }
+    } catch {
+      // ignore missing or malformed cursor state
+    }
+  }
+
+  let timestamp: string;
+  let totalRows: number;
+  let maxStableId: number;
+  let chunkCount: number;
+  let startChunk: number;
+  let toysTotalRows: number;
+  let targetVersion: string;
+
+  if (resumeState) {
+    timestamp = resumeState.timestamp;
+    totalRows = resumeState.totalRows;
+    maxStableId = resumeState.maxStableId;
+    chunkCount = resumeState.chunkCount;
+    startChunk = resumeState.nextChunk;
+    toysTotalRows = resumeState.toysTotalRows;
+    targetVersion = resumeState.targetVersion;
+  } else {
+    timestamp = options.timestampOverride || new Date().toISOString();
+    const [statsRow, toyRowsResult] = await Promise.all([
+      env.DB.prepare(
+        `SELECT COUNT(*) AS total_rows, COALESCE(MAX(g.stable_id), 0) AS max_stable_id
+         FROM games g
+         LEFT JOIN game_releases r ON g.stable_id = r.game_id`,
+      ).first<{ total_rows?: number; max_stable_id?: number }>(),
+      env.DB.prepare(buildToysListQuery(null)).all(),
+    ]);
+
+    totalRows = Number(statsRow?.total_rows ?? 0);
+    maxStableId = Number(statsRow?.max_stable_id ?? 0);
+    chunkCount = Math.max(1, Math.ceil(totalRows / chunkSize));
+    startChunk = Math.max(0, options.startChunk ?? 0);
+
+    const toyRows =
+      (toyRowsResult.results as Array<Record<string, unknown>>) || [];
+    if (toyRows.length > 0) {
+      postProcessToyListRows(toyRows, DEFAULT_USER_HOME_REGION);
+    }
+    let maxToyStableId = 0;
+    for (const tr of toyRows) {
+      const sid = Number(tr['stable_id'] ?? 0);
+      if (sid > maxToyStableId) maxToyStableId = sid;
+    }
+    toysTotalRows = toyRows.length;
+
+    await env.BACKUP_BUCKET.put(
+      R2_CATALOG_TOYS_CHUNK_KEY,
+      JSON.stringify(toyRows),
+      {
+        httpMetadata: { contentType: 'application/json' },
+        customMetadata: {
+          rowCount: String(toysTotalRows),
+          maxStableId: String(maxToyStableId),
+          timestamp,
+        },
+      },
+    );
+    cachedCatalogToys = {
+      rows: toyRows,
+      rowCount: toysTotalRows,
+      maxStableId: maxToyStableId,
+      timestamp,
+      expiresAt: Date.now() + 60_000,
+    };
+
+    targetVersion = `${timestamp.slice(0, 10)}:${totalRows}:${maxStableId}:${Date.parse(timestamp) || Date.now()}`;
+  }
+
+  const endChunk = Math.min(
+    chunkCount,
+    Number.isFinite(maxChunksPerRun)
+      ? startChunk + Math.max(1, Math.floor(maxChunksPerRun))
+      : chunkCount,
+  );
+  const chunkQuery = buildCatalogGamesChunkQuery();
+
+  for (let idx = startChunk; idx < endChunk; idx++) {
+    const { results } = await env.DB.prepare(chunkQuery)
+      .bind(chunkSize, idx * chunkSize)
+      .all();
+    const chunkRows = (results as Array<Record<string, unknown>>) || [];
+    if (chunkRows.length > 0) {
+      postProcessGameListRows(chunkRows, DEFAULT_USER_HOME_REGION);
+    }
+    await env.BACKUP_BUCKET.put(
+      getCatalogChunkR2Key(idx),
+      JSON.stringify(chunkRows),
+      {
+        httpMetadata: { contentType: 'application/json' },
+        customMetadata: {
+          chunkIndex: String(idx),
+          rowCount: String(chunkRows.length),
+          version: targetVersion,
+          timestamp,
+        },
+      },
+    );
+  }
+
+  if (endChunk < chunkCount) {
+    const nextState: CatalogChunksBuildState = {
+      targetVersion,
+      timestamp,
+      nextChunk: endChunk,
+      chunkCount,
+      totalRows,
+      maxStableId,
+      toysTotalRows,
+    };
+    try {
+      await env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+      )
+        .bind(CATALOG_CHUNKS_STATE_KEY, JSON.stringify(nextState))
+        .run();
+    } catch {
+      // ignore if sync_state is unavailable in minimal schemas
+    }
+    return null;
+  }
+
+  const manifest: CatalogManifest = {
+    version: targetVersion,
+    timestamp,
+    totalRows,
+    chunkSize,
+    chunkCount,
+    maxStableId,
+    toysTotalRows,
+    toysChunkCount: 1,
+  };
+
+  await env.BACKUP_BUCKET.put(
+    R2_CATALOG_MANIFEST_KEY,
+    JSON.stringify(manifest),
+    {
+      httpMetadata: { contentType: 'application/json' },
+      customMetadata: {
+        version: manifest.version,
+        totalRows: String(manifest.totalRows),
+        chunkCount: String(manifest.chunkCount),
+      },
+    },
+  );
+  try {
+    await env.DB.prepare(`DELETE FROM sync_state WHERE key = ?`)
+      .bind(CATALOG_CHUNKS_STATE_KEY)
+      .run();
+  } catch {
+    // ignore cleanup error in minimal schemas
+  }
+
+  cachedCatalogManifest = {
+    manifest,
+    expiresAt: Date.now() + 60_000,
+  };
+  return manifest;
+}
+
+export async function resolveCatalogManifest(
+  env: Env,
+): Promise<CatalogManifest | null> {
+  if (cachedCatalogManifest && cachedCatalogManifest.expiresAt > Date.now()) {
+    return cachedCatalogManifest.manifest;
+  }
+
+  if (env.BACKUP_BUCKET) {
+    try {
+      const obj = await env.BACKUP_BUCKET.get(R2_CATALOG_MANIFEST_KEY);
+      if (obj) {
+        const parsed = JSON.parse(await obj.text()) as CatalogManifest;
+        if (parsed && typeof parsed.version === 'string') {
+          cachedCatalogManifest = {
+            manifest: parsed,
+            expiresAt: Date.now() + 60_000,
+          };
+          return parsed;
+        }
+      }
+    } catch {
+      // Fall back to D1 synthesis below
+    }
+  }
+
+  try {
+    const [gameStats, toyStats] = await Promise.all([
+      env.DB.prepare(
+        `SELECT COUNT(*) AS total_rows, COALESCE(MAX(g.stable_id), 0) AS max_stable_id
+         FROM games g
+         LEFT JOIN game_releases r ON g.stable_id = r.game_id`,
+      ).first<{ total_rows?: number; max_stable_id?: number }>(),
+      env.DB.prepare('SELECT COUNT(*) AS cnt FROM toys')
+        .first<{ cnt?: number }>()
+        .catch(() => ({ cnt: 0 })),
+    ]);
+
+    const timestamp = new Date().toISOString();
+    const totalRows = Number(gameStats?.total_rows ?? 0);
+    const maxStableId = Number(gameStats?.max_stable_id ?? 0);
+    const toysTotalRows = Number(toyStats?.cnt ?? 0);
+    const chunkSize = CATALOG_GAMES_CHUNK_SIZE;
+    const chunkCount = Math.max(1, Math.ceil(totalRows / chunkSize));
+    const manifest: CatalogManifest = {
+      version: `${timestamp.slice(0, 10)}:${totalRows}:${maxStableId}`,
+      timestamp,
+      totalRows,
+      chunkSize,
+      chunkCount,
+      maxStableId,
+      toysTotalRows,
+      toysChunkCount: 1,
+    };
+    if (env.BACKUP_BUCKET && totalRows <= 7000) {
+      await env.BACKUP_BUCKET.put(
+        R2_CATALOG_MANIFEST_KEY,
+        JSON.stringify(manifest),
+        {
+          httpMetadata: { contentType: 'application/json' },
+          customMetadata: {
+            version: manifest.version,
+            totalRows: String(manifest.totalRows),
+            chunkCount: String(manifest.chunkCount),
+          },
+        },
+      ).catch(() => {});
+    }
+    cachedCatalogManifest = {
+      manifest,
+      expiresAt: Date.now() + 60_000,
+    };
+    return manifest;
+  } catch {
+    return null;
+  }
+}
+
+async function invalidateToysCatalogChunk(env: Env): Promise<void> {
+  cachedCatalogToys = null;
+  if (env.BACKUP_BUCKET && typeof env.BACKUP_BUCKET.delete === 'function') {
+    await env.BACKUP_BUCKET.delete(R2_CATALOG_TOYS_CHUNK_KEY).catch(() => {});
+  }
+}
+
+async function loadBaseToysCatalogChunk(env: Env): Promise<{
+  rows: Array<Record<string, unknown>>;
+  rowCount: number;
+  maxStableId: number;
+  timestamp: string;
+} | null> {
+  if (cachedCatalogToys && cachedCatalogToys.expiresAt > Date.now()) {
+    return cachedCatalogToys;
+  }
+  if (!env.BACKUP_BUCKET) return null;
+  try {
+    const obj = await env.BACKUP_BUCKET.get(R2_CATALOG_TOYS_CHUNK_KEY);
+    if (!obj) return null;
+    const rows = JSON.parse(await obj.text()) as Array<Record<string, unknown>>;
+    if (!Array.isArray(rows)) return null;
+    let maxStableId = Number(obj.customMetadata?.['maxStableId'] ?? 0);
+    if (!maxStableId && rows.length > 0) {
+      for (const r of rows) {
+        const sid = Number(r['stable_id'] ?? 0);
+        if (sid > maxStableId) maxStableId = sid;
+      }
+    }
+    const rowCount = Number(obj.customMetadata?.['rowCount'] ?? rows.length);
+    const timestamp =
+      obj.customMetadata?.['timestamp'] || new Date().toISOString();
+    const cached = {
+      rows,
+      rowCount,
+      maxStableId,
+      timestamp,
+      expiresAt: Date.now() + 60_000,
+    };
+    cachedCatalogToys = cached;
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+async function executeToysListWithR2Catalog(
+  env: Env,
+  userId: number | null,
+  homeRegion: string,
+): Promise<Array<Record<string, unknown>>> {
+  const baseChunk = await loadBaseToysCatalogChunk(env);
+  if (baseChunk) {
+    const [d1Stats, userToyRows] = await Promise.all([
+      env.DB.prepare(
+        'SELECT COUNT(*) AS cnt, COALESCE(MAX(stable_id), 0) AS max_id FROM toys',
+      ).first<{ cnt?: number; max_id?: number }>(),
+      userId
+        ? env.DB.prepare(USER_TOYS_OVERLAY_QUERY)
+            .bind(userId)
+            .all<{ toy_id: string; ownership_status: number }>()
+        : Promise.resolve({
+            results: [] as Array<{ toy_id: string; ownership_status: number }>,
+          }),
+    ]);
+
+    const d1Count = Number(d1Stats?.cnt ?? 0);
+    const d1MaxId = Number(d1Stats?.max_id ?? 0);
+
+    // If toys were deleted directly in D1, re-query live D1 cleanly
+    if (d1Count >= baseChunk.rowCount) {
+      let deltaRows: Array<Record<string, unknown>> = [];
+      if (d1MaxId > baseChunk.maxStableId) {
+        const { results: addedToys } = await env.DB.prepare(
+          TOYS_DELTA_LIST_QUERY,
+        )
+          .bind(baseChunk.maxStableId)
+          .all();
+        deltaRows = (addedToys as Array<Record<string, unknown>>) || [];
+      }
+
+      const ownershipByToyId = new Map<string, number>();
+      for (const ut of userToyRows.results || []) {
+        ownershipByToyId.set(
+          String(ut.toy_id),
+          Number(ut.ownership_status ?? 0),
+        );
+      }
+
+      const merged: Array<Record<string, unknown>> = [];
+      const seenIds = new Set<string>();
+      for (const row of [...baseChunk.rows, ...deltaRows]) {
+        const id = String(row['id'] ?? '');
+        if (!id || seenIds.has(id)) continue;
+        seenIds.add(id);
+        merged.push({
+          ...row,
+          ownership_status: userId ? (ownershipByToyId.get(id) ?? 0) : 0,
+        });
+      }
+
+      if (merged.length > 0) {
+        postProcessToyListRows(merged, homeRegion);
+      }
+      return merged;
+    }
+  }
+
+  const query = buildToysListQuery(userId);
+  const { results } = userId
+    ? await env.DB.prepare(query).bind(userId).all()
+    : await env.DB.prepare(query).all();
+  const rows = (results as Array<Record<string, unknown>>) || [];
+  if (rows.length > 0) {
+    postProcessToyListRows(rows, homeRegion);
+  }
+  return rows;
 }
 
 /**
@@ -3337,15 +3816,20 @@ export async function performCanonicalReleasesBackup(
   };
 }
 
+interface GamesListQueryResult {
+  rows: Array<Record<string, unknown>>;
+  isPartial: boolean;
+}
+
 async function executeGamesListQuery(
   db: D1Database,
   userId: number | null,
   homeRegion: string,
   platformId: string | null,
   includeUnowned: boolean,
-): Promise<Array<Record<string, unknown>>> {
+): Promise<GamesListQueryResult> {
   let useActiveFilter = false;
-  if (userId !== null && !platformId && !includeUnowned) {
+  if (!platformId && !includeUnowned) {
     const countRow = (await db
       .prepare('SELECT COUNT(*) AS cnt FROM games')
       .first()) as { cnt?: number } | null;
@@ -3365,8 +3849,11 @@ async function executeGamesListQuery(
         ' AND g.platform_id IN (SELECT id FROM platforms WHERE id = ? OR parent_platform_id = ?)';
       params.push(platformId, platformId);
     }
-    if (activeOnly && userId !== null) {
-      query += ACTIVE_GAMES_LIST_WHERE_CLAUSE;
+    if (activeOnly) {
+      query +=
+        userId !== null
+          ? ACTIVE_GAMES_LIST_WHERE_CLAUSE
+          : ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE;
     }
     const { results } = await db
       .prepare(query)
@@ -3376,14 +3863,16 @@ async function executeGamesListQuery(
   };
 
   let rows: Array<Record<string, unknown>>;
+  let isPartial = useActiveFilter;
   try {
     rows = await runQuery(useActiveFilter);
   } catch (err) {
-    if (userId !== null && !useActiveFilter && !isD1QuotaOrReadError(err)) {
+    if (!useActiveFilter && !isD1QuotaOrReadError(err)) {
       console.warn(
         '[WorkerGames] Full games query failed; retrying active-only D1 query:',
         err,
       );
+      isPartial = true;
       rows = await runQuery(true);
     } else {
       throw err;
@@ -3405,7 +3894,63 @@ async function executeGamesListQuery(
       }
     }
   }
-  return rows;
+  return { rows, isPartial };
+}
+
+async function buildCollectionOverlayPayload(
+  env: Env,
+  userId: number | null,
+  homeRegion: string,
+  sinceStableIdOverride?: number | null,
+): Promise<{
+  version: string;
+  timestamp: string;
+  maxStableId: number;
+  ugr: Array<Record<string, unknown>>;
+  ug: Array<Record<string, unknown>>;
+  ut: Array<Record<string, unknown>>;
+  deltaGames: Array<Record<string, unknown>>;
+}> {
+  const manifest = await resolveCatalogManifest(env);
+  const sinceStableId =
+    sinceStableIdOverride !== null &&
+    sinceStableIdOverride !== undefined &&
+    Number.isFinite(sinceStableIdOverride) &&
+    sinceStableIdOverride >= 0
+      ? Math.floor(sinceStableIdOverride)
+      : (manifest?.maxStableId ?? 0);
+
+  const [ugrRes, ugRes, utRes, deltaRes] = await Promise.all([
+    userId !== null
+      ? env.DB.prepare(USER_GAME_RELEASES_OVERLAY_QUERY).bind(userId).all()
+      : Promise.resolve({ results: [] }),
+    userId !== null
+      ? env.DB.prepare(USER_GAMES_OVERLAY_QUERY).bind(userId).all()
+      : Promise.resolve({ results: [] }),
+    userId !== null
+      ? env.DB.prepare(USER_TOYS_OVERLAY_QUERY).bind(userId).all()
+      : Promise.resolve({ results: [] }),
+    sinceStableId > 0
+      ? env.DB.prepare(buildCatalogDeltaGamesQuery(userId))
+          .bind(...(userId !== null ? [userId, userId] : []), sinceStableId)
+          .all()
+      : Promise.resolve({ results: [] }),
+  ]);
+
+  const deltaGames = (deltaRes.results as Array<Record<string, unknown>>) || [];
+  if (deltaGames.length > 0) {
+    postProcessGameListRows(deltaGames, homeRegion);
+  }
+
+  return {
+    version: manifest?.version || '',
+    timestamp: manifest?.timestamp || new Date().toISOString(),
+    maxStableId: manifest?.maxStableId ?? sinceStableId,
+    ugr: (ugrRes.results as Array<Record<string, unknown>>) || [],
+    ug: (ugRes.results as Array<Record<string, unknown>>) || [],
+    ut: (utRes.results as Array<Record<string, unknown>>) || [],
+    deltaGames,
+  };
 }
 
 async function handleFetch(
@@ -3610,7 +4155,7 @@ Disallow: /
       (path === '/api/games' ||
         path === '/api/toys' ||
         path === '/api/platforms' ||
-        path.startsWith('/api/u/'));
+        (path.startsWith('/api/u/') && !path.endsWith('/collection-overlay')));
 
     const isUserEdgeCacheable =
       Boolean(sessionUser) &&
@@ -3662,12 +4207,23 @@ Disallow: /
       const cached = await edgeCache.match(cacheKey);
       if (cached) {
         if (sessionUser && (path === '/api/games' || path === '/api/toys')) {
+          const cachedHeaders = new Headers({
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          });
+          const partialHdr = cached.headers.get(X_CATALOG_PARTIAL_HEADER);
+          if (partialHdr) {
+            cachedHeaders.set(X_CATALOG_PARTIAL_HEADER, partialHdr);
+            const chunkSizeHdr = cached.headers.get(
+              X_CATALOG_CHUNK_SIZE_HEADER,
+            );
+            if (chunkSizeHdr) {
+              cachedHeaders.set(X_CATALOG_CHUNK_SIZE_HEADER, chunkSizeHdr);
+            }
+          }
           return new Response(cached.body, {
             status: cached.status,
-            headers: {
-              'Content-Type': 'application/json',
-              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-            },
+            headers: cachedHeaders,
           });
         }
         return cached;
@@ -4207,6 +4763,363 @@ Disallow: /
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
 
+    // Endpoint: GET /api/catalog/games (?manifest=1 or ?chunk=<idx>&v=<version>)
+    else if (request.method === 'GET' && path === '/api/catalog/games') {
+      if (url.searchParams.get('manifest') === '1') {
+        const manifest = await resolveCatalogManifest(env);
+        if (manifest) {
+          return Response.json(manifest, {
+            headers: {
+              'Cache-Control':
+                'public, max-age=60, s-maxage=60, stale-while-revalidate=86400',
+            },
+          });
+        }
+        const fallbackSnapshot = await loadGamesSnapshotForFallback(
+          env.BACKUP_BUCKET,
+        );
+        if (!fallbackSnapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const fallbackRows = buildGamesListFromSnapshot(
+          fallbackSnapshot,
+          null,
+          DEFAULT_USER_HOME_REGION,
+        );
+        const fallbackManifest: CatalogManifest = {
+          version: fallbackSnapshot.timestamp || 'r2-fallback',
+          timestamp: fallbackSnapshot.timestamp || new Date().toISOString(),
+          totalRows: fallbackRows.length,
+          chunkSize: CATALOG_GAMES_CHUNK_SIZE,
+          chunkCount: 1,
+          maxStableId: 0,
+          toysTotalRows: 0,
+          toysChunkCount: 1,
+        };
+        return Response.json(fallbackManifest, {
+          headers: buildR2DegradedHeaders(fallbackSnapshot.timestamp, {
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          }),
+        });
+      }
+
+      const rawChunk = url.searchParams.get('chunk') ?? '0';
+      const chunkIndex = Number(rawChunk);
+      if (
+        !Number.isInteger(chunkIndex) ||
+        chunkIndex < 0 ||
+        chunkIndex > 1000
+      ) {
+        return Response.json(
+          { error: 'Invalid chunk index parameter.' },
+          { status: 400 },
+        );
+      }
+
+      const versionParam = url.searchParams.get('v') || 'latest';
+      const chunkCacheUrl = new URL(`${url.origin}${path}`);
+      chunkCacheUrl.searchParams.set('chunk', String(chunkIndex));
+      chunkCacheUrl.searchParams.set('v', versionParam);
+      const chunkCacheKey = new Request(chunkCacheUrl.toString());
+
+      const immutableCatalogHeaders = {
+        'Content-Type': 'application/json',
+        'Cache-Control':
+          'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800, immutable',
+      };
+
+      if (edgeCache && !isNoCache) {
+        const cached = await edgeCache.match(chunkCacheKey);
+        if (cached) {
+          return cached;
+        }
+      }
+
+      if (env.BACKUP_BUCKET) {
+        try {
+          const r2Obj = await env.BACKUP_BUCKET.get(
+            getCatalogChunkR2Key(chunkIndex),
+          );
+          if (r2Obj) {
+            const rawBody = r2Obj.body ?? (await r2Obj.text());
+            const r2Res = new Response(rawBody, {
+              headers: immutableCatalogHeaders,
+            });
+            if (edgeCache) {
+              await putEdgeCacheEntry(
+                edgeCache,
+                chunkCacheKey,
+                r2Res,
+                isNoCache,
+                true,
+              );
+            }
+            return r2Res;
+          }
+        } catch {
+          // Fall through to single-chunk D1 write-through
+        }
+      }
+
+      try {
+        const { results } = await env.DB.prepare(buildCatalogGamesChunkQuery())
+          .bind(CATALOG_GAMES_CHUNK_SIZE, chunkIndex * CATALOG_GAMES_CHUNK_SIZE)
+          .all();
+        const rows = (results as Array<Record<string, unknown>>) || [];
+        if (rows.length > 0) {
+          postProcessGameListRows(rows, DEFAULT_USER_HOME_REGION);
+        }
+        const bodyJson = JSON.stringify(rows);
+        if (env.BACKUP_BUCKET) {
+          await env.BACKUP_BUCKET.put(
+            getCatalogChunkR2Key(chunkIndex),
+            bodyJson,
+            {
+              httpMetadata: { contentType: 'application/json' },
+              customMetadata: {
+                chunkIndex: String(chunkIndex),
+                rowCount: String(rows.length),
+                version: versionParam,
+              },
+            },
+          ).catch(() => {});
+        }
+        const d1Res = new Response(bodyJson, {
+          headers: immutableCatalogHeaders,
+        });
+        if (edgeCache) {
+          await putEdgeCacheEntry(
+            edgeCache,
+            chunkCacheKey,
+            d1Res,
+            isNoCache,
+            true,
+          );
+        }
+        return d1Res;
+      } catch {
+        const snapshot = await loadGamesSnapshotForFallback(env.BACKUP_BUCKET);
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const allRows = buildGamesListFromSnapshot(
+          snapshot,
+          null,
+          DEFAULT_USER_HOME_REGION,
+        );
+        const start = chunkIndex * CATALOG_GAMES_CHUNK_SIZE;
+        const slice = allRows.slice(start, start + CATALOG_GAMES_CHUNK_SIZE);
+        return new Response(JSON.stringify(slice), {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          }),
+        });
+      }
+    }
+
+    // Endpoint: GET /api/catalog/toys
+    else if (request.method === 'GET' && path === '/api/catalog/toys') {
+      const versionParam = url.searchParams.get('v') || 'latest';
+      const toyCacheUrl = new URL(`${url.origin}${path}`);
+      toyCacheUrl.searchParams.set('v', versionParam);
+      const toyCacheKey = new Request(toyCacheUrl.toString());
+      const immutableCatalogHeaders = {
+        'Content-Type': 'application/json',
+        'Cache-Control':
+          'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800, immutable',
+      };
+
+      if (edgeCache && !isNoCache) {
+        const cached = await edgeCache.match(toyCacheKey);
+        if (cached) {
+          return cached;
+        }
+      }
+
+      if (env.BACKUP_BUCKET) {
+        try {
+          const r2Obj = await env.BACKUP_BUCKET.get(R2_CATALOG_TOYS_CHUNK_KEY);
+          if (r2Obj) {
+            const rawBody = r2Obj.body ?? (await r2Obj.text());
+            const r2Res = new Response(rawBody, {
+              headers: immutableCatalogHeaders,
+            });
+            if (edgeCache) {
+              await putEdgeCacheEntry(
+                edgeCache,
+                toyCacheKey,
+                r2Res,
+                isNoCache,
+                true,
+              );
+            }
+            return r2Res;
+          }
+        } catch {
+          // Fall through to D1 write-through
+        }
+      }
+
+      try {
+        const { results } = await env.DB.prepare(
+          buildToysListQuery(null),
+        ).all();
+        const rows = (results as Array<Record<string, unknown>>) || [];
+        if (rows.length > 0) {
+          postProcessToyListRows(rows, DEFAULT_USER_HOME_REGION);
+        }
+        const bodyJson = JSON.stringify(rows);
+        if (env.BACKUP_BUCKET) {
+          let maxStableId = 0;
+          for (const r of rows) {
+            const sid = Number(r['stable_id'] ?? 0);
+            if (sid > maxStableId) maxStableId = sid;
+          }
+          await env.BACKUP_BUCKET.put(R2_CATALOG_TOYS_CHUNK_KEY, bodyJson, {
+            httpMetadata: { contentType: 'application/json' },
+            customMetadata: {
+              rowCount: String(rows.length),
+              maxStableId: String(maxStableId),
+              timestamp: new Date().toISOString(),
+            },
+          }).catch(() => {});
+        }
+        const d1Res = new Response(bodyJson, {
+          headers: immutableCatalogHeaders,
+        });
+        if (edgeCache) {
+          await putEdgeCacheEntry(
+            edgeCache,
+            toyCacheKey,
+            d1Res,
+            isNoCache,
+            true,
+          );
+        }
+        return d1Res;
+      } catch {
+        const snapshot = await loadToysSnapshotForFallback(env.BACKUP_BUCKET);
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const rows = buildToysListFromSnapshot(
+          snapshot,
+          null,
+          DEFAULT_USER_HOME_REGION,
+        );
+        return new Response(JSON.stringify(rows), {
+          headers: buildR2DegradedHeaders(snapshot.timestamp, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+          }),
+        });
+      }
+    }
+
+    // Endpoint: GET /api/user/collection-overlay
+    else if (
+      request.method === 'GET' &&
+      path === '/api/user/collection-overlay'
+    ) {
+      const privateHeaders = {
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+      };
+      const rawSince = url.searchParams.get('since_stable_id');
+      const sinceStableId = rawSince !== null ? Number(rawSince) : null;
+      const userId = sessionUser ? sessionUser.id : null;
+      const effectiveHomeRegion = sessionUser
+        ? sessionUser.homeRegion
+        : DEFAULT_USER_HOME_REGION;
+
+      try {
+        const payload = await buildCollectionOverlayPayload(
+          env,
+          userId,
+          effectiveHomeRegion,
+          sinceStableId,
+        );
+        return Response.json(payload, { headers: privateHeaders });
+      } catch {
+        const snapshot = await loadGamesSnapshotForFallback(env.BACKUP_BUCKET);
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const r2Ugr = userId
+          ? (snapshot.tables?.['user_game_releases'] || []).filter(
+              (r) => Number(r['user_id']) === userId,
+            )
+          : [];
+        const r2Ug = userId
+          ? (snapshot.tables?.['user_games'] || []).filter(
+              (g) => Number(g['user_id']) === userId,
+            )
+          : [];
+        return Response.json(
+          {
+            version: snapshot.timestamp || '',
+            timestamp: snapshot.timestamp || '',
+            maxStableId: 0,
+            ugr: r2Ugr,
+            ug: r2Ug,
+            ut: [],
+            deltaGames: [],
+          },
+          {
+            headers: buildR2DegradedHeaders(snapshot.timestamp, privateHeaders),
+          },
+        );
+      }
+    }
+
+    // Endpoint: GET /api/u/:username/collection-overlay
+    else if (
+      request.method === 'GET' &&
+      path.startsWith('/api/u/') &&
+      path.endsWith('/collection-overlay')
+    ) {
+      const parts = path.split('/');
+      const username = decodeURIComponent(parts[3] || '').trim();
+      const rawSince = url.searchParams.get('since_stable_id');
+      const sinceStableId = rawSince !== null ? Number(rawSince) : null;
+
+      try {
+        const user = (await env.DB.prepare(
+          'SELECT id, username, home_region, is_public FROM users WHERE username = ? COLLATE NOCASE',
+        )
+          .bind(username)
+          .first()) as {
+          id: number;
+          username: string;
+          home_region: string | null;
+          is_public: number;
+        } | null;
+
+        if (
+          !user ||
+          (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
+        ) {
+          return Response.json({ error: 'User not found' }, { status: 404 });
+        }
+
+        const payload = await buildCollectionOverlayPayload(
+          env,
+          user.id,
+          user.home_region || DEFAULT_USER_HOME_REGION,
+          sinceStableId,
+        );
+        return Response.json(payload, {
+          headers: {
+            'Cache-Control': user.is_public
+              ? 'public, max-age=60, s-maxage=60'
+              : 'private, no-cache, no-store, must-revalidate',
+          },
+        });
+      } catch {
+        return buildD1QuotaExceededResponse();
+      }
+    }
+
     // Endpoint: GET /api/u/:username/games
     else if (path.startsWith('/api/u/') && path.endsWith('/games')) {
       const parts = path.split('/');
@@ -4235,7 +5148,7 @@ Disallow: /
         }
 
         const homeRegion = user.home_region || 'USA';
-        const results = await executeGamesListQuery(
+        const { rows: results, isPartial } = await executeGamesListQuery(
           env.DB,
           user.id,
           homeRegion,
@@ -4243,14 +5156,19 @@ Disallow: /
           includeUnowned,
         );
 
-        const res = Response.json(results, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': user.is_public
-              ? 'public, max-age=60, s-maxage=60'
-              : 'private, no-cache, no-store, must-revalidate',
-          },
-        });
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Cache-Control': user.is_public
+            ? 'public, max-age=60, s-maxage=60'
+            : 'private, no-cache, no-store, must-revalidate',
+        };
+        if (isPartial) {
+          headers[X_CATALOG_PARTIAL_HEADER] = '1';
+          headers[X_CATALOG_CHUNK_SIZE_HEADER] = String(
+            CATALOG_GAMES_CHUNK_SIZE,
+          );
+        }
+        const res = Response.json(results, { headers });
         if (user.is_public && isPublicCacheable && edgeCache) {
           await putEdgeCacheEntry(edgeCache, cacheKey, res, isNoCache);
         }
@@ -4305,15 +5223,12 @@ Disallow: /
           return Response.json({ error: 'User not found' }, { status: 404 });
         }
 
-        const query = buildToysListQuery(user.id);
-        const { results } = await env.DB.prepare(query).bind(user.id).all();
         const homeRegion = user.home_region || 'USA';
-        if (results && results.length > 0) {
-          postProcessToyListRows(
-            results as Record<string, unknown>[],
-            homeRegion,
-          );
-        }
+        const results = await executeToysListWithR2Catalog(
+          env,
+          user.id,
+          homeRegion,
+        );
 
         const res = Response.json(results || [], {
           headers: {
@@ -4437,7 +5352,7 @@ Disallow: /
         : DEFAULT_USER_HOME_REGION;
 
       try {
-        const results = await executeGamesListQuery(
+        const { rows: results, isPartial } = await executeGamesListQuery(
           env.DB,
           userId,
           effectiveHomeRegion,
@@ -4445,8 +5360,17 @@ Disallow: /
           includeUnowned,
         );
         const bodyJson = JSON.stringify(results);
+        const partialHeaders: Record<string, string> = isPartial
+          ? {
+              [X_CATALOG_PARTIAL_HEADER]: '1',
+              [X_CATALOG_CHUNK_SIZE_HEADER]: String(CATALOG_GAMES_CHUNK_SIZE),
+            }
+          : {};
         const cacheableRes = new Response(bodyJson, {
-          headers: publicCacheHeaders,
+          headers: {
+            ...publicCacheHeaders,
+            ...partialHeaders,
+          },
         });
         if ((isPublicCacheable || isUserEdgeCacheable) && edgeCache) {
           await putEdgeCacheEntry(edgeCache, cacheKey, cacheableRes, isNoCache);
@@ -4456,6 +5380,7 @@ Disallow: /
             headers: {
               'Content-Type': 'application/json',
               'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+              ...partialHeaders,
             },
           });
         }
@@ -4669,16 +5594,11 @@ Disallow: /
         : DEFAULT_USER_HOME_REGION;
 
       try {
-        const query = buildToysListQuery(userId);
-        const { results } = userId
-          ? await env.DB.prepare(query).bind(userId).all()
-          : await env.DB.prepare(query).all();
-        if (results && results.length > 0) {
-          postProcessToyListRows(
-            results as Record<string, unknown>[],
-            effectiveHomeRegion,
-          );
-        }
+        const results = await executeToysListWithR2Catalog(
+          env,
+          userId,
+          effectiveHomeRegion,
+        );
         const bodyJson = JSON.stringify(results || []);
         const cacheableRes = new Response(bodyJson, {
           headers: publicCacheHeaders,
@@ -8302,9 +9222,11 @@ Disallow: /
           },
         ]);
 
+        await invalidateToysCatalogChunk(env);
         await invalidateEdgeApiCache(request.url, {
           userId: currentUserId,
           username: sessionUser?.username,
+          invalidateCatalog: true,
         });
         await markDbDirty(env);
         return Response.json({ success: true, id: existingToy.id });
@@ -8396,9 +9318,11 @@ Disallow: /
         },
       ]);
 
+      await invalidateToysCatalogChunk(env);
       await invalidateEdgeApiCache(request.url, {
         userId: currentUserId,
         username: sessionUser?.username,
+        invalidateCatalog: true,
       });
       await markDbDirty(env);
       return Response.json({ success: true, id: candidateId });
@@ -9246,9 +10170,10 @@ export default {
     }
 
     const isDailyWindow =
+      event.cron === '0 0 * * *' ||
       event.cron === '30 23 * * *' ||
-      (now.getUTCHours() === 23 &&
-        now.getUTCMinutes() >= 30 &&
+      (now.getUTCHours() === 0 &&
+        now.getUTCMinutes() < 30 &&
         lastDailyRunDate !== todayDateStr);
 
     if (isDailyWindow) {
@@ -9338,12 +10263,21 @@ export default {
       typeof env.BACKUP_BUCKET.head === 'function'
     ) {
       try {
-        const [hasLatest, hasGamesLite] = await Promise.all([
-          env.BACKUP_BUCKET.head('snapshots/latest.json'),
-          env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY),
-        ]);
+        const [hasLatest, hasGamesLite, hasCatalogManifest, chunkCursorRow] =
+          await Promise.all([
+            env.BACKUP_BUCKET.head('snapshots/latest.json'),
+            env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY),
+            env.BACKUP_BUCKET.head(R2_CATALOG_MANIFEST_KEY),
+            env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
+              .bind(CATALOG_CHUNKS_STATE_KEY)
+              .first<{ value: string }>()
+              .catch(() => null),
+          ]);
         if (hasLatest && !hasGamesLite) {
           await writeLiteBackupSnapshots(env);
+        }
+        if (chunkCursorRow?.value || (hasLatest && !hasCatalogManifest)) {
+          await writeCatalogChunksToR2(env, { maxChunksPerRun: 2 });
         }
       } catch (liteBackfillErr) {
         console.warn(
@@ -9492,6 +10426,19 @@ export default {
           Date.now() - canonicalBackupStart,
           `Failed: ${msg}`,
           { error: msg },
+        );
+      }
+
+      // 7. Build pre-processed, user-agnostic R2 catalog chunks for progressive client loading
+      try {
+        await writeCatalogChunksToR2(env, {
+          maxChunksPerRun: 2,
+          forceRestart: true,
+        });
+      } catch (chunkErr) {
+        console.warn(
+          '[WorkerCron] Failed to write R2 catalog chunks:',
+          chunkErr,
         );
       }
 
@@ -9736,6 +10683,10 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
       const chunk = statements.slice(i, i + CHUNK_SIZE);
       await env.DB.batch(chunk);
     }
+  }
+
+  if (bestItemByToy.size > 0 || expiredToyIds.length > 0) {
+    await invalidateToysCatalogChunk(env);
   }
 
   let notificationResult = { dispatchedCount: 0, purgedCount: 0 };
@@ -13296,6 +14247,7 @@ export async function syncWorkerAmiiboCatalog(
   }
 
   if (addedCount > 0 || updatedCount > 0) {
+    await invalidateToysCatalogChunk(env);
     await markDbDirty(env);
   }
 

@@ -212,6 +212,31 @@ export function runCollectionStaticSchemaCostGuard(
         sql: "SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope, COALESCE(u.home_region, 'USA') as home_region FROM users u CROSS JOIN user_tracking_rules r WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')",
         params: [],
       },
+      {
+        name: 'user game releases overlay lookup by user_id',
+        sql: 'SELECT release_id, ownership_status, backup_status, has_case, has_manual FROM user_game_releases WHERE user_id = ? AND (ownership_status > 0 OR backup_status > 0 OR has_case > 0 OR has_manual > 0)',
+        params: [1],
+      },
+      {
+        name: 'user games overlay lookup by user_id',
+        sql: 'SELECT game_id, play_status, queued FROM user_games WHERE user_id = ? AND (play_status > 0 OR queued > 0)',
+        params: [1],
+      },
+      {
+        name: 'user toys overlay lookup by user_id',
+        sql: 'SELECT toy_id, ownership_status FROM user_toys WHERE user_id = ? AND ownership_status > 0',
+        params: [1],
+      },
+      {
+        name: 'same-day catalog delta games lookup by stable_id PK',
+        sql: 'SELECT g.stable_id, g.id, g.title, r.id as rel_id FROM games g LEFT JOIN game_releases r ON g.stable_id = r.game_id WHERE g.stable_id > ?',
+        params: [100],
+      },
+      {
+        name: 'same-day catalog delta toys lookup by stable_id PK',
+        sql: 'SELECT f.stable_id, f.id, f.name FROM toys f LEFT JOIN toy_series fs ON f.series_id = fs.id WHERE f.stable_id > ?',
+        params: [10],
+      },
     ],
   });
 }

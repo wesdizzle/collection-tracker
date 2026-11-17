@@ -132,6 +132,57 @@ export function buildGamesListQuery(userId?: number | null): string {
 
 export const GAMES_LIST_QUERY = buildGamesListQuery(null);
 
+export const CATALOG_GAMES_CHUNK_SIZE = 3500;
+
+/**
+ * Queries a deterministic, user-agnostic slice of the base games + releases catalog
+ * for pre-processed R2 chunk generation and single-chunk fallback writes.
+ */
+export function buildCatalogGamesChunkQuery(): string {
+  return `
+    ${buildGamesListQuery(null)}
+    ORDER BY g.stable_id ASC, COALESCE(r.id, g.id) ASC
+    LIMIT ? OFFSET ?
+  `;
+}
+
+/**
+ * Queries catalog games added after a daily R2 snapshot's `maxStableId`
+ * (using the primary key index on `games.stable_id`).
+ */
+export function buildCatalogDeltaGamesQuery(userId?: number | null): string {
+  return `
+    ${buildGamesListQuery(userId)}
+    AND g.stable_id > ?
+  `;
+}
+
+export const USER_GAME_RELEASES_OVERLAY_QUERY = `
+  SELECT release_id, ownership_status, backup_status, has_case, has_manual
+  FROM user_game_releases
+  WHERE user_id = ?
+    AND (
+      ownership_status > 0
+      OR backup_status > 0
+      OR has_case > 0
+      OR has_manual > 0
+    )
+`;
+
+export const USER_GAMES_OVERLAY_QUERY = `
+  SELECT game_id, play_status, queued
+  FROM user_games
+  WHERE user_id = ?
+    AND (play_status > 0 OR queued > 0)
+`;
+
+export const USER_TOYS_OVERLAY_QUERY = `
+  SELECT toy_id, ownership_status
+  FROM user_toys
+  WHERE user_id = ?
+    AND ownership_status > 0
+`;
+
 export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
   AND (
     COALESCE(ugr.ownership_status, 0) > 0
@@ -141,6 +192,15 @@ export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
     OR COALESCE(ug.play_status, 0) > 0
     OR COALESCE(ug.queued, 0) > 0
     OR COALESCE(g.retail_on_sale, 0) = 1
+    OR (g.retail_price IS NOT NULL AND g.retail_price > 0)
+    OR g.bundle_parent_id IS NOT NULL
+    OR g.platform_id = 0
+  )
+`;
+
+export const ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE = `
+  AND (
+    COALESCE(g.retail_on_sale, 0) = 1
     OR (g.retail_price IS NOT NULL AND g.retail_price > 0)
     OR g.bundle_parent_id IS NOT NULL
     OR g.platform_id = 0
@@ -404,6 +464,11 @@ export function buildToysListQuery(userId?: number | null): string {
 }
 
 export const TOYS_LIST_QUERY = buildToysListQuery(null);
+
+export const TOYS_DELTA_LIST_QUERY = `
+  ${buildToysListQuery(null)}
+  WHERE f.stable_id > ?
+`;
 
 export function buildToyDetailQuery(userId?: number | null): string {
   const userJoin = userId

@@ -2388,4 +2388,83 @@ describe('CollectionListComponent', () => {
       component.groupedToys()[0].seriesGroups[0].toys.map((t) => t.id),
     ).toEqual(['toy-on-sale', 'toy-regular-retail']);
   });
+
+  it('shows and hides catalog sync progress banner when background chunked catalog sync runs', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const service = TestBed.inject(CollectionService);
+
+    fixture.detectChanges();
+    httpMock.expectOne('/api/games').flush(
+      [
+        {
+          id: 'active-1',
+          stable_id: 1,
+          title: 'Active Game',
+          platform: 'Switch',
+          platform_id: 1,
+          ownership_status: 1,
+        },
+      ],
+      { headers: { 'X-Catalog-Partial': '1' } },
+    );
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+      version: 'v-banner-1',
+      timestamp: '2026-11-17T00:05:00Z',
+      totalRows: 3,
+      chunkSize: 2,
+      chunkCount: 1,
+      maxStableId: 3,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    httpMock.expectOne('/api/user/collection-overlay?since_stable_id=3').flush({
+      version: 'v-banner-1',
+      timestamp: '2026-11-17T00:05:00Z',
+      maxStableId: 3,
+      ugr: [],
+      ug: [],
+      deltaGames: [],
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    const banner = fixture.nativeElement.querySelector(
+      '[data-testid="catalog-sync-banner"]',
+    ) as HTMLElement | null;
+    expect(banner).not.toBeNull();
+    expect(banner?.textContent).toContain('Syncing full catalog');
+    expect(banner?.textContent).toContain('1 / 3');
+
+    httpMock.expectOne('/api/catalog/games?chunk=0&v=v-banner-1').flush([
+      {
+        id: 'chunk-row-2',
+        stable_id: 2,
+        title: 'Chunk Two',
+        platform: 'Switch',
+        platform_id: 1,
+        ownership_status: 0,
+      },
+      {
+        id: 'chunk-row-3',
+        stable_id: 3,
+        title: 'Chunk Three',
+        platform: 'Switch',
+        platform_id: 1,
+        ownership_status: 0,
+      },
+    ]);
+
+    await service.ensureFullCatalogLoaded();
+    fixture.detectChanges();
+
+    const hiddenBanner = fixture.nativeElement.querySelector(
+      '[data-testid="catalog-sync-banner"]',
+    ) as HTMLElement | null;
+    expect(hiddenBanner).toBeNull();
+  });
 });

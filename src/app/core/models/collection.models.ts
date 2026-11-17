@@ -93,6 +93,7 @@ export interface Game {
   display_name?: string | null;
   ownership_status: OwnershipStatus;
   play_status: PlayStatus;
+  queued?: boolean | number;
   backup_status: boolean | number;
   has_case?: boolean | number;
   has_manual?: boolean | number;
@@ -914,4 +915,47 @@ export interface AuthMeResponse {
   degraded?: boolean;
   degradedReason?: string;
   snapshotTimestamp?: string | null;
+}
+
+export interface CatalogManifest {
+  version: string;
+  timestamp: string;
+  totalRows: number;
+  chunkSize: number;
+  chunkCount: number;
+  maxStableId: number;
+  toysTotalRows?: number;
+  toysChunkCount?: number;
+}
+
+export interface UserCollectionOverlayResponse {
+  version: string;
+  timestamp: string;
+  maxStableId?: number;
+  ugr: Array<{
+    release_id: string;
+    ownership_status: number;
+    backup_status: number;
+    has_case: number;
+    has_manual: number;
+  }>;
+  ug: Array<{
+    game_id: number;
+    play_status: number;
+    queued: number;
+  }>;
+  ut?: Array<{
+    toy_id: string;
+    ownership_status: number;
+  }>;
+  deltaGames?: Game[];
+}
+
+export interface CatalogSyncProgress {
+  active: boolean;
+  loadedRows: number;
+  totalRows: number;
+  loadedChunks: number;
+  totalChunks: number;
+  percent: number;
 }

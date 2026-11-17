@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import Database from 'better-sqlite3';
 import {
   resolveLocalizedReleaseTitle,
   buildTargetedCompanionByCrcBatchQuery,
+  buildCatalogGamesChunkQuery,
+  buildCatalogDeltaGamesQuery,
+  CATALOG_GAMES_CHUNK_SIZE,
+  USER_GAME_RELEASES_OVERLAY_QUERY,
+  USER_GAMES_OVERLAY_QUERY,
+  USER_TOYS_OVERLAY_QUERY,
+  TOYS_DELTA_LIST_QUERY,
   enrichAndStripGameListRow,
   postProcessGameListRows,
   postProcessToyListRows,
@@ -256,5 +266,103 @@ describe('resolveLocalizedReleaseTitle', () => {
     postProcessToyListRows(rows);
 
     expect(rows.map((r) => r['id'])).toEqual(['toy-1', 'toy-2', 'toy-3']);
+  });
+
+  it('builds indexed catalog chunk, same-day delta, and per-user overlay queries', () => {
+    expect(CATALOG_GAMES_CHUNK_SIZE).toBe(3500);
+
+    const db = new Database(':memory:');
+    try {
+      const schemaSql = fs.readFileSync(
+        path.join(process.cwd(), 'migrations', 'schema.sql'),
+        'utf-8',
+      );
+      db.exec(schemaSql);
+
+      db.prepare(
+        `INSERT INTO users (id, username, home_region) VALUES (1, 'alice', 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id) VALUES
+         (1, 'g1', 'Game One', 13),
+         (2, 'g2', 'Game Two', 13),
+         (3, 'g3', 'Game Three', 13)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region) VALUES
+         ('r1', 1, 'USA'),
+         ('r2', 2, 'USA'),
+         ('r3', 3, 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+         VALUES (1, 'r1', 1, 1, 1, 0), (1, 'r2', 0, 0, 0, 0)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_games (user_id, game_id, play_status, queued)
+         VALUES (1, 1, 2, 1), (1, 2, 0, 0)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO toys (stable_id, id, name, line) VALUES
+         (1, 't1', 'Mario', 'amiibo'),
+         (2, 't2', 'Link', 'amiibo')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_toys (user_id, toy_id, ownership_status) VALUES (1, 't1', 1), (1, 't2', 0)`,
+      ).run();
+
+      const chunkSql = buildCatalogGamesChunkQuery();
+      const page1 = db.prepare(chunkSql).all(2, 0) as Array<{ id: string }>;
+      const page2 = db.prepare(chunkSql).all(2, 2) as Array<{ id: string }>;
+      expect(page1.map((r) => r.id)).toEqual(['r1', 'r2']);
+      expect(page2.map((r) => r.id)).toEqual(['r3']);
+
+      const deltaSql = buildCatalogDeltaGamesQuery(1);
+      const deltaRows = db.prepare(deltaSql).all(1, 1, 2) as Array<{
+        id: string;
+        stable_id: number;
+      }>;
+      expect(deltaRows.map((r) => r.id)).toEqual(['r3']);
+
+      const deltaPlan = db
+        .prepare(`EXPLAIN QUERY PLAN ${deltaSql}`)
+        .all(1, 1, 2) as Array<{ detail: string }>;
+      expect(
+        deltaPlan.some((p) => p.detail.includes('INTEGER PRIMARY KEY')),
+      ).toBe(true);
+
+      const ugrRows = db
+        .prepare(USER_GAME_RELEASES_OVERLAY_QUERY)
+        .all(1) as Array<{ release_id: string; ownership_status: number }>;
+      expect(ugrRows).toEqual([
+        {
+          release_id: 'r1',
+          ownership_status: 1,
+          backup_status: 1,
+          has_case: 1,
+          has_manual: 0,
+        },
+      ]);
+
+      const ugRows = db.prepare(USER_GAMES_OVERLAY_QUERY).all(1) as Array<{
+        game_id: number;
+        play_status: number;
+        queued: number;
+      }>;
+      expect(ugRows).toEqual([{ game_id: 1, play_status: 2, queued: 1 }]);
+
+      const utRows = db.prepare(USER_TOYS_OVERLAY_QUERY).all(1) as Array<{
+        toy_id: string;
+        ownership_status: number;
+      }>;
+      expect(utRows).toEqual([{ toy_id: 't1', ownership_status: 1 }]);
+
+      const deltaToys = db.prepare(TOYS_DELTA_LIST_QUERY).all(1) as Array<{
+        id: string;
+      }>;
+      expect(deltaToys.map((t) => t.id)).toEqual(['t2']);
+    } finally {
+      db.close();
+    }
   });
 });
