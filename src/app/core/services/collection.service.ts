@@ -1368,15 +1368,33 @@ export class CollectionService implements OnDestroy {
     ugrByReleaseId: Map<string, UserCollectionOverlayResponse['ugr'][number]>,
     ugByStableId: Map<number, UserCollectionOverlayResponse['ug'][number]>,
     phase1ById: Map<string, Game>,
+    alreadyEnriched = false,
   ): Game {
-    const enriched = this.enrichGameTitle(rawGame);
-    const phase1Match = phase1ById.get(enriched.id);
-    const ugRow = ugByStableId.get(Number(enriched.stable_id));
-    const ugrSelf = ugrByReleaseId.get(enriched.id);
+    const baseGame = alreadyEnriched ? rawGame : this.enrichGameTitle(rawGame);
+    const phase1Match = phase1ById.get(baseGame.id);
+    const ugRow = ugByStableId.get(Number(baseGame.stable_id));
+    const ugrSelf = ugrByReleaseId.get(baseGame.id);
 
-    let nextReleases = enriched.releases;
-    if (Array.isArray(enriched.releases)) {
-      nextReleases = enriched.releases.map((r) => {
+    if (
+      alreadyEnriched &&
+      !phase1Match &&
+      !ugRow &&
+      !ugrSelf &&
+      !baseGame.ownership_status &&
+      !baseGame.play_status &&
+      !baseGame.queued &&
+      !baseGame.backup_status &&
+      !baseGame.has_case &&
+      !baseGame.has_manual &&
+      !baseGame.releases?.length &&
+      !baseGame.discIds?.length
+    ) {
+      return baseGame;
+    }
+
+    let nextReleases = baseGame.releases;
+    if (Array.isArray(baseGame.releases)) {
+      nextReleases = baseGame.releases.map((r) => {
         const relUgr = ugrByReleaseId.get(r.id);
         return {
           ...r,
@@ -1388,9 +1406,9 @@ export class CollectionService implements OnDestroy {
       });
     }
 
-    let nextDiscBackups = enriched.discBackups;
-    if (Array.isArray(enriched.discIds)) {
-      nextDiscBackups = enriched.discIds.map((discId) =>
+    let nextDiscBackups = baseGame.discBackups;
+    if (Array.isArray(baseGame.discIds)) {
+      nextDiscBackups = baseGame.discIds.map((discId) =>
         Number(ugrByReleaseId.get(discId)?.backup_status ?? 0),
       );
     }
@@ -1403,7 +1421,7 @@ export class CollectionService implements OnDestroy {
         : Number(ugrSelf?.backup_status ?? 0);
 
     const overlaid: Game = {
-      ...enriched,
+      ...baseGame,
       ownership_status: Number(
         ugrSelf?.ownership_status ?? 0,
       ) as OwnershipStatus,
@@ -1522,6 +1540,7 @@ export class CollectionService implements OnDestroy {
       (existingSnapshot.state.games?.length ?? 0) >= manifest.totalRows &&
       manifest.totalRows > 0
     ) {
+      let stateChanged = (overlay.deltaGames?.length ?? 0) > 0;
       const mergedMap = new Map<string, Game>();
       for (const cachedGame of existingSnapshot.state.games) {
         const overlaid = this.applyOverlayToCatalogGame(
@@ -1529,7 +1548,22 @@ export class CollectionService implements OnDestroy {
           ugrByReleaseId,
           ugByStableId,
           phase1ById,
+          true,
         );
+        if (
+          !stateChanged &&
+          overlaid !== cachedGame &&
+          (overlaid.ownership_status !== cachedGame.ownership_status ||
+            overlaid.play_status !== cachedGame.play_status ||
+            Number(overlaid.queued ?? 0) !== Number(cachedGame.queued ?? 0) ||
+            Boolean(overlaid.backup_status) !==
+              Boolean(cachedGame.backup_status) ||
+            Boolean(overlaid.has_case) !== Boolean(cachedGame.has_case) ||
+            Boolean(overlaid.has_manual) !== Boolean(cachedGame.has_manual) ||
+            overlaid.retail_updated_at !== cachedGame.retail_updated_at)
+        ) {
+          stateChanged = true;
+        }
         mergedMap.set(overlaid.id, overlaid);
       }
       for (const deltaGame of overlay.deltaGames || []) {
@@ -1555,7 +1589,7 @@ export class CollectionService implements OnDestroy {
         totalChunks: manifest.chunkCount,
         percent: 100,
       });
-      if (userId) {
+      if (userId && stateChanged) {
         await this.saveOfflineSnapshot(Date.now(), false);
       }
       return;
@@ -1638,22 +1672,23 @@ export class CollectionService implements OnDestroy {
           mergedMap.set(overlaid.id, overlaid);
         }
         loadedChunks++;
-        const nextGames = Array.from(mergedMap.values());
-        const effectiveTotalRows = Math.max(initialTotalRows, nextGames.length);
+        const loadedCount = mergedMap.size;
+        const effectiveTotalRows = Math.max(initialTotalRows, loadedCount);
         const percent = Math.min(
           100,
           Math.round((loadedChunks / totalChunks) * 100),
         );
-        this._games.set(nextGames);
-        this._refreshTrigger.update((v) => v + 1);
         this._catalogSyncProgress.set({
           active: loadedChunks < totalChunks,
-          loadedRows: nextGames.length,
+          loadedRows: loadedCount,
           totalRows: effectiveTotalRows,
           loadedChunks,
           totalChunks,
           percent,
         });
+        if (nextChunkIndex < totalChunks) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
       }
     };
 

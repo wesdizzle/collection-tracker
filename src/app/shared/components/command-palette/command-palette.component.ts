@@ -541,7 +541,12 @@ export class CommandPaletteComponent implements AfterViewInit {
 
     const matchingPlatforms: CommandPaletteItem[] = platforms
       .filter((p) => {
-        const aliases = PLATFORM_NAME_TO_ALIASES[p.name] || [];
+        const aliases = Object.prototype.hasOwnProperty.call(
+          PLATFORM_NAME_TO_ALIASES,
+          p.name,
+        )
+          ? PLATFORM_NAME_TO_ALIASES[p.name]
+          : [];
         const platformSearchText = [
           p.name,
           p.display_name || '',
@@ -577,7 +582,13 @@ export class CommandPaletteComponent implements AfterViewInit {
     const matchingGames: CommandPaletteItem[] = games
       .filter((g) => {
         const aliases =
-          (g.platform && PLATFORM_NAME_TO_ALIASES[g.platform]) || [];
+          g.platform &&
+          Object.prototype.hasOwnProperty.call(
+            PLATFORM_NAME_TO_ALIASES,
+            g.platform,
+          )
+            ? PLATFORM_NAME_TO_ALIASES[g.platform]
+            : [];
         const gameSearchText = [
           g.title,
           g.series || '',

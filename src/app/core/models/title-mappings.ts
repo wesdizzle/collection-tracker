@@ -579,6 +579,9 @@ export function stripDiscIndicator(
   return base.toLowerCase();
 }
 
+const FAST_DISC_CANDIDATE_RE =
+  /(?:disc|disco|disque|disk|side|play|data|install|single|multiplayer|campaign|campanha|cinematics|movie|soundtrack|add-on|additional|expansion|voice|dlc|tsuika|arkham|bioshock|heavy rain)/i;
+
 export function getRomGroupingKey(filename: string | null | undefined): string {
   if (!filename) {
     return '';
@@ -587,8 +590,11 @@ export function getRomGroupingKey(filename: string | null | undefined): string {
   const base = (
     lastDot !== -1 ? filename.slice(0, lastDot) : filename
   ).toLowerCase();
-  if (BOX_SET_ROM_GROUPING_MAP[base]) {
+  if (Object.prototype.hasOwnProperty.call(BOX_SET_ROM_GROUPING_MAP, base)) {
     return BOX_SET_ROM_GROUPING_MAP[base];
+  }
+  if (!FAST_DISC_CANDIDATE_RE.test(filename)) {
+    return `single:${base}`;
   }
   if (hasDiscIndicator(filename)) {
     return `multi:${stripDiscIndicator(filename)}`;

@@ -50,13 +50,14 @@ import {
   ViewMode,
   OwnershipStatus,
   PlayStatus,
+  getSeriesCrossLanguageAliases,
   isRegionMatchingHome,
   isItemAvailableAtRetail,
   normalizeBudgetToken,
-  SERIES_CROSS_LANGUAGE_ALIASES,
 } from '../../../../core/models/collection.models';
 import {
   COMPANION_DISC1_PAIRS,
+  CompanionDiscPair,
   normalizeForLabelMatch,
   getRomGroupingKey,
 } from '../../../../core/models/title-mappings';
@@ -279,7 +280,32 @@ export class CollectionListComponent
       });
   });
 
+  private static readonly NON_ASCII_RE = /[\u0080-\uffff]/;
+  private static readonly COMPANION_CANDIDATE_TITLE_RE =
+    /(?:oblivion|skyrim|fallout|dishonored|dragon\s*age|borderlands|killzone|saints\s*row|mafia|outlast|modern\s*warfare|double\s*dash|metroid\s*prime|resident\s*evil|persona|gran\s*turismo|fable|splinter\s*cell|alan\s*wake|bioshock|dead\s*rising|gears\s*of\s*war|mass\s*effect|perfect\s*dark|quake|viva\s*pi)/i;
+
   private readonly COMPANION_DISC1_PAIRS = COMPANION_DISC1_PAIRS;
+  private readonly companionPairsByPlatform = (() => {
+    const map = new Map<number, CompanionDiscPair[]>();
+    for (const pair of COMPANION_DISC1_PAIRS) {
+      let list = map.get(pair.platformId);
+      if (!list) {
+        list = [];
+        map.set(pair.platformId, list);
+      }
+      list.push(pair);
+    }
+    return map;
+  })();
+  private readonly companionSupersetIds = new Set<number>(
+    COMPANION_DISC1_PAIRS.map((p) => p.supersetStableId).filter(
+      (id): id is number => id !== undefined,
+    ),
+  );
+  private readonly searchFieldsCache = new WeakMap<
+    Game,
+    { names?: string[]; series?: string[] }
+  >();
 
   private normalizeForLabelMatch(name: string): string {
     return normalizeForLabelMatch(name);
@@ -400,10 +426,13 @@ export class CollectionListComponent
       }
     }
 
-    // Pre-index candidate games by platform_id to accelerate companion disc matching
+    // Pre-index candidate games only for platforms with configured companion disc pairs
     const allGamesByPlatform = new Map<number, typeof allGames>();
     for (const g of allGames) {
-      if (g.platform_id != null) {
+      if (
+        g.platform_id != null &&
+        this.companionPairsByPlatform.has(g.platform_id)
+      ) {
         let pList = allGamesByPlatform.get(g.platform_id);
         if (!pList) {
           pList = [];
@@ -413,166 +442,203 @@ export class CollectionListComponent
       }
     }
 
-    return Array.from(groupedMap.values()).map((g) => {
+    const groupedList = Array.from(groupedMap.values());
+    for (let i = 0; i < groupedList.length; i++) {
+      const g = groupedList[i];
       const discBackups = [...g.discBackups];
+      const platPairs =
+        g.platform_id != null
+          ? this.companionPairsByPlatform.get(g.platform_id)
+          : undefined;
 
-      // If this is a 2-disc GOTY/expanded release that only catalogs Disc 2 under its own game_id
-      // (reusing the original release as Disc 1), include the regional companion Disc 1's backup_status
-      // so the GOTY release is only marked backed up when BOTH Disc 1 and Disc 2 are backed up.
-      const hasDisc1InGroup = g.discRomNames.some((rn) =>
-        /\((?:disc|disco|disque|disk)\s+1\b/i.test(rn),
-      );
-      if (!hasDisc1InGroup) {
-        const romLower = (g.rom_name || '').toLowerCase();
-        const normRom = this.normalizeForLabelMatch(
-          g.rom_name || g.title || '',
+      if (
+        platPairs &&
+        (this.companionSupersetIds.has(g.stable_id) ||
+          CollectionListComponent.COMPANION_CANDIDATE_TITLE_RE.test(
+            g.title || '',
+          ) ||
+          CollectionListComponent.COMPANION_CANDIDATE_TITLE_RE.test(
+            g.rom_name || '',
+          ))
+      ) {
+        // If this is a 2-disc GOTY/expanded release that only catalogs Disc 2 under its own game_id
+        // (reusing the original release as Disc 1), include the regional companion Disc 1's backup_status
+        // so the GOTY release is only marked backed up when BOTH Disc 1 and Disc 2 are backed up.
+        const hasDisc1InGroup = g.discRomNames.some((rn) =>
+          /\((?:disc|disco|disque|disk)\s+1\b/i.test(rn),
         );
-        const normTitle = this.normalizeForLabelMatch(g.title || '');
-        const regTokens = (g.region || '')
-          .toLowerCase()
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        for (const pair of this.COMPANION_DISC1_PAIRS) {
-          const isSupersetMatch =
-            pair.platformId === g.platform_id &&
-            (!pair.supersetRomMarker ||
-              romLower.includes(pair.supersetRomMarker)) &&
-            ((pair.supersetStableId !== undefined &&
-              pair.supersetStableId === g.stable_id) ||
-              normRom === pair.supersetNormalizedTitle ||
-              normTitle === pair.supersetNormalizedTitle) &&
-            !pair.excludedRegions?.some((ex) => regTokens.includes(ex));
-          if (isSupersetMatch) {
-            const platformCandidates =
-              allGamesByPlatform.get(pair.platformId) || [];
-            const companionCandidates = platformCandidates.filter((cand) => {
-              if (cand.id === g.id) {
-                return false;
+        if (!hasDisc1InGroup) {
+          const romLower = (g.rom_name || '').toLowerCase();
+          const normRom = this.normalizeForLabelMatch(
+            g.rom_name || g.title || '',
+          );
+          const normTitle = this.normalizeForLabelMatch(g.title || '');
+          const regTokens = (g.region || '')
+            .toLowerCase()
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          for (const pair of platPairs) {
+            const isSupersetMatch =
+              (!pair.supersetRomMarker ||
+                romLower.includes(pair.supersetRomMarker)) &&
+              ((pair.supersetStableId !== undefined &&
+                pair.supersetStableId === g.stable_id) ||
+                normRom === pair.supersetNormalizedTitle ||
+                normTitle === pair.supersetNormalizedTitle) &&
+              !pair.excludedRegions?.some((ex) => regTokens.includes(ex));
+            if (isSupersetMatch) {
+              const platformCandidates =
+                allGamesByPlatform.get(pair.platformId) || [];
+              const companionCandidates = platformCandidates.filter((cand) => {
+                if (cand.id === g.id) {
+                  return false;
+                }
+                const candRomLower = (cand.rom_name || '').toLowerCase();
+                if (
+                  pair.supersetRomMarker &&
+                  candRomLower.includes(pair.supersetRomMarker)
+                ) {
+                  return false;
+                }
+                if (
+                  pair.originalExcludeMarker &&
+                  candRomLower.includes(pair.originalExcludeMarker)
+                ) {
+                  return false;
+                }
+                const candNorm = this.normalizeForLabelMatch(
+                  cand.rom_name || cand.title || '',
+                );
+                if (
+                  cand.stable_id !== pair.originalStableId &&
+                  candNorm !== pair.originalNormalizedTitle
+                ) {
+                  return false;
+                }
+                const candRegs = (cand.region || '')
+                  .toLowerCase()
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                if (regTokens.includes('world') || candRegs.includes('world')) {
+                  return true;
+                }
+                return regTokens.some((r) => candRegs.includes(r));
+              });
+              if (companionCandidates.length > 0) {
+                const companionBackedUp = companionCandidates.some((c) =>
+                  Boolean(c.backup_status),
+                )
+                  ? 1
+                  : 0;
+                discBackups.unshift(companionBackedUp);
               }
-              const candRomLower = (cand.rom_name || '').toLowerCase();
-              if (
-                pair.supersetRomMarker &&
-                candRomLower.includes(pair.supersetRomMarker)
-              ) {
-                return false;
-              }
-              if (
-                pair.originalExcludeMarker &&
-                candRomLower.includes(pair.originalExcludeMarker)
-              ) {
-                return false;
-              }
-              const candNorm = this.normalizeForLabelMatch(
-                cand.rom_name || cand.title || '',
-              );
-              if (
-                cand.stable_id !== pair.originalStableId &&
-                candNorm !== pair.originalNormalizedTitle
-              ) {
-                return false;
-              }
-              const candRegs = (cand.region || '')
-                .toLowerCase()
-                .split(',')
-                .map((s) => s.trim())
-                .filter(Boolean);
-              if (regTokens.includes('world') || candRegs.includes('world')) {
-                return true;
-              }
-              return regTokens.some((r) => candRegs.includes(r));
-            });
-            if (companionCandidates.length > 0) {
-              const companionBackedUp = companionCandidates.some((c) =>
-                Boolean(c.backup_status),
-              )
-                ? 1
-                : 0;
-              discBackups.unshift(companionBackedUp);
+              break;
             }
-            break;
           }
         }
       }
 
       // Release is considered backed up if all its discs are backed up
-      const allBackedUp = discBackups.every((b) => b === 1) ? 1 : 0;
+      g.discBackups = discBackups;
+      g.backup_status = discBackups.every((b) => b === 1) ? 1 : 0;
+    }
 
-      // Precompute cross-language searchable names and series for optimal filter performance
-      const names = new Set<string>();
-      if (g.title) names.add(this.normalizeString(g.title));
-      if (g.base_title && g.base_title !== g.title) {
-        names.add(this.normalizeString(g.base_title));
-      }
-      if (g.rom_name) names.add(this.normalizeString(g.rom_name));
-      if (g.discRomNames) {
-        for (const rn of g.discRomNames) {
-          if (rn) names.add(this.normalizeString(rn));
-        }
-      }
-      if (g.also_released_as) {
-        for (const alias of g.also_released_as.split(',')) {
-          const trimmed = alias.trim();
-          if (trimmed) names.add(this.normalizeString(trimmed));
-        }
-      }
-      if (Array.isArray(g.searchableNames)) {
-        for (const n of g.searchableNames) {
-          if (n) names.add(this.normalizeString(n));
-        }
-      }
-      if (g.metadata_json) {
-        try {
-          const parsed = JSON.parse(g.metadata_json);
-          if (Array.isArray(parsed.alternative_names)) {
-            for (const alt of parsed.alternative_names) {
-              if (alt?.name) names.add(this.normalizeString(alt.name));
-            }
-          }
-          if (Array.isArray(parsed.game_localizations)) {
-            for (const loc of parsed.game_localizations) {
-              if (loc?.name) names.add(this.normalizeString(loc.name));
-            }
-          }
-        } catch {
-          // Ignore unparseable metadata JSON
-        }
-      }
-
-      const seriesSet = new Set<string>();
-      const addSeriesAndAliases = (s: string | null | undefined) => {
-        if (!s) return;
-        const norm = this.normalizeString(s);
-        if (norm) {
-          seriesSet.add(norm);
-          const aliases = SERIES_CROSS_LANGUAGE_ALIASES[norm];
-          if (aliases) {
-            for (const a of aliases) seriesSet.add(this.normalizeString(a));
-          }
-        }
-      };
-
-      addSeriesAndAliases(g.canonical_series);
-      addSeriesAndAliases(g.series);
-      if (g.franchises) {
-        for (const f of g.franchises.split(',')) {
-          addSeriesAndAliases(f.trim());
-        }
-      }
-      if (g.collections) {
-        for (const c of g.collections.split(',')) {
-          addSeriesAndAliases(c.trim());
-        }
-      }
-
-      return {
-        ...g,
-        backup_status: allBackedUp,
-        searchableNames: Array.from(names),
-        searchableSeries: Array.from(seriesSet),
-      };
-    });
+    return groupedList;
   });
+
+  private getOrBuildSearchableNames(g: Game): string[] {
+    let cached = this.searchFieldsCache.get(g);
+    if (cached?.names) {
+      return cached.names;
+    }
+    const names = new Set<string>();
+    if (g.title) names.add(this.normalizeString(g.title));
+    if (g.base_title && g.base_title !== g.title) {
+      names.add(this.normalizeString(g.base_title));
+    }
+    if (g.rom_name) names.add(this.normalizeString(g.rom_name));
+    if (g.discRomNames) {
+      for (const rn of g.discRomNames) {
+        if (rn) names.add(this.normalizeString(rn));
+      }
+    }
+    if (g.also_released_as) {
+      for (const alias of g.also_released_as.split(',')) {
+        const trimmed = alias.trim();
+        if (trimmed) names.add(this.normalizeString(trimmed));
+      }
+    }
+    if (Array.isArray(g.searchableNames)) {
+      for (const n of g.searchableNames) {
+        if (n) names.add(this.normalizeString(n));
+      }
+    }
+    if (g.metadata_json) {
+      try {
+        const parsed = JSON.parse(g.metadata_json);
+        if (Array.isArray(parsed.alternative_names)) {
+          for (const alt of parsed.alternative_names) {
+            if (alt?.name) names.add(this.normalizeString(alt.name));
+          }
+        }
+        if (Array.isArray(parsed.game_localizations)) {
+          for (const loc of parsed.game_localizations) {
+            if (loc?.name) names.add(this.normalizeString(loc.name));
+          }
+        }
+      } catch {
+        // Ignore unparseable metadata JSON
+      }
+    }
+    const result = Array.from(names);
+    if (!cached) {
+      cached = {};
+      this.searchFieldsCache.set(g, cached);
+    }
+    cached.names = result;
+    return result;
+  }
+
+  private getOrBuildSearchableSeries(g: Game): string[] {
+    let cached = this.searchFieldsCache.get(g);
+    if (cached?.series) {
+      return cached.series;
+    }
+    const seriesSet = new Set<string>();
+    const addSeriesAndAliases = (s: string | null | undefined) => {
+      if (!s) return;
+      const norm = this.normalizeString(s);
+      if (norm) {
+        seriesSet.add(norm);
+        const aliases = getSeriesCrossLanguageAliases(norm);
+        if (aliases) {
+          for (const a of aliases) seriesSet.add(this.normalizeString(a));
+        }
+      }
+    };
+
+    addSeriesAndAliases(g.canonical_series);
+    addSeriesAndAliases(g.series);
+    if (g.franchises) {
+      for (const f of g.franchises.split(',')) {
+        addSeriesAndAliases(f.trim());
+      }
+    }
+    if (g.collections) {
+      for (const c of g.collections.split(',')) {
+        addSeriesAndAliases(c.trim());
+      }
+    }
+    const result = Array.from(seriesSet);
+    if (!cached) {
+      cached = {};
+      this.searchFieldsCache.set(g, cached);
+    }
+    cached.series = result;
+    return result;
+  }
 
   /**
    * Reactive pipeline that applies active filters to the full games collection.
@@ -754,14 +820,8 @@ export class CollectionListComponent
           );
         };
 
-        const namesList = g.searchableNames || [
-          this.normalizeString(g.title || ''),
-          this.normalizeString(g.rom_name || ''),
-          this.normalizeString(g.also_released_as || ''),
-        ];
-        const seriesList = g.searchableSeries || [
-          this.normalizeString(g.canonical_series || g.series || ''),
-        ];
+        const namesList = this.getOrBuildSearchableNames(g);
+        const seriesList = this.getOrBuildSearchableSeries(g);
 
         const hasNameMatch = namesList.some(matchesTerm);
         const hasSeriesMatch = seriesList.some(matchesTerm);
@@ -774,15 +834,13 @@ export class CollectionListComponent
       // Series Filter (Case, Accent, and Cross-Language Insensitive)
       if (normalizedSeriesFilter) {
         const query = normalizedSeriesFilter;
-        const queryAliases = SERIES_CROSS_LANGUAGE_ALIASES[query] || [];
+        const queryAliases = getSeriesCrossLanguageAliases(query) || [];
         const allQueries = [
           query,
           ...queryAliases.map((a) => this.normalizeString(a)),
         ];
 
-        const seriesList = g.searchableSeries || [
-          this.normalizeString(g.canonical_series || g.series || ''),
-        ];
+        const seriesList = this.getOrBuildSearchableSeries(g);
 
         const matchesSeries = (term: string) => {
           if (f.seriesExact) {
@@ -836,6 +894,7 @@ export class CollectionListComponent
      * Precomputing sort keys once per filtered item reduces normalizations and price calculations
      * from O(N log N) to O(N).
      */
+    const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
     const decoratedGames = filteredGamesList.map((g) => ({
       item: g,
       retailPrice: g.retail_price ?? null,
@@ -885,8 +944,8 @@ export class CollectionListComponent
         if (aKnown && bKnown) {
           if (a.releaseDate !== b.releaseDate) {
             return isDesc
-              ? b.releaseDate.localeCompare(a.releaseDate)
-              : a.releaseDate.localeCompare(b.releaseDate);
+              ? cmpStr(b.releaseDate, a.releaseDate)
+              : cmpStr(a.releaseDate, b.releaseDate);
           }
         } else if (aKnown !== bKnown) {
           return aKnown ? -1 : 1;
@@ -907,23 +966,23 @@ export class CollectionListComponent
 
         // 1. Platform Launch Date (ASC)
         if (a.platformLaunchDate !== b.platformLaunchDate) {
-          return a.platformLaunchDate.localeCompare(b.platformLaunchDate);
+          return cmpStr(a.platformLaunchDate, b.platformLaunchDate);
         }
 
         // 2. Platform Brand (ASC)
         if (a.normBrand !== b.normBrand) {
-          return a.normBrand.localeCompare(b.normBrand);
+          return cmpStr(a.normBrand, b.normBrand);
         }
       }
 
       // 3. Game Canonical Series (ASC, fallback to title)
       if (a.normSeries !== b.normSeries) {
-        return a.normSeries.localeCompare(b.normSeries);
+        return cmpStr(a.normSeries, b.normSeries);
       }
 
       // 4. Game Release Date (ASC, nulls last)
       if (a.releaseDate !== b.releaseDate) {
-        return a.releaseDate.localeCompare(b.releaseDate);
+        return cmpStr(a.releaseDate, b.releaseDate);
       }
 
       // 5. Sort Index (ASC, nulls last)
@@ -938,11 +997,11 @@ export class CollectionListComponent
 
       // 6. Region (ASC)
       if (a.region !== b.region) {
-        return a.region.localeCompare(b.region);
+        return cmpStr(a.region, b.region);
       }
 
       // 7. Release ID (ASC)
-      return a.id.localeCompare(b.id);
+      return cmpStr(a.id, b.id);
     });
 
     return decoratedGames.map((entry) => entry.item);
@@ -956,6 +1015,9 @@ export class CollectionListComponent
    * @returns The normalized string.
    */
   private normalizeString(str: string): string {
+    if (!CollectionListComponent.NON_ASCII_RE.test(str)) {
+      return str.toLowerCase();
+    }
     return str
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -1443,40 +1505,48 @@ export class CollectionListComponent
       ),
   );
 
+  private sortUniqueStrings(
+    values: Iterable<string | null | undefined>,
+  ): string[] {
+    const unique = new Set<string>();
+    for (const v of values) {
+      if (v) unique.add(v);
+    }
+    const keyed = Array.from(unique, (val) => ({
+      val,
+      key: this.normalizeForSort(val),
+    }));
+    keyed.sort((a, b) =>
+      a.key < b.key
+        ? -1
+        : a.key > b.key
+          ? 1
+          : a.val < b.val
+            ? -1
+            : a.val > b.val
+              ? 1
+              : 0,
+    );
+    return keyed.map((entry) => entry.val);
+  }
+
   public uniqueNames = computed<string[]>(() => {
     if (this.currentTab() === 'games') {
-      const list = this.collectionService.games().map((g) => g.title);
-      return Array.from(new Set(list))
-        .filter(Boolean)
-        .sort((a, b) =>
-          this.normalizeForSort(a || '').localeCompare(
-            this.normalizeForSort(b || ''),
-          ),
-        );
+      return this.sortUniqueStrings(
+        this.collectionService.games().map((g) => g.title),
+      );
     } else {
-      const list = this.collectionService.toys().map((t) => t.name);
-      return Array.from(new Set(list))
-        .filter(Boolean)
-        .sort((a, b) =>
-          this.normalizeForSort(a || '').localeCompare(
-            this.normalizeForSort(b || ''),
-          ),
-        );
+      return this.sortUniqueStrings(
+        this.collectionService.toys().map((t) => t.name),
+      );
     }
   });
 
   public uniqueSeries = computed(() => {
     if (this.currentTab() === 'games') {
-      const list = this.collectionService
-        .games()
-        .map((g) => g.canonical_series);
-      return Array.from(new Set(list))
-        .filter(Boolean)
-        .sort((a, b) =>
-          this.normalizeForSort(a || '').localeCompare(
-            this.normalizeForSort(b || ''),
-          ),
-        );
+      return this.sortUniqueStrings(
+        this.collectionService.games().map((g) => g.canonical_series),
+      );
     } else {
       const seriesMap = new Map<string, number | undefined>();
       for (const toy of this.collectionService.toys()) {
@@ -1490,18 +1560,26 @@ export class CollectionListComponent
           }
         }
       }
-      return Array.from(seriesMap.keys())
-        .filter(Boolean)
-        .sort((a, b) => {
-          const indexA = seriesMap.get(a) ?? 9999;
-          const indexB = seriesMap.get(b) ?? 9999;
-          if (indexA !== indexB) {
-            return indexA - indexB;
-          }
-          return this.normalizeForSort(a).localeCompare(
-            this.normalizeForSort(b),
-          );
-        });
+      const keyed = Array.from(seriesMap.entries(), ([val, idx]) => ({
+        val,
+        idx: idx ?? 9999,
+        key: this.normalizeForSort(val),
+      }));
+      keyed.sort((a, b) => {
+        if (a.idx !== b.idx) {
+          return a.idx - b.idx;
+        }
+        return a.key < b.key
+          ? -1
+          : a.key > b.key
+            ? 1
+            : a.val < b.val
+              ? -1
+              : a.val > b.val
+                ? 1
+                : 0;
+      });
+      return keyed.map((entry) => entry.val);
     }
   });
 
@@ -1515,9 +1593,7 @@ export class CollectionListComponent
         });
       }
     }
-    return Array.from(tagsSet).sort((a, b) =>
-      this.normalizeForSort(a).localeCompare(this.normalizeForSort(b)),
-    );
+    return this.sortUniqueStrings(tagsSet);
   });
 
   public uniqueRegions = computed<string[]>(() => {

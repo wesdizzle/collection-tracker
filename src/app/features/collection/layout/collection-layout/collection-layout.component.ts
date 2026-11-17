@@ -9,7 +9,9 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ActivatedRoute,
+  NavigationCancel,
   NavigationEnd,
+  NavigationError,
   Router,
   RouterModule,
   RouteReuseStrategy,
@@ -240,11 +242,20 @@ export class CollectionLayoutComponent {
   constructor() {
     this.router.events
       .pipe(
-        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+        filter(
+          (e): e is NavigationEnd | NavigationCancel | NavigationError =>
+            e instanceof NavigationEnd ||
+            e instanceof NavigationCancel ||
+            e instanceof NavigationError,
+        ),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((e) => {
-        this.currentUrl.set(e.urlAfterRedirects || e.url);
+        if (e instanceof NavigationEnd) {
+          this.currentUrl.set(e.urlAfterRedirects || e.url);
+        } else {
+          this.currentUrl.set(this.router.url || '');
+        }
       });
 
     if (
@@ -269,17 +280,23 @@ export class CollectionLayoutComponent {
     ) {
       event.preventDefault();
       this.onNavClick('games');
-      void this.router.navigateByUrl(this.collectionService.getTabUrl('games'));
+      const targetUrl = this.collectionService.getTabUrl('games');
+      this.currentUrl.set(targetUrl);
+      void this.router.navigateByUrl(targetUrl);
     }
   }
 
   onTabSelected(tabId: string) {
     if (tabId === 'games' || tabId === 'toys') {
       this.onNavClick(tabId);
-      void this.router.navigateByUrl(this.collectionService.getTabUrl(tabId));
+      const targetUrl = this.collectionService.getTabUrl(tabId);
+      this.currentUrl.set(targetUrl);
+      void this.router.navigateByUrl(targetUrl);
     } else if (tabId === 'insights' || tabId === 'discovery') {
       this.onNavClick();
-      void this.router.navigateByUrl(`/collection/${tabId}`);
+      const targetUrl = `/collection/${tabId}`;
+      this.currentUrl.set(targetUrl);
+      void this.router.navigateByUrl(targetUrl);
     }
   }
 

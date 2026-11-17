@@ -2467,4 +2467,146 @@ describe('CollectionListComponent', () => {
     ) as HTMLElement | null;
     expect(hiddenBanner).toBeNull();
   });
+
+  it('handles Constructor series without TypeError and updates filter pills and views immediately after full catalog load', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+
+    httpMock.expectOne('/api/games').flush(
+      [
+        {
+          id: 'owned-mario',
+          game_id: 'owned-mario',
+          stable_id: 1,
+          title: 'Super Mario Odyssey',
+          canonical_series: 'Mario',
+          platform: 'Nintendo Switch',
+          platform_id: 1,
+          ownership_status: 1,
+        },
+        {
+          id: 'seeking-zelda',
+          game_id: 'seeking-zelda',
+          stable_id: 2,
+          title: 'The Legend of Zelda',
+          canonical_series: 'Zelda',
+          platform: 'Nintendo Switch',
+          platform_id: 1,
+          ownership_status: 2,
+        },
+      ],
+      { headers: { 'X-Catalog-Partial': '1' } },
+    );
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    await initPromise;
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+      version: 'v-constructor-1',
+      timestamp: '2026-11-17T00:05:00Z',
+      totalRows: 3,
+      chunkSize: 3500,
+      chunkCount: 1,
+      maxStableId: 20666,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    httpMock
+      .expectOne('/api/user/collection-overlay?since_stable_id=20666')
+      .flush({
+        version: 'v-constructor-1',
+        timestamp: '2026-11-17T00:05:00Z',
+        maxStableId: 20666,
+        ugr: [
+          {
+            release_id: 'owned-mario',
+            ownership_status: 1,
+            backup_status: 0,
+            has_case: 0,
+            has_manual: 0,
+          },
+          {
+            release_id: 'seeking-zelda',
+            ownership_status: 2,
+            backup_status: 0,
+            has_case: 0,
+            has_manual: 0,
+          },
+        ],
+        ug: [],
+        deltaGames: [],
+      });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    httpMock.expectOne('/api/catalog/games?chunk=0&v=v-constructor-1').flush([
+      {
+        id: 'owned-mario',
+        game_id: 'owned-mario',
+        stable_id: 1,
+        title: 'Super Mario Odyssey',
+        canonical_series: 'Mario',
+        platform: 'Nintendo Switch',
+        platform_id: 1,
+        ownership_status: 0,
+      },
+      {
+        id: 'seeking-zelda',
+        game_id: 'seeking-zelda',
+        stable_id: 2,
+        title: 'The Legend of Zelda',
+        canonical_series: 'Zelda',
+        platform: 'Nintendo Switch',
+        platform_id: 1,
+        ownership_status: 0,
+      },
+      {
+        id: 'constructor-playstation-4',
+        game_id: 'constructor-playstation-4',
+        stable_id: 20666,
+        title: 'Constructor',
+        canonical_series: 'Constructor',
+        rom_name: 'Constructor (USA).bin',
+        platform: 'PlayStation 4',
+        platform_id: 34,
+        ownership_status: 0,
+      },
+    ]);
+
+    const service = TestBed.inject(CollectionService);
+    await service.ensureFullCatalogLoaded();
+    fixture.detectChanges();
+
+    const clickPill = (labelText: string) => {
+      const buttons = Array.from(
+        fixture.nativeElement.querySelectorAll('.status-pill-btn'),
+      ) as HTMLButtonElement[];
+      const btn = buttons.find((b) => b.textContent?.trim() === labelText);
+      expect(btn).toBeTruthy();
+      btn!.click();
+      fixture.detectChanges();
+    };
+
+    expect(component.filteredGames().map((g) => g.id)).toEqual(['owned-mario']);
+
+    clickPill('All');
+    expect(component.filteredGames().length).toBe(3);
+
+    clickPill('Seeking');
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'seeking-zelda',
+    ]);
+
+    clickPill('All');
+    component.onFiltersChange({ ...component.filters(), name: 'constructor' });
+    fixture.detectChanges();
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'constructor-playstation-4',
+    ]);
+
+    component.onFiltersChange({ ...component.filters(), name: '' });
+    fixture.detectChanges();
+    clickPill('Owned');
+    expect(component.filteredGames().map((g) => g.id)).toEqual(['owned-mario']);
+  });
 });

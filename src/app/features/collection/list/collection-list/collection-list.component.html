@@ -31,9 +31,8 @@
     [filters]="filters()"
     [uniqueLines]="uniqueLines()"
     [uniqueTypes]="uniqueTypes()"
-    [uniqueNames]="uniqueNames()"
     [uniqueSeries]="uniqueSeries()"
-    [uniqueTags]="uniqueTags()"
+    [uniqueTags]="currentTab() === 'games' ? uniqueTags() : []"
     [uniqueRegions]="uniqueRegions()"
     [resultCount]="
       currentTab() === 'games' ? filteredGames().length : filteredToys().length

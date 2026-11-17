@@ -484,6 +484,15 @@ export function getMediaIconName(
   return isOpticalPlatform(platform) ? 'disc' : 'rom-archive';
 }
 
+export function getOwnRecordValue<T>(
+  record: Record<string, T>,
+  key: string,
+): T | undefined {
+  return Object.prototype.hasOwnProperty.call(record, key)
+    ? record[key]
+    : undefined;
+}
+
 export const SERIES_CROSS_LANGUAGE_ALIASES: Record<string, string[]> = {
   'mega man': ['rockman', 'ロックマン'],
   rockman: ['mega man', 'ロックマン'],
@@ -504,6 +513,12 @@ export const SERIES_CROSS_LANGUAGE_ALIASES: Record<string, string[]> = {
   mother: ['earthbound', 'マザー'],
   earthbound: ['mother', 'マザー'],
 };
+
+export function getSeriesCrossLanguageAliases(
+  normSeries: string,
+): string[] | undefined {
+  return getOwnRecordValue(SERIES_CROSS_LANGUAGE_ALIASES, normSeries);
+}
 
 export interface JournalEntry {
   id: number;
@@ -724,7 +739,7 @@ export function isRegionMatchingHome(
   }
 
   // Check if any item token is an ancestor region containing the home region
-  const homeAncestors = REGION_ANCESTORS[cleanHome] || [];
+  const homeAncestors = getOwnRecordValue(REGION_ANCESTORS, cleanHome) || [];
   for (const ancestor of homeAncestors) {
     if (itemTokens.includes(ancestor)) {
       return true;
@@ -734,7 +749,7 @@ export function isRegionMatchingHome(
   // Also check reverse if the user's home region is a broader region (e.g. user set home to 'Europe')
   // and the item is tagged with a sub-region (e.g. 'UK')
   for (const token of itemTokens) {
-    const tokenAncestors = REGION_ANCESTORS[token] || [];
+    const tokenAncestors = getOwnRecordValue(REGION_ANCESTORS, token) || [];
     if (tokenAncestors.includes(cleanHome)) {
       return true;
     }
