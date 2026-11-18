@@ -87,6 +87,14 @@ describe('NotificationSettingsModalComponent', () => {
     expect(firstToggleBtn?.classList.contains('inactive')).toBe(true);
   });
 
+  it('should toggle watched series addition notifications', () => {
+    expect(component.localPrefs.notify_watched_series).not.toBe(false);
+    component.toggleNotifyWatchedSeries();
+    expect(component.localPrefs.notify_watched_series).toBe(false);
+    component.toggleNotifyWatchedSeries();
+    expect(component.localPrefs.notify_watched_series).toBe(true);
+  });
+
   it('should update local dimension choices', () => {
     component.setScope('seeking_and_unowned');
     expect(component.localPrefs.scope).toBe('seeking_and_unowned');

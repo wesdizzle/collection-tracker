@@ -17,6 +17,7 @@ export const DEFAULT_DEAL_PREFERENCES: DealNotificationPreferences = {
   stores: ['Best Buy', 'VGP', 'PNP Games'],
   notify_game_releases: true,
   notify_physical_announcements: true,
+  notify_watched_series: true,
   physical_announcement_scope: {
     seeking: true,
     uncataloged: true,

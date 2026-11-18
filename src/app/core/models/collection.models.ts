@@ -420,6 +420,7 @@ export interface DealNotificationPreferences {
   stores: string[];
   notify_game_releases?: boolean;
   notify_physical_announcements?: boolean;
+  notify_watched_series?: boolean;
   physical_announcement_scope?: PhysicalAnnouncementScope;
 }
 

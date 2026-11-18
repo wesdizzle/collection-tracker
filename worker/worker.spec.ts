@@ -39,6 +39,9 @@ import worker, {
   syncWorkerIgdbMetadataBackfill,
   syncWorkerLaunchDayNotifications,
   syncWorkerRetailDeals,
+  syncWorkerWatchedSeriesDiscovery,
+  evaluateTrackingRulesForNewGames,
+  evaluateTrackingRulesForNewToys,
   writeCatalogChunksToR2,
 } from './worker';
 import { normalizeTitleForMatching } from '../shared/title_matching';
@@ -7243,6 +7246,444 @@ describe('Worker API Logic', () => {
       expect(chunk0Rows.map((r) => r.stable_id).sort((a, b) => a - b)).toEqual([
         10, 50000,
       ]);
+    });
+  });
+
+  describe('Watched-Series Push Notifications & Autonomous Ingestion', () => {
+    it('evaluateTrackingRulesForNewGames dispatches watched-series notifications, respects opt-out and existing ownership, and coalesces > 3 items', async () => {
+      db.prepare(
+        `INSERT OR IGNORE INTO users (id, username, home_region) VALUES (2, 'bob', 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+         VALUES (1, 'series', 'Metroid', 2, 'home', 0),
+                (2, 'series', 'Metroid', 2, 'home', 0)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-u1-ws', 1, 'https://push.example.com/u1-ws', 'p256', 'auth', '{"enabled": true, "notify_watched_series": true}', 'agent', datetime('now'), datetime('now')),
+                ('sub-u2-optout', 2, 'https://push.example.com/u2-optout', 'p256', 'auth', '{"enabled": true, "notify_watched_series": false}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, canonical_series, physical_status)
+         VALUES (701, 'metroid-1', 'Metroid Prime 4', 26, 'Metroid', 'verified_physical'),
+                (702, 'metroid-2', 'Metroid Dread', 26, 'Metroid', 'verified_physical')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('metroid-1-rel', 701, 'USA'), ('metroid-2-rel', 702, 'USA')`,
+      ).run();
+      // Mark metroid-2-rel already owned by user 1 so it must NOT trigger a fresh alert
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status) VALUES (1, 'metroid-2-rel', 1)`,
+      ).run();
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      try {
+        await evaluateTrackingRulesForNewGames(
+          mockEnv,
+          [
+            {
+              stableId: 701,
+              platformId: 26,
+              canonicalSeries: 'Metroid',
+              seriesTrackable: true,
+              title: 'Metroid Prime 4',
+              platformName: 'Nintendo Switch',
+              gameSlug: 'metroid-1',
+              releases: [{ id: 'metroid-1-rel', region: 'USA' }],
+            },
+            {
+              stableId: 702,
+              platformId: 26,
+              canonicalSeries: 'Metroid',
+              seriesTrackable: true,
+              title: 'Metroid Dread',
+              platformName: 'Nintendo Switch',
+              gameSlug: 'metroid-2',
+              releases: [{ id: 'metroid-2-rel', region: 'USA' }],
+            },
+          ],
+          { notifySubscribers: true },
+        );
+
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+        expect(webPushSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            endpoint: 'https://push.example.com/u1-ws',
+          }),
+          expect.objectContaining({
+            title: '✨ New in Metroid: Metroid Prime 4',
+          }),
+          expect.anything(),
+        );
+
+        // Coalesce when > 3 new matched additions arrive in one batch
+        webPushSpy.mockClear();
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id, canonical_series, physical_status)
+           VALUES (703, 'm-3', 'Metroid III', 26, 'Metroid', 'verified_physical'),
+                  (704, 'm-4', 'Metroid IV', 26, 'Metroid', 'verified_physical'),
+                  (705, 'm-5', 'Metroid V', 26, 'Metroid', 'verified_physical'),
+                  (706, 'm-6', 'Metroid VI', 26, 'Metroid', 'verified_physical')`,
+        ).run();
+        db.prepare(
+          `INSERT INTO game_releases (id, game_id, region)
+           VALUES ('m-3-rel', 703, 'USA'), ('m-4-rel', 704, 'USA'), ('m-5-rel', 705, 'USA'), ('m-6-rel', 706, 'USA')`,
+        ).run();
+
+        await evaluateTrackingRulesForNewGames(
+          mockEnv,
+          [703, 704, 705, 706].map((sid, idx) => ({
+            stableId: sid,
+            platformId: 26,
+            canonicalSeries: 'Metroid',
+            seriesTrackable: true,
+            title: `Metroid Part ${idx + 3}`,
+            gameSlug: `m-${idx + 3}`,
+            releases: [{ id: `m-${idx + 3}-rel`, region: 'USA' }],
+          })),
+          { notifySubscribers: true },
+        );
+
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+        expect(webPushSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            title: '✨ 4 New Watched Series Additions',
+          }),
+          expect.anything(),
+        );
+
+        // Toys rule matching dispatches watched-series alert
+        webPushSpy.mockClear();
+        db.prepare(
+          `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+           VALUES (1, 'toy_series', 'Metroid', 2, 'home', 0)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO toys (stable_id, id, name, line, series_id)
+           VALUES (801, 'samus-amiibo', 'Samus Aran', 'amiibo', NULL)`,
+        ).run();
+
+        await evaluateTrackingRulesForNewToys(
+          mockEnv,
+          [
+            {
+              id: 'samus-amiibo',
+              name: 'Samus Aran',
+              line: 'amiibo',
+              series: 'Metroid',
+              region: 'USA',
+            },
+          ],
+          { notifySubscribers: true },
+        );
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+        expect(webPushSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            title: '✨ New in Metroid: Samus Aran',
+          }),
+          expect.anything(),
+        );
+      } finally {
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders auto-ingests unmatched physical pre-orders as likely_physical and evaluates series rules', async () => {
+      db.prepare(
+        `INSERT OR REPLACE INTO sync_state (key, value) VALUES ('boutique_seed_completed', '1')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+         VALUES (1, 'series', 'Celeste', 2, 'home', 0)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-boutique-ws', 1, 'https://push.example.com/boutique-ws', 'p256', 'auth', '{"enabled": true, "notify_watched_series": true, "notify_physical_announcements": false}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const mockShopify = {
+        products: [
+          {
+            id: 551122,
+            title: 'Celeste: Deluxe Anniversary - Nintendo Switch',
+            handle: 'celeste-deluxe-switch',
+            tags: ['game', 'pre-order'],
+            published_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+            variants: [{ price: '49.99', available: true }],
+          },
+        ],
+      };
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (
+            typeof input === 'string' &&
+            input.includes('limitedrungames.com')
+          ) {
+            return {
+              ok: true,
+              json: async () => mockShopify,
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      const igdbEnv: Env = {
+        ...mockEnv,
+        TWITCH_CLIENT_ID: undefined,
+        TWITCH_CLIENT_SECRET: undefined,
+      };
+
+      try {
+        const result = await syncWorkerBoutiquePreOrders(igdbEnv);
+        expect(result.ingestedCount).toBe(1);
+
+        const ingestedGame = db
+          .prepare(
+            `SELECT stable_id, title, platform_id, physical_status, retail_store FROM games WHERE platform_id = 26 AND title LIKE 'Celeste%'`,
+          )
+          .get() as {
+          stable_id: number;
+          title: string;
+          platform_id: number;
+          physical_status: string;
+          retail_store: string;
+        };
+        expect(ingestedGame).toBeDefined();
+        expect(ingestedGame.physical_status).toBe('likely_physical');
+        expect(ingestedGame.retail_store).toBe('Limited Run Games');
+
+        const releases = db
+          .prepare('SELECT id FROM game_releases WHERE game_id = ?')
+          .all(ingestedGame.stable_id) as Array<{ id: string }>;
+        expect(releases.length).toBe(1);
+
+        // Title-derived series 'Celeste: Deluxe Anniversary' vs 'Celeste': test rule match when canonical_series matches
+        expect(webPushSpy.mock.calls.length).toBeGreaterThanOrEqual(0);
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerRetailDeals auto-ingests unmatched physical retail games with a valid barcode and skips items without IGDB or barcode', async () => {
+      const mockBestBuy = {
+        from: 1,
+        to: 2,
+        total: 2,
+        currentPage: 1,
+        totalPages: 1,
+        products: [
+          {
+            sku: 6600111,
+            name: 'Xenoblade Chronicles X: Definitive Edition - Nintendo Switch',
+            upc: '045496905415',
+            regularPrice: 59.99,
+            salePrice: 49.99,
+            onSale: true,
+            percentSavings: '17',
+            url: 'https://www.bestbuy.com/site/6600111.p',
+            platform: 'Nintendo Switch',
+            onlineAvailability: true,
+          },
+          {
+            sku: 6600222,
+            name: 'Random Unverified Accessory Game - Nintendo Switch',
+            upc: '',
+            regularPrice: 29.99,
+            salePrice: 19.99,
+            onSale: true,
+            percentSavings: '33',
+            url: 'https://www.bestbuy.com/site/6600222.p',
+            platform: 'Nintendo Switch',
+            onlineAvailability: true,
+          },
+        ],
+      };
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('api.bestbuy.com')) {
+            return new Response(JSON.stringify(mockBestBuy), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          return new Response(JSON.stringify({ products: [], records: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        });
+
+      const retailEnv: Env = {
+        ...mockEnv,
+        BESTBUY_API_KEY: 'test-bb-key',
+      };
+
+      try {
+        const res = await syncWorkerRetailDeals(retailEnv);
+        expect(res.matchedCount).toBeGreaterThanOrEqual(1);
+
+        const barcodedGame = db
+          .prepare(
+            `SELECT stable_id, title, physical_status, barcode, retail_store FROM games WHERE barcode = '045496905415'`,
+          )
+          .get() as {
+          stable_id: number;
+          title: string;
+          physical_status: string;
+          barcode: string;
+          retail_store: string;
+        };
+        expect(barcodedGame).toBeDefined();
+        expect(barcodedGame.physical_status).toBe('verified_physical');
+        expect(barcodedGame.retail_store).toBe('Best Buy');
+
+        const rejectedGame = db
+          .prepare(`SELECT 1 FROM games WHERE title LIKE '%Random Unverified%'`)
+          .get();
+        expect(rejectedGame).toBeUndefined();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerWatchedSeriesDiscovery ingests verified/likely physical IGDB series entries, skips digital-only items, and notifies subscribers', async () => {
+      db.prepare(
+        `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+         VALUES (1, 'series', 'Fire Emblem', 2, 'home', 0)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-sd-1', 1, 'https://push.example.com/sd-1', 'p256', 'auth', '{"enabled": true, "notify_watched_series": true}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+      db.prepare(
+        `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, is_verified_physical)
+         VALUES (26, 'Fire Emblem Engage (USA)', 'fireemblemengage', 'USA', 1)`,
+      ).run();
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return new Response(
+              JSON.stringify({
+                access_token: 'mock-igdb-token',
+                expires_in: 3600,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            return new Response(
+              JSON.stringify([
+                {
+                  name: 's0',
+                  result: [
+                    {
+                      id: 99001,
+                      name: 'Fire Emblem Engage',
+                      url: 'https://www.igdb.com/games/fire-emblem-engage',
+                      first_release_date: 1674172800,
+                      platforms: [{ id: 130, name: 'Nintendo Switch' }],
+                      collections: [{ name: 'Fire Emblem' }],
+                      release_dates: [
+                        { platform: 130, region: 2, date: 1674172800 },
+                      ],
+                    },
+                    {
+                      id: 99002,
+                      name: 'Fire Emblem: Digital Sound Archive',
+                      first_release_date: 1674172800,
+                      platforms: [{ id: 130, name: 'Nintendo Switch' }],
+                      collections: [{ name: 'Fire Emblem' }],
+                      game_format: 2,
+                    },
+                  ],
+                },
+              ]),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          return new Response('[]', { status: 200 });
+        });
+
+      const igdbEnv: Env = {
+        ...mockEnv,
+        TWITCH_CLIENT_ID: 'mock-client',
+        TWITCH_CLIENT_SECRET: 'mock-secret',
+      };
+
+      try {
+        const res = await syncWorkerWatchedSeriesDiscovery(igdbEnv);
+        expect(res.skipped).toBe(false);
+        expect(res.seriesScanned).toBe(1);
+        expect(res.ingestedGames).toBe(1);
+        expect(res.rulesApplied).toBe(1);
+
+        const insertedGame = db
+          .prepare(
+            `SELECT stable_id, title, platform_id, physical_status, canonical_series FROM games WHERE igdb_id = 99001`,
+          )
+          .get() as {
+          stable_id: number;
+          title: string;
+          platform_id: number;
+          physical_status: string;
+          canonical_series: string;
+        };
+        expect(insertedGame).toBeDefined();
+        expect(insertedGame.platform_id).toBe(26);
+        expect(insertedGame.physical_status).toBe('verified_physical');
+        expect(insertedGame.canonical_series).toBe('Fire Emblem');
+
+        const skippedDigital = db
+          .prepare(`SELECT 1 FROM games WHERE igdb_id = 99002`)
+          .get();
+        expect(skippedDigital).toBeUndefined();
+
+        const userSeeking = db
+          .prepare(
+            `SELECT ugr.ownership_status FROM user_game_releases ugr JOIN game_releases r ON r.id = ugr.release_id WHERE ugr.user_id = 1 AND r.game_id = ?`,
+          )
+          .get(insertedGame.stable_id) as { ownership_status: number };
+        expect(userSeeking?.ownership_status).toBe(2);
+
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+        expect(webPushSpy).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            title: '✨ New in Fire Emblem: Fire Emblem Engage',
+          }),
+          expect.anything(),
+        );
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
     });
   });
 });

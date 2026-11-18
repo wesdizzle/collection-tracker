@@ -324,6 +324,32 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             </div>
           </div>
 
+          <!-- Section 2b: Watched Series Additions -->
+          <div class="setting-section">
+            <div class="section-header-row flex items-center justify-between">
+              <div>
+                <div class="font-bold text-sm flex items-center gap-xs">
+                  <app-icon name="sparkles" [size]="16" />
+                  <span>Watched Series Additions</span>
+                </div>
+                <div class="text-2xs text-muted mt-3xs">
+                  Dispatches push alert when new physical games or amiibo
+                  matching your watched series are added
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn-toggle"
+                [class.active]="localPrefs.notify_watched_series !== false"
+                [class.inactive]="localPrefs.notify_watched_series === false"
+                (click)="toggleNotifyWatchedSeries()"
+                aria-label="Toggle watched series addition notifications"
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </div>
+          </div>
+
           <!-- Section 3: Retail Deals & Price Drops -->
           <div class="setting-section">
             <div class="section-header-row">
@@ -1309,6 +1335,13 @@ export class NotificationSettingsModalComponent {
     this._localPrefs.update((p) => ({
       ...p,
       notify_game_releases: p.notify_game_releases === false ? true : false,
+    }));
+  }
+
+  public toggleNotifyWatchedSeries(): void {
+    this._localPrefs.update((p) => ({
+      ...p,
+      notify_watched_series: p.notify_watched_series === false ? true : false,
     }));
   }
 
