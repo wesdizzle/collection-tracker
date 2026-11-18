@@ -14,6 +14,7 @@ import {
 } from './auth';
 import worker, {
   Env,
+  MAX_GAMES_LITE_SNAPSHOT_BYTES,
   R2_META_LITE_KEY,
   R2_TOYS_LITE_KEY,
   R2_GAMES_ACTIVE_LITE_KEY,
@@ -524,6 +525,135 @@ describe('Worker API Logic', () => {
         .prepare("SELECT value FROM sync_state WHERE key = 'db_dirty'")
         .get() as { value: string };
       expect(afterRow.value).toBe('0');
+    } finally {
+      globalThis.Date = originalDate;
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('performScheduledBackup omits bulk games/game_releases when catalog > 500 rows while writing active lite snapshots and accepting >8MB lite backups', async () => {
+    expect(MAX_GAMES_LITE_SNAPSHOT_BYTES).toBe(16_000_000);
+
+    const insertMany = db.transaction(() => {
+      const stmt = db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, sort_index) VALUES (?, ?, ?, 1, ?)`,
+      );
+      for (let sid = 2; sid <= 505; sid++) {
+        stmt.run(sid, `game-${sid}`, `Catalog Game ${sid}`, sid);
+      }
+    });
+    insertMany();
+
+    const res = await performScheduledBackup(mockEnv, false);
+    expect(res.rowCount).toBeGreaterThan(0);
+
+    const latestRaw = mockBucket.storage.get('snapshots/latest.json');
+    expect(latestRaw).toBeDefined();
+    const latestParsed = JSON.parse(latestRaw!) as {
+      tables: Record<string, unknown[]>;
+    };
+    expect(latestParsed.tables['games']).toBeUndefined();
+    expect(latestParsed.tables['game_releases']).toBeUndefined();
+    expect(Array.isArray(latestParsed.tables['user_game_releases'])).toBe(true);
+
+    const gamesLiteRaw = mockBucket.storage.get(R2_GAMES_ACTIVE_LITE_KEY);
+    expect(gamesLiteRaw).toBeDefined();
+    const gamesLiteParsed = JSON.parse(gamesLiteRaw!) as {
+      tables: { games: Array<{ stable_id: number }> };
+    };
+    expect(gamesLiteParsed.tables.games.map((g) => g.stable_id)).toEqual([1]);
+    expect(mockBucket.metadata.get(R2_GAMES_ACTIVE_LITE_KEY)?.['date']).toMatch(
+      /^\d{4}-\d{2}-\d{2}$/,
+    );
+  });
+
+  it('daytime cron auto-recovers missed daily R2 catalog chunks and stale lite snapshots when manifest version is from a previous UTC day', async () => {
+    db.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('db_dirty', '0', datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = '0'`,
+    ).run();
+
+    mockBucket.storage.clear();
+    mockBucket.metadata.clear();
+
+    await mockBucket.put('snapshots/latest.json', JSON.stringify({ ok: true }));
+    await mockBucket.put(
+      R2_GAMES_ACTIVE_LITE_KEY,
+      JSON.stringify({ stale: true }),
+      {
+        customMetadata: { date: '2026-11-17' },
+      },
+    );
+    await mockBucket.put(
+      R2_CATALOG_MANIFEST_KEY,
+      JSON.stringify({
+        version: '2026-11-17:1:1',
+        timestamp: '2026-11-17T17:01:46.339Z',
+        totalRows: 1,
+        chunkSize: 3500,
+        chunkCount: 1,
+        maxStableId: 1,
+        toysTotalRows: 1,
+        toysChunkCount: 1,
+      }),
+      {
+        customMetadata: {
+          version: '2026-11-17:1:1',
+          totalRows: '1',
+          chunkCount: '1',
+        },
+      },
+    );
+
+    const scheduledEvent = {
+      cron: '*/30 * * * *',
+      type: 'scheduled',
+      scheduledTime: Date.now(),
+    } as unknown as ScheduledEvent;
+
+    const originalDate = globalThis.Date;
+    const mockNow = new Date('2026-11-18T12:00:00Z');
+    globalThis.Date = class extends originalDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) {
+          super(mockNow.getTime());
+        } else {
+          super(...(args as [string | number | Date]));
+        }
+      }
+      static override now() {
+        return mockNow.getTime();
+      }
+    } as unknown as typeof Date;
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({ products: [] }),
+          text: async () => '',
+        } as unknown as Response;
+      });
+
+    try {
+      await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+
+      expect(mockBucket.metadata.get(R2_GAMES_ACTIVE_LITE_KEY)?.['date']).toBe(
+        '2026-11-18',
+      );
+      const updatedManifestRaw = mockBucket.storage.get(
+        R2_CATALOG_MANIFEST_KEY,
+      );
+      expect(updatedManifestRaw).toBeDefined();
+      const updatedManifest = JSON.parse(updatedManifestRaw!) as {
+        version: string;
+        totalRows: number;
+      };
+      expect(updatedManifest.version.startsWith('2026-11-18:')).toBe(true);
+      expect(updatedManifest.totalRows).toBeGreaterThanOrEqual(1);
+      expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(true);
     } finally {
       globalThis.Date = originalDate;
       fetchSpy.mockRestore();

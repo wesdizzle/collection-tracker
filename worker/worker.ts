@@ -969,7 +969,7 @@ export const X_CATALOG_TOTAL_ROWS_HEADER = 'X-Catalog-Total-Rows';
 export const X_CATALOG_CHUNK_SIZE_HEADER = 'X-Catalog-Chunk-Size';
 export const X_CATALOG_CHUNK_COUNT_HEADER = 'X-Catalog-Chunk-Count';
 export const MAX_FALLBACK_SNAPSHOT_BYTES = 5_000_000;
-export const MAX_GAMES_LITE_SNAPSHOT_BYTES = 8_000_000;
+export const MAX_GAMES_LITE_SNAPSHOT_BYTES = 16_000_000;
 
 export interface CatalogManifest {
   version: string;
@@ -1006,6 +1006,7 @@ export function getCatalogChunkR2Key(chunkIndex: number): string {
 }
 
 const LITE_GAMES_SELECT_COLS = `stable_id, id, title, series, platform_id, sort_index, image_url, igdb_id, genres, region, collections, franchises, canonical_series, manually_verified, CASE WHEN metadata_json LIKE '%alternative_names%' OR metadata_json LIKE '%game_localizations%' THEN metadata_json ELSE NULL END AS metadata_json, igdb_url, physical_status, verification_tier, barcode, release_medium, bundle_parent_id, bundle_disc_number, retail_price, retail_regular_price, retail_discount_pct, retail_on_sale, retail_store, retail_url, retail_updated_at`;
+const LITE_GAME_RELEASES_SELECT_COLS = `id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, image_url, canonical_release_id`;
 
 export async function loadMetaSnapshotForFallback(
   bucket?: R2Bucket,
@@ -1134,7 +1135,7 @@ export async function writeLiteBackupSnapshots(
   ]);
 
   const countRow = (await env.DB.prepare(
-    'SELECT COUNT(*) AS cnt FROM games',
+    GAMES_HAS_MANY_ROWS_QUERY,
   ).first()) as { cnt?: number } | null;
   const totalGamesCount = Number(countRow?.cnt ?? 0);
 
@@ -1210,7 +1211,7 @@ export async function writeLiteBackupSnapshots(
     );
     activeReleases = await queryChunkedByColumn(
       env.DB,
-      'SELECT * FROM game_releases WHERE game_id',
+      `SELECT ${LITE_GAME_RELEASES_SELECT_COLS} FROM game_releases WHERE game_id`,
       stableIds,
     );
   }
@@ -1235,6 +1236,11 @@ export async function writeLiteBackupSnapshots(
     });
   };
 
+  const liteCustomMetadata = {
+    date: timestamp.slice(0, 10),
+    timestamp,
+  };
+
   await Promise.all([
     env.BACKUP_BUCKET.put(
       R2_META_LITE_KEY,
@@ -1246,7 +1252,10 @@ export async function writeLiteBackupSnapshots(
         journal_entries,
         sync_state,
       }),
-      { httpMetadata: { contentType: 'application/json' } },
+      {
+        httpMetadata: { contentType: 'application/json' },
+        customMetadata: liteCustomMetadata,
+      },
     ),
     env.BACKUP_BUCKET.put(
       R2_TOYS_LITE_KEY,
@@ -1258,7 +1267,10 @@ export async function writeLiteBackupSnapshots(
         toy_game_compatibility,
         user_toys,
       }),
-      { httpMetadata: { contentType: 'application/json' } },
+      {
+        httpMetadata: { contentType: 'application/json' },
+        customMetadata: liteCustomMetadata,
+      },
     ),
     env.BACKUP_BUCKET.put(
       R2_GAMES_ACTIVE_LITE_KEY,
@@ -1271,7 +1283,10 @@ export async function writeLiteBackupSnapshots(
         user_games,
         user_game_releases,
       }),
-      { httpMetadata: { contentType: 'application/json' } },
+      {
+        httpMetadata: { contentType: 'application/json' },
+        customMetadata: liteCustomMetadata,
+      },
     ),
   ]);
 
@@ -3695,7 +3710,19 @@ export async function performScheduledBackup(
   skipped?: boolean;
   prunedCount?: number;
 }> {
-  const res = await kitPerformScheduledBackup(env, BACKUP_TABLES, {
+  let hasManyGames: boolean;
+  try {
+    const countRow = (await env.DB.prepare(
+      GAMES_HAS_MANY_ROWS_QUERY,
+    ).first()) as { cnt?: number } | null;
+    hasManyGames = Number(countRow?.cnt ?? 0) > 500;
+  } catch {
+    hasManyGames = false;
+  }
+  const tablesToDump = hasManyGames
+    ? BACKUP_TABLES.filter((t) => t !== 'games' && t !== 'game_releases')
+    : BACKUP_TABLES;
+  const res = await kitPerformScheduledBackup(env, tablesToDump, {
     isDaily,
     skipIfUnchanged,
   });
@@ -10532,10 +10559,28 @@ export default {
               .first<{ value: string }>()
               .catch(() => null),
           ]);
-        if (hasLatest && !hasGamesLite) {
+        const manifestVersion =
+          hasCatalogManifest?.customMetadata?.['version'] || '';
+        const isManifestFromPreviousDay = Boolean(
+          hasLatest &&
+          hasCatalogManifest &&
+          manifestVersion &&
+          !manifestVersion.startsWith(todayDateStr),
+        );
+        const liteDate = hasGamesLite?.customMetadata?.['date'] || '';
+        const isGamesLiteStale = Boolean(
+          hasLatest &&
+          hasGamesLite &&
+          isManifestFromPreviousDay &&
+          liteDate !== todayDateStr,
+        );
+        if (hasLatest && (!hasGamesLite || isGamesLiteStale)) {
           await writeLiteBackupSnapshots(env);
         }
-        if (chunkCursorRow?.value || (hasLatest && !hasCatalogManifest)) {
+        if (
+          chunkCursorRow?.value ||
+          (hasLatest && (!hasCatalogManifest || isManifestFromPreviousDay))
+        ) {
           await writeCatalogChunksToR2(env, { maxChunksPerRun: 2 });
         }
       } catch (liteBackfillErr) {

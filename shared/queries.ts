@@ -215,32 +215,28 @@ export const USER_TOYS_OVERLAY_QUERY = `
 `;
 
 export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
-  AND g.stable_id IN (
-    SELECT r_act.game_id
-    FROM user_game_releases ugr_act
-    JOIN game_releases r_act ON r_act.id = ugr_act.release_id
-    WHERE ugr_act.user_id = ?
-      AND (
-        ugr_act.ownership_status > 0
-        OR ugr_act.backup_status > 0
-        OR ugr_act.has_case > 0
-        OR ugr_act.has_manual > 0
-      )
-    UNION
-    SELECT ug_act.game_id
-    FROM user_games ug_act
-    WHERE ug_act.user_id = ?
-      AND (ug_act.play_status > 0 OR ug_act.queued > 0)
-    UNION
-    SELECT g_sale.stable_id FROM games g_sale WHERE g_sale.retail_on_sale = 1
-    UNION
-    SELECT g_phys.stable_id FROM games g_phys WHERE g_phys.physical_status IN ('likely_physical', 'physical_pending', 'not_yet_physical')
-    UNION
-    SELECT +g_bun.stable_id FROM games g_bun WHERE g_bun.bundle_parent_id > 0
-    UNION
-    SELECT g_bun2.bundle_parent_id FROM games g_bun2 WHERE g_bun2.bundle_parent_id > 0
-    UNION
-    SELECT g_plat0.stable_id FROM games g_plat0 WHERE g_plat0.platform_id = 0
+  AND (
+    g.stable_id IN (
+      SELECT r_act.game_id
+      FROM user_game_releases ugr_act
+      JOIN game_releases r_act ON r_act.id = ugr_act.release_id
+      WHERE ugr_act.user_id = ?
+        AND (
+          ugr_act.ownership_status > 0
+          OR ugr_act.backup_status > 0
+          OR ugr_act.has_case > 0
+          OR ugr_act.has_manual > 0
+        )
+      UNION
+      SELECT ug_act.game_id
+      FROM user_games ug_act
+      WHERE ug_act.user_id = ?
+        AND (ug_act.play_status > 0 OR ug_act.queued > 0)
+    )
+    OR g.retail_on_sale = 1
+    OR g.physical_status IN ('likely_physical', 'physical_pending', 'not_yet_physical')
+    OR g.bundle_parent_id > 0
+    OR g.platform_id = 0
   )
   AND (
     COALESCE(ugr.ownership_status, 0) > 0
@@ -263,8 +259,6 @@ export const ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE = `
     SELECT g_phys.stable_id FROM games g_phys WHERE g_phys.physical_status IN ('likely_physical', 'physical_pending', 'not_yet_physical')
     UNION
     SELECT +g_bun.stable_id FROM games g_bun WHERE g_bun.bundle_parent_id > 0
-    UNION
-    SELECT g_bun2.bundle_parent_id FROM games g_bun2 WHERE g_bun2.bundle_parent_id > 0
     UNION
     SELECT g_plat0.stable_id FROM games g_plat0 WHERE g_plat0.platform_id = 0
   )

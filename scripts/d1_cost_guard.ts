@@ -119,72 +119,154 @@ export const MAX_SECONDARY_INDEXES: Record<string, number> = {
   journal_entries: 1,
 };
 
+export const D1_MAX_COMPOUND_SELECT_TERMS = 5;
+
+/**
+ * Counts the maximum number of compound `SELECT` branches joined by `UNION`,
+ * `UNION ALL`, `INTERSECT`, or `EXCEPT` within any single parenthesis scope.
+ * Cloudflare D1 enforces SQLite's `SQLITE_MAX_COMPOUND_SELECT = 5` limit per scope.
+ */
+export function getMaxCompoundSelectTerms(sql: string): number {
+  const scopeTermCounts: number[] = [1];
+  let maxTerms = 1;
+  let i = 0;
+
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = i + 1 < sql.length ? sql[i + 1] : '';
+
+    if (ch === '-' && next === '-') {
+      i += 2;
+      while (i < sql.length && sql[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (
+        i < sql.length &&
+        !(sql[i] === '*' && i + 1 < sql.length && sql[i + 1] === '/')
+      ) {
+        i++;
+      }
+      i += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const quote = ch;
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === quote) {
+          if (i + 1 < sql.length && sql[i + 1] === quote) {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (ch === '[') {
+      i++;
+      while (i < sql.length && sql[i] !== ']') i++;
+      i++;
+      continue;
+    }
+    if (ch === '(') {
+      scopeTermCounts.push(1);
+      i++;
+      continue;
+    }
+    if (ch === ')') {
+      if (scopeTermCounts.length > 1) {
+        scopeTermCounts.pop();
+      }
+      i++;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(ch)) {
+      const start = i;
+      i++;
+      while (i < sql.length && /[A-Za-z0-9_]/.test(sql[i])) i++;
+      const word = sql.slice(start, i).toUpperCase();
+      if (word === 'UNION' || word === 'INTERSECT' || word === 'EXCEPT') {
+        const nextCount = ++scopeTermCounts[scopeTermCounts.length - 1];
+        if (nextCount > maxTerms) {
+          maxTerms = nextCount;
+        }
+      }
+      continue;
+    }
+    i++;
+  }
+
+  return maxTerms;
+}
+
 export function runCollectionStaticSchemaCostGuard(
   schemaPath = SCHEMA_SQL_PATH,
 ): StaticSchemaCostGuardResult {
-  return runStaticSchemaCostGuard({
-    schemaSqlPaths: [schemaPath],
-    maxSecondaryIndexes: MAX_SECONDARY_INDEXES,
-    criticalQueries: [
-      {
-        name: 'user lookup by id',
-        sql: 'SELECT id, username, oidc_sub, is_public, home_region FROM users WHERE id = ?',
-        params: [1],
-      },
-      {
-        name: 'user lookup by username',
-        sql: 'SELECT id, username, oidc_sub, is_public, home_region FROM users WHERE username = ? COLLATE NOCASE',
-        params: ['alice'],
-      },
-      {
-        name: 'user lookup by oidc_sub',
-        sql: 'SELECT id, username, oidc_sub FROM users WHERE oidc_sub = ? AND oidc_sub IS NOT NULL',
-        params: ['sub-123'],
-      },
-      {
-        name: 'game lookup by stable_id',
-        sql: 'SELECT stable_id, id, title FROM games WHERE stable_id = ?',
-        params: [1],
-      },
-      {
-        name: 'game lookup by igdb_id',
-        sql: 'SELECT stable_id, id, title FROM games WHERE igdb_id = ? AND igdb_id IS NOT NULL',
-        params: [100],
-      },
-      {
-        name: 'game lookup by title COLLATE NOCASE',
-        sql: 'SELECT stable_id, id, title FROM games WHERE title = ? COLLATE NOCASE',
-        params: ['Super Mario Odyssey'],
-      },
-      {
-        name: 'releases lookup by game_id',
-        sql: 'SELECT id, game_id, region, release_date FROM game_releases WHERE game_id = ?',
-        params: [1],
-      },
-      {
-        name: 'journal lookup by (user_id, item_type, item_id)',
-        sql: 'SELECT id, purchase_date, price_paid, notes FROM journal_entries WHERE user_id = ? AND item_type = ? AND item_id = ?',
-        params: [1, 'game', '1'],
-      },
-      {
-        name: 'backup apply: source completeness lookup',
-        sql: 'SELECT release_id, ownership_status, has_case, has_manual FROM user_game_releases WHERE user_id = ? AND release_id IN (?)',
-        params: [1, 'rel-1'],
-      },
-      {
-        name: 'backup apply: clear source release ownership',
-        sql: `UPDATE user_game_releases
+  const criticalQueries = [
+    {
+      name: 'user lookup by id',
+      sql: 'SELECT id, username, oidc_sub, is_public, home_region FROM users WHERE id = ?',
+      params: [1],
+    },
+    {
+      name: 'user lookup by username',
+      sql: 'SELECT id, username, oidc_sub, is_public, home_region FROM users WHERE username = ? COLLATE NOCASE',
+      params: ['alice'],
+    },
+    {
+      name: 'user lookup by oidc_sub',
+      sql: 'SELECT id, username, oidc_sub FROM users WHERE oidc_sub = ? AND oidc_sub IS NOT NULL',
+      params: ['sub-123'],
+    },
+    {
+      name: 'game lookup by stable_id',
+      sql: 'SELECT stable_id, id, title FROM games WHERE stable_id = ?',
+      params: [1],
+    },
+    {
+      name: 'game lookup by igdb_id',
+      sql: 'SELECT stable_id, id, title FROM games WHERE igdb_id = ? AND igdb_id IS NOT NULL',
+      params: [100],
+    },
+    {
+      name: 'game lookup by title COLLATE NOCASE',
+      sql: 'SELECT stable_id, id, title FROM games WHERE title = ? COLLATE NOCASE',
+      params: ['Super Mario Odyssey'],
+    },
+    {
+      name: 'releases lookup by game_id',
+      sql: 'SELECT id, game_id, region, release_date FROM game_releases WHERE game_id = ?',
+      params: [1],
+    },
+    {
+      name: 'journal lookup by (user_id, item_type, item_id)',
+      sql: 'SELECT id, purchase_date, price_paid, notes FROM journal_entries WHERE user_id = ? AND item_type = ? AND item_id = ?',
+      params: [1, 'game', '1'],
+    },
+    {
+      name: 'backup apply: source completeness lookup',
+      sql: 'SELECT release_id, ownership_status, has_case, has_manual FROM user_game_releases WHERE user_id = ? AND release_id IN (?)',
+      params: [1, 'rel-1'],
+    },
+    {
+      name: 'backup apply: clear source release ownership',
+      sql: `UPDATE user_game_releases
               SET ownership_status = 0,
                   has_case = 0,
                   has_manual = 0,
                   backup_status = CASE WHEN ? = 1 THEN 0 ELSE backup_status END
               WHERE user_id = ? AND release_id = ?
                 AND (ownership_status != 0 OR has_case != 0 OR has_manual != 0 OR (? = 1 AND backup_status != 0))`,
-        params: [1, 1, 'rel-1', 1],
-      },
-      {
-        name: 'backup apply: target ownership + backup UPSERT',
-        sql: `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+      params: [1, 1, 'rel-1', 1],
+    },
+    {
+      name: 'backup apply: target ownership + backup UPSERT',
+      sql: `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
               SELECT ?, id, 1, ?, ?, ? FROM game_releases WHERE id = ?
               ON CONFLICT(user_id, release_id) DO UPDATE SET
                 ownership_status = 1,
@@ -195,89 +277,117 @@ export function runCollectionStaticSchemaCostGuard(
                  OR (? = 1 AND user_game_releases.backup_status IS NOT 1)
                  OR user_game_releases.has_case < excluded.has_case
                  OR user_game_releases.has_manual < excluded.has_manual`,
-        params: [1, 1, 1, 1, 'rel-2', 1, 1],
-      },
-      {
-        name: 'backup apply: setBackedUp UPSERT',
-        sql: `INSERT INTO user_game_releases (user_id, release_id, backup_status)
+      params: [1, 1, 1, 1, 'rel-2', 1, 1],
+    },
+    {
+      name: 'backup apply: setBackedUp UPSERT',
+      sql: `INSERT INTO user_game_releases (user_id, release_id, backup_status)
               SELECT ?, id, 1 FROM game_releases WHERE id = ?
               ON CONFLICT(user_id, release_id) DO UPDATE SET
                 backup_status = 1
               WHERE user_game_releases.backup_status IS NOT 1`,
-        params: [1, 'rel-1'],
-      },
-      {
-        name: 'canonical_releases min id bound',
-        sql: 'SELECT COALESCE(MIN(id), 0) as min_id FROM canonical_releases',
-        params: [],
-      },
-      {
-        name: 'canonical_releases max id bound',
-        sql: 'SELECT COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
-        params: [],
-      },
-      {
-        name: 'active tracking rules lookup by user_id and rule_type',
-        sql: "SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope, COALESCE(u.home_region, 'USA') as home_region FROM users u CROSS JOIN user_tracking_rules r WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')",
-        params: [],
-      },
-      {
-        name: 'user game releases overlay lookup by user_id',
-        sql: 'SELECT release_id, ownership_status, backup_status, has_case, has_manual FROM user_game_releases WHERE user_id = ? AND (ownership_status > 0 OR backup_status > 0 OR has_case > 0 OR has_manual > 0)',
-        params: [1],
-      },
-      {
-        name: 'user games overlay lookup by user_id',
-        sql: 'SELECT game_id, play_status, queued FROM user_games WHERE user_id = ? AND (play_status > 0 OR queued > 0)',
-        params: [1],
-      },
-      {
-        name: 'user toys overlay lookup by user_id',
-        sql: 'SELECT toy_id, ownership_status FROM user_toys WHERE user_id = ? AND ownership_status > 0',
-        params: [1],
-      },
-      {
-        name: 'same-day catalog delta games lookup by stable_id PK',
-        sql: 'SELECT g.stable_id, g.id, g.title, r.id as rel_id FROM games g LEFT JOIN game_releases r ON g.stable_id = r.game_id WHERE g.stable_id > ?',
-        params: [100],
-      },
-      {
-        name: 'same-day catalog delta toys lookup by stable_id PK',
-        sql: 'SELECT f.stable_id, f.id, f.name FROM toys f LEFT JOIN toy_series fs ON f.series_id = fs.id WHERE f.stable_id > ?',
-        params: [10],
-      },
-      {
-        name: 'catalog games chunk lookup by stable_id PK range',
-        sql: buildCatalogGamesChunkQuery(),
-        params: [0, 1500],
-      },
-      {
-        name: 'catalog games chunk upper stable_id bound lookup',
-        sql: CATALOG_GAMES_CHUNK_BOUND_QUERY,
-        params: [0, 1500],
-      },
-      {
-        name: 'games max stable_id bound',
-        sql: CATALOG_MAX_GAME_STABLE_ID_QUERY,
-        params: [],
-      },
-      {
-        name: 'toys max stable_id bound',
-        sql: CATALOG_MAX_TOY_STABLE_ID_QUERY,
-        params: [],
-      },
-      {
-        name: 'active games list query (authenticated)',
-        sql: `${buildGamesListQuery(1)} ${ACTIVE_GAMES_LIST_WHERE_CLAUSE}`,
-        params: [1, 1, 1, 1],
-      },
-      {
-        name: 'active games list query (public)',
-        sql: `${buildGamesListQuery(null)} ${ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE}`,
-        params: [],
-      },
-    ],
+      params: [1, 'rel-1'],
+    },
+    {
+      name: 'canonical_releases min id bound',
+      sql: 'SELECT COALESCE(MIN(id), 0) as min_id FROM canonical_releases',
+      params: [],
+    },
+    {
+      name: 'canonical_releases max id bound',
+      sql: 'SELECT COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
+      params: [],
+    },
+    {
+      name: 'active tracking rules lookup by user_id and rule_type',
+      sql: "SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope, COALESCE(u.home_region, 'USA') as home_region FROM users u CROSS JOIN user_tracking_rules r WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')",
+      params: [],
+    },
+    {
+      name: 'user game releases overlay lookup by user_id',
+      sql: 'SELECT release_id, ownership_status, backup_status, has_case, has_manual FROM user_game_releases WHERE user_id = ? AND (ownership_status > 0 OR backup_status > 0 OR has_case > 0 OR has_manual > 0)',
+      params: [1],
+    },
+    {
+      name: 'user games overlay lookup by user_id',
+      sql: 'SELECT game_id, play_status, queued FROM user_games WHERE user_id = ? AND (play_status > 0 OR queued > 0)',
+      params: [1],
+    },
+    {
+      name: 'user toys overlay lookup by user_id',
+      sql: 'SELECT toy_id, ownership_status FROM user_toys WHERE user_id = ? AND ownership_status > 0',
+      params: [1],
+    },
+    {
+      name: 'same-day catalog delta games lookup by stable_id PK',
+      sql: 'SELECT g.stable_id, g.id, g.title, r.id as rel_id FROM games g LEFT JOIN game_releases r ON g.stable_id = r.game_id WHERE g.stable_id > ?',
+      params: [100],
+    },
+    {
+      name: 'same-day catalog delta toys lookup by stable_id PK',
+      sql: 'SELECT f.stable_id, f.id, f.name FROM toys f LEFT JOIN toy_series fs ON f.series_id = fs.id WHERE f.stable_id > ?',
+      params: [10],
+    },
+    {
+      name: 'catalog games chunk lookup by stable_id PK range',
+      sql: buildCatalogGamesChunkQuery(),
+      params: [0, 1500],
+    },
+    {
+      name: 'catalog games chunk upper stable_id bound lookup',
+      sql: CATALOG_GAMES_CHUNK_BOUND_QUERY,
+      params: [0, 1500],
+    },
+    {
+      name: 'games max stable_id bound',
+      sql: CATALOG_MAX_GAME_STABLE_ID_QUERY,
+      params: [],
+    },
+    {
+      name: 'toys max stable_id bound',
+      sql: CATALOG_MAX_TOY_STABLE_ID_QUERY,
+      params: [],
+    },
+    {
+      name: 'active games list query (authenticated)',
+      sql: `${buildGamesListQuery(1)} ${ACTIVE_GAMES_LIST_WHERE_CLAUSE}`,
+      params: [1, 1, 1, 1],
+    },
+    {
+      name: 'active games list query (public)',
+      sql: `${buildGamesListQuery(null)} ${ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE}`,
+      params: [],
+    },
+  ];
+
+  const result = runStaticSchemaCostGuard({
+    schemaSqlPaths: [schemaPath],
+    maxSecondaryIndexes: MAX_SECONDARY_INDEXES,
+    criticalQueries,
   });
+
+  const compoundChecks = [
+    {
+      name: 'ACTIVE_GAMES_LIST_WHERE_CLAUSE',
+      sql: ACTIVE_GAMES_LIST_WHERE_CLAUSE,
+    },
+    {
+      name: 'ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE',
+      sql: ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE,
+    },
+    ...criticalQueries.map((q) => ({ name: q.name, sql: q.sql })),
+  ];
+  for (const check of compoundChecks) {
+    const terms = getMaxCompoundSelectTerms(check.sql);
+    if (terms > D1_MAX_COMPOUND_SELECT_TERMS) {
+      result.passed = false;
+      result.errors.push(
+        `Query '${check.name}' has ${terms} compound SELECT terms in one scope (Cloudflare D1 limit: ${D1_MAX_COMPOUND_SELECT_TERMS}).`,
+      );
+    }
+  }
+
+  return result;
 }
 
 export function auditSqlCost(

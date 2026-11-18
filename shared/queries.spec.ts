@@ -3,6 +3,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import {
+  D1_MAX_COMPOUND_SELECT_TERMS,
+  getMaxCompoundSelectTerms,
+} from '../scripts/d1_cost_guard.js';
+import {
   resolveLocalizedReleaseTitle,
   buildTargetedCompanionByCrcBatchQuery,
   buildCatalogGamesChunkQuery,
@@ -366,6 +370,12 @@ describe('resolveLocalizedReleaseTitle', () => {
       expect(chunkPlan.some((p) => p.detail.startsWith('SCAN '))).toBe(false);
 
       const activeAuthSql = `${buildGamesListQuery(1)} ${ACTIVE_GAMES_LIST_WHERE_CLAUSE}`;
+      expect(
+        getMaxCompoundSelectTerms(ACTIVE_GAMES_LIST_WHERE_CLAUSE),
+      ).toBeLessThanOrEqual(4);
+      expect(
+        getMaxCompoundSelectTerms(ACTIVE_GAMES_LIST_WHERE_CLAUSE),
+      ).toBeLessThan(D1_MAX_COMPOUND_SELECT_TERMS);
       const activeAuthRows = db
         .prepare(activeAuthSql)
         .all(1, 1, 1, 1) as Array<{
@@ -383,6 +393,12 @@ describe('resolveLocalizedReleaseTitle', () => {
       expect(activeAuthPlan.some((p) => p.detail === 'SCAN g')).toBe(false);
 
       const activePublicSql = `${buildGamesListQuery(null)} ${ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE}`;
+      expect(
+        getMaxCompoundSelectTerms(ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE),
+      ).toBeLessThanOrEqual(4);
+      expect(
+        getMaxCompoundSelectTerms(ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE),
+      ).toBeLessThan(D1_MAX_COMPOUND_SELECT_TERMS);
       const activePublicPlan = db
         .prepare(`EXPLAIN QUERY PLAN ${activePublicSql}`)
         .all() as Array<{ detail: string }>;
