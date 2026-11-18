@@ -45,7 +45,7 @@ import {
   formatJournalDate,
 } from '../../../../core/models/collection.models';
 import { combineLatest, of, Observable, firstValueFrom } from 'rxjs';
-import { switchMap, catchError } from 'rxjs/operators';
+import { switchMap, catchError, startWith } from 'rxjs/operators';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { NavigationHistoryService } from '../../../../core/services/navigation-history.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
@@ -106,9 +106,14 @@ export class ItemDetailComponent {
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     }
-    this.route.paramMap.subscribe(() => {
+    this.route.paramMap.subscribe((params) => {
       this.isEditingJournal.set(false);
       this.journalSaveError.set(null);
+      const itemType = params.get('type');
+      const id = params.get('id');
+      if ((itemType === 'game' || itemType === 'toy') && id) {
+        this.collectionService.setActiveTransitionItem(itemType, id);
+      }
       if (typeof window !== 'undefined') {
         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       }
@@ -156,11 +161,16 @@ export class ItemDetailComponent {
         }
 
         let fetch$: Observable<Game | Toy | Platform>;
+        let cached: Game | Toy | null = null;
         switch (type) {
           case 'game':
+            this.collectionService.setActiveTransitionItem('game', id);
+            cached = this.collectionService.getCachedGameById(id);
             fetch$ = this.collectionService.getGameById(id);
             break;
           case 'toy':
+            this.collectionService.setActiveTransitionItem('toy', id);
+            cached = this.collectionService.getCachedToyById(id);
             fetch$ = this.collectionService.getToyById(id);
             break;
           case 'platform':
@@ -171,7 +181,9 @@ export class ItemDetailComponent {
             return of(null);
         }
 
-        return fetch$.pipe(
+        const stream$ = cached ? fetch$.pipe(startWith(cached)) : fetch$;
+
+        return stream$.pipe(
           catchError((err) => {
             console.error(
               '[ItemDetailComponent] Failed to load item metadata:',
@@ -187,7 +199,23 @@ export class ItemDetailComponent {
     ),
   );
 
-  public item = computed(() => this.itemOverride() ?? this.fetchedItem());
+  private cachedRouteItem = computed<Game | Toy | null>(() => {
+    if (this.errorMessage()) return null;
+    const itemType = this.type();
+    const id = this.routeId();
+    if (!id) return null;
+    if (itemType === 'game') {
+      return this.collectionService.getCachedGameById(id);
+    }
+    if (itemType === 'toy') {
+      return this.collectionService.getCachedToyById(id);
+    }
+    return null;
+  });
+
+  public item = computed(
+    () => this.itemOverride() ?? this.fetchedItem() ?? this.cachedRouteItem(),
+  );
 
   /** --- Type-Safe Accessors for Computed Metadata --- */
   public game = computed(() =>
@@ -215,8 +243,8 @@ export class ItemDetailComponent {
     const t = this.toy();
     const rawId =
       itemType === 'game'
-        ? g?.id || g?.stable_id || this.routeId()
-        : t?.id || t?.stable_id || this.routeId();
+        ? this.routeId() || g?.id || g?.stable_id
+        : this.routeId() || t?.id || t?.stable_id;
     if (!rawId) return null;
     const safeId = String(rawId).replace(/[^a-zA-Z0-9_-]/g, '-');
     return `catalog-media-${itemType}-${safeId}`;

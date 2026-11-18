@@ -1,5 +1,9 @@
 import {
   Component,
+  ElementRef,
+  ViewChild,
+  computed,
+  inject,
   input,
   output,
   ChangeDetectionStrategy,
@@ -10,6 +14,7 @@ import {
   getMediaIconName,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
+import { CollectionService } from '../../../../core/services/collection.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
@@ -21,9 +26,35 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class GameCardComponent {
+  private readonly collectionService = inject(CollectionService);
+
+  @ViewChild('coverImg') coverImg?: ElementRef<HTMLImageElement>;
+
   game = input.required<Game>();
   showPlatform = input<boolean>(false);
   showBackupDetails = input<boolean>(true);
+
+  public readonly activeViewTransitionName = computed<string | null>(() => {
+    const active = this.collectionService.activeTransitionItem();
+    if (!active || active.type !== 'game') return null;
+    const g = this.game();
+    const matches =
+      active.id === String(g.id) ||
+      (g.game_id !== undefined && active.id === String(g.game_id)) ||
+      (g.stable_id !== undefined && active.id === String(g.stable_id));
+    return matches ? this.getCoverViewTransitionName(g) : null;
+  });
+
+  onCardActivate(): void {
+    const g = this.game();
+    const rawId = g.id || g.stable_id;
+    this.collectionService.setActiveTransitionItem('game', rawId);
+    const name = this.getCoverViewTransitionName(g);
+    const imgEl = this.coverImg?.nativeElement;
+    if (name && imgEl) {
+      imgEl.style.setProperty('view-transition-name', name);
+    }
+  }
 
   toggleStatus = output<{ event: MouseEvent; game: Game }>();
   toggleCase = output<{ event: MouseEvent; game: Game }>();

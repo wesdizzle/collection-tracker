@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { CollectionService } from '../../../../core/services/collection.service';
 import { GameCardComponent } from './game-card.component';
 import {
   Game,
@@ -36,7 +39,11 @@ describe('GameCardComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [GameCardComponent],
-      providers: [provideRouter([])],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(GameCardComponent);
@@ -201,5 +208,34 @@ describe('GameCardComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.backup-badge')).toBeNull();
+  });
+
+  it('scopes view-transition-name to the active card on pointerdown/activation', () => {
+    const cs = TestBed.inject(CollectionService);
+    cs.setActiveTransitionItem('game', null);
+    fixture.detectChanges();
+
+    const img = fixture.nativeElement.querySelector(
+      '.card-art',
+    ) as HTMLImageElement;
+    expect(component.activeViewTransitionName()).toBeNull();
+    expect(img.style.getPropertyValue('view-transition-name')).toBe('');
+
+    const link = fixture.nativeElement.querySelector(
+      '.card-primary-link',
+    ) as HTMLAnchorElement;
+    link.dispatchEvent(new Event('pointerdown'));
+    fixture.detectChanges();
+
+    expect(cs.activeTransitionItem()).toEqual({
+      type: 'game',
+      id: 'super-mario-galaxy-wii',
+    });
+    expect(component.activeViewTransitionName()).toBe(
+      'catalog-media-game-super-mario-galaxy-wii',
+    );
+    expect(img.style.getPropertyValue('view-transition-name')).toBe(
+      'catalog-media-game-super-mario-galaxy-wii',
+    );
   });
 });

@@ -282,6 +282,7 @@ a {
 .state-layer {
   position: relative;
   overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .state-layer::after {
@@ -295,10 +296,12 @@ a {
   pointer-events: none;
 }
 
-.state-layer:hover::after {
-  opacity: 0.08;
+@media (hover: hover) {
+  .state-layer:hover::after {
+    opacity: 0.08;
+  }
 }
-.state-layer:focus::after {
+.state-layer:focus-visible::after {
   opacity: 0.12;
 }
 .state-layer:active::after {

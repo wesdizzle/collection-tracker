@@ -1,30 +1,16 @@
-<div class="animate-expressive" data-version="final-v12">
-  @if (collectionService.catalogSyncProgress().active) {
-    <div
-      class="catalog-sync-banner"
-      data-testid="catalog-sync-banner"
-      role="status"
-      aria-live="polite"
-    >
-      <div class="catalog-sync-info">
-        <span class="catalog-sync-dot" aria-hidden="true"></span>
-        <span>
-          Syncing full catalog ({{
-            collectionService.catalogSyncProgress().loadedRows | number
-          }}
-          /
-          {{ collectionService.catalogSyncProgress().totalRows | number }}
-          games)
-        </span>
-      </div>
-      <div class="catalog-sync-track" aria-hidden="true">
-        <div
-          class="catalog-sync-fill"
-          [style.width.%]="collectionService.catalogSyncProgress().percent"
-        ></div>
-      </div>
-    </div>
-  }
+<div data-version="final-v12">
+  <kit-loading-banner
+    [active]="collectionService.catalogSyncProgress().active"
+    [percent]="collectionService.catalogSyncProgress().percent"
+    [message]="
+      'Syncing full catalog (' +
+      (collectionService.catalogSyncProgress().loadedRows | number) +
+      ' / ' +
+      (collectionService.catalogSyncProgress().totalRows | number) +
+      ' games)'
+    "
+    testId="catalog-sync-banner"
+  />
   <app-collection-filters
     [currentTab]="currentTab()"
     [platformGroups]="platformGroups()"
@@ -46,7 +32,7 @@
   </app-collection-filters>
 
   @if (currentTab() === 'games') {
-    <div class="groups-container animate-expressive animate-stagger-2">
+    <div class="groups-container">
       @for (group of groupedGames(); track group.platformName) {
         <div class="platform-section mb-xl">
           <header class="platform-header">
@@ -120,7 +106,7 @@
   }
 
   @if (currentTab() === 'toys') {
-    <div class="groups-container animate-expressive animate-stagger-2">
+    <div class="groups-container">
       @for (group of groupedToys(); track group.lineName) {
         <div class="platform-section mb-xl">
           <header class="platform-header">

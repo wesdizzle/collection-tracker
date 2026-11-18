@@ -3,14 +3,18 @@
     [routerLink]="['/toy', toy().id]"
     class="card-primary-link"
     [attr.aria-label]="toy().name"
+    (pointerdown)="onCardActivate()"
+    (click)="onCardActivate()"
+    (focus)="onCardActivate()"
   ></a>
   <div class="card-art-frame toy-frame">
     @if (toy().image_url) {
       <img
+        #coverImg
         [src]="toy().image_url"
         alt="Toy"
         class="card-art toy-art"
-        [style.view-transition-name]="getCoverViewTransitionName(toy())"
+        [style.view-transition-name]="activeViewTransitionName()"
         loading="lazy"
         decoding="async"
         referrerpolicy="no-referrer"

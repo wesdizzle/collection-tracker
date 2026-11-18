@@ -158,6 +158,25 @@ export class CollectionService implements OnDestroy {
     () => this._degradedTimestamp() ?? this._lastUpdated(),
   );
   public readonly isDegraded = computed(() => this.degradedMode() !== null);
+
+  private readonly _activeTransitionItem = signal<{
+    type: 'game' | 'toy';
+    id: string;
+  } | null>(null);
+  public readonly activeTransitionItem =
+    this._activeTransitionItem.asReadonly();
+
+  public setActiveTransitionItem(
+    type: 'game' | 'toy',
+    id: string | number | null | undefined,
+  ): void {
+    if (!id) {
+      this._activeTransitionItem.set(null);
+      return;
+    }
+    this._activeTransitionItem.set({ type, id: String(id) });
+  }
+
   private offlineStore = new KitOfflineStore<CollectionOfflineSnapshot>({
     dbName: 'collection_tracker_offline_db',
     storeName: 'collection_state',
@@ -1819,6 +1838,77 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
+   * Synchronously looks up a game from the in-memory collection state for
+   * instant detail hydration and View Transition snapshot continuity.
+   */
+  public getCachedGameById(id: string): Game | null {
+    const cached = this._games().find(
+      (g) => g.id === id || String(g.stable_id) === id || g.game_id === id,
+    );
+    if (!cached) {
+      return null;
+    }
+
+    let releases = cached.releases;
+    if (cached.platform_id === 0) {
+      releases = [];
+    } else if (!releases || releases.length === 0) {
+      const matchingReleases = this._games()
+        .filter(
+          (g) =>
+            g.stable_id === cached.stable_id &&
+            (g.region || null) === (cached.region || null),
+        )
+        .map((r) => ({
+          id: r.id,
+          game_id: r.stable_id,
+          region: r.region || null,
+          variants: r.variants || null,
+          rom_name: r.rom_name || null,
+          rom_crc: r.rom_crc || null,
+          backup_status: Number(r.backup_status) || 0,
+          ownership_status: Number(r.ownership_status) || 0,
+          release_date: r.release_date || null,
+          also_released_as: r.also_released_as || null,
+          has_case: Number(r.has_case) || 0,
+          has_manual: Number(r.has_manual) || 0,
+        }));
+
+      releases =
+        matchingReleases.length > 0
+          ? matchingReleases
+          : [
+              {
+                id: cached.id,
+                game_id: cached.stable_id,
+                region: cached.region || null,
+                variants: cached.variants || null,
+                rom_name: cached.rom_name || null,
+                rom_crc: cached.rom_crc || null,
+                backup_status: Number(cached.backup_status) || 0,
+                ownership_status: Number(cached.ownership_status) || 0,
+                release_date: cached.release_date || null,
+              },
+            ];
+    }
+
+    return this.enrichGameTitle({
+      ...cached,
+      releases,
+    });
+  }
+
+  /**
+   * Synchronously looks up a toy from the in-memory collection state.
+   */
+  public getCachedToyById(id: string): Toy | null {
+    return (
+      this._toys().find((t) => t.id === id || String(t.stable_id) === id) ??
+      null
+    );
+  }
+
+  /**
    * Fetches a single game by its stable identifier.
    * Falls back to in-memory collection state if network or edge API is unavailable.
    */
@@ -1826,58 +1916,9 @@ export class CollectionService implements OnDestroy {
     return this.http.get<Game>(`/api/games/${id}`).pipe(
       map((game) => this.enrichGameTitle(game)),
       catchError((err) => {
-        const cached = this._games().find(
-          (g) => g.id === id || String(g.stable_id) === id || g.game_id === id,
-        );
+        const cached = this.getCachedGameById(id);
         if (cached) {
-          let releases = cached.releases;
-          if (cached.platform_id === 0) {
-            releases = [];
-          } else if (!releases || releases.length === 0) {
-            const matchingReleases = this._games()
-              .filter(
-                (g) =>
-                  g.stable_id === cached.stable_id &&
-                  (g.region || null) === (cached.region || null),
-              )
-              .map((r) => ({
-                id: r.id,
-                game_id: r.stable_id,
-                region: r.region || null,
-                variants: r.variants || null,
-                rom_name: r.rom_name || null,
-                rom_crc: r.rom_crc || null,
-                backup_status: Number(r.backup_status) || 0,
-                ownership_status: Number(r.ownership_status) || 0,
-                release_date: r.release_date || null,
-                also_released_as: r.also_released_as || null,
-                has_case: Number(r.has_case) || 0,
-                has_manual: Number(r.has_manual) || 0,
-              }));
-
-            releases =
-              matchingReleases.length > 0
-                ? matchingReleases
-                : [
-                    {
-                      id: cached.id,
-                      game_id: cached.stable_id,
-                      region: cached.region || null,
-                      variants: cached.variants || null,
-                      rom_name: cached.rom_name || null,
-                      rom_crc: cached.rom_crc || null,
-                      backup_status: Number(cached.backup_status) || 0,
-                      ownership_status: Number(cached.ownership_status) || 0,
-                      release_date: cached.release_date || null,
-                    },
-                  ];
-          }
-
-          const fallbackGame: Game = {
-            ...cached,
-            releases,
-          };
-          return of(this.enrichGameTitle(fallbackGame));
+          return of(cached);
         }
         return throwError(() => err);
       }),
@@ -1891,9 +1932,7 @@ export class CollectionService implements OnDestroy {
   getToyById(id: string): Observable<Toy> {
     return this.http.get<Toy>(`/api/toys/${id}`).pipe(
       catchError((err) => {
-        const cached = this._toys().find(
-          (t) => t.id === id || String(t.stable_id) === id,
-        );
+        const cached = this.getCachedToyById(id);
         if (cached) {
           return of(cached);
         }

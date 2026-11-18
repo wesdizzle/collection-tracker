@@ -4,59 +4,6 @@
 .mb-md {
   margin-bottom: 1.25rem;
 }
-
-.catalog-sync-banner {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-bottom: 0.75rem;
-  padding: 0.5rem 0.875rem;
-  background: var(--m3-surface-container-high);
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--radius-md);
-  font-size: 0.8125rem;
-  color: var(--m3-on-surface-variant);
-}
-
-.catalog-sync-info {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.catalog-sync-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--m3-primary, #4f46e5);
-  flex-shrink: 0;
-  animation: catalogSyncPulse 1.4s ease-in-out infinite;
-}
-
-.catalog-sync-track {
-  width: 100%;
-  height: 4px;
-  border-radius: var(--radius-full, 999px);
-  background: var(--m3-surface-container-highest);
-  overflow: hidden;
-}
-
-.catalog-sync-fill {
-  height: 100%;
-  border-radius: var(--radius-full, 999px);
-  background: var(--m3-primary, #4f46e5);
-  transition: width 180ms ease-out;
-}
-
-@keyframes catalogSyncPulse {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
-  }
-}
 .p-md {
   padding: 1rem;
 }

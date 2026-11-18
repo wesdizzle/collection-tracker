@@ -3,14 +3,18 @@
     [routerLink]="['/game', game().id]"
     class="card-primary-link"
     [attr.aria-label]="game().title"
+    (pointerdown)="onCardActivate()"
+    (click)="onCardActivate()"
+    (focus)="onCardActivate()"
   ></a>
   <div class="card-art-frame">
     @if (game().image_url) {
       <img
+        #coverImg
         [src]="game().image_url"
         alt="Cover"
         class="card-art"
-        [style.view-transition-name]="getCoverViewTransitionName(game())"
+        [style.view-transition-name]="activeViewTransitionName()"
         loading="lazy"
         decoding="async"
         referrerpolicy="no-referrer"

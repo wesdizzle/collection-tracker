@@ -1,5 +1,9 @@
 import {
   Component,
+  ElementRef,
+  ViewChild,
+  computed,
+  inject,
   input,
   output,
   ChangeDetectionStrategy,
@@ -9,6 +13,7 @@ import {
   Toy,
   formatToyRegionBadge,
 } from '../../../../core/models/collection.models';
+import { CollectionService } from '../../../../core/services/collection.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
@@ -20,9 +25,34 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToyCardComponent {
+  private readonly collectionService = inject(CollectionService);
+
+  @ViewChild('coverImg') coverImg?: ElementRef<HTMLImageElement>;
+
   toy = input.required<Toy>();
 
   toggleStatus = output<{ event: MouseEvent; toy: Toy }>();
+
+  public readonly activeViewTransitionName = computed<string | null>(() => {
+    const active = this.collectionService.activeTransitionItem();
+    if (!active || active.type !== 'toy') return null;
+    const t = this.toy();
+    const matches =
+      active.id === String(t.id) ||
+      (t.stable_id !== undefined && active.id === String(t.stable_id));
+    return matches ? this.getCoverViewTransitionName(t) : null;
+  });
+
+  onCardActivate(): void {
+    const t = this.toy();
+    const rawId = t.id || t.stable_id;
+    this.collectionService.setActiveTransitionItem('toy', rawId);
+    const name = this.getCoverViewTransitionName(t);
+    const imgEl = this.coverImg?.nativeElement;
+    if (name && imgEl) {
+      imgEl.style.setProperty('view-transition-name', name);
+    }
+  }
 
   formatRegion(region: string | null | undefined): string {
     return formatToyRegionBadge(region);

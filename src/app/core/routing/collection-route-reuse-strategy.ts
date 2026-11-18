@@ -134,6 +134,16 @@ export class CollectionRouteReuseStrategy extends BaseRouteReuseStrategy {
         behavior: 'instant' as ScrollBehavior,
       });
 
+      // Microtask: Restore scroll right after RouterOutlet.attach() inserts the DOM
+      // and before Angular's afterNextRender view-transition snapshot capture
+      queueMicrotask(() => {
+        window.scrollTo({
+          left: scrollX,
+          top: scrollY,
+          behavior: 'instant' as ScrollBehavior,
+        });
+      });
+
       // Frame 1: Restore scroll as soon as the outlet attaches the hostView to the DOM
       requestAnimationFrame(() => {
         window.scrollTo({

@@ -152,6 +152,9 @@ describe('CollectionRouteReuseStrategy', () => {
         top: 820,
         behavior: 'instant',
       });
+
+      await Promise.resolve();
+      expect(scrollToSpy).toHaveBeenCalledTimes(2);
     });
   });
 

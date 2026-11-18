@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { CollectionService } from '../../../../core/services/collection.service';
 import { ToyCardComponent } from './toy-card.component';
 import {
   Toy,
@@ -28,7 +31,11 @@ describe('ToyCardComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ToyCardComponent],
-      providers: [provideRouter([])],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ToyCardComponent);
@@ -95,6 +102,35 @@ describe('ToyCardComponent', () => {
     );
     expect(el.querySelector('.preorder-store-badge')?.textContent).toContain(
       '$21.99',
+    );
+  });
+
+  it('scopes view-transition-name to the active toy card on pointerdown/activation', () => {
+    const cs = TestBed.inject(CollectionService);
+    cs.setActiveTransitionItem('toy', null);
+    fixture.detectChanges();
+
+    const img = fixture.nativeElement.querySelector(
+      '.card-art',
+    ) as HTMLImageElement;
+    expect(component.activeViewTransitionName()).toBeNull();
+    expect(img.style.getPropertyValue('view-transition-name')).toBe('');
+
+    const link = fixture.nativeElement.querySelector(
+      '.card-primary-link',
+    ) as HTMLAnchorElement;
+    link.dispatchEvent(new Event('pointerdown'));
+    fixture.detectChanges();
+
+    expect(cs.activeTransitionItem()).toEqual({
+      type: 'toy',
+      id: 'mario-smash-amiibo',
+    });
+    expect(component.activeViewTransitionName()).toBe(
+      'catalog-media-toy-mario-smash-amiibo',
+    );
+    expect(img.style.getPropertyValue('view-transition-name')).toBe(
+      'catalog-media-toy-mario-smash-amiibo',
     );
   });
 });

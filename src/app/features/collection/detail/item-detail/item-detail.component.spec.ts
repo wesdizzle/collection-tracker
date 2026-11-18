@@ -10,7 +10,7 @@ import {
   Router,
   ParamMap,
 } from '@angular/router';
-import { of, BehaviorSubject, throwError } from 'rxjs';
+import { of, BehaviorSubject, NEVER, throwError } from 'rxjs';
 import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
 import { ItemDetailComponent } from './item-detail.component';
 import { CollectionService } from '../../../../core/services/collection.service';
@@ -1091,6 +1091,41 @@ describe('ItemDetailComponent', () => {
 
       component.filterBySeries('Mario');
       expect(navigateSpy).toHaveBeenCalledWith(['/u', 'alice', 'games']);
+    });
+
+    it('synchronously seeds cached item and sets matching view-transition-name before detail HTTP resolves', () => {
+      (
+        collectionService as unknown as {
+          _games: { set: (val: Game[]) => void };
+        }
+      )._games.set([mockGame]);
+
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(NEVER);
+
+      paramMapSubject.next(
+        convertToParamMap({ id: 'super-mario-world-snes', type: 'game' }),
+      );
+      fixture.detectChanges();
+
+      expect(component.game()?.title).toBe('Super Mario World');
+      expect(component.mediaViewTransitionName()).toBe(
+        'catalog-media-game-super-mario-world-snes',
+      );
+      expect(collectionService.activeTransitionItem()).toEqual({
+        type: 'game',
+        id: 'super-mario-world-snes',
+      });
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const container = compiled.querySelector('.container');
+      expect(container?.classList.contains('animate-expressive')).toBe(false);
+      const coverImg = compiled.querySelector(
+        '.art-frame img',
+      ) as HTMLImageElement | null;
+      expect(coverImg).not.toBeNull();
+      expect(coverImg?.style.getPropertyValue('view-transition-name')).toBe(
+        'catalog-media-game-super-mario-world-snes',
+      );
     });
   });
 });

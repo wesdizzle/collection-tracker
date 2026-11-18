@@ -36,6 +36,7 @@ import {
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller, DecimalPipe } from '@angular/common';
 import { Subscription } from 'rxjs';
+import { KitLoadingBannerComponent } from '@wesdizzle/app-kit/angular';
 import { CollectionService } from '../../../../core/services/collection.service';
 
 import { BrandingService } from '../../../../core/services/branding.service';
@@ -81,6 +82,7 @@ interface GameGroup {
   imports: [
     RouterModule,
     DecimalPipe,
+    KitLoadingBannerComponent,
     CollectionFiltersComponent,
     GameCardComponent,
     ToyCardComponent,
