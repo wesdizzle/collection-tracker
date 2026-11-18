@@ -425,4 +425,71 @@ describe('ProfileModalComponent', () => {
     expect(formatToyRegionBadge('USA, Japan')).toBe('USA, Japan');
     expect(formatToyRegionBadge(null)).toBe('USA');
   });
+
+  it('should render region badge on root hub, transition to Edit Profile subview, and save/back cleanly', () => {
+    modalService.open();
+    fixture.detectChanges();
+
+    expect(modalService.activeView()).toBe('profile');
+    const regionBadge = fixture.nativeElement.querySelector(
+      '[data-testid="profile-region-badge"]',
+    ) as HTMLElement;
+    expect(regionBadge?.textContent?.trim()).toBe('Japan');
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="profile-edit-subview"]',
+      ),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="profile-save-btn"]'),
+    ).toBeNull();
+
+    const editBtn = fixture.nativeElement.querySelector(
+      '[data-testid="profile-edit-btn"]',
+    ) as HTMLButtonElement;
+    expect(editBtn).toBeTruthy();
+    editBtn.click();
+    fixture.detectChanges();
+
+    expect(modalService.activeView()).toBe('edit');
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="profile-edit-subview"]',
+      ),
+    ).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('#homeRegion')).toBeTruthy();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="profile-save-btn"]'),
+    ).toBeTruthy();
+
+    const backBtn = fixture.nativeElement.querySelector(
+      '[data-testid="profile-edit-back-btn"]',
+    ) as HTMLButtonElement;
+    backBtn.click();
+    fixture.detectChanges();
+
+    expect(modalService.activeView()).toBe('profile');
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="profile-hub-view"]'),
+    ).toBeTruthy();
+
+    const editBtnAgain = fixture.nativeElement.querySelector(
+      '[data-testid="profile-edit-btn"]',
+    ) as HTMLButtonElement;
+    expect(editBtnAgain).toBeTruthy();
+    editBtnAgain.click();
+    fixture.detectChanges();
+    expect(modalService.activeView()).toBe('edit');
+
+    const updateSpy = vi
+      .spyOn(collectionService, 'updateProfile')
+      .mockReturnValue(of({ ...mockUser, isPublic: false }));
+    component.saveProfile();
+    fixture.detectChanges();
+    expect(modalService.activeView()).toBe('profile');
+
+    component.onPublicToggleSaved(false);
+    expect(updateSpy).toHaveBeenCalledWith({ isPublic: false });
+    expect(component.isPublic).toBe(false);
+  });
 });

@@ -352,152 +352,185 @@ const COMMON_PLATFORMS: PlatformOption[] = [
 
           <!-- Section 3: Retail Deals & Price Drops -->
           <div class="setting-section">
-            <div class="section-header-row">
-              <div class="font-bold text-sm flex items-center gap-xs">
-                <app-icon name="coins" [size]="16" />
-                <span>Retail Deals & Price Drops</span>
-              </div>
-              <div class="text-2xs text-muted mt-3xs">
-                Scans physical retail sales at Best Buy, Video Games Plus, and
-                PNP Games
-              </div>
-            </div>
-
-            <!-- Dimension 1: Collection Scope -->
-            <div class="setting-section mt-xs">
-              <label class="section-label">Deals Collection Scope</label>
-              <div class="segmented-group">
-                <button
-                  type="button"
-                  class="segmented-btn"
-                  [class.active]="localPrefs.scope === 'priority_seeking_only'"
-                  (click)="setScope('priority_seeking_only')"
-                >
-                  Priority Seeking
-                </button>
-                <button
-                  type="button"
-                  class="segmented-btn"
-                  [class.active]="
-                    localPrefs.scope === 'all_seeking' ||
-                    localPrefs.scope === 'seeking_only'
-                  "
-                  (click)="setScope('all_seeking')"
-                >
-                  All Seeking
-                </button>
-                <button
-                  type="button"
-                  class="segmented-btn"
-                  [class.active]="localPrefs.scope === 'all'"
-                  (click)="setScope('all')"
-                >
-                  All Games
-                </button>
-              </div>
-              <span class="text-2xs text-muted mt-3xs">
-                {{ scopeDescription() }}
-              </span>
-            </div>
-
-            <!-- Dimension 2: Minimum Discount -->
-            <div class="setting-section">
-              <label class="section-label">Minimum Discount</label>
-              <div class="chip-group">
-                @for (disc of discountOptions; track disc) {
-                  <button
-                    type="button"
-                    class="filter-chip"
-                    [class.active]="localPrefs.minDiscountPct === disc"
-                    (click)="setMinDiscount(disc)"
-                  >
-                    {{ disc === 0 ? 'Any Deal' : disc + '%+ Off' }}
-                  </button>
-                }
-              </div>
-            </div>
-
-            <!-- Dimension 3: Stores / Retailers -->
-            <div class="setting-section">
-              <label class="section-label">Retail Stores</label>
-              <div class="chip-group">
-                @for (store of storeOptions; track store) {
-                  <button
-                    type="button"
-                    class="filter-chip"
-                    [class.active]="isStoreSelected(store)"
-                    (click)="toggleStore(store)"
-                  >
-                    {{ isStoreSelected(store) ? '✓ ' : '+ ' }}{{ store }}
-                  </button>
-                }
-              </div>
-            </div>
-
-            <!-- Dimension 4: Price Ceiling -->
-            <div class="setting-section">
-              <label class="section-label">Maximum Price Cap (Optional)</label>
-              <div class="flex items-center gap-xs">
-                <div class="price-input-wrapper">
-                  <span class="currency-symbol">$</span>
-                  <input
-                    type="number"
-                    class="price-input"
-                    placeholder="No limit"
-                    min="0"
-                    step="5"
-                    [ngModel]="maxPriceDollars()"
-                    (ngModelChange)="onPriceChange($event)"
-                  />
+            <button
+              type="button"
+              class="section-header-row section-collapse-btn"
+              (click)="toggleDealsExpanded()"
+              [attr.aria-expanded]="dealsExpanded()"
+              data-testid="toggle-deals-filters-btn"
+            >
+              <div class="section-collapse-text">
+                <div class="font-bold text-sm flex items-center gap-xs">
+                  <app-icon name="coins" [size]="16" />
+                  <span>Retail Deals & Price Drops</span>
                 </div>
-                @if (localPrefs.maxPriceCents !== null) {
-                  <button
-                    type="button"
-                    class="btn-text text-xs"
-                    (click)="clearMaxPrice()"
-                  >
-                    Clear Cap
-                  </button>
-                }
-              </div>
-            </div>
-
-            <!-- Dimension 5: Platforms Filter -->
-            <div class="setting-section">
-              <div class="flex items-center justify-between">
-                <label class="section-label">Platforms</label>
-                <button
-                  type="button"
-                  class="btn-text text-2xs"
-                  (click)="toggleAllPlatforms()"
-                >
-                  {{
-                    localPrefs.platformIds.length === 0
-                      ? 'Restrict Platforms'
-                      : 'All Platforms'
-                  }}
-                </button>
-              </div>
-              @if (localPrefs.platformIds.length === 0) {
-                <div class="text-xs text-muted">
-                  Currently tracking deals across all platforms.
+                <div class="text-2xs text-muted mt-3xs">
+                  Scans Best Buy, Video Games Plus & PNP Games
                 </div>
-              } @else {
-                <div class="chip-group mt-3xs">
-                  @for (plat of platforms; track plat.id) {
+              </div>
+              <div class="deals-header-right">
+                <span class="deals-summary-badge">{{ dealsSummary() }}</span>
+                <svg
+                  class="deals-chevron"
+                  [class.expanded]="dealsExpanded()"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+            </button>
+
+            @if (dealsExpanded()) {
+              <div class="setting-card-group">
+                <!-- Dimension 1: Collection Scope -->
+                <div class="setting-section">
+                  <label class="section-label">Deals Collection Scope</label>
+                  <div class="segmented-group">
                     <button
                       type="button"
-                      class="filter-chip"
-                      [class.active]="isPlatformSelected(plat.id)"
-                      (click)="togglePlatform(plat.id)"
+                      class="segmented-btn"
+                      [class.active]="
+                        localPrefs.scope === 'priority_seeking_only'
+                      "
+                      (click)="setScope('priority_seeking_only')"
                     >
-                      {{ isPlatformSelected(plat.id) ? '✓ ' : '+ '
-                      }}{{ plat.name }}
+                      Priority Seeking
                     </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      [class.active]="
+                        localPrefs.scope === 'all_seeking' ||
+                        localPrefs.scope === 'seeking_only'
+                      "
+                      (click)="setScope('all_seeking')"
+                    >
+                      All Seeking
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      [class.active]="localPrefs.scope === 'all'"
+                      (click)="setScope('all')"
+                    >
+                      All Games
+                    </button>
+                  </div>
+                  <span class="text-2xs text-muted mt-3xs">
+                    {{ scopeDescription() }}
+                  </span>
+                </div>
+
+                <!-- Dimension 2: Minimum Discount -->
+                <div class="setting-section">
+                  <label class="section-label">Minimum Discount</label>
+                  <div class="chip-group">
+                    @for (disc of discountOptions; track disc) {
+                      <button
+                        type="button"
+                        class="filter-chip"
+                        [class.active]="localPrefs.minDiscountPct === disc"
+                        (click)="setMinDiscount(disc)"
+                      >
+                        {{ disc === 0 ? 'Any Deal' : disc + '%+ Off' }}
+                      </button>
+                    }
+                  </div>
+                </div>
+
+                <!-- Dimension 3: Stores / Retailers -->
+                <div class="setting-section">
+                  <label class="section-label">Retail Stores</label>
+                  <div class="chip-group">
+                    @for (store of storeOptions; track store) {
+                      <button
+                        type="button"
+                        class="filter-chip"
+                        [class.active]="isStoreSelected(store)"
+                        (click)="toggleStore(store)"
+                      >
+                        {{ isStoreSelected(store) ? '✓ ' : '+ ' }}{{ store }}
+                      </button>
+                    }
+                  </div>
+                </div>
+
+                <!-- Dimension 4: Price Ceiling -->
+                <div class="setting-section">
+                  <label class="section-label"
+                    >Maximum Price Cap (Optional)</label
+                  >
+                  <div class="flex items-center gap-xs">
+                    <div class="price-input-wrapper">
+                      <span class="currency-symbol">$</span>
+                      <input
+                        type="number"
+                        class="price-input"
+                        placeholder="No limit"
+                        min="0"
+                        step="5"
+                        [ngModel]="maxPriceDollars()"
+                        (ngModelChange)="onPriceChange($event)"
+                      />
+                    </div>
+                    @if (localPrefs.maxPriceCents !== null) {
+                      <button
+                        type="button"
+                        class="btn-text text-xs"
+                        (click)="clearMaxPrice()"
+                      >
+                        Clear Cap
+                      </button>
+                    }
+                  </div>
+                </div>
+
+                <!-- Dimension 5: Platforms Filter -->
+                <div class="setting-section">
+                  <div class="flex items-center justify-between">
+                    <label class="section-label">Platforms</label>
+                    <button
+                      type="button"
+                      class="btn-text text-2xs"
+                      (click)="toggleAllPlatforms()"
+                    >
+                      {{
+                        localPrefs.platformIds.length === 0
+                          ? 'Restrict Platforms'
+                          : 'All Platforms'
+                      }}
+                    </button>
+                  </div>
+                  @if (localPrefs.platformIds.length === 0) {
+                    <div class="text-xs text-muted">
+                      Currently tracking deals across all platforms.
+                    </div>
+                  } @else {
+                    <div class="chip-group mt-3xs">
+                      @for (plat of platforms; track plat.id) {
+                        <button
+                          type="button"
+                          class="filter-chip"
+                          [class.active]="isPlatformSelected(plat.id)"
+                          (click)="togglePlatform(plat.id)"
+                        >
+                          {{ isPlatformSelected(plat.id) ? '✓ ' : '+ '
+                          }}{{ plat.name }}
+                        </button>
+                      }
+                    </div>
                   }
                 </div>
-              }
-            </div>
+              </div>
+            }
           </div>
 
           <!-- Test Alert Section -->
@@ -885,6 +918,55 @@ const COMMON_PLATFORMS: PlatformOption[] = [
         border: 1px solid var(--m3-outline-variant);
       }
 
+      .section-collapse-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        width: 100%;
+        text-align: left;
+        color: inherit;
+        font-family: inherit;
+        cursor: pointer;
+        transition: border-color 0.15s ease;
+      }
+
+      .section-collapse-btn:hover {
+        border-color: var(--m3-primary);
+      }
+
+      .section-collapse-text {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .deals-header-right {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex-shrink: 0;
+      }
+
+      .deals-summary-badge {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        padding: 0.175rem 0.55rem;
+        border-radius: 999px;
+        background: var(--m3-surface-container-highest);
+        color: var(--m3-on-surface-variant);
+        border: 1px solid var(--m3-outline-variant);
+        white-space: nowrap;
+      }
+
+      .deals-chevron {
+        color: var(--m3-on-surface-variant);
+        transition: transform 0.2s ease;
+      }
+
+      .deals-chevron.expanded {
+        transform: rotate(180deg);
+      }
+
       .setting-card-group {
         display: flex;
         flex-direction: column;
@@ -1106,6 +1188,7 @@ export class NotificationSettingsModalComponent {
   public readonly testSuccess = signal<boolean>(false);
   public readonly saveMessage = signal<string | null>(null);
   public readonly isClosing = signal<boolean>(false);
+  public readonly dealsExpanded = signal<boolean>(false);
 
   private closeTimer: ReturnType<typeof setTimeout> | null = null;
   private saveCloseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1132,6 +1215,30 @@ export class NotificationSettingsModalComponent {
   }
   public set localPrefs(value: DealNotificationPreferences) {
     this._localPrefs.set(value);
+  }
+
+  public toggleDealsExpanded(): void {
+    this.dealsExpanded.update((v) => !v);
+  }
+
+  public dealsSummary(): string {
+    let scopeLabel = 'All Seeking';
+    switch (this.localPrefs.scope) {
+      case 'priority_seeking_only':
+        scopeLabel = 'Priority Seeking';
+        break;
+      case 'seeking_and_unowned':
+        scopeLabel = 'Seeking + Unowned';
+        break;
+      case 'all':
+        scopeLabel = 'All Games';
+        break;
+    }
+    const discLabel =
+      this.localPrefs.minDiscountPct === 0
+        ? 'Any Deal'
+        : `${this.localPrefs.minDiscountPct}%+ Off`;
+    return `${scopeLabel} · ${discLabel}`;
   }
 
   public scopeDescription(): string {

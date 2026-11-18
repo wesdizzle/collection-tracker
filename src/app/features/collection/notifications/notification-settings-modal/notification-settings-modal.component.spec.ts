@@ -182,4 +182,23 @@ describe('NotificationSettingsModalComponent', () => {
     expect(cardEl.classList.contains('embedded-card')).toBe(true);
     expect(bodyEl).toBeTruthy();
   });
+
+  it('should collapse retail deal filters by default with summary badge and expand on click', () => {
+    expect(component.dealsExpanded()).toBe(false);
+    expect(fixture.nativeElement.querySelector('.segmented-group')).toBeNull();
+
+    const toggleBtn = fixture.nativeElement.querySelector(
+      '[data-testid="toggle-deals-filters-btn"]',
+    ) as HTMLButtonElement;
+    expect(toggleBtn).toBeTruthy();
+    expect(toggleBtn.textContent).toContain('All Seeking · 20%+ Off');
+
+    toggleBtn.click();
+    fixture.detectChanges();
+
+    expect(component.dealsExpanded()).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector('.segmented-group'),
+    ).toBeTruthy();
+  });
 });

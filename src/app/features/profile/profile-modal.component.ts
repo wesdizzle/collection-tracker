@@ -59,7 +59,20 @@ import {
       (signOutClicked)="signOut()"
       (closed)="requestClose()"
       (backToProfile)="modalService.setView('profile')"
+      (editProfileClicked)="onEditProfileClicked()"
+      (publicToggleSaved)="onPublicToggleSaved($event)"
     >
+      @if (isAuthenticated()) {
+        <span
+          profileIdentityBadges
+          class="region-badge"
+          data-testid="profile-region-badge"
+          title="Home Region"
+        >
+          {{ homeRegion }}
+        </span>
+      }
+
       <div profileExtraFields class="field-group">
         <div class="field-label-row">
           <label for="homeRegion">Home Region</label>
@@ -81,200 +94,207 @@ import {
       </div>
 
       @if (isAuthenticated()) {
-        <button
-          profileExtraNav
-          type="button"
-          class="nav-section-btn"
-          (click)="openNotifications()"
-          data-testid="profile-notifications-btn"
-        >
-          <div class="nav-section-left">
-            <span class="nav-section-icon">
-              <app-icon name="bell" [size]="18" />
-            </span>
-            <div class="nav-section-text">
-              <span class="nav-section-title">Notifications &amp; Alerts</span>
-              <span class="nav-section-desc">
-                Configure push alerts for physical pre-orders, launch days, and
-                retail deals.
-              </span>
-            </div>
-          </div>
-          <div class="setting-nav-right">
-            <span
-              class="notif-status-badge"
-              [class.active]="notificationService.isSubscribed()"
-            >
-              {{ notificationService.isSubscribed() ? 'Active' : 'Disabled' }}
-            </span>
-            <svg
-              class="nav-section-chevron"
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </div>
-        </button>
-      }
-
-      @if (isAuthenticated()) {
-        <button
-          profileExtraNav
-          type="button"
-          class="nav-section-btn"
-          (click)="openTrackingRules()"
-          data-testid="profile-tracking-rules-btn"
-        >
-          <div class="nav-section-left">
-            <span class="nav-section-icon">
-              <app-icon name="wishlist" [size]="18" />
-            </span>
-            <div class="nav-section-text">
-              <span class="nav-section-title"
-                >Auto-Tracking &amp; Seeking Rules</span
+        <div profileExtraNav class="profile-nav-groups">
+          <div class="kit-nav-group">
+            <span class="kit-nav-group-label">Preferences</span>
+            <div class="kit-nav-group-list">
+              <button
+                type="button"
+                class="nav-section-btn"
+                (click)="openNotifications()"
+                data-testid="profile-notifications-btn"
               >
-              <span class="nav-section-desc">
-                Automatically mark games &amp; toys as Seeking by series,
-                platform, or toy line.
-              </span>
-            </div>
-          </div>
-          <div class="setting-nav-right">
-            <span
-              class="notif-status-badge"
-              [class.active]="autoTrackSeriesOnAdd()"
-            >
-              {{ autoTrackSeriesOnAdd() ? 'Auto-Series' : 'Manual' }}
-            </span>
-            <svg
-              class="nav-section-chevron"
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </div>
-        </button>
-      }
+                <div class="nav-section-left">
+                  <span class="nav-section-icon">
+                    <app-icon name="bell" [size]="18" />
+                  </span>
+                  <div class="nav-section-text">
+                    <span class="nav-section-title"
+                      >Notifications &amp; Alerts</span
+                    >
+                    <span class="nav-section-desc">
+                      Pre-orders, launch days &amp; deal alerts
+                    </span>
+                  </div>
+                </div>
+                <div class="setting-nav-right">
+                  <span
+                    class="notif-status-badge"
+                    [class.active]="notificationService.isSubscribed()"
+                  >
+                    {{
+                      notificationService.isSubscribed() ? 'Active' : 'Disabled'
+                    }}
+                  </span>
+                  <svg
+                    class="nav-section-chevron"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </div>
+              </button>
 
-      @if (isAuthenticated()) {
-        <button
-          profileExtraNav
-          type="button"
-          class="nav-section-btn"
-          (click)="openBackupScanner()"
-          data-testid="profile-backup-scanner-btn"
-        >
-          <div class="nav-section-left">
-            <span class="nav-section-icon">
-              <app-icon name="disc" [size]="18" />
-            </span>
-            <div class="nav-section-text">
-              <span class="nav-section-title">Scan Local Backups</span>
-              <span class="nav-section-desc">
-                Crawl a local folder by filename to review and sync ROM backup
-                status.
-              </span>
-            </div>
-          </div>
-          <div class="setting-nav-right">
-            <svg
-              class="nav-section-chevron"
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </div>
-        </button>
-      }
-
-      @if (isAdmin()) {
-        <button
-          profileExtraNav
-          type="button"
-          class="nav-section-btn"
-          (click)="openAdminCenter()"
-          data-testid="profile-discovery-btn"
-        >
-          <div class="nav-section-left">
-            <span class="nav-section-icon">
-              <app-icon name="compass" [size]="18" />
-            </span>
-            <div class="nav-section-text">
-              <span class="nav-section-title">Admin Center</span>
-              <span class="nav-section-desc">
-                Inspect autonomous pipeline telemetry, daily write budget, and
-                cron logs.
-              </span>
-            </div>
-          </div>
-          <div class="setting-nav-right">
-            @if (catalogSeedStatus(); as seed) {
-              <span
-                class="notif-status-badge"
-                [class.active]="
-                  !seed.paused &&
-                  seed.stage !== 'done' &&
-                  seed.stage !== 'completed'
-                "
-                [title]="
-                  'Stage ' +
-                  seed.stage.toUpperCase() +
-                  ': ' +
-                  (seed.dailyWritesUsed ?? seed.writesUsedToday) +
-                  ' / ' +
-                  seed.dailyWriteBudget +
-                  ' writes today'
-                "
+              <button
+                type="button"
+                class="nav-section-btn"
+                (click)="openTrackingRules()"
+                data-testid="profile-tracking-rules-btn"
               >
-                {{
-                  seed.paused
-                    ? 'Seed Paused'
-                    : seed.stage === 'done' || seed.stage === 'completed'
-                      ? 'Seeded'
-                      : 'Stage ' + seed.stage.toUpperCase()
-                }}
-              </span>
-            }
-            <svg
-              class="nav-section-chevron"
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
+                <div class="nav-section-left">
+                  <span class="nav-section-icon">
+                    <app-icon name="wishlist" [size]="18" />
+                  </span>
+                  <div class="nav-section-text">
+                    <span class="nav-section-title"
+                      >Auto-Tracking &amp; Seeking Rules</span
+                    >
+                    <span class="nav-section-desc">
+                      Series, platform &amp; toy line rules
+                    </span>
+                  </div>
+                </div>
+                <div class="setting-nav-right">
+                  <span
+                    class="notif-status-badge"
+                    [class.active]="autoTrackSeriesOnAdd()"
+                  >
+                    {{ autoTrackSeriesOnAdd() ? 'Auto-Series' : 'Manual' }}
+                  </span>
+                  <svg
+                    class="nav-section-chevron"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </div>
+              </button>
+            </div>
           </div>
-        </button>
+
+          <div class="kit-nav-group">
+            <span class="kit-nav-group-label"
+              >Tools{{ isAdmin() ? ' & Admin' : '' }}</span
+            >
+            <div class="kit-nav-group-list">
+              <button
+                type="button"
+                class="nav-section-btn"
+                (click)="openBackupScanner()"
+                data-testid="profile-backup-scanner-btn"
+              >
+                <div class="nav-section-left">
+                  <span class="nav-section-icon">
+                    <app-icon name="disc" [size]="18" />
+                  </span>
+                  <div class="nav-section-text">
+                    <span class="nav-section-title">Scan Local Backups</span>
+                    <span class="nav-section-desc">
+                      Sync local ROM folder backup status
+                    </span>
+                  </div>
+                </div>
+                <div class="setting-nav-right">
+                  <svg
+                    class="nav-section-chevron"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </div>
+              </button>
+
+              @if (isAdmin()) {
+                <button
+                  type="button"
+                  class="nav-section-btn"
+                  (click)="openAdminCenter()"
+                  data-testid="profile-discovery-btn"
+                >
+                  <div class="nav-section-left">
+                    <span class="nav-section-icon">
+                      <app-icon name="compass" [size]="18" />
+                    </span>
+                    <div class="nav-section-text">
+                      <span class="nav-section-title">Admin Center</span>
+                      <span class="nav-section-desc">
+                        Pipeline telemetry &amp; D1 write budget
+                      </span>
+                    </div>
+                  </div>
+                  <div class="setting-nav-right">
+                    @if (catalogSeedStatus(); as seed) {
+                      <span
+                        class="notif-status-badge"
+                        [class.active]="
+                          !seed.paused &&
+                          seed.stage !== 'done' &&
+                          seed.stage !== 'completed'
+                        "
+                        [title]="
+                          'Stage ' +
+                          seed.stage.toUpperCase() +
+                          ': ' +
+                          (seed.dailyWritesUsed ?? seed.writesUsedToday) +
+                          ' / ' +
+                          seed.dailyWriteBudget +
+                          ' writes today'
+                        "
+                      >
+                        {{
+                          seed.paused
+                            ? 'Seed Paused'
+                            : seed.stage === 'done' ||
+                                seed.stage === 'completed'
+                              ? 'Seeded'
+                              : 'Stage ' + seed.stage.toUpperCase()
+                        }}
+                      </span>
+                    }
+                    <svg
+                      class="nav-section-chevron"
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </div>
+                </button>
+              }
+            </div>
+          </div>
+        </div>
       }
 
       @if (modalService.activeView() === 'notifications') {
@@ -288,40 +308,82 @@ import {
 
       @if (modalService.activeView() === 'tracking') {
         <div profileSubview class="tracking-subview">
-          <div class="tracking-header modal-header">
+          <header class="modal-header">
+            <div class="header-title-row">
+              <button
+                type="button"
+                class="subview-back-btn state-layer"
+                (click)="modalService.setView('profile')"
+                data-testid="tracking-back-btn"
+                aria-label="Back to Profile"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M19 12H5M12 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <h2>Auto-Tracking &amp; Seeking Rules</h2>
+            </div>
             <button
               type="button"
-              class="tracking-back-btn"
-              (click)="modalService.setView('profile')"
-              data-testid="tracking-back-btn"
-              aria-label="Back to Profile"
+              class="close-btn"
+              (click)="requestClose()"
+              aria-label="Close profile dialog"
             >
-              ← Back
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
-            <h3 class="tracking-title">Auto-Tracking &amp; Seeking Rules</h3>
-          </div>
+          </header>
 
-          <div class="tracking-body">
-            <div class="tracking-card">
-              <div class="tracking-row">
-                <div>
-                  <div class="tracking-label">
-                    Auto-track series when adding a game
-                  </div>
-                  <div class="tracking-desc">
-                    Automatically follow a game's franchise and mark its other
-                    home-region physical releases as Seeking whenever you mark a
-                    game as Owned, Seeking, Ordered, or Priority Seeking.
-                  </div>
-                </div>
+          <div class="modal-body tracking-body">
+            <label class="toggle-row" for="toggle-auto-track-series-input">
+              <div class="toggle-text">
+                <span class="toggle-title"
+                  >Auto-track series when adding a game</span
+                >
+                <span class="toggle-desc">
+                  Follow a game's franchise and mark other home-region physical
+                  releases as Seeking when adding an entry.
+                </span>
+              </div>
+              <span class="switch-wrapper">
                 <input
+                  id="toggle-auto-track-series-input"
                   type="checkbox"
+                  role="switch"
+                  class="sr-only-checkbox"
+                  [attr.aria-checked]="autoTrackSeriesOnAdd()"
                   [ngModel]="autoTrackSeriesOnAdd()"
                   (ngModelChange)="onToggleAutoTrackSeries($event)"
                   data-testid="toggle-auto-track-series"
                 />
-              </div>
-            </div>
+                <span
+                  class="switch-track"
+                  [class.checked]="autoTrackSeriesOnAdd()"
+                >
+                  <span class="switch-thumb"></span>
+                </span>
+              </span>
+            </label>
 
             <div class="tracking-card">
               <div class="tracking-label">Add Tracking or Ignore Rule</div>
@@ -391,33 +453,6 @@ import {
                 </div>
               }
             </div>
-
-            @if (isAdmin() && catalogSeedStatus(); as seed) {
-              <div class="tracking-card">
-                <div class="tracking-row">
-                  <div>
-                    <div class="tracking-label">
-                      Admin: Autonomous Broad Catalog Seed
-                    </div>
-                    <div class="tracking-desc">
-                      Stage: <strong>{{ seed.stage.toUpperCase() }}</strong> •
-                      Cursor ID: {{ seed.cursorId ?? seed.cursor }} • Daily D1
-                      Writes:
-                      {{ seed.dailyWritesUsed ?? seed.writesUsedToday }} /
-                      {{ seed.dailyWriteBudget }}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    class="rule-add-btn"
-                    (click)="toggleCatalogSeedPause()"
-                    data-testid="profile-catalog-seed-toggle-btn"
-                  >
-                    {{ seed.paused ? 'Resume' : 'Pause' }}
-                  </button>
-                </div>
-              </div>
-            }
           </div>
         </div>
       }
@@ -425,6 +460,22 @@ import {
   `,
   styles: [
     `
+      .region-badge {
+        font-size: 0.68rem;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: var(--kit-surface-container-highest);
+        color: var(--kit-on-surface-variant);
+        border: 1px solid var(--kit-outline-variant);
+      }
+
+      .profile-nav-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
       .setting-nav-right {
         display: flex;
         align-items: center;
@@ -453,39 +504,15 @@ import {
       .tracking-subview {
         display: flex;
         flex-direction: column;
-        gap: 1rem;
-        padding: 1.25rem;
+        flex: 1 1 auto;
+        min-height: 0;
         color: var(--m3-on-surface);
-      }
-
-      .tracking-header {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-      }
-
-      .tracking-back-btn {
-        background: transparent;
-        border: 1px solid var(--m3-outline-variant);
-        color: var(--m3-on-surface);
-        padding: 0.35rem 0.75rem;
-        border-radius: 999px;
-        cursor: pointer;
-        font-size: 0.8rem;
-      }
-
-      .tracking-title {
-        margin: 0;
-        font-size: 1.05rem;
-        font-weight: 700;
       }
 
       .tracking-body {
         display: flex;
         flex-direction: column;
         gap: 0.85rem;
-        max-height: 65vh;
-        overflow-y: auto;
       }
 
       .tracking-card {
@@ -732,6 +759,34 @@ export class ProfileModalComponent implements OnInit {
     this.modalService.close();
   }
 
+  public onEditProfileClicked(): void {
+    this.statusMessage.set(null);
+    this.isError.set(false);
+    this.modalService.setView('edit');
+  }
+
+  public onPublicToggleSaved(enabled: boolean): void {
+    this.isPublic = enabled;
+    this.statusMessage.set(null);
+    this.isError.set(false);
+    this.collectionService.updateProfile({ isPublic: enabled }).subscribe({
+      next: (updated) => {
+        this.profile.set(updated);
+        this.statusMessage.set(
+          enabled
+            ? 'Public collection link enabled.'
+            : 'Collection set to private.',
+        );
+      },
+      error: (err) => {
+        this.isError.set(true);
+        this.statusMessage.set(
+          err?.error?.error || 'Failed to update sharing preference.',
+        );
+      },
+    });
+  }
+
   public openNotifications(): void {
     this.modalService.setView('notifications');
   }
@@ -833,6 +888,10 @@ export class ProfileModalComponent implements OnInit {
           this.profile.set(updated);
           this.isSaving.set(false);
           this.statusMessage.set('Profile settings saved successfully.');
+          this.kitModal?.closeEditProfile();
+          if (this.modalService.activeView() === 'edit') {
+            this.modalService.setView('profile');
+          }
         },
         error: (err) => {
           this.isSaving.set(false);
