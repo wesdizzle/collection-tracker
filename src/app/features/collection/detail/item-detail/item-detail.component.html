@@ -111,34 +111,6 @@
             </div>
           } @else if (
             collectionService.canShowPersonalState() &&
-            !hasPhysicalRelease(g) &&
-            (g.physical_status === 'not_yet_physical' ||
-              g.physical_status === 'physical_pending') &&
-            !hasOwnedPhysical(g)
-          ) {
-            <button
-              type="button"
-              class="stat-pill active pending interactive"
-              (click)="toggleWatchPhysical(g)"
-              title="Click to remove from Physical Watch list"
-            >
-              <span class="icon"><app-icon name="clock" [size]="14" /></span>
-              <span>Awaiting Physical Edition (Watching)</span>
-            </button>
-          } @else if (
-            collectionService.canShowPersonalState() && canWatchPhysical(g)
-          ) {
-            <button
-              type="button"
-              class="stat-pill interactive"
-              (click)="toggleWatchPhysical(g)"
-              title="Click to watch for physical release announcements and boutique pre-orders"
-            >
-              <span class="icon"><app-icon name="clock" [size]="14" /></span>
-              <span>+ Watch for Physical</span>
-            </button>
-          } @else if (
-            collectionService.canShowPersonalState() &&
             (g.physical_status === 'digital_extracted_rom' ||
               g.release_medium === 'digital_extracted_rom')
           ) {
@@ -641,11 +613,7 @@
                     }
                   </div>
                 }
-              } @else if (
-                !g.rom_name &&
-                g.platform_id !== 0 &&
-                g.physical_status !== 'not_yet_physical'
-              ) {
+              } @else if (!g.rom_name) {
                 <div class="meta-box full-width">
                   <span class="label">Release Catalog</span>
                   <span
@@ -773,15 +741,9 @@
           >
             <div class="upcoming-info">
               <div class="flex items-center gap-sm flex-wrap">
-                <span
-                  class="upcoming-badge-pill font-bold"
-                  [class.pending-pill]="info.isPending"
-                >
-                  <app-icon
-                    [name]="info.isPending ? 'clock' : 'calendar'"
-                    [size]="14"
-                  />
-                  {{ info.isPending ? 'PHYSICAL WATCH' : 'UPCOMING RELEASE' }}
+                <span class="upcoming-badge-pill font-bold">
+                  <app-icon name="calendar" [size]="14" />
+                  UPCOMING RELEASE
                 </span>
                 @if (info.countdownText) {
                   <span class="text-base font-bold text-on-surface">
@@ -802,13 +764,8 @@
                 }
               </div>
               <p class="text-sm text-secondary m-0 mt-xs">
-                @if (info.isPending) {
-                  Tracking boutique physical feeds (Limited Run Games, Super
-                  Rare, iam8bit, etc.) for physical announcements.
-                } @else {
-                  Tracked for release day updates and physical pre-order
-                  availability.
-                }
+                Tracked for release day updates and physical pre-order
+                availability.
               </p>
             </div>
             @if (info.hasStoreLink) {

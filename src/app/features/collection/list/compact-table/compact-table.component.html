@@ -359,13 +359,6 @@
                   <span class="upcoming-chip" title="Announced / Pre-order">
                     <app-icon name="calendar" [size]="11" /> Upcoming
                   </span>
-                } @else if (
-                  game.physical_status === 'not_yet_physical' ||
-                  game.physical_status === 'physical_pending'
-                ) {
-                  <span class="pending-chip" title="Awaiting Physical Edition">
-                    <app-icon name="clock" [size]="11" /> Watch
-                  </span>
                 } @else if (game.ownership_status === 3) {
                   <span class="ordered-chip" title="Ordered / Pre-ordered">
                     Ordered

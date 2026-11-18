@@ -104,10 +104,6 @@ export class CollectionFiltersComponent implements OnDestroy {
     );
   });
 
-  public readonly isUpcomingActive = computed(() => {
-    return this.filters().ownership === 'upcoming';
-  });
-
   public readonly quickPills = computed<readonly KitFilterPill[]>(() => {
     const pills: KitFilterPill[] = [
       {
@@ -140,14 +136,6 @@ export class CollectionFiltersComponent implements OnDestroy {
       },
     ];
 
-    if (this.currentTab() === 'games') {
-      pills.push({
-        id: 'upcoming',
-        label: 'Physical Watch',
-        active: this.isUpcomingActive(),
-      });
-    }
-
     pills.push(
       {
         id: 'retail_available',
@@ -179,8 +167,7 @@ export class CollectionFiltersComponent implements OnDestroy {
         | 'all'
         | 'priority_seeking'
         | 'seeking'
-        | 'deals'
-        | 'upcoming',
+        | 'deals',
     );
   }
 
@@ -191,20 +178,13 @@ export class CollectionFiltersComponent implements OnDestroy {
       | 'all'
       | 'priority_seeking'
       | 'seeking'
-      | 'deals'
-      | 'upcoming',
+      | 'deals',
   ) {
     if (status === 'deals') {
       this.filtersChange.emit({
         ...this.filters(),
         ownership: 'seeking_or_unowned',
         deals_only: true,
-      });
-    } else if (status === 'upcoming') {
-      this.filtersChange.emit({
-        ...this.filters(),
-        ownership: 'upcoming',
-        deals_only: false,
       });
     } else if (status === 'home_region_and_owned') {
       this.filtersChange.emit({

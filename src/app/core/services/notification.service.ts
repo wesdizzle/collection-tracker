@@ -19,7 +19,6 @@ export const DEFAULT_DEAL_PREFERENCES: DealNotificationPreferences = {
   notify_physical_announcements: true,
   physical_announcement_scope: {
     seeking: true,
-    watch_physical: true,
     uncataloged: true,
     special_editions: true,
     unowned: false,

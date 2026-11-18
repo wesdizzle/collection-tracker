@@ -1681,6 +1681,10 @@ export class CollectionService implements OnDestroy {
         if (syncId !== this._activeCatalogSyncId) {
           return;
         }
+        if ((!chunkRows || chunkRows.length === 0) && chunkIndex > 0) {
+          nextChunkIndex = totalChunks;
+          return;
+        }
         for (const rawRow of chunkRows || []) {
           const overlaid = this.applyOverlayToCatalogGame(
             rawRow,
@@ -1850,9 +1854,7 @@ export class CollectionService implements OnDestroy {
     }
 
     let releases = cached.releases;
-    if (cached.platform_id === 0) {
-      releases = [];
-    } else if (!releases || releases.length === 0) {
+    if (!releases || releases.length === 0) {
       const matchingReleases = this._games()
         .filter(
           (g) =>
@@ -2127,14 +2129,9 @@ export class CollectionService implements OnDestroy {
                 payload.game.title ||
                 'Unknown',
               platform_id: payload.game.platform_id ?? 0,
-              platform:
-                (payload.game.platform_id ?? 0) === 0
-                  ? 'Physical Watch'
-                  : platform?.name || 'Unknown',
+              platform: platform?.name || 'Unknown',
               display_name:
-                (payload.game.platform_id ?? 0) === 0
-                  ? 'Physical Watch'
-                  : platform?.display_name || platform?.name || 'Unknown',
+                platform?.display_name || platform?.name || 'Unknown',
               image_url: payload.game.image_url || null,
               ownership_status:
                 (payload.game.ownership_status as OwnershipStatus) ?? 0,
@@ -2844,43 +2841,6 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
-   * Updates the 'physical_status' of a game (e.g. 'physical_pending' for physical watch).
-   */
-  updatePhysicalStatus(
-    id: string,
-    status: PhysicalStatus | string,
-  ): Observable<unknown> {
-    const blocked = this.checkDegradedReadOnly();
-    if (blocked) return blocked;
-    if (!this.isAdmin()) {
-      this.promptAdminLogin();
-      return throwError(
-        () => new Error('Unauthorized: Admin session required'),
-      );
-    }
-    return this.http
-      .post('/api/collection/toggle', {
-        id,
-        type: 'game',
-        status,
-        field: 'physical_status',
-      })
-      .pipe(
-        tap(() => {
-          this._games.update((games) =>
-            games.map((g) =>
-              g.id === id || g.game_id === id
-                ? { ...g, physical_status: status as PhysicalStatus }
-                : g,
-            ),
-          );
-          void this.clearServiceWorkerDataCaches();
-        }),
-        catchError(this.handleMutationError),
-      );
-  }
-
-  /**
    * Permanently deletes a game (and all of its releases and journal entry).
    * Accepts either the game ID or any of its release IDs. Admin-only.
    */
@@ -3279,17 +3239,7 @@ export class CollectionService implements OnDestroy {
    * @returns A new Game object with the appropriately formatted title.
    */
   private enrichGameTitle(rawGame: Game): Game {
-    const game =
-      rawGame.platform_id === 0 ||
-      rawGame.platform === 'No Platform' ||
-      rawGame.display_name === 'No Platform'
-        ? {
-            ...rawGame,
-            platform: 'Physical Watch',
-            display_name: 'Physical Watch',
-            brand: undefined,
-          }
-        : rawGame;
+    const game = rawGame;
     const baseTitle = this.formatTitle(game.title || '');
     if (!game.rom_name) {
       return {

@@ -193,8 +193,7 @@ export class CollectionListComponent
       if (
         ownStr === 'all' ||
         ownStr === 'seeking_or_unowned' ||
-        ownStr === 'home_region_and_owned' ||
-        ownStr === 'upcoming'
+        ownStr === 'home_region_and_owned'
       ) {
         qpFilters.ownership = ownStr;
       } else {
@@ -259,15 +258,6 @@ export class CollectionListComponent
     const grouped = new Map<string, Platform[]>();
 
     [...data].forEach((p) => {
-      if (
-        p.id === 0 ||
-        p.name === 'No Platform' ||
-        p.name === 'Physical Watch' ||
-        p.display_name === 'No Platform' ||
-        p.display_name === 'Physical Watch'
-      ) {
-        return;
-      }
       const b = p.brand || 'Other';
       if (!grouped.has(b)) grouped.set(b, []);
       grouped.get(b)!.push(p);
@@ -686,14 +676,6 @@ export class CollectionListComponent
             return false;
           }
         }
-      } else if (f.ownership === 'upcoming') {
-        const isUpcoming =
-          (g.release_date && new Date(g.release_date) > new Date()) ||
-          g.physical_status === 'not_yet_physical' ||
-          (g.physical_status === 'physical_pending' &&
-            status !== OwnershipStatus.Owned) ||
-          status === OwnershipStatus.Ordered;
-        if (!isUpcoming) return false;
       } else if (f.ownership !== 'all' && f.ownership !== status) {
         return false;
       }
@@ -901,12 +883,6 @@ export class CollectionListComponent
       item: g,
       retailPrice: g.retail_price ?? null,
       discountPct: g.retail_discount_pct ?? 0,
-      isPhysicalWatch:
-        g.platform_id === 0 ||
-        g.platform === 'Physical Watch' ||
-        g.platform === 'No Platform' ||
-        g.display_name === 'Physical Watch' ||
-        g.display_name === 'No Platform',
       platformLaunchDate: g.platform_launch_date || '9999-99-99',
       normBrand: this.normalizeForSort(g.brand || ''),
       normSeries: this.normalizeForSort(g.canonical_series || g.title),
@@ -961,11 +937,6 @@ export class CollectionListComponent
         f.sortBy === 'release_asc';
 
       if (!isBypassPlatformGroupSort) {
-        // 0. Always sort Platform 0 ('Physical Watch') after all hardware platforms
-        if (a.isPhysicalWatch !== b.isPhysicalWatch) {
-          return a.isPhysicalWatch ? 1 : -1;
-        }
-
         // 1. Platform Launch Date (ASC)
         if (a.platformLaunchDate !== b.platformLaunchDate) {
           return cmpStr(a.platformLaunchDate, b.platformLaunchDate);
@@ -1121,11 +1092,7 @@ export class CollectionListComponent
     // 1. Calculate total counts per platform from ALL filtered games
     const counts = new Map<string, number>();
     for (const g of allFiltered) {
-      const rawPlat = g.display_name || g.platform;
-      const p =
-        g.platform_id === 0 || rawPlat === 'No Platform'
-          ? 'Physical Watch'
-          : rawPlat;
+      const p = g.display_name || g.platform;
       counts.set(p, (counts.get(p) || 0) + 1);
     }
 
@@ -1134,11 +1101,7 @@ export class CollectionListComponent
     const groupMap = new Map<string, GameGroup>();
 
     for (const game of displayed) {
-      const rawPlat = game.display_name || game.platform;
-      const p =
-        game.platform_id === 0 || rawPlat === 'No Platform'
-          ? 'Physical Watch'
-          : rawPlat;
+      const p = game.display_name || game.platform;
       let group = groupMap.get(p);
       if (!group) {
         group = {

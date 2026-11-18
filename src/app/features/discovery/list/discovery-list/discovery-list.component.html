@@ -300,16 +300,6 @@
                             ><app-icon name="circle-half" [size]="12" /> Likely
                             Physical</span
                           >
-                        } @else if (
-                          game.physical_status === 'not_yet_physical' ||
-                          game.physical_status === 'physical_pending'
-                        ) {
-                          <span
-                            class="physical-badge pending flex items-center gap-2xs"
-                            title="Digital Release Awaiting Physical Edition"
-                            ><app-icon name="clock" [size]="12" /> Physical
-                            Pending</span
-                          >
                         } @else if (game.physical_status === 'digital_only') {
                           <span
                             class="physical-badge digital flex items-center gap-2xs"
@@ -324,32 +314,14 @@
                 </div>
 
                 <div class="card-actions flex gap-xs items-center mt-sm">
-                  @if (game.platform_id === 0) {
-                    <button
-                      class="m3-btn m3-btn-primary flex-1 btn-sm"
-                      (click)="ingestWishlistForGame(game)"
-                    >
-                      + Wishlist Physical
-                    </button>
-                  } @else {
-                    <button
-                      class="m3-btn m3-btn-primary flex-1 btn-sm"
-                      [disabled]="getSelectedPlatformsCount(game) === 0"
-                      (click)="ingestSelectedForGame(game)"
-                      title="Add selected platforms to collection as unowned"
-                    >
-                      Ingest as Unowned ({{ getSelectedPlatformsCount(game) }})
-                    </button>
-                    @if (canWatchPhysical(game)) {
-                      <button
-                        class="m3-btn m3-btn-secondary btn-sm"
-                        title="Track as digital release awaiting physical edition (Platform 0)"
-                        (click)="ingestPhysicalWatchForGame(game)"
-                      >
-                        + Watch Physical
-                      </button>
-                    }
-                  }
+                  <button
+                    class="m3-btn m3-btn-primary flex-1 btn-sm"
+                    [disabled]="getSelectedPlatformsCount(game) === 0"
+                    (click)="ingestSelectedForGame(game)"
+                    title="Add selected platforms to collection as unowned"
+                  >
+                    Ingest as Unowned ({{ getSelectedPlatformsCount(game) }})
+                  </button>
                   <button
                     class="m3-btn m3-btn-secondary btn-sm"
                     title="Customize ingestion options and releases"
@@ -988,14 +960,6 @@
                     ><app-icon name="circle-half" [size]="12" /> Likely
                     Physical</span
                   >
-                } @else if (
-                  game.physical_status === 'not_yet_physical' ||
-                  game.physical_status === 'physical_pending'
-                ) {
-                  <span class="physical-badge pending flex items-center gap-2xs"
-                    ><app-icon name="clock" [size]="12" /> Physical
-                    Pending</span
-                  >
                 } @else if (game.physical_status === 'digital_only') {
                   <span class="physical-badge digital flex items-center gap-2xs"
                     ><app-icon name="circle-empty" [size]="12" /> Digital
@@ -1092,34 +1056,20 @@
               </div>
             </div>
           } @else if (
-            game.physical_status === 'not_yet_physical' ||
-            (game.first_release_date && isUpcomingDate(game.first_release_date))
+            game.first_release_date && isUpcomingDate(game.first_release_date)
           ) {
             <div
               class="upcoming-info-banner wishlist-info-banner p-md mb-lg text-sm flex items-start gap-sm"
             >
               <app-icon name="calendar" [size]="18" class="shrink-0 mt-2xs" />
               <div>
-                <span class="font-bold">Wishlist Title:</span> This title is
-                awaiting physical release confirmation or commercial launch. It
-                will be tracked on your physical wishlist.
+                <span class="font-bold">Upcoming Launch:</span> This title is
+                scheduled for an upcoming release.
                 @if (game.first_release_date) {
                   <div class="mt-2xs text-xs font-medium">
                     Expected Date: {{ game.first_release_date }}
                   </div>
                 }
-              </div>
-            </div>
-          } @else if (game.physical_status === 'physical_pending') {
-            <div
-              class="upcoming-info-banner watch-info-banner p-md mb-lg text-sm flex items-start gap-sm"
-            >
-              <app-icon name="clock" [size]="18" class="shrink-0 mt-2xs" />
-              <div>
-                <span class="font-bold">Physical Edition Watch:</span>
-                Currently released digitally or awaiting physical edition
-                confirmation. When boutique publishers (LRG, SRG, iam8bit, etc.)
-                launch pre-orders, your collection will automatically detect it.
               </div>
             </div>
           }

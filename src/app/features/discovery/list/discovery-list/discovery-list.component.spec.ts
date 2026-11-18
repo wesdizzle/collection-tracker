@@ -762,38 +762,6 @@ describe('DiscoveryListComponent', () => {
     expect(component.selectedReleaseIds().has('BBBB2222')).toBe(true);
   });
 
-  it('should support 1-click wishlist ingestion for Platform 0 titles', async () => {
-    const untrackedGame: IGDBSearchResult = {
-      id: 'igdb-9999',
-      name: 'Mushroom 11',
-      platform: 'No Platform',
-      platform_id: 0,
-      image_url: 'https://images.igdb.com/cover.jpg',
-      physical_status: 'not_yet_physical',
-      untracked_platforms: ['PC', 'iOS', 'Android'],
-    };
-
-    mockCollectionService.addGame.mockReturnValueOnce(
-      of({ success: true, gameId: 'mushroom-11-no-platform' }),
-    );
-
-    component.searchResults.set([untrackedGame]);
-    await component.ingestWishlistForGame(untrackedGame);
-
-    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
-      expect.objectContaining({
-        game: expect.objectContaining({
-          title: 'Mushroom 11',
-          platform_id: 0,
-          ownership_status: 2,
-          physical_status: 'not_yet_physical',
-        }),
-        releases: [],
-      }),
-    );
-    expect(component.searchResults()).toHaveLength(0);
-  });
-
   it('should filter platform selection to verified physical only with selectVerifiedPlatforms', () => {
     const multiGame: IGDBSearchResult = {
       id: 'igdb-5555',
@@ -852,64 +820,6 @@ describe('DiscoveryListComponent', () => {
     expect(component.getSelectedPlatformIds(multiGame)).toEqual([]);
   });
 
-  it('should support ingesting search candidates as physical watch items', async () => {
-    const digitalGame: IGDBSearchResult = {
-      id: 'igdb-7777',
-      name: 'Braid: Anniversary Edition',
-      platform: 'PlayStation 5',
-      platform_id: 1,
-      image_url: null,
-      physical_status: 'digital_only',
-      first_release_date: '2024-05-14',
-    };
-
-    mockCollectionService.addGame.mockReturnValueOnce(
-      of({ success: true, gameId: 'braid-anniversary' }),
-    );
-
-    component.searchResults.set([digitalGame]);
-    expect(component.canWatchPhysical(digitalGame)).toBe(true);
-
-    await component.ingestPhysicalWatchForGame(digitalGame);
-
-    expect(mockCollectionService.addGame).toHaveBeenCalledWith(
-      expect.objectContaining({
-        game: expect.objectContaining({
-          title: 'Braid: Anniversary Edition',
-          platform_id: 0,
-          ownership_status: 2,
-          physical_status: 'not_yet_physical',
-          release_date: '2024-05-14',
-        }),
-        releases: [],
-      }),
-    );
-    expect(component.searchResults()).toHaveLength(0);
-  });
-
-  it('should not allow canWatchPhysical for verified physical releases even if unowned', () => {
-    const verifiedGame: IGDBSearchResult = {
-      id: 'igdb-9999',
-      name: 'Asteroids',
-      platform: 'Atari 2600',
-      platform_id: 10,
-      image_url: null,
-      physical_status: 'verified_physical',
-      physical_platforms: [
-        {
-          platform_id: 10,
-          platform_name: 'Atari 2600',
-          physical_status: 'verified_physical',
-          is_physical: true,
-          is_owned: false,
-          matched_releases_count: 2,
-        },
-      ],
-    };
-
-    expect(component.canWatchPhysical(verifiedGame)).toBe(false);
-  });
-
   it('should support selecting only verified physical items in franchise scan results', () => {
     const suggestions: ScanSuggestion[] = [
       {
@@ -942,7 +852,7 @@ describe('DiscoveryListComponent', () => {
     expect(component.selectedScanGameIds().size).toBe(1);
   });
 
-  it('should default ownership status to Unowned (0) in ingestion modal for released games, and Seeking (2) for pending games', async () => {
+  it('should default ownership status to Unowned (0) in ingestion modal for released games, and Seeking (2) for upcoming releases', async () => {
     const releasedGame: IGDBSearchResult = {
       id: 'igdb-100',
       name: 'Super Mario World',
@@ -957,17 +867,17 @@ describe('DiscoveryListComponent', () => {
     expect(component.ownershipStatus()).toBe(0);
     component.closeIngestionModal();
 
-    const pendingGame: IGDBSearchResult = {
+    const upcomingGame: IGDBSearchResult = {
       id: 'igdb-200',
       name: 'Future Game',
       platform: 'Nintendo Switch',
       platform_id: 130,
       image_url: null,
-      physical_status: 'physical_pending',
+      physical_status: 'unverified',
       first_release_date: '2099-01-01',
     };
 
-    await component.openIngestionModal(pendingGame, '130');
+    await component.openIngestionModal(upcomingGame, '130');
     expect(component.ownershipStatus()).toBe(2);
     component.closeIngestionModal();
   });

@@ -75,7 +75,7 @@ describe('NotificationSettingsModalComponent', () => {
     const scopeRows = fixture.nativeElement.querySelectorAll(
       '.setting-card-group .setting-toggle-row',
     );
-    expect(scopeRows.length).toBe(5);
+    expect(scopeRows.length).toBe(4);
 
     const firstToggleBtn = scopeRows[0].querySelector('button.btn-toggle');
     expect(firstToggleBtn?.classList.contains('active')).toBe(true);

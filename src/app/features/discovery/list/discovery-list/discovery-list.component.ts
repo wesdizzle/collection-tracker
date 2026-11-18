@@ -211,15 +211,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     const grouped = new Map<string, Platform[]>();
 
     [...data].forEach((p) => {
-      if (
-        p.id === 0 ||
-        p.name === 'No Platform' ||
-        p.name === 'Physical Watch' ||
-        p.display_name === 'No Platform' ||
-        p.display_name === 'Physical Watch'
-      ) {
-        return;
-      }
       const b = p.brand || 'Other';
       if (!grouped.has(b)) grouped.set(b, []);
       grouped.get(b)!.push(p);
@@ -537,96 +528,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Determines if a search result can be ingested as a physical watch item.
-   * A game can only be watched for physical release if it has NO verified physical releases
-   * across any platform.
-   */
-  canWatchPhysical(game: IGDBSearchResult): boolean {
-    if (game.platform_id === 0) return false;
-
-    // If game-level status is verified physical, cannot watch physical
-    if (game.physical_status === 'verified_physical') return false;
-
-    // If any platform has verified physical status, is_physical flag, or matched physical releases, cannot watch physical
-    if (
-      game.physical_platforms?.some(
-        (p) =>
-          p.physical_status === 'verified_physical' ||
-          p.is_physical ||
-          p.matched_releases_count > 0,
-      )
-    ) {
-      return false;
-    }
-
-    // Only allow watching if overall game or its platforms are digital only, pending, or unverified
-    return (
-      game.physical_status === 'not_yet_physical' ||
-      game.physical_status === 'physical_pending' ||
-      game.physical_status === 'digital_only' ||
-      game.physical_status === 'unverified' ||
-      Boolean(
-        game.physical_platforms?.length &&
-        game.physical_platforms.every(
-          (p) =>
-            p.physical_status === 'not_yet_physical' ||
-            p.physical_status === 'physical_pending' ||
-            p.physical_status === 'digital_only' ||
-            p.physical_status === 'unverified',
-        ),
-      )
-    );
-  }
-
-  /**
-   * Ingests a search candidate into Platform 0 (No Platform) as Physical Pending / Watch.
-   */
-  async ingestPhysicalWatchForGame(game: IGDBSearchResult): Promise<void> {
-    if (!this.collectionService.isAdmin()) {
-      this.collectionService.promptAdminLogin();
-      return;
-    }
-
-    const cleanIgdbId =
-      typeof game.id === 'string'
-        ? parseInt(game.id.replace('igdb-', ''), 10)
-        : Number(game.id);
-
-    const payload = {
-      game: {
-        title: game.name,
-        platform_id: 0,
-        igdb_id: isNaN(cleanIgdbId) ? null : cleanIgdbId,
-        igdb_url: game.igdb_url || null,
-        summary: game.summary || null,
-        genres: game.genres || null,
-        region: 'USA',
-        image_url: game.image_url || null,
-        collections: game.collections || null,
-        franchises: game.franchises || null,
-        ownership_status: 2, // Seeking
-        play_status: 0,
-        backup_status: 0,
-        physical_status: 'not_yet_physical' as const,
-        verification_tier: 0,
-        release_date: game.first_release_date || null,
-      },
-      releases: [],
-    };
-
-    try {
-      await firstValueFrom(this.collectionService.addGame(payload));
-      this.searchResults.update((current) =>
-        current.filter((g) => g.id !== game.id),
-      );
-      this.showToast(`Watching "${game.name}" for Physical Release!`);
-    } catch (err: unknown) {
-      console.error(`Failed to watch physical for ${game.name}:`, err);
-      this.showToast(`Failed to add "${game.name}" to watch list.`);
-    }
-  }
-
-  /**
    * Toggles selection of a platform for a specific search result card.
    */
   togglePlatformSelection(gameId: string | number, platformId: number): void {
@@ -812,60 +713,6 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
     }
   }
 
-  /**
-   * 1-Click ingestion for Platform 0 ('No Platform') wishlist titles.
-   */
-  async ingestWishlistForGame(game: IGDBSearchResult): Promise<void> {
-    if (!this.collectionService.isAdmin()) {
-      this.collectionService.promptAdminLogin();
-      return;
-    }
-
-    const cleanIgdbId =
-      typeof game.id === 'string'
-        ? parseInt(game.id.replace('igdb-', ''), 10)
-        : Number(game.id);
-
-    const payload = {
-      game: {
-        title: game.name,
-        platform_id: 0,
-        igdb_id: isNaN(cleanIgdbId) ? null : cleanIgdbId,
-        igdb_url: game.igdb_url || null,
-        summary: game.summary || null,
-        genres: game.genres || null,
-        region: 'USA',
-        image_url: game.image_url || null,
-        collections: game.collections || null,
-        franchises: game.franchises || null,
-        ownership_status: 2, // Seeking
-        play_status: 0,
-        backup_status: 0,
-        physical_status: 'not_yet_physical' as const,
-        verification_tier: 0,
-        release_date: game.first_release_date || null,
-      },
-      releases: [],
-    };
-
-    try {
-      await firstValueFrom(this.collectionService.addGame(payload));
-      this.searchResults.update((current) =>
-        current.filter((g) => g.id !== game.id),
-      );
-      this.showToast(`Added "${game.name}" to Physical Wishlist!`);
-    } catch (err: unknown) {
-      console.error(`Failed to wishlist ${game.name}:`, err);
-      this.showToast(`Failed to add "${game.name}" to wishlist.`);
-    }
-  }
-
-  /**
-   * Fetches releases and opens the ingestion setup modal wizard.
-   *
-   * @param game The search candidate game object.
-   * @param platformIdStr The selected platform ID.
-   */
   async openIngestionModal(game: IGDBSearchResult, platformIdStr: string) {
     let platformId = Number(platformIdStr || 0) || game.platform_id || 0;
     if (!platformId && game.platform) {
@@ -906,15 +753,11 @@ export class DiscoveryListComponent implements OnInit, OnDestroy {
       this.selectedReleaseIds.set(autoSelected);
     }
 
-    // Reset forms to defaults (Seeking for upcoming/pending, else Unowned)
-    const isUpcomingOrPending =
-      game.physical_status === 'not_yet_physical' ||
-      game.physical_status === 'physical_pending' ||
-      Boolean(
-        game.first_release_date &&
-        new Date(game.first_release_date) > new Date(),
-      );
-    this.ownershipStatus.set(isUpcomingOrPending ? 2 : 0);
+    // Reset forms to defaults (Seeking for upcoming releases, else Unowned)
+    const isUpcoming = Boolean(
+      game.first_release_date && new Date(game.first_release_date) > new Date(),
+    );
+    this.ownershipStatus.set(isUpcoming ? 2 : 0);
     this.playStatus.set(0);
     this.backupStatus.set(0);
 

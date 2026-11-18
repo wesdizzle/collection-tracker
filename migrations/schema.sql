@@ -285,7 +285,6 @@ CREATE INDEX IF NOT EXISTS idx_cron_logs_created_at ON cron_execution_logs(creat
 -- ============================================================================
 
 INSERT OR IGNORE INTO platforms (id, name, brand, launch_date, image_url, description, display_name, igdb_id, parent_platform_id) VALUES
-  (0, 'No Platform', 'Other', NULL, NULL, NULL, 'No Platform', NULL, NULL),
   (1, '3DO Interactive Multiplayer', '3DO', '1993-10-04', NULL, NULL, '3DO Interactive Multiplayer', 50, NULL),
   (2, 'Atari 2600', 'Atari', '1977-09-11', NULL, NULL, 'Atari 2600', 59, NULL),
   (3, 'Atari 5200', 'Atari', '1982-01-01', NULL, NULL, 'Atari 5200', 66, NULL),

@@ -535,12 +535,7 @@ export class ItemDetailComponent {
     const isUpcomingDate = Boolean(
       g.release_date && new Date(g.release_date) > new Date(),
     );
-    const isNotYetPhysical =
-      (g.physical_status === 'not_yet_physical' ||
-        g.physical_status === 'physical_pending') &&
-      !this.hasPhysicalRelease(g);
-    if (!isUpcomingDate && !isNotYetPhysical) return null;
-    if (isNotYetPhysical && this.hasOwnedPhysical(g)) return null;
+    if (!isUpcomingDate) return null;
 
     let countdownText: string | null = null;
     let isReleased = false;
@@ -579,7 +574,6 @@ export class ItemDetailComponent {
 
     return {
       isAnnounced: isUpcomingDate,
-      isPending: isNotYetPhysical,
       countdownText,
       isReleased,
       hasStoreLink: !!g.retail_url,
@@ -649,9 +643,7 @@ export class ItemDetailComponent {
       return game.releases.some((r) => r.ownership_status === 1);
     }
     return (
-      game.ownership_status === 1 &&
-      game.physical_status !== 'not_yet_physical' &&
-      game.physical_status !== 'digital_only'
+      game.ownership_status === 1 && game.physical_status !== 'digital_only'
     );
   }
 
@@ -660,13 +652,8 @@ export class ItemDetailComponent {
    * matched ROM/catalog signature, physical retail medium, or physical releases list).
    */
   public hasPhysicalRelease(game?: Game | null): boolean {
-    if (!game || game.platform_id === 0) return false;
-    if (
-      !game.rom_name &&
-      (game.physical_status === 'not_yet_physical' ||
-        game.physical_status === 'physical_pending' ||
-        game.physical_status === 'digital_only')
-    ) {
+    if (!game) return false;
+    if (!game.rom_name && game.physical_status === 'digital_only') {
       return false;
     }
     if (
@@ -685,55 +672,6 @@ export class ItemDetailComponent {
       return true;
     }
     return false;
-  }
-
-  /**
-   * Determines if a game can be tracked for future physical release announcements.
-   * Disallowed for games that already have verified physical releases or are owned.
-   */
-  public canWatchPhysical(game?: Game | null): boolean {
-    if (!game) return false;
-    if (this.hasOwnedPhysical(game)) return false;
-    if (this.hasPhysicalRelease(game)) return false;
-    if (
-      game.physical_status === 'not_yet_physical' ||
-      game.physical_status === 'physical_pending'
-    ) {
-      return false;
-    }
-    return (
-      game.physical_status === 'digital_only' ||
-      (game.platform_id === 0 && !game.rom_name)
-    );
-  }
-
-  /**
-   * Toggles the physical watch status ('not_yet_physical' vs 'digital_only') for games.
-   */
-  public toggleWatchPhysical(game: Game): void {
-    if (
-      !this.collectionService.canShowPersonalState() ||
-      this.hasPhysicalRelease(game)
-    )
-      return;
-    const nextStatus =
-      game.physical_status === 'not_yet_physical' ||
-      game.physical_status === 'physical_pending'
-        ? 'digital_only'
-        : 'not_yet_physical';
-
-    this.collectionService.updatePhysicalStatus(game.id, nextStatus).subscribe({
-      next: () => {
-        game.physical_status = nextStatus;
-        this.itemOverride.set({ ...game, physical_status: nextStatus });
-        this.collectionService.patchGameOptimistic(game.id, {
-          physical_status: nextStatus,
-        });
-      },
-      error: (err) => {
-        console.error('Failed to toggle physical watch status:', err);
-      },
-    });
   }
 
   /**

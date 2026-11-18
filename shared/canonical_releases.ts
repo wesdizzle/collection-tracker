@@ -72,8 +72,6 @@ export type ReleaseMedium =
 export type PhysicalStatus =
   | 'verified_physical'
   | 'likely_physical'
-  | 'not_yet_physical'
-  | 'physical_pending'
   | 'digital_extracted_rom'
   | 'digital_only'
   | 'unreleased_prototype'
@@ -581,9 +579,7 @@ export function detectPhysicalReleaseStatus(options: {
         : 'Upcoming/announced title awaiting physical release confirmation',
     );
     return {
-      physical_status: hasPhysicalSignal
-        ? 'likely_physical'
-        : 'not_yet_physical',
+      physical_status: hasPhysicalSignal ? 'likely_physical' : 'unverified',
       verification_tier: hasPhysicalSignal ? 2 : 0,
       is_physical: hasPhysicalSignal,
       reasons,

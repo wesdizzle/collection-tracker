@@ -101,12 +101,6 @@ button.stat-pill {
   border: 1px solid var(--badge-info-border);
 }
 
-.stat-pill.active.pending {
-  background: var(--badge-purple-bg);
-  color: var(--badge-purple-fg);
-  border: 1px solid var(--badge-purple-border);
-}
-
 .stat-pill.interactive {
   cursor: pointer;
 }
@@ -488,9 +482,6 @@ button.stat-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-}
-.upcoming-badge-pill.pending-pill {
-  background: #9333ea;
 }
 .btn-preorder-link {
   display: inline-flex;

@@ -252,14 +252,14 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(upcomingPhysical.is_physical).toBe(true);
       expect(upcomingPhysical.verification_tier).toBe(2);
 
-      // Upcoming game with no physical signals yet -> not_yet_physical
+      // Upcoming game with no physical signals yet -> unverified
       const upcomingDigital = detectPhysicalReleaseStatus({
         platformId: 35, // PS5
         gameTitle: 'Indie Dream Project',
         firstReleaseDate: '2028-06-15',
         publisher: 'Unknown Solo Dev',
       });
-      expect(upcomingDigital.physical_status).toBe('not_yet_physical');
+      expect(upcomingDigital.physical_status).toBe('unverified');
       expect(upcomingDigital.is_physical).toBe(false);
       expect(upcomingDigital.verification_tier).toBe(0);
     });

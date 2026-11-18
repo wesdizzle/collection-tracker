@@ -246,18 +246,6 @@
               game().release_date || 'Upcoming'
             }}</span>
           </span>
-        } @else if (
-          (game().physical_status === 'not_yet_physical' ||
-            game().physical_status === 'physical_pending') &&
-          game().ownership_status !== 1
-        ) {
-          <span
-            class="pending-badge"
-            title="Awaiting Physical Edition / Pre-Order"
-          >
-            <app-icon name="clock" [size]="12" />
-            <span class="pending-badge-text">Physical Watch</span>
-          </span>
         }
       </div>
       @if (game().release_date && !isUpcomingDate(game().release_date)) {

@@ -623,7 +623,7 @@ export function reconcileGameReleasesWithCanonical(
 
     // Graduate game physical_status to 'verified_physical' upon matching canonical DAT signature
     sqlStatements.push(
-      `UPDATE games SET physical_status = 'verified_physical' WHERE stable_id = ${rel.game_id} AND physical_status IN ('not_yet_physical', 'physical_pending', 'unverified');`,
+      `UPDATE games SET physical_status = 'verified_physical' WHERE stable_id = ${rel.game_id} AND physical_status = 'unverified';`,
     );
 
     // If best is Disc 1 of a multi-disc set, automatically ensure Disc 2+ exist for this game
@@ -817,7 +817,7 @@ export function reconcileGameReleasesWithCanonical(
       ? db.prepare(`
           UPDATE games
           SET physical_status = 'verified_physical'
-          WHERE stable_id = ? AND physical_status IN ('not_yet_physical', 'physical_pending', 'unverified')
+          WHERE stable_id = ? AND physical_status = 'unverified'
         `)
       : null;
 

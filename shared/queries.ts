@@ -101,9 +101,9 @@ export function buildGamesListQuery(userId?: number | null): string {
            g.retail_store,
            g.retail_url,
            g.retail_updated_at,
-           CASE WHEN g.platform_id = 0 THEN 'Physical Watch' ELSE COALESCE(pp.display_name, p.display_name) END as display_name, 
-           CASE WHEN g.platform_id = 0 THEN 'Physical Watch' ELSE COALESCE(pp.display_name, p.display_name) END as platform, 
-           CASE WHEN g.platform_id = 0 THEN NULL ELSE COALESCE(pp.brand, p.brand) END as brand, 
+           COALESCE(pp.display_name, p.display_name) as display_name, 
+           COALESCE(pp.display_name, p.display_name) as platform, 
+           COALESCE(pp.brand, p.brand) as brand, 
            COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
            COALESCE(pp.image_url, p.image_url) as platform_logo,
            p.parent_platform_id,
@@ -234,9 +234,8 @@ export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
         AND (ug_act.play_status > 0 OR ug_act.queued > 0)
     )
     OR g.retail_on_sale = 1
-    OR g.physical_status IN ('likely_physical', 'physical_pending', 'not_yet_physical')
+    OR g.physical_status = 'likely_physical'
     OR g.bundle_parent_id > 0
-    OR g.platform_id = 0
   )
   AND (
     COALESCE(ugr.ownership_status, 0) > 0
@@ -248,7 +247,6 @@ export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
     OR COALESCE(g.retail_on_sale, 0) = 1
     OR (g.retail_price IS NOT NULL AND g.retail_price > 0)
     OR g.bundle_parent_id IS NOT NULL
-    OR g.platform_id = 0
   )
 `;
 
@@ -256,17 +254,14 @@ export const ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE = `
   AND g.stable_id IN (
     SELECT g_sale.stable_id FROM games g_sale WHERE g_sale.retail_on_sale = 1
     UNION
-    SELECT g_phys.stable_id FROM games g_phys WHERE g_phys.physical_status IN ('likely_physical', 'physical_pending', 'not_yet_physical')
+    SELECT g_phys.stable_id FROM games g_phys WHERE g_phys.physical_status = 'likely_physical'
     UNION
     SELECT +g_bun.stable_id FROM games g_bun WHERE g_bun.bundle_parent_id > 0
-    UNION
-    SELECT g_plat0.stable_id FROM games g_plat0 WHERE g_plat0.platform_id = 0
   )
   AND (
     COALESCE(g.retail_on_sale, 0) = 1
     OR (g.retail_price IS NOT NULL AND g.retail_price > 0)
     OR g.bundle_parent_id IS NOT NULL
-    OR g.platform_id = 0
   )
 `;
 
@@ -344,9 +339,9 @@ export function buildGameDetailQuery(userId?: number | null): string {
             g.retail_store,
             g.retail_url,
             g.retail_updated_at,
-            CASE WHEN g.platform_id = 0 THEN 'Physical Watch' ELSE COALESCE(pp.display_name, p.display_name) END as display_name, 
-            CASE WHEN g.platform_id = 0 THEN 'Physical Watch' ELSE COALESCE(pp.display_name, p.display_name) END as platform, 
-            CASE WHEN g.platform_id = 0 THEN NULL ELSE COALESCE(pp.brand, p.brand) END as brand, 
+            COALESCE(pp.display_name, p.display_name) as display_name, 
+            COALESCE(pp.display_name, p.display_name) as platform, 
+            COALESCE(pp.brand, p.brand) as brand, 
             COALESCE(pp.launch_date, p.launch_date) as platform_launch_date, 
             COALESCE(pp.image_url, p.image_url) as platform_logo,
             p.parent_platform_id,
@@ -559,8 +554,7 @@ export const TOY_DETAIL_QUERY = buildToyDetailQuery(null);
  * Common Sorters and Filters can also be added here if they share SQL syntax.
  */
 export const GAMES_ORDER_BY = `
-    ORDER BY CASE WHEN g.platform_id = 0 THEN 1 ELSE 0 END ASC,
-             COALESCE(pp.launch_date, p.launch_date) IS NULL ASC,
+    ORDER BY COALESCE(pp.launch_date, p.launch_date) IS NULL ASC,
              COALESCE(pp.launch_date, p.launch_date) ASC, 
              COALESCE(p.parent_platform_id, p.id) ASC, 
              g.platform_id ASC, 

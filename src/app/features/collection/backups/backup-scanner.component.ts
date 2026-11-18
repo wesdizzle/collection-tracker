@@ -90,18 +90,9 @@ export class BackupScannerComponent implements OnInit {
 
   /** Sorted hardware platforms for the optional Platform Scope override dropdown */
   public availablePlatforms = computed<Platform[]>(() => {
-    return [...this.collectionService.platforms()]
-      .filter(
-        (p) =>
-          p.id !== 0 &&
-          p.name !== 'No Platform' &&
-          p.name !== 'Physical Watch' &&
-          p.display_name !== 'No Platform' &&
-          p.display_name !== 'Physical Watch',
-      )
-      .sort((a, b) =>
-        (a.display_name || a.name).localeCompare(b.display_name || b.name),
-      );
+    return [...this.collectionService.platforms()].sort((a, b) =>
+      (a.display_name || a.name).localeCompare(b.display_name || b.name),
+    );
   });
 
   /** Human-readable label for the currently selected Platform Scope */

@@ -25,8 +25,6 @@ export enum PlayStatus {
 export type PhysicalStatus =
   | 'verified_physical'
   | 'likely_physical'
-  | 'not_yet_physical'
-  | 'physical_pending'
   | 'digital_extracted_rom'
   | 'digital_only'
   | 'unreleased_prototype'
@@ -257,7 +255,6 @@ export interface FilterState {
   ownership:
     | 'all'
     | 'seeking_or_unowned'
-    | 'upcoming'
     | 'home_region_and_owned'
     | OwnershipStatus;
   play_status?: 'all' | PlayStatus;
@@ -404,7 +401,6 @@ export interface PagedScanSeriesResult {
 
 export interface PhysicalAnnouncementScope {
   seeking?: boolean;
-  watch_physical?: boolean;
   uncataloged?: boolean;
   special_editions?: boolean;
   unowned?: boolean;

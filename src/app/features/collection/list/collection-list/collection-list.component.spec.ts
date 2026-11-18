@@ -2130,22 +2130,13 @@ describe('CollectionListComponent', () => {
     expect(badge).toBeNull();
   });
 
-  it('should exclude Platform 0 from platformGroups and sort Physical Watch games at the end', async () => {
+  it('should sort hardware platforms by launch date and sort undated consoles after dated ones', async () => {
     component.currentTab.set('games');
     component.filters.set({ ownership: 'all' });
     const httpMock = TestBed.inject(HttpTestingController);
     const initPromise = component.ngOnInit();
 
     httpMock.expectOne('/api/games').flush([
-      {
-        id: 'watch-game',
-        title: 'Indie Watch Game',
-        platform: 'No Platform',
-        display_name: 'No Platform',
-        platform_id: 0,
-        ownership_status: 2,
-        physical_status: 'not_yet_physical',
-      },
       {
         id: 'switch-game',
         title: 'Switch Release',
@@ -2172,12 +2163,6 @@ describe('CollectionListComponent', () => {
     httpMock.expectOne('/api/toys').flush([]);
     httpMock.expectOne('/api/platforms').flush([
       {
-        id: 0,
-        name: 'No Platform',
-        display_name: 'No Platform',
-        brand: 'Other',
-      },
-      {
         id: 26,
         name: 'Nintendo Switch',
         display_name: 'Nintendo Switch',
@@ -2196,7 +2181,6 @@ describe('CollectionListComponent', () => {
     expect(grouped.map((g) => g.platformName)).toEqual([
       'Nintendo Switch',
       'Future Console',
-      'Physical Watch',
     ]);
   });
 

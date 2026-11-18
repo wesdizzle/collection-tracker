@@ -1862,5 +1862,72 @@ describe('CollectionService', () => {
       expect(liveOwned?.ownership_status).toBe(1);
       expect(liveOwned?.play_status).toBe(2);
     });
+
+    it('stops fetching trailing chunks early when a non-zero chunk returns empty rows due to primary-key gaps', async () => {
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'alice@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      const pRefresh = service.refreshAll();
+      httpMock
+        .expectOne('/api/games')
+        .flush([], { headers: { 'X-Catalog-Partial': '1' } });
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRefresh;
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+        version: 'v2026-11-18-gap',
+        timestamp: '2026-11-18T00:05:00Z',
+        totalRows: 1,
+        chunkSize: 3500,
+        chunkCount: 3,
+        maxStableId: 50000,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=50000')
+        .flush({
+          version: 'v2026-11-18-gap',
+          timestamp: '2026-11-18T00:05:00Z',
+          maxStableId: 50000,
+          ugr: [],
+          ug: [],
+          deltaGames: [],
+        });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?chunk=0&v=v2026-11-18-gap').flush([
+        {
+          id: 'gap-game-50000',
+          game_id: 'gap-game-50000',
+          stable_id: 50000,
+          title: 'Surviving Gap Game',
+          platform: 'Switch',
+          platform_id: 26,
+          ownership_status: 0,
+          play_status: 0,
+          backup_status: 0,
+        },
+      ]);
+      httpMock
+        .expectOne('/api/catalog/games?chunk=1&v=v2026-11-18-gap')
+        .flush([]);
+
+      await service.ensureFullCatalogLoaded();
+      httpMock.expectNone('/api/catalog/games?chunk=2&v=v2026-11-18-gap');
+      expect(service.catalogSyncProgress().active).toBe(false);
+      expect(service.catalogSyncProgress().percent).toBe(100);
+      expect(service.games().map((g) => g.id)).toEqual(['gap-game-50000']);
+    });
   });
 });

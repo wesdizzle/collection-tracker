@@ -216,33 +216,6 @@ const COMMON_PLATFORMS: PlatformOption[] = [
 
                 <div
                   class="setting-toggle-row"
-                  (click)="togglePhysicalScope('watch_physical')"
-                >
-                  <div class="setting-text">
-                    <div class="font-semibold text-xs">
-                      Digital games marked "Watch for Physical"
-                    </div>
-                    <div class="text-2xs text-muted mt-3xs">
-                      Alert for digital-only or backlog games flagged to watch
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    class="btn-toggle"
-                    [class.active]="getPhysicalScope('watch_physical')"
-                    [class.inactive]="!getPhysicalScope('watch_physical')"
-                    (click)="
-                      $event.stopPropagation();
-                      togglePhysicalScope('watch_physical')
-                    "
-                    aria-label="Toggle alert for watch for physical games"
-                  >
-                    <span class="toggle-knob"></span>
-                  </button>
-                </div>
-
-                <div
-                  class="setting-toggle-row"
                   (click)="togglePhysicalScope('uncataloged')"
                 >
                   <div class="setting-text">
@@ -1308,12 +1281,7 @@ export class NotificationSettingsModalComponent {
   }
 
   public getPhysicalScope(
-    key:
-      | 'seeking'
-      | 'watch_physical'
-      | 'uncataloged'
-      | 'special_editions'
-      | 'unowned',
+    key: 'seeking' | 'uncataloged' | 'special_editions' | 'unowned',
   ): boolean {
     const scope = this.localPrefs.physical_announcement_scope;
     const val = scope?.[key];
@@ -1321,19 +1289,13 @@ export class NotificationSettingsModalComponent {
   }
 
   public togglePhysicalScope(
-    key:
-      | 'seeking'
-      | 'watch_physical'
-      | 'uncataloged'
-      | 'special_editions'
-      | 'unowned',
+    key: 'seeking' | 'uncataloged' | 'special_editions' | 'unowned',
   ): void {
     const nextVal = !this.getPhysicalScope(key);
     this._localPrefs.update((p) => ({
       ...p,
       physical_announcement_scope: {
         seeking: true,
-        watch_physical: true,
         uncataloged: true,
         special_editions: true,
         unowned: false,

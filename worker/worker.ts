@@ -1294,6 +1294,7 @@ export async function writeLiteBackupSnapshots(
 }
 
 const CATALOG_CHUNKS_STATE_KEY = 'catalog_chunks_state';
+const CATALOG_GAMES_TOTAL_ROWS_KEY = 'catalog_games_total_rows';
 
 interface CatalogChunksBuildState {
   targetVersion: string;
@@ -1302,6 +1303,7 @@ interface CatalogChunksBuildState {
   cursorStableId: number;
   chunkCount: number;
   totalRows: number;
+  gamesCount?: number;
   maxStableId: number;
   toysTotalRows: number;
 }
@@ -1354,6 +1356,7 @@ export async function writeCatalogChunksToR2(
 
   let timestamp: string;
   let totalRows: number;
+  let gamesCount: number;
   let maxStableId: number;
   let chunkCount: number;
   let startChunk: number;
@@ -1364,6 +1367,7 @@ export async function writeCatalogChunksToR2(
   if (resumeState) {
     timestamp = resumeState.timestamp;
     totalRows = resumeState.totalRows;
+    gamesCount = resumeState.gamesCount ?? 0;
     maxStableId = resumeState.maxStableId;
     chunkCount = resumeState.chunkCount;
     startChunk = resumeState.nextChunk;
@@ -1381,6 +1385,7 @@ export async function writeCatalogChunksToR2(
 
     maxStableId = Number(statsRow?.max_stable_id ?? 0);
     totalRows = 0;
+    gamesCount = 0;
     chunkCount = Math.max(1, Math.ceil(maxStableId / CATALOG_GAMES_PER_CHUNK));
     startChunk = Math.max(0, options.startChunk ?? 0);
     if (startChunk > 0 && maxStableId > 0) {
@@ -1474,7 +1479,14 @@ export async function writeCatalogChunksToR2(
       },
     );
 
+    const chunkGameIds = new Set<unknown>();
+    for (const r of chunkRows) {
+      if (r['stable_id'] !== undefined && r['stable_id'] !== null) {
+        chunkGameIds.add(r['stable_id']);
+      }
+    }
     totalRows += chunkRows.length;
+    gamesCount += chunkGameIds.size;
     cursorStableId = maxStableId === 0 ? 0 : endStableId;
     idx++;
     chunksProcessed++;
@@ -1499,6 +1511,7 @@ export async function writeCatalogChunksToR2(
         cursorStableId,
         chunkCount,
         totalRows,
+        gamesCount,
         maxStableId,
         toysTotalRows,
       };
@@ -1546,6 +1559,23 @@ export async function writeCatalogChunksToR2(
     },
   );
   try {
+    await env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+       WHERE sync_state.value != excluded.value`,
+    )
+      .bind(
+        CATALOG_GAMES_TOTAL_ROWS_KEY,
+        JSON.stringify({
+          totalRows,
+          gamesCount,
+          chunkCount: finalChunkCount,
+          maxStableId: resolvedMaxStableId,
+          toysTotalRows,
+        }),
+      )
+      .run();
     await env.DB.prepare(`DELETE FROM sync_state WHERE key = ?`)
       .bind(CATALOG_CHUNKS_STATE_KEY)
       .run();
@@ -1586,41 +1616,87 @@ export async function resolveCatalogManifest(
   }
 
   try {
-    const [maxGameRow, maxToyRow] = await Promise.all([
+    const [maxGameRow, maxToyRow, catalogMetaRow] = await Promise.all([
       env.DB.prepare(CATALOG_MAX_GAME_STABLE_ID_QUERY).first<{
         max_stable_id?: number;
       }>(),
       env.DB.prepare(CATALOG_MAX_TOY_STABLE_ID_QUERY)
         .first<{ max_stable_id?: number }>()
         .catch(() => ({ max_stable_id: 0 })),
+      env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
+        .bind(CATALOG_GAMES_TOTAL_ROWS_KEY)
+        .first<{ value?: string }>()
+        .catch(() => null),
     ]);
 
     const timestamp = new Date().toISOString();
     const maxStableId = Number(maxGameRow?.max_stable_id ?? 0);
     const maxToyStableId = Number(maxToyRow?.max_stable_id ?? 0);
     let totalRows = maxStableId;
+    let gamesCount = maxStableId;
     let toysTotalRows = maxToyStableId;
+    let storedChunkCount: number | null = null;
 
     if (maxStableId > 0 && maxStableId <= 600) {
       const [gameStats, toyStats] = await Promise.all([
         env.DB.prepare(
-          `SELECT COUNT(*) AS total_rows
+          `SELECT COUNT(*) AS total_rows, COUNT(DISTINCT g.stable_id) AS games_count
            FROM games g
            LEFT JOIN game_releases r ON g.stable_id = r.game_id`,
-        ).first<{ total_rows?: number }>(),
+        ).first<{ total_rows?: number; games_count?: number }>(),
         env.DB.prepare('SELECT COUNT(*) AS cnt FROM toys')
           .first<{ cnt?: number }>()
           .catch(() => ({ cnt: 0 })),
       ]);
       totalRows = Number(gameStats?.total_rows ?? maxStableId);
+      gamesCount = Number(gameStats?.games_count ?? maxStableId);
       toysTotalRows = Number(toyStats?.cnt ?? maxToyStableId);
+    } else if (catalogMetaRow?.value) {
+      try {
+        const parsedMeta = JSON.parse(catalogMetaRow.value) as {
+          totalRows?: number;
+          gamesCount?: number;
+          chunkCount?: number;
+          toysTotalRows?: number;
+        };
+        if (
+          typeof parsedMeta.totalRows === 'number' &&
+          parsedMeta.totalRows >= 0
+        ) {
+          totalRows = parsedMeta.totalRows;
+        }
+        if (
+          typeof parsedMeta.gamesCount === 'number' &&
+          parsedMeta.gamesCount >= 0
+        ) {
+          gamesCount = parsedMeta.gamesCount;
+        }
+        if (
+          typeof parsedMeta.chunkCount === 'number' &&
+          parsedMeta.chunkCount >= 1
+        ) {
+          storedChunkCount = parsedMeta.chunkCount;
+        }
+        if (
+          typeof parsedMeta.toysTotalRows === 'number' &&
+          parsedMeta.toysTotalRows >= 0
+        ) {
+          toysTotalRows = parsedMeta.toysTotalRows;
+        }
+      } catch {
+        // Ignore malformed sync_state metadata
+      }
     }
 
     const chunkSize = CATALOG_GAMES_CHUNK_SIZE;
     const chunkCount =
       maxStableId <= 0
         ? 1
-        : Math.max(1, Math.ceil(maxStableId / CATALOG_GAMES_PER_CHUNK));
+        : (storedChunkCount ??
+          Math.max(
+            1,
+            Math.ceil(Math.max(1, gamesCount) / CATALOG_GAMES_PER_CHUNK),
+          ));
     const manifest: CatalogManifest = {
       version: `${timestamp.slice(0, 10)}:${maxStableId}:${chunkCount}`,
       timestamp,
@@ -1652,6 +1728,13 @@ export async function resolveCatalogManifest(
     return manifest;
   } catch {
     return null;
+  }
+}
+
+async function invalidateCatalogManifest(env: Env): Promise<void> {
+  cachedCatalogManifest = null;
+  if (env.BACKUP_BUCKET && typeof env.BACKUP_BUCKET.delete === 'function') {
+    await env.BACKUP_BUCKET.delete(R2_CATALOG_MANIFEST_KEY).catch(() => {});
   }
 }
 
@@ -2199,18 +2282,9 @@ function buildGamesListFromSnapshot(
         retail_store: g['retail_store'] ?? null,
         retail_url: g['retail_url'] ?? null,
         retail_updated_at: g['retail_updated_at'] ?? null,
-        display_name:
-          platId === 0
-            ? 'Physical Watch'
-            : ((effPlatform?.['display_name'] as string | null) ?? null),
-        platform:
-          platId === 0
-            ? 'Physical Watch'
-            : ((effPlatform?.['display_name'] as string | null) ?? null),
-        brand:
-          platId === 0
-            ? null
-            : ((effPlatform?.['brand'] as string | null) ?? null),
+        display_name: (effPlatform?.['display_name'] as string | null) ?? null,
+        platform: (effPlatform?.['display_name'] as string | null) ?? null,
+        brand: (effPlatform?.['brand'] as string | null) ?? null,
         platform_launch_date: effPlatform?.['launch_date'] ?? null,
         platform_logo: effPlatform?.['image_url'] ?? null,
         parent_platform_id: p?.['parent_platform_id'] ?? null,
@@ -2243,13 +2317,7 @@ function applyGameDetailReleasePartitionAndTitles(
   const targetKey = getRomGroupingKey(game.rom_name);
   const isMulti = targetKey.startsWith('multi:');
 
-  if (game.platform_id === 0) {
-    // Virtual Platform 0 ("No Platform") represents untracked / physical watch list games
-    // that have not yet released on a physical console. They must never expose synthetic
-    // or placeholder physical release rows.
-    game.releases = [];
-    game.other_releases = [];
-  } else if (isMulti) {
+  if (isMulti) {
     game.releases = typedResults.filter(
       (r) => getRomGroupingKey(r.rom_name) === targetKey,
     );
@@ -2540,16 +2608,9 @@ function buildGameDetailFromSnapshot(
     backup_status: primaryUgr ? Number(primaryUgr['backup_status'] ?? 0) : 0,
     has_case: primaryUgr ? Number(primaryUgr['has_case'] ?? 0) : 0,
     has_manual: primaryUgr ? Number(primaryUgr['has_manual'] ?? 0) : 0,
-    display_name:
-      platId === 0
-        ? 'Physical Watch'
-        : ((effPlatform?.['display_name'] as string | null) ?? null),
-    platform:
-      platId === 0
-        ? 'Physical Watch'
-        : ((effPlatform?.['display_name'] as string | null) ?? null),
-    brand:
-      platId === 0 ? null : ((effPlatform?.['brand'] as string | null) ?? null),
+    display_name: (effPlatform?.['display_name'] as string | null) ?? null,
+    platform: (effPlatform?.['display_name'] as string | null) ?? null,
+    brand: (effPlatform?.['brand'] as string | null) ?? null,
     platform_launch_date:
       (effPlatform?.['launch_date'] as string | null) ?? null,
     platform_logo: (effPlatform?.['image_url'] as string | null) ?? null,
@@ -6198,58 +6259,6 @@ Disallow: /
                 : undefined;
 
             if (candidatePlatforms.length === 0) {
-              if (isGlobalFallback) {
-                // Check if already tracked under Platform 0 or elsewhere
-                const isAlreadyOwned =
-                  existingSet.has(`igdb-${g.id}-0`) ||
-                  existingSet.has(`title-${cleanTitle}-0`) ||
-                  existingSet.has(`norm-${normTitle}-0`);
-
-                if (isAlreadyOwned) {
-                  return null;
-                }
-
-                return {
-                  id: `igdb-${g.id}`,
-                  name: g.name,
-                  platform: 'Physical Watch',
-                  platform_id: 0,
-                  image_url: imageUrl,
-                  summary: g.summary || null,
-                  genres: g.genres?.map((ge) => ge.name).join(', ') || null,
-                  igdb_url: g.url || null,
-                  collections:
-                    g.collections?.map((c) => c.name).join(', ') || null,
-                  franchises:
-                    g.franchises?.map((f) => f.name).join(', ') || null,
-                  physical_status: 'not_yet_physical' as const,
-                  verification_tier: 0,
-                  is_physical: false,
-                  physical_regions: [],
-                  region: 'USA',
-                  matched_releases: [],
-                  verification_reasons: [
-                    'Game has not released on tracked physical consoles. Tracked on physical wishlist.',
-                  ],
-                  first_release_date: g.first_release_date
-                    ? new Date(g.first_release_date * 1000)
-                        .toISOString()
-                        .split('T')[0]
-                    : null,
-                  physical_platforms: [
-                    {
-                      platform_id: 0,
-                      platform_name: 'Physical Watch',
-                      physical_status: 'not_yet_physical' as const,
-                      is_physical: false,
-                      is_owned: false,
-                      matched_releases_count: 0,
-                      matched_releases: [],
-                    },
-                  ],
-                  untracked_platforms: untrackedPlatforms,
-                };
-              }
               return null;
             }
 
@@ -7834,8 +7843,6 @@ Disallow: /
         const validPhysicalStatuses = [
           'verified_physical',
           'likely_physical',
-          'physical_pending',
-          'not_yet_physical',
           'digital_only',
           'unverified',
         ];
@@ -8710,9 +8717,11 @@ Disallow: /
       ]);
 
       invalidateSeriesScanCache();
+      await invalidateCatalogManifest(env);
       await invalidateEdgeApiCache(request.url, {
         userId: sessionUser?.id,
         username: sessionUser?.username,
+        invalidateCatalog: true,
       });
       await markDbDirty(env, 'games', game.stable_id, {
         clearBoutiqueHash: true,
@@ -8740,16 +8749,6 @@ Disallow: /
         );
       }
 
-      const existingRelease = (await env.DB.prepare(
-        'SELECT r.game_id, g.id as parent_slug, g.platform_id FROM game_releases r JOIN games g ON g.stable_id = r.game_id WHERE r.id = ? LIMIT 1',
-      )
-        .bind(releaseId)
-        .first()) as {
-        game_id: number;
-        parent_slug: string;
-        platform_id: number;
-      } | null;
-
       await env.DB.prepare(
         'DELETE FROM user_game_releases WHERE release_id = ?',
       )
@@ -8763,81 +8762,18 @@ Disallow: /
         .run();
 
       if (!result.meta || result.meta.changes === 0) {
-        // Fallback: if releaseId refers directly to a Virtual Platform 0 ("No Platform")
-        // game that has no physical release rows, delete the Platform 0 game cleanly.
-        const noPlatGame = (await env.DB.prepare(
-          'SELECT stable_id, id FROM games WHERE id = ? AND platform_id = 0 LIMIT 1',
-        )
-          .bind(releaseId)
-          .first()) as { stable_id: number; id: string } | null;
-
-        if (!noPlatGame) {
-          return Response.json(
-            { error: `Could not find release with ID: ${releaseId}` },
-            { status: 404 },
-          );
-        }
-
-        await env.DB.batch([
-          env.DB.prepare(
-            `DELETE FROM journal_entries WHERE item_type = 'game' AND item_id = ?`,
-          ).bind(noPlatGame.id),
-          env.DB.prepare(
-            `DELETE FROM user_game_releases WHERE release_id IN (SELECT id FROM game_releases WHERE game_id = ?)`,
-          ).bind(noPlatGame.stable_id),
-          env.DB.prepare('DELETE FROM user_games WHERE game_id = ?').bind(
-            noPlatGame.stable_id,
-          ),
-          env.DB.prepare('DELETE FROM game_releases WHERE game_id = ?').bind(
-            noPlatGame.stable_id,
-          ),
-          env.DB.prepare('DELETE FROM games WHERE stable_id = ?').bind(
-            noPlatGame.stable_id,
-          ),
-        ]);
-
-        invalidateSeriesScanCache();
-        await invalidateEdgeApiCache(request.url, {
-          userId: sessionUser?.id,
-          username: sessionUser?.username,
-        });
-        await markDbDirty(env, 'games', noPlatGame.stable_id, {
-          clearBoutiqueHash: true,
-        });
-        return Response.json({
-          success: true,
-          deletedReleaseId: releaseId,
-          deletedGameId: noPlatGame.id,
-        });
-      }
-
-      // If deleting a placeholder release from a Platform 0 game leaves it with 0 releases,
-      // remove the orphaned Platform 0 game row as well.
-      if (existingRelease && existingRelease.platform_id === 0) {
-        const remaining = await env.DB.prepare(
-          'SELECT 1 FROM game_releases WHERE game_id = ? LIMIT 1',
-        )
-          .bind(existingRelease.game_id)
-          .first();
-        if (!remaining) {
-          await env.DB.batch([
-            env.DB.prepare(
-              `DELETE FROM journal_entries WHERE item_type = 'game' AND item_id = ?`,
-            ).bind(existingRelease.parent_slug),
-            env.DB.prepare('DELETE FROM user_games WHERE game_id = ?').bind(
-              existingRelease.game_id,
-            ),
-            env.DB.prepare('DELETE FROM games WHERE stable_id = ?').bind(
-              existingRelease.game_id,
-            ),
-          ]);
-        }
+        return Response.json(
+          { error: `Could not find release with ID: ${releaseId}` },
+          { status: 404 },
+        );
       }
 
       invalidateSeriesScanCache();
+      await invalidateCatalogManifest(env);
       await invalidateEdgeApiCache(request.url, {
         userId: sessionUser?.id,
         username: sessionUser?.username,
+        invalidateCatalog: true,
       });
       await markDbDirty(env, undefined, undefined, { clearBoutiqueHash: true });
       return Response.json({ success: true, deletedReleaseId: releaseId });
@@ -9172,10 +9108,7 @@ Disallow: /
       }> = [];
       let anyPositiveOwnership = (game.ownership_status || 0) > 0;
 
-      if (game.platform_id === 0) {
-        // Virtual Platform 0 represents untracked / wishlist games with 0 releases.
-        // Do not create default releases.
-      } else if (releases && releases.length > 0) {
+      if (releases && releases.length > 0) {
         const statements = [];
         const userStatements = [];
         const usedRelSlugs = new Set<string>();
@@ -11588,8 +11521,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     // Proceed with full sync if sync_state lookup fails
   }
 
-  const platformsWithNoPlat = [...targetPlatforms, 0];
-  const placeholders = platformsWithNoPlat.map(() => '?').join(', ');
+  const placeholders = targetPlatforms.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.physical_status, g.retail_url,
             0 AS ownership_status,
@@ -11598,7 +11530,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
      FROM games g
      WHERE g.platform_id IN (${placeholders})`,
   )
-    .bind(...platformsWithNoPlat)
+    .bind(...targetPlatforms)
     .all<{
       stable_id: number;
       id: string;
@@ -11674,7 +11606,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
     const match = gamesWithNorm.find(
       (g) =>
-        (g.platform_id === po.platformId || g.platform_id === 0) &&
+        g.platform_id === po.platformId &&
         (g.normTitle === poNorm ||
           g.title.toLowerCase() === po.cleanTitle.toLowerCase()),
     );
@@ -11686,10 +11618,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     const onSaleInt = po.onSale && discountPct > 0 ? 1 : 0;
 
     if (match) {
-      const isGraduatingFromNoPlatform = match.platform_id === 0;
       const shouldUpdatePhysicalStatus =
-        match.physical_status === 'not_yet_physical' ||
-        match.physical_status === 'physical_pending' ||
         match.physical_status === 'unverified' ||
         match.physical_status === 'digital_only';
 
@@ -11699,84 +11628,34 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
       const isUrlDifferent = match.retail_url !== po.productUrl;
 
-      if (
-        shouldUpdatePhysicalStatus ||
-        isUrlDifferent ||
-        isGraduatingFromNoPlatform
-      ) {
-        if (isGraduatingFromNoPlatform) {
-          // Graduate game to target console platform and update slug
-          const slugify = (s: string) =>
-            (s || '')
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-+|-+$/g, '');
-          const newSlug = `${slugify(match.title)}-${po.platformId}`;
-
-          statements.push(
-            env.DB.prepare(
-              `UPDATE games
-               SET platform_id = ?,
-                   id = ?,
-                   physical_status = 'likely_physical',
-                   retail_url = ?,
-                   retail_price = COALESCE(?, retail_price),
-                   retail_regular_price = COALESCE(?, retail_regular_price),
-                   retail_discount_pct = ?,
-                   retail_on_sale = ?,
-                   retail_store = ?
-               WHERE stable_id = ?`,
-            ).bind(
-              po.platformId,
-              newSlug,
-              po.productUrl,
-              priceCents,
-              regularPriceCents,
-              discountPct,
-              onSaleInt,
-              po.store,
-              match.stable_id,
-            ),
-          );
-
-          // Insert the boutique pre-order edition release
-          const relId = `${newSlug}-boutique-${po.store.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
-          statements.push(
-            env.DB.prepare(
-              `INSERT OR IGNORE INTO game_releases (
-                 id, game_id, region, variants, release_date
-               ) VALUES (?, ?, 'USA', ?, NULL)`,
-            ).bind(relId, match.stable_id, po.edition || 'Standard Physical'),
-          );
-        } else {
-          statements.push(
-            env.DB.prepare(
-              `UPDATE games
-               SET physical_status = ?,
-                   retail_url = ?,
-                   retail_price = COALESCE(?, retail_price),
-                   retail_regular_price = COALESCE(?, retail_regular_price),
-                   retail_discount_pct = ?,
-                   retail_on_sale = ?,
-                   retail_store = ?
-               WHERE stable_id = ?`,
-            ).bind(
-              nextPhysicalStatus,
-              po.productUrl,
-              priceCents,
-              regularPriceCents,
-              discountPct,
-              onSaleInt,
-              po.store,
-              match.stable_id,
-            ),
-          );
-        }
+      if (shouldUpdatePhysicalStatus || isUrlDifferent) {
+        statements.push(
+          env.DB.prepare(
+            `UPDATE games
+             SET physical_status = ?,
+                 retail_url = ?,
+                 retail_price = COALESCE(?, retail_price),
+                 retail_regular_price = COALESCE(?, retail_regular_price),
+                 retail_discount_pct = ?,
+                 retail_on_sale = ?,
+                 retail_store = ?
+             WHERE stable_id = ?`,
+          ).bind(
+            nextPhysicalStatus,
+            po.productUrl,
+            priceCents,
+            regularPriceCents,
+            discountPct,
+            onSaleInt,
+            po.store,
+            match.stable_id,
+          ),
+        );
       }
 
       // Evaluate announcement notification criteria (Proposal 3):
       // - Standard games already physical MUST NOT alert on mere retail_url change!
-      // - Alert ONLY if transitioning from digital/unverified/pending to likely_physical, OR
+      // - Alert ONLY if transitioning from digital/unverified to likely_physical, OR
       // - A special edition announced for the first time.
       // Per-user ownership suppression is evaluated per subscriber in dispatchPhysicalAnnouncementNotifications.
       const isSpecialEdition = Boolean(po.edition);
@@ -11792,12 +11671,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
       if (shouldNotify) {
         newlyAnnouncedGames.push({
-          game: {
-            ...match,
-            platform_id: isGraduatingFromNoPlatform
-              ? po.platformId
-              : match.platform_id,
-          },
+          game: match,
           preOrder: po,
           isSpecialEdition,
         });
@@ -12014,7 +11888,6 @@ async function dispatchPhysicalAnnouncementNotifications(
 
       const pas = prefs.physical_announcement_scope;
       const scopeSeeking = pas?.seeking ?? true;
-      const scopeWatchPhysical = pas?.watch_physical ?? true;
       const scopeUncataloged = pas?.uncataloged ?? true;
       const scopeSpecialEditions = pas?.special_editions ?? true;
       const scopeUnowned =
@@ -12063,12 +11936,6 @@ async function dispatchPhysicalAnnouncementNotifications(
           }
           if (subOwnershipStatus === 2 || subOwnershipStatus === 4) {
             return scopeSeeking;
-          }
-          if (
-            game.physical_status === 'not_yet_physical' ||
-            game.physical_status === 'physical_pending'
-          ) {
-            return scopeWatchPhysical;
           }
           return scopeUnowned;
         },
@@ -12397,7 +12264,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     const upcomingRes = await env.DB.prepare(
       `SELECT stable_id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
        FROM games
-       WHERE physical_status IN ('not_yet_physical', 'physical_pending', 'likely_physical')
+       WHERE physical_status = 'likely_physical'
          AND igdb_id IS NOT NULL AND igdb_id > 0`,
     ).all<{
       stable_id: number;

@@ -903,111 +903,6 @@ describe('Worker API Logic', () => {
     expect(releases[0].id).not.toBe(releases[1].id);
   });
 
-  it('POST /api/discovery/add inserts Platform 0 wishlist title with 0 releases', async () => {
-    const req = new Request('http://localhost/api/discovery/add', {
-      method: 'POST',
-      body: JSON.stringify({
-        game: {
-          title: 'Mushroom 11',
-          platform_id: 0,
-          igdb_id: 9999,
-          physical_status: 'not_yet_physical',
-          ownership_status: 2,
-        },
-        releases: [],
-      }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    const res = await worker.fetch(req, mockEnv);
-    expect(res.status).toBe(200);
-    const data = (await res.json()) as { success: boolean; gameId: string };
-    expect(data.success).toBe(true);
-
-    const insertedGame = db
-      .prepare(
-        'SELECT title, platform_id, physical_status, stable_id FROM games WHERE id = ?',
-      )
-      .get(data.gameId) as {
-      title: string;
-      platform_id: number;
-      physical_status: string;
-      stable_id: number;
-    };
-    expect(insertedGame.title).toBe('Mushroom 11');
-    expect(insertedGame.platform_id).toBe(0);
-    expect(insertedGame.physical_status).toBe('not_yet_physical');
-
-    const releases = db
-      .prepare('SELECT id FROM game_releases WHERE game_id = ?')
-      .all(insertedGame.stable_id);
-    expect(releases).toHaveLength(0);
-
-    // Verify GET /api/games/:id does NOT synthesize a fake physical release for Platform 0
-    const getRes = await worker.fetch(
-      new Request(`http://localhost/api/games/${data.gameId}`),
-      mockEnv,
-    );
-    expect(getRes.status).toBe(200);
-    const detail = (await getRes.json()) as {
-      id: string;
-      platform_id: number;
-      releases: unknown[];
-    };
-    expect(detail.platform_id).toBe(0);
-    expect(detail.releases).toEqual([]);
-
-    // Verify re-adding the same Platform 0 game is idempotent (no -1 duplicate)
-    const dupRes = await worker.fetch(
-      new Request('http://localhost/api/discovery/add', {
-        method: 'POST',
-        body: JSON.stringify({
-          game: {
-            title: 'Mushroom 11',
-            platform_id: 0,
-            igdb_id: 9999,
-            physical_status: 'not_yet_physical',
-            ownership_status: 2,
-          },
-          releases: [],
-        }),
-        headers: { 'Content-Type': 'application/json' },
-      }),
-      mockEnv,
-    );
-    expect(dupRes.status).toBe(200);
-    const dupData = (await dupRes.json()) as {
-      success: boolean;
-      gameId: string;
-      stableId: number;
-    };
-    expect(dupData.gameId).toBe(data.gameId);
-    expect(dupData.stableId).toBe(insertedGame.stable_id);
-
-    const countRow = db
-      .prepare(
-        "SELECT COUNT(*) as cnt FROM games WHERE title = 'Mushroom 11' AND platform_id = 0",
-      )
-      .get() as { cnt: number };
-    expect(countRow.cnt).toBe(1);
-
-    // Verify DELETE /api/collection/release cleanly removes a release-less Platform 0 game
-    const delRes = await worker.fetch(
-      new Request(
-        `http://localhost/api/collection/release?id=${encodeURIComponent(data.gameId)}`,
-        { method: 'DELETE' },
-      ),
-      mockEnv,
-    );
-    expect(delRes.status).toBe(200);
-    const afterDelCount = db
-      .prepare(
-        "SELECT COUNT(*) as cnt FROM games WHERE title = 'Mushroom 11' AND platform_id = 0",
-      )
-      .get() as { cnt: number };
-    expect(afterDelCount.cnt).toBe(0);
-  });
-
   it('POST /api/discovery/add-toy inserts or updates amiibo toys', async () => {
     const req = new Request('http://localhost/api/discovery/add-toy', {
       method: 'POST',
@@ -1423,26 +1318,6 @@ describe('Worker API Logic', () => {
       expect(allResults[1].physical_status).toBe('digital_only');
       expect(allResults[1].verification_tier).toBe(3);
       expect(allResults[1].is_physical).toBe(false);
-
-      // 3. Search with Platform 0 fallback for untracked indie title
-      const indieReq = new Request(
-        'http://localhost/api/discovery/search?query=Mushroom+11&platformId=0',
-      );
-      const indieRes = await worker.fetch(indieReq, mockEnv);
-      expect(indieRes.status).toBe(200);
-      const indieResults = (await indieRes.json()) as Array<{
-        name: string;
-        platform: string;
-        platform_id: number;
-        physical_status: string;
-        untracked_platforms?: string[];
-      }>;
-      expect(indieResults).toHaveLength(1);
-      expect(indieResults[0].name).toBe('Mushroom 11');
-      expect(indieResults[0].platform_id).toBe(0);
-      expect(indieResults[0].platform).toBe('Physical Watch');
-      expect(indieResults[0].physical_status).toBe('not_yet_physical');
-      expect(indieResults[0].untracked_platforms).toContain('PC');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -2320,7 +2195,7 @@ describe('Worker API Logic', () => {
       db.prepare(
         `
         INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-        VALUES (777, 'switch-sea-of-stars', 'Sea of Stars', 26, 'physical_pending')
+        VALUES (777, 'switch-sea-of-stars', 'Sea of Stars', 26, 'unverified')
       `,
       ).run();
 
@@ -2704,86 +2579,6 @@ describe('Worker API Logic', () => {
           )
           .get();
         expect(uncatalogedSeen).toBeDefined();
-      } finally {
-        fetchSpy.mockRestore();
-        webPushSpy.mockRestore();
-      }
-    });
-
-    it('syncWorkerBoutiquePreOrders graduates Platform 0 wishlist title to announced console platform', async () => {
-      // Game exists in Wishlist under Platform 0 ('No Platform')
-      db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (995, 'mushroom-11-no-platform', 'Mushroom 11', 0, 'not_yet_physical')`,
-      ).run();
-
-      // Ensure boutique_seed_completed is present so notifications / updates fire normally
-      db.prepare(
-        `INSERT OR REPLACE INTO sync_state (key, value) VALUES ('boutique_seed_completed', '1')`,
-      ).run();
-
-      // Limited Run Games announces Mushroom 11 for Nintendo Switch (platform 26)
-      const mockShopify = {
-        products: [
-          {
-            id: 991122,
-            title: 'Mushroom 11 - Nintendo Switch',
-            handle: 'mushroom-11-switch',
-            tags: ['game', 'pre-order'],
-            created_at: new Date().toISOString(),
-            variants: [{ price: '34.99' }],
-          },
-        ],
-      };
-
-      const webPushSpy = vi
-        .spyOn(webPush, 'sendWebPushNotification')
-        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
-
-      const fetchSpy = vi
-        .spyOn(globalThis, 'fetch')
-        .mockImplementation(async (input) => {
-          if (
-            typeof input === 'string' &&
-            input.includes('limitedrungames.com')
-          ) {
-            return {
-              ok: true,
-              json: async () => mockShopify,
-            } as unknown as Response;
-          }
-          return {
-            ok: true,
-            json: async () => ({ products: [] }),
-          } as unknown as Response;
-        });
-
-      try {
-        const result = await syncWorkerBoutiquePreOrders(mockEnv);
-        expect(result.matchedCount).toBeGreaterThanOrEqual(1);
-
-        // Verify game graduated from platform 0 to platform 26 and status is likely_physical
-        const updatedGame = db
-          .prepare(
-            'SELECT platform_id, physical_status, retail_store FROM games WHERE stable_id = 995',
-          )
-          .get() as {
-          platform_id: number;
-          physical_status: string;
-          retail_store: string;
-        };
-        expect(updatedGame.platform_id).toBe(26);
-        expect(updatedGame.physical_status).toBe('likely_physical');
-        expect(updatedGame.retail_store).toBe('Limited Run Games');
-
-        // Verify a boutique pre-order edition release was inserted
-        const insertedReleases = db
-          .prepare(
-            'SELECT id, game_id, variants FROM game_releases WHERE game_id = 995',
-          )
-          .all() as Array<{ id: string; game_id: number; variants: string }>;
-        expect(insertedReleases.length).toBe(1);
-        expect(insertedReleases[0].variants).toBe('Standard Physical');
       } finally {
         fetchSpy.mockRestore();
         webPushSpy.mockRestore();
@@ -3262,7 +3057,7 @@ describe('Worker API Logic', () => {
           id: 'digital-game',
           type: 'game',
           field: 'physical_status',
-          status: 'physical_pending',
+          status: 'likely_physical',
         }),
       });
 
@@ -3274,7 +3069,7 @@ describe('Worker API Logic', () => {
         .get('digital-game') as {
         physical_status: string;
       };
-      expect(row.physical_status).toBe('physical_pending');
+      expect(row.physical_status).toBe('likely_physical');
     });
 
     describe('Game & release deletion', () => {
@@ -3379,6 +3174,34 @@ describe('Worker API Logic', () => {
         );
         const res = await worker.fetch(req, mockEnv);
         expect(res.status).toBe(404);
+      });
+
+      it('DELETE /api/collection/game and release invalidate R2 catalog manifest cache', async () => {
+        await writeCatalogChunksToR2(mockEnv, { forceRestart: true });
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
+
+        const delRelRes = await worker.fetch(
+          new Request(
+            'http://localhost/api/collection/release?id=del-game-eu',
+            { method: 'DELETE', headers: adminHeaders },
+          ),
+          mockEnv,
+        );
+        expect(delRelRes.status).toBe(200);
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(false);
+
+        await writeCatalogChunksToR2(mockEnv, { forceRestart: true });
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
+
+        const delGameRes = await worker.fetch(
+          new Request('http://localhost/api/collection/game?id=del-game', {
+            method: 'DELETE',
+            headers: adminHeaders,
+          }),
+          mockEnv,
+        );
+        expect(delGameRes.status).toBe(200);
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(false);
       });
     });
   });
@@ -7359,6 +7182,67 @@ describe('Worker API Logic', () => {
         vi.unstubAllGlobals();
         resetWorkerRateLimits();
       }
+    });
+
+    it('resolves accurate catalog manifest row counts and chunkCount across large primary-key gaps', async () => {
+      resetWorkerRateLimits();
+      db.prepare('DELETE FROM user_game_releases').run();
+      db.prepare('DELETE FROM user_games').run();
+      db.prepare('DELETE FROM game_releases').run();
+      db.prepare('DELETE FROM games').run();
+
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+         VALUES (10, 'gap-game-10', 'Gap Game Low', 26, 'verified_physical'),
+                (50000, 'gap-game-50000', 'Gap Game High', 26, 'verified_physical')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('gap-rel-10', 10, 'USA'),
+                ('gap-rel-50000', 50000, 'USA')`,
+      ).run();
+
+      const builtManifest = await writeCatalogChunksToR2(mockEnv, {
+        forceRestart: true,
+      });
+      expect(builtManifest).not.toBeNull();
+      expect(builtManifest!.totalRows).toBe(2);
+      expect(builtManifest!.chunkCount).toBe(1);
+      expect(builtManifest!.maxStableId).toBe(50000);
+
+      // Remove R2 manifest and clear in-memory cache so resolveCatalogManifest must synthesize from D1 + sync_state
+      mockBucket.storage.delete(R2_CATALOG_MANIFEST_KEY);
+      resetWorkerRateLimits();
+
+      const manifestRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/catalog/games?manifest=1',
+        ),
+        mockEnv,
+      );
+      expect(manifestRes.status).toBe(200);
+      const manifest = (await manifestRes.json()) as {
+        totalRows: number;
+        chunkCount: number;
+        maxStableId: number;
+      };
+      expect(manifest.totalRows).toBe(2);
+      expect(manifest.chunkCount).toBe(1);
+      expect(manifest.maxStableId).toBe(50000);
+
+      const chunk0Res = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/catalog/games?chunk=0&v=gap-test',
+        ),
+        mockEnv,
+      );
+      expect(chunk0Res.status).toBe(200);
+      const chunk0Rows = (await chunk0Res.json()) as Array<{
+        stable_id: number;
+      }>;
+      expect(chunk0Rows.map((r) => r.stable_id).sort((a, b) => a - b)).toEqual([
+        10, 50000,
+      ]);
     });
   });
 });
