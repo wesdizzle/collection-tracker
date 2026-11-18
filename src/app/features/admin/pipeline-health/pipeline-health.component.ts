@@ -7,13 +7,13 @@ import {
 import {
   CatalogSeedStatus,
   CronExecutionLogEntry,
-} from '../../../../core/models/collection.models';
-import { IconComponent } from '../../../../shared/components/icon/icon.component';
+} from '../../../core/models/collection.models';
+import { IconComponent } from '../../../shared/components/icon/icon.component';
 
 /**
  * Displays broad catalog seeding progress, daily D1 write quota usage,
- * continuous IGDB backfill & rolling self-healing telemetry, and recent
- * cron execution logs for administrators.
+ * continuous IGDB backfill & rolling self-healing telemetry, watched-series
+ * discovery progress, and recent cron execution logs for administrators.
  */
 @Component({
   selector: 'app-pipeline-health',
@@ -40,5 +40,6 @@ export class PipelineHealthComponent {
   readonly runSeedBatch = output<void>();
   readonly runBackfillBatch = output<void>();
   readonly runRollingRefresh = output<void>();
+  readonly runSeriesDiscovery = output<void>();
   readonly filterChange = output<Event>();
 }

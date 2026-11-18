@@ -216,7 +216,7 @@ import {
           profileExtraNav
           type="button"
           class="nav-section-btn"
-          (click)="openDiscovery()"
+          (click)="openAdminCenter()"
           data-testid="profile-discovery-btn"
         >
           <div class="nav-section-left">
@@ -224,12 +224,10 @@ import {
               <app-icon name="compass" [size]="18" />
             </span>
             <div class="nav-section-text">
-              <span class="nav-section-title"
-                >Admin: Discovery &amp; Catalog Center</span
-              >
+              <span class="nav-section-title">Admin Center</span>
               <span class="nav-section-desc">
-                Add manual releases, inspect IGDB/Amiibo feeds, and manage
-                catalog ingestion.
+                Inspect autonomous pipeline telemetry, daily write budget, and
+                cron logs.
               </span>
             </div>
           </div>
@@ -747,9 +745,9 @@ export class ProfileModalComponent implements OnInit {
     void this.router.navigate(['/collection/backups']);
   }
 
-  public openDiscovery(): void {
+  public openAdminCenter(): void {
     this.modalService.close();
-    void this.router.navigate(['/discovery']);
+    void this.router.navigate(['/admin']);
   }
 
   public onToggleAutoTrackSeries(enabled: boolean): void {

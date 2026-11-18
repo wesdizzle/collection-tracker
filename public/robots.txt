@@ -1,9 +1,9 @@
 # Robots.txt for Collection Tracker
-# Disallow heavy API queries and discovery crawling
+# Disallow heavy API queries and admin crawling
 
 User-agent: *
 Disallow: /api/
-Disallow: /discovery/
+Disallow: /admin/
 Allow: /
 
 # Block aggressive AI scrapers and crawlers from excessive crawling

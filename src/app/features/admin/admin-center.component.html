@@ -1,0 +1,40 @@
+<div class="admin-container">
+  <div class="admin-header-panel mb-lg">
+    <div class="flex items-center justify-between gap-md flex-wrap">
+      <div>
+        <h1 class="text-gradient m-0">Admin Center</h1>
+        <p class="subtitle m-0 mt-2xs">
+          Autonomous catalog pipeline telemetry, write budget guardrails, and
+          cron diagnostics.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  @if (toastMessage()) {
+    <div class="admin-toast" role="status" aria-live="polite">
+      <app-icon name="check" [size]="16" />
+      <span>{{ toastMessage() }}</span>
+    </div>
+  }
+
+  <app-pipeline-health
+    [status]="pipelineStatus()"
+    [cronLogs]="filteredCronLogs()"
+    [cronJobFilter]="cronJobFilter()"
+    [loading]="pipelineLoading()"
+    [actionBusy]="pipelineActionBusy()"
+    [error]="pipelineError()"
+    [seedProgressPct]="seedProgressPct()"
+    [dailyBudgetPct]="dailyBudgetPct()"
+    [backfillProgressPct]="backfillProgressPct()"
+    [rollingProgressPct]="rollingProgressPct()"
+    (refresh)="loadPipelineDiagnostics()"
+    (togglePause)="togglePipelinePause()"
+    (runSeedBatch)="triggerSeedBatchNow()"
+    (runBackfillBatch)="triggerBackfillBatchNow()"
+    (runRollingRefresh)="triggerRollingRefreshNow()"
+    (runSeriesDiscovery)="triggerSeriesDiscoveryNow()"
+    (filterChange)="onCronJobFilterChange($event)"
+  />
+</div>

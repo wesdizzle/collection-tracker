@@ -52,13 +52,7 @@ import {
   ListState,
   ViewMode,
   PlayStatus,
-  PhysicalStatus,
   OwnershipStatus,
-  IGDBSearchResult,
-  DiscoveryRelease,
-  ScanSuggestion,
-  AmiiboDiscoveryItem,
-  PagedScanSeriesResult,
   JournalEntry,
   UserProfile,
   UserTrackingRule,
@@ -329,8 +323,8 @@ export class CollectionService implements OnDestroy {
       if (
         currentPath === '/collection' ||
         currentPath.startsWith('/collection/') ||
-        currentPath === '/discovery' ||
-        currentPath.startsWith('/discovery/') ||
+        currentPath === '/admin' ||
+        currentPath.startsWith('/admin/') ||
         currentPath === '/profile' ||
         currentPath.startsWith('/profile/')
       ) {
@@ -772,6 +766,7 @@ export class CollectionService implements OnDestroy {
     runBatchNow?: boolean;
     runBackfillNow?: boolean;
     runRollingRefreshNow?: boolean;
+    runSeriesDiscoveryNow?: boolean;
   }): Observable<CatalogSeedStatus> {
     return this.http
       .post<
@@ -838,10 +833,10 @@ export class CollectionService implements OnDestroy {
   }
 
   public getTabRoute(
-    tab: 'games' | 'toys' | 'insights' | 'discovery' | string = 'games',
+    tab: 'games' | 'toys' | 'insights' | 'admin' | string = 'games',
   ): string[] {
-    if (tab === 'discovery') {
-      return ['/discovery'];
+    if (tab === 'admin') {
+      return ['/admin'];
     }
     if (
       this._isPublicView() &&
@@ -854,10 +849,10 @@ export class CollectionService implements OnDestroy {
   }
 
   public getTabUrl(
-    tab: 'games' | 'toys' | 'insights' | 'discovery' | string = 'games',
+    tab: 'games' | 'toys' | 'insights' | 'admin' | string = 'games',
   ): string {
-    if (tab === 'discovery') {
-      return '/discovery';
+    if (tab === 'admin') {
+      return '/admin';
     }
     if (
       this._isPublicView() &&
@@ -1960,17 +1955,6 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
-   * Performs an Amiibo scan against the AmiiboAPI to discover unowned/missing figures & cards.
-   *
-   * @returns Observable of missing amiibo items.
-   */
-  scanAmiibo(): Observable<AmiiboDiscoveryItem[]> {
-    return this.http
-      .get<AmiiboDiscoveryItem[]>('/api/discovery/scan-amiibo')
-      .pipe(catchError(this.handleMutationError));
-  }
-
-  /**
    * Triggers a retail deals and clearance scan across Best Buy, VGP, and PNP Games.
    */
   syncRetailDeals(): Observable<{
@@ -1983,285 +1967,6 @@ export class CollectionService implements OnDestroy {
       matchedCount?: number;
       totalDeals?: number;
     }>('/api/retail/sync-deals', {});
-  }
-
-  /**
-   * Ingests a new toy (e.g. amiibo) into the collection.
-   *
-   * @param toy Object containing toy fields to insert or update.
-   * @returns Observable denoting success status of the ingestion.
-   */
-  addToy(toy: Partial<Toy>): Observable<{ success: boolean; id: string }> {
-    const blocked = this.checkDegradedReadOnly();
-    if (blocked) return blocked;
-    if (!this.isAdmin()) {
-      this.promptAdminLogin();
-      return throwError(
-        () => new Error('Unauthorized: Admin session required'),
-      );
-    }
-    return this.http
-      .post<{ success: boolean; id: string }>('/api/discovery/add-toy', toy)
-      .pipe(
-        tap((res) => {
-          if (res?.success && res.id) {
-            const newToy: Toy = {
-              stable_id: Date.now(),
-              id: res.id,
-              name: toy.name || 'Unknown Item',
-              line: toy.line || 'Amiibo',
-              series_name: toy.series_name || toy.series || 'Other',
-              series_line:
-                toy.series_line || toy.series_name || toy.series || 'Other',
-              series: toy.series || toy.series_name || 'Other',
-              type: toy.type || 'Figure',
-              release_date: toy.release_date || '',
-              ownership_status: toy.ownership_status ?? 1,
-              image_url: toy.image_url || '',
-              amiibo_id: toy.amiibo_id || undefined,
-              metadata_json: toy.metadata_json || undefined,
-              region: toy.region || 'USA',
-            };
-            this._toys.update((toys) => [newToy, ...toys]);
-            this._refreshTrigger.update((v) => v + 1);
-            void this.clearServiceWorkerDataCaches();
-          }
-        }),
-        catchError(this.handleMutationError),
-      );
-  }
-
-  /**
-   * Searches for games on IGDB via the local discovery proxy.
-   *
-   * @param query The search query string.
-   * @param platformId The platform ID to filter matches.
-   * @param filterDigital Whether to hide digital-only / Virtual Console fluff.
-   * @returns Observable of normalized game search result candidates.
-   */
-  searchGames(
-    query: string,
-    platformId: number,
-    filterDigital = true,
-  ): Observable<IGDBSearchResult[]> {
-    let url = `/api/discovery/search?query=${encodeURIComponent(query)}&platformId=${platformId}`;
-    if (filterDigital) {
-      url += '&filterDigital=true';
-    } else {
-      url += '&filterDigital=false';
-    }
-    return this.http
-      .get<IGDBSearchResult[]>(url)
-      .pipe(catchError(this.handleMutationError));
-  }
-
-  /**
-   * Retrieves detail metadata and physical DAT release matches for a specific IGDB game.
-   *
-   * @param igdbId The IGDB identifier.
-   * @param platformId The platform ID.
-   * @returns Observable containing the game metadata and matched releases checklist.
-   */
-  getGameMatches(
-    igdbId: string,
-    platformId: number,
-  ): Observable<{
-    game: IGDBSearchResult;
-    matchedReleases: DiscoveryRelease[];
-  }> {
-    return this.http.get<{
-      game: IGDBSearchResult;
-      matchedReleases: DiscoveryRelease[];
-    }>(`/api/discovery/matches?igdbId=${igdbId}&platformId=${platformId}`);
-  }
-
-  /**
-   * Adds a newly discovered game and its checklist of releases to the SQLite database.
-   *
-   * @param payload Object containing game fields and selected releases to track.
-   * @returns Observable denoting success status of the transactional insert.
-   */
-  addGame(payload: {
-    game: Partial<Game> & {
-      ownership_status?: number;
-      play_status?: number;
-      backup_status?: number;
-    };
-    releases: Array<
-      Partial<DiscoveryRelease> & {
-        rom_name?: string | null;
-        rom_crc?: string | null;
-        release_date?: string | null;
-        ownership_status?: number;
-        backup_status?: number;
-      }
-    >;
-  }): Observable<{ success: boolean; gameId: string; stableId?: number }> {
-    const blocked = this.checkDegradedReadOnly();
-    if (blocked) return blocked;
-    if (!this.isAdmin()) {
-      this.promptAdminLogin();
-      return throwError(
-        () => new Error('Unauthorized: Admin session required'),
-      );
-    }
-    return this.http
-      .post<{
-        success: boolean;
-        gameId: string;
-        stableId?: number;
-      }>('/api/discovery/add', payload)
-      .pipe(
-        tap((res) => {
-          if (res?.success && res.gameId) {
-            const platform = this._platforms().find(
-              (p) => p.id === payload.game.platform_id,
-            );
-            const stableId = res.stableId || Date.now();
-            const newGame: Game = {
-              stable_id: stableId,
-              id: res.gameId,
-              game_id: res.gameId,
-              title: payload.game.title || 'Unknown Game',
-              series: payload.game.series || payload.game.title || 'Unknown',
-              canonical_series:
-                payload.game.canonical_series ||
-                payload.game.title ||
-                'Unknown',
-              platform_id: payload.game.platform_id ?? 0,
-              platform: platform?.name || 'Unknown',
-              display_name:
-                platform?.display_name || platform?.name || 'Unknown',
-              image_url: payload.game.image_url || null,
-              ownership_status:
-                (payload.game.ownership_status as OwnershipStatus) ?? 0,
-              play_status: (payload.game.play_status as PlayStatus) ?? 0,
-              backup_status: payload.game.backup_status ? 1 : 0,
-              physical_status:
-                (payload.game.physical_status as PhysicalStatus) ||
-                'unverified',
-              verification_tier: payload.game.verification_tier ?? 0,
-              release_date: payload.game.release_date || null,
-              region: payload.game.region || 'USA',
-              summary: payload.game.summary || null,
-              genres: payload.game.genres || null,
-              collections: payload.game.collections || null,
-              franchises: payload.game.franchises || null,
-              igdb_id: payload.game.igdb_id || null,
-              igdb_url: payload.game.igdb_url || null,
-              sort_index: 0,
-              releases: (payload.releases || []).map((r, idx) => ({
-                id: `${res.gameId}-${r.romCrc || r.rom_crc || r.romName || r.rom_name || `rel-${idx + 1}`}`,
-                game_id: stableId,
-                region: r.region || 'USA',
-                variants: r.variants || null,
-                rom_name: r.romName || r.rom_name || null,
-                rom_crc: r.romCrc || r.rom_crc || null,
-                ownership_status:
-                  r.ownership_status ?? payload.game.ownership_status ?? 0,
-                backup_status: r.backup_status ?? 0,
-                release_date:
-                  r.releaseDate ||
-                  r.release_date ||
-                  payload.game.release_date ||
-                  null,
-                canonical_release_id: r.canonical_release_id || null,
-                barcode: r.barcode || null,
-              })),
-            };
-
-            this._games.update((games) => {
-              const existingIdx = games.findIndex(
-                (g) => g.id === res.gameId || g.game_id === res.gameId,
-              );
-              if (existingIdx !== -1) {
-                const next = [...games];
-                next[existingIdx] = newGame;
-                return next;
-              }
-              return [newGame, ...games];
-            });
-            this._refreshTrigger.update((v) => v + 1);
-            void this.clearServiceWorkerDataCaches();
-          }
-        }),
-        catchError(this.handleMutationError),
-      );
-  }
-
-  /**
-   * Performs a series scan to discover missing games for tracked series and platforms.
-   * Supports optional specific franchise targeting or boolean digital filter.
-   */
-  scanSeries(
-    optionsOrFilterDigital?:
-      | boolean
-      | {
-          filterDigital?: boolean;
-          series?: string;
-          offset?: number;
-          limit?: number;
-        },
-  ): Observable<ScanSuggestion[]> {
-    let filterDigital = true;
-    let series: string | undefined;
-    let offset: number | undefined;
-    let limit: number | undefined;
-
-    if (typeof optionsOrFilterDigital === 'boolean') {
-      filterDigital = optionsOrFilterDigital;
-    } else if (optionsOrFilterDigital) {
-      filterDigital =
-        optionsOrFilterDigital.filterDigital !== undefined
-          ? !!optionsOrFilterDigital.filterDigital
-          : true;
-      series = optionsOrFilterDigital.series;
-      offset = optionsOrFilterDigital.offset;
-      limit = optionsOrFilterDigital.limit;
-    }
-
-    const params = new URLSearchParams();
-    if (optionsOrFilterDigital !== undefined) {
-      if (filterDigital) params.set('filterDigital', 'true');
-      else params.set('filterDigital', 'false');
-    }
-    if (series) params.set('series', series);
-    if (offset !== undefined) params.set('offset', offset.toString());
-    if (limit !== undefined) params.set('limit', limit.toString());
-
-    const qs = params.toString();
-    const url = qs
-      ? `/api/discovery/scan-series?${qs}`
-      : '/api/discovery/scan-series';
-    return this.http
-      .get<ScanSuggestion[]>(url)
-      .pipe(catchError(this.handleMutationError));
-  }
-
-  /**
-   * Performs a paginated/batched series scan to progressively discover missing games.
-   */
-  scanSeriesPaged(
-    options: {
-      filterDigital?: boolean;
-      series?: string;
-      offset?: number;
-      limit?: number;
-    } = {},
-  ): Observable<PagedScanSeriesResult> {
-    const params = new URLSearchParams();
-    const filterDigital =
-      options.filterDigital !== undefined ? !!options.filterDigital : true;
-    if (filterDigital) params.set('filterDigital', 'true');
-    else params.set('filterDigital', 'false');
-    if (options.series) params.set('series', options.series);
-    params.set('offset', (options.offset ?? 0).toString());
-    params.set('limit', (options.limit ?? 30).toString());
-
-    const url = `/api/discovery/scan-series?${params.toString()}`;
-    return this.http
-      .get<PagedScanSeriesResult>(url)
-      .pipe(catchError(this.handleMutationError));
   }
 
   public promptAdminLogin() {

@@ -124,7 +124,7 @@ export const routes: Routes = [
           },
           {
             path: 'discovery',
-            redirectTo: '/discovery',
+            redirectTo: '/admin',
             pathMatch: 'full',
           },
           {
@@ -146,8 +146,8 @@ export const routes: Routes = [
         ],
       },
       {
-        path: 'discovery',
-        title: 'Discovery Management',
+        path: 'admin',
+        title: 'Admin Center',
         canActivate: [
           async () => {
             const cs = inject(CollectionService);
@@ -161,9 +161,14 @@ export const routes: Routes = [
           },
         ],
         loadComponent: () =>
-          import('./features/discovery/list/discovery-list/discovery-list.component').then(
-            (m) => m.DiscoveryListComponent,
+          import('./features/admin/admin-center.component').then(
+            (m) => m.AdminCenterComponent,
           ),
+      },
+      {
+        path: 'discovery',
+        redirectTo: '/admin',
+        pathMatch: 'full',
       },
       {
         path: ':type/:id',

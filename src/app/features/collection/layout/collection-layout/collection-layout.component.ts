@@ -201,10 +201,11 @@ export class CollectionLayoutComponent {
       return 'insights';
     }
     if (
+      cleanUrl.startsWith('/admin') ||
       cleanUrl.startsWith('/discovery') ||
       cleanUrl.startsWith('/collection/discovery')
     ) {
-      return 'discovery';
+      return 'admin';
     }
     if (
       cleanUrl.endsWith('/games') ||
@@ -292,11 +293,15 @@ export class CollectionLayoutComponent {
       const targetUrl = this.collectionService.getTabUrl(tabId);
       this.currentUrl.set(targetUrl);
       void this.router.navigateByUrl(targetUrl);
-    } else if (tabId === 'insights' || tabId === 'discovery') {
+    } else if (tabId === 'insights') {
       this.onNavClick();
       const targetUrl = `/collection/${tabId}`;
       this.currentUrl.set(targetUrl);
       void this.router.navigateByUrl(targetUrl);
+    } else if (tabId === 'admin') {
+      this.onNavClick();
+      this.currentUrl.set('/admin');
+      void this.router.navigateByUrl('/admin');
     }
   }
 

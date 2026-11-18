@@ -276,3 +276,11 @@
   letter-spacing: 0.04em;
   color: var(--m3-on-surface-variant);
 }
+
+.loading-spinner-panel {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-12);
+  padding: var(--spacing-24);
+  justify-content: center;
+}

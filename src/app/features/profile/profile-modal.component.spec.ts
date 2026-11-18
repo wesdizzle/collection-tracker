@@ -307,7 +307,7 @@ describe('ProfileModalComponent', () => {
     expect(navSpy).toHaveBeenCalledWith(['/collection/backups']);
   });
 
-  it('should navigate to /discovery when Discovery & Admin Panel button is clicked by admin', () => {
+  it('should navigate to /admin when Admin Center button is clicked by admin', () => {
     const router = TestBed.inject(Router);
     const navSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
@@ -323,7 +323,7 @@ describe('ProfileModalComponent', () => {
     fixture.detectChanges();
 
     expect(modalService.isOpen()).toBe(false);
-    expect(navSpy).toHaveBeenCalledWith(['/discovery']);
+    expect(navSpy).toHaveBeenCalledWith(['/admin']);
   });
 
   it('should transition to tracking rules view and support adding and removing rules', () => {

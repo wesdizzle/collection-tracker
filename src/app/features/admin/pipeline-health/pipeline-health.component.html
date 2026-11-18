@@ -6,7 +6,8 @@
       </h2>
       <p class="text-sm text-secondary m-0">
         Monitor broad catalog ingestion, daily D1 write quota, continuous IGDB
-        backfill, rolling rule healing, and cron execution logs.
+        backfill, rolling rule healing, watched-series discovery, and cron
+        execution logs.
       </p>
     </div>
     <button
@@ -265,6 +266,55 @@
           </div>
         </div>
       </section>
+
+      <!-- Card 4: Autonomous Watched-Series Discovery -->
+      <section class="pipeline-card">
+        <div class="pipeline-card-header">
+          <h3 class="pipeline-card-title">Watched-Series IGDB Discovery</h3>
+          <span class="pipeline-badge done">2h Rolling Cadence</span>
+        </div>
+
+        <div class="pipeline-stats-list">
+          <div class="pipeline-stat-row">
+            <span class="text-secondary">Active Series Rules</span>
+            <span class="font-bold">{{
+              s.seriesDiscovery?.totalSeriesRules ?? 0
+            }}</span>
+          </div>
+          <div class="pipeline-stat-row">
+            <span class="text-secondary">Series Cursor</span>
+            <span class="font-bold">{{ s.seriesDiscovery?.cursor ?? 0 }}</span>
+          </div>
+          <div class="pipeline-stat-row">
+            <span class="text-secondary">Series Scanned (Total)</span>
+            <span class="font-bold">{{
+              s.seriesDiscovery?.seriesScannedTotal ?? 0
+            }}</span>
+          </div>
+          <div class="pipeline-stat-row">
+            <span class="text-secondary">Games Discovered (Total)</span>
+            <span class="font-bold">{{
+              s.seriesDiscovery?.discoveredGamesTotal ?? 0
+            }}</span>
+          </div>
+          <div class="pipeline-stat-row">
+            <span class="text-secondary">Last Discovery Run</span>
+            <span>{{ s.seriesDiscovery?.lastRunAt || 'Pending' }}</span>
+          </div>
+        </div>
+
+        <div class="pipeline-card-actions">
+          <button
+            type="button"
+            class="m3-btn m3-btn-secondary btn-sm"
+            data-testid="pipeline-run-series-discovery-btn"
+            [disabled]="actionBusy()"
+            (click)="runSeriesDiscovery.emit()"
+          >
+            Run Series Discovery
+          </button>
+        </div>
+      </section>
     </div>
   }
 
@@ -287,6 +337,9 @@
           <option value="broad_catalog_seed">broad_catalog_seed</option>
           <option value="igdb_metadata_backfill">igdb_metadata_backfill</option>
           <option value="igdb_batch">igdb_batch</option>
+          <option value="watched_series_discovery">
+            watched_series_discovery
+          </option>
           <option value="switch_revisions">switch_revisions</option>
           <option value="amiibo_catalog">amiibo_catalog</option>
           <option value="boutique_preorders">boutique_preorders</option>

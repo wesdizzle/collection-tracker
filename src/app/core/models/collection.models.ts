@@ -222,35 +222,6 @@ export interface Platform {
   image_url: string;
 }
 
-export interface DiscoveryOption {
-  name: string;
-  platform: string;
-  id: string;
-  image_url: string | null;
-  summary: string | null;
-}
-
-export interface DiscoveryItem {
-  title: string;
-  platform: string;
-  line?: string;
-  series?: string;
-  options: DiscoveryOption[];
-}
-
-export interface DiscoveryPayload {
-  currentTitle: string;
-  currentPlatform: string;
-  currentLine?: string;
-  currentSeries?: string;
-  selectedIgdbId: string | number;
-  selectedName: string;
-  selectedPlatform: string;
-  region: string;
-  summary?: string;
-  imageUrl?: string;
-}
-
 export interface FilterState {
   ownership:
     | 'all'
@@ -301,102 +272,6 @@ export interface ListState {
   viewMode?: ViewMode;
   scrollX?: number;
   scrollY?: number;
-}
-
-export interface DiscoveryRelease {
-  name: string;
-  romName: string;
-  romCrc: string | null;
-  region: string | null;
-  variants: string | null;
-  releaseDate: string | null;
-  canonical_release_id?: number | null;
-  serial_code?: string | null;
-  barcode?: string | null;
-  is_physical?: boolean | number;
-}
-
-export interface DiscoveryPlatformOption {
-  platform_id: number;
-  platform_name: string;
-  physical_status: PhysicalStatus;
-  is_physical: boolean;
-  is_owned: boolean;
-  matched_releases_count: number;
-  matched_releases?: DiscoveryRelease[];
-  first_release_date?: string | null;
-}
-
-export interface IGDBSearchResult {
-  id: string | number;
-  name: string;
-  platform: string;
-  platform_id?: number;
-  image_url: string | null;
-  summary?: string | null;
-  genres?: string | null;
-  igdb_url?: string | null;
-  collections?: string | null;
-  franchises?: string | null;
-  region?: string | null;
-  ownership_status?: number;
-  play_status?: number;
-  backup_status?: number;
-  physical_status?: PhysicalStatus;
-  verification_tier?: number;
-  is_physical?: boolean;
-  physical_regions?: string[];
-  matched_releases?: DiscoveryRelease[];
-  verification_reasons?: string[];
-  first_release_date?: string | null;
-  physical_platforms?: DiscoveryPlatformOption[];
-  untracked_platforms?: string[];
-}
-
-export interface ScanSuggestion {
-  id: string | number;
-  title: string;
-  platform: string;
-  platform_id: number;
-  image_url: string | null;
-  summary?: string | null;
-  collections?: string | null;
-  franchises?: string | null;
-  genres?: string | null;
-  igdb_url?: string | null;
-  region?: string | null;
-  releases: DiscoveryRelease[];
-  physical_status?:
-    | 'verified_physical'
-    | 'likely_physical'
-    | 'digital_only'
-    | 'unverified';
-  verification_tier?: number;
-  is_physical?: boolean;
-  physical_regions?: string[];
-  verification_reasons?: string[];
-  first_release_date?: string | null;
-}
-
-export interface AmiiboDiscoveryItem {
-  id: string;
-  amiibo_id: string;
-  name: string;
-  line: string;
-  series_name: string;
-  game_series?: string | null;
-  type: string;
-  image_url: string;
-  release_date?: string | null;
-  region?: string | null;
-}
-
-export interface PagedScanSeriesResult {
-  suggestions: ScanSuggestion[];
-  offset: number;
-  limit: number;
-  totalSeries: number;
-  hasMore: boolean;
 }
 
 export interface PhysicalAnnouncementScope {
@@ -884,6 +759,13 @@ export interface CatalogSeedStatus {
   upstreamSources?: {
     switchRevisionsUpdatedAt: string | null;
     amiiboCatalogUpdatedAt: string | null;
+  };
+  seriesDiscovery?: {
+    cursor: number;
+    totalSeriesRules: number;
+    seriesScannedTotal: number;
+    discoveredGamesTotal: number;
+    lastRunAt: string | null;
   };
 }
 

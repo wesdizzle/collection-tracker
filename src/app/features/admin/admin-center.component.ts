@@ -1,0 +1,246 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { firstValueFrom } from 'rxjs';
+import {
+  CatalogSeedStatus,
+  CronExecutionLogEntry,
+} from '../../core/models/collection.models';
+import { CollectionService } from '../../core/services/collection.service';
+import { IconComponent } from '../../shared/components/icon/icon.component';
+import { PipelineHealthComponent } from './pipeline-health/pipeline-health.component';
+
+/**
+ * ADMIN CENTER COMPONENT (/admin)
+ *
+ * Streamlined administration center housing autonomous catalog pipeline telemetry,
+ * daily D1 write quota monitoring, IGDB self-healing sweep status, watched-series
+ * discovery controls, and cron execution logs.
+ */
+@Component({
+  selector: 'app-admin-center',
+  standalone: true,
+  imports: [IconComponent, PipelineHealthComponent],
+  templateUrl: './admin-center.component.html',
+  styleUrls: ['./admin-center.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class AdminCenterComponent implements OnInit, OnDestroy {
+  private readonly collectionService = inject(CollectionService);
+
+  public readonly pipelineStatus = signal<CatalogSeedStatus | null>(null);
+  public readonly cronLogs = signal<CronExecutionLogEntry[]>([]);
+  public readonly cronJobFilter = signal<string>('all');
+  public readonly pipelineLoading = signal<boolean>(false);
+  public readonly pipelineActionBusy = signal<boolean>(false);
+  public readonly pipelineError = signal<string | null>(null);
+  public readonly toastMessage = signal<string | null>(null);
+
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  public readonly filteredCronLogs = computed<CronExecutionLogEntry[]>(() => {
+    const filterVal = this.cronJobFilter();
+    const logs = this.cronLogs();
+    if (!filterVal || filterVal === 'all') return logs;
+    return logs.filter((l) => l.job_name === filterVal);
+  });
+
+  public readonly seedProgressPct = computed<number>(() => {
+    const status = this.pipelineStatus();
+    if (!status) return 0;
+    const min = status.canonicalMinId ?? 0;
+    const max = status.canonicalMaxId ?? 0;
+    const cursor = status.cursor ?? 0;
+    if (status.stage === 'done' || status.stage === 'completed') return 100;
+    if (max <= min) return 0;
+    const pct = Math.round(((cursor - min) / (max - min)) * 100);
+    return Math.max(0, Math.min(100, pct));
+  });
+
+  public readonly dailyBudgetPct = computed<number>(() => {
+    const status = this.pipelineStatus();
+    if (!status || !status.dailyWriteBudget) return 0;
+    return Math.min(
+      100,
+      Math.round((status.writesUsedToday / status.dailyWriteBudget) * 100),
+    );
+  });
+
+  public readonly backfillProgressPct = computed<number>(() => {
+    const status = this.pipelineStatus();
+    const max = status?.maxGameStableId ?? 0;
+    const cursor = status?.igdbBackfill?.cursor ?? 0;
+    if (!max || max <= 0) return 0;
+    return Math.min(100, Math.round((cursor / max) * 100));
+  });
+
+  public readonly rollingProgressPct = computed<number>(() => {
+    const status = this.pipelineStatus();
+    const max = status?.maxGameStableId ?? 0;
+    const offset = status?.igdbRolling?.cursorOffset ?? 0;
+    if (!max || max <= 0) return 0;
+    return Math.min(100, Math.round((offset / max) * 100));
+  });
+
+  ngOnInit(): void {
+    void this.loadPipelineDiagnostics();
+  }
+
+  ngOnDestroy(): void {
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+  }
+
+  public showToast(msg: string): void {
+    this.toastMessage.set(msg);
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      this.toastMessage.set(null);
+      this.toastTimer = null;
+    }, 3500);
+  }
+
+  public async loadPipelineDiagnostics(): Promise<void> {
+    this.pipelineLoading.set(true);
+    this.pipelineError.set(null);
+
+    try {
+      const [status, logsRes] = await Promise.all([
+        this.collectionService.getCatalogSeedStatus
+          ? firstValueFrom(this.collectionService.getCatalogSeedStatus())
+          : Promise.resolve(null),
+        this.collectionService.getAdminCronLogs
+          ? firstValueFrom(this.collectionService.getAdminCronLogs(40))
+          : Promise.resolve({ logs: [] as CronExecutionLogEntry[] }),
+      ]);
+      if (status) {
+        this.pipelineStatus.set(status);
+      }
+      this.cronLogs.set(logsRes?.logs || []);
+    } catch (err: unknown) {
+      console.error('[AdminCenter] Pipeline diagnostics failed:', err);
+      this.pipelineError.set(
+        this.extractErrorMessage(
+          err,
+          'Failed to load pipeline telemetry and cron logs.',
+        ),
+      );
+    } finally {
+      this.pipelineLoading.set(false);
+    }
+  }
+
+  public onCronJobFilterChange(event: Event): void {
+    const val = (event.target as HTMLSelectElement).value || 'all';
+    this.cronJobFilter.set(val);
+  }
+
+  private async runPipelineControlAction(
+    payload: {
+      paused?: boolean;
+      runBatchNow?: boolean;
+      runBackfillNow?: boolean;
+      runRollingRefreshNow?: boolean;
+      runSeriesDiscoveryNow?: boolean;
+    },
+    successMessage: (status: CatalogSeedStatus) => string,
+    fallbackError: string,
+    reloadLogs = true,
+  ): Promise<void> {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    if (!this.collectionService.updateCatalogSeedControl) return;
+
+    this.pipelineActionBusy.set(true);
+    this.pipelineError.set(null);
+    try {
+      const updatedStatus = await firstValueFrom(
+        this.collectionService.updateCatalogSeedControl(payload),
+      );
+      this.pipelineStatus.set(updatedStatus);
+      this.showToast(successMessage(updatedStatus));
+      if (reloadLogs && this.collectionService.getAdminCronLogs) {
+        const logsRes = await firstValueFrom(
+          this.collectionService.getAdminCronLogs(40),
+        );
+        this.cronLogs.set(logsRes?.logs || []);
+      }
+    } catch (err: unknown) {
+      console.error('[AdminCenter] Pipeline control action failed:', err);
+      const msg = this.extractErrorMessage(err, fallbackError);
+      this.pipelineError.set(msg);
+      this.showToast(msg);
+    } finally {
+      this.pipelineActionBusy.set(false);
+    }
+  }
+
+  public async togglePipelinePause(): Promise<void> {
+    const current = this.pipelineStatus();
+    if (!current) return;
+    await this.runPipelineControlAction(
+      { paused: !current.paused },
+      (s) =>
+        s.paused
+          ? 'Autonomous catalog seeding paused.'
+          : 'Autonomous catalog seeding resumed.',
+      'Failed to toggle catalog seed pause state.',
+      false,
+    );
+  }
+
+  public async triggerSeedBatchNow(): Promise<void> {
+    await this.runPipelineControlAction(
+      { runBatchNow: true },
+      (s) =>
+        `Catalog seed batch completed (Stage ${s.stage.toUpperCase()}, cursor ${s.cursor}).`,
+      'Failed to run catalog seed batch.',
+    );
+  }
+
+  public async triggerBackfillBatchNow(): Promise<void> {
+    await this.runPipelineControlAction(
+      { runBackfillNow: true },
+      (s) =>
+        `IGDB backfill batch completed (cursor ${s.igdbBackfill?.cursor ?? 0}).`,
+      'Failed to run IGDB backfill batch.',
+    );
+  }
+
+  public async triggerRollingRefreshNow(): Promise<void> {
+    await this.runPipelineControlAction(
+      { runRollingRefreshNow: true },
+      (s) =>
+        `Rolling IGDB self-heal check completed (offset ${s.igdbRolling?.cursorOffset ?? 0}).`,
+      'Failed to run rolling IGDB refresh.',
+    );
+  }
+
+  public async triggerSeriesDiscoveryNow(): Promise<void> {
+    await this.runPipelineControlAction(
+      { runSeriesDiscoveryNow: true },
+      (s) =>
+        `Watched-series discovery completed (cursor ${s.seriesDiscovery?.cursor ?? 0}).`,
+      'Failed to run watched-series discovery.',
+    );
+  }
+
+  private extractErrorMessage(err: unknown, fallback: string): string {
+    if (err && typeof err === 'object') {
+      const e = err as { error?: { error?: string }; message?: string };
+      if (e.error?.error) return e.error.error;
+      if (e.message) return e.message;
+    }
+    return fallback;
+  }
+}

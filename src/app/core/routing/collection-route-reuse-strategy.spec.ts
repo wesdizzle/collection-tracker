@@ -67,9 +67,9 @@ describe('CollectionRouteReuseStrategy', () => {
       });
     });
 
-    it('should return false for detail, discovery, and other routes', () => {
+    it('should return false for detail, admin, and other routes', () => {
       expect(strategy.shouldDetach(createSnapshot(':type/:id'))).toBe(false);
-      expect(strategy.shouldDetach(createSnapshot('discovery'))).toBe(false);
+      expect(strategy.shouldDetach(createSnapshot('admin'))).toBe(false);
       expect(strategy.shouldDetach(createSnapshot(''))).toBe(false);
       expect(strategy.shouldDetach(createSnapshot('u/alice/games/123'))).toBe(
         false,

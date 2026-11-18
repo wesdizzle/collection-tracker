@@ -99,36 +99,6 @@ describe('CollectionService', () => {
       req.flush({ success: true });
       expect(result?.success).toBe(true);
     });
-
-    it('addGame issues POST /api/discovery/add and immediately prepends to _games signal', () => {
-      let result: { success: boolean; gameId: string } | undefined;
-      service
-        .addGame({
-          game: {
-            title: 'Mega Man & Bass',
-            platform_id: 2,
-            physical_status: 'verified_physical',
-          },
-          releases: [{ rom_name: 'Mega Man & Bass (USA)', region: 'USA' }],
-        })
-        .subscribe((r) => (result = r));
-
-      const req = httpMock.expectOne('/api/discovery/add');
-      expect(req.request.method).toBe('POST');
-      req.flush({
-        success: true,
-        gameId: 'mega-man-bass-snes',
-        stableId: 9999,
-      });
-
-      expect(result?.success).toBe(true);
-      expect(result?.gameId).toBe('mega-man-bass-snes');
-      const games = service.games();
-      expect(games.length).toBeGreaterThan(0);
-      expect(games[0].id).toBe('mega-man-bass-snes');
-      expect(games[0].title).toBe('Mega Man & Bass');
-      expect(games[0].physical_status).toBe('verified_physical');
-    });
   });
 
   it('should fetch games list using relative path', () => {
@@ -370,94 +340,6 @@ describe('CollectionService', () => {
       req.flush('Not Found', { status: 404, statusText: 'Not Found' });
 
       expect(hasError).toBe(true);
-    });
-  });
-
-  describe('Discovery Auth & Error Propagation', () => {
-    it('should prompt admin login and propagate error when scanSeries returns 403', () => {
-      let caughtError: unknown = null;
-      service.scanSeries().subscribe({
-        next: () => {},
-        error: (err) => {
-          caughtError = err;
-        },
-      });
-
-      const req = httpMock.expectOne('/api/discovery/scan-series');
-      req.flush(
-        { error: 'Unauthorized: Admin authentication required.' },
-        { status: 403, statusText: 'Forbidden' },
-      );
-
-      expect(caughtError).toBeTruthy();
-      expect(service.dialogState().visible).toBe(true);
-      expect(service.dialogState().title).toBe('Sign In Required');
-    });
-
-    it('should prompt admin login and propagate error when scanAmiibo returns 403', () => {
-      let caughtError: unknown = null;
-      service.scanAmiibo().subscribe({
-        next: () => {},
-        error: (err) => {
-          caughtError = err;
-        },
-      });
-
-      const req = httpMock.expectOne('/api/discovery/scan-amiibo');
-      req.flush(
-        { error: 'Unauthorized: Admin authentication required.' },
-        { status: 403, statusText: 'Forbidden' },
-      );
-
-      expect(caughtError).toBeTruthy();
-      expect(service.dialogState().visible).toBe(true);
-      expect(service.dialogState().title).toBe('Sign In Required');
-    });
-
-    it('should query scanSeries with options and query parameters', () => {
-      service
-        .scanSeries({ series: 'Super Mario', filterDigital: true })
-        .subscribe();
-      const req = httpMock.expectOne(
-        '/api/discovery/scan-series?filterDigital=true&series=Super+Mario',
-      );
-      expect(req.request.method).toBe('GET');
-      req.flush([]);
-    });
-
-    it('should query scanSeriesPaged with offset and limit parameters', () => {
-      service
-        .scanSeriesPaged({ offset: 30, limit: 30, filterDigital: true })
-        .subscribe();
-      const req = httpMock.expectOne(
-        '/api/discovery/scan-series?filterDigital=true&offset=30&limit=30',
-      );
-      expect(req.request.method).toBe('GET');
-      req.flush({
-        suggestions: [],
-        offset: 30,
-        limit: 30,
-        totalSeries: 100,
-        hasMore: true,
-      });
-    });
-
-    it('should default filterDigital to true in searchGames', () => {
-      service.searchGames('Metroid', 19).subscribe();
-      const req = httpMock.expectOne(
-        '/api/discovery/search?query=Metroid&platformId=19&filterDigital=true',
-      );
-      expect(req.request.method).toBe('GET');
-      req.flush([]);
-    });
-
-    it('should allow filterDigital to be disabled in searchGames', () => {
-      service.searchGames('Metroid', 19, false).subscribe();
-      const req = httpMock.expectOne(
-        '/api/discovery/search?query=Metroid&platformId=19&filterDigital=false',
-      );
-      expect(req.request.method).toBe('GET');
-      req.flush([]);
     });
   });
 

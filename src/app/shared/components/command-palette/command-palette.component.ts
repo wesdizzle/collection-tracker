@@ -333,13 +333,14 @@ export class CommandPaletteComponent implements AfterViewInit {
       });
       if (this.collectionService.isAdmin?.() ?? true) {
         items.push({
-          id: 'nav-discovery',
-          title: 'Discovery Management',
-          subtitle: 'Track missing releases and scan candidates',
+          id: 'nav-admin',
+          title: 'Admin Center',
+          subtitle:
+            'Inspect autonomous pipeline health, D1 quota, and cron logs',
           category: 'Navigation',
           icon: 'compass',
-          url: '/discovery',
-          action: () => this.navigate('/discovery'),
+          url: '/admin',
+          action: () => this.navigate('/admin'),
         });
       }
       items.push({
