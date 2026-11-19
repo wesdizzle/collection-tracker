@@ -26,6 +26,9 @@
     [lastUpdated]="lastUpdated()"
     [viewMode]="viewMode()"
     [showBackupDetails]="!collectionService.isPublicView()"
+    [showProvenanceFilters]="showProvenanceFilters()"
+    [uniqueProvenanceSources]="uniqueProvenanceSources()"
+    [uniqueAcquiredYears]="uniqueAcquiredYears()"
     (filtersChange)="onFiltersChange($event)"
     (viewModeChange)="onViewModeChange($event)"
   >
@@ -64,9 +67,7 @@
                   [showBackupDetails]="!collectionService.isPublicView()"
                   [showPlatform]="
                     !!(
-                      filters().sortBy &&
-                      filters().sortBy !== 'default' &&
-                      !filters().platform_id
+                      effectiveSortBy() !== 'default' && !filters().platform_id
                     )
                   "
                   (toggleStatus)="
@@ -88,7 +89,7 @@
             <app-compact-table
               mode="games"
               [games]="group.games"
-              [filters]="filters()"
+              [filters]="compactTableFilters()"
               [showBackupDetails]="!collectionService.isPublicView()"
               (toggleGameStatus)="
                 onToggleStatus($event.event, $event.game, 'game')
@@ -139,7 +140,7 @@
                 <app-compact-table
                   mode="toys"
                   [toys]="series.toys"
-                  [filters]="filters()"
+                  [filters]="compactTableFilters()"
                   (toggleToyStatus)="
                     onToggleStatus($event.event, $event.toy, 'toy')
                   "

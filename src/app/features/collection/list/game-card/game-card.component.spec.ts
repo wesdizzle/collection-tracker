@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { GameCardComponent } from './game-card.component';
@@ -237,5 +240,71 @@ describe('GameCardComponent', () => {
     expect(img.style.getPropertyValue('view-transition-name')).toBe(
       'catalog-media-game-super-mario-galaxy-wii',
     );
+  });
+
+  it('always renders provenance badge when personal state is visible and journal details exist, and omits it otherwise', () => {
+    const cs = TestBed.inject(CollectionService);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    // Unauthenticated initially -> badge omitted
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="card-provenance-badge"]',
+      ),
+    ).toBeNull();
+
+    cs.setAdminForTesting(true);
+    cs.loadAllJournalEntries().subscribe();
+    httpMock.expectOne('/api/journal/entries').flush({
+      authorized: true,
+      entries: [
+        {
+          id: 1,
+          item_type: 'game',
+          item_id: 'super-mario-galaxy-wii',
+          purchase_date: '2018-05-10',
+          is_approximate_date: 0,
+          price_paid: 45,
+          merchant: 'eBay',
+          gifted_by: null,
+          receipt_url: null,
+          notes: null,
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const badge = fixture.nativeElement.querySelector(
+      '[data-testid="card-provenance-badge"]',
+    ) as HTMLElement;
+    expect(badge).toBeTruthy();
+    expect(badge.textContent).toContain('May 2018');
+    expect(badge.textContent).toContain('$45');
+    expect(badge.textContent).toContain('eBay');
+    expect(badge.getAttribute('title')).toContain('Paid: $45.00');
+    expect(badge.getAttribute('title')).toContain('Source: eBay');
+
+    // Public view -> strictly hidden
+    cs.setPublicView(true, null);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="card-provenance-badge"]',
+      ),
+    ).toBeNull();
+
+    // Back to personal view, but unrecorded game -> omitted
+    cs.exitPublicView();
+    fixture.componentRef.setInput('game', {
+      ...mockGame,
+      id: 'unrecorded-game-wii',
+      discIds: undefined,
+    });
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="card-provenance-badge"]',
+      ),
+    ).toBeNull();
   });
 });

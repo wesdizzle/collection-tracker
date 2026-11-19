@@ -157,6 +157,18 @@
                     }}
                   </span>
                 }
+                @if (getProvenanceBadge(game, 'game'); as provBadge) {
+                  <span
+                    class="provenance-badge compact-badge"
+                    [title]="provBadge.title"
+                    data-testid="row-provenance-badge"
+                  >
+                    <app-icon [name]="provBadge.icon" [size]="10" />
+                    <span class="provenance-badge-text">{{
+                      provBadge.text
+                    }}</span>
+                  </span>
+                }
               </div>
             </div>
 
@@ -535,6 +547,20 @@
               <span class="row-title-text" [title]="toy.name">{{
                 toy.name
               }}</span>
+              @if (getProvenanceBadge(toy, 'toy'); as provBadge) {
+                <div class="row-inline-badges">
+                  <span
+                    class="provenance-badge compact-badge"
+                    [title]="provBadge.title"
+                    data-testid="row-provenance-badge"
+                  >
+                    <app-icon [name]="provBadge.icon" [size]="10" />
+                    <span class="provenance-badge-text">{{
+                      provBadge.text
+                    }}</span>
+                  </span>
+                </div>
+              }
             </div>
 
             <div class="col-toy-type">

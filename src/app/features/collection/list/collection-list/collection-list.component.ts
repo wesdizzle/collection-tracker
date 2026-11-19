@@ -46,6 +46,7 @@ import {
   Platform,
   FilterState,
   PlatformGroup,
+  ProvenanceStatusFilter,
   ToyGroup,
   ListState,
   ViewMode,
@@ -56,6 +57,16 @@ import {
   isItemAvailableAtRetail,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
+import {
+  findGameJournalEntry,
+  findToyJournalEntry,
+  getJournalPricePaidNumber,
+  getProvenanceSourceLabel,
+  hasActiveProvenanceFilter,
+  isProvenanceSort,
+  matchesProvenanceFilters,
+  parseJournalDate,
+} from '../../../../core/models/provenance-analytics';
 import {
   COMPANION_DISC1_PAIRS,
   CompanionDiscPair,
@@ -132,6 +143,14 @@ export class CollectionListComponent
         deals_only: false,
         retail_available: false,
         budget_label: 'all',
+        provenance_status: 'all',
+        provenance_source: '',
+        provenanceSourceExact: false,
+        acquired_year: 'all',
+        acquired_from: '',
+        acquired_to: '',
+        price_paid_min: null,
+        price_paid_max: null,
       });
       this.displayLimit.set(100);
       this.router.navigate([], {
@@ -216,6 +235,96 @@ export class CollectionListComponent
         qpFilters.ownership = 'all';
       }
     }
+    if (qp['sort_by'] !== undefined) {
+      const sb = String(qp['sort_by']);
+      const publicSorts = new Set([
+        'default',
+        'retail_asc',
+        'discount_desc',
+        'market_value_desc',
+        'market_value_asc',
+        'release_desc',
+        'release_asc',
+      ]);
+      const provSorts = new Set([
+        'acquired_desc',
+        'acquired_asc',
+        'price_paid_desc',
+        'price_paid_asc',
+      ]);
+      if (publicSorts.has(sb)) {
+        qpFilters.sortBy = sb as FilterState['sortBy'];
+      } else if (
+        this.collectionService.canShowPersonalState?.() &&
+        provSorts.has(sb)
+      ) {
+        qpFilters.sortBy = sb as FilterState['sortBy'];
+      }
+    }
+    if (this.collectionService.canShowPersonalState?.()) {
+      const validProvStatuses = new Set<ProvenanceStatusFilter>([
+        'all',
+        'recorded',
+        'missing',
+        'missing_date',
+        'missing_price',
+        'exact_date',
+        'approximate_date',
+        'gifted',
+        'free',
+        'has_receipt',
+        'has_notes',
+      ]);
+      if (qp['provenance_status'] !== undefined) {
+        const ps = String(qp['provenance_status']) as ProvenanceStatusFilter;
+        if (validProvStatuses.has(ps)) {
+          qpFilters.provenance_status = ps;
+        }
+      }
+      if (qp['provenance_source'] !== undefined) {
+        qpFilters.provenance_source = String(qp['provenance_source']);
+      }
+      if (qp['provenance_exact'] !== undefined) {
+        qpFilters.provenanceSourceExact =
+          String(qp['provenance_exact']) === 'true' ||
+          String(qp['provenance_exact']) === '1';
+      }
+      if (qp['acquired_year'] !== undefined) {
+        const ay = String(qp['acquired_year']);
+        if (ay === 'all' || ay === 'undated') {
+          qpFilters.acquired_year = ay;
+        } else {
+          const parsedYear = parseInt(ay, 10);
+          if (!isNaN(parsedYear)) {
+            qpFilters.acquired_year = parsedYear;
+          }
+        }
+        qpFilters.acquired_from = '';
+        qpFilters.acquired_to = '';
+      }
+      if (
+        qp['acquired_from'] !== undefined ||
+        qp['acquired_to'] !== undefined
+      ) {
+        qpFilters.acquired_from =
+          qp['acquired_from'] !== undefined ? String(qp['acquired_from']) : '';
+        qpFilters.acquired_to =
+          qp['acquired_to'] !== undefined ? String(qp['acquired_to']) : '';
+        qpFilters.acquired_year = 'all';
+      }
+      if (qp['price_paid_min'] !== undefined) {
+        const minVal = Number(qp['price_paid_min']);
+        if (Number.isFinite(minVal) && minVal >= 0) {
+          qpFilters.price_paid_min = minVal;
+        }
+      }
+      if (qp['price_paid_max'] !== undefined) {
+        const maxVal = Number(qp['price_paid_max']);
+        if (Number.isFinite(maxVal) && maxVal >= 0) {
+          qpFilters.price_paid_max = maxVal;
+        }
+      }
+    }
     if (Object.keys(qpFilters).length > 0) {
       this.filters.update((f) => ({ ...f, ...qpFilters }));
       this.router.navigate([], {
@@ -248,6 +357,27 @@ export class CollectionListComponent
   public displayLimit = signal<number>(100);
   public viewMode = signal<ViewMode>('grid');
   public lastUpdated = this.collectionService.lastUpdated;
+
+  public readonly showProvenanceFilters = computed<boolean>(() =>
+    Boolean(this.collectionService.canShowPersonalState?.()),
+  );
+
+  public readonly effectiveSortBy = computed<
+    NonNullable<FilterState['sortBy']>
+  >(() => {
+    const sort = this.filters().sortBy || 'default';
+    if (!this.showProvenanceFilters() && isProvenanceSort(sort)) {
+      return 'default';
+    }
+    return sort;
+  });
+
+  public readonly compactTableFilters = computed<FilterState>(() => {
+    const f = this.filters();
+    const safeSort = this.effectiveSortBy();
+    if (f.sortBy === safeSort) return f;
+    return { ...f, sortBy: safeSort };
+  });
 
   /**
    * Computes a grouped list of platforms for use in the filter dropdown.
@@ -639,6 +769,14 @@ export class CollectionListComponent
   public filteredGames = computed(() => {
     const groupedGames = this.discMergedGames();
     const f = this.filters();
+    const canProvenance = this.showProvenanceFilters();
+    const journalMap = canProvenance
+      ? (this.collectionService.journalEntriesMap?.() ?? new Map())
+      : null;
+    const applyProvFilter = Boolean(
+      canProvenance && journalMap && hasActiveProvenanceFilter(f),
+    );
+    const activeSortBy = this.effectiveSortBy();
 
     // Hoist filter string normalizations outside the iteration loop for optimal O(N) performance
     const activeNameFilter = f.name || f.seriesOrName;
@@ -649,6 +787,7 @@ export class CollectionListComponent
       ? this.normalizeString(f.series)
       : '';
     const normalizedTagFilter = f.tag ? this.normalizeString(f.tag) : '';
+    const normalizeFn = (s: string) => this.normalizeString(s);
 
     const filteredGamesList = groupedGames.filter((g) => {
       // Option A: Hide bundled child discs/games from top-level collection list
@@ -868,6 +1007,13 @@ export class CollectionListComponent
         }
       }
 
+      if (applyProvFilter && journalMap) {
+        const jEntry = findGameJournalEntry(g, journalMap);
+        if (!matchesProvenanceFilters(jEntry, f, normalizeFn)) {
+          return false;
+        }
+      }
+
       return true;
     });
 
@@ -880,30 +1026,78 @@ export class CollectionListComponent
      */
     const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
     const isMarketValueSort =
-      f.sortBy === 'market_value_desc' || f.sortBy === 'market_value_asc';
-    const decoratedGames = filteredGamesList.map((g) => ({
-      item: g,
-      retailPrice: g.retail_price ?? null,
-      discountPct: g.retail_discount_pct ?? 0,
-      marketValue: isMarketValueSort
-        ? (this.collectionService.getEstimatedValue?.(g, 'game').cents ?? null)
-        : null,
-      platformLaunchDate: g.platform_launch_date || '9999-99-99',
-      normBrand: this.normalizeForSort(g.brand || ''),
-      normSeries: this.normalizeForSort(g.canonical_series || g.title),
-      releaseDate: g.release_date || '9999-99-99',
-      sortIndex: g.sort_index ?? 9999,
-      variantPriority: this.getVariantPriority(g.variants),
-      region: g.region || '',
-      id: g.id || '',
-    }));
+      activeSortBy === 'market_value_desc' ||
+      activeSortBy === 'market_value_asc';
+    const isAcquiredSort =
+      activeSortBy === 'acquired_desc' || activeSortBy === 'acquired_asc';
+    const isPricePaidSort =
+      activeSortBy === 'price_paid_desc' || activeSortBy === 'price_paid_asc';
+    const needJournalForSort =
+      Boolean(canProvenance && journalMap) &&
+      (isAcquiredSort || isPricePaidSort);
+
+    const decoratedGames = filteredGamesList.map((g) => {
+      const jEntry = needJournalForSort
+        ? findGameJournalEntry(g, journalMap!)
+        : null;
+      return {
+        item: g,
+        retailPrice: g.retail_price ?? null,
+        discountPct: g.retail_discount_pct ?? 0,
+        marketValue: isMarketValueSort
+          ? (this.collectionService.getEstimatedValue?.(g, 'game').cents ??
+            null)
+          : null,
+        acquiredSortKey: isAcquiredSort
+          ? (parseJournalDate(
+              jEntry?.purchase_date,
+              jEntry?.is_approximate_date,
+            )?.sortKey ?? null)
+          : null,
+        pricePaid: isPricePaidSort ? getJournalPricePaidNumber(jEntry) : null,
+        platformLaunchDate: g.platform_launch_date || '9999-99-99',
+        normBrand: this.normalizeForSort(g.brand || ''),
+        normSeries: this.normalizeForSort(g.canonical_series || g.title),
+        releaseDate: g.release_date || '9999-99-99',
+        sortIndex: g.sort_index ?? 9999,
+        variantPriority: this.getVariantPriority(g.variants),
+        region: g.region || '',
+        id: g.id || '',
+      };
+    });
 
     decoratedGames.sort((a, b) => {
+      // Acquisition Date Sorting (unrecorded always last)
+      if (isAcquiredSort) {
+        if (a.acquiredSortKey !== null && b.acquiredSortKey !== null) {
+          if (a.acquiredSortKey !== b.acquiredSortKey) {
+            return activeSortBy === 'acquired_desc'
+              ? cmpStr(b.acquiredSortKey, a.acquiredSortKey)
+              : cmpStr(a.acquiredSortKey, b.acquiredSortKey);
+          }
+        } else if (a.acquiredSortKey !== b.acquiredSortKey) {
+          return a.acquiredSortKey !== null ? -1 : 1;
+        }
+      }
+
+      // Price Paid Sorting (unrecorded always last)
+      if (isPricePaidSort) {
+        if (a.pricePaid !== null && b.pricePaid !== null) {
+          if (a.pricePaid !== b.pricePaid) {
+            return activeSortBy === 'price_paid_desc'
+              ? b.pricePaid - a.pricePaid
+              : a.pricePaid - b.pricePaid;
+          }
+        } else if (a.pricePaid !== b.pricePaid) {
+          return a.pricePaid !== null ? -1 : 1;
+        }
+      }
+
       // Market Value Sorting (High to Low / Low to High, unpriced always last)
       if (isMarketValueSort) {
         if (a.marketValue !== null && b.marketValue !== null) {
           if (a.marketValue !== b.marketValue) {
-            return f.sortBy === 'market_value_desc'
+            return activeSortBy === 'market_value_desc'
               ? b.marketValue - a.marketValue
               : a.marketValue - b.marketValue;
           }
@@ -913,7 +1107,7 @@ export class CollectionListComponent
       }
 
       // Retail Price Sorting (Low to High)
-      if (f.sortBy === 'retail_asc') {
+      if (activeSortBy === 'retail_asc') {
         if (a.retailPrice !== null || b.retailPrice !== null) {
           if (a.retailPrice === null) return 1;
           if (b.retailPrice === null) return -1;
@@ -923,7 +1117,7 @@ export class CollectionListComponent
       }
 
       // Deepest Sale Discount Sorting (High to Low)
-      if (f.sortBy === 'discount_desc') {
+      if (activeSortBy === 'discount_desc') {
         if (a.discountPct !== b.discountPct)
           return b.discountPct - a.discountPct;
         const priceA = a.retailPrice ?? 999999;
@@ -932,8 +1126,8 @@ export class CollectionListComponent
       }
 
       // Release Date Sorting
-      if (f.sortBy === 'release_desc' || f.sortBy === 'release_asc') {
-        const isDesc = f.sortBy === 'release_desc';
+      if (activeSortBy === 'release_desc' || activeSortBy === 'release_asc') {
+        const isDesc = activeSortBy === 'release_desc';
         // Treat placeholder/null '9999-99-99' as unknown and sort them to the end in both directions
         const aKnown = a.releaseDate !== '9999-99-99';
         const bKnown = b.releaseDate !== '9999-99-99';
@@ -949,12 +1143,14 @@ export class CollectionListComponent
       }
 
       const isBypassPlatformGroupSort =
-        f.sortBy === 'retail_asc' ||
-        f.sortBy === 'discount_desc' ||
-        f.sortBy === 'market_value_desc' ||
-        f.sortBy === 'market_value_asc' ||
-        f.sortBy === 'release_desc' ||
-        f.sortBy === 'release_asc';
+        activeSortBy === 'retail_asc' ||
+        activeSortBy === 'discount_desc' ||
+        activeSortBy === 'market_value_desc' ||
+        activeSortBy === 'market_value_asc' ||
+        activeSortBy === 'release_desc' ||
+        activeSortBy === 'release_asc' ||
+        isAcquiredSort ||
+        isPricePaidSort;
 
       if (!isBypassPlatformGroupSort) {
         // 1. Platform Launch Date (ASC)
@@ -1079,30 +1275,44 @@ export class CollectionListComponent
     const allFiltered = this.filteredGames();
     const displayed = this.displayGames();
     const f = this.filters();
+    const sortBy = this.effectiveSortBy();
 
     const isPriceSort =
-      f.sortBy === 'retail_asc' ||
-      f.sortBy === 'discount_desc' ||
-      f.sortBy === 'market_value_desc' ||
-      f.sortBy === 'market_value_asc';
+      sortBy === 'retail_asc' ||
+      sortBy === 'discount_desc' ||
+      sortBy === 'market_value_desc' ||
+      sortBy === 'market_value_asc' ||
+      sortBy === 'price_paid_desc' ||
+      sortBy === 'price_paid_asc';
 
-    const isReleaseDateSort =
-      f.sortBy === 'release_desc' || f.sortBy === 'release_asc';
-    const isFlatSort = isPriceSort || isReleaseDateSort;
+    const isDateSort =
+      sortBy === 'release_desc' ||
+      sortBy === 'release_asc' ||
+      sortBy === 'acquired_desc' ||
+      sortBy === 'acquired_asc';
+    const isFlatSort = isPriceSort || isDateSort;
 
     if (isFlatSort) {
       const sortLabel =
-        f.sortBy === 'retail_asc'
+        sortBy === 'retail_asc'
           ? 'Ranked by Lowest Retail Price'
-          : f.sortBy === 'discount_desc'
+          : sortBy === 'discount_desc'
             ? 'Ranked by Biggest Sale %'
-            : f.sortBy === 'market_value_desc'
+            : sortBy === 'market_value_desc'
               ? 'Sorted by Market Value (High to Low)'
-              : f.sortBy === 'market_value_asc'
+              : sortBy === 'market_value_asc'
                 ? 'Sorted by Market Value (Low to High)'
-                : f.sortBy === 'release_desc'
-                  ? 'Ranked by Release Date (Newest First)'
-                  : 'Ranked by Release Date (Oldest First)';
+                : sortBy === 'acquired_desc'
+                  ? 'Sorted by Acquisition Date (Newest First)'
+                  : sortBy === 'acquired_asc'
+                    ? 'Sorted by Acquisition Date (Oldest First)'
+                    : sortBy === 'price_paid_desc'
+                      ? 'Sorted by Price Paid (High to Low)'
+                      : sortBy === 'price_paid_asc'
+                        ? 'Sorted by Price Paid (Low to High)'
+                        : sortBy === 'release_desc'
+                          ? 'Ranked by Release Date (Newest First)'
+                          : 'Ranked by Release Date (Oldest First)';
       const headerTitle = f.platform_id
         ? `${displayed[0]?.display_name || displayed[0]?.platform || 'Platform'} (${sortLabel})`
         : `All Platforms (${sortLabel})`;
@@ -1169,6 +1379,14 @@ export class CollectionListComponent
   public filteredToys = computed(() => {
     const allToys = this.collectionService.toys();
     const f = this.filters();
+    const canProvenance = this.showProvenanceFilters();
+    const journalMap = canProvenance
+      ? (this.collectionService.journalEntriesMap?.() ?? new Map())
+      : null;
+    const applyProvFilter = Boolean(
+      canProvenance && journalMap && hasActiveProvenanceFilter(f),
+    );
+    const activeSortBy = this.effectiveSortBy();
 
     const activeNameFilter = f.name || f.seriesOrName;
     const normalizedNameFilter = activeNameFilter
@@ -1177,6 +1395,7 @@ export class CollectionListComponent
     const normalizedSeriesFilter = f.series
       ? this.normalizeString(f.series)
       : '';
+    const normalizeFn = (s: string) => this.normalizeString(s);
 
     const filteredToysList = allToys.filter((toy) => {
       // Ownership Filter
@@ -1270,6 +1489,13 @@ export class CollectionListComponent
         }
       }
 
+      if (applyProvFilter && journalMap) {
+        const jEntry = findToyJournalEntry(toy, journalMap);
+        if (!matchesProvenanceFilters(jEntry, f, normalizeFn)) {
+          return false;
+        }
+      }
+
       return true;
     });
 
@@ -1279,30 +1505,78 @@ export class CollectionListComponent
      * overhead during sorting across hundreds of toys.
      */
     const isMarketValueSort =
-      f.sortBy === 'market_value_desc' || f.sortBy === 'market_value_asc';
-    const decoratedToys = filteredToysList.map((toy) => ({
-      item: toy,
-      retailPrice: toy.retail_price ?? null,
-      discountPct: toy.retail_discount_pct ?? 0,
-      marketValue: isMarketValueSort
-        ? (this.collectionService.getEstimatedValue?.(toy, 'toy').cents ?? null)
-        : null,
-      normLine: this.normalizeForSort(toy.line),
-      seriesIndex: toy.series_index ?? 9999,
-      normSeries: this.normalizeForSort(toy.series_name || ''),
-      isAmiibo: toy.line === 'amiibo',
-      toyTypeOrder: this.getToyTypeOrder(toy.type),
-      releaseDate: toy.release_date || '9999-99-99',
-      sortIndex: toy.sort_index ?? 9999,
-      normName: this.normalizeForSort(toy.name || ''),
-    }));
+      activeSortBy === 'market_value_desc' ||
+      activeSortBy === 'market_value_asc';
+    const isAcquiredSort =
+      activeSortBy === 'acquired_desc' || activeSortBy === 'acquired_asc';
+    const isPricePaidSort =
+      activeSortBy === 'price_paid_desc' || activeSortBy === 'price_paid_asc';
+    const needJournalForSort =
+      Boolean(canProvenance && journalMap) &&
+      (isAcquiredSort || isPricePaidSort);
+
+    const decoratedToys = filteredToysList.map((toy) => {
+      const jEntry = needJournalForSort
+        ? findToyJournalEntry(toy, journalMap!)
+        : null;
+      return {
+        item: toy,
+        retailPrice: toy.retail_price ?? null,
+        discountPct: toy.retail_discount_pct ?? 0,
+        marketValue: isMarketValueSort
+          ? (this.collectionService.getEstimatedValue?.(toy, 'toy').cents ??
+            null)
+          : null,
+        acquiredSortKey: isAcquiredSort
+          ? (parseJournalDate(
+              jEntry?.purchase_date,
+              jEntry?.is_approximate_date,
+            )?.sortKey ?? null)
+          : null,
+        pricePaid: isPricePaidSort ? getJournalPricePaidNumber(jEntry) : null,
+        normLine: this.normalizeForSort(toy.line),
+        seriesIndex: toy.series_index ?? 9999,
+        normSeries: this.normalizeForSort(toy.series_name || ''),
+        isAmiibo: toy.line === 'amiibo',
+        toyTypeOrder: this.getToyTypeOrder(toy.type),
+        releaseDate: toy.release_date || '9999-99-99',
+        sortIndex: toy.sort_index ?? 9999,
+        normName: this.normalizeForSort(toy.name || ''),
+      };
+    });
 
     decoratedToys.sort((a, b) => {
+      // Acquisition Date Sorting (unrecorded always last)
+      if (isAcquiredSort) {
+        if (a.acquiredSortKey !== null && b.acquiredSortKey !== null) {
+          if (a.acquiredSortKey !== b.acquiredSortKey) {
+            return activeSortBy === 'acquired_desc'
+              ? b.acquiredSortKey.localeCompare(a.acquiredSortKey)
+              : a.acquiredSortKey.localeCompare(b.acquiredSortKey);
+          }
+        } else if (a.acquiredSortKey !== b.acquiredSortKey) {
+          return a.acquiredSortKey !== null ? -1 : 1;
+        }
+      }
+
+      // Price Paid Sorting (unrecorded always last)
+      if (isPricePaidSort) {
+        if (a.pricePaid !== null && b.pricePaid !== null) {
+          if (a.pricePaid !== b.pricePaid) {
+            return activeSortBy === 'price_paid_desc'
+              ? b.pricePaid - a.pricePaid
+              : a.pricePaid - b.pricePaid;
+          }
+        } else if (a.pricePaid !== b.pricePaid) {
+          return a.pricePaid !== null ? -1 : 1;
+        }
+      }
+
       // Market Value Sorting (High to Low / Low to High, unpriced always last)
       if (isMarketValueSort) {
         if (a.marketValue !== null && b.marketValue !== null) {
           if (a.marketValue !== b.marketValue) {
-            return f.sortBy === 'market_value_desc'
+            return activeSortBy === 'market_value_desc'
               ? b.marketValue - a.marketValue
               : a.marketValue - b.marketValue;
           }
@@ -1312,7 +1586,7 @@ export class CollectionListComponent
       }
 
       // Retail Price Sorting (Low to High)
-      if (f.sortBy === 'retail_asc') {
+      if (activeSortBy === 'retail_asc') {
         if (a.retailPrice !== null || b.retailPrice !== null) {
           if (a.retailPrice === null) return 1;
           if (b.retailPrice === null) return -1;
@@ -1322,7 +1596,7 @@ export class CollectionListComponent
       }
 
       // Deepest Sale Discount Sorting (High to Low)
-      if (f.sortBy === 'discount_desc') {
+      if (activeSortBy === 'discount_desc') {
         if (a.discountPct !== b.discountPct)
           return b.discountPct - a.discountPct;
         const priceA = a.retailPrice ?? 999999;
@@ -1331,8 +1605,8 @@ export class CollectionListComponent
       }
 
       // Release Date Sorting
-      if (f.sortBy === 'release_desc' || f.sortBy === 'release_asc') {
-        const isDesc = f.sortBy === 'release_desc';
+      if (activeSortBy === 'release_desc' || activeSortBy === 'release_asc') {
+        const isDesc = activeSortBy === 'release_desc';
         const aKnown = a.releaseDate !== '9999-99-99';
         const bKnown = b.releaseDate !== '9999-99-99';
         if (aKnown && bKnown) {
@@ -1347,12 +1621,14 @@ export class CollectionListComponent
       }
 
       const isBypassLineGroupSort =
-        f.sortBy === 'retail_asc' ||
-        f.sortBy === 'discount_desc' ||
-        f.sortBy === 'market_value_desc' ||
-        f.sortBy === 'market_value_asc' ||
-        f.sortBy === 'release_desc' ||
-        f.sortBy === 'release_asc';
+        activeSortBy === 'retail_asc' ||
+        activeSortBy === 'discount_desc' ||
+        activeSortBy === 'market_value_desc' ||
+        activeSortBy === 'market_value_asc' ||
+        activeSortBy === 'release_desc' ||
+        activeSortBy === 'release_asc' ||
+        isAcquiredSort ||
+        isPricePaidSort;
 
       if (!isBypassLineGroupSort) {
         // 1. Line (ASC)
@@ -1416,28 +1692,41 @@ export class CollectionListComponent
     const displayed = this.displayToys();
     const allFiltered = this.filteredToys();
     const f = this.filters();
+    const sortBy = this.effectiveSortBy();
 
     const isFlatSort =
-      f.sortBy === 'retail_asc' ||
-      f.sortBy === 'discount_desc' ||
-      f.sortBy === 'market_value_desc' ||
-      f.sortBy === 'market_value_asc' ||
-      f.sortBy === 'release_desc' ||
-      f.sortBy === 'release_asc';
+      sortBy === 'retail_asc' ||
+      sortBy === 'discount_desc' ||
+      sortBy === 'market_value_desc' ||
+      sortBy === 'market_value_asc' ||
+      sortBy === 'release_desc' ||
+      sortBy === 'release_asc' ||
+      sortBy === 'acquired_desc' ||
+      sortBy === 'acquired_asc' ||
+      sortBy === 'price_paid_desc' ||
+      sortBy === 'price_paid_asc';
 
     if (isFlatSort) {
       const sortLabel =
-        f.sortBy === 'retail_asc'
+        sortBy === 'retail_asc'
           ? 'Ranked by Lowest Retail Price'
-          : f.sortBy === 'discount_desc'
+          : sortBy === 'discount_desc'
             ? 'Ranked by Biggest Sale %'
-            : f.sortBy === 'market_value_desc'
+            : sortBy === 'market_value_desc'
               ? 'Sorted by Market Value (High to Low)'
-              : f.sortBy === 'market_value_asc'
+              : sortBy === 'market_value_asc'
                 ? 'Sorted by Market Value (Low to High)'
-                : f.sortBy === 'release_desc'
-                  ? 'Ranked by Release Date (Newest First)'
-                  : 'Ranked by Release Date (Oldest First)';
+                : sortBy === 'acquired_desc'
+                  ? 'Sorted by Acquisition Date (Newest First)'
+                  : sortBy === 'acquired_asc'
+                    ? 'Sorted by Acquisition Date (Oldest First)'
+                    : sortBy === 'price_paid_desc'
+                      ? 'Sorted by Price Paid (High to Low)'
+                      : sortBy === 'price_paid_asc'
+                        ? 'Sorted by Price Paid (Low to High)'
+                        : sortBy === 'release_desc'
+                          ? 'Ranked by Release Date (Newest First)'
+                          : 'Ranked by Release Date (Oldest First)';
       const lineTitle = f.line
         ? `${f.line} (${sortLabel})`
         : `All Lines (${sortLabel})`;
@@ -1638,6 +1927,37 @@ export class CollectionListComponent
     return Array.from(regionsSet).sort();
   });
 
+  public uniqueProvenanceSources = computed<string[]>(() => {
+    if (!this.showProvenanceFilters()) return [];
+    const targetType = this.currentTab() === 'games' ? 'game' : 'toy';
+    const map = this.collectionService.journalEntriesMap?.();
+    if (!map || map.size === 0) return [];
+    const sources = new Set<string>();
+    for (const entry of map.values()) {
+      if (entry.item_type !== targetType) continue;
+      const lbl = getProvenanceSourceLabel(entry);
+      if (lbl) sources.add(lbl);
+    }
+    return this.sortUniqueStrings(sources);
+  });
+
+  public uniqueAcquiredYears = computed<number[]>(() => {
+    if (!this.showProvenanceFilters()) return [];
+    const targetType = this.currentTab() === 'games' ? 'game' : 'toy';
+    const map = this.collectionService.journalEntriesMap?.();
+    if (!map || map.size === 0) return [];
+    const years = new Set<number>();
+    for (const entry of map.values()) {
+      if (entry.item_type !== targetType) continue;
+      const parsed = parseJournalDate(
+        entry.purchase_date,
+        entry.is_approximate_date,
+      );
+      if (parsed) years.add(parsed.year);
+    }
+    return Array.from(years).sort((a, b) => b - a);
+  });
+
   /**
    * Initializes the component and sets up the state persistence effect.
    * This effect ensures that any change to filters or display limits is
@@ -1776,10 +2096,17 @@ export class CollectionListComponent
         'market_value_asc',
         'release_desc',
         'release_asc',
+        'acquired_desc',
+        'acquired_asc',
+        'price_paid_desc',
+        'price_paid_asc',
       ]);
+      const rawSort = savedState.filters.sortBy;
       const normalizedSortBy =
-        savedState.filters.sortBy && validSorts.has(savedState.filters.sortBy)
-          ? savedState.filters.sortBy
+        rawSort &&
+        validSorts.has(rawSort) &&
+        (this.showProvenanceFilters() || !isProvenanceSort(rawSort))
+          ? rawSort
           : 'default';
       this.filters.set({
         ...savedState.filters,
@@ -1819,6 +2146,13 @@ export class CollectionListComponent
     } else {
       await this.collectionService.refreshAll();
       this.restoreScroll();
+    }
+    if (
+      this.collectionService.canShowPersonalState?.() &&
+      !this.collectionService.journalLoaded?.() &&
+      typeof this.collectionService.loadAllJournalEntries === 'function'
+    ) {
+      this.collectionService.loadAllJournalEntries().subscribe();
     }
     this.maybeEnsureFullCatalogForFilters(this.filters());
   }

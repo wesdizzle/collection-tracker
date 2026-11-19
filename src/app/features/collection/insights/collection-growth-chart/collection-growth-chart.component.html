@@ -1,0 +1,329 @@
+<section
+  class="insight-panel growth-chart-panel"
+  data-testid="collection-growth-chart-panel"
+>
+  <header class="growth-header">
+    <div class="panel-title-group">
+      <h2 class="panel-title">
+        <app-icon name="chart" [size]="20" />
+        <span>Collection Growth &amp; Cost Basis Over Time</span>
+      </h2>
+      <p class="panel-subtitle">
+        Cumulative count, acquisition spend, and ephemeral live market overlay
+        ({{ growthData().effectiveGranularity }} view)
+      </p>
+    </div>
+
+    <div class="growth-controls">
+      <div class="mode-toggle" role="group" aria-label="Chart aggregation mode">
+        <button
+          type="button"
+          class="mode-btn"
+          [class.active]="viewMode() === 'cumulative'"
+          (click)="viewMode.set('cumulative')"
+          data-testid="growth-mode-cumulative"
+        >
+          Cumulative
+        </button>
+        <button
+          type="button"
+          class="mode-btn"
+          [class.active]="viewMode() === 'period'"
+          (click)="viewMode.set('period')"
+          data-testid="growth-mode-period"
+        >
+          Added per Period
+        </button>
+      </div>
+
+      <select
+        class="growth-select"
+        aria-label="Growth chart scope"
+        [value]="selectedScope()"
+        (change)="onScopeChange($event)"
+        data-testid="growth-scope-select"
+      >
+        <option value="all_owned">
+          All Owned ({{ ownedGames().length + ownedToys().length }})
+        </option>
+        <option value="games_only">
+          Games Only ({{ ownedGames().length }})
+        </option>
+        <option value="toys_only">Toys Only ({{ ownedToys().length }})</option>
+        @for (p of platformFilterOptions(); track p.id) {
+          <option [value]="'platform:' + p.id">
+            {{ p.name }} ({{ p.count }})
+          </option>
+        }
+      </select>
+
+      <select
+        class="growth-select"
+        aria-label="Growth chart time granularity"
+        [value]="granularity()"
+        (change)="onGranularityChange($event)"
+        data-testid="growth-granularity-select"
+      >
+        <option value="auto">Granularity: Auto</option>
+        <option value="year">By Year</option>
+        <option value="quarter">By Quarter</option>
+        <option value="month">By Month</option>
+      </select>
+
+      <select
+        class="growth-select"
+        aria-label="Growth chart time range"
+        [value]="timeRange()"
+        (change)="onTimeRangeChange($event)"
+        data-testid="growth-range-select"
+      >
+        <option value="all">Range: All Time</option>
+        <option value="5y">Last 5 Years</option>
+        <option value="3y">Last 3 Years</option>
+        <option value="1y">Last 12 Months</option>
+        <option value="ytd">Year to Date</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="growth-options-row">
+    <label class="growth-checkbox-label">
+      <input
+        type="checkbox"
+        [checked]="includeApproximateDates()"
+        (change)="onIncludeApproxToggle($event)"
+        data-testid="growth-include-approx-checkbox"
+      />
+      <span>Include approx. dates</span>
+      @if (growthData().summary.approximateDateCount > 0) {
+        <span class="option-count-badge">{{
+          growthData().summary.approximateDateCount
+        }}</span>
+      }
+    </label>
+
+    @if (canViewMarketPrices() && growthData().summary.hasFreshMarketPrices) {
+      <label class="growth-checkbox-label">
+        <input
+          type="checkbox"
+          [checked]="matchedOnly()"
+          (change)="onMatchedOnlyToggle($event)"
+          data-testid="growth-matched-only-checkbox"
+        />
+        <span>Matched items only (paid &amp; live comp)</span>
+      </label>
+    }
+  </div>
+
+  @if (growthData().summary; as s) {
+    <div class="growth-kpi-strip" data-testid="growth-kpi-strip">
+      <div class="growth-kpi-card">
+        <span class="growth-kpi-label">Dated in Timeline</span>
+        <span class="growth-kpi-value"
+          >{{ s.datedItemCount }} / {{ s.totalOwnedInScope }}</span
+        >
+        <span class="growth-kpi-sub">
+          @if (s.excludedApproximateCount > 0) {
+            {{ s.excludedApproximateCount }} approx. hidden
+          } @else if (s.undatedItemCount > 0) {
+            {{ s.undatedItemCount }} missing date
+          } @else {
+            100% dated in scope
+          }
+        </span>
+      </div>
+
+      <div class="growth-kpi-card">
+        <span class="growth-kpi-label">Tracked Cost Basis</span>
+        <span class="growth-kpi-value">{{
+          formatCents(s.latestCumulativeCostBasisCents)
+        }}</span>
+        <span class="growth-kpi-sub">
+          {{ s.pricedPaidCount }} dated
+          {{ s.pricedPaidCount === 1 ? 'item' : 'items' }} with price paid
+        </span>
+      </div>
+
+      @if (canViewMarketPrices()) {
+        <div class="growth-kpi-card">
+          <span class="growth-kpi-label">Est. Current Value (&lt;6h)</span>
+          <span class="growth-kpi-value value-highlight">
+            @if (
+              s.hasFreshMarketPrices &&
+              s.latestCumulativeCurrentValueCents !== null
+            ) {
+              {{ formatCents(s.latestCumulativeCurrentValueCents) }}
+            } @else {
+              —
+            }
+          </span>
+          <span class="growth-kpi-sub">
+            @if (s.hasFreshMarketPrices) {
+              {{ s.marketValuedCount }} dated with live eBay floor
+            } @else {
+              Scan live eBay prices below
+            }
+          </span>
+        </div>
+
+        @if (s.matchedCount > 0 && s.latestMatchedDeltaCents !== null) {
+          <div class="growth-kpi-card">
+            <span class="growth-kpi-label">Matched Unrealized Gain</span>
+            <span
+              class="growth-kpi-value"
+              [class.positive]="s.latestMatchedDeltaCents > 0"
+              [class.negative]="s.latestMatchedDeltaCents < 0"
+            >
+              {{ formatSignedCents(s.latestMatchedDeltaCents) }}
+              @if (s.latestMatchedRoiPct !== null) {
+                <span class="roi-inline"
+                  >({{ s.latestMatchedRoiPct > 0 ? '+' : ''
+                  }}{{ s.latestMatchedRoiPct }}%)</span
+                >
+              }
+            </span>
+            <span class="growth-kpi-sub">
+              Across {{ s.matchedCount }} paired cost + comp items
+            </span>
+          </div>
+        }
+      }
+    </div>
+  }
+
+  <div class="growth-chart-host">
+    <kit-time-series-chart
+      [points]="chartPoints()"
+      [series]="chartSeries()"
+      [mode]="chartMode()"
+      [diffBand]="chartDiffBand()"
+      [leftAxisFormatter]="leftAxisFormatter"
+      [rightAxisFormatter]="rightAxisFormatter"
+      leftAxisLabel="USD"
+      rightAxisLabel="Items"
+      [heightPx]="310"
+      ariaLabel="Collection growth and cost basis over time"
+      emptyTitle="No acquisition timeline data yet"
+      [emptyMessage]="emptyStateMessage()"
+      [tooltipTemplate]="growthTooltip"
+      (pointClick)="onBucketClick($event)"
+    />
+  </div>
+
+  <ng-template #growthTooltip let-point>
+    @if (asBucket(point.meta); as b) {
+      <div class="growth-tooltip-card">
+        <div class="growth-tooltip-title">
+          <span>{{ b.label }}</span>
+          <span class="growth-tooltip-hint">Click to filter</span>
+        </div>
+
+        <div class="growth-tooltip-section">
+          <div class="tooltip-kv">
+            <span>Added in period</span>
+            <strong>+{{ b.periodItemCount }}</strong>
+          </div>
+          @if (b.periodGamesCount > 0 || b.periodToysCount > 0) {
+            <div class="tooltip-sub-split">
+              @if (b.periodGamesCount > 0) {
+                <span>{{ b.periodGamesCount }} games</span>
+              }
+              @if (b.periodToysCount > 0) {
+                <span>{{ b.periodToysCount }} toys</span>
+              }
+              @if (b.periodApproximateCount > 0) {
+                <span>({{ b.periodApproximateCount }} approx.)</span>
+              }
+            </div>
+          }
+          <div class="tooltip-kv">
+            <span>Period spend</span>
+            <strong>{{ formatCents(b.periodCostBasisCents) }}</strong>
+          </div>
+        </div>
+
+        <div class="growth-tooltip-divider"></div>
+
+        <div class="growth-tooltip-section">
+          <div class="tooltip-kv">
+            <span>Cumulative items</span>
+            <strong>{{ b.cumulativeItemCount }}</strong>
+          </div>
+          <div class="tooltip-kv">
+            <span>Cumulative cost basis</span>
+            <strong>{{ formatCents(b.cumulativeCostBasisCents) }}</strong>
+          </div>
+          @if (
+            canViewMarketPrices() && b.cumulativeCurrentValueCents !== null
+          ) {
+            <div class="tooltip-kv">
+              <span>Est. value (&lt;6h eBay)</span>
+              <strong class="positive-text">{{
+                formatCents(b.cumulativeCurrentValueCents)
+              }}</strong>
+            </div>
+          }
+          @if (
+            canViewMarketPrices() &&
+            b.cumulativeMatchedCount > 0 &&
+            b.cumulativeMatchedDeltaCents !== null
+          ) {
+            <div class="tooltip-kv">
+              <span>Matched diff ({{ b.cumulativeMatchedCount }})</span>
+              <strong
+                [class.positive-text]="b.cumulativeMatchedDeltaCents > 0"
+                [class.negative-text]="b.cumulativeMatchedDeltaCents < 0"
+              >
+                {{ formatSignedCents(b.cumulativeMatchedDeltaCents) }}
+                @if (b.cumulativeMatchedRoiPct !== null) {
+                  ({{ b.cumulativeMatchedRoiPct > 0 ? '+' : ''
+                  }}{{ b.cumulativeMatchedRoiPct }}%)
+                }
+              </strong>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </ng-template>
+
+  @if (growthData().summary; as s) {
+    <footer class="growth-footer">
+      <div class="growth-coverage-row">
+        <span class="coverage-copy">
+          <app-icon name="calendar" [size]="14" />
+          <span>
+            {{ s.datedItemCount }} of {{ s.totalOwnedInScope }} owned items have
+            acquisition dates
+            @if (s.excludedApproximateCount > 0) {
+              ({{ s.excludedApproximateCount }} approx. hidden)
+            }
+          </span>
+        </span>
+
+        @if (s.undatedItemCount > 0) {
+          <a
+            class="missing-date-link"
+            [routerLink]="missingDateRoute()"
+            [queryParams]="missingDateQueryParams()"
+            data-testid="growth-missing-date-link"
+          >
+            Review {{ s.undatedItemCount }} undated
+            {{ s.undatedItemCount === 1 ? 'item' : 'items' }} →
+          </a>
+        }
+      </div>
+
+      @if (canViewMarketPrices()) {
+        <p class="ebay-compliance-note" data-testid="growth-ebay-disclosure">
+          <app-icon name="clock" [size]="13" />
+          <span>
+            Est. Current Value overlays live &lt;6h ephemeral eBay active
+            replacement floors across dated holdings; market prices are never
+            persisted historically.
+          </span>
+        </p>
+      }
+    </footer>
+  }
+</section>

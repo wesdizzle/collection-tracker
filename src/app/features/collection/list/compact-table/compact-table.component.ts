@@ -15,6 +15,12 @@ import {
   normalizeBudgetToken,
   formatToyRegionBadge,
 } from '../../../../core/models/collection.models';
+import {
+  CompactProvenanceBadge,
+  findGameJournalEntry,
+  findToyJournalEntry,
+  formatCompactProvenanceBadge,
+} from '../../../../core/models/provenance-analytics';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
@@ -137,6 +143,20 @@ export class CompactTableComponent {
       text,
       title: `eBay ${est.tierLabel} · ${age}`,
     };
+  }
+
+  public getProvenanceBadge(
+    item: Game | Toy,
+    itemType: 'game' | 'toy',
+  ): CompactProvenanceBadge | null {
+    if (!this.collectionService?.canShowPersonalState?.()) return null;
+    const map = this.collectionService.journalEntriesMap?.();
+    if (!map || map.size === 0) return null;
+    const entry =
+      itemType === 'game'
+        ? findGameJournalEntry(item as Game, map)
+        : findToyJournalEntry(item as Toy, map);
+    return formatCompactProvenanceBadge(entry);
   }
 
   public getBackedUpDiscCount(game: Game): number {

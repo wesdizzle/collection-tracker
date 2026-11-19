@@ -562,11 +562,37 @@ describe('CollectionInsightsComponent', () => {
     expect(revealed?.textContent).toContain('2 / 2');
     expect(compiled.innerHTML).toContain('eBay');
 
-    // Unauthenticated: panel is completely omitted
+    // Growth chart and clickable provenance links render when authenticated
+    const growthPanel = compiled.querySelector(
+      '[data-testid="collection-growth-chart-panel"]',
+    );
+    expect(growthPanel).toBeTruthy();
+
+    const coverageLink = compiled.querySelector(
+      'a[data-testid="insights-provenance-coverage-link"]',
+    ) as HTMLAnchorElement;
+    expect(coverageLink).toBeTruthy();
+    expect(coverageLink.getAttribute('href')).toContain('/collection/games');
+    expect(coverageLink.getAttribute('href')).toContain(
+      'provenance_status=recorded',
+    );
+
+    const sourceLink = compiled.querySelector(
+      'a[data-testid="insights-source-link"]',
+    ) as HTMLAnchorElement;
+    expect(sourceLink).toBeTruthy();
+    expect(sourceLink.textContent).toContain('eBay');
+    expect(sourceLink.getAttribute('href')).toContain('provenance_source=eBay');
+    expect(sourceLink.getAttribute('href')).toContain('provenance_exact=1');
+
+    // Unauthenticated: both panels and growth chart are completely omitted
     mockIsAuthenticated.set(false);
     fixture.detectChanges();
     expect(
       compiled.querySelector('[data-testid="insights-journal-panel"]'),
+    ).toBeNull();
+    expect(
+      compiled.querySelector('[data-testid="collection-growth-chart-panel"]'),
     ).toBeNull();
   });
 });

@@ -14,6 +14,11 @@ import {
   formatPriceAge,
   formatToyRegionBadge,
 } from '../../../../core/models/collection.models';
+import {
+  CompactProvenanceBadge,
+  findToyJournalEntry,
+  formatCompactProvenanceBadge,
+} from '../../../../core/models/provenance-analytics';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
@@ -66,6 +71,16 @@ export class ToyCardComponent {
       title: `eBay ${est.tierLabel} · ${age}`,
     };
   });
+
+  public readonly provenanceBadge = computed<CompactProvenanceBadge | null>(
+    () => {
+      if (!this.collectionService?.canShowPersonalState?.()) return null;
+      const map = this.collectionService.journalEntriesMap?.();
+      if (!map || map.size === 0) return null;
+      const entry = findToyJournalEntry(this.toy(), map);
+      return formatCompactProvenanceBadge(entry);
+    },
+  );
 
   onCardActivate(): void {
     const t = this.toy();

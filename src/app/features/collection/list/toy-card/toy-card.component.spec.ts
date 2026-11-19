@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { ToyCardComponent } from './toy-card.component';
@@ -132,5 +135,64 @@ describe('ToyCardComponent', () => {
     expect(img.style.getPropertyValue('view-transition-name')).toBe(
       'catalog-media-toy-mario-smash-amiibo',
     );
+  });
+
+  it('always renders provenance badge when personal state is visible and journal details exist, and hides in public/unauth views', () => {
+    const cs = TestBed.inject(CollectionService);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="card-provenance-badge"]',
+      ),
+    ).toBeNull();
+
+    cs.setAdminForTesting(true);
+    cs.loadAllJournalEntries().subscribe();
+    httpMock.expectOne('/api/journal/entries').flush({
+      authorized: true,
+      entries: [
+        {
+          id: 2,
+          item_type: 'toy',
+          item_id: 'mario-smash-amiibo',
+          purchase_date: '2014-12-25',
+          is_approximate_date: 0,
+          price_paid: 0,
+          merchant: null,
+          gifted_by: 'Mom',
+          receipt_url: null,
+          notes: 'Christmas present',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const badge = fixture.nativeElement.querySelector(
+      '[data-testid="card-provenance-badge"]',
+    ) as HTMLElement;
+    expect(badge).toBeTruthy();
+    expect(badge.textContent).toContain('Dec 2014');
+    expect(badge.textContent).toContain('Gift (Mom)');
+    expect(badge.getAttribute('title')).toContain('Source: Gift (Mom)');
+
+    // Public view -> strictly hidden
+    cs.setPublicView(true, null);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="card-provenance-badge"]',
+      ),
+    ).toBeNull();
+
+    // Unauthenticated -> strictly hidden
+    cs.exitPublicView();
+    cs.setAdminForTesting(false);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="card-provenance-badge"]',
+      ),
+    ).toBeNull();
   });
 });

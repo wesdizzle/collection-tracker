@@ -348,6 +348,19 @@
       </div>
     }
 
+    @if (provenanceBadge(); as provBadge) {
+      <div class="mt-2xs">
+        <span
+          class="provenance-badge"
+          [title]="provBadge.title"
+          data-testid="card-provenance-badge"
+        >
+          <app-icon [name]="provBadge.icon" [size]="11" />
+          <span class="provenance-badge-text">{{ provBadge.text }}</span>
+        </span>
+      </div>
+    }
+
     @if (game().ownership_status === 1) {
       <div class="completeness-chips mt-2xs">
         <button

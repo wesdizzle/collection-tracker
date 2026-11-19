@@ -444,6 +444,24 @@
   font-weight: 700;
 }
 
+.provenance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 170px;
+  overflow: hidden;
+  background: var(--badge-neutral-bg);
+  color: var(--badge-neutral-fg);
+  border: 1px solid var(--badge-neutral-border);
+  font-weight: 600;
+}
+
+.provenance-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .deal-sale-badge {
   font-size: 0.72rem;
   font-weight: 700;

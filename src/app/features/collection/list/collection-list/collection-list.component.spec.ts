@@ -13,6 +13,8 @@ import { CollectionService } from '../../../../core/services/collection.service'
 import {
   ListState,
   Game,
+  Toy,
+  JournalEntry,
   FilterState,
 } from '../../../../core/models/collection.models';
 
@@ -2592,5 +2594,489 @@ describe('CollectionListComponent', () => {
     fixture.detectChanges();
     clickPill('Owned');
     expect(component.filteredGames().map((g) => g.id)).toEqual(['owned-mario']);
+  });
+
+  it('filters and sorts games and toys by private provenance metadata and computes unique provenance facets', async () => {
+    const cs = TestBed.inject(CollectionService);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    cs.setAdminForTesting(true);
+    const gamesPayload: Game[] = [
+      {
+        stable_id: 1,
+        id: 'game-ebay-2022',
+        game_id: 'game-ebay-2022',
+        title: 'Game eBay 2022',
+        platform: 'Switch',
+        platform_id: 1,
+        region: 'USA',
+        series: 'Mario',
+        canonical_series: 'Mario',
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        release_date: '2020-01-01',
+      },
+      {
+        stable_id: 2,
+        id: 'game-gift-2020',
+        game_id: 'game-gift-2020',
+        title: 'Game Gift 2020',
+        platform: 'SNES',
+        platform_id: 2,
+        region: 'USA',
+        series: 'Zelda',
+        canonical_series: 'Zelda',
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        release_date: '1995-01-01',
+      },
+      {
+        stable_id: 3,
+        id: 'game-missing-date',
+        game_id: 'game-missing-date',
+        title: 'Game Undated Local',
+        platform: 'SNES',
+        platform_id: 2,
+        region: 'USA',
+        series: 'Zelda',
+        canonical_series: 'Zelda',
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        release_date: '1994-01-01',
+      },
+      {
+        stable_id: 4,
+        id: 'game-no-journal',
+        game_id: 'game-no-journal',
+        title: 'Game Unrecorded',
+        platform: 'SNES',
+        platform_id: 2,
+        region: 'USA',
+        series: 'Metroid',
+        canonical_series: 'Metroid',
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        release_date: '1994-03-19',
+      },
+    ];
+
+    const toysPayload: Toy[] = [
+      {
+        stable_id: 101,
+        id: 'toy-target-2021',
+        name: 'Toy Target 2021',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Mario',
+        series_line: 'Mario',
+        release_date: '2021-01-01',
+        ownership_status: 1,
+        region: 'USA',
+        image_url: '',
+      },
+      {
+        stable_id: 102,
+        id: 'toy-gift-2019',
+        name: 'Toy Gift 2019',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Zelda',
+        series_line: 'Zelda',
+        release_date: '2019-01-01',
+        ownership_status: 1,
+        region: 'USA',
+        image_url: '',
+      },
+      {
+        stable_id: 103,
+        id: 'toy-no-journal',
+        name: 'Toy Unrecorded',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Metroid',
+        series_line: 'Metroid',
+        release_date: '2021-08-01',
+        ownership_status: 1,
+        region: 'USA',
+        image_url: '',
+      },
+    ];
+
+    const journalEntries: JournalEntry[] = [
+      {
+        id: 1,
+        item_type: 'game',
+        item_id: 'game-ebay-2022',
+        purchase_date: '2022-06-15',
+        is_approximate_date: 0,
+        price_paid: 45,
+        merchant: 'eBay Seller',
+        gifted_by: null,
+        receipt_url: 'https://example.com/receipt-1',
+        notes: null,
+      },
+      {
+        id: 2,
+        item_type: 'game',
+        item_id: 'game-gift-2020',
+        purchase_date: '2020-12-25',
+        is_approximate_date: 0,
+        price_paid: 0,
+        merchant: null,
+        gifted_by: 'Alex',
+        receipt_url: null,
+        notes: 'Holiday gift',
+      },
+      {
+        id: 3,
+        item_type: 'game',
+        item_id: 'game-missing-date',
+        purchase_date: null,
+        is_approximate_date: 0,
+        price_paid: 120,
+        merchant: 'eBay',
+        gifted_by: null,
+        receipt_url: null,
+        notes: null,
+      },
+      {
+        id: 4,
+        item_type: 'toy',
+        item_id: 'toy-target-2021',
+        purchase_date: '2021-03-10',
+        is_approximate_date: 0,
+        price_paid: 15.99,
+        merchant: 'Target',
+        gifted_by: null,
+        receipt_url: 'https://example.com/toy-receipt',
+        notes: null,
+      },
+      {
+        id: 5,
+        item_type: 'toy',
+        item_id: 'toy-gift-2019',
+        purchase_date: '2019-07-04',
+        is_approximate_date: 0,
+        price_paid: 0,
+        merchant: null,
+        gifted_by: 'Sam',
+        receipt_url: null,
+        notes: null,
+      },
+    ];
+
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush(gamesPayload);
+    httpMock.expectOne('/api/toys').flush(toysPayload);
+    httpMock.expectOne('/api/platforms').flush([
+      { id: 1, name: 'Switch', brand: 'Nintendo' },
+      { id: 2, name: 'SNES', brand: 'Nintendo' },
+    ]);
+    await initPromise;
+    httpMock.expectOne('/api/journal/entries').flush({
+      authorized: true,
+      entries: journalEntries,
+    });
+    fixture.detectChanges();
+
+    expect(component.showProvenanceFilters()).toBe(true);
+    expect(component.uniqueAcquiredYears()).toEqual([2022, 2020]);
+    expect(component.uniqueProvenanceSources()).toEqual([
+      'eBay',
+      'eBay Seller',
+      'Gift (Alex)',
+    ]);
+
+    // Status filters on games
+    component.onFiltersChange({
+      ...component.filters(),
+      ownership: 1,
+      provenance_status: 'recorded',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-ebay-2022',
+      'game-missing-date',
+      'game-gift-2020',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      provenance_status: 'missing',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-no-journal',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      provenance_status: 'missing_date',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-no-journal',
+      'game-missing-date',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      provenance_status: 'gifted',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-gift-2020',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      provenance_status: 'has_receipt',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-ebay-2022',
+    ]);
+
+    // Source fuzzy vs exact
+    component.onFiltersChange({
+      ...component.filters(),
+      provenance_status: 'all',
+      provenance_source: 'eBay',
+      provenanceSourceExact: false,
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-ebay-2022',
+      'game-missing-date',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      provenanceSourceExact: true,
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-missing-date',
+    ]);
+
+    // Acquired year & undated
+    component.onFiltersChange({
+      ...component.filters(),
+      provenance_source: '',
+      provenanceSourceExact: false,
+      acquired_year: 2022,
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-ebay-2022',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      acquired_year: 'undated',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-no-journal',
+      'game-missing-date',
+    ]);
+
+    // Price paid min/max & acquired_from/to
+    component.onFiltersChange({
+      ...component.filters(),
+      acquired_year: 'all',
+      acquired_from: '2020-01-01',
+      acquired_to: '2022-12-31',
+      price_paid_min: 10,
+      price_paid_max: 100,
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-ebay-2022',
+    ]);
+
+    // Provenance sorting on games produces flat sort group
+    component.onFiltersChange({
+      ...component.filters(),
+      acquired_from: '',
+      acquired_to: '',
+      price_paid_min: null,
+      price_paid_max: null,
+      sortBy: 'price_paid_desc',
+    });
+    const sortedGameGroups = component.groupedGames();
+    expect(sortedGameGroups.length).toBe(1);
+    expect(sortedGameGroups[0].platformName).toContain(
+      'Sorted by Price Paid (High to Low)',
+    );
+    expect(sortedGameGroups[0].games.map((g) => g.id)).toEqual([
+      'game-missing-date',
+      'game-ebay-2022',
+      'game-gift-2020',
+      'game-no-journal',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      sortBy: 'acquired_asc',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-gift-2020',
+      'game-ebay-2022',
+      'game-no-journal',
+      'game-missing-date',
+    ]);
+
+    // Switch to Toys tab and test provenance facets, filtering, and sorting
+    component.currentTab.set('toys');
+    component.onFiltersChange({
+      ...component.filters(),
+      ownership: 1,
+      sortBy: 'acquired_desc',
+    });
+    fixture.detectChanges();
+
+    expect(component.uniqueAcquiredYears()).toEqual([2021, 2019]);
+    expect(component.uniqueProvenanceSources()).toEqual([
+      'Gift (Sam)',
+      'Target',
+    ]);
+    const sortedToyGroups = component.groupedToys();
+    expect(sortedToyGroups.length).toBe(1);
+    expect(sortedToyGroups[0].lineName).toContain(
+      'Sorted by Acquisition Date (Newest First)',
+    );
+    expect(sortedToyGroups[0].seriesGroups[0].toys.map((t) => t.id)).toEqual([
+      'toy-target-2021',
+      'toy-gift-2019',
+      'toy-no-journal',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      sortBy: 'price_paid_desc',
+      provenance_status: 'gifted',
+    });
+    expect(component.filteredToys().map((t) => t.id)).toEqual([
+      'toy-gift-2019',
+    ]);
+  });
+
+  it('applies provenance deep-link query params when signed in and enforces strict isolation in public/unauth view', async () => {
+    const cs = TestBed.inject(CollectionService);
+    const router = TestBed.inject(Router);
+    const httpMock = TestBed.inject(HttpTestingController);
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    cs.setAdminForTesting(true);
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'game-1',
+        game_id: 'game-1',
+        title: 'Game 1',
+        platform: 'Switch',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
+      {
+        stable_id: 2,
+        id: 'game-2',
+        game_id: 'game-2',
+        title: 'Game 2',
+        platform: 'Switch',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    await initPromise;
+    httpMock.expectOne('/api/journal/entries').flush({
+      authorized: true,
+      entries: [
+        {
+          id: 1,
+          item_type: 'game',
+          item_id: 'game-1',
+          purchase_date: '2023-04-01',
+          is_approximate_date: 0,
+          price_paid: 50,
+          merchant: 'eBay',
+          gifted_by: null,
+          receipt_url: null,
+          notes: null,
+        },
+      ],
+    });
+
+    const applyQp = (qp: Record<string, unknown>) =>
+      (
+        component as unknown as {
+          applyQueryParams: (qp: Record<string, unknown>) => void;
+        }
+      ).applyQueryParams(qp);
+
+    applyQp({
+      ownership: '1',
+      provenance_status: 'all',
+      provenance_source: 'eBay',
+      provenance_exact: '1',
+      acquired_from: '2023-01-01',
+      acquired_to: '2023-12-31',
+      price_paid_min: '25',
+      price_paid_max: '75',
+      sort_by: 'price_paid_desc',
+    });
+
+    expect(component.filters().provenance_source).toBe('eBay');
+    expect(component.filters().provenanceSourceExact).toBe(true);
+    expect(component.filters().acquired_from).toBe('2023-01-01');
+    expect(component.filters().acquired_to).toBe('2023-12-31');
+    expect(component.filters().price_paid_min).toBe(25);
+    expect(component.filters().price_paid_max).toBe(75);
+    expect(component.filters().sortBy).toBe('price_paid_desc');
+    expect(component.compactTableFilters().sortBy).toBe('price_paid_desc');
+    expect(component.filteredGames().map((g) => g.id)).toEqual(['game-1']);
+
+    // Switch to public view -> provenance features & sorting are strictly suppressed
+    cs.setPublicView(true, null);
+    fixture.detectChanges();
+
+    expect(component.showProvenanceFilters()).toBe(false);
+    expect(component.effectiveSortBy()).toBe('default');
+    expect(component.compactTableFilters().sortBy).toBe('default');
+    expect(component.uniqueProvenanceSources()).toEqual([]);
+    expect(component.uniqueAcquiredYears()).toEqual([]);
+    // Both owned games appear because provenance filters are bypassed in public view
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'game-1',
+      'game-2',
+    ]);
+
+    // Provenance query params passed while in public view are ignored
+    applyQp({
+      provenance_status: 'missing',
+      provenance_source: 'Secret',
+      sort_by: 'acquired_desc',
+    });
+    expect(component.filters().provenance_status).toBe('all');
+    expect(component.filters().provenance_source).toBe('eBay');
+    expect(component.filters().sortBy).toBe('price_paid_desc');
+    expect(component.effectiveSortBy()).toBe('default');
+    expect(component.compactTableFilters().sortBy).toBe('default');
   });
 });

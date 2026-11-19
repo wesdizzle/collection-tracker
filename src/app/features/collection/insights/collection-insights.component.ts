@@ -16,12 +16,19 @@ import {
 import { CollectionService } from '../../../core/services/collection.service';
 import {
   Game,
+  JournalEntry,
   Toy,
   computeItemEstimatedValueCents,
   getMarketPriceKey,
   isMarketPriceFresh,
 } from '../../../core/models/collection.models';
+import {
+  findGameJournalEntry,
+  findToyJournalEntry,
+  getProvenanceSourceLabel,
+} from '../../../core/models/provenance-analytics';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
+import { CollectionGrowthChartComponent } from './collection-growth-chart/collection-growth-chart.component';
 import { MarketValuationPanelComponent } from './market-valuation-panel/market-valuation-panel.component';
 
 export interface PlatformCompletionStat {
@@ -64,6 +71,7 @@ export interface MerchantStat {
     RouterModule,
     IconComponent,
     KitSegmentedMeterComponent,
+    CollectionGrowthChartComponent,
     MarketValuationPanelComponent,
   ],
   templateUrl: './collection-insights.component.html',
@@ -75,6 +83,11 @@ export class CollectionInsightsComponent implements OnInit {
   public isRefreshing = signal(false);
   public readonly canViewMarketPrices = computed<boolean>(
     () => this.collectionService.canViewMarketPrices?.() === true,
+  );
+  public readonly canShowProvenance = computed<boolean>(() =>
+    typeof this.collectionService.canShowPersonalState === 'function'
+      ? this.collectionService.canShowPersonalState()
+      : this.collectionService.isAuthenticated(),
   );
 
   async ngOnInit(): Promise<void> {
@@ -465,10 +478,8 @@ export class CollectionInsightsComponent implements OnInit {
       { count: number; totalSpendDollars: number }
     >();
 
-    for (const g of games) {
-      const entry =
-        map.get(`game:${g.game_id || g.id}`) || map.get(`game:${g.id}`);
-      if (!entry) continue;
+    const accumulateEntry = (entry: JournalEntry | null) => {
+      if (!entry) return;
       recordedCount++;
 
       if (entry.price_paid !== null && entry.price_paid !== undefined) {
@@ -479,9 +490,7 @@ export class CollectionInsightsComponent implements OnInit {
         }
       }
 
-      const merchantName =
-        entry.merchant ||
-        (entry.gifted_by ? `Gift (${entry.gifted_by})` : null);
+      const merchantName = getProvenanceSourceLabel(entry);
       if (merchantName) {
         const cur = merchantCounts.get(merchantName) || {
           count: 0,
@@ -491,33 +500,14 @@ export class CollectionInsightsComponent implements OnInit {
         cur.totalSpendDollars += Number(entry.price_paid || 0);
         merchantCounts.set(merchantName, cur);
       }
+    };
+
+    for (const g of games) {
+      accumulateEntry(findGameJournalEntry(g, map));
     }
 
     for (const t of toys) {
-      const entry = map.get(`toy:${t.id}`);
-      if (!entry) continue;
-      recordedCount++;
-
-      if (entry.price_paid !== null && entry.price_paid !== undefined) {
-        const paid = Number(entry.price_paid);
-        totalTrackedSpendDollars += paid;
-        if (paid > 0) {
-          paidEntryCount++;
-        }
-      }
-
-      const merchantName =
-        entry.merchant ||
-        (entry.gifted_by ? `Gift (${entry.gifted_by})` : null);
-      if (merchantName) {
-        const cur = merchantCounts.get(merchantName) || {
-          count: 0,
-          totalSpendDollars: 0,
-        };
-        cur.count += 1;
-        cur.totalSpendDollars += Number(entry.price_paid || 0);
-        merchantCounts.set(merchantName, cur);
-      }
+      accumulateEntry(findToyJournalEntry(t, map));
     }
 
     const coveragePct =

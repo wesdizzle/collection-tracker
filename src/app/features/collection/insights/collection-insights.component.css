@@ -936,3 +936,23 @@
   font-weight: 700;
   color: var(--m3-primary);
 }
+
+.insights-growth-section {
+  margin-bottom: var(--spacing-24);
+}
+
+.series-row.clickable-row {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.series-row.clickable-row:hover {
+  background: var(--m3-surface-container-highest);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
+}

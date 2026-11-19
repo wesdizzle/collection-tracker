@@ -222,6 +222,19 @@ export interface Platform {
   image_url: string;
 }
 
+export type ProvenanceStatusFilter =
+  | 'all'
+  | 'recorded'
+  | 'missing'
+  | 'missing_date'
+  | 'missing_price'
+  | 'exact_date'
+  | 'approximate_date'
+  | 'gifted'
+  | 'free'
+  | 'has_receipt'
+  | 'has_notes';
+
 export interface FilterState {
   ownership:
     | 'all'
@@ -250,6 +263,14 @@ export interface FilterState {
   seriesOrName?: string;
   deals_only?: boolean;
   retail_available?: boolean;
+  provenance_status?: ProvenanceStatusFilter;
+  provenance_source?: string;
+  provenanceSourceExact?: boolean;
+  acquired_year?: number | 'all' | 'undated';
+  acquired_from?: string;
+  acquired_to?: string;
+  price_paid_min?: number | null;
+  price_paid_max?: number | null;
   sortBy?:
     | 'default'
     | 'retail_asc'
@@ -257,7 +278,11 @@ export interface FilterState {
     | 'market_value_desc'
     | 'market_value_asc'
     | 'release_desc'
-    | 'release_asc';
+    | 'release_asc'
+    | 'acquired_desc'
+    | 'acquired_asc'
+    | 'price_paid_desc'
+    | 'price_paid_asc';
 }
 
 export interface PlatformGroup {

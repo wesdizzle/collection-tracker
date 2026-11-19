@@ -1,5 +1,5 @@
 import '../../../../../test-setup';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -354,5 +354,88 @@ describe('CollectionFiltersComponent', () => {
       fixture.nativeElement.querySelector('#filter-backup-status'),
     ).toBeNull();
     expect(component.activeFilterCount()).toBe(0);
+  });
+
+  it('should render provenance filters & sort options on both games and toys tabs only when showProvenanceFilters is true', () => {
+    // Hidden by default (e.g., public / unauthenticated views)
+    expect(
+      fixture.nativeElement.querySelector('#filter-provenance-status'),
+    ).toBeNull();
+    expect(
+      component.sortByOptions().some((opt) => opt.value === 'acquired_desc'),
+    ).toBe(false);
+
+    fixture.componentRef.setInput('showProvenanceFilters', true);
+    fixture.componentRef.setInput('uniqueProvenanceSources', [
+      'Best Buy',
+      'Gift (Parents)',
+    ]);
+    fixture.componentRef.setInput('uniqueAcquiredYears', [2025, 2024]);
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('#filter-provenance-status'),
+    ).toBeTruthy();
+    expect(
+      fixture.nativeElement.querySelector('#filter-provenance-source'),
+    ).toBeTruthy();
+    expect(
+      fixture.nativeElement.querySelector('#filter-acquired-year'),
+    ).toBeTruthy();
+    expect(
+      fixture.nativeElement.querySelector('#filter-price-paid-min'),
+    ).toBeTruthy();
+    expect(
+      component.sortByOptions().some((opt) => opt.value === 'acquired_desc'),
+    ).toBe(true);
+
+    // Also rendered on toys tab
+    fixture.componentRef.setInput('currentTab', 'toys');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('#filter-provenance-status'),
+    ).toBeTruthy();
+
+    // Active filter counting & clearing period
+    fixture.componentRef.setInput('filters', {
+      ownership: 1,
+      provenance_status: 'recorded',
+      provenance_source: 'Best Buy',
+      acquired_year: 2025,
+      acquired_from: '2025-01-01',
+      acquired_to: '2025-03-31',
+      price_paid_min: 10,
+    });
+    fixture.detectChanges();
+    expect(component.activeFilterCount()).toBe(5);
+
+    let emitted: FilterState | undefined;
+    component.filtersChange.subscribe((f) => {
+      emitted = f;
+    });
+
+    const clearPeriodBtn = fixture.nativeElement.querySelector(
+      '#filter-clear-acquired-period',
+    ) as HTMLButtonElement;
+    expect(clearPeriodBtn).toBeTruthy();
+    clearPeriodBtn.click();
+    expect(emitted?.acquired_from).toBe('');
+    expect(emitted?.acquired_to).toBe('');
+
+    vi.useFakeTimers();
+    try {
+      component.onPricePaidInput('price_paid_max', '49.99');
+      vi.advanceTimersByTime(150);
+      expect(emitted?.price_paid_max).toBe(49.99);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    component.resetFilters();
+    expect(emitted?.provenance_status).toBe('all');
+    expect(emitted?.provenance_source).toBe('');
+    expect(emitted?.acquired_year).toBe('all');
+    expect(emitted?.price_paid_min).toBeNull();
+    expect(emitted?.price_paid_max).toBeNull();
   });
 });

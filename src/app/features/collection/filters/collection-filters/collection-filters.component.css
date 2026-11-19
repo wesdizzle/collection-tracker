@@ -51,9 +51,41 @@
   flex-wrap: wrap;
 }
 
+.price-range-group {
+  min-width: 190px;
+}
+
+.price-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-6);
+}
+
+.price-range-input {
+  width: 92px !important;
+  padding: 0 0.65rem !important;
+}
+
+.price-range-sep {
+  color: var(--m3-on-surface-variant);
+  font-weight: 600;
+}
+
+.acquired-period-pill {
+  background: var(--m3-primary-container) !important;
+  color: var(--m3-on-primary-container) !important;
+  border-color: var(--m3-primary) !important;
+  box-shadow: none !important;
+}
+
 @media (max-width: 480px) {
   .deals-toggle-btn {
     width: 100%;
     justify-content: center;
+  }
+
+  .price-range-input {
+    flex: 1 1 0;
+    width: auto !important;
   }
 }

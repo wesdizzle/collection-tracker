@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+} from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { CollectionService } from '../../../../core/services/collection.service';
 import { CompactTableComponent } from './compact-table.component';
 import {
   Game,
@@ -56,7 +62,11 @@ describe('CompactTableComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [CompactTableComponent],
-      providers: [provideRouter([])],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(CompactTableComponent);
@@ -196,6 +206,63 @@ describe('CompactTableComponent', () => {
         ),
       ).toBeNull();
     });
+
+    it('should render game provenance badge in table row only when personal state is visible', () => {
+      const cs = TestBed.inject(CollectionService);
+      const httpMock = TestBed.inject(HttpTestingController);
+
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="row-provenance-badge"]',
+        ),
+      ).toBeNull();
+
+      cs.setAdminForTesting(true);
+      cs.loadAllJournalEntries().subscribe();
+      httpMock.expectOne('/api/journal/entries').flush({
+        authorized: true,
+        entries: [
+          {
+            id: 11,
+            item_type: 'game',
+            item_id: 'zelda-botw',
+            purchase_date: '2017-03-03',
+            is_approximate_date: 0,
+            price_paid: 59.99,
+            merchant: 'Best Buy',
+            gifted_by: null,
+            receipt_url: null,
+            notes: null,
+          },
+        ],
+      });
+      fixture.detectChanges();
+
+      const badge = fixture.nativeElement.querySelector(
+        '[data-testid="row-provenance-badge"]',
+      ) as HTMLElement;
+      expect(badge).toBeTruthy();
+      expect(badge.textContent).toContain('Mar 2017');
+      expect(badge.textContent).toContain('$59.99');
+      expect(badge.textContent).toContain('Best Buy');
+
+      cs.setPublicView(true, null);
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="row-provenance-badge"]',
+        ),
+      ).toBeNull();
+
+      cs.exitPublicView();
+      cs.setAdminForTesting(false);
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="row-provenance-badge"]',
+        ),
+      ).toBeNull();
+    });
   });
 
   describe('Toys mode', () => {
@@ -272,6 +339,54 @@ describe('CompactTableComponent', () => {
       ) as HTMLButtonElement;
       btn.click();
       expect(emitted).toBe(true);
+    });
+
+    it('should render toy provenance badge in table row only when personal state is visible', () => {
+      const cs = TestBed.inject(CollectionService);
+      const httpMock = TestBed.inject(HttpTestingController);
+
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="row-provenance-badge"]',
+        ),
+      ).toBeNull();
+
+      cs.setAdminForTesting(true);
+      cs.loadAllJournalEntries().subscribe();
+      httpMock.expectOne('/api/journal/entries').flush({
+        authorized: true,
+        entries: [
+          {
+            id: 12,
+            item_type: 'toy',
+            item_id: 'link-archer-amiibo',
+            purchase_date: '2020-11',
+            is_approximate_date: 1,
+            price_paid: 15.99,
+            merchant: 'Target',
+            gifted_by: null,
+            receipt_url: null,
+            notes: null,
+          },
+        ],
+      });
+      fixture.detectChanges();
+
+      const badge = fixture.nativeElement.querySelector(
+        '[data-testid="row-provenance-badge"]',
+      ) as HTMLElement;
+      expect(badge).toBeTruthy();
+      expect(badge.textContent).toContain('~Nov 2020');
+      expect(badge.textContent).toContain('$15.99');
+      expect(badge.textContent).toContain('Target');
+
+      cs.setPublicView(true, null);
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="row-provenance-badge"]',
+        ),
+      ).toBeNull();
     });
   });
 });

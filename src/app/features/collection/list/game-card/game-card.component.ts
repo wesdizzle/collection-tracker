@@ -15,6 +15,11 @@ import {
   getMediaIconName,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
+import {
+  CompactProvenanceBadge,
+  findGameJournalEntry,
+  formatCompactProvenanceBadge,
+} from '../../../../core/models/provenance-analytics';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
@@ -68,6 +73,16 @@ export class GameCardComponent {
       title: `eBay ${est.tierLabel} · ${age} (Loose/CIB/New breakdown on detail)`,
     };
   });
+
+  public readonly provenanceBadge = computed<CompactProvenanceBadge | null>(
+    () => {
+      if (!this.collectionService?.canShowPersonalState?.()) return null;
+      const map = this.collectionService.journalEntriesMap?.();
+      if (!map || map.size === 0) return null;
+      const entry = findGameJournalEntry(this.game(), map);
+      return formatCompactProvenanceBadge(entry);
+    },
+  );
 
   onCardActivate(): void {
     const g = this.game();

@@ -221,3 +221,24 @@
   font-size: 0.6875rem;
   font-weight: 700;
 }
+
+.provenance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0.15rem 0.45rem;
+  background: var(--badge-neutral-bg);
+  color: var(--badge-neutral-fg);
+  border: 1px solid var(--badge-neutral-border);
+  border-radius: var(--radius-tag, 6px);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.provenance-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -30,6 +30,7 @@ import {
 import {
   FilterState,
   PlatformGroup,
+  ProvenanceStatusFilter,
   ViewMode,
 } from '../../../../core/models/collection.models';
 import { CollectionService } from '../../../../core/services/collection.service';
@@ -56,6 +57,8 @@ export class CollectionFiltersComponent implements OnDestroy {
   private quickSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private seriesDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private tagDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private priceMinDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private priceMaxDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   ngOnDestroy(): void {
     if (this.quickSearchDebounceTimer) {
@@ -69,6 +72,14 @@ export class CollectionFiltersComponent implements OnDestroy {
     if (this.tagDebounceTimer) {
       clearTimeout(this.tagDebounceTimer);
       this.tagDebounceTimer = null;
+    }
+    if (this.priceMinDebounceTimer) {
+      clearTimeout(this.priceMinDebounceTimer);
+      this.priceMinDebounceTimer = null;
+    }
+    if (this.priceMaxDebounceTimer) {
+      clearTimeout(this.priceMaxDebounceTimer);
+      this.priceMaxDebounceTimer = null;
     }
   }
 
@@ -251,6 +262,30 @@ export class CollectionFiltersComponent implements OnDestroy {
       f.ownership === 'home_region_and_owned'
     )
       count++;
+    if (this.showProvenanceFilters()) {
+      if (f.provenance_status && f.provenance_status !== 'all') count++;
+      if ((f.provenance_source || '').trim()) count++;
+      if (
+        f.acquired_year !== undefined &&
+        f.acquired_year !== null &&
+        f.acquired_year !== 'all'
+      ) {
+        count++;
+      }
+      if ((f.acquired_from || '').trim() || (f.acquired_to || '').trim()) {
+        count++;
+      }
+      if (
+        (f.price_paid_min !== undefined &&
+          f.price_paid_min !== null &&
+          Number.isFinite(Number(f.price_paid_min))) ||
+        (f.price_paid_max !== undefined &&
+          f.price_paid_max !== null &&
+          Number.isFinite(Number(f.price_paid_max)))
+      ) {
+        count++;
+      }
+    }
     return count;
   });
 
@@ -266,6 +301,14 @@ export class CollectionFiltersComponent implements OnDestroy {
     if (this.tagDebounceTimer) {
       clearTimeout(this.tagDebounceTimer);
       this.tagDebounceTimer = null;
+    }
+    if (this.priceMinDebounceTimer) {
+      clearTimeout(this.priceMinDebounceTimer);
+      this.priceMinDebounceTimer = null;
+    }
+    if (this.priceMaxDebounceTimer) {
+      clearTimeout(this.priceMaxDebounceTimer);
+      this.priceMaxDebounceTimer = null;
     }
     this.filtersChange.emit({
       ownership: 1,
@@ -286,6 +329,14 @@ export class CollectionFiltersComponent implements OnDestroy {
       deals_only: false,
       retail_available: false,
       budget_label: 'all',
+      provenance_status: 'all',
+      provenance_source: '',
+      provenanceSourceExact: false,
+      acquired_year: 'all',
+      acquired_from: '',
+      acquired_to: '',
+      price_paid_min: null,
+      price_paid_max: null,
     });
   }
 
@@ -353,6 +404,9 @@ export class CollectionFiltersComponent implements OnDestroy {
   public lastUpdated = input<Date | null>(null);
   public viewMode = input<ViewMode>('grid');
   public showBackupDetails = input<boolean>(true);
+  public showProvenanceFilters = input<boolean>(false);
+  public uniqueProvenanceSources = input<string[]>([]);
+  public uniqueAcquiredYears = input<number[]>([]);
 
   /** --- Options Catalogues --- */
   readonly ownershipOptions: {
@@ -417,6 +471,48 @@ export class CollectionFiltersComponent implements OnDestroy {
     { value: 'budget_only', label: 'Budget label only' },
   ];
 
+  readonly provenanceStatusOptions: {
+    value: ProvenanceStatusFilter;
+    label: string;
+  }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'recorded', label: 'Recorded' },
+    { value: 'missing', label: 'Missing Provenance' },
+    { value: 'missing_date', label: 'Missing Date' },
+    { value: 'missing_price', label: 'Missing Price Paid' },
+    { value: 'exact_date', label: 'Exact Date' },
+    { value: 'approximate_date', label: 'Approximate Date' },
+    { value: 'gifted', label: 'Gifted' },
+    { value: 'free', label: 'Free ($0)' },
+    { value: 'has_receipt', label: 'Has Receipt' },
+    { value: 'has_notes', label: 'Has Notes' },
+  ];
+
+  readonly acquiredYearAllOption: KitSelectOption<number | 'all' | 'undated'> =
+    {
+      value: 'all',
+      label: 'All Years',
+    };
+
+  readonly acquiredYearOptions = computed<
+    readonly KitSelectOption<number | 'all' | 'undated'>[]
+  >(() => [
+    ...this.uniqueAcquiredYears().map((y) => ({
+      value: y as number | 'all' | 'undated',
+      label: String(y),
+    })),
+    { value: 'undated', label: 'Undated' },
+  ]);
+
+  readonly activeAcquiredPeriodLabel = computed<string | null>(() => {
+    const f = this.filters();
+    const from = (f.acquired_from || '').trim();
+    const to = (f.acquired_to || '').trim();
+    if (!from && !to) return null;
+    if (from && to) return `${from} – ${to}`;
+    return from ? `From ${from}` : `Through ${to}`;
+  });
+
   readonly sortByOptions = computed(() => {
     const base = [
       { value: 'default', label: 'Default' },
@@ -425,6 +521,14 @@ export class CollectionFiltersComponent implements OnDestroy {
       { value: 'retail_asc', label: 'Lowest Retail Price' },
       { value: 'discount_desc', label: 'Deepest Sale Discount' },
     ];
+    if (this.showProvenanceFilters()) {
+      base.push(
+        { value: 'acquired_desc', label: 'Acquisition Date: Newest First' },
+        { value: 'acquired_asc', label: 'Acquisition Date: Oldest First' },
+        { value: 'price_paid_desc', label: 'Price Paid: High to Low' },
+        { value: 'price_paid_asc', label: 'Price Paid: Low to High' },
+      );
+    }
     if (this.collectionService?.canViewMarketPrices?.()) {
       base.push(
         { value: 'market_value_desc', label: 'Market Value: High to Low' },
@@ -521,6 +625,44 @@ export class CollectionFiltersComponent implements OnDestroy {
   toggleRetailAvailable() {
     const current = Boolean(this.filters().retail_available);
     this.onPartialChange('retail_available', !current);
+  }
+
+  onPricePaidInput(
+    key: 'price_paid_min' | 'price_paid_max',
+    rawValue: string,
+  ): void {
+    const apply = () => {
+      const trimmed = rawValue.trim();
+      if (!trimmed) {
+        this.onPartialChange(key, null);
+        return;
+      }
+      const parsed = Number(trimmed);
+      if (!Number.isFinite(parsed) || parsed < 0) return;
+      this.onPartialChange(key, Math.round(parsed * 100) / 100);
+    };
+
+    if (key === 'price_paid_min') {
+      if (this.priceMinDebounceTimer) clearTimeout(this.priceMinDebounceTimer);
+      this.priceMinDebounceTimer = setTimeout(() => {
+        this.priceMinDebounceTimer = null;
+        apply();
+      }, 150);
+    } else {
+      if (this.priceMaxDebounceTimer) clearTimeout(this.priceMaxDebounceTimer);
+      this.priceMaxDebounceTimer = setTimeout(() => {
+        this.priceMaxDebounceTimer = null;
+        apply();
+      }, 150);
+    }
+  }
+
+  clearAcquiredPeriod(): void {
+    this.filtersChange.emit({
+      ...this.filters(),
+      acquired_from: '',
+      acquired_to: '',
+    });
   }
 
   public filteredNamesList = computed(() => {

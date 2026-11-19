@@ -171,6 +171,109 @@
     (selectedChange)="onPartialChange('regions', $event)"
   />
 
+  <!-- Provenance Filters (Authenticated Personal View Only, Games & Toys) -->
+  @if (showProvenanceFilters()) {
+    <kit-select
+      label="Provenance"
+      dropdownName="provenance_status"
+      triggerId="filter-provenance-status"
+      [value]="filters().provenance_status ?? 'all'"
+      [options]="provenanceStatusOptions"
+      (valueChange)="selectOption('provenance_status', $event)"
+    />
+
+    <kit-combobox
+      label="Acquisition Source"
+      inputId="filter-provenance-source"
+      dropdownName="provenance_source"
+      [value]="filters().provenance_source || ''"
+      [suggestions]="uniqueProvenanceSources()"
+      placeholder="All Sources"
+      allOptionLabel="All Sources"
+      emptyMessagePrefix="No sources matching"
+      toggleAriaLabel="Toggle acquisition source suggestions"
+      [showExactToggle]="true"
+      [exact]="!!filters().provenanceSourceExact"
+      (valueChange)="onPartialChange('provenance_source', $event)"
+      (exactChange)="onPartialChange('provenanceSourceExact', $event)"
+    />
+
+    <kit-select
+      label="Acquired Year"
+      dropdownName="acquired_year"
+      triggerId="filter-acquired-year"
+      [value]="filters().acquired_year ?? 'all'"
+      [allOption]="acquiredYearAllOption"
+      [options]="acquiredYearOptions()"
+      placeholder="All Years"
+      (valueChange)="selectOption('acquired_year', $event)"
+    />
+
+    <div class="filter-group price-range-group">
+      <div class="filter-group-header">
+        <span class="m3-label">Price Paid ($)</span>
+      </div>
+      <div class="price-range-inputs">
+        <input
+          id="filter-price-paid-min"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Min $"
+          aria-label="Minimum price paid in USD"
+          class="m3-input price-range-input"
+          [value]="
+            filters().price_paid_min !== null &&
+            filters().price_paid_min !== undefined
+              ? filters().price_paid_min
+              : ''
+          "
+          (input)="
+            onPricePaidInput('price_paid_min', $any($event.target).value)
+          "
+        />
+        <span class="price-range-sep" aria-hidden="true">–</span>
+        <input
+          id="filter-price-paid-max"
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder="Max $"
+          aria-label="Maximum price paid in USD"
+          class="m3-input price-range-input"
+          [value]="
+            filters().price_paid_max !== null &&
+            filters().price_paid_max !== undefined
+              ? filters().price_paid_max
+              : ''
+          "
+          (input)="
+            onPricePaidInput('price_paid_max', $any($event.target).value)
+          "
+        />
+      </div>
+    </div>
+
+    @if (activeAcquiredPeriodLabel(); as periodLabel) {
+      <div class="filter-group acquired-period-pill-group">
+        <div class="filter-group-header">
+          <span class="m3-label">Acquired Period</span>
+        </div>
+        <button
+          type="button"
+          id="filter-clear-acquired-period"
+          class="m3-input deals-toggle-btn state-layer acquired-period-pill active"
+          (click)="clearAcquiredPeriod()"
+          title="Clear chart period filter"
+        >
+          <app-icon name="calendar" [size]="15" />
+          <span>{{ periodLabel }}</span>
+          <app-icon name="close" [size]="14" />
+        </button>
+      </div>
+    }
+  }
+
   <!-- Secondary Action Buttons -->
   <div class="secondary-actions-group">
     <button
