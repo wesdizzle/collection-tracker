@@ -12,6 +12,14 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
+import {
+  KitMeterSegment,
+  KitSegmentedMeterComponent,
+} from '@wesdizzle/app-kit/angular';
+import {
+  PhysicalBackupSummary,
+  computePhysicalBackupStats,
+} from '../../../core/models/insights-analytics';
 import { CollectionService } from '../../../core/services/collection.service';
 import {
   BackupScannerService,
@@ -30,7 +38,13 @@ import { Platform } from '../../../core/models/collection.models';
 @Component({
   selector: 'app-backup-scanner',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, IconComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterModule,
+    IconComponent,
+    KitSegmentedMeterComponent,
+  ],
   templateUrl: './backup-scanner.component.html',
   styleUrl: './backup-scanner.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -50,6 +64,9 @@ export class BackupScannerComponent implements OnInit {
 
   /** Whether the custom Platform Scope dropdown menu is open */
   public isPlatformDropdownOpen = signal<boolean>(false);
+
+  /** Whether the Preservation Health summary card is expanded */
+  public preservationHealthExpanded = signal<boolean>(true);
 
   /** Current computed scan report */
   public scanReport = signal<BackupScanReport | null>(null);
@@ -87,6 +104,30 @@ export class BackupScannerComponent implements OnInit {
     transferredCount: number;
     declaredOwnedCount: number;
   } | null>(null);
+
+  /** Overall and per-platform physical ROM preservation stats */
+  public preservationStats = computed<PhysicalBackupSummary>(() =>
+    computePhysicalBackupStats(
+      this.collectionService.games(),
+      this.collectionService.platforms(),
+    ),
+  );
+
+  public backupMeterSegments = computed<KitMeterSegment[]>(() => {
+    const stats = this.preservationStats();
+    return [
+      {
+        id: 'backup-rate',
+        label: 'Preserved physical releases',
+        pct: stats.backupRatePct,
+        color:
+          stats.backupRatePct >= 80
+            ? 'var(--kit-success, #22c55e)'
+            : 'var(--m3-primary)',
+        title: `${stats.backedUpCount} / ${stats.physicalCount} preserved (${stats.backupRatePct}%)`,
+      },
+    ];
+  });
 
   /** Sorted hardware platforms for the optional Platform Scope override dropdown */
   public availablePlatforms = computed<Platform[]>(() => {
@@ -224,8 +265,9 @@ export class BackupScannerComponent implements OnInit {
 
   ngOnInit(): void {
     if (
-      this.collectionService.platforms().length === 0 ||
-      this.collectionService.games().length === 0
+      (this.collectionService.platforms().length === 0 ||
+        this.collectionService.games().length === 0) &&
+      typeof this.collectionService.refreshAll === 'function'
     ) {
       void this.collectionService.refreshAll().then(() => {
         if (
@@ -239,6 +281,14 @@ export class BackupScannerComponent implements OnInit {
     ) {
       void this.collectionService.ensureFullCatalogLoaded();
     }
+  }
+
+  public togglePreservationHealth(): void {
+    this.preservationHealthExpanded.update((open) => !open);
+  }
+
+  public onScopePlatformFromBreakdown(platformId: number): void {
+    this.selectPlatformOverride(platformId);
   }
 
   public async onChooseDirectory(): Promise<void> {
@@ -324,6 +374,7 @@ export class BackupScannerComponent implements OnInit {
 
   private applyCrawlResult(crawl: DirectoryCrawlResult): void {
     this.lastCrawl.set(crawl);
+    this.preservationHealthExpanded.set(false);
     this.recomputeReport(crawl);
   }
 

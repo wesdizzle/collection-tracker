@@ -1,4 +1,194 @@
 <div class="backup-scanner-page">
+  <!-- ROM Preservation & Backup Health Dashboard -->
+  @if (preservationStats(); as stats) {
+    <section
+      class="preservation-health-card"
+      data-testid="preservation-health-card"
+    >
+      <div class="preservation-header">
+        <div class="preservation-title-group">
+          <h2 class="preservation-title">
+            <app-icon name="verified-badge" [size]="18" />
+            <span>ROM Preservation &amp; Backup Health</span>
+          </h2>
+          <p class="preservation-subtitle">
+            Verified Redump/No-Intro digital backups across
+            {{ stats.physicalCount }} owned physical releases
+          </p>
+        </div>
+
+        <div class="preservation-header-actions">
+          <span
+            class="preservation-rate-pill"
+            [class.success]="stats.backupRatePct >= 80"
+            data-testid="preservation-rate-pill"
+          >
+            {{ stats.backupRatePct }}% Preserved
+          </span>
+          <button
+            type="button"
+            class="btn-inline"
+            [attr.aria-expanded]="preservationHealthExpanded()"
+            (click)="togglePreservationHealth()"
+            data-testid="toggle-preservation-health-btn"
+          >
+            {{ preservationHealthExpanded() ? 'Collapse' : 'Show Health' }}
+          </button>
+        </div>
+      </div>
+
+      @if (preservationHealthExpanded()) {
+        <div class="preservation-meter-wrap">
+          <kit-segmented-meter
+            [segments]="backupMeterSegments()"
+            [heightPx]="12"
+            ariaLabel="ROM preservation rate"
+          />
+        </div>
+
+        <div class="preservation-stats-row">
+          <a
+            class="preservation-stat-tile clickable"
+            [routerLink]="['/collection/games']"
+            [queryParams]="{ reset: 1, ownership: 1, backup_status: 1 }"
+            data-testid="preservation-stat-backed-up"
+            title="Filter collection to backed up physical releases"
+          >
+            <span class="preservation-stat-number">{{
+              stats.backedUpCount
+            }}</span>
+            <span class="preservation-stat-desc">Backed Up</span>
+          </a>
+
+          <a
+            class="preservation-stat-tile clickable"
+            [routerLink]="['/collection/games']"
+            [queryParams]="{ reset: 1, ownership: 1, backup_status: 0 }"
+            data-testid="preservation-stat-missing"
+            title="Filter collection to missing backups"
+          >
+            <span
+              class="preservation-stat-number"
+              [class.warning]="stats.missingCount > 0"
+              >{{ stats.missingCount }}</span
+            >
+            <span class="preservation-stat-desc">Missing Backups</span>
+          </a>
+
+          <a
+            class="preservation-stat-tile clickable"
+            [routerLink]="['/collection/games']"
+            [queryParams]="{ reset: 1, ownership: 1 }"
+            data-testid="preservation-stat-physical"
+            title="View owned games"
+          >
+            <span class="preservation-stat-number">{{
+              stats.physicalCount
+            }}</span>
+            <span class="preservation-stat-desc">Physical Total</span>
+          </a>
+        </div>
+
+        @if (stats.missingCount > 0) {
+          <div
+            class="preservation-action-banner"
+            data-testid="preservation-missing-banner"
+          >
+            <div class="preservation-banner-text">
+              <strong>{{ stats.missingCount }} owned physical releases</strong>
+              still need clean dumps to complete your preservation archive.
+            </div>
+            <a
+              [routerLink]="['/collection/games']"
+              [queryParams]="{ reset: 1, ownership: 1, backup_status: 0 }"
+              class="btn-inline-link"
+            >
+              View Missing Backups →
+            </a>
+          </div>
+        }
+
+        @if (stats.platformBreakdown.length > 0) {
+          <details
+            class="scanner-details preservation-platforms-details"
+            [open]="stats.platformBreakdown.length <= 6"
+          >
+            <summary>
+              Preservation by Platform ({{ stats.platformBreakdown.length }})
+            </summary>
+            <div class="details-body preservation-platform-list">
+              @for (p of stats.platformBreakdown; track p.id) {
+                <div
+                  class="preservation-platform-row"
+                  [attr.data-testid]="'preservation-platform-' + p.id"
+                >
+                  <div class="preservation-platform-info">
+                    <div class="preservation-platform-title">
+                      @if (p.logo) {
+                        <img
+                          [src]="p.logo"
+                          [alt]="p.name"
+                          class="preservation-platform-logo"
+                        />
+                      }
+                      <span class="preservation-platform-name">{{
+                        p.name
+                      }}</span>
+                      @if (p.missingCount > 0) {
+                        <span class="preservation-missing-pill">
+                          {{ p.missingCount }} missing
+                        </span>
+                      }
+                    </div>
+                    <span class="preservation-platform-counts">
+                      {{ p.backedUpCount }} / {{ p.physicalCount }} ({{
+                        p.backupPct
+                      }}%)
+                    </span>
+                  </div>
+
+                  <div class="preservation-platform-track">
+                    <div
+                      class="preservation-platform-fill"
+                      [class.complete]="p.backupPct === 100"
+                      [style.width.%]="p.backupPct"
+                    ></div>
+                  </div>
+
+                  <div class="preservation-platform-actions">
+                    @if (p.missingCount > 0) {
+                      <a
+                        [routerLink]="['/collection/games']"
+                        [queryParams]="{
+                          reset: 1,
+                          ownership: 1,
+                          platform_id: p.id,
+                          backup_status: 0,
+                        }"
+                        class="btn-inline-link"
+                        [attr.data-testid]="'platform-missing-link-' + p.id"
+                      >
+                        Missing ({{ p.missingCount }})
+                      </a>
+                    }
+                    <button
+                      type="button"
+                      class="btn-inline"
+                      (click)="onScopePlatformFromBreakdown(p.id)"
+                      [attr.data-testid]="'scope-scanner-btn-' + p.id"
+                    >
+                      Scope Scanner
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          </details>
+        }
+      }
+    </section>
+  }
+
   <header class="scanner-hero-card">
     <div class="scanner-hero-top">
       <div class="scanner-hero-title-group">

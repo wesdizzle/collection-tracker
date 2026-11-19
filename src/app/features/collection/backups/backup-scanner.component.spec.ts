@@ -275,4 +275,57 @@ describe('BackupScannerComponent', () => {
     expect(component.isDeclaredCase('ct-jpn')).toBe(false);
     expect(component.isDeclaredManual('ct-jpn')).toBe(false);
   });
+
+  it('displays ROM preservation health totals, clickable missing-backup links, and scopes scanner from platform breakdown', () => {
+    const el = fixture.nativeElement as HTMLElement;
+    const healthCard = el.querySelector(
+      '[data-testid="preservation-health-card"]',
+    );
+    expect(healthCard).toBeTruthy();
+
+    // From mockGames: 2 owned physical releases (smw-usa-rev0 missing, ct-usa backed up) -> 50%
+    expect(component.preservationStats().physicalCount).toBe(2);
+    expect(component.preservationStats().backedUpCount).toBe(1);
+    expect(component.preservationStats().missingCount).toBe(1);
+    expect(component.preservationStats().backupRatePct).toBe(50);
+
+    expect(
+      el.querySelector('[data-testid="preservation-rate-pill"]')?.textContent,
+    ).toContain('50% Preserved');
+
+    const missingLink = el.querySelector(
+      '[data-testid="preservation-stat-missing"]',
+    ) as HTMLAnchorElement;
+    expect(missingLink).toBeTruthy();
+    expect(missingLink.getAttribute('href')).toContain('/collection/games');
+    expect(missingLink.getAttribute('href')).toContain('backup_status=0');
+    expect(missingLink.getAttribute('href')).toContain('reset=1');
+
+    const platMissingLink = el.querySelector(
+      '[data-testid="platform-missing-link-15"]',
+    ) as HTMLAnchorElement;
+    expect(platMissingLink).toBeTruthy();
+    expect(platMissingLink.getAttribute('href')).toContain('platform_id=15');
+    expect(platMissingLink.getAttribute('href')).toContain('backup_status=0');
+
+    // Clicking Scope Scanner sets platformOverrideId
+    const scopeBtn = el.querySelector(
+      '[data-testid="scope-scanner-btn-15"]',
+    ) as HTMLButtonElement;
+    expect(scopeBtn).toBeTruthy();
+    scopeBtn.click();
+    fixture.detectChanges();
+    expect(component.platformOverrideId()).toBe(15);
+
+    // Toggle collapse/expand
+    const toggleBtn = el.querySelector(
+      '[data-testid="toggle-preservation-health-btn"]',
+    ) as HTMLButtonElement;
+    toggleBtn.click();
+    fixture.detectChanges();
+    expect(component.preservationHealthExpanded()).toBe(false);
+    expect(
+      el.querySelector('[data-testid="preservation-stat-missing"]'),
+    ).toBeNull();
+  });
 });
