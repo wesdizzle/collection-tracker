@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { WritableSignal } from '@angular/core';
 import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
 import { MarketPriceScanProgress } from '../../../../core/models/collection.models';
@@ -115,7 +115,9 @@ describe('CollectionLayoutComponent', () => {
       const nonAdminNavLinks = headerInner.querySelectorAll('.nav-item');
       expect(nonAdminNavLinks.length).toBe(3);
 
-      // When in public view (/u/:username), Insights and Discovery tabs are hidden and Games/Toys link to /u/:username
+      // When in public view (/u/:username), Insights and Discovery tabs are hidden and Games/Toys/Stats link to /u/:username
+      const router = TestBed.inject(Router);
+      const navSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
       collectionService.setPublicView(true, {
         username: 'alice',
         displayName: 'Alice',
@@ -126,12 +128,17 @@ describe('CollectionLayoutComponent', () => {
       const publicNavLinks = Array.from(
         headerInner.querySelectorAll('.nav-item'),
       ) as HTMLElement[];
-      expect(publicNavLinks.length).toBe(2);
+      expect(publicNavLinks.length).toBe(3);
       expect(
         publicNavLinks.map((el) =>
           el.querySelector('.label')?.textContent?.trim(),
         ),
-      ).toEqual(['Games', 'Toys']);
+      ).toEqual(['Games', 'Toys', 'Stats']);
+      expect(publicNavLinks[2].getAttribute('href')).toBe('/u/alice/stats');
+      component.onTabSelected('stats');
+      fixture.detectChanges();
+      expect(component.activeTab()).toBe('stats');
+      expect(navSpy).toHaveBeenCalledWith('/u/alice/stats');
       const brandLink = fixture.nativeElement.querySelector('.brand-link');
       expect(brandLink.getAttribute('href')).toBe('/u/alice/games');
     });

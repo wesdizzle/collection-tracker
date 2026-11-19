@@ -2,11 +2,20 @@
   <!-- Header Bar -->
   <header class="insights-header">
     <div class="header-titles">
-      <h1 class="insights-title">Collection Insights</h1>
-      <p class="insights-subtitle">
-        Portfolio overview, cost basis &amp; valuation ledger, and catalog
-        completion stats.
-      </p>
+      @if (isPublicView()) {
+        <h1 class="insights-title" data-testid="public-stats-title">
+          {{ publicDisplayName() }}'s Collection Stats
+        </h1>
+        <p class="insights-subtitle">
+          Public library completion, play progress, and catalog breakdown.
+        </p>
+      } @else {
+        <h1 class="insights-title">Collection Insights</h1>
+        <p class="insights-subtitle">
+          Portfolio overview, cost basis &amp; valuation ledger, and catalog
+          completion stats.
+        </p>
+      }
     </div>
     <div class="header-actions">
       <button
@@ -24,57 +33,122 @@
     </div>
   </header>
 
-  <!-- Sub-Tab Navigation -->
-  <nav
-    class="insights-subtabs"
-    role="tablist"
-    aria-label="Insights views"
-    data-testid="insights-subtabs"
-  >
-    <button
-      type="button"
-      role="tab"
-      class="subtab-pill state-layer"
-      [class.active]="activeSubTab() === 'overview'"
-      [attr.aria-selected]="activeSubTab() === 'overview'"
-      (click)="setActiveSubTab('overview')"
-      data-testid="insights-tab-overview"
+  @if (!isPublicView()) {
+    <!-- Sub-Tab Navigation -->
+    <nav
+      class="insights-subtabs"
+      role="tablist"
+      aria-label="Insights views"
+      data-testid="insights-subtabs"
     >
-      <app-icon name="compass" [size]="15" />
-      <span>Overview</span>
-    </button>
-
-    @if (canShowProvenance()) {
       <button
         type="button"
         role="tab"
         class="subtab-pill state-layer"
-        [class.active]="activeSubTab() === 'value'"
-        [attr.aria-selected]="activeSubTab() === 'value'"
-        (click)="setActiveSubTab('value')"
-        data-testid="insights-tab-value"
+        [class.active]="activeSubTab() === 'overview'"
+        [attr.aria-selected]="activeSubTab() === 'overview'"
+        (click)="setActiveSubTab('overview')"
+        data-testid="insights-tab-overview"
       >
-        <app-icon name="coins" [size]="15" />
-        <span>Value &amp; Ledger</span>
+        <app-icon name="compass" [size]="15" />
+        <span>Overview</span>
       </button>
-    }
 
-    <button
-      type="button"
-      role="tab"
-      class="subtab-pill state-layer"
-      [class.active]="activeSubTab() === 'catalog'"
-      [attr.aria-selected]="activeSubTab() === 'catalog'"
-      (click)="setActiveSubTab('catalog')"
-      data-testid="insights-tab-catalog"
-    >
-      <app-icon name="chart" [size]="15" />
-      <span>Catalog &amp; Stats</span>
-    </button>
-  </nav>
+      @if (canShowProvenance()) {
+        <button
+          type="button"
+          role="tab"
+          class="subtab-pill state-layer"
+          [class.active]="activeSubTab() === 'value'"
+          [attr.aria-selected]="activeSubTab() === 'value'"
+          (click)="setActiveSubTab('value')"
+          data-testid="insights-tab-value"
+        >
+          <app-icon name="coins" [size]="15" />
+          <span>Value &amp; Ledger</span>
+        </button>
+      }
+
+      <button
+        type="button"
+        role="tab"
+        class="subtab-pill state-layer"
+        [class.active]="activeSubTab() === 'catalog'"
+        [attr.aria-selected]="activeSubTab() === 'catalog'"
+        (click)="setActiveSubTab('catalog')"
+        data-testid="insights-tab-catalog"
+      >
+        <app-icon name="chart" [size]="15" />
+        <span>Catalog &amp; Stats</span>
+      </button>
+    </nav>
+  } @else {
+    <section class="summary-cards-grid" data-testid="public-stats-kpi-grid">
+      <div class="stat-card" data-testid="public-kpi-games">
+        <div class="stat-card-header">
+          <span class="stat-label">Games Owned</span>
+          <span class="card-icon-badge primary-badge">
+            <app-icon name="gamepad" [size]="20" />
+          </span>
+        </div>
+        <div class="stat-main-value">{{ ownedGames().length }}</div>
+        <div class="stat-subtext">
+          <span>Across owned platforms</span>
+        </div>
+      </div>
+
+      <div class="stat-card" data-testid="public-kpi-toys">
+        <div class="stat-card-header">
+          <span class="stat-label">Toys Owned</span>
+          <span class="card-icon-badge secondary-badge">
+            <app-icon name="figure-toy" [size]="20" />
+          </span>
+        </div>
+        <div class="stat-main-value">{{ ownedToys().length }}</div>
+        <div class="stat-subtext">
+          @if (catalogToysCount() > 0) {
+            <span>
+              {{ toyCompletionPct() }}% of {{ catalogToysCount() }} catalog
+            </span>
+          } @else {
+            <span>Collectible figures &amp; cards</span>
+          }
+        </div>
+      </div>
+
+      <div class="stat-card" data-testid="public-kpi-play">
+        <div class="stat-card-header">
+          <span class="stat-label">Play Progress</span>
+          <span class="card-icon-badge tertiary-badge">
+            <app-icon name="play" [size]="20" />
+          </span>
+        </div>
+        <div class="stat-main-value">{{ playStatusStats().playedPct }}%</div>
+        <div class="stat-subtext">
+          <span>
+            {{ playStatusStats().played }} played •
+            {{ playStatusStats().playing }} playing
+          </span>
+        </div>
+      </div>
+
+      <div class="stat-card" data-testid="public-kpi-cib">
+        <div class="stat-card-header">
+          <span class="stat-label">CIB Completeness</span>
+          <span class="card-icon-badge primary-badge">
+            <app-icon name="verified-badge" [size]="20" />
+          </span>
+        </div>
+        <div class="stat-main-value">{{ cibPct() }}%</div>
+        <div class="stat-subtext">
+          <span>{{ cibCount() }} CIB • {{ boxedOnlyCount() }} boxed</span>
+        </div>
+      </div>
+    </section>
+  }
 
   <!-- ==================== TAB 1: OVERVIEW ==================== -->
-  @if (activeSubTab() === 'overview') {
+  @if (!isPublicView() && activeSubTab() === 'overview') {
     <section
       class="summary-cards-grid"
       data-testid="insights-overview-kpi-grid"
@@ -864,7 +938,7 @@
           <div class="condition-legend">
             <a
               class="legend-item clickable-row"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{ reset: 1, ownership: 1, condition: 'cib' }"
               data-testid="insights-condition-link"
             >
@@ -876,7 +950,7 @@
             </a>
             <a
               class="legend-item clickable-row"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{
                 reset: 1,
                 ownership: 1,
@@ -892,7 +966,7 @@
             </a>
             <a
               class="legend-item clickable-row"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{ reset: 1, ownership: 1, condition: 'loose' }"
               data-testid="insights-condition-link"
             >
@@ -911,7 +985,11 @@
             <div class="panel-title-group">
               <h2 class="panel-title">Play Status Distribution</h2>
               <p class="panel-subtitle">
-                Complete play journey across your owned library
+                {{
+                  isPublicView()
+                    ? 'Complete play journey across this library'
+                    : 'Complete play journey across your owned library'
+                }}
               </p>
             </div>
             <span class="rate-pill">
@@ -922,7 +1000,7 @@
           <div class="play-status-grid six-status-grid">
             <a
               class="play-status-chip played-chip clickable"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{ reset: 1, ownership: 1, play_status: 1 }"
               data-testid="insights-play-status-link"
               title="Filter to Played games"
@@ -932,7 +1010,7 @@
             </a>
             <a
               class="play-status-chip playing-chip clickable"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{ reset: 1, ownership: 1, play_status: 2 }"
               data-testid="insights-play-status-link"
               title="Filter to Currently Playing games"
@@ -942,7 +1020,7 @@
             </a>
             <a
               class="play-status-chip queued-chip clickable"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{ reset: 1, ownership: 1, play_status: 3 }"
               data-testid="insights-play-status-link"
               title="Filter to Queued games"
@@ -952,7 +1030,7 @@
             </a>
             <a
               class="play-status-chip paused-chip clickable"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{ reset: 1, ownership: 1, play_status: 4 }"
               data-testid="insights-play-status-link"
               title="Filter to Paused games"
@@ -962,7 +1040,7 @@
             </a>
             <a
               class="play-status-chip dropped-chip clickable"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{ reset: 1, ownership: 1, play_status: 5 }"
               data-testid="insights-play-status-link"
               title="Filter to Dropped games"
@@ -972,7 +1050,7 @@
             </a>
             <a
               class="play-status-chip unplayed-chip clickable"
-              [routerLink]="['/collection/games']"
+              [routerLink]="gamesTabRoute()"
               [queryParams]="{ reset: 1, ownership: 1, play_status: 0 }"
               data-testid="insights-play-status-link"
               title="Filter to Unplayed games"
@@ -998,7 +1076,7 @@
             @for (d of decadeDistribution(); track d.decade) {
               <a
                 class="decade-row clickable-row kit-stagger-item"
-                [routerLink]="['/collection/games']"
+                [routerLink]="gamesTabRoute()"
                 [queryParams]="{
                   reset: 1,
                   ownership: 1,
@@ -1050,7 +1128,7 @@
             @for (s of topSeries(); track s.name) {
               <a
                 class="series-row clickable-row"
-                [routerLink]="['/collection/games']"
+                [routerLink]="gamesTabRoute()"
                 [queryParams]="{
                   reset: 1,
                   ownership: 1,
@@ -1123,7 +1201,7 @@
                 triggerId="insights-platform-sort"
                 ariaLabel="Sort platforms"
                 data-testid="insights-platform-sort"
-                [value]="platformSort()"
+                [value]="effectivePlatformSort()"
                 [options]="platformSortOptions()"
                 (valueChange)="onPlatformSortChange($event)"
               />
@@ -1143,7 +1221,7 @@
           <div class="platform-list">
             @for (p of filteredPlatformStats(); track p.id) {
               <a
-                [routerLink]="['/collection/games']"
+                [routerLink]="gamesTabRoute()"
                 [queryParams]="{ reset: 1, ownership: 1, platform_id: p.id }"
                 class="platform-item clickable state-layer kit-stagger-item"
                 data-testid="insights-platform-link"
@@ -1210,7 +1288,7 @@
             @for (line of toyLineStats(); track line.name) {
               <div class="platform-item toy-line-card">
                 <a
-                  [routerLink]="['/collection/toys']"
+                  [routerLink]="toysTabRoute()"
                   [queryParams]="{
                     reset: 1,
                     ownership: 1,
@@ -1249,7 +1327,7 @@
                       track s.name
                     ) {
                       <a
-                        [routerLink]="['/collection/toys']"
+                        [routerLink]="toysTabRoute()"
                         [queryParams]="{
                           reset: 1,
                           ownership: 1,

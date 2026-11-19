@@ -19,6 +19,7 @@ import {
   Game,
   JournalEntry,
   Platform,
+  PublicUserProfile,
   Toy,
 } from '../../../core/models/collection.models';
 
@@ -31,6 +32,8 @@ describe('CollectionInsightsComponent', () => {
   const mockPlatforms = signal<Platform[]>([]);
   const mockIsAdmin = signal<boolean>(false);
   const mockIsAuthenticated = signal<boolean>(false);
+  const mockIsPublicView = signal<boolean>(false);
+  const mockPublicProfile = signal<PublicUserProfile | null>(null);
   const mockCanShowPersonalState = signal<boolean>(false);
   const mockJournalLoaded = signal<boolean>(false);
   const mockJournalEntriesMap = signal<Map<string, JournalEntry>>(new Map());
@@ -50,6 +53,8 @@ describe('CollectionInsightsComponent', () => {
     platforms: mockPlatforms.asReadonly(),
     isAdmin: mockIsAdmin.asReadonly(),
     isAuthenticated: mockIsAuthenticated.asReadonly(),
+    isPublicView: mockIsPublicView.asReadonly(),
+    publicProfile: mockPublicProfile.asReadonly(),
     canShowPersonalState: mockCanShowPersonalState.asReadonly(),
     journalLoaded: mockJournalLoaded.asReadonly(),
     journalEntriesMap: mockJournalEntriesMap.asReadonly(),
@@ -57,6 +62,10 @@ describe('CollectionInsightsComponent', () => {
     marketPricingConfigured: mockMarketPricingConfigured.asReadonly(),
     marketPriceNowMs: mockMarketPriceNowMs.asReadonly(),
     marketPricesMap: mockMarketPricesMap.asReadonly(),
+    getTabRoute: (tab: string) =>
+      mockIsPublicView() && mockPublicProfile()
+        ? ['/u', mockPublicProfile()!.username, tab]
+        : ['/collection', tab],
     refreshAll: async () => {},
     loadAllJournalEntries: () => of([]),
   };
@@ -92,6 +101,8 @@ describe('CollectionInsightsComponent', () => {
     mockPlatforms.set([]);
     mockIsAdmin.set(false);
     mockIsAuthenticated.set(false);
+    mockIsPublicView.set(false);
+    mockPublicProfile.set(null);
     mockCanShowPersonalState.set(false);
     mockJournalLoaded.set(false);
     mockJournalEntriesMap.set(new Map());
@@ -784,5 +795,145 @@ describe('CollectionInsightsComponent', () => {
       'release_decade=70s_80s',
     );
     expect(eraLinks[0].getAttribute('href')).toContain('reset=1');
+  });
+
+  it('enforces strict privacy and public /u/:username drill-down links when viewing public stats even as authenticated admin', async () => {
+    const journalSpy = vi.spyOn(mockCollectionService, 'loadAllJournalEntries');
+
+    mockIsPublicView.set(true);
+    mockPublicProfile.set({
+      username: 'alice',
+      displayName: 'Alice',
+      bio: null,
+      homeRegion: 'USA',
+    });
+    mockIsAuthenticated.set(true);
+    mockIsAdmin.set(true);
+    mockCanViewMarketPrices.set(true);
+    mockCanShowPersonalState.set(true);
+
+    mockPlatforms.set([
+      {
+        id: 1,
+        name: 'GameCube',
+        display_name: 'GameCube',
+        brand: 'Nintendo',
+        launch_date: '2001-09-14',
+        image_url: '',
+      },
+    ]);
+    mockGames.set([
+      {
+        stable_id: 10,
+        id: 'g-pub',
+        game_id: 'g-pub',
+        title: 'Paper Mario',
+        series: 'Mario',
+        canonical_series: 'Mario',
+        platform: 'GameCube',
+        platform_id: 1,
+        play_status: 1,
+        release_date: '2004-10-11',
+        ownership_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        backup_status: 0,
+      },
+      {
+        stable_id: 11,
+        id: 'g-pub-2',
+        game_id: 'g-pub-2',
+        title: 'Wind Waker',
+        series: 'Zelda',
+        canonical_series: 'Zelda',
+        platform: 'GameCube',
+        platform_id: 1,
+        play_status: 2,
+        release_date: '2003-03-24',
+        ownership_status: 0,
+        backup_status: 0,
+      },
+    ]);
+    mockToys.set([
+      {
+        stable_id: 201,
+        id: 't-pub',
+        name: 'Mario Amiibo',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Super Mario',
+        series_line: 'Amiibo',
+        release_date: '2014-11-21',
+        ownership_status: 1,
+        image_url: '',
+      },
+    ]);
+
+    const journalMap = new Map<string, JournalEntry>();
+    journalMap.set('game:g-pub', {
+      id: 1,
+      item_type: 'game',
+      item_id: 'g-pub',
+      purchase_date: '2024-03-01',
+      is_approximate_date: 0,
+      price_paid: 45,
+      merchant: 'Secret eBay Seller',
+      gifted_by: null,
+      receipt_url: null,
+      notes: null,
+    });
+    mockJournalEntriesMap.set(journalMap);
+
+    const pricesMap = new Map<string, EphemeralMarketPrice>();
+    pricesMap.set('game:g-pub', makePrice('game', 'g-pub', 8000, 9500));
+    mockMarketPricesMap.set(pricesMap);
+
+    queryParamSubject.next(convertToParamMap({ tab: 'value' }));
+    fixture.detectChanges();
+    await component.ngOnInit();
+    fixture.detectChanges();
+
+    expect(journalSpy).not.toHaveBeenCalled();
+    expect(component.canShowProvenance()).toBe(false);
+    expect(component.canViewMarketPrices()).toBe(false);
+    expect(component.activeSubTab()).toBe('catalog');
+
+    component.setActiveSubTab('value');
+    expect(component.activeSubTab()).toBe('catalog');
+
+    expect(
+      component.platformSortOptions().some((o) => o.value === 'value'),
+    ).toBe(false);
+    component.onPlatformSortChange('value');
+    expect(component.platformSort()).toBe('owned');
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(
+      el.querySelector('[data-testid="public-stats-title"]')?.textContent,
+    ).toContain("Alice's Collection Stats");
+    expect(el.querySelector('[data-testid="insights-subtabs"]')).toBeNull();
+    expect(
+      el.querySelector('[data-testid="public-stats-kpi-grid"]'),
+    ).toBeTruthy();
+
+    const platformLink = el.querySelector(
+      '[data-testid="insights-platform-link"]',
+    ) as HTMLAnchorElement;
+    expect(platformLink?.getAttribute('href')).toContain('/u/alice/games');
+    const toyLineLink = el.querySelector(
+      '[data-testid="insights-toy-line-link"]',
+    ) as HTMLAnchorElement;
+    expect(toyLineLink?.getAttribute('href')).toContain('/u/alice/toys');
+
+    expect(el.querySelector('a[href*="/collection/games"]')).toBeNull();
+    expect(el.querySelector('a[href*="/collection/toys"]')).toBeNull();
+    expect(el.querySelector('a[href*="/collection/backups"]')).toBeNull();
+
+    const renderedText = el.textContent || '';
+    expect(renderedText).not.toContain('Value & Ledger');
+    expect(renderedText).not.toContain('Backed Up');
+    expect(renderedText).not.toContain('Secret eBay Seller');
+    expect(renderedText).not.toContain('eBay');
+    expect(renderedText).not.toContain('$');
   });
 });

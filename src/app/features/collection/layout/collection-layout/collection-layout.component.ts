@@ -364,6 +364,9 @@ export class CollectionLayoutComponent {
     if (cleanUrl.startsWith('/collection/insights')) {
       return 'insights';
     }
+    if (cleanUrl.endsWith('/stats')) {
+      return 'stats';
+    }
     if (
       cleanUrl.startsWith('/admin') ||
       cleanUrl.startsWith('/discovery') ||
@@ -399,6 +402,12 @@ export class CollectionLayoutComponent {
         id: 'insights',
         label: 'Insights',
         href: '/collection/insights',
+      });
+    } else {
+      tabs.push({
+        id: 'stats',
+        label: 'Stats',
+        href: this.collectionService.getTabUrl('stats'),
       });
     }
     return tabs;
@@ -460,6 +469,11 @@ export class CollectionLayoutComponent {
     } else if (tabId === 'insights') {
       this.onNavClick();
       const targetUrl = `/collection/${tabId}`;
+      this.currentUrl.set(targetUrl);
+      void this.router.navigateByUrl(targetUrl);
+    } else if (tabId === 'stats') {
+      this.onNavClick();
+      const targetUrl = this.collectionService.getTabUrl('stats');
       this.currentUrl.set(targetUrl);
       void this.router.navigateByUrl(targetUrl);
     } else if (tabId === 'admin') {

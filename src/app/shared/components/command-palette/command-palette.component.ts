@@ -352,6 +352,17 @@ export class CommandPaletteComponent implements AfterViewInit {
         url: '/collection/backups',
         action: () => this.navigate('/collection/backups'),
       });
+    } else if (this.collectionService.isPublicView?.()) {
+      const statsUrl = this.collectionService.getTabUrl?.('stats') ?? '/';
+      items.push({
+        id: 'nav-public-stats',
+        title: 'Collection Stats',
+        subtitle: 'View public library stats & catalog completion',
+        category: 'Navigation',
+        icon: 'chart',
+        url: statsUrl,
+        action: () => this.navigate(statsUrl),
+      });
     }
     return items;
   }

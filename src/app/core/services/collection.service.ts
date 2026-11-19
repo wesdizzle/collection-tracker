@@ -923,7 +923,7 @@ export class CollectionService implements OnDestroy {
   }
 
   public getTabRoute(
-    tab: 'games' | 'toys' | 'insights' | 'admin' | string = 'games',
+    tab: 'games' | 'toys' | 'insights' | 'stats' | 'admin' | string = 'games',
   ): string[] {
     if (tab === 'admin') {
       return ['/admin'];
@@ -931,15 +931,18 @@ export class CollectionService implements OnDestroy {
     if (
       this._isPublicView() &&
       this._publicProfile() &&
-      (tab === 'games' || tab === 'toys')
+      (tab === 'games' || tab === 'toys' || tab === 'stats')
     ) {
       return ['/u', this._publicProfile()!.username, tab];
+    }
+    if (tab === 'stats') {
+      return ['/collection/insights'];
     }
     return ['/collection', tab];
   }
 
   public getTabUrl(
-    tab: 'games' | 'toys' | 'insights' | 'admin' | string = 'games',
+    tab: 'games' | 'toys' | 'insights' | 'stats' | 'admin' | string = 'games',
   ): string {
     if (tab === 'admin') {
       return '/admin';
@@ -947,9 +950,12 @@ export class CollectionService implements OnDestroy {
     if (
       this._isPublicView() &&
       this._publicProfile() &&
-      (tab === 'games' || tab === 'toys')
+      (tab === 'games' || tab === 'toys' || tab === 'stats')
     ) {
       return `/u/${encodeURIComponent(this._publicProfile()!.username)}/${tab}`;
+    }
+    if (tab === 'stats') {
+      return '/collection/insights';
     }
     return `/collection/${tab}`;
   }

@@ -101,19 +101,57 @@ export class CollectionInsightsComponent implements OnInit {
   public readonly showAllMerchants = signal<boolean>(false);
   public readonly expandedToyLines = signal<Set<string>>(new Set());
 
+  public readonly isPublicView = computed<boolean>(
+    () => this.collectionService.isPublicView?.() === true,
+  );
+  public readonly publicDisplayName = computed<string>(
+    () =>
+      this.collectionService.publicProfile?.()?.displayName ||
+      this.collectionService.publicProfile?.()?.username ||
+      'Public',
+  );
+  public readonly gamesTabRoute = computed<string[]>(() => {
+    const pub = this.isPublicView();
+    const profile = this.collectionService.publicProfile?.();
+    if (this.collectionService.getTabRoute) {
+      return this.collectionService.getTabRoute('games');
+    }
+    if (pub && profile?.username) {
+      return ['/u', profile.username, 'games'];
+    }
+    return ['/collection/games'];
+  });
+  public readonly toysTabRoute = computed<string[]>(() => {
+    const pub = this.isPublicView();
+    const profile = this.collectionService.publicProfile?.();
+    if (this.collectionService.getTabRoute) {
+      return this.collectionService.getTabRoute('toys');
+    }
+    if (pub && profile?.username) {
+      return ['/u', profile.username, 'toys'];
+    }
+    return ['/collection/toys'];
+  });
+
   public readonly canViewMarketPrices = computed<boolean>(
-    () => this.collectionService.canViewMarketPrices?.() === true,
+    () =>
+      !this.isPublicView() &&
+      this.collectionService.canViewMarketPrices?.() === true,
   );
   public readonly isMarketUnconfigured = computed<boolean>(
     () => this.collectionService.marketPricingConfigured?.() === false,
   );
-  public readonly canShowProvenance = computed<boolean>(() =>
-    typeof this.collectionService.canShowPersonalState === 'function'
+  public readonly canShowProvenance = computed<boolean>(() => {
+    if (this.isPublicView()) return false;
+    return typeof this.collectionService.canShowPersonalState === 'function'
       ? this.collectionService.canShowPersonalState()
-      : this.collectionService.isAuthenticated(),
-  );
+      : this.collectionService.isAuthenticated();
+  });
 
   public readonly activeSubTab = computed<InsightsSubTab>(() => {
+    if (this.isPublicView()) {
+      return 'catalog';
+    }
     const requested = this.requestedSubTab();
     if (requested === 'value' && !this.canShowProvenance()) {
       return 'overview';
@@ -135,6 +173,9 @@ export class CollectionInsightsComponent implements OnInit {
   }
 
   public setActiveSubTab(tab: InsightsSubTab): void {
+    if (this.isPublicView()) {
+      return;
+    }
     const next =
       tab === 'value' && !this.canShowProvenance() ? 'overview' : tab;
     this.requestedSubTab.set(next);
@@ -399,11 +440,19 @@ export class CollectionInsightsComponent implements OnInit {
     return opts;
   });
 
+  public readonly effectivePlatformSort = computed<PlatformSortMode>(() => {
+    const mode = this.platformSort();
+    if (mode === 'value' && !this.canViewMarketPrices()) {
+      return 'owned';
+    }
+    return mode;
+  });
+
   public readonly filteredPlatformStats = computed<PlatformCompletionStat[]>(
     () => {
       const showAll = this.showAllCatalogPlatforms();
       const brand = this.selectedBrand();
-      const sortMode = this.platformSort();
+      const sortMode = this.effectivePlatformSort();
 
       let list = this.platformStats().filter((p) =>
         showAll ? true : p.ownedCount > 0,
@@ -440,6 +489,10 @@ export class CollectionInsightsComponent implements OnInit {
   );
 
   public onPlatformSortChange(mode: PlatformSortMode): void {
+    if (mode === 'value' && !this.canViewMarketPrices()) {
+      this.platformSort.set('owned');
+      return;
+    }
     this.platformSort.set(mode || 'owned');
   }
 

@@ -93,6 +93,14 @@ export const routes: Routes = [
                 (m) => m.CollectionListComponent,
               ),
           },
+          {
+            path: 'stats',
+            title: 'Stats',
+            loadComponent: () =>
+              import('./features/collection/insights/collection-insights.component').then(
+                (m) => m.CollectionInsightsComponent,
+              ),
+          },
         ],
       },
       {

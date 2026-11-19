@@ -79,16 +79,24 @@ describe('CommandPaletteComponent', () => {
   const mockGamesSignal = signal<Game[]>(mockGames);
   const mockToysSignal = signal<Toy[]>(mockToys);
   const mockPlatformsSignal = signal<Platform[]>(mockPlatforms);
+  const mockIsPublicViewSignal = signal<boolean>(false);
+  const mockCanShowPersonalStateSignal = signal<boolean>(true);
 
   const mockCollectionService = {
     games: mockGamesSignal.asReadonly(),
     toys: mockToysSignal.asReadonly(),
     platforms: mockPlatformsSignal.asReadonly(),
+    isPublicView: mockIsPublicViewSignal.asReadonly(),
+    canShowPersonalState: mockCanShowPersonalStateSignal.asReadonly(),
+    getTabUrl: (tab: string) =>
+      mockIsPublicViewSignal() ? `/u/alice/${tab}` : `/collection/${tab}`,
     refreshAll: vi.fn().mockResolvedValue(undefined),
     resetListState: vi.fn(),
   };
 
   beforeEach(async () => {
+    mockIsPublicViewSignal.set(false);
+    mockCanShowPersonalStateSignal.set(true);
     if (typeof HTMLDialogElement !== 'undefined') {
       if (!HTMLDialogElement.prototype.showModal) {
         HTMLDialogElement.prototype.showModal = function (
@@ -589,5 +597,24 @@ describe('CommandPaletteComponent', () => {
     );
     expect(markEl).not.toBeNull();
     expect(markEl?.textContent?.toLowerCase()).toBe('mario');
+  });
+
+  it('should expose public Collection Stats nav action and hide personal insights/backups in public view', () => {
+    mockCanShowPersonalStateSignal.set(false);
+    mockIsPublicViewSignal.set(true);
+    paletteService.open();
+    fixture.detectChanges();
+
+    const results = component.flatResults();
+    const publicStats = results.find((r) => r.id === 'nav-public-stats');
+    expect(publicStats).toBeDefined();
+    expect(publicStats?.url).toBe('/u/alice/stats');
+    expect(results.find((r) => r.id === 'nav-insights')).toBeUndefined();
+    expect(results.find((r) => r.id === 'nav-backups')).toBeUndefined();
+
+    publicStats!.action();
+    expect(router.navigate).toHaveBeenCalledWith(['/u/alice/stats'], {
+      queryParams: undefined,
+    });
   });
 });
