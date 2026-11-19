@@ -7247,5 +7247,110 @@ describe('Worker API Logic', () => {
       const unmigratedErr = (await unmigratedPut.json()) as { code: string };
       expect(unmigratedErr.code).toBe('table_not_migrated');
     });
+
+    it('enforces 5-item batch cap, reads each R2 shard only once per batch, and flags retryableError on transient 503', async () => {
+      const adminCookie = await buildSignedCookie('admin', 1);
+      const ebayEnv: Env = {
+        ...mockEnv,
+        EBAY_CLIENT_ID: 'ebay-test-id',
+        EBAY_CLIENT_SECRET: 'ebay-test-secret',
+      };
+
+      // 6 items must be rejected with HTTP 400 (MAX_LIVE_BATCH_ITEMS = 5)
+      const oversizeRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/live-batch', {
+          method: 'POST',
+          headers: {
+            Cookie: adminCookie,
+            'Content-Type': 'application/json',
+            Origin: 'https://tracker.example.com',
+          },
+          body: JSON.stringify({
+            items: [
+              { itemType: 'game', itemId: 'mario' },
+              { itemType: 'toy', itemId: 'link-amiibo' },
+              { itemType: 'game', itemId: 'mario' },
+              { itemType: 'toy', itemId: 'link-amiibo' },
+              { itemType: 'game', itemId: 'mario' },
+              { itemType: 'toy', itemId: 'link-amiibo' },
+            ],
+          }),
+        }),
+        ebayEnv,
+      );
+      expect(oversizeRes.status).toBe(400);
+
+      // Spy on R2 get() and verify 1 read per shard + partial success + retryableError on 503
+      const r2GetSpy = vi.spyOn(mockBucket, 'get');
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          if (url.includes('/identity/v1/oauth2/token')) {
+            return new Response(
+              JSON.stringify({ access_token: 'ebay-tok', expires_in: 7200 }),
+              { status: 200 },
+            );
+          }
+          if (url.includes('Link') || url.includes('182180')) {
+            return new Response('Upstream Unavailable', { status: 503 });
+          }
+          return new Response(
+            JSON.stringify({
+              itemSummaries: [
+                {
+                  title: 'Super Mario Bros NES Cart Only',
+                  price: { value: '18.00', currency: 'USD' },
+                  shippingOptions: [{ shippingCostType: 'FREE' }],
+                  conditionId: '3000',
+                  itemWebUrl: 'https://www.ebay.com/itm/901',
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        });
+
+      try {
+        const res = await worker.fetch(
+          new Request('https://tracker.example.com/api/prices/live-batch', {
+            method: 'POST',
+            headers: {
+              Cookie: adminCookie,
+              'Content-Type': 'application/json',
+              Origin: 'https://tracker.example.com',
+            },
+            body: JSON.stringify({
+              items: [
+                { itemType: 'game', itemId: 'mario' },
+                { itemType: 'toy', itemId: 'link-amiibo' },
+              ],
+            }),
+          }),
+          ebayEnv,
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          fetchedCount: number;
+          retryableError?: boolean;
+          prices: Record<string, { loose_cents: number }>;
+          errors: Record<string, string>;
+        };
+        expect(body.fetchedCount).toBe(1);
+        expect(body.prices['game:mario']?.loose_cents).toBe(1800);
+        expect(body.retryableError).toBe(true);
+        expect(body.errors['toy:link-amiibo']).toContain('503');
+
+        // Single-pass R2 read: 2 distinct shards -> 2 R2 get() calls total (writePriceShard did not re-read)
+        const expectedShards = new Set([
+          getPriceShardIndex('game', 'mario'),
+          getPriceShardIndex('toy', 'link-amiibo'),
+        ]).size;
+        expect(r2GetSpy).toHaveBeenCalledTimes(expectedShards);
+      } finally {
+        fetchSpy.mockRestore();
+        r2GetSpy.mockRestore();
+      }
+    });
   });
 });

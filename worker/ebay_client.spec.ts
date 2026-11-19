@@ -192,4 +192,63 @@ describe('worker/ebay_client', () => {
       timeWindowSeconds: 86400,
     });
   });
+
+  it('coalesces concurrent cold-start getEdgeEbayToken calls into a single OAuth request', async () => {
+    let oauthCalls = 0;
+    const fetchMock = vi.fn(async () => {
+      oauthCalls++;
+      await new Promise((r) => setTimeout(r, 15));
+      return new Response(
+        JSON.stringify({ access_token: 'shared-tok', expires_in: 7200 }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const env = { EBAY_CLIENT_ID: 'cid', EBAY_CLIENT_SECRET: 'csec' };
+    const tokens = await Promise.all([
+      getEdgeEbayToken(env),
+      getEdgeEbayToken(env),
+      getEdgeEbayToken(env),
+    ]);
+
+    expect(oauthCalls).toBe(1);
+    expect(tokens).toEqual(['shared-tok', 'shared-tok', 'shared-tok']);
+  });
+
+  it('retries once on transient HTTP 503 during searchEbayListings', async () => {
+    let searchCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/identity/v1/oauth2/token')) {
+        return new Response(
+          JSON.stringify({ access_token: 'tok-1', expires_in: 7200 }),
+          { status: 200 },
+        );
+      }
+      searchCalls++;
+      if (searchCalls === 1) {
+        return new Response('Service Unavailable', { status: 503 });
+      }
+      return new Response(
+        JSON.stringify({
+          itemSummaries: [
+            {
+              title: 'Super Metroid SNES',
+              price: { value: '75.00', currency: 'USD' },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const items = await searchEbayListings(
+      { EBAY_CLIENT_ID: 'cid', EBAY_CLIENT_SECRET: 'csec' },
+      { q: 'Super Metroid SNES', categoryId: '139973' },
+    );
+
+    expect(searchCalls).toBe(2);
+    expect(items).toHaveLength(1);
+  });
 });

@@ -2003,8 +2003,9 @@ describe('CollectionService', () => {
       );
 
       // Should skip fresh-one and issue separate shard-grouped batches for idA and idB
-      await Promise.resolve();
-      const firstBatch = httpMock.expectOne('/api/prices/live-batch');
+      const firstBatch = await vi.waitFor(() =>
+        httpMock.expectOne('/api/prices/live-batch'),
+      );
       expect(firstBatch.request.body.items.length).toBe(1);
       const returnedId = firstBatch.request.body.items[0].itemId;
       firstBatch.flush({
@@ -2015,15 +2016,170 @@ describe('CollectionService', () => {
         rateLimited: false,
       });
 
-      // Cancel mid-scan before second shard batch is sent
+      // Wait for IndexedDB persistence to settle before cancelling mid-scan
+      await vi.waitFor(() =>
+        expect(service.getMarketPrice('game', returnedId)?.loose_cents).toBe(
+          1900,
+        ),
+      );
       service.cancelCollectionValuationScan();
       await scanPromise;
 
       httpMock.expectNone('/api/prices/live-batch');
       expect(service.marketPriceScanProgress().cancelled).toBe(true);
       expect(service.marketPriceScanProgress().active).toBe(false);
-      expect(service.getMarketPrice('game', returnedId)?.loose_cents).toBe(
-        1900,
+    });
+
+    it('backs off automatically and retries only the unpriced remainder on HTTP 200 rateLimited=true', async () => {
+      const delaySpy = vi
+        .spyOn(
+          service as unknown as { delayMs: (ms: number) => Promise<void> },
+          'delayMs',
+        )
+        .mockResolvedValue(undefined);
+
+      try {
+        // Pick 2 IDs in the SAME R2 shard so both go into one batch
+        const id1 = 'shard-mate-0';
+        const targetShard = getPriceShardIndex('game', id1);
+        let id2 = 'shard-mate-1';
+        for (let i = 1; i < 100; i++) {
+          const candidate = `shard-mate-${i}`;
+          if (getPriceShardIndex('game', candidate) === targetShard) {
+            id2 = candidate;
+            break;
+          }
+        }
+
+        const scanPromise = service.startCollectionValuationScan(
+          [
+            { itemType: 'game', itemId: id1 },
+            { itemType: 'game', itemId: id2 },
+          ],
+          'Retry Scope',
+        );
+
+        const req1 = await vi.waitFor(() =>
+          httpMock.expectOne('/api/prices/live-batch'),
+        );
+        expect(req1.request.body.items.length).toBe(2);
+        // Simulate partial success + rate limit on id2
+        req1.flush({
+          prices: { [`game:${id1}`]: makePrice('game', id1) },
+          cacheHits: 0,
+          fetchedCount: 1,
+          errors: { [`game:${id2}`]: 'eBay Browse API rate limit exceeded.' },
+          rateLimited: true,
+          retryableError: true,
+          retryAfterSec: 2,
+        });
+
+        // Wait for IndexedDB write + backoff countdown before retry #2 with ONLY id2
+        const req2 = await vi.waitFor(
+          () => httpMock.expectOne('/api/prices/live-batch'),
+          { timeout: 2000, interval: 5 },
+        );
+        expect(req2.request.body.items).toEqual([
+          { itemType: 'game', itemId: id2 },
+        ]);
+        req2.flush({
+          prices: { [`game:${id2}`]: makePrice('game', id2) },
+          cacheHits: 0,
+          fetchedCount: 1,
+          errors: {},
+          rateLimited: false,
+        });
+
+        await scanPromise;
+        expect(delaySpy).toHaveBeenCalled();
+        expect(service.marketPriceScanProgress().rateLimited).toBe(false);
+        expect(service.marketPriceScanProgress().completedItems).toBe(2);
+        expect(service.marketPriceScanProgress().errorCount).toBe(0);
+        expect(service.getMarketPrice('game', id2)?.loose_cents).toBe(1900);
+      } finally {
+        delaySpy.mockRestore();
+      }
+    });
+
+    it('retries and recovers cleanly on transient HTTP 503 during batch scan', async () => {
+      const delaySpy = vi
+        .spyOn(
+          service as unknown as { delayMs: (ms: number) => Promise<void> },
+          'delayMs',
+        )
+        .mockResolvedValue(undefined);
+
+      try {
+        const scanPromise = service.startCollectionValuationScan(
+          [{ itemType: 'toy', itemId: 'amiibo-retry' }],
+          'Toy Scope',
+        );
+
+        const req503 = await vi.waitFor(() =>
+          httpMock.expectOne('/api/prices/live-batch'),
+        );
+        req503.flush(
+          { error: 'Worker CPU timeout' },
+          { status: 503, statusText: 'Service Unavailable' },
+        );
+
+        const reqRetry = await vi.waitFor(
+          () => httpMock.expectOne('/api/prices/live-batch'),
+          { timeout: 2000, interval: 5 },
+        );
+        reqRetry.flush({
+          prices: {
+            'toy:amiibo-retry': makePrice('toy', 'amiibo-retry'),
+          },
+          cacheHits: 0,
+          fetchedCount: 1,
+          errors: {},
+          rateLimited: false,
+        });
+
+        await scanPromise;
+        expect(service.marketPriceScanProgress().completedItems).toBe(1);
+        expect(service.marketPriceScanProgress().errorCount).toBe(0);
+        expect(service.getMarketPrice('toy', 'amiibo-retry')?.loose_cents).toBe(
+          1900,
+        );
+      } finally {
+        delaySpy.mockRestore();
+      }
+    });
+
+    it('cancels immediately during backoff cooldown without hanging', async () => {
+      const scanPromise = service.startCollectionValuationScan(
+        [{ itemType: 'game', itemId: 'cancel-cooldown-1' }],
+        'Cancel Scope',
+      );
+
+      const req = await vi.waitFor(() =>
+        httpMock.expectOne('/api/prices/live-batch'),
+      );
+      req.flush({
+        prices: {},
+        cacheHits: 0,
+        fetchedCount: 0,
+        errors: { 'game:cancel-cooldown-1': 'rate limited' },
+        rateLimited: true,
+        retryableError: true,
+        retryAfterSec: 30,
+      });
+
+      await vi.waitFor(() =>
+        expect(service.marketPriceScanProgress().cooldownSecondsRemaining).toBe(
+          30,
+        ),
+      );
+
+      service.cancelCollectionValuationScan();
+      await scanPromise;
+
+      expect(service.marketPriceScanProgress().cancelled).toBe(true);
+      expect(service.marketPriceScanProgress().active).toBe(false);
+      expect(service.marketPriceScanProgress().cooldownSecondsRemaining).toBe(
+        0,
       );
     });
 

@@ -81,8 +81,20 @@ export class MarketValuationPanelComponent {
       rateLimited: false,
       cancelled: false,
       lastError: null,
+      cooldownSecondsRemaining: 0,
+      waitingForWake: false,
+      wakeLockActive: false,
+      statusMessage: null,
     };
   });
+
+  public readonly remainingUnpricedCount = computed<number>(() =>
+    Math.max(
+      0,
+      this.valuationSummary().totalOwnedCount -
+        this.valuationSummary().pricedCount,
+    ),
+  );
 
   public readonly platformFilterOptions = computed<
     Array<{ id: number; name: string; count: number }>

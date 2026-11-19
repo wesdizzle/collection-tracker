@@ -20,6 +20,7 @@ import {
 } from '../shared/market_pricing';
 import { RESOLVE_CANONICAL_GAME_ID_QUERY } from '../shared/queries';
 import {
+  EbayApiError,
   EbayConfigEnv,
   EbayNotConfiguredError,
   EbayRateLimitError,
@@ -33,8 +34,10 @@ export const R2_PRICE_SHARD_PREFIX = 'cache/ebay-prices/shard-';
 export const L1_PRICE_SHARD_URL_PREFIX =
   'https://edge-cache.internal/ebay-prices/v1/shard-';
 export const L1_PRICE_SHARD_TTL_SECONDS = 300;
-export const MAX_LIVE_BATCH_ITEMS = 10;
-export const EBAY_FETCH_CONCURRENCY = 5;
+export const MAX_LIVE_BATCH_ITEMS = 5;
+export const EBAY_FETCH_CONCURRENCY = 2;
+export const BATCH_EBAY_RESULT_LIMIT = 30;
+export const WAVE_STAGGER_MS = 200;
 
 export interface MarketPricingEnv extends EbayConfigEnv {
   DB: D1Database;
@@ -48,6 +51,7 @@ export interface BatchMarketPriceResult {
   fetchedCount: number;
   errors: Record<string, string>;
   rateLimited: boolean;
+  retryableError?: boolean;
   retryAfterSec?: number;
 }
 
@@ -183,11 +187,14 @@ export async function writePriceShard(
   shardIndex: number,
   updates: Record<string, EphemeralMarketPrice>,
   nowMs: number = Date.now(),
+  existingItems?: Record<string, EphemeralMarketPrice>,
 ): Promise<Record<string, EphemeralMarketPrice>> {
-  const existing = await readPriceShard(env, shardIndex, {
-    bypassL1: true,
-    nowMs,
-  });
+  const existing =
+    existingItems ??
+    (await readPriceShard(env, shardIndex, {
+      bypassL1: true,
+      nowMs,
+    }));
 
   const mergedRaw: Record<string, EphemeralMarketPrice> = {
     ...existing,
@@ -597,12 +604,13 @@ async function fetchLiveValuationForDescriptor(
   descriptor: PricingItemDescriptor,
   customQuery: string | null,
   allowGtinFallback: boolean,
+  resultLimit: number,
   nowMs: number,
 ): Promise<EphemeralMarketPrice> {
   const plan = buildEbaySearchPlan(descriptor, customQuery);
   let summaries = await searchEbayListings(env, {
     ...plan.primaryQuery,
-    limit: 50,
+    limit: resultLimit,
   });
 
   let valuation = computeMarketValuation(summaries, descriptor, {
@@ -617,7 +625,7 @@ async function fetchLiveValuationForDescriptor(
   if (primaryTotal < 3 && plan.fallbackQuery && allowGtinFallback) {
     summaries = await searchEbayListings(env, {
       ...plan.fallbackQuery,
-      limit: 50,
+      limit: resultLimit,
     });
     valuation = computeMarketValuation(summaries, descriptor, {
       skipTitleMatch: Boolean(customQuery?.trim()),
@@ -635,7 +643,12 @@ async function fetchLiveValuationForDescriptor(
 export async function fetchLiveBatchMarketPrices(
   env: MarketPricingEnv,
   requestedItems: Array<{ itemType: 'game' | 'toy'; itemId: string }>,
-  options: { force?: boolean; nowMs?: number } = {},
+  options: {
+    force?: boolean;
+    nowMs?: number;
+    singleItem?: boolean;
+    waveStaggerMs?: number;
+  } = {},
 ): Promise<BatchMarketPriceResult> {
   if (!isEbayConfigured(env)) {
     throw new EbayNotConfiguredError();
@@ -700,16 +713,23 @@ export async function fetchLiveBatchMarketPrices(
 
   let fetchedCount = 0;
   let rateLimited = false;
+  let retryableError = false;
   let retryAfterSec: number | undefined;
   const updatesByShard = new Map<
     number,
     Record<string, EphemeralMarketPrice>
   >();
 
-  // Process misses in 5-way concurrent chunks to stay under Cloudflare's 6-connection cap
+  const resultLimit = options.singleItem ? 50 : BATCH_EBAY_RESULT_LIMIT;
+  const waveStaggerMs = options.waveStaggerMs ?? WAVE_STAGGER_MS;
+  const allowGtinFallback = Boolean(options.singleItem) || misses.length <= 2;
+
+  // Process misses in 2-way staggered waves to stay safely under eBay QPS & Cloudflare CPU limits
   for (let i = 0; i < misses.length; i += EBAY_FETCH_CONCURRENCY) {
+    if (i > 0 && waveStaggerMs > 0) {
+      await new Promise((r) => setTimeout(r, waveStaggerMs));
+    }
     const chunk = misses.slice(i, i + EBAY_FETCH_CONCURRENCY);
-    const allowGtinFallback = misses.length <= 5;
     const chunkResults = await Promise.allSettled(
       chunk.map((desc) => {
         const key = getMarketPriceKey(desc.itemType, desc.itemId);
@@ -719,6 +739,7 @@ export async function fetchLiveBatchMarketPrices(
           desc,
           customQuery,
           allowGtinFallback,
+          resultLimit,
           nowMs,
         );
       }),
@@ -740,10 +761,23 @@ export async function fetchLiveBatchMarketPrices(
         const reason = outcome.reason;
         if (reason instanceof EbayRateLimitError) {
           rateLimited = true;
+          retryableError = true;
           retryAfterSec = reason.retryAfterSec;
           errors[key] = reason.message;
         } else if (reason instanceof EbayNotConfiguredError) {
           throw reason;
+        } else if (
+          reason instanceof EbayApiError &&
+          (reason.status >= 500 || reason.status === 408)
+        ) {
+          retryableError = true;
+          errors[key] = reason.message;
+        } else if (
+          reason instanceof Error &&
+          /timeout|abort|network|fetch/i.test(reason.message)
+        ) {
+          retryableError = true;
+          errors[key] = reason.message;
         } else {
           errors[key] =
             reason instanceof Error ? reason.message : String(reason);
@@ -759,7 +793,13 @@ export async function fetchLiveBatchMarketPrices(
   if (updatesByShard.size > 0) {
     await Promise.all(
       Array.from(updatesByShard.entries()).map(([shardIdx, shardUpdates]) =>
-        writePriceShard(env, shardIdx, shardUpdates, nowMs),
+        writePriceShard(
+          env,
+          shardIdx,
+          shardUpdates,
+          nowMs,
+          shardContents.get(shardIdx),
+        ),
       ),
     );
   }
@@ -770,6 +810,7 @@ export async function fetchLiveBatchMarketPrices(
     fetchedCount,
     errors,
     rateLimited,
+    retryableError,
     retryAfterSec,
   };
 }
@@ -785,11 +826,10 @@ export async function fetchLiveItemMarketPrice(
   cacheHit: boolean;
   error?: string;
 }> {
-  const result = await fetchLiveBatchMarketPrices(
-    env,
-    [{ itemType, itemId }],
-    options,
-  );
+  const result = await fetchLiveBatchMarketPrices(env, [{ itemType, itemId }], {
+    ...options,
+    singleItem: true,
+  });
   const firstKey = Object.keys(result.prices)[0];
   if (firstKey) {
     return {

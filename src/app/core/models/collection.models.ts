@@ -923,4 +923,8 @@ export interface MarketPriceScanProgress {
   rateLimited: boolean;
   cancelled: boolean;
   lastError: string | null;
+  cooldownSecondsRemaining?: number;
+  waitingForWake?: boolean;
+  wakeLockActive?: boolean;
+  statusMessage?: string | null;
 }

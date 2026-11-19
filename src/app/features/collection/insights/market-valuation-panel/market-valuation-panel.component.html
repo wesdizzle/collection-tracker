@@ -60,7 +60,14 @@
             (click)="startScan()"
           >
             <app-icon name="zap" [size]="15" />
-            <span>Scan Live eBay Prices</span>
+            <span>
+              {{
+                valuationSummary().pricedCount > 0 &&
+                remainingUnpricedCount() > 0
+                  ? 'Resume Scan (' + remainingUnpricedCount() + ' left)'
+                  : 'Scan Live eBay Prices'
+              }}
+            </span>
           </button>
         }
 
@@ -92,19 +99,22 @@
       scanProgress().active ||
       scanProgress().rateLimited ||
       scanProgress().cancelled ||
-      scanProgress().lastError
+      scanProgress().lastError ||
+      scanProgress().statusMessage
     ) {
       <div class="scan-status-box" data-testid="valuation-scan-status">
         <div class="scan-status-header">
           <span>
             {{
-              scanProgress().active
-                ? 'Scanning ' + scanProgress().scopeLabel + '...'
-                : scanProgress().cancelled
-                  ? 'Scan cancelled'
-                  : scanProgress().rateLimited
-                    ? 'eBay API rate limit reached (partial results saved)'
-                    : 'Scan finished'
+              scanProgress().statusMessage
+                ? scanProgress().statusMessage
+                : scanProgress().active
+                  ? 'Scanning ' + scanProgress().scopeLabel + '...'
+                  : scanProgress().cancelled
+                    ? 'Scan cancelled'
+                    : scanProgress().rateLimited
+                      ? 'eBay API rate limit reached (partial results saved)'
+                      : 'Scan finished'
             }}
           </span>
           <strong>
@@ -120,6 +130,11 @@
           <span>Live fetched: {{ scanProgress().fetchedCount }}</span>
           @if (scanProgress().errorCount > 0) {
             <span>Errors: {{ scanProgress().errorCount }}</span>
+          }
+          @if (scanProgress().active && scanProgress().wakeLockActive) {
+            <span class="wake-lock-pill" data-testid="wake-lock-pill">
+              <app-icon name="eye" [size]="12" /> Keeping screen awake
+            </span>
           }
         </div>
         @if (scanProgress().lastError; as errMsg) {

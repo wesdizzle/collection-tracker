@@ -265,3 +265,11 @@
   font-size: 0.88rem;
   color: var(--m3-primary);
 }
+
+.wake-lock-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--m3-primary);
+  font-weight: 600;
+}

@@ -25,6 +25,7 @@ import {
   map,
   tap,
   throwError,
+  timeout,
 } from 'rxjs';
 import { CollectionRouteReuseStrategy } from '../routing/collection-route-reuse-strategy';
 import { ProfileModalService } from './profile-modal.service';
@@ -222,6 +223,10 @@ export class CollectionService implements OnDestroy {
     rateLimited: false,
     cancelled: false,
     lastError: null,
+    cooldownSecondsRemaining: 0,
+    waitingForWake: false,
+    wakeLockActive: false,
+    statusMessage: null,
   });
   public readonly marketPriceScanProgress =
     this._marketPriceScanProgress.asReadonly();
@@ -235,6 +240,11 @@ export class CollectionService implements OnDestroy {
   private _priceScanCancelled = false;
   private _marketPricesHydratedForUser: number | null = null;
   private _lastSyncedPriceUserId: number | null = null;
+  private _wakeLockSentinel: {
+    released?: boolean;
+    release: () => Promise<void>;
+  } | null = null;
+  private _scanWakeCallbacks = new Set<() => void>();
 
   private _visibilityListener?: () => void;
   private _focusListener?: () => void;
@@ -262,6 +272,8 @@ export class CollectionService implements OnDestroy {
     this.stopPriceExpiryTimer();
     this._activePriceScanId++;
     this._priceScanCancelled = true;
+    this.notifyScanWaiters();
+    void this.releaseScanWakeLock();
     if (typeof document !== 'undefined' && this._visibilityListener) {
       document.removeEventListener(
         'visibilitychange',
@@ -3267,6 +3279,7 @@ export class CollectionService implements OnDestroy {
 
     const scanId = ++this._activePriceScanId;
     this._priceScanCancelled = false;
+    this.notifyScanWaiters();
 
     const uniqueByKey = new Map<
       string,
@@ -3294,6 +3307,10 @@ export class CollectionService implements OnDestroy {
         rateLimited: false,
         cancelled: false,
         lastError: null,
+        cooldownSecondsRemaining: 0,
+        waitingForWake: false,
+        wakeLockActive: false,
+        statusMessage: null,
       });
       return;
     }
@@ -3316,22 +3333,27 @@ export class CollectionService implements OnDestroy {
     let rateLimited = false;
     let lastError: string | null = null;
 
-    this._marketPriceScanProgress.set({
-      active: misses.length > 0,
-      scopeLabel,
-      totalItems,
-      completedItems,
-      cacheHits,
-      fetchedCount,
-      errorCount,
-      rateLimited: false,
-      cancelled: false,
-      lastError: null,
-    });
+    if (misses.length === 0) {
+      this._marketPriceScanProgress.set({
+        active: false,
+        scopeLabel,
+        totalItems,
+        completedItems,
+        cacheHits,
+        fetchedCount: 0,
+        errorCount: 0,
+        rateLimited: false,
+        cancelled: false,
+        lastError: null,
+        cooldownSecondsRemaining: 0,
+        waitingForWake: false,
+        wakeLockActive: false,
+        statusMessage: null,
+      });
+      return;
+    }
 
-    if (misses.length === 0) return;
-
-    // Group misses by deterministic 8-shard hash so every 10-item chunk hits 1 R2 shard
+    // Group misses by deterministic 8-shard hash in CPU-safe 5-item batches
     const shardBuckets = new Map<
       number,
       Array<{ itemType: MarketPriceItemType; itemId: string }>
@@ -3347,159 +3369,364 @@ export class CollectionService implements OnDestroy {
       Array<{ itemType: MarketPriceItemType; itemId: string }>
     > = [];
     for (const bucket of shardBuckets.values()) {
-      for (let i = 0; i < bucket.length; i += 10) {
-        chunks.push(bucket.slice(i, i + 10));
+      for (let i = 0; i < bucket.length; i += 5) {
+        chunks.push(bucket.slice(i, i + 5));
       }
     }
 
-    for (const chunk of chunks) {
-      if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
-        break;
-      }
+    const wakeAcquired = await this.acquireScanWakeLock();
+    this._marketPriceScanProgress.set({
+      active: true,
+      scopeLabel,
+      totalItems,
+      completedItems,
+      cacheHits,
+      fetchedCount,
+      errorCount,
+      rateLimited: false,
+      cancelled: false,
+      lastError: null,
+      cooldownSecondsRemaining: 0,
+      waitingForWake: false,
+      wakeLockActive: wakeAcquired,
+      statusMessage: null,
+    });
 
-      let chunkDone = false;
-      let attempt = 0;
-      const backoffMs = [2000, 4000, 8000];
+    const backoffSecSchedule = [5, 15, 30, 60];
+    let currentInterBatchDelayMs = 400;
+    let cleanStreak = 0;
+    let consecutiveFailedChunks = 0;
 
-      while (!chunkDone && attempt < 3) {
+    try {
+      for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
         if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
           break;
         }
-        try {
-          const res = await firstValueFrom(
-            this.http.post<{
-              prices?: Record<string, EphemeralMarketPrice>;
-              cacheHits?: number;
-              fetchedCount?: number;
-              errors?: Record<string, string>;
-              rateLimited?: boolean;
-              retryAfterSec?: number;
-            }>('/api/prices/live-batch', { items: chunk, force }),
-          );
 
-          this._marketPricingConfigured.set(true);
-          const nowMs = Date.now();
-          this._marketPriceNowMs.set(nowMs);
+        const visibleBeforeChunk = await this.waitUntilDocumentVisible(scanId);
+        if (!visibleBeforeChunk) {
+          break;
+        }
+        await this.ensureScanWakeLock();
 
-          const returnedPrices = res?.prices || {};
-          if (Object.keys(returnedPrices).length > 0) {
-            const nextMap = new Map(this._marketPricesMap());
-            for (const [k, price] of Object.entries(returnedPrices)) {
-              if (price && isMarketPriceFresh(price, nowMs)) {
-                nextMap.set(k, price);
-              }
-            }
-            this._marketPricesMap.set(nextMap);
-            this.ensurePriceExpiryTimer();
-            await this.persistEphemeralPricesToStore(nextMap);
-          }
+        let pendingChunk = [...chunks[chunkIdx]];
+        let attempt = 0;
+        let stopWholeScan = false;
 
-          const batchHits = Number(res?.cacheHits ?? 0);
-          const batchFetched = Number(res?.fetchedCount ?? 0);
-          const errEntries = Object.entries(res?.errors || {});
-          cacheHits += batchHits;
-          fetchedCount += batchFetched;
-          errorCount += errEntries.length;
-          if (errEntries.length > 0) {
-            lastError = errEntries[0][1];
-          }
-
-          if (res?.rateLimited) {
-            rateLimited = true;
-            lastError =
-              lastError ||
-              'eBay API rate limit reached; partial results preserved.';
-            completedItems = Math.min(
-              totalItems,
-              completedItems + batchHits + batchFetched,
-            );
-            chunkDone = true;
+        while (pendingChunk.length > 0) {
+          if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
             break;
           }
 
-          completedItems = Math.min(totalItems, completedItems + chunk.length);
-          chunkDone = true;
-        } catch (err: unknown) {
-          const extracted = this.extractPricingHttpError(err);
-          if (extracted.notConfigured) {
-            this._marketPricingConfigured.set(false);
-            lastError = extracted.message;
-            errorCount += chunk.length;
-            this._marketPriceScanProgress.set({
-              active: false,
-              scopeLabel,
+          const visibleNow = await this.waitUntilDocumentVisible(scanId);
+          if (!visibleNow) {
+            break;
+          }
+
+          try {
+            const res = await firstValueFrom(
+              this.http
+                .post<{
+                  prices?: Record<string, EphemeralMarketPrice>;
+                  cacheHits?: number;
+                  fetchedCount?: number;
+                  errors?: Record<string, string>;
+                  rateLimited?: boolean;
+                  retryableError?: boolean;
+                  retryAfterSec?: number;
+                }>('/api/prices/live-batch', { items: pendingChunk, force })
+                .pipe(timeout(25_000)),
+            );
+
+            this._marketPricingConfigured.set(true);
+            const nowMs = Date.now();
+            this._marketPriceNowMs.set(nowMs);
+
+            const returnedPrices = res?.prices || {};
+            if (Object.keys(returnedPrices).length > 0) {
+              const nextMap = new Map(this._marketPricesMap());
+              for (const [k, price] of Object.entries(returnedPrices)) {
+                if (price && isMarketPriceFresh(price, nowMs)) {
+                  nextMap.set(k, price);
+                }
+              }
+              this._marketPricesMap.set(nextMap);
+              this.ensurePriceExpiryTimer();
+              await this.persistEphemeralPricesToStore(nextMap);
+            }
+
+            const resErrors = res?.errors || {};
+            const batchHits = Number(res?.cacheHits ?? 0);
+            const batchFetched = Number(res?.fetchedCount ?? 0);
+            cacheHits += batchHits;
+            fetchedCount += batchFetched;
+
+            const needsRetry = Boolean(res?.rateLimited || res?.retryableError);
+            const stillMissing: Array<{
+              itemType: MarketPriceItemType;
+              itemId: string;
+            }> = [];
+            let permanentErrorsInAttempt = 0;
+
+            if (needsRetry) {
+              for (const item of pendingChunk) {
+                const key = getMarketPriceKey(item.itemType, item.itemId);
+                const errMsg = resErrors[key];
+                if (errMsg === 'Item not found in catalog.') {
+                  permanentErrorsInAttempt++;
+                  lastError = errMsg;
+                } else if (
+                  !errMsg &&
+                  Object.prototype.hasOwnProperty.call(returnedPrices, key)
+                ) {
+                  // Resolved cleanly in this attempt
+                } else {
+                  if (errMsg) lastError = errMsg;
+                  stillMissing.push(item);
+                }
+              }
+            } else {
+              const errEntries = Object.entries(resErrors);
+              if (errEntries.length > 0) {
+                permanentErrorsInAttempt = errEntries.length;
+                lastError = errEntries[0][1];
+              }
+            }
+
+            const doneInAttempt = pendingChunk.length - stillMissing.length;
+            completedItems = Math.min(
               totalItems,
-              completedItems,
-              cacheHits,
-              fetchedCount,
-              errorCount,
-              rateLimited: false,
-              cancelled: false,
-              lastError,
-            });
-            return;
+              completedItems + doneInAttempt,
+            );
+            errorCount += permanentErrorsInAttempt;
+
+            if (needsRetry && stillMissing.length > 0) {
+              pendingChunk = stillMissing;
+              currentInterBatchDelayMs = Math.min(
+                1500,
+                currentInterBatchDelayMs + 300,
+              );
+              cleanStreak = 0;
+
+              if (attempt < backoffSecSchedule.length) {
+                const baseSec = backoffSecSchedule[attempt];
+                const retryAfter = Number(res?.retryAfterSec);
+                const waitSec =
+                  res?.rateLimited &&
+                  Number.isFinite(retryAfter) &&
+                  retryAfter > 0
+                    ? Math.min(90, Math.max(baseSec, Math.ceil(retryAfter)))
+                    : baseSec;
+                attempt++;
+
+                this._marketPriceScanProgress.update((p) => ({
+                  ...p,
+                  completedItems,
+                  cacheHits,
+                  fetchedCount,
+                  errorCount,
+                  lastError,
+                }));
+
+                const labelPrefix = res?.rateLimited
+                  ? 'eBay rate limit reached'
+                  : 'Temporary eBay API error';
+                const resumed = await this.waitWithCountdown(
+                  waitSec,
+                  scanId,
+                  labelPrefix,
+                );
+                if (!resumed) {
+                  break;
+                }
+                continue;
+              }
+
+              // Retries exhausted on this batch
+              errorCount += pendingChunk.length;
+              consecutiveFailedChunks++;
+              if (res?.rateLimited) {
+                rateLimited = true;
+                lastError =
+                  lastError ||
+                  'eBay API rate limit reached; partial results preserved.';
+                stopWholeScan = true;
+              } else if (consecutiveFailedChunks >= 3) {
+                lastError =
+                  lastError ||
+                  'Stopping after repeated eBay API errors; partial results preserved.';
+                stopWholeScan = true;
+              }
+              break;
+            }
+
+            // Chunk completed cleanly (or with only non-retryable per-item errors)
+            consecutiveFailedChunks = 0;
+            if (permanentErrorsInAttempt === 0) {
+              cleanStreak++;
+              if (cleanStreak >= 3) {
+                currentInterBatchDelayMs = Math.max(
+                  400,
+                  currentInterBatchDelayMs - 200,
+                );
+              }
+            }
+            pendingChunk = [];
+          } catch (err: unknown) {
+            const extracted = this.extractPricingHttpError(err);
+            if (extracted.notConfigured) {
+              this._marketPricingConfigured.set(false);
+              lastError = extracted.message;
+              errorCount += pendingChunk.length;
+              this._marketPriceScanProgress.set({
+                active: false,
+                scopeLabel,
+                totalItems,
+                completedItems,
+                cacheHits,
+                fetchedCount,
+                errorCount,
+                rateLimited: false,
+                cancelled: false,
+                lastError,
+                cooldownSecondsRemaining: 0,
+                waitingForWake: false,
+                wakeLockActive: false,
+                statusMessage: extracted.message,
+              });
+              return;
+            }
+
+            if (extracted.retryable && attempt < backoffSecSchedule.length) {
+              const visibleAfterErr =
+                await this.waitUntilDocumentVisible(scanId);
+              if (!visibleAfterErr) {
+                break;
+              }
+
+              currentInterBatchDelayMs = Math.min(
+                1500,
+                currentInterBatchDelayMs + 300,
+              );
+              cleanStreak = 0;
+
+              const baseSec = backoffSecSchedule[attempt];
+              const waitSec =
+                extracted.retryAfterSec && extracted.retryAfterSec > 0
+                  ? Math.min(
+                      90,
+                      Math.max(baseSec, Math.ceil(extracted.retryAfterSec)),
+                    )
+                  : baseSec;
+              lastError = extracted.message;
+              attempt++;
+
+              const labelPrefix =
+                extracted.status === 429
+                  ? 'eBay rate limit reached'
+                  : 'Temporary network / eBay API error';
+              const resumed = await this.waitWithCountdown(
+                waitSec,
+                scanId,
+                labelPrefix,
+              );
+              if (!resumed) {
+                break;
+              }
+              continue;
+            }
+
+            if (extracted.status === 429) {
+              rateLimited = true;
+              stopWholeScan = true;
+            } else {
+              consecutiveFailedChunks++;
+              if (consecutiveFailedChunks >= 3) {
+                stopWholeScan = true;
+              }
+            }
+            lastError = extracted.message;
+            errorCount += pendingChunk.length;
+            pendingChunk = [];
+            break;
           }
-          if (extracted.status === 429 && attempt < 2) {
-            const waitMs = extracted.retryAfterSec
-              ? Math.min(8000, Math.max(500, extracted.retryAfterSec * 1000))
-              : backoffMs[attempt];
-            attempt++;
-            await this.delayMs(waitMs);
-            continue;
+        }
+
+        if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+          break;
+        }
+
+        this._marketPriceScanProgress.set({
+          active: !stopWholeScan,
+          scopeLabel,
+          totalItems,
+          completedItems,
+          cacheHits,
+          fetchedCount,
+          errorCount,
+          rateLimited,
+          cancelled: false,
+          lastError,
+          cooldownSecondsRemaining: 0,
+          waitingForWake: false,
+          wakeLockActive:
+            this._wakeLockSentinel !== null && !this._wakeLockSentinel.released,
+          statusMessage: null,
+        });
+
+        if (stopWholeScan) {
+          break;
+        }
+
+        if (chunkIdx < chunks.length - 1) {
+          const ok = await this.cancellableDelayMs(
+            currentInterBatchDelayMs,
+            scanId,
+          );
+          if (!ok) {
+            break;
           }
-          if (extracted.status === 429) {
-            rateLimited = true;
-          }
-          lastError = extracted.message;
-          errorCount += chunk.length;
-          chunkDone = true;
         }
       }
-
-      if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
-        break;
+    } finally {
+      await this.releaseScanWakeLock();
+      if (scanId === this._activePriceScanId) {
+        this._marketPriceScanProgress.update((p) => ({
+          ...p,
+          active: false,
+          completedItems,
+          cacheHits,
+          fetchedCount,
+          errorCount,
+          rateLimited,
+          cancelled: this._priceScanCancelled,
+          lastError,
+          cooldownSecondsRemaining: 0,
+          waitingForWake: false,
+          wakeLockActive: false,
+          statusMessage: this._priceScanCancelled
+            ? 'Scan paused/cancelled — progress saved.'
+            : rateLimited
+              ? 'eBay rate limit reached; partial results preserved.'
+              : null,
+        }));
       }
-
-      this._marketPriceScanProgress.set({
-        active: !rateLimited,
-        scopeLabel,
-        totalItems,
-        completedItems,
-        cacheHits,
-        fetchedCount,
-        errorCount,
-        rateLimited,
-        cancelled: false,
-        lastError,
-      });
-
-      if (rateLimited) {
-        break;
-      }
-    }
-
-    if (scanId === this._activePriceScanId) {
-      this._marketPriceScanProgress.update((p) => ({
-        ...p,
-        active: false,
-        completedItems,
-        cacheHits,
-        fetchedCount,
-        errorCount,
-        rateLimited,
-        cancelled: this._priceScanCancelled,
-        lastError,
-      }));
     }
   }
 
   public cancelCollectionValuationScan(): void {
     this._priceScanCancelled = true;
     this._activePriceScanId++;
+    this.notifyScanWaiters();
+    void this.releaseScanWakeLock();
     this._marketPriceScanProgress.update((p) => ({
       ...p,
       active: false,
       cancelled: true,
+      cooldownSecondsRemaining: 0,
+      waitingForWake: false,
+      wakeLockActive: false,
+      statusMessage: 'Scan cancelled — partial results saved.',
     }));
   }
 
@@ -3617,6 +3844,8 @@ export class CollectionService implements OnDestroy {
   private resetEphemeralPricingState(previousUserId: number | null): void {
     this._activePriceScanId++;
     this._priceScanCancelled = true;
+    this.notifyScanWaiters();
+    void this.releaseScanWakeLock();
     this.stopPriceExpiryTimer();
     this._marketPricesMap.set(new Map());
     this._priceOverridesMap.set(new Map());
@@ -3635,6 +3864,10 @@ export class CollectionService implements OnDestroy {
       rateLimited: false,
       cancelled: false,
       lastError: null,
+      cooldownSecondsRemaining: 0,
+      waitingForWake: false,
+      wakeLockActive: false,
+      statusMessage: null,
     });
     if (previousUserId) {
       this.ephemeralPriceStore
@@ -3740,6 +3973,7 @@ export class CollectionService implements OnDestroy {
     status: number;
     message: string;
     notConfigured: boolean;
+    retryable: boolean;
     retryAfterSec?: number;
   } {
     if (err instanceof HttpErrorResponse) {
@@ -3752,20 +3986,209 @@ export class CollectionService implements OnDestroy {
         typeof body?.['error'] === 'string'
           ? body['error']
           : err.message || 'eBay pricing request failed.';
-      const retryRaw = Number(body?.['retryAfterSec']);
+      const bodyRetryRaw = Number(body?.['retryAfterSec']);
+      const headerRetryRaw = err.headers?.get
+        ? Number(err.headers.get('Retry-After'))
+        : NaN;
+      const retryAfterSec =
+        Number.isFinite(bodyRetryRaw) && bodyRetryRaw > 0
+          ? bodyRetryRaw
+          : Number.isFinite(headerRetryRaw) && headerRetryRaw > 0
+            ? headerRetryRaw
+            : undefined;
+      const notConfigured =
+        err.status === 503 && code === 'ebay_not_configured';
+      const retryable =
+        !notConfigured &&
+        (err.status === 0 ||
+          err.status === 408 ||
+          err.status === 429 ||
+          err.status >= 500);
       return {
         status: err.status,
         message: rawMsg,
-        notConfigured: err.status === 503 && code === 'ebay_not_configured',
-        retryAfterSec: Number.isFinite(retryRaw) ? retryRaw : undefined,
+        notConfigured,
+        retryable,
+        retryAfterSec,
       };
     }
+    const isTimeoutOrNetwork =
+      err instanceof Error &&
+      (err.name === 'TimeoutError' ||
+        err.name === 'AbortError' ||
+        /timeout|network|fetch/i.test(err.message));
     return {
       status: 0,
       message:
         err instanceof Error ? err.message : 'eBay pricing request failed.',
       notConfigured: false,
+      retryable: isTimeoutOrNetwork,
     };
+  }
+
+  private notifyScanWaiters(): void {
+    for (const cb of Array.from(this._scanWakeCallbacks)) {
+      cb();
+    }
+    this._scanWakeCallbacks.clear();
+  }
+
+  private async cancellableDelayMs(
+    ms: number,
+    scanId: number,
+  ): Promise<boolean> {
+    if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+      return false;
+    }
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        this._scanWakeCallbacks.delete(done);
+        resolve();
+      };
+      this._scanWakeCallbacks.add(done);
+      void this.delayMs(ms).then(done);
+    });
+    return !this._priceScanCancelled && scanId === this._activePriceScanId;
+  }
+
+  private async waitWithCountdown(
+    totalSec: number,
+    scanId: number,
+    labelPrefix: string,
+  ): Promise<boolean> {
+    const cleanSec = Math.max(1, Math.round(totalSec));
+    for (let rem = cleanSec; rem >= 1; rem--) {
+      if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+        return false;
+      }
+      this._marketPriceScanProgress.update((p) => ({
+        ...p,
+        cooldownSecondsRemaining: rem,
+        statusMessage: `${labelPrefix} — auto-resuming in ${rem}s...`,
+      }));
+      const ok = await this.cancellableDelayMs(1000, scanId);
+      if (!ok) {
+        return false;
+      }
+    }
+    if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+      return false;
+    }
+    this._marketPriceScanProgress.update((p) => ({
+      ...p,
+      cooldownSecondsRemaining: 0,
+      statusMessage: null,
+    }));
+    return true;
+  }
+
+  private async waitUntilDocumentVisible(scanId: number): Promise<boolean> {
+    if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+      return false;
+    }
+    if (
+      typeof document === 'undefined' ||
+      document.visibilityState !== 'hidden'
+    ) {
+      return true;
+    }
+
+    await this.releaseScanWakeLock();
+    this._marketPriceScanProgress.update((p) => ({
+      ...p,
+      waitingForWake: true,
+      wakeLockActive: false,
+      statusMessage:
+        'Paused while screen locked / backgrounded — will resume automatically when you return.',
+    }));
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('visibilitychange', onVisibility);
+        this._scanWakeCallbacks.delete(cleanup);
+        resolve();
+      };
+      const onVisibility = () => {
+        if (document.visibilityState === 'visible') {
+          cleanup();
+        }
+      };
+      this._scanWakeCallbacks.add(cleanup);
+      document.addEventListener('visibilitychange', onVisibility);
+    });
+
+    if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+      return false;
+    }
+
+    const wakeAcquired = await this.acquireScanWakeLock();
+    this._marketPriceScanProgress.update((p) => ({
+      ...p,
+      waitingForWake: false,
+      wakeLockActive: wakeAcquired,
+      statusMessage: null,
+    }));
+    return true;
+  }
+
+  private async acquireScanWakeLock(): Promise<boolean> {
+    if (
+      typeof document !== 'undefined' &&
+      document.visibilityState === 'hidden'
+    ) {
+      return false;
+    }
+    if (this._wakeLockSentinel && this._wakeLockSentinel.released === false) {
+      return true;
+    }
+    try {
+      const nav =
+        typeof navigator !== 'undefined'
+          ? (navigator as unknown as {
+              wakeLock?: {
+                request: (type: 'screen') => Promise<{
+                  released?: boolean;
+                  release: () => Promise<void>;
+                }>;
+              };
+            })
+          : null;
+      if (!nav?.wakeLock || typeof nav.wakeLock.request !== 'function') {
+        return false;
+      }
+      this._wakeLockSentinel = await nav.wakeLock.request('screen');
+      return true;
+    } catch {
+      this._wakeLockSentinel = null;
+      return false;
+    }
+  }
+
+  private async ensureScanWakeLock(): Promise<void> {
+    if (this._wakeLockSentinel && this._wakeLockSentinel.released === false) {
+      return;
+    }
+    const acquired = await this.acquireScanWakeLock();
+    if (acquired) {
+      this._marketPriceScanProgress.update((p) => ({
+        ...p,
+        wakeLockActive: true,
+      }));
+    }
+  }
+
+  private async releaseScanWakeLock(): Promise<void> {
+    const sentinel = this._wakeLockSentinel;
+    this._wakeLockSentinel = null;
+    if (sentinel && typeof sentinel.release === 'function') {
+      await sentinel.release().catch(() => {});
+    }
   }
 
   protected delayMs(ms: number): Promise<void> {

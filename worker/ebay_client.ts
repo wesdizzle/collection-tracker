@@ -52,9 +52,11 @@ export class EbayApiError extends Error {
 }
 
 let cachedEbayToken: { token: string; expiresAt: number } | null = null;
+let inFlightEbayTokenPromise: Promise<string> | null = null;
 
 export function resetEbayTokenCache(): void {
   cachedEbayToken = null;
+  inFlightEbayTokenPromise = null;
 }
 
 export function isEbayConfigured(env: EbayConfigEnv): boolean {
@@ -74,6 +76,10 @@ export async function getEdgeEbayToken(
     return cachedEbayToken.token;
   }
 
+  if (!forceRefresh && inFlightEbayTokenPromise) {
+    return inFlightEbayTokenPromise;
+  }
+
   const clientId = env.EBAY_CLIENT_ID?.trim();
   const clientSecret = env.EBAY_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
@@ -85,49 +91,58 @@ export async function getEdgeEbayToken(
     scope: 'https://api.ebay.com/oauth/api_scope',
   });
 
-  const res = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${encodeBasicAuth(clientId, clientSecret)}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: body.toString(),
-    signal: AbortSignal.timeout(8000),
+  const tokenFetchPromise = (async (): Promise<string> => {
+    const res = await fetch('https://api.ebay.com/identity/v1/oauth2/token', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${encodeBasicAuth(clientId, clientSecret)}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get('Retry-After') || '60', 10);
+      throw new EbayRateLimitError(
+        'eBay OAuth rate limit exceeded.',
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60,
+      );
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      throw new EbayApiError(
+        res.status,
+        `eBay OAuth failed (${res.status}): ${errText}`,
+      );
+    }
+
+    const data = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+    };
+    if (!data?.access_token) {
+      throw new EbayApiError(502, 'eBay OAuth response omitted access_token.');
+    }
+
+    const expiresInSec = Math.max(60, Number(data.expires_in) || 7200);
+    // Refresh 5 minutes before expiry (or half TTL if very short)
+    const bufferSec = Math.min(300, Math.floor(expiresInSec / 2));
+    cachedEbayToken = {
+      token: data.access_token,
+      expiresAt: Date.now() + (expiresInSec - bufferSec) * 1000,
+    };
+
+    return data.access_token;
+  })().finally(() => {
+    if (inFlightEbayTokenPromise === tokenFetchPromise) {
+      inFlightEbayTokenPromise = null;
+    }
   });
 
-  if (res.status === 429) {
-    const retryAfter = parseInt(res.headers.get('Retry-After') || '60', 10);
-    throw new EbayRateLimitError(
-      'eBay OAuth rate limit exceeded.',
-      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60,
-    );
-  }
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => res.statusText);
-    throw new EbayApiError(
-      res.status,
-      `eBay OAuth failed (${res.status}): ${errText}`,
-    );
-  }
-
-  const data = (await res.json()) as {
-    access_token?: string;
-    expires_in?: number;
-  };
-  if (!data?.access_token) {
-    throw new EbayApiError(502, 'eBay OAuth response omitted access_token.');
-  }
-
-  const expiresInSec = Math.max(60, Number(data.expires_in) || 7200);
-  // Refresh 5 minutes before expiry (or half TTL if very short)
-  const bufferSec = Math.min(300, Math.floor(expiresInSec / 2));
-  cachedEbayToken = {
-    token: data.access_token,
-    expiresAt: now + (expiresInSec - bufferSec) * 1000,
-  };
-
-  return data.access_token;
+  inFlightEbayTokenPromise = tokenFetchPromise;
+  return tokenFetchPromise;
 }
 
 export interface SearchEbayListingsParams {
@@ -162,7 +177,7 @@ export async function searchEbayListings(
 
   const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?${searchParams.toString()}`;
 
-  const executeCall = async (token: string): Promise<Response> =>
+  const fetchOnce = async (token: string): Promise<Response> =>
     fetch(url, {
       method: 'GET',
       headers: {
@@ -172,6 +187,26 @@ export async function searchEbayListings(
       },
       signal: AbortSignal.timeout(8000),
     });
+
+  const isTransientHttpStatus = (status: number): boolean =>
+    status === 500 || status === 502 || status === 503 || status === 504;
+
+  const executeCall = async (token: string): Promise<Response> => {
+    try {
+      const first = await fetchOnce(token);
+      if (!isTransientHttpStatus(first.status)) {
+        return first;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+      return await fetchOnce(token);
+    } catch (err) {
+      if (err instanceof EbayNotConfiguredError) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+      return await fetchOnce(token);
+    }
+  };
 
   let token = await getEdgeEbayToken(env);
   let res = await executeCall(token);
