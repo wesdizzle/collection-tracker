@@ -34,6 +34,16 @@
   >
   </app-collection-filters>
 
+  @if (showActivePlayShelf()) {
+    <app-active-play-shelf
+      [playingGames]="activePlayingGames()"
+      [queuedGames]="activeQueuedGames()"
+      [busyGameIds]="playShelfBusyIds()"
+      (advanceStatus)="onAdvancePlayStatus($event)"
+      (filterByStatus)="onFilterByPlayStatus($event)"
+    />
+  }
+
   @if (currentTab() === 'games') {
     <div class="groups-container">
       @for (group of groupedGames(); track group.platformName) {

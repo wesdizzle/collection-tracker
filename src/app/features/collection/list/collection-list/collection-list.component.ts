@@ -76,6 +76,7 @@ import {
   getRomGroupingKey,
 } from '../../../../core/models/title-mappings';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
+import { ActivePlayShelfComponent } from '../active-play-shelf/active-play-shelf.component';
 import { GameCardComponent } from '../game-card/game-card.component';
 import { ToyCardComponent } from '../toy-card/toy-card.component';
 import { CompactTableComponent } from '../compact-table/compact-table.component';
@@ -97,6 +98,7 @@ interface GameGroup {
     DecimalPipe,
     KitLoadingBannerComponent,
     CollectionFiltersComponent,
+    ActivePlayShelfComponent,
     GameCardComponent,
     ToyCardComponent,
     CompactTableComponent,
@@ -396,6 +398,46 @@ export class CollectionListComponent
   public readonly showProvenanceFilters = computed<boolean>(() =>
     Boolean(this.collectionService.canShowPersonalState?.()),
   );
+
+  public readonly playShelfBusyIds = signal<Set<string>>(new Set());
+
+  private getDeduplicatedOwnedGamesByPlayStatus(
+    targetStatus: PlayStatus,
+  ): Game[] {
+    const seen = new Set<string | number>();
+    const result: Game[] = [];
+    for (const g of this.discMergedGames()) {
+      if (g.bundle_parent_id) continue;
+      if (g.ownership_status !== OwnershipStatus.Owned) continue;
+      if (g.play_status !== targetStatus) continue;
+      const key = g.game_id || g.stable_id || g.id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(g);
+    }
+    return result;
+  }
+
+  public readonly activePlayingGames = computed<Game[]>(() =>
+    this.getDeduplicatedOwnedGamesByPlayStatus(PlayStatus.Playing),
+  );
+
+  public readonly activeQueuedGames = computed<Game[]>(() =>
+    this.getDeduplicatedOwnedGamesByPlayStatus(PlayStatus.Queued),
+  );
+
+  public readonly showActivePlayShelf = computed<boolean>(() => {
+    const f = this.filters();
+    return (
+      this.currentTab() === 'games' &&
+      this.collectionService.canShowPersonalState?.() === true &&
+      f.ownership === OwnershipStatus.Owned &&
+      !f.deals_only &&
+      (!f.play_status || f.play_status === 'all') &&
+      (this.activePlayingGames().length > 0 ||
+        this.activeQueuedGames().length > 0)
+    );
+  });
 
   public readonly effectiveSortBy = computed<
     NonNullable<FilterState['sortBy']>
@@ -2341,6 +2383,49 @@ export class CollectionListComponent
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('app_preferred_view_mode', mode);
     }
+  }
+
+  public onFilterByPlayStatus(status: PlayStatus): void {
+    this.onFiltersChange({
+      ...this.filters(),
+      play_status: status,
+    });
+  }
+
+  public onAdvancePlayStatus(event: {
+    game: Game;
+    nextStatus: PlayStatus;
+  }): void {
+    const { game, nextStatus } = event;
+    if (
+      this.collectionService.isPublicView() ||
+      !this.collectionService.isAuthenticated() ||
+      this.playShelfBusyIds().has(game.id)
+    ) {
+      return;
+    }
+
+    this.playShelfBusyIds.update((prev) => {
+      const next = new Set(prev);
+      next.add(game.id);
+      return next;
+    });
+
+    const clearBusy = () => {
+      this.playShelfBusyIds.update((prev) => {
+        const next = new Set(prev);
+        next.delete(game.id);
+        return next;
+      });
+    };
+
+    this.collectionService.updatePlayStatus(game.id, nextStatus).subscribe({
+      next: () => clearBusy(),
+      error: (err) => {
+        clearBusy();
+        console.error('Failed to advance play status:', err);
+      },
+    });
   }
 
   /** --- Toggle Ownership Handlers --- */

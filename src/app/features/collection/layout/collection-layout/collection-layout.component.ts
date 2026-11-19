@@ -26,6 +26,7 @@ import {
 } from '@wesdizzle/app-kit/angular';
 import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
 import { CollectionService } from '../../../../core/services/collection.service';
+import { MarketPriceScanProgress } from '../../../../core/models/collection.models';
 import { BrandingService } from '../../../../core/services/branding.service';
 import { CommandPaletteService } from '../../../../core/services/command-palette.service';
 import { ProfileModalService } from '../../../../core/services/profile-modal.service';
@@ -95,6 +96,63 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
         [mode]="collectionService.degradedMode()"
         [snapshotTimestamp]="collectionService.degradedTimestamp()"
       />
+
+      @if (activeValuationScan(); as scan) {
+        <div
+          class="global-valuation-banner"
+          role="status"
+          aria-live="polite"
+          data-testid="global-valuation-scan-banner"
+        >
+          <div class="global-val-info">
+            <span class="global-val-icon">
+              <app-icon name="coins" [size]="16" />
+            </span>
+            <span class="global-val-text">
+              {{
+                scan.statusMessage ||
+                  'Scanning live eBay prices (' +
+                    (scan.scopeLabel || 'Collection') +
+                    ')...'
+              }}
+            </span>
+            <strong class="global-val-count">
+              {{ scan.completedItems }} / {{ scan.totalItems }} ({{
+                valuationScanPct()
+              }}%)
+            </strong>
+            @if (scan.wakeLockActive) {
+              <span class="global-val-wake">
+                <app-icon name="eye" [size]="12" /> Awake
+              </span>
+            }
+          </div>
+          <div class="global-val-progress-track">
+            <div
+              class="global-val-progress-fill"
+              [style.width.%]="valuationScanPct()"
+            ></div>
+          </div>
+          <div class="global-val-actions">
+            <a
+              [routerLink]="['/collection/insights']"
+              [queryParams]="{ tab: 'value' }"
+              class="global-val-link"
+              data-testid="global-valuation-open-link"
+            >
+              View Ledger
+            </a>
+            <button
+              type="button"
+              class="global-val-cancel"
+              (click)="onCancelGlobalValuationScan()"
+              data-testid="global-valuation-cancel-btn"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      }
 
       @if (isPublicView() && publicProfile(); as pub) {
         <kit-public-banner
@@ -170,6 +228,92 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
           padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
         }
       }
+
+      .global-valuation-banner {
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        margin-bottom: var(--spacing-16);
+        padding: 0.65rem 0.9rem;
+        border-radius: var(--radius-sm, 12px);
+        background: var(--m3-surface-container);
+        border: 1px solid var(--m3-outline-variant);
+      }
+
+      .global-val-info {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.82rem;
+        color: var(--m3-on-surface);
+      }
+
+      .global-val-icon {
+        display: inline-flex;
+        color: var(--m3-primary);
+      }
+
+      .global-val-text {
+        flex: 1 1 200px;
+        min-width: 0;
+      }
+
+      .global-val-count {
+        font-feature-settings: 'tnum' on;
+      }
+
+      .global-val-wake {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--m3-primary);
+      }
+
+      .global-val-progress-track {
+        height: 6px;
+        border-radius: var(--radius-full, 999px);
+        background: var(--m3-surface-container-highest);
+        overflow: hidden;
+      }
+
+      .global-val-progress-fill {
+        height: 100%;
+        background: var(--m3-primary);
+        transition: width 0.2s ease;
+      }
+
+      .global-val-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.65rem;
+      }
+
+      .global-val-link {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--m3-primary);
+        text-decoration: none;
+      }
+
+      .global-val-link:hover {
+        text-decoration: underline;
+      }
+
+      .global-val-cancel {
+        border: 1px solid var(--kit-danger-border, rgba(248, 113, 113, 0.4));
+        background: var(--kit-danger-subtle, rgba(239, 68, 68, 0.12));
+        color: var(--kit-danger, #f87171);
+        border-radius: var(--radius-full, 999px);
+        padding: 0.2rem 0.65rem;
+        font-family: var(--font-body);
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
     `,
   ],
 })
@@ -192,6 +336,25 @@ export class CollectionLayoutComponent {
   public readonly publicProfile = this.collectionService.publicProfile;
 
   private readonly currentUrl = signal<string>(this.router.url || '');
+
+  public readonly isOnInsightsValueTab = computed<boolean>(() => {
+    const url = this.currentUrl();
+    return url.startsWith('/collection/insights') && url.includes('tab=value');
+  });
+
+  public readonly activeValuationScan =
+    computed<MarketPriceScanProgress | null>(() => {
+      if (this.collectionService.canViewMarketPrices?.() !== true) return null;
+      const p = this.collectionService.marketPriceScanProgress?.();
+      if (!p || (!p.active && !p.waitingForWake)) return null;
+      return this.isOnInsightsValueTab() ? null : p;
+    });
+
+  public readonly valuationScanPct = computed<number>(() => {
+    const p = this.collectionService.marketPriceScanProgress?.();
+    if (!p || !p.totalItems || p.totalItems <= 0) return 0;
+    return Math.min(100, Math.round((p.completedItems / p.totalItems) * 100));
+  });
 
   public readonly activeTab = computed<string>(() => {
     const cleanUrl = this.currentUrl().split('?')[0].split('#')[0];
@@ -333,6 +496,10 @@ export class CollectionLayoutComponent {
 
   toggleTheme() {
     this.themeService.toggleTheme();
+  }
+
+  onCancelGlobalValuationScan() {
+    this.collectionService.cancelCollectionValuationScan?.();
   }
 
   private applyTheme(mode: 'light' | 'dark' | 'auto') {

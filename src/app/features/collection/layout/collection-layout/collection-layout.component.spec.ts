@@ -4,7 +4,9 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { WritableSignal } from '@angular/core';
 import { CollectionRouteReuseStrategy } from '../../../../core/routing/collection-route-reuse-strategy';
+import { MarketPriceScanProgress } from '../../../../core/models/collection.models';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { CommandPaletteService } from '../../../../core/services/command-palette.service';
 import { CollectionLayoutComponent } from './collection-layout.component';
@@ -301,6 +303,64 @@ describe('CollectionLayoutComponent', () => {
       expect(button).toBeTruthy();
       button.click();
       expect(openSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('Global Valuation Scan Progress Banner', () => {
+    it('shows non-blocking scan banner outside Insights Value & Ledger and hides it on Value & Ledger', () => {
+      const cs = TestBed.inject(CollectionService);
+      cs.setAdminForTesting(true);
+      const scanSignal = (
+        cs as unknown as {
+          _marketPriceScanProgress: WritableSignal<MarketPriceScanProgress>;
+        }
+      )._marketPriceScanProgress;
+
+      scanSignal.set({
+        active: true,
+        scopeLabel: 'SNES',
+        totalItems: 20,
+        completedItems: 10,
+        cacheHits: 4,
+        fetchedCount: 6,
+        errorCount: 0,
+        rateLimited: false,
+        cancelled: false,
+        lastError: null,
+        wakeLockActive: true,
+      });
+      (
+        component as unknown as { currentUrl: WritableSignal<string> }
+      ).currentUrl.set('/collection/games');
+      fixture.detectChanges();
+
+      const banner = fixture.nativeElement.querySelector(
+        '[data-testid="global-valuation-scan-banner"]',
+      ) as HTMLElement;
+      expect(banner).toBeTruthy();
+      expect(banner.textContent).toContain('SNES');
+      expect(banner.textContent).toContain('10 / 20 (50%)');
+      expect(banner.textContent).toContain('Awake');
+
+      const cancelSpy = vi
+        .spyOn(cs, 'cancelCollectionValuationScan')
+        .mockImplementation(() => {});
+      const cancelBtn = fixture.nativeElement.querySelector(
+        '[data-testid="global-valuation-cancel-btn"]',
+      ) as HTMLButtonElement;
+      cancelBtn.click();
+      expect(cancelSpy).toHaveBeenCalled();
+
+      // Hidden when already viewing Insights Value & Ledger tab
+      (
+        component as unknown as { currentUrl: WritableSignal<string> }
+      ).currentUrl.set('/collection/insights?tab=value');
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="global-valuation-scan-banner"]',
+        ),
+      ).toBeNull();
     });
   });
 });

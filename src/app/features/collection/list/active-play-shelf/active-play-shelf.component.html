@@ -1,0 +1,158 @@
+<section
+  class="active-play-shelf"
+  data-testid="active-play-shelf"
+  aria-label="Now Playing and Up Next shelf"
+>
+  <div class="shelf-header-bar">
+    <button
+      type="button"
+      class="shelf-toggle-btn"
+      [attr.aria-expanded]="!collapsed()"
+      (click)="toggleCollapsed()"
+      data-testid="active-play-shelf-toggle"
+    >
+      <span class="shelf-title-icon">
+        <app-icon name="play" [size]="16" />
+      </span>
+      <span class="shelf-title-text">Now Playing &amp; Up Next</span>
+      @if (playingGames().length > 0) {
+        <span class="shelf-count-pill playing">
+          {{ playingGames().length }} Playing
+        </span>
+      }
+      @if (queuedGames().length > 0) {
+        <span class="shelf-count-pill queued">
+          {{ queuedGames().length }} Queued
+        </span>
+      }
+      <span class="shelf-chevron" [class.collapsed]="collapsed()">
+        <app-icon name="chevron-down" [size]="16" />
+      </span>
+    </button>
+
+    <div class="shelf-header-actions">
+      @if (playingGames().length > 0) {
+        <button
+          type="button"
+          class="shelf-filter-btn"
+          (click)="onFilterClick($event, PlayStatus.Playing)"
+          data-testid="shelf-filter-playing-btn"
+        >
+          Filter Playing
+        </button>
+      }
+      @if (queuedGames().length > 0) {
+        <button
+          type="button"
+          class="shelf-filter-btn"
+          (click)="onFilterClick($event, PlayStatus.Queued)"
+          data-testid="shelf-filter-queued-btn"
+        >
+          Filter Queue
+        </button>
+      }
+    </div>
+  </div>
+
+  @if (!collapsed()) {
+    <div class="shelf-body" data-testid="active-play-shelf-body">
+      @if (visiblePlayingGames().length > 0) {
+        <div class="shelf-group">
+          <div class="shelf-group-label">Currently Playing</div>
+          <div class="shelf-cards-row">
+            @for (g of visiblePlayingGames(); track g.id) {
+              <div class="shelf-card" data-testid="active-play-card">
+                <a
+                  [routerLink]="['/game', g.id]"
+                  class="shelf-card-link"
+                  [title]="g.title"
+                >
+                  @if (g.image_url) {
+                    <img
+                      [src]="g.image_url"
+                      [alt]="g.title"
+                      class="shelf-card-thumb"
+                      loading="lazy"
+                      referrerpolicy="no-referrer"
+                    />
+                  } @else {
+                    <span class="shelf-card-thumb-fallback">
+                      <app-icon name="gamepad" [size]="18" />
+                    </span>
+                  }
+                  <div class="shelf-card-meta">
+                    <span class="shelf-card-title">{{ g.title }}</span>
+                    <span class="shelf-card-platform">{{
+                      g.display_name || g.platform
+                    }}</span>
+                  </div>
+                </a>
+
+                <button
+                  type="button"
+                  class="shelf-advance-btn played"
+                  [disabled]="busyGameIds().has(g.id)"
+                  (click)="onAdvanceClick($event, g, PlayStatus.Played)"
+                  data-testid="advance-played-btn"
+                  title="Mark as Played"
+                >
+                  <app-icon name="check" [size]="13" />
+                  <span>Mark Played</span>
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      @if (visibleQueuedGames().length > 0) {
+        <div class="shelf-group">
+          <div class="shelf-group-label">Up Next in Queue</div>
+          <div class="shelf-cards-row">
+            @for (g of visibleQueuedGames(); track g.id) {
+              <div class="shelf-card" data-testid="queued-play-card">
+                <a
+                  [routerLink]="['/game', g.id]"
+                  class="shelf-card-link"
+                  [title]="g.title"
+                >
+                  @if (g.image_url) {
+                    <img
+                      [src]="g.image_url"
+                      [alt]="g.title"
+                      class="shelf-card-thumb"
+                      loading="lazy"
+                      referrerpolicy="no-referrer"
+                    />
+                  } @else {
+                    <span class="shelf-card-thumb-fallback">
+                      <app-icon name="gamepad" [size]="18" />
+                    </span>
+                  }
+                  <div class="shelf-card-meta">
+                    <span class="shelf-card-title">{{ g.title }}</span>
+                    <span class="shelf-card-platform">{{
+                      g.display_name || g.platform
+                    }}</span>
+                  </div>
+                </a>
+
+                <button
+                  type="button"
+                  class="shelf-advance-btn playing"
+                  [disabled]="busyGameIds().has(g.id)"
+                  (click)="onAdvanceClick($event, g, PlayStatus.Playing)"
+                  data-testid="advance-playing-btn"
+                  title="Move to Currently Playing"
+                >
+                  <app-icon name="play" [size]="13" />
+                  <span>Start Playing</span>
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+</section>

@@ -3282,4 +3282,84 @@ describe('CollectionListComponent', () => {
     expect(component.filters().line).toBe('Skylanders');
     expect(component.filteredToys().map((t) => t.id)).toEqual(['toy-spyro']);
   });
+
+  it('shows collapsible Now Playing & Up Next shelf on Games Owned view and advances play status reactively', async () => {
+    const cs = TestBed.inject(CollectionService);
+    const httpMock = TestBed.inject(HttpTestingController);
+    localStorage.removeItem('collection_active_play_shelf_collapsed');
+
+    cs.setAdminForTesting(true);
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'playing-game',
+        game_id: 'playing-game',
+        title: 'Metroid Prime',
+        platform: 'GameCube',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 2,
+        backup_status: 1,
+      },
+      {
+        stable_id: 2,
+        id: 'queued-game',
+        game_id: 'queued-game',
+        title: 'Paper Mario',
+        platform: 'GameCube',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 3,
+        backup_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    await initPromise;
+    httpMock.expectOne('/api/journal/entries').flush({
+      authorized: true,
+      entries: [],
+    });
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="active-play-shelf"]')).toBeTruthy();
+    expect(component.activePlayingGames().map((g) => g.id)).toEqual([
+      'playing-game',
+    ]);
+    expect(component.activeQueuedGames().map((g) => g.id)).toEqual([
+      'queued-game',
+    ]);
+
+    // Advance playing -> played
+    const markPlayedBtn = el.querySelector(
+      '[data-testid="advance-played-btn"]',
+    ) as HTMLButtonElement;
+    markPlayedBtn.click();
+    const toggleReq = httpMock.expectOne('/api/collection/toggle');
+    expect(toggleReq.request.body).toEqual({
+      id: 'playing-game',
+      type: 'game',
+      status: 1,
+      field: 'play_status',
+    });
+    toggleReq.flush({ success: true });
+    fixture.detectChanges();
+
+    expect(component.activePlayingGames()).toEqual([]);
+
+    // Clicking Filter Queue filters the grid to Queued games and hides shelf (since play_status !== 'all')
+    const filterQueueBtn = el.querySelector(
+      '[data-testid="shelf-filter-queued-btn"]',
+    ) as HTMLButtonElement;
+    filterQueueBtn.click();
+    fixture.detectChanges();
+
+    expect(component.filters().play_status).toBe(3);
+    expect(component.showActivePlayShelf()).toBe(false);
+    expect(el.querySelector('[data-testid="active-play-shelf"]')).toBeNull();
+  });
 });
