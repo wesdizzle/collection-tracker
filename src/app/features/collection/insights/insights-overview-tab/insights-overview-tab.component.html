@@ -1,0 +1,437 @@
+<section class="summary-cards-grid" data-testid="insights-overview-kpi-grid">
+  <button
+    type="button"
+    class="stat-card clickable-card kit-stagger-item"
+    [style.--stagger-index]="0"
+    (click)="selectTab.emit('catalog')"
+    data-testid="kpi-library-card"
+    title="View platform and toy completion breakdown"
+  >
+    <div class="stat-card-header">
+      <span class="stat-label">Library</span>
+      <span class="card-icon-badge secondary-badge">
+        <app-icon name="gamepad" [size]="20" />
+      </span>
+    </div>
+    <div class="stat-main-value">{{ animatedTotalOwnedCount() }}</div>
+    <div class="stat-subtext">
+      <span>{{ ownedGamesCount() }} Games</span>
+      <span> • {{ ownedToysCount() }} Toys</span>
+      @if (totalSeekingCount() > 0) {
+        <span> • {{ totalSeekingCount() }} Seeking</span>
+      }
+    </div>
+  </button>
+
+  @if (canShowProvenance()) {
+    <button
+      type="button"
+      class="stat-card clickable-card kit-stagger-item"
+      [style.--stagger-index]="1"
+      (click)="selectTab.emit('value')"
+      data-testid="kpi-portfolio-card"
+      title="Open Value & Ledger"
+    >
+      <div class="stat-card-header">
+        <span class="stat-label">Portfolio</span>
+        <span class="card-icon-badge primary-badge">
+          <app-icon name="coins" [size]="20" />
+        </span>
+      </div>
+      @if (
+        canViewMarketPrices() && allOwnedValuationSummary().pricedCount > 0
+      ) {
+        <div class="stat-main-value">
+          {{ formatCents(allOwnedValuationSummary().totalEstimatedCents) }}
+        </div>
+        <div class="stat-subtext">
+          <span
+            >Spend
+            {{
+              formatDollars(allOwnedJournalSummary().totalTrackedSpendDollars)
+            }}</span
+          >
+          @if (allOwnedValuationSummary().matchedCount > 0) {
+            <span>
+              •
+              {{
+                formatSignedCents(
+                  allOwnedValuationSummary().unrealizedDeltaCents
+                )
+              }}</span
+            >
+          }
+        </div>
+      } @else {
+        <div class="stat-main-value">
+          {{ formatDollars(allOwnedJournalSummary().totalTrackedSpendDollars) }}
+        </div>
+        <div class="stat-subtext">
+          <span
+            >{{ allOwnedJournalSummary().recordedCount }} /
+            {{ allOwnedJournalSummary().totalOwnedCount }} provenance
+            recorded</span
+          >
+        </div>
+      }
+    </button>
+  }
+
+  <button
+    type="button"
+    class="stat-card clickable-card kit-stagger-item"
+    [style.--stagger-index]="2"
+    (click)="selectTab.emit('catalog')"
+    data-testid="kpi-play-card"
+    title="View full play status distribution"
+  >
+    <div class="stat-card-header">
+      <span class="stat-label">Play Progress</span>
+      <span class="card-icon-badge primary-badge">
+        <app-icon name="play" [size]="20" />
+      </span>
+    </div>
+    <div class="stat-main-value">{{ animatedPlayedPct() }}%</div>
+    <div class="stat-subtext">
+      <span>{{ playStatusStats().played }} Played</span>
+      @if (playStatusStats().playing > 0) {
+        <span> • {{ playStatusStats().playing }} Playing</span>
+      }
+      @if (playStatusStats().queued > 0) {
+        <span> • {{ playStatusStats().queued }} Queued</span>
+      }
+    </div>
+  </button>
+
+  <a
+    [routerLink]="['/collection/backups']"
+    class="stat-card clickable-card kit-stagger-item"
+    [style.--stagger-index]="3"
+    data-testid="kpi-backup-card"
+    title="Open ROM Preservation & Local Backup Scanner"
+  >
+    <div class="stat-card-header">
+      <span class="stat-label">Backup Health</span>
+      <span
+        class="card-icon-badge"
+        [class.success-badge]="backupRatePct() >= 80"
+        [class.warning-badge]="backupRatePct() < 80"
+      >
+        <app-icon name="verified-badge" [size]="20" />
+      </span>
+    </div>
+    <div class="stat-main-value">{{ animatedBackupRatePct() }}%</div>
+    <div class="stat-subtext">
+      <span
+        >{{ backedUpCount() }} / {{ physicalOwnedCount() }} physical
+        releases</span
+      >
+    </div>
+  </a>
+
+  <a
+    [routerLink]="['/collection/games']"
+    [queryParams]="{
+      reset: 1,
+      ownership: 1,
+      condition: looseCount() > 0 ? 'loose' : 'cib',
+    }"
+    class="stat-card clickable-card kit-stagger-item"
+    [style.--stagger-index]="4"
+    data-testid="kpi-completeness-card"
+    [title]="
+      looseCount() > 0
+        ? 'Filter collection to loose games'
+        : 'Filter collection to CIB games'
+    "
+  >
+    <div class="stat-card-header">
+      <span class="stat-label">Completeness</span>
+      <span class="card-icon-badge tertiary-badge">
+        <app-icon name="physical-box" [size]="20" />
+      </span>
+    </div>
+    <div class="stat-main-value">{{ animatedCibPct() }}% CIB</div>
+    <div class="stat-subtext">
+      <span>{{ cibCount() }} CIB</span>
+      @if (boxedOnlyCount() > 0) {
+        <span> • {{ boxedOnlyCount() }} Boxed</span>
+      }
+      @if (looseCount() > 0) {
+        <span> • {{ looseCount() }} Loose</span>
+      }
+    </div>
+  </a>
+</section>
+
+<!-- Actionable Audit Strip -->
+@if (hasAuditActions()) {
+  <kit-section-card
+    class="audit-strip-panel"
+    title="Attention Needed"
+    subtitle="Actionable gaps across backups, provenance, packaging, and market comps"
+    [compact]="true"
+    testId="insights-audit-strip"
+  >
+    <div class="audit-cards-grid">
+      @if (missingBackupsCount() > 0) {
+        <div
+          class="audit-card warning-accent"
+          data-testid="audit-missing-backups"
+        >
+          <div class="audit-card-main">
+            <span class="audit-icon warning">
+              <app-icon name="missing-dump" [size]="18" />
+            </span>
+            <div class="audit-copy">
+              <strong>{{ missingBackupsCount() }} missing ROM dumps</strong>
+              <span>Physical releases without verified archival backups</span>
+            </div>
+          </div>
+          <div class="audit-actions">
+            <a
+              [routerLink]="['/collection/backups']"
+              class="audit-action-btn primary"
+            >
+              Open Scanner
+            </a>
+            <a
+              [routerLink]="['/collection/games']"
+              [queryParams]="{ reset: 1, ownership: 1, backup_status: 0 }"
+              class="audit-action-btn"
+            >
+              Filter Games
+            </a>
+          </div>
+        </div>
+      }
+
+      @if (canShowProvenance() && allOwnedJournalSummary().missingCount > 0) {
+        <div class="audit-card" data-testid="audit-missing-provenance">
+          <div class="audit-card-main">
+            <span class="audit-icon">
+              <app-icon name="book-open" [size]="18" />
+            </span>
+            <div class="audit-copy">
+              <strong
+                >{{ allOwnedJournalSummary().missingCount }} missing
+                provenance</strong
+              >
+              <span>Owned items without purchase date, price, or source</span>
+            </div>
+          </div>
+          <div class="audit-actions">
+            <a
+              [routerLink]="['/collection/games']"
+              [queryParams]="{
+                reset: 1,
+                ownership: 1,
+                provenance_status: 'missing',
+              }"
+              class="audit-action-btn"
+            >
+              Review Items
+            </a>
+          </div>
+        </div>
+      }
+
+      @if (looseCount() > 0) {
+        <div class="audit-card" data-testid="audit-loose-games">
+          <div class="audit-card-main">
+            <span class="audit-icon">
+              <app-icon name="alert-triangle" [size]="18" />
+            </span>
+            <div class="audit-copy">
+              <strong>{{ looseCount() }} loose games</strong>
+              <span>Owned titles missing original box or case</span>
+            </div>
+          </div>
+          <div class="audit-actions">
+            <a
+              [routerLink]="['/collection/games']"
+              [queryParams]="{
+                reset: 1,
+                ownership: 1,
+                condition: 'loose',
+              }"
+              class="audit-action-btn"
+            >
+              View Loose
+            </a>
+          </div>
+        </div>
+      }
+
+      @if (unpricedOwnedCount() > 0) {
+        <div class="audit-card" data-testid="audit-unpriced-comps">
+          <div class="audit-card-main">
+            <span class="audit-icon">
+              <app-icon name="zap" [size]="18" />
+            </span>
+            <div class="audit-copy">
+              <strong>{{ unpricedOwnedCount() }} unpriced live comps</strong>
+              <span>Owned items without a fresh &lt;6h eBay snapshot</span>
+            </div>
+          </div>
+          <div class="audit-actions">
+            <button
+              type="button"
+              class="audit-action-btn primary"
+              (click)="selectTab.emit('value')"
+            >
+              Scan in Ledger
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  </kit-section-card>
+}
+
+<!-- Highlights Row -->
+<div class="insights-content-grid">
+  <kit-section-card
+    title="Top Owned Platforms"
+    subtitle="Most collected hardware systems relative to catalog size"
+  >
+    <button
+      cardActions
+      type="button"
+      class="inline-link-btn"
+      (click)="selectTab.emit('catalog')"
+    >
+      All platforms &amp; toys →
+    </button>
+
+    <div class="platform-list">
+      @for (p of topOwnedPlatformsPreview(); track p.id) {
+        <a
+          [routerLink]="['/collection/games']"
+          [queryParams]="{ reset: 1, ownership: 1, platform_id: p.id }"
+          class="platform-item clickable state-layer"
+          title="Filter collection to {{ p.name }}"
+        >
+          <div class="platform-item-header">
+            <div class="platform-name-group">
+              @if (p.logo) {
+                <img
+                  [src]="p.logo"
+                  [alt]="p.name"
+                  class="platform-thumb-logo"
+                />
+              }
+              <span class="platform-item-name">{{ p.name }}</span>
+            </div>
+            <div class="platform-counts">
+              <span class="owned-fraction">
+                <strong>{{ p.ownedCount }}</strong> / {{ p.catalogCount }}
+              </span>
+              <span class="completion-percentage"
+                >({{ p.completionPct }}%)</span
+              >
+            </div>
+          </div>
+          <div class="platform-progress-track">
+            <div
+              class="platform-progress-fill"
+              [style.width.%]="p.completionPct"
+            ></div>
+          </div>
+        </a>
+      }
+      @if (topOwnedPlatformsPreview().length === 0) {
+        <div class="empty-state">No owned platforms recorded yet</div>
+      }
+    </div>
+  </kit-section-card>
+
+  <kit-section-card
+    title="Packaging &amp; Play Snapshot"
+    subtitle="Completeness distribution and playthrough momentum"
+  >
+    <button
+      cardActions
+      type="button"
+      class="inline-link-btn"
+      (click)="selectTab.emit('catalog')"
+    >
+      Full stats →
+    </button>
+
+    <div class="insights-meter-wrap">
+      <kit-segmented-meter
+        [segments]="conditionMeterSegments()"
+        [heightPx]="12"
+        ariaLabel="Packaging condition snapshot"
+      />
+    </div>
+
+    <div class="condition-legend compact-legend">
+      <a
+        class="legend-item clickable-row"
+        [routerLink]="['/collection/games']"
+        [queryParams]="{ reset: 1, ownership: 1, condition: 'cib' }"
+      >
+        <span class="legend-dot cib-dot"></span>
+        <span class="legend-label">Complete in Box (CIB)</span>
+        <span class="legend-count">{{ cibCount() }} ({{ cibPct() }}%)</span>
+      </a>
+      <a
+        class="legend-item clickable-row"
+        [routerLink]="['/collection/games']"
+        [queryParams]="{ reset: 1, ownership: 1, condition: 'boxed_only' }"
+      >
+        <span class="legend-dot boxed-dot"></span>
+        <span class="legend-label">Game + Box / Case</span>
+        <span class="legend-count"
+          >{{ boxedOnlyCount() }} ({{ boxedPct() }}%)</span
+        >
+      </a>
+      <a
+        class="legend-item clickable-row"
+        [routerLink]="['/collection/games']"
+        [queryParams]="{ reset: 1, ownership: 1, condition: 'loose' }"
+      >
+        <span class="legend-dot loose-dot"></span>
+        <span class="legend-label">Loose Disc / Cart</span>
+        <span class="legend-count">{{ looseCount() }} ({{ loosePct() }}%)</span>
+      </a>
+    </div>
+
+    <div class="play-status-grid compact-play-grid">
+      <a
+        class="play-status-chip played-chip clickable"
+        [routerLink]="['/collection/games']"
+        [queryParams]="{ reset: 1, ownership: 1, play_status: 1 }"
+      >
+        <span class="chip-number">{{ playStatusStats().played }}</span>
+        <span class="chip-label">Played</span>
+      </a>
+      <a
+        class="play-status-chip playing-chip clickable"
+        [routerLink]="['/collection/games']"
+        [queryParams]="{ reset: 1, ownership: 1, play_status: 2 }"
+      >
+        <span class="chip-number">{{ playStatusStats().playing }}</span>
+        <span class="chip-label">Playing</span>
+      </a>
+      <a
+        class="play-status-chip queued-chip clickable"
+        [routerLink]="['/collection/games']"
+        [queryParams]="{ reset: 1, ownership: 1, play_status: 3 }"
+      >
+        <span class="chip-number">{{ playStatusStats().queued }}</span>
+        <span class="chip-label">Queued</span>
+      </a>
+      <a
+        class="play-status-chip unplayed-chip clickable"
+        [routerLink]="['/collection/games']"
+        [queryParams]="{ reset: 1, ownership: 1, play_status: 0 }"
+      >
+        <span class="chip-number">{{ playStatusStats().unplayed }}</span>
+        <span class="chip-label">Unplayed</span>
+      </a>
+    </div>
+  </kit-section-card>
+</div>

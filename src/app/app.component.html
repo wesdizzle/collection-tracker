@@ -2,19 +2,23 @@
   <router-outlet></router-outlet>
 </main>
 
-<app-command-palette></app-command-palette>
+@defer (when paletteOpen()) {
+  <app-command-palette></app-command-palette>
+}
 
-@if (dialogState().visible) {
-  <app-confirmation-dialog
-    [title]="dialogState().title"
-    [message]="dialogState().message"
-    [type]="dialogState().type"
-    [inputValue]="dialogState().inputValue"
-    [options]="dialogState().options"
-    (confirm)="onConfirm()"
-    (confirmWithInput)="onConfirm($event)"
-    (cancel)="onCancel()"
-    (window:keydown.escape)="onCancel()"
-  >
-  </app-confirmation-dialog>
+@defer (when dialogState().visible) {
+  @if (dialogState().visible) {
+    <app-confirmation-dialog
+      [title]="dialogState().title"
+      [message]="dialogState().message"
+      [type]="dialogState().type"
+      [inputValue]="dialogState().inputValue"
+      [options]="dialogState().options"
+      (confirm)="onConfirm()"
+      (confirmWithInput)="onConfirm($event)"
+      (cancel)="onCancel()"
+      (window:keydown.escape)="onCancel()"
+    >
+    </app-confirmation-dialog>
+  }
 }

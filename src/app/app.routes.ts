@@ -1,7 +1,7 @@
 import { Routes, Router } from '@angular/router';
 import { inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { CollectionService } from './core/services/collection.service';
+import { AuthSessionService } from './core/services/auth-session.service';
 
 export const routes: Routes = [
   {
@@ -9,10 +9,10 @@ export const routes: Routes = [
     pathMatch: 'full',
     canActivate: [
       async () => {
-        const cs = inject(CollectionService);
-        cs.exitPublicView();
+        const auth = inject(AuthSessionService);
+        auth.exitPublicView();
         const router = inject(Router);
-        const user = await cs.ensureAuthLoaded();
+        const user = await auth.ensureAuthLoaded();
         if (user) {
           return router.createUrlTree(['/collection/games']);
         }
@@ -63,12 +63,14 @@ export const routes: Routes = [
         path: 'u/:username',
         canActivate: [
           async (route) => {
-            const cs = inject(CollectionService);
+            const auth = inject(AuthSessionService);
             const username = route.paramMap.get('username');
             if (!username) return false;
             try {
-              const profile = await firstValueFrom(cs.getPublicUser(username));
-              cs.setPublicView(true, profile);
+              const profile = await firstValueFrom(
+                auth.getPublicUser(username),
+              );
+              auth.setPublicView(true, profile);
               return true;
             } catch {
               return inject(Router).createUrlTree(['/']);
@@ -107,12 +109,12 @@ export const routes: Routes = [
         path: 'collection',
         canActivate: [
           async () => {
-            const cs = inject(CollectionService);
-            cs.exitPublicView();
+            const auth = inject(AuthSessionService);
+            auth.exitPublicView();
             const router = inject(Router);
-            const user = await cs.ensureAuthLoaded();
+            const user = await auth.ensureAuthLoaded();
             if (!user) {
-              if (cs.isAutoSigningIn()) {
+              if (auth.isAutoSigningIn()) {
                 return false;
               }
               return router.createUrlTree(['/']);
@@ -166,11 +168,11 @@ export const routes: Routes = [
         title: 'Admin Center',
         canActivate: [
           async () => {
-            const cs = inject(CollectionService);
-            cs.exitPublicView();
+            const auth = inject(AuthSessionService);
+            auth.exitPublicView();
             const router = inject(Router);
-            await cs.ensureAuthLoaded();
-            if (!cs.isAdmin()) {
+            await auth.ensureAuthLoaded();
+            if (!auth.isAdmin()) {
               return router.createUrlTree(['/collection/games']);
             }
             return true;
@@ -194,7 +196,7 @@ export const routes: Routes = [
             if (type !== 'game' && type !== 'toy') {
               return inject(Router).createUrlTree(['/']);
             }
-            await inject(CollectionService).ensureAuthLoaded();
+            await inject(AuthSessionService).ensureAuthLoaded();
             return true;
           },
         ],

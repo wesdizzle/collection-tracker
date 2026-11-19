@@ -7,14 +7,10 @@ import {
   OnInit,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   KitMeterSegment,
-  KitSectionCardComponent,
-  KitSegmentedMeterComponent,
-  KitSelectComponent,
   KitSelectGroup,
   KitSelectOption,
   KitTabItem,
@@ -42,49 +38,40 @@ import {
   isPhysicalReleaseGame,
 } from '../../../core/models/insights-analytics';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
-import { CollectionGrowthChartComponent } from './collection-growth-chart/collection-growth-chart.component';
-import { MarketValuationPanelComponent } from './market-valuation-panel/market-valuation-panel.component';
+import { InsightsOverviewTabComponent } from './insights-overview-tab/insights-overview-tab.component';
+import { InsightsLedgerTabComponent } from './insights-ledger-tab/insights-ledger-tab.component';
+import { InsightsCatalogTabComponent } from './insights-catalog-tab/insights-catalog-tab.component';
+import {
+  DecadeStat,
+  InsightsSubTab,
+  PlatformCompletionStat,
+  PlatformSortMode,
+  SeriesStat,
+  buildMerchantQueryParams,
+  buildProvenanceCoverageQueryParams,
+  formatInsightsCents,
+  formatInsightsDollars,
+  formatInsightsSignedCents,
+  formatInsightsWholeDollars,
+} from './insights-formatters';
 
-export type InsightsSubTab = 'overview' | 'value' | 'catalog';
-export type PlatformSortMode = 'owned' | 'completion' | 'value' | 'name';
-
-export interface PlatformCompletionStat {
-  id: number;
-  name: string;
-  brand: string;
-  logo?: string | null;
-  ownedCount: number;
-  catalogCount: number;
-  completionPct: number;
-  estimatedValueDollars?: number;
-  pricedCount?: number;
-}
-
-export interface SeriesStat {
-  name: string;
-  ownedCount: number;
-}
-
-export interface DecadeStat {
-  decade: Exclude<ReleaseDecadeFilter, 'all'>;
-  eraName: string;
-  count: number;
-  pct: number;
-}
+export type {
+  DecadeStat,
+  InsightsSubTab,
+  PlatformCompletionStat,
+  PlatformSortMode,
+  SeriesStat,
+};
 
 @Component({
   selector: 'app-collection-insights',
   standalone: true,
   imports: [
-    CommonModule,
-    RouterModule,
     IconComponent,
     KitTabsComponent,
-    KitSectionCardComponent,
-    KitSegmentedMeterComponent,
-    KitSelectComponent,
-    CollectionGrowthChartComponent,
-    MarketValuationPanelComponent,
+    InsightsOverviewTabComponent,
+    InsightsLedgerTabComponent,
+    InsightsCatalogTabComponent,
   ],
   templateUrl: './collection-insights.component.html',
   styleUrl: './collection-insights.component.css',
@@ -821,68 +808,35 @@ export class CollectionInsightsComponent implements OnInit {
   public getProvenanceCoverageQueryParams(
     js: ScopedJournalSummary,
   ): Record<string, string | number> {
-    const params: Record<string, string | number> = {
-      reset: 1,
-      ownership: 1,
-      provenance_status:
-        js.recordedCount < js.totalOwnedCount ? 'missing' : 'recorded',
-    };
-    const pid = this.selectedLedgerPlatformId();
-    if (pid !== null) {
-      params['platform_id'] = pid;
-    }
-    return params;
+    return buildProvenanceCoverageQueryParams(
+      js,
+      this.selectedLedgerPlatformId(),
+    );
   }
 
   public getMerchantQueryParams(
     merchantName: string,
   ): Record<string, string | number> {
-    const params: Record<string, string | number> = {
-      reset: 1,
-      ownership: 1,
-      provenance_status: 'all',
-      provenance_source: merchantName,
-      provenance_exact: 1,
-    };
-    const pid = this.selectedLedgerPlatformId();
-    if (pid !== null) {
-      params['platform_id'] = pid;
-    }
-    return params;
+    return buildMerchantQueryParams(
+      merchantName,
+      this.selectedLedgerPlatformId(),
+    );
   }
 
   public formatDollars(dollars: number | null | undefined): string {
-    if (dollars === null || dollars === undefined) return '$0.00';
-    return dollars.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+    return formatInsightsDollars(dollars);
   }
 
   public formatWholeDollars(dollars: number | null | undefined): string {
-    if (dollars === null || dollars === undefined) return '$0';
-    return dollars.toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      maximumFractionDigits: 0,
-    });
+    return formatInsightsWholeDollars(dollars);
   }
 
   public formatCents(cents: number | null | undefined): string {
-    if (cents === null || cents === undefined || !Number.isFinite(cents)) {
-      return '$0.00';
-    }
-    return this.formatDollars(cents / 100);
+    return formatInsightsCents(cents);
   }
 
   public formatSignedCents(cents: number | null | undefined): string {
-    if (cents === null || cents === undefined || !Number.isFinite(cents)) {
-      return '$0.00';
-    }
-    const abs = this.formatCents(Math.abs(cents));
-    return cents >= 0 ? `+${abs}` : `-${abs}`;
+    return formatInsightsSignedCents(cents);
   }
 
   /** --- Animated KPI Display Signals & Segmented Meter Models --- */

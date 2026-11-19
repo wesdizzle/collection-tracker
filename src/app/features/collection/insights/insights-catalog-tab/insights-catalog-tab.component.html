@@ -1,0 +1,419 @@
+<div class="insights-content-grid">
+  <!-- Left Column: Composition, Play Status, Era, Franchises -->
+  <div class="insights-column">
+    <!-- Packaging Condition Breakdown -->
+    <kit-section-card
+      title="Packaging Condition Breakdown"
+      subtitle="Completeness distribution across owned games"
+    >
+      <div class="insights-meter-wrap">
+        <kit-segmented-meter
+          [segments]="conditionMeterSegments()"
+          [heightPx]="14"
+          ariaLabel="Packaging condition breakdown"
+        />
+      </div>
+
+      <div class="condition-legend">
+        <a
+          class="legend-item clickable-row"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{ reset: 1, ownership: 1, condition: 'cib' }"
+          data-testid="insights-condition-link"
+        >
+          <span class="legend-dot cib-dot"></span>
+          <span class="legend-label">Complete in Box (CIB)</span>
+          <span class="legend-count">{{ cibCount() }} ({{ cibPct() }}%)</span>
+        </a>
+        <a
+          class="legend-item clickable-row"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{
+            reset: 1,
+            ownership: 1,
+            condition: 'boxed_only',
+          }"
+          data-testid="insights-condition-link"
+        >
+          <span class="legend-dot boxed-dot"></span>
+          <span class="legend-label">Game + Box / Case (No Manual)</span>
+          <span class="legend-count"
+            >{{ boxedOnlyCount() }} ({{ boxedPct() }}%)</span
+          >
+        </a>
+        <a
+          class="legend-item clickable-row"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{ reset: 1, ownership: 1, condition: 'loose' }"
+          data-testid="insights-condition-link"
+        >
+          <span class="legend-dot loose-dot"></span>
+          <span class="legend-label">Loose Disc / Cart</span>
+          <span class="legend-count"
+            >{{ looseCount() }} ({{ loosePct() }}%)</span
+          >
+        </a>
+      </div>
+    </kit-section-card>
+
+    <!-- Play Status Distribution (All 6 Statuses) -->
+    <kit-section-card
+      title="Play Status Distribution"
+      [subtitle]="
+        isPublicView()
+          ? 'Complete play journey across this library'
+          : 'Complete play journey across your owned library'
+      "
+    >
+      <span cardActions class="rate-pill">
+        {{ playStatusStats().playedPct }}% Finished
+      </span>
+
+      <div class="play-status-grid six-status-grid">
+        <a
+          class="play-status-chip played-chip clickable"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{ reset: 1, ownership: 1, play_status: 1 }"
+          data-testid="insights-play-status-link"
+          title="Filter to Played games"
+        >
+          <span class="chip-number">{{ playStatusStats().played }}</span>
+          <span class="chip-label">Played</span>
+        </a>
+        <a
+          class="play-status-chip playing-chip clickable"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{ reset: 1, ownership: 1, play_status: 2 }"
+          data-testid="insights-play-status-link"
+          title="Filter to Currently Playing games"
+        >
+          <span class="chip-number">{{ playStatusStats().playing }}</span>
+          <span class="chip-label">Playing</span>
+        </a>
+        <a
+          class="play-status-chip queued-chip clickable"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{ reset: 1, ownership: 1, play_status: 3 }"
+          data-testid="insights-play-status-link"
+          title="Filter to Queued games"
+        >
+          <span class="chip-number">{{ playStatusStats().queued }}</span>
+          <span class="chip-label">Queued</span>
+        </a>
+        <a
+          class="play-status-chip paused-chip clickable"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{ reset: 1, ownership: 1, play_status: 4 }"
+          data-testid="insights-play-status-link"
+          title="Filter to Paused games"
+        >
+          <span class="chip-number">{{ playStatusStats().paused }}</span>
+          <span class="chip-label">Paused</span>
+        </a>
+        <a
+          class="play-status-chip dropped-chip clickable"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{ reset: 1, ownership: 1, play_status: 5 }"
+          data-testid="insights-play-status-link"
+          title="Filter to Dropped games"
+        >
+          <span class="chip-number">{{ playStatusStats().dropped }}</span>
+          <span class="chip-label">Dropped</span>
+        </a>
+        <a
+          class="play-status-chip unplayed-chip clickable"
+          [routerLink]="gamesTabRoute()"
+          [queryParams]="{ reset: 1, ownership: 1, play_status: 0 }"
+          data-testid="insights-play-status-link"
+          title="Filter to Unplayed games"
+        >
+          <span class="chip-number">{{ playStatusStats().unplayed }}</span>
+          <span class="chip-label">Unplayed</span>
+        </a>
+      </div>
+    </kit-section-card>
+
+    <!-- Release Era & Decade Distribution -->
+    <kit-section-card
+      title="Era &amp; Release Decade Distribution"
+      subtitle="Historical timeline of owned games by release era"
+    >
+      <div class="decade-histogram">
+        @for (d of decadeDistribution(); track d.decade) {
+          <a
+            class="decade-row clickable-row kit-stagger-item"
+            [routerLink]="gamesTabRoute()"
+            [queryParams]="{
+              reset: 1,
+              ownership: 1,
+              release_decade: d.decade,
+            }"
+            data-testid="insights-decade-link"
+            [style.--stagger-index]="$index < 12 ? $index : 12"
+            [title]="'Filter collection to ' + d.eraName"
+          >
+            <div class="decade-info">
+              <span class="decade-name">{{ d.eraName }}</span>
+              <span class="decade-meta">
+                <strong>{{ d.count }}</strong> games ({{ d.pct }}%)
+              </span>
+            </div>
+            <div class="decade-bar-track">
+              <div class="decade-bar-fill" [style.width.%]="d.pct"></div>
+            </div>
+          </a>
+        }
+      </div>
+    </kit-section-card>
+
+    <!-- Franchise Representation -->
+    <kit-section-card
+      title="Top Franchises &amp; Series"
+      subtitle="Highest represented series in your library"
+    >
+      <div cardActions class="card-actions-slot">
+        @if (allSeriesCount() > 8) {
+          <button
+            type="button"
+            class="inline-link-btn"
+            (click)="toggleShowAllSeries.emit()"
+          >
+            {{
+              showAllSeries()
+                ? 'Show top 8'
+                : 'Show all (' + allSeriesCount() + ')'
+            }}
+          </button>
+        }
+      </div>
+
+      <div class="series-list">
+        @for (s of topSeries(); track s.name) {
+          <a
+            class="series-row clickable-row"
+            [routerLink]="gamesTabRoute()"
+            [queryParams]="{
+              reset: 1,
+              ownership: 1,
+              series: s.name,
+              series_exact: 1,
+            }"
+            data-testid="insights-series-link"
+            [title]="'Filter collection to series: ' + s.name"
+          >
+            <span class="series-name">{{ s.name }}</span>
+            <div class="series-meta">
+              <span class="series-badge">{{ s.ownedCount }} games</span>
+            </div>
+          </a>
+        }
+        @if (topSeries().length === 0) {
+          <div class="empty-state">No franchise data available</div>
+        }
+      </div>
+    </kit-section-card>
+  </div>
+
+  <!-- Right Column: Platform Completion + Toy Line & Series Completion -->
+  <div class="insights-column">
+    <!-- Platform Distribution & Completion -->
+    <kit-section-card
+      testId="insights-platforms-panel"
+      title="Platform Distribution &amp; Catalog Completion"
+      subtitle="Games owned relative to canonical catalog releases"
+    >
+      <div class="platform-controls-bar">
+        @if (platformBrands().length > 1) {
+          <div
+            class="brand-filter-pills"
+            role="group"
+            aria-label="Filter platforms by brand"
+          >
+            <button
+              type="button"
+              class="brand-pill"
+              [class.active]="selectedBrand() === 'all'"
+              (click)="brandChange.emit('all')"
+            >
+              All
+            </button>
+            @for (brand of platformBrands(); track brand) {
+              <button
+                type="button"
+                class="brand-pill"
+                [class.active]="selectedBrand() === brand"
+                (click)="brandChange.emit(brand)"
+              >
+                {{ brand }}
+              </button>
+            }
+          </div>
+        }
+
+        <div class="platform-sort-row">
+          <kit-select
+            class="platform-sort-select"
+            dropdownName="platform_sort"
+            triggerId="insights-platform-sort"
+            ariaLabel="Sort platforms"
+            data-testid="insights-platform-sort"
+            [value]="effectivePlatformSort()"
+            [options]="platformSortOptions()"
+            (valueChange)="platformSortChange.emit($event)"
+          />
+
+          <label class="platform-toggle-label">
+            <input
+              type="checkbox"
+              [checked]="showAllCatalogPlatforms()"
+              (change)="toggleShowAllCatalogPlatforms.emit($event)"
+              data-testid="insights-show-all-platforms-checkbox"
+            />
+            <span>Show unowned catalog platforms</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="platform-list">
+        @for (p of filteredPlatformStats(); track p.id) {
+          <a
+            [routerLink]="gamesTabRoute()"
+            [queryParams]="{ reset: 1, ownership: 1, platform_id: p.id }"
+            class="platform-item clickable state-layer kit-stagger-item"
+            data-testid="insights-platform-link"
+            [style.--stagger-index]="$index < 12 ? $index : 12"
+            title="Filter collection to {{ p.name }}"
+          >
+            <div class="platform-item-header">
+              <div class="platform-name-group">
+                @if (p.logo) {
+                  <img
+                    [src]="p.logo"
+                    [alt]="p.name"
+                    class="platform-thumb-logo"
+                  />
+                }
+                <span class="platform-item-name">{{ p.name }}</span>
+              </div>
+              <div class="platform-counts">
+                <span class="owned-fraction">
+                  <strong>{{ p.ownedCount }}</strong> / {{ p.catalogCount }}
+                </span>
+                <span class="completion-percentage"
+                  >({{ p.completionPct }}%)</span
+                >
+              </div>
+            </div>
+
+            <div class="platform-progress-track">
+              <div
+                class="platform-progress-fill"
+                [style.width.%]="p.completionPct"
+              ></div>
+            </div>
+
+            @if (canViewMarketPrices() && (p.pricedCount ?? 0) > 0) {
+              <div class="platform-item-footer">
+                <span class="platform-value-badge">
+                  Est. {{ formatWholeDollars(p.estimatedValueDollars) }}
+                </span>
+              </div>
+            }
+          </a>
+        }
+        @if (filteredPlatformStats().length === 0) {
+          <div class="empty-state">No platforms match the selected filter</div>
+        }
+      </div>
+    </kit-section-card>
+
+    <!-- Toy Line & Series Completion -->
+    <kit-section-card
+      testId="insights-toy-lines-panel"
+      title="Toy Line &amp; Series Completion"
+      subtitle="Collectible figures and cards owned relative to catalog"
+    >
+      <div class="platform-list">
+        @for (line of toyLineStats(); track line.name) {
+          <div class="platform-item toy-line-card">
+            <a
+              [routerLink]="toysTabRoute()"
+              [queryParams]="{
+                reset: 1,
+                ownership: 1,
+                line: line.name,
+              }"
+              class="toy-line-header-link"
+              data-testid="insights-toy-line-link"
+              [title]="'Filter toys to ' + line.name"
+            >
+              <div class="platform-item-header">
+                <span class="platform-item-name">{{ line.name }}</span>
+                <div class="platform-counts">
+                  <span class="owned-fraction">
+                    <strong>{{ line.ownedCount }}</strong> /
+                    {{ line.catalogCount }}
+                  </span>
+                  <span class="completion-percentage"
+                    >({{ line.completionPct }}%)</span
+                  >
+                </div>
+              </div>
+              <div class="platform-progress-track">
+                <div
+                  class="platform-progress-fill"
+                  [style.width.%]="line.completionPct"
+                ></div>
+              </div>
+            </a>
+
+            @if (line.topSeries.length > 0) {
+              <div class="toy-series-chips">
+                @for (
+                  s of isToyLineExpanded(line.name)
+                    ? line.topSeries
+                    : line.topSeries.slice(0, 4);
+                  track s.name
+                ) {
+                  <a
+                    [routerLink]="toysTabRoute()"
+                    [queryParams]="{
+                      reset: 1,
+                      ownership: 1,
+                      line: line.name,
+                      series: s.name,
+                      series_exact: 1,
+                    }"
+                    class="toy-series-chip"
+                    data-testid="insights-toy-series-link"
+                  >
+                    <span>{{ s.name }}</span>
+                    <span class="toy-series-chip-count"
+                      >{{ s.ownedCount }}/{{ s.catalogCount }}</span
+                    >
+                  </a>
+                }
+                @if (line.topSeries.length > 4) {
+                  <button
+                    type="button"
+                    class="inline-link-btn small"
+                    (click)="toggleToyLine.emit(line.name)"
+                  >
+                    {{
+                      isToyLineExpanded(line.name)
+                        ? 'Less'
+                        : '+' + (line.topSeries.length - 4) + ' more'
+                    }}
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
+        @if (toyLineStats().length === 0) {
+          <div class="empty-state">No toy catalog data available</div>
+        }
+      </div>
+    </kit-section-card>
+  </div>
+</div>

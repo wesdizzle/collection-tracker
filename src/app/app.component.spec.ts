@@ -6,6 +6,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { AppComponent } from './app.component';
 import { ConfirmationDialogComponent } from './shared/components/confirmation-dialog/confirmation-dialog.component';
+import { DialogService } from './core/services/dialog.service';
+import { CommandPaletteService } from './core/services/command-palette.service';
 
 /**
  * UNIT TEST: AppComponent
@@ -55,5 +57,31 @@ describe('AppComponent', () => {
     fixture.detectChanges();
     expect(showModalSpy).toHaveBeenCalledTimes(1);
     expect(dialogEl.hasAttribute('open')).toBe(true);
+  });
+
+  it('activates deferred command palette via Ctrl/Cmd+K once and delegates dialog actions to DialogService', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    const app = fixture.componentInstance;
+    const dialogService = TestBed.inject(DialogService);
+    const paletteService = TestBed.inject(CommandPaletteService);
+
+    expect(app.paletteOpen()).toBe(false);
+    const event = new KeyboardEvent('keydown', {
+      key: 'k',
+      ctrlKey: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(app.paletteRequested()).toBe(true);
+    expect(app.paletteOpen()).toBe(true);
+    expect(paletteService.isOpen()).toBe(true);
+
+    const onConfirm = vi.fn();
+    dialogService.showConfirmation('Confirm Action', 'Proceed?', onConfirm);
+    expect(app.dialogState().visible).toBe(true);
+    app.onConfirm();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(dialogService.dialogState().visible).toBe(false);
   });
 });

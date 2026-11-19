@@ -1,0 +1,263 @@
+<!-- Unified Scope & Actions Control Panel -->
+<section
+  class="insight-panel ledger-controls-panel"
+  data-testid="insights-journal-panel"
+>
+  <div class="ledger-controls-top">
+    <div class="ledger-scope-wrap">
+      <span class="control-eyebrow">Portfolio Scope</span>
+      <kit-select
+        class="ledger-scope-select"
+        dropdownName="ledger_scope"
+        triggerId="insights-ledger-scope"
+        ariaLabel="Value and ledger scope"
+        data-testid="insights-ledger-scope"
+        [value]="ledgerScope()"
+        [options]="ledgerScopeOptions()"
+        [groups]="ledgerScopeGroups()"
+        (valueChange)="ledgerScopeChange.emit($event)"
+      />
+    </div>
+
+    @if (canViewMarketPrices()) {
+      <div class="ledger-toolbar-slot">
+        <app-market-valuation-panel
+          variant="toolbar"
+          [externalScope]="ledgerScope()"
+          [ownedGames]="ownedGames()"
+          [ownedToys]="ownedToys()"
+          [platforms]="platforms()"
+        />
+      </div>
+    }
+  </div>
+
+  <!-- Unified 4-Tile Financial KPI Strip -->
+  @if (scopedJournalSummary(); as js) {
+    <div class="unified-financial-grid" data-testid="insights-journal-revealed">
+      <div class="kpi-tile">
+        <span class="kpi-label">Tracked Cost Basis</span>
+        <span class="kpi-value">{{
+          formatDollars(js.totalTrackedSpendDollars)
+        }}</span>
+        <span class="kpi-sub">
+          @if (js.paidEntryCount > 0) {
+            Avg {{ formatDollars(js.averagePricePaidDollars) }} ({{
+              js.paidEntryCount
+            }}
+            paid)
+          } @else {
+            No paid entries in scope
+          }
+          @if (js.undatedCount > 0) {
+            · {{ js.undatedCount }} undated
+          }
+        </span>
+      </div>
+
+      @if (canViewMarketPrices()) {
+        <div class="kpi-tile">
+          <span class="kpi-label">Est. Live Value (&lt;6h)</span>
+          <span
+            class="kpi-value value-highlight"
+            data-testid="estimated-total-value"
+          >
+            {{ formatCents(scopedValuationSummary().totalEstimatedCents) }}
+          </span>
+          <span class="kpi-sub" data-testid="valuation-coverage">
+            {{ scopedValuationSummary().pricedCount }} /
+            {{ scopedValuationSummary().totalOwnedCount }} priced ({{
+              scopedValuationSummary().coveragePct
+            }}%)
+          </span>
+        </div>
+
+        <div class="kpi-tile">
+          <span class="kpi-label">Matched Unrealized Gain / Loss</span>
+          @if (scopedValuationSummary().matchedCount > 0) {
+            <span
+              class="kpi-value"
+              data-testid="unrealized-gain-loss"
+              [class.positive]="
+                scopedValuationSummary().unrealizedDeltaCents > 0
+              "
+              [class.negative]="
+                scopedValuationSummary().unrealizedDeltaCents < 0
+              "
+            >
+              {{
+                formatSignedCents(scopedValuationSummary().unrealizedDeltaCents)
+              }}
+            </span>
+            <span class="kpi-sub">
+              {{ scopedValuationSummary().matchedCount }} matched vs
+              {{ formatCents(scopedValuationSummary().matchedCostBasisCents) }}
+              cost
+              @if (scopedValuationSummary().unrealizedRoiPct !== null) {
+                ({{ scopedValuationSummary().unrealizedRoiPct! >= 0 ? '+' : ''
+                }}{{ scopedValuationSummary().unrealizedRoiPct }}%)
+              }
+            </span>
+          } @else {
+            <span class="kpi-value">—</span>
+            <span class="kpi-sub">Requires price_paid + live comp</span>
+          }
+        </div>
+      }
+
+      <a
+        class="kpi-tile clickable"
+        [routerLink]="ledgerDrillRoute()"
+        [queryParams]="getProvenanceCoverageQueryParams(js)"
+        data-testid="insights-provenance-coverage-link"
+        [title]="
+          js.recordedCount < js.totalOwnedCount
+            ? 'Filter collection to items missing provenance'
+            : 'Filter collection to items with provenance'
+        "
+      >
+        <span class="kpi-label">Provenance Coverage</span>
+        <span class="kpi-value"
+          >{{ js.recordedCount }} / {{ js.totalOwnedCount }}</span
+        >
+        <span class="kpi-sub">
+          {{ js.coveragePct }}% recorded
+          @if (js.missingCount > 0) {
+            · {{ js.missingCount }} missing →
+          }
+        </span>
+      </a>
+    </div>
+  }
+</section>
+
+<!-- Full-Width Collection Growth Chart -->
+<div class="insights-growth-section">
+  <app-collection-growth-chart
+    [externalScope]="ledgerScope()"
+    [hideScopeSelect]="true"
+    [hideKpiStrip]="true"
+    [ownedGames]="ownedGames()"
+    [ownedToys]="ownedToys()"
+    [platforms]="platforms()"
+  />
+</div>
+
+<!-- Balanced Bottom 2-Column Breakdown -->
+<div class="insights-content-grid">
+  <kit-section-card
+    testId="insights-top-items-panel"
+    [title]="
+      canViewMarketPrices() && scopedValuationSummary().topValuable.length > 0
+        ? 'Top Valuable Owned Items'
+        : 'Highest Purchase Price Items'
+    "
+    [subtitle]="
+      canViewMarketPrices() && scopedValuationSummary().topValuable.length > 0
+        ? 'Highest live eBay active floor estimates in scope'
+        : 'Top cost basis entries recorded in your acquisition journal'
+    "
+  >
+    @if (
+      canViewMarketPrices() && scopedValuationSummary().topValuable.length > 0
+    ) {
+      <div class="series-list">
+        @for (
+          item of scopedValuationSummary().topValuable;
+          track item.routeId + item.itemType
+        ) {
+          <a
+            [routerLink]="['/', item.itemType, item.routeId]"
+            class="series-row clickable-row"
+          >
+            <div class="ranked-item-main">
+              <span class="series-name">{{ item.title }}</span>
+              <span class="ranked-item-sub">{{ item.subtitle }}</span>
+            </div>
+            <div class="series-meta">
+              <span class="series-badge">{{ item.tierLabel }}</span>
+              <span class="series-value">{{
+                formatCents(item.estimatedCents)
+              }}</span>
+            </div>
+          </a>
+        }
+      </div>
+    } @else if (scopedValuationSummary().topCostBasis.length > 0) {
+      <div class="series-list">
+        @for (
+          item of scopedValuationSummary().topCostBasis;
+          track item.routeId + item.itemType
+        ) {
+          <a
+            [routerLink]="['/', item.itemType, item.routeId]"
+            class="series-row clickable-row"
+          >
+            <div class="ranked-item-main">
+              <span class="series-name">{{ item.title }}</span>
+              <span class="ranked-item-sub">{{ item.subtitle }}</span>
+            </div>
+            <div class="series-meta">
+              <span class="series-badge">Paid</span>
+              <span class="series-value">{{
+                formatCents(item.pricePaidCents)
+              }}</span>
+            </div>
+          </a>
+        }
+      </div>
+    } @else {
+      <div class="empty-state">
+        Record purchase prices or scan live eBay prices to rank top holdings
+      </div>
+    }
+  </kit-section-card>
+
+  <kit-section-card
+    testId="insights-sources-panel"
+    title="Top Acquisition Sources"
+    subtitle="Merchants, stores, and gift sources across selected scope"
+  >
+    <div cardActions class="card-actions-slot">
+      @if (scopedJournalSummary().allMerchants.length > 6) {
+        <button
+          type="button"
+          class="inline-link-btn"
+          (click)="toggleAllMerchants.emit()"
+        >
+          {{
+            showAllMerchants()
+              ? 'Show top 6'
+              : 'Show all (' + scopedJournalSummary().allMerchants.length + ')'
+          }}
+        </button>
+      }
+    </div>
+
+    @if (displayedMerchants().length > 0) {
+      <div class="series-list">
+        @for (m of displayedMerchants(); track m.name) {
+          <a
+            class="series-row clickable-row"
+            [routerLink]="ledgerDrillRoute()"
+            [queryParams]="getMerchantQueryParams(m.name)"
+            data-testid="insights-source-link"
+            [title]="'Filter collection to source: ' + m.name"
+          >
+            <span class="series-name">{{ m.name }}</span>
+            <div class="series-meta">
+              <span class="series-badge">{{ m.count }} items</span>
+              <span class="series-value">{{
+                formatDollars(m.totalSpendDollars)
+              }}</span>
+            </div>
+          </a>
+        }
+      </div>
+    } @else {
+      <div class="empty-state">
+        No merchant or gift provenance recorded in this scope
+      </div>
+    }
+  </kit-section-card>
+</div>

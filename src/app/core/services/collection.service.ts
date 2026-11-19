@@ -16,7 +16,7 @@
 
 import { Injectable, OnDestroy, inject, signal, computed } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Router, RouteReuseStrategy } from '@angular/router';
+import { RouteReuseStrategy, Router } from '@angular/router';
 import {
   Observable,
   firstValueFrom,
@@ -30,21 +30,17 @@ import {
 import { CollectionRouteReuseStrategy } from '../routing/collection-route-reuse-strategy';
 import { ProfileModalService } from './profile-modal.service';
 import {
+  AuthSessionAuthenticatedEvent,
+  AuthSessionService,
+} from './auth-session.service';
+import { DialogService } from './dialog.service';
+import {
   KIT_DEGRADED_HEADER,
   KIT_SNAPSHOT_TIMESTAMP_HEADER,
   KitDegradedMode,
   KitOfflineStore,
   KitThemeService,
-  checkUpstreamOidcStatus,
   clearCachedKitAuthSnapshot,
-  clearSilentSsoAttempt,
-  getCurrentReturnToPath,
-  markSilentSsoAttempt,
-  mergeDegradedUserProfile,
-  notifyActiveThemeService,
-  readCachedKitAuthSnapshot,
-  shouldAttemptSilentSso,
-  writeCachedKitAuthSnapshot,
 } from '@wesdizzle/app-kit/angular';
 import {
   Game,
@@ -60,7 +56,6 @@ import {
   CatalogSeedStatus,
   CronExecutionLogEntry,
   PublicUserProfile,
-  AuthMeResponse,
   CatalogManifest,
   UserCollectionOverlayResponse,
   CatalogSyncProgress,
@@ -91,6 +86,8 @@ export class CollectionService implements OnDestroy {
   private routeReuseStrategy = inject(RouteReuseStrategy, { optional: true });
   private profileModalService = inject(ProfileModalService, { optional: true });
   private themeService = inject(KitThemeService, { optional: true });
+  private readonly authSession = inject(AuthSessionService);
+  private readonly dialogService = inject(DialogService);
 
   /**
    * Persistence state for UI navigation (Split by tab).
@@ -102,35 +99,27 @@ export class CollectionService implements OnDestroy {
   public readonly gamesState = this._gamesState.asReadonly();
   public readonly toysState = this._toysState.asReadonly();
 
-  private _currentUser = signal<UserProfile | null>(null);
-  public readonly currentUser = this._currentUser.asReadonly();
-  private _oidcIssuer = signal<string | null>(null);
-  public readonly oidcIssuer = this._oidcIssuer.asReadonly();
-  private _oidcClientId = signal<string | null>(null);
-  public readonly oidcClientId = this._oidcClientId.asReadonly();
-  private _accountHubUrl = signal<string | null>(null);
-  public readonly accountHubUrl = this._accountHubUrl.asReadonly();
-  private _isAutoSigningIn = signal<boolean>(false);
-  public readonly isAutoSigningIn = this._isAutoSigningIn.asReadonly();
-  public readonly isAuthenticated = computed(
-    () => this._currentUser() !== null,
-  );
-  public readonly isAdmin = computed(
-    () => this._currentUser()?.role === 'admin',
-  );
-  public readonly homeRegion = computed(
-    () => this._currentUser()?.homeRegion || 'USA',
-  );
+  private readonly _currentUser = this.authSession._currentUser;
+  public readonly currentUser = this.authSession.currentUser;
+  private readonly _oidcIssuer = this.authSession._oidcIssuer;
+  public readonly oidcIssuer = this.authSession.oidcIssuer;
+  private readonly _oidcClientId = this.authSession._oidcClientId;
+  public readonly oidcClientId = this.authSession.oidcClientId;
+  private readonly _accountHubUrl = this.authSession._accountHubUrl;
+  public readonly accountHubUrl = this.authSession.accountHubUrl;
+  private readonly _isAutoSigningIn = this.authSession._isAutoSigningIn;
+  public readonly isAutoSigningIn = this.authSession.isAutoSigningIn;
+  public readonly isAuthenticated = this.authSession.isAuthenticated;
+  public readonly isAdmin = this.authSession.isAdmin;
+  public readonly homeRegion = this.authSession.homeRegion;
 
-  private _isPublicView = signal<boolean>(false);
-  public readonly isPublicView = this._isPublicView.asReadonly();
+  private readonly _isPublicView = this.authSession._isPublicView;
+  public readonly isPublicView = this.authSession.isPublicView;
 
-  private _publicProfile = signal<PublicUserProfile | null>(null);
-  public readonly publicProfile = this._publicProfile.asReadonly();
+  private readonly _publicProfile = this.authSession._publicProfile;
+  public readonly publicProfile = this.authSession.publicProfile;
 
-  public readonly canShowPersonalState = computed(
-    () => this.isAuthenticated() && !this._isPublicView(),
-  );
+  public readonly canShowPersonalState = this.authSession.canShowPersonalState;
 
   public readonly journalRevealed = computed(() => this.canShowPersonalState());
 
@@ -140,14 +129,12 @@ export class CollectionService implements OnDestroy {
   private _journalLoaded = signal<boolean>(false);
   public readonly journalLoaded = this._journalLoaded.asReadonly();
 
-  private _authInitialized = signal<boolean>(false);
-  public readonly authInitialized = this._authInitialized.asReadonly();
-  private _authPromise: Promise<UserProfile | null> | null = null;
-  private _lastAuthCheckMs = 0;
-  private _authDegradedMode = signal<KitDegradedMode>(null);
+  private readonly _authInitialized = this.authSession._authInitialized;
+  public readonly authInitialized = this.authSession.authInitialized;
+  private readonly _authDegradedMode = this.authSession._authDegradedMode;
   private _dataDegradedMode = signal<KitDegradedMode>(null);
   private _browserOffline = signal<boolean>(false);
-  private _degradedTimestamp = signal<string | Date | null>(null);
+  private readonly _degradedTimestamp = this.authSession._degradedTimestamp;
   public readonly degradedMode = computed<KitDegradedMode>(() => {
     if (this._browserOffline()) return 'offline';
     const dataMode = this._dataDegradedMode();
@@ -257,6 +244,21 @@ export class CollectionService implements OnDestroy {
    * This ensures that when a user returns from a detail page, their context is restored.
    */
   constructor() {
+    this.authSession.registerHooks({
+      isDataDegraded: () =>
+        this._browserOffline() || this._dataDegradedMode() !== null,
+      getLastUpdated: () => this._lastUpdated(),
+      onAuthenticated: (event) => this.handleAuthenticatedState(event),
+      onUnauthenticated: (wasAuthenticated) =>
+        this.handleUnauthenticatedState(wasAuthenticated),
+      onPublicViewChanged: (changed) => this.handlePublicViewChanged(changed),
+      redirectTo: (url) => this.redirectTo(url),
+      getRouterUrl: () => this.router.url || '',
+      navigateHome: () => {
+        void this.router.navigateByUrl('/');
+      },
+    });
+
     if (typeof window !== 'undefined') {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         this._browserOffline.set(true);
@@ -264,6 +266,21 @@ export class CollectionService implements OnDestroy {
       this.loadPersistedState();
       this.loadLastUpdated();
       this.checkAdminStatus();
+      const initialUser = this.authSession.currentUser();
+      if (this.authSession.authInitialized() && initialUser) {
+        const degradedMode = this.authSession.authDegradedMode();
+        void this.handleAuthenticatedState({
+          user: initialUser,
+          wasAuthenticated: false,
+          isDegraded: degradedMode !== null,
+          degradedReason:
+            degradedMode === 'backup'
+              ? 'r2_backup'
+              : degradedMode === 'offline'
+                ? 'offline'
+                : undefined,
+        });
+      }
       this.registerAuthVisibilityListeners();
     }
   }
@@ -310,7 +327,7 @@ export class CollectionService implements OnDestroy {
     const checkOnReturn = () => {
       if (
         this._authInitialized() &&
-        Date.now() - this._lastAuthCheckMs >= 60_000
+        Date.now() - this.authSession.getLastAuthCheckMs() >= 60_000
       ) {
         this.refreshAuthStatus().catch(() => {});
       }
@@ -352,15 +369,7 @@ export class CollectionService implements OnDestroy {
    */
   private handleUnauthenticatedState(wasAuthenticated: boolean): void {
     const prevUserId = this._currentUser()?.id ?? null;
-    clearCachedKitAuthSnapshot();
-    this._authDegradedMode.set(null);
     this._dataDegradedMode.set(null);
-    this._degradedTimestamp.set(null);
-    notifyActiveThemeService({
-      issuerUrl: null,
-      authenticated: false,
-    });
-    this._currentUser.set(null);
     this._journalEntriesMap.set(new Map());
     this._journalLoaded.set(false);
     this.resetEphemeralPricingState(prevUserId);
@@ -389,31 +398,55 @@ export class CollectionService implements OnDestroy {
       this.profileModalService?.close();
       void this.clearServiceWorkerDataCaches();
     }
-    if (!this._isPublicView()) {
-      const routerPath = (this.router.url || '').split('?')[0].split('#')[0];
-      const windowPath =
-        typeof window !== 'undefined' && window.location
-          ? window.location.pathname
-          : '';
-      const currentPath =
-        routerPath && routerPath !== '/' ? routerPath : windowPath;
-      if (
-        currentPath === '/collection' ||
-        currentPath.startsWith('/collection/') ||
-        currentPath === '/admin' ||
-        currentPath.startsWith('/admin/') ||
-        currentPath === '/profile' ||
-        currentPath.startsWith('/profile/')
-      ) {
-        void this.router.navigateByUrl('/');
+  }
+
+  private async handleAuthenticatedState(
+    event: AuthSessionAuthenticatedEvent,
+  ): Promise<void> {
+    if (event.isDegraded) {
+      await this.hydrateFromOfflineStoreIfEmpty(event.user.id);
+    }
+    if (event.user.role === 'admin' && !this._isPublicView()) {
+      if (this._marketPricesHydratedForUser !== event.user.id) {
+        this._marketPricesHydratedForUser = event.user.id;
+        void this.hydrateEphemeralPricesFromStore(event.user.id);
       }
+      if (!event.isDegraded && this._lastSyncedPriceUserId !== event.user.id) {
+        this._lastSyncedPriceUserId = event.user.id;
+        void this.syncCachedMarketPrices(true);
+      }
+    }
+    if (
+      !event.isDegraded &&
+      (!event.wasAuthenticated || !this._journalLoaded())
+    ) {
+      this.loadAllJournalEntries().subscribe();
+    } else if (
+      event.isDegraded &&
+      (!event.wasAuthenticated || !this._journalLoaded()) &&
+      event.degradedReason !== 'offline'
+    ) {
+      this.loadAllJournalEntries().subscribe();
     }
   }
 
-  /**
-   * Applies the /api/auth/me response to signals and verifies that the
-   * upstream OIDC identity provider session is still active.
-   */
+  private handlePublicViewChanged(changed: boolean): void {
+    if (!changed) return;
+    this._fullCatalogLoaded.set(false);
+    this._fullCatalogPromise = null;
+    this._catalogIsPartial.set(false);
+    this._currentCatalogVersion = null;
+    this._activeCatalogSyncId++;
+    this._catalogSyncProgress.set({
+      active: false,
+      loadedRows: 0,
+      totalRows: 0,
+      loadedChunks: 0,
+      totalChunks: 0,
+      percent: 0,
+    });
+  }
+
   private checkDegradedReadOnly(): Observable<never> | null {
     if (this.isDegraded()) {
       return throwError(
@@ -426,169 +459,11 @@ export class CollectionService implements OnDestroy {
     return null;
   }
 
-  private async applyAuthMeResponse(
-    res: AuthMeResponse,
-    headerDegraded?: string | null,
-    headerTimestamp?: string | null,
-  ): Promise<UserProfile | null> {
-    this._lastAuthCheckMs = Date.now();
-    const wasAuthenticated = this._currentUser() !== null;
-    if (res.oidcIssuer !== undefined) {
-      this._oidcIssuer.set(res.oidcIssuer || null);
-    }
-    if (res.oidcClientId !== undefined) {
-      this._oidcClientId.set(res.oidcClientId || null);
-    }
-    if (res.accountHubUrl !== undefined) {
-      this._accountHubUrl.set(res.accountHubUrl || null);
-    }
-    const issuer = res.oidcIssuer || this._oidcIssuer();
-    const clientId = res.oidcClientId || this._oidcClientId();
-    if (res.authenticated && res.user) {
-      this._isAutoSigningIn.set(false);
-      const isDegradedResponse = Boolean(res.degraded || headerDegraded);
-      const cachedSnapshot = readCachedKitAuthSnapshot<UserProfile>();
-      const cachedProfile = this._currentUser() ?? cachedSnapshot?.user ?? null;
-      const effectiveUser = isDegradedResponse
-        ? mergeDegradedUserProfile(res.user, cachedProfile)
-        : res.user;
-      this._currentUser.set(effectiveUser);
-
-      if (isDegradedResponse) {
-        const mode: KitDegradedMode =
-          res.degradedReason === 'r2_backup' || headerDegraded === 'r2-backup'
-            ? 'backup'
-            : 'offline';
-        this._authDegradedMode.set(mode);
-        const ts =
-          res.snapshotTimestamp ??
-          headerTimestamp ??
-          (cachedSnapshot?.updatedAt
-            ? new Date(cachedSnapshot.updatedAt).toISOString()
-            : null);
-        if (ts) {
-          this._degradedTimestamp.set(ts);
-        }
-        await this.hydrateFromOfflineStoreIfEmpty(effectiveUser.id);
-      } else {
-        this._authDegradedMode.set(null);
-        if (this._dataDegradedMode() === null) {
-          this._degradedTimestamp.set(null);
-        }
-      }
-
-      writeCachedKitAuthSnapshot({
-        user: effectiveUser,
-        accountHubUrl: res.accountHubUrl ?? this._accountHubUrl(),
-        oidcIssuer: res.oidcIssuer ?? this._oidcIssuer(),
-        oidcClientId: res.oidcClientId ?? this._oidcClientId(),
-        updatedAt: isDegradedResponse
-          ? (cachedSnapshot?.updatedAt ?? Date.now())
-          : Date.now(),
-      });
-
-      if (issuer) {
-        const upstreamActive = await this.verifyUpstreamOidcSession(issuer);
-        if (!upstreamActive) {
-          this._authInitialized.set(true);
-          return null;
-        }
-      }
-      clearSilentSsoAttempt(clientId);
-      if (effectiveUser.role === 'admin' && !this._isPublicView()) {
-        if (this._marketPricesHydratedForUser !== effectiveUser.id) {
-          this._marketPricesHydratedForUser = effectiveUser.id;
-          void this.hydrateEphemeralPricesFromStore(effectiveUser.id);
-        }
-        if (
-          !isDegradedResponse &&
-          this._lastSyncedPriceUserId !== effectiveUser.id
-        ) {
-          this._lastSyncedPriceUserId = effectiveUser.id;
-          void this.syncCachedMarketPrices(true);
-        }
-      }
-      if (
-        !isDegradedResponse &&
-        (!wasAuthenticated || !this._journalLoaded())
-      ) {
-        this.loadAllJournalEntries().subscribe();
-      } else if (
-        isDegradedResponse &&
-        (!wasAuthenticated || !this._journalLoaded()) &&
-        res.degradedReason !== 'offline'
-      ) {
-        this.loadAllJournalEntries().subscribe();
-      }
-    } else {
-      clearCachedKitAuthSnapshot();
-      this._authDegradedMode.set(null);
-      if (
-        !wasAuthenticated &&
-        res.provisioned !== false &&
-        issuer &&
-        !this._isPublicView()
-      ) {
-        const redirected = await this.trySilentAutoSignIn(issuer, clientId);
-        if (redirected) {
-          this._authInitialized.set(true);
-          return null;
-        }
-      }
-      this.handleUnauthenticatedState(wasAuthenticated);
-    }
-    this._authInitialized.set(true);
-    return this._currentUser();
-  }
-
-  /**
-   * Attempts silent SSO redirect when locally unauthenticated if the user has an
-   * active, authorized session on the central OIDC Account Server.
-   */
-  public async trySilentAutoSignIn(
+  public trySilentAutoSignIn(
     oidcIssuer: string,
     oidcClientId?: string | null,
   ): Promise<boolean> {
-    if (!oidcIssuer || this._isPublicView()) {
-      return false;
-    }
-    if (typeof window !== 'undefined' && window.location) {
-      if ((window.location.pathname || '/').startsWith('/u/')) {
-        return false;
-      }
-    }
-    if (!shouldAttemptSilentSso(oidcClientId)) {
-      return false;
-    }
-    const status = await checkUpstreamOidcStatus(oidcIssuer, oidcClientId);
-    if (status.reachable && status.authenticated) {
-      if (!status.authorized) {
-        return false;
-      }
-      markSilentSsoAttempt(oidcClientId);
-      this._isAutoSigningIn.set(true);
-      const currentReturn = getCurrentReturnToPath('/collection/games');
-      const targetReturn =
-        currentReturn === '/' ? '/collection/games' : currentReturn;
-      this.redirectTo(
-        `/api/auth/login?return_to=${encodeURIComponent(targetReturn)}&prompt=none`,
-      );
-      return true;
-    }
-
-    if (status.reachable && status.cookiePresent === false) {
-      markSilentSsoAttempt(oidcClientId);
-      this._isAutoSigningIn.set(true);
-      const currentReturn = getCurrentReturnToPath('/collection/games');
-      const targetReturn =
-        currentReturn === '/' ? '/collection/games' : currentReturn;
-      this.redirectTo(
-        `/api/auth/login?return_to=${encodeURIComponent(targetReturn)}&prompt=none`,
-      );
-      return true;
-    }
-
-    return false;
+    return this.authSession.trySilentAutoSignIn(oidcIssuer, oidcClientId);
   }
 
   protected redirectTo(url: string): void {
@@ -597,151 +472,18 @@ export class CollectionService implements OnDestroy {
     }
   }
 
-  /**
-   * Verifies with the configured OIDC issuer whether the upstream identity session
-   * is still active. If the user signed out on the Account Hub, clears the local
-   * relying-party session cookie, resets the current user signal, and redirects
-   * protected routes to the landing page.
-   */
-  public async verifyUpstreamOidcSession(oidcIssuer: string): Promise<boolean> {
-    if (typeof fetch !== 'function' || !oidcIssuer || this.isDegraded()) {
-      return true;
-    }
-    const status = await checkUpstreamOidcStatus(
-      oidcIssuer,
-      this._oidcClientId(),
-    );
-    if (!status.reachable || status.degraded || this.isDegraded()) {
-      return true;
-    }
-    if (!status.authenticated && status.cookiePresent === false) {
-      return true;
-    }
-    if (!status.authenticated || !status.authorized) {
-      clearCachedKitAuthSnapshot();
-      await fetch('/api/auth/logout?silent=1', {
-        method: 'POST',
-        credentials: 'same-origin',
-        cache: 'no-store',
-      }).catch(() => {});
-      this.handleUnauthenticatedState(true);
-      return false;
-    }
-    if (status.authenticated && status.user && !status.degraded) {
-      const localUser = this._currentUser();
-      if (
-        localUser &&
-        ((status.user.username &&
-          status.user.username.toLowerCase() !==
-            localUser.username.toLowerCase()) ||
-          (status.user.role && status.user.role !== localUser.role))
-      ) {
-        const oidcClientId = this._oidcClientId();
-        if (!shouldAttemptSilentSso(oidcClientId)) {
-          return false;
-        }
-        markSilentSsoAttempt(oidcClientId);
-        const returnTo = getCurrentReturnToPath('/');
-        this.redirectTo(
-          `/api/auth/login?return_to=${encodeURIComponent(returnTo)}&prompt=none`,
-        );
-        return false;
-      }
-    }
-    return true;
+  public verifyUpstreamOidcSession(oidcIssuer: string): Promise<boolean> {
+    return this.authSession.verifyUpstreamOidcSession(oidcIssuer);
   }
 
-  /**
-   * Re-fetches /api/auth/me to synchronize authentication state (e.g., when
-   * returning to an open tab after signing out on the OIDC Account Hub).
-   */
   public refreshAuthStatus(): Promise<UserProfile | null> {
-    this._authPromise = firstValueFrom(
-      this.http
-        .get<AuthMeResponse>('/api/auth/me', { observe: 'response' })
-        .pipe(
-          map((resp) => ({
-            body:
-              resp.body ||
-              ({ authenticated: false, user: null } as AuthMeResponse),
-            headerDegraded: resp.headers?.get?.(KIT_DEGRADED_HEADER) ?? null,
-            headerTimestamp:
-              resp.headers?.get?.(KIT_SNAPSHOT_TIMESTAMP_HEADER) ?? null,
-          })),
-          catchError((err: unknown) => {
-            const status =
-              err instanceof HttpErrorResponse
-                ? err.status
-                : err && typeof err === 'object' && 'status' in err
-                  ? Number((err as { status: unknown }).status)
-                  : 0;
-            if (status === 401 || status === 403) {
-              return of({
-                body: { authenticated: false, user: null } as AuthMeResponse,
-                headerDegraded: null,
-                headerTimestamp: null,
-              });
-            }
-            const cachedSnapshot = readCachedKitAuthSnapshot<UserProfile>();
-            const preservedUser =
-              this._currentUser() ?? cachedSnapshot?.user ?? null;
-            if (preservedUser) {
-              return of({
-                body: {
-                  authenticated: true,
-                  user: preservedUser,
-                  oidcIssuer:
-                    cachedSnapshot?.oidcIssuer ??
-                    this._oidcIssuer() ??
-                    undefined,
-                  oidcClientId:
-                    cachedSnapshot?.oidcClientId ??
-                    this._oidcClientId() ??
-                    undefined,
-                  accountHubUrl:
-                    cachedSnapshot?.accountHubUrl ??
-                    this._accountHubUrl() ??
-                    undefined,
-                  degraded: true,
-                  degradedReason: 'offline',
-                  snapshotTimestamp: cachedSnapshot?.updatedAt
-                    ? new Date(cachedSnapshot.updatedAt).toISOString()
-                    : (this._lastUpdated()?.toISOString() ?? null),
-                } as AuthMeResponse,
-                headerDegraded: 'offline',
-                headerTimestamp: null,
-              });
-            }
-            return of({
-              body: { authenticated: false, user: null } as AuthMeResponse,
-              headerDegraded: null,
-              headerTimestamp: null,
-            });
-          }),
-        ),
-    ).then(({ body, headerDegraded, headerTimestamp }) =>
-      this.applyAuthMeResponse(body, headerDegraded, headerTimestamp),
-    );
-    return this._authPromise;
+    return this.authSession.refreshAuthStatus();
   }
 
-  /**
-   * Ensures auth status has been verified via /api/auth/me before resolving.
-   * Caches the promise to prevent duplicate requests during initial app load.
-   */
   public ensureAuthLoaded(): Promise<UserProfile | null> {
-    if (this._authInitialized()) {
-      return Promise.resolve(this._currentUser());
-    }
-    if (this._authPromise) {
-      return this._authPromise;
-    }
-    return this.refreshAuthStatus();
+    return this.authSession.ensureAuthLoaded();
   }
 
-  /**
-   * Checks whether the current user has an active session via /api/auth/me.
-   */
   public checkAdminStatus(): void {
     this.ensureAuthLoaded().catch(() => {});
   }
@@ -874,9 +616,7 @@ export class CollectionService implements OnDestroy {
   }
 
   public getPublicUser(username: string): Observable<PublicUserProfile> {
-    return this.http.get<PublicUserProfile>(
-      `/api/u/${encodeURIComponent(username)}`,
-    );
+    return this.authSession.getPublicUser(username);
   }
 
   public getPublicGames(
@@ -897,29 +637,11 @@ export class CollectionService implements OnDestroy {
     enabled: boolean,
     profile?: PublicUserProfile | null,
   ): void {
-    const prevUsername = this._publicProfile()?.username || null;
-    const nextUsername = profile?.username || null;
-    if (enabled !== this._isPublicView() || prevUsername !== nextUsername) {
-      this._fullCatalogLoaded.set(false);
-      this._fullCatalogPromise = null;
-      this._catalogIsPartial.set(false);
-      this._currentCatalogVersion = null;
-      this._activeCatalogSyncId++;
-      this._catalogSyncProgress.set({
-        active: false,
-        loadedRows: 0,
-        totalRows: 0,
-        loadedChunks: 0,
-        totalChunks: 0,
-        percent: 0,
-      });
-    }
-    this._isPublicView.set(enabled);
-    this._publicProfile.set(profile || null);
+    this.authSession.setPublicView(enabled, profile);
   }
 
   public exitPublicView(): void {
-    this.setPublicView(false, null);
+    this.authSession.exitPublicView();
   }
 
   public getTabRoute(
@@ -2763,18 +2485,7 @@ export class CollectionService implements OnDestroy {
       );
   }
 
-  /** --- Global Confirmation Dialog State --- */
-  private _dialogState = signal<{
-    visible: boolean;
-    type: 'confirm' | 'input' | 'options';
-    title: string;
-    message: string;
-    inputValue?: string | number;
-    options?: { label: string; value: string | number }[];
-    onConfirm?: (value?: string | number) => void;
-  }>({ visible: false, type: 'confirm', title: '', message: '' });
-
-  public readonly dialogState = this._dialogState.asReadonly();
+  public readonly dialogState = this.dialogService.dialogState;
 
   /**
    * Triggers the global confirmation dialog.
@@ -2788,13 +2499,7 @@ export class CollectionService implements OnDestroy {
     message: string,
     onConfirm: () => void,
   ) {
-    this._dialogState.set({
-      visible: true,
-      type: 'confirm',
-      title,
-      message,
-      onConfirm,
-    });
+    this.dialogService.showConfirmation(title, message, onConfirm);
   }
 
   /**
@@ -2811,16 +2516,7 @@ export class CollectionService implements OnDestroy {
     initialValue: string | number,
     onConfirm: (value: string | number) => void,
   ) {
-    this._dialogState.set({
-      visible: true,
-      type: 'input',
-      title,
-      message,
-      inputValue: initialValue,
-      onConfirm: (val) => {
-        if (val !== undefined) onConfirm(val);
-      },
-    });
+    this.dialogService.showInput(title, message, initialValue, onConfirm);
   }
 
   /**
@@ -2837,23 +2533,14 @@ export class CollectionService implements OnDestroy {
     options: { label: string; value: string | number }[],
     onConfirm: (value: string | number) => void,
   ) {
-    this._dialogState.set({
-      visible: true,
-      type: 'options',
-      title,
-      message,
-      options,
-      onConfirm: (val) => {
-        if (val !== undefined) onConfirm(val);
-      },
-    });
+    this.dialogService.showOptions(title, message, options, onConfirm);
   }
 
   /**
    * Closes the global confirmation dialog.
    */
   public closeDialog() {
-    this._dialogState.set({ ...this._dialogState(), visible: false });
+    this.dialogService.closeDialog();
   }
 
   /**

@@ -1,14 +1,18 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  HostListener,
   OnDestroy,
+  computed,
   inject,
+  signal,
 } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { SwUpdate } from '@angular/service-worker';
 import { ConfirmationDialogComponent } from './shared/components/confirmation-dialog/confirmation-dialog.component';
 import { CommandPaletteComponent } from './shared/components/command-palette/command-palette.component';
-import { CollectionService } from './core/services/collection.service';
+import { DialogService } from './core/services/dialog.service';
+import { CommandPaletteService } from './core/services/command-palette.service';
 
 @Component({
   selector: 'app-root',
@@ -19,9 +23,14 @@ import { CollectionService } from './core/services/collection.service';
 })
 export class AppComponent implements OnDestroy {
   public title = 'tracker';
-  private collectionService = inject(CollectionService);
-  private swUpdate = inject(SwUpdate, { optional: true });
-  public dialogState = this.collectionService.dialogState;
+  private readonly dialogService = inject(DialogService);
+  private readonly commandPaletteService = inject(CommandPaletteService);
+  private readonly swUpdate = inject(SwUpdate, { optional: true });
+  public readonly dialogState = this.dialogService.dialogState;
+  public readonly paletteRequested = signal(false);
+  public readonly paletteOpen = computed(
+    () => this.paletteRequested() || this.commandPaletteService.isOpen(),
+  );
   private visibilityListener?: () => void;
 
   constructor() {
@@ -54,15 +63,28 @@ export class AppComponent implements OnDestroy {
     }
   }
 
+  @HostListener('window:keydown', ['$event'])
+  public onGlobalKeydown(event: KeyboardEvent): void {
+    if (
+      !this.paletteRequested() &&
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === 'k'
+    ) {
+      event.preventDefault();
+      this.paletteRequested.set(true);
+      this.commandPaletteService.open();
+    }
+  }
+
   onConfirm(value?: string | number) {
     const state = this.dialogState();
     if (state.onConfirm) {
       state.onConfirm(value);
     }
-    this.collectionService.closeDialog();
+    this.dialogService.closeDialog();
   }
 
   onCancel() {
-    this.collectionService.closeDialog();
+    this.dialogService.closeDialog();
   }
 }

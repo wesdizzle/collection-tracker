@@ -7,7 +7,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { KitLandingCardComponent } from '@wesdizzle/app-kit/angular';
-import { CollectionService } from '../../core/services/collection.service';
+import { AuthSessionService } from '../../core/services/auth-session.service';
 import { BrandingService } from '../../core/services/branding.service';
 
 @Component({
@@ -22,7 +22,7 @@ import { BrandingService } from '../../core/services/branding.service';
       [logoUrl]="branding.logoUrl()"
       [accountMissing]="accountMissing()"
       accountMissingMessage="Your identity was verified, but your collector account has not been provisioned for this instance yet."
-      [loading]="collectionService.isAutoSigningIn()"
+      [loading]="authSession.isAutoSigningIn()"
       loginUrl="/api/auth/login"
     />
   `,
@@ -30,7 +30,7 @@ import { BrandingService } from '../../core/services/branding.service';
 export class LandingPageComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
-  public readonly collectionService = inject(CollectionService);
+  public readonly authSession = inject(AuthSessionService);
   public readonly branding = inject(BrandingService);
 
   public readonly accountMissing = signal<boolean>(false);
@@ -40,7 +40,7 @@ export class LandingPageComponent implements OnInit {
     if (qp['account'] === 'missing') {
       this.accountMissing.set(true);
     }
-    if (this.collectionService.currentUser()) {
+    if (this.authSession.currentUser()) {
       this.router.navigate(['/collection/games'], { replaceUrl: true });
     }
   }
