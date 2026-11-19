@@ -34,54 +34,16 @@
   </header>
 
   @if (!isPublicView()) {
-    <!-- Sub-Tab Navigation -->
-    <nav
-      class="insights-subtabs"
-      role="tablist"
-      aria-label="Insights views"
-      data-testid="insights-subtabs"
-    >
-      <button
-        type="button"
-        role="tab"
-        class="subtab-pill state-layer"
-        [class.active]="activeSubTab() === 'overview'"
-        [attr.aria-selected]="activeSubTab() === 'overview'"
-        (click)="setActiveSubTab('overview')"
-        data-testid="insights-tab-overview"
-      >
-        <app-icon name="compass" [size]="15" />
-        <span>Overview</span>
-      </button>
-
-      @if (canShowProvenance()) {
-        <button
-          type="button"
-          role="tab"
-          class="subtab-pill state-layer"
-          [class.active]="activeSubTab() === 'value'"
-          [attr.aria-selected]="activeSubTab() === 'value'"
-          (click)="setActiveSubTab('value')"
-          data-testid="insights-tab-value"
-        >
-          <app-icon name="coins" [size]="15" />
-          <span>Value &amp; Ledger</span>
-        </button>
-      }
-
-      <button
-        type="button"
-        role="tab"
-        class="subtab-pill state-layer"
-        [class.active]="activeSubTab() === 'catalog'"
-        [attr.aria-selected]="activeSubTab() === 'catalog'"
-        (click)="setActiveSubTab('catalog')"
-        data-testid="insights-tab-catalog"
-      >
-        <app-icon name="chart" [size]="15" />
-        <span>Catalog &amp; Stats</span>
-      </button>
-    </nav>
+    <div class="insights-subtabs-wrap">
+      <kit-tabs
+        [tabs]="insightsTabItems()"
+        [activeTab]="activeSubTab()"
+        variant="pill"
+        ariaLabel="Insights views"
+        testId="insights-subtabs"
+        (tabChange)="setActiveSubTab($any($event))"
+      />
+    </div>
   } @else {
     <section class="summary-cards-grid" data-testid="public-stats-kpi-grid">
       <div class="stat-card" data-testid="public-kpi-games">
@@ -324,20 +286,13 @@
 
     <!-- Actionable Audit Strip -->
     @if (hasAuditActions()) {
-      <section
-        class="insight-panel audit-strip-panel"
-        data-testid="insights-audit-strip"
+      <kit-section-card
+        class="audit-strip-panel"
+        title="Attention Needed"
+        subtitle="Actionable gaps across backups, provenance, packaging, and market comps"
+        [compact]="true"
+        testId="insights-audit-strip"
       >
-        <div class="panel-header compact-header">
-          <div class="panel-title-group">
-            <h2 class="panel-title">Attention Needed</h2>
-            <p class="panel-subtitle">
-              Actionable gaps across backups, provenance, packaging, and market
-              comps
-            </p>
-          </div>
-        </div>
-
         <div class="audit-cards-grid">
           @if (missingBackupsCount() > 0) {
             <div
@@ -459,27 +414,23 @@
             </div>
           }
         </div>
-      </section>
+      </kit-section-card>
     }
 
     <!-- Highlights Row -->
     <div class="insights-content-grid">
-      <section class="insight-panel">
-        <div class="panel-header">
-          <div class="panel-title-group">
-            <h2 class="panel-title">Top Owned Platforms</h2>
-            <p class="panel-subtitle">
-              Most collected hardware systems relative to catalog size
-            </p>
-          </div>
-          <button
-            type="button"
-            class="inline-link-btn"
-            (click)="setActiveSubTab('catalog')"
-          >
-            All platforms &amp; toys →
-          </button>
-        </div>
+      <kit-section-card
+        title="Top Owned Platforms"
+        subtitle="Most collected hardware systems relative to catalog size"
+      >
+        <button
+          cardActions
+          type="button"
+          class="inline-link-btn"
+          (click)="setActiveSubTab('catalog')"
+        >
+          All platforms &amp; toys →
+        </button>
 
         <div class="platform-list">
           @for (p of topOwnedPlatformsPreview(); track p.id) {
@@ -521,24 +472,20 @@
             <div class="empty-state">No owned platforms recorded yet</div>
           }
         </div>
-      </section>
+      </kit-section-card>
 
-      <section class="insight-panel">
-        <div class="panel-header">
-          <div class="panel-title-group">
-            <h2 class="panel-title">Packaging &amp; Play Snapshot</h2>
-            <p class="panel-subtitle">
-              Completeness distribution and playthrough momentum
-            </p>
-          </div>
-          <button
-            type="button"
-            class="inline-link-btn"
-            (click)="setActiveSubTab('catalog')"
-          >
-            Full stats →
-          </button>
-        </div>
+      <kit-section-card
+        title="Packaging &amp; Play Snapshot"
+        subtitle="Completeness distribution and playthrough momentum"
+      >
+        <button
+          cardActions
+          type="button"
+          class="inline-link-btn"
+          (click)="setActiveSubTab('catalog')"
+        >
+          Full stats →
+        </button>
 
         <div class="insights-meter-wrap">
           <kit-segmented-meter
@@ -616,7 +563,7 @@
             <span class="chip-label">Unplayed</span>
           </a>
         </div>
-      </section>
+      </kit-section-card>
     </div>
   }
 
@@ -779,28 +726,21 @@
 
     <!-- Balanced Bottom 2-Column Breakdown -->
     <div class="insights-content-grid">
-      <section class="insight-panel" data-testid="insights-top-items-panel">
-        <div class="panel-header">
-          <div class="panel-title-group">
-            <h2 class="panel-title">
-              {{
-                canViewMarketPrices() &&
-                scopedValuationSummary().topValuable.length > 0
-                  ? 'Top Valuable Owned Items'
-                  : 'Highest Purchase Price Items'
-              }}
-            </h2>
-            <p class="panel-subtitle">
-              {{
-                canViewMarketPrices() &&
-                scopedValuationSummary().topValuable.length > 0
-                  ? 'Highest live eBay active floor estimates in scope'
-                  : 'Top cost basis entries recorded in your acquisition journal'
-              }}
-            </p>
-          </div>
-        </div>
-
+      <kit-section-card
+        testId="insights-top-items-panel"
+        [title]="
+          canViewMarketPrices() &&
+          scopedValuationSummary().topValuable.length > 0
+            ? 'Top Valuable Owned Items'
+            : 'Highest Purchase Price Items'
+        "
+        [subtitle]="
+          canViewMarketPrices() &&
+          scopedValuationSummary().topValuable.length > 0
+            ? 'Highest live eBay active floor estimates in scope'
+            : 'Top cost basis entries recorded in your acquisition journal'
+        "
+      >
         @if (
           canViewMarketPrices() &&
           scopedValuationSummary().topValuable.length > 0
@@ -855,16 +795,14 @@
             Record purchase prices or scan live eBay prices to rank top holdings
           </div>
         }
-      </section>
+      </kit-section-card>
 
-      <section class="insight-panel" data-testid="insights-sources-panel">
-        <div class="panel-header">
-          <div class="panel-title-group">
-            <h2 class="panel-title">Top Acquisition Sources</h2>
-            <p class="panel-subtitle">
-              Merchants, stores, and gift sources across selected scope
-            </p>
-          </div>
+      <kit-section-card
+        testId="insights-sources-panel"
+        title="Top Acquisition Sources"
+        subtitle="Merchants, stores, and gift sources across selected scope"
+      >
+        <div cardActions class="card-actions-slot">
           @if (scopedJournalSummary().allMerchants.length > 6) {
             <button
               type="button"
@@ -907,7 +845,7 @@
             No merchant or gift provenance recorded in this scope
           </div>
         }
-      </section>
+      </kit-section-card>
     </div>
   }
 
@@ -917,16 +855,10 @@
       <!-- Left Column: Composition, Play Status, Era, Franchises -->
       <div class="insights-column">
         <!-- Packaging Condition Breakdown -->
-        <section class="insight-panel">
-          <div class="panel-header">
-            <div class="panel-title-group">
-              <h2 class="panel-title">Packaging Condition Breakdown</h2>
-              <p class="panel-subtitle">
-                Completeness distribution across owned games
-              </p>
-            </div>
-          </div>
-
+        <kit-section-card
+          title="Packaging Condition Breakdown"
+          subtitle="Completeness distribution across owned games"
+        >
           <div class="insights-meter-wrap">
             <kit-segmented-meter
               [segments]="conditionMeterSegments()"
@@ -977,25 +909,20 @@
               >
             </a>
           </div>
-        </section>
+        </kit-section-card>
 
         <!-- Play Status Distribution (All 6 Statuses) -->
-        <section class="insight-panel">
-          <div class="panel-header">
-            <div class="panel-title-group">
-              <h2 class="panel-title">Play Status Distribution</h2>
-              <p class="panel-subtitle">
-                {{
-                  isPublicView()
-                    ? 'Complete play journey across this library'
-                    : 'Complete play journey across your owned library'
-                }}
-              </p>
-            </div>
-            <span class="rate-pill">
-              {{ playStatusStats().playedPct }}% Finished
-            </span>
-          </div>
+        <kit-section-card
+          title="Play Status Distribution"
+          [subtitle]="
+            isPublicView()
+              ? 'Complete play journey across this library'
+              : 'Complete play journey across your owned library'
+          "
+        >
+          <span cardActions class="rate-pill">
+            {{ playStatusStats().playedPct }}% Finished
+          </span>
 
           <div class="play-status-grid six-status-grid">
             <a
@@ -1059,19 +986,13 @@
               <span class="chip-label">Unplayed</span>
             </a>
           </div>
-        </section>
+        </kit-section-card>
 
         <!-- Release Era & Decade Distribution -->
-        <section class="insight-panel">
-          <div class="panel-header">
-            <div class="panel-title-group">
-              <h2 class="panel-title">Era &amp; Release Decade Distribution</h2>
-              <p class="panel-subtitle">
-                Historical timeline of owned games by release era
-              </p>
-            </div>
-          </div>
-
+        <kit-section-card
+          title="Era &amp; Release Decade Distribution"
+          subtitle="Historical timeline of owned games by release era"
+        >
           <div class="decade-histogram">
             @for (d of decadeDistribution(); track d.decade) {
               <a
@@ -1098,17 +1019,14 @@
               </a>
             }
           </div>
-        </section>
+        </kit-section-card>
 
         <!-- Franchise Representation -->
-        <section class="insight-panel">
-          <div class="panel-header">
-            <div class="panel-title-group">
-              <h2 class="panel-title">Top Franchises &amp; Series</h2>
-              <p class="panel-subtitle">
-                Highest represented series in your library
-              </p>
-            </div>
+        <kit-section-card
+          title="Top Franchises &amp; Series"
+          subtitle="Highest represented series in your library"
+        >
+          <div cardActions class="card-actions-slot">
             @if (allSeries().length > 8) {
               <button
                 type="button"
@@ -1148,24 +1066,17 @@
               <div class="empty-state">No franchise data available</div>
             }
           </div>
-        </section>
+        </kit-section-card>
       </div>
 
       <!-- Right Column: Platform Completion + Toy Line & Series Completion -->
       <div class="insights-column">
         <!-- Platform Distribution & Completion -->
-        <section class="insight-panel" data-testid="insights-platforms-panel">
-          <div class="panel-header">
-            <div class="panel-title-group">
-              <h2 class="panel-title">
-                Platform Distribution &amp; Catalog Completion
-              </h2>
-              <p class="panel-subtitle">
-                Games owned relative to canonical catalog releases
-              </p>
-            </div>
-          </div>
-
+        <kit-section-card
+          testId="insights-platforms-panel"
+          title="Platform Distribution &amp; Catalog Completion"
+          subtitle="Games owned relative to canonical catalog releases"
+        >
           <div class="platform-controls-bar">
             @if (platformBrands().length > 1) {
               <div
@@ -1271,19 +1182,14 @@
               </div>
             }
           </div>
-        </section>
+        </kit-section-card>
 
         <!-- Toy Line & Series Completion -->
-        <section class="insight-panel" data-testid="insights-toy-lines-panel">
-          <div class="panel-header">
-            <div class="panel-title-group">
-              <h2 class="panel-title">Toy Line &amp; Series Completion</h2>
-              <p class="panel-subtitle">
-                Collectible figures and cards owned relative to catalog
-              </p>
-            </div>
-          </div>
-
+        <kit-section-card
+          testId="insights-toy-lines-panel"
+          title="Toy Line &amp; Series Completion"
+          subtitle="Collectible figures and cards owned relative to catalog"
+        >
           <div class="platform-list">
             @for (line of toyLineStats(); track line.name) {
               <div class="platform-item toy-line-card">
@@ -1365,7 +1271,7 @@
               <div class="empty-state">No toy catalog data available</div>
             }
           </div>
-        </section>
+        </kit-section-card>
       </div>
     </div>
   }

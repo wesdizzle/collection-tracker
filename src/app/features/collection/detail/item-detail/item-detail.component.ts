@@ -47,6 +47,7 @@ import {
 import { combineLatest, of, Observable, firstValueFrom } from 'rxjs';
 import { switchMap, catchError, startWith } from 'rxjs/operators';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { KitDetailShellComponent } from '@wesdizzle/app-kit/angular';
 import { NavigationHistoryService } from '../../../../core/services/navigation-history.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 import { IconName } from '../../../../shared/components/icon/icon.catalog';
@@ -60,6 +61,7 @@ import { ItemMarketPriceComponent } from '../item-market-price/item-market-price
     DatePipe,
     FormsModule,
     RouterModule,
+    KitDetailShellComponent,
     IconComponent,
     ItemMarketPriceComponent,
   ],

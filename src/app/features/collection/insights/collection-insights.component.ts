@@ -12,10 +12,13 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import {
   KitMeterSegment,
+  KitSectionCardComponent,
   KitSegmentedMeterComponent,
   KitSelectComponent,
   KitSelectGroup,
   KitSelectOption,
+  KitTabItem,
+  KitTabsComponent,
   createAnimatedNumber,
 } from '@wesdizzle/app-kit/angular';
 import { CollectionService } from '../../../core/services/collection.service';
@@ -76,6 +79,8 @@ export interface DecadeStat {
     CommonModule,
     RouterModule,
     IconComponent,
+    KitTabsComponent,
+    KitSectionCardComponent,
     KitSegmentedMeterComponent,
     KitSelectComponent,
     CollectionGrowthChartComponent,
@@ -146,6 +151,32 @@ export class CollectionInsightsComponent implements OnInit {
     return typeof this.collectionService.canShowPersonalState === 'function'
       ? this.collectionService.canShowPersonalState()
       : this.collectionService.isAuthenticated();
+  });
+
+  public readonly insightsTabItems = computed<readonly KitTabItem[]>(() => {
+    const tabs: KitTabItem[] = [
+      {
+        id: 'overview',
+        label: 'Overview',
+        icon: 'compass',
+        testId: 'insights-tab-overview',
+      },
+    ];
+    if (this.canShowProvenance()) {
+      tabs.push({
+        id: 'value',
+        label: 'Value & Ledger',
+        icon: 'coins',
+        testId: 'insights-tab-value',
+      });
+    }
+    tabs.push({
+      id: 'catalog',
+      label: 'Catalog & Stats',
+      icon: 'chart',
+      testId: 'insights-tab-catalog',
+    });
+    return tabs;
   });
 
   public readonly activeSubTab = computed<InsightsSubTab>(() => {

@@ -14,6 +14,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import {
   KitMeterSegment,
+  KitSectionCardComponent,
   KitSegmentedMeterComponent,
 } from '@wesdizzle/app-kit/angular';
 import {
@@ -43,6 +44,7 @@ import { Platform } from '../../../core/models/collection.models';
     FormsModule,
     RouterModule,
     IconComponent,
+    KitSectionCardComponent,
     KitSegmentedMeterComponent,
   ],
   templateUrl: './backup-scanner.component.html',

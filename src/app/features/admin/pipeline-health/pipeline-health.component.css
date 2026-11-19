@@ -121,32 +121,18 @@
   gap: var(--spacing-16);
 }
 
-.pipeline-card {
-  background: var(--m3-surface-container);
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-16);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-12);
+kit-section-card {
+  display: block;
 }
 
 .pipeline-card-wide {
   grid-column: 1 / -1;
 }
 
-.pipeline-card-header {
+.pipeline-card-body {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--spacing-8);
-  flex-wrap: wrap;
-}
-
-.pipeline-card-title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 700;
+  flex-direction: column;
+  gap: var(--spacing-12);
 }
 
 .pipeline-badge {
@@ -188,46 +174,6 @@
   border-color: color-mix(in srgb, var(--kit-danger, #ef4444) 40%, transparent);
 }
 
-.pipeline-progress-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.8rem;
-}
-
-.pipeline-progress-track {
-  width: 100%;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--m3-surface-container-highest);
-  overflow: hidden;
-}
-
-.pipeline-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--m3-primary);
-  transition: width 0.25s ease;
-}
-
-.pipeline-progress-fill.warn {
-  background: var(--kit-warning, #f59e0b);
-}
-
-.pipeline-stats-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-6);
-  font-size: 0.82rem;
-}
-
-.pipeline-stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--spacing-8);
-}
-
 .pipeline-card-actions {
   display: flex;
   gap: var(--spacing-8);
@@ -250,31 +196,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-10);
-}
-
-.cron-logs-scroll {
-  overflow-x: auto;
-}
-
-.cron-logs-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-}
-
-.cron-logs-table th,
-.cron-logs-table td {
-  text-align: left;
-  padding: var(--spacing-8) var(--spacing-10);
-  border-bottom: 1px solid var(--m3-outline-variant);
-  vertical-align: top;
-}
-
-.cron-logs-table th {
-  font-size: 0.74rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--m3-on-surface-variant);
 }
 
 .loading-spinner-panel {

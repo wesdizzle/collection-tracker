@@ -37,172 +37,104 @@
   } @else if (status(); as s) {
     <div class="pipeline-grid mb-lg">
       <!-- Card 1: Broad Catalog Ingestion -->
-      <section class="pipeline-card">
-        <div class="pipeline-card-header">
-          <h3 class="pipeline-card-title">Broad Catalog Ingestion</h3>
-          <div class="flex items-center gap-xs">
-            <span
-              class="pipeline-badge"
-              [class.done]="s.stage === 'done' || s.stage === 'completed'"
+      <kit-section-card title="Broad Catalog Ingestion" [compact]="true">
+        <div cardActions class="flex items-center gap-xs">
+          <span
+            class="pipeline-badge"
+            [class.done]="s.stage === 'done' || s.stage === 'completed'"
+          >
+            {{
+              s.stage === 'done' || s.stage === 'completed'
+                ? 'Steady State'
+                : 'Stage ' + s.stage.toUpperCase()
+            }}
+          </span>
+          @if (s.paused) {
+            <span class="pipeline-badge paused">Paused</span>
+          }
+        </div>
+
+        <div class="pipeline-card-body">
+          <kit-stat-bar-list
+            [items]="seedBarItems()"
+            [defaultMax]="100"
+            [compact]="true"
+            ariaLabel="Cursor progress"
+          />
+          <kit-kv-grid
+            [items]="seedKvItems()"
+            density="compact"
+            layout="list"
+          />
+
+          <div class="pipeline-card-actions">
+            <button
+              type="button"
+              class="m3-btn m3-btn-secondary btn-sm"
+              data-testid="pipeline-pause-btn"
+              [disabled]="actionBusy()"
+              (click)="togglePause.emit()"
             >
-              {{
-                s.stage === 'done' || s.stage === 'completed'
-                  ? 'Steady State'
-                  : 'Stage ' + s.stage.toUpperCase()
-              }}
-            </span>
-            @if (s.paused) {
-              <span class="pipeline-badge paused">Paused</span>
-            }
+              {{ s.paused ? 'Resume Seeding' : 'Pause Seeding' }}
+            </button>
+            <button
+              type="button"
+              class="m3-btn m3-btn-primary btn-sm"
+              data-testid="pipeline-run-seed-btn"
+              [disabled]="actionBusy()"
+              (click)="runSeedBatch.emit()"
+            >
+              Run Seed Batch Now
+            </button>
           </div>
         </div>
-
-        <div class="pipeline-progress-meta">
-          <span>Cursor Progress</span>
-          <strong>{{ seedProgressPct() }}%</strong>
-        </div>
-        <div class="pipeline-progress-track">
-          <div
-            class="pipeline-progress-fill"
-            [style.width.%]="seedProgressPct()"
-          ></div>
-        </div>
-
-        <div class="pipeline-stats-list">
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Canonical Cursor</span>
-            <span class="font-bold">
-              {{ s.cursor }} /
-              {{ s.canonicalMaxId ?? s.cursor }}
-            </span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Active Platform</span>
-            <span class="font-bold">{{
-              s.currentPlatformName || 'Caught up / Steady State'
-            }}</span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Last Seed Update</span>
-            <span>{{ s.lastUpdatedAt || 'Never' }}</span>
-          </div>
-        </div>
-
-        <div class="pipeline-card-actions">
-          <button
-            type="button"
-            class="m3-btn m3-btn-secondary btn-sm"
-            data-testid="pipeline-pause-btn"
-            [disabled]="actionBusy()"
-            (click)="togglePause.emit()"
-          >
-            {{ s.paused ? 'Resume Seeding' : 'Pause Seeding' }}
-          </button>
-          <button
-            type="button"
-            class="m3-btn m3-btn-primary btn-sm"
-            data-testid="pipeline-run-seed-btn"
-            [disabled]="actionBusy()"
-            (click)="runSeedBatch.emit()"
-          >
-            Run Seed Batch Now
-          </button>
-        </div>
-      </section>
+      </kit-section-card>
 
       <!-- Card 2: Daily D1 Write Budget -->
-      <section class="pipeline-card">
-        <div class="pipeline-card-header">
-          <h3 class="pipeline-card-title">Daily D1 Write Budget</h3>
-          <span class="pipeline-badge" [class.warn]="dailyBudgetPct() >= 90">
-            {{ dailyBudgetPct() }}% Used
-          </span>
-        </div>
+      <kit-section-card title="Daily D1 Write Budget" [compact]="true">
+        <span
+          cardActions
+          class="pipeline-badge"
+          [class.warn]="dailyBudgetPct() >= 90"
+        >
+          {{ dailyBudgetPct() }}% Used
+        </span>
 
-        <div class="pipeline-progress-meta">
-          <span>Writes Used Today</span>
-          <strong> {{ s.writesUsedToday }} / {{ s.dailyWriteBudget }} </strong>
+        <div class="pipeline-card-body">
+          <kit-stat-bar-list
+            [items]="budgetBarItems()"
+            [compact]="true"
+            ariaLabel="Daily D1 write budget"
+          />
+          <kit-kv-grid
+            [items]="budgetKvItems()"
+            density="compact"
+            layout="list"
+          />
         </div>
-        <div class="pipeline-progress-track">
-          <div
-            class="pipeline-progress-fill"
-            [class.warn]="dailyBudgetPct() >= 90"
-            [style.width.%]="dailyBudgetPct()"
-          ></div>
-        </div>
-
-        <div class="pipeline-stats-list">
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Games Ingested Today</span>
-            <span class="font-bold">{{ s.gamesIngestedToday ?? 0 }}</span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Releases Attached Today</span>
-            <span class="font-bold">{{ s.releasesIngestedToday ?? 0 }}</span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Switch Revisions Synced</span>
-            <span>{{
-              s.upstreamSources?.switchRevisionsUpdatedAt || 'Pending'
-            }}</span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Amiibo Catalog Synced</span>
-            <span>{{
-              s.upstreamSources?.amiiboCatalogUpdatedAt || 'Pending'
-            }}</span>
-          </div>
-        </div>
-      </section>
+      </kit-section-card>
 
       <!-- Card 3: Self-Healing & IGDB Metadata Sync -->
-      <section class="pipeline-card pipeline-card-wide">
-        <div class="pipeline-card-header">
-          <h3 class="pipeline-card-title">
-            Self-Healing &amp; IGDB Metadata Sweep
-          </h3>
-          <span class="pipeline-badge done">Continuous Active</span>
-        </div>
+      <kit-section-card
+        class="pipeline-card-wide"
+        title="Self-Healing &amp; IGDB Metadata Sweep"
+        [compact]="true"
+      >
+        <span cardActions class="pipeline-badge done">Continuous Active</span>
 
         <div class="pipeline-dual-grid">
           <div class="pipeline-subpanel">
-            <div class="pipeline-progress-meta">
-              <span>IGDB Backfill Cursor Sweep</span>
-              <strong>{{ backfillProgressPct() }}%</strong>
-            </div>
-            <div class="pipeline-progress-track">
-              <div
-                class="pipeline-progress-fill"
-                [style.width.%]="backfillProgressPct()"
-              ></div>
-            </div>
-            <div class="pipeline-stats-list">
-              <div class="pipeline-stat-row">
-                <span class="text-secondary">Stable ID Cursor</span>
-                <span class="font-bold">
-                  {{ s.igdbBackfill?.cursor ?? 0 }} /
-                  {{ s.maxGameStableId ?? 0 }}
-                </span>
-              </div>
-              <div class="pipeline-stat-row">
-                <span class="text-secondary">Games Matched (Total)</span>
-                <span class="font-bold">{{
-                  s.igdbBackfill?.matchedTotal ?? 0
-                }}</span>
-              </div>
-              <div class="pipeline-stat-row">
-                <span class="text-secondary">Rules Applied (Backfill)</span>
-                <span class="font-bold">{{
-                  s.igdbBackfill?.rulesAppliedTotal ?? 0
-                }}</span>
-              </div>
-              <div class="pipeline-stat-row">
-                <span class="text-secondary">Last Daily Wrap Date</span>
-                <span>{{
-                  s.igdbBackfill?.lastWrapDate || 'In first pass'
-                }}</span>
-              </div>
-            </div>
+            <kit-stat-bar-list
+              [items]="backfillBarItems()"
+              [defaultMax]="100"
+              [compact]="true"
+              ariaLabel="IGDB backfill cursor sweep"
+            />
+            <kit-kv-grid
+              [items]="backfillKvItems()"
+              density="compact"
+              layout="list"
+            />
             <div class="pipeline-card-actions">
               <button
                 type="button"
@@ -217,41 +149,17 @@
           </div>
 
           <div class="pipeline-subpanel">
-            <div class="pipeline-progress-meta">
-              <span>Rolling IGDB &amp; Rule Self-Heal</span>
-              <strong>{{ rollingProgressPct() }}%</strong>
-            </div>
-            <div class="pipeline-progress-track">
-              <div
-                class="pipeline-progress-fill"
-                [style.width.%]="rollingProgressPct()"
-              ></div>
-            </div>
-            <div class="pipeline-stats-list">
-              <div class="pipeline-stat-row">
-                <span class="text-secondary">Rolling Offset</span>
-                <span class="font-bold">
-                  {{ s.igdbRolling?.cursorOffset ?? 0 }} /
-                  {{ s.maxGameStableId ?? 0 }}
-                </span>
-              </div>
-              <div class="pipeline-stat-row">
-                <span class="text-secondary">IGDB Refreshed (Total)</span>
-                <span class="font-bold">{{
-                  s.igdbRolling?.refreshedTotal ?? 0
-                }}</span>
-              </div>
-              <div class="pipeline-stat-row">
-                <span class="text-secondary">Self-Healed Rules (Total)</span>
-                <span class="font-bold">{{
-                  s.igdbRolling?.selfHealedRulesTotal ?? 0
-                }}</span>
-              </div>
-              <div class="pipeline-stat-row">
-                <span class="text-secondary">Last Rolling Run</span>
-                <span>{{ s.igdbRolling?.lastRunAt || 'Pending' }}</span>
-              </div>
-            </div>
+            <kit-stat-bar-list
+              [items]="rollingBarItems()"
+              [defaultMax]="100"
+              [compact]="true"
+              ariaLabel="Rolling IGDB and rule self-heal"
+            />
+            <kit-kv-grid
+              [items]="rollingKvItems()"
+              density="compact"
+              layout="list"
+            />
             <div class="pipeline-card-actions">
               <button
                 type="button"
@@ -265,198 +173,136 @@
             </div>
           </div>
         </div>
-      </section>
+      </kit-section-card>
 
       <!-- Card 4: Autonomous Watched-Series Discovery -->
-      <section class="pipeline-card">
-        <div class="pipeline-card-header">
-          <h3 class="pipeline-card-title">Watched-Series IGDB Discovery</h3>
-          <span class="pipeline-badge done">2h Rolling Cadence</span>
-        </div>
+      <kit-section-card title="Watched-Series IGDB Discovery" [compact]="true">
+        <span cardActions class="pipeline-badge done">2h Rolling Cadence</span>
 
-        <div class="pipeline-stats-list">
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Active Series Rules</span>
-            <span class="font-bold">{{
-              s.seriesDiscovery?.totalSeriesRules ?? 0
-            }}</span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Series Cursor</span>
-            <span class="font-bold">{{ s.seriesDiscovery?.cursor ?? 0 }}</span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Series Scanned (Total)</span>
-            <span class="font-bold">{{
-              s.seriesDiscovery?.seriesScannedTotal ?? 0
-            }}</span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Games Discovered (Total)</span>
-            <span class="font-bold">{{
-              s.seriesDiscovery?.discoveredGamesTotal ?? 0
-            }}</span>
-          </div>
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Last Discovery Run</span>
-            <span>{{ s.seriesDiscovery?.lastRunAt || 'Pending' }}</span>
+        <div class="pipeline-card-body">
+          <kit-kv-grid
+            [items]="seriesDiscoveryKvItems()"
+            density="compact"
+            layout="list"
+          />
+
+          <div class="pipeline-card-actions">
+            <button
+              type="button"
+              class="m3-btn m3-btn-secondary btn-sm"
+              data-testid="pipeline-run-series-discovery-btn"
+              [disabled]="actionBusy()"
+              (click)="runSeriesDiscovery.emit()"
+            >
+              Run Series Discovery
+            </button>
           </div>
         </div>
+      </kit-section-card>
+    </div>
+  }
+
+  @if (marketPricingStatus(); as mps) {
+    <kit-section-card
+      class="mb-lg"
+      title="Live eBay Valuation Cache &amp; Quota"
+      testId="market-pricing-admin-card"
+      [compact]="true"
+    >
+      <span
+        cardActions
+        class="pipeline-badge"
+        [class.done]="mps.configured"
+        [class.warn]="!mps.configured"
+      >
+        {{ mps.configured ? 'Configured' : 'Awaiting eBay API Keys' }}
+      </span>
+
+      <div class="pipeline-card-body">
+        <kit-kv-grid
+          [items]="marketPricingKvItems()"
+          density="compact"
+          layout="list"
+        />
 
         <div class="pipeline-card-actions">
           <button
             type="button"
             class="m3-btn m3-btn-secondary btn-sm"
-            data-testid="pipeline-run-series-discovery-btn"
-            [disabled]="actionBusy()"
-            (click)="runSeriesDiscovery.emit()"
+            data-testid="purge-market-cache-btn"
+            [disabled]="marketCachePurging() || actionBusy()"
+            (click)="purgeMarketCache.emit()"
           >
-            Run Series Discovery
+            {{
+              marketCachePurging() ? 'Purging Cache...' : 'Purge 6h Cache Now'
+            }}
           </button>
         </div>
-      </section>
-    </div>
-  }
-
-  @if (marketPricingStatus(); as mps) {
-    <section
-      class="pipeline-card mb-lg"
-      data-testid="market-pricing-admin-card"
-    >
-      <div class="pipeline-card-header">
-        <h3 class="pipeline-card-title">
-          Live eBay Valuation Cache &amp; Quota
-        </h3>
-        <span
-          class="pipeline-badge"
-          [class.done]="mps.configured"
-          [class.warn]="!mps.configured"
-        >
-          {{ mps.configured ? 'Configured' : 'Awaiting eBay API Keys' }}
-        </span>
       </div>
-
-      <div class="pipeline-stats-list">
-        <div class="pipeline-stat-row">
-          <span class="text-secondary">Active Unexpired Items</span>
-          <span class="font-bold">
-            {{ mps.cachedCount }} items across {{ mps.shardCount }} R2 shards
-            (≤{{ mps.ttlHours }}h TTL, 0 D1 writes)
-          </span>
-        </div>
-        @if (mps.ebayRateLimit; as rl) {
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Daily eBay Browse Quota</span>
-            <span class="font-bold">
-              {{ rl.remaining }} / {{ rl.limit }} remaining
-            </span>
-          </div>
-          @if (rl.reset) {
-            <div class="pipeline-stat-row">
-              <span class="text-secondary">Quota Window Reset</span>
-              <span>{{ rl.reset }}</span>
-            </div>
-          }
-        } @else {
-          <div class="pipeline-stat-row">
-            <span class="text-secondary">Daily eBay Browse Quota</span>
-            <span>
-              {{
-                mps.configured
-                  ? 'Quota telemetry unavailable'
-                  : 'Configure EBAY_CLIENT_ID &amp; EBAY_CLIENT_SECRET'
-              }}
-            </span>
-          </div>
-        }
-      </div>
-
-      <div class="pipeline-card-actions">
-        <button
-          type="button"
-          class="m3-btn m3-btn-secondary btn-sm"
-          data-testid="purge-market-cache-btn"
-          [disabled]="marketCachePurging() || actionBusy()"
-          (click)="purgeMarketCache.emit()"
-        >
-          {{ marketCachePurging() ? 'Purging Cache...' : 'Purge 6h Cache Now' }}
-        </button>
-      </div>
-    </section>
+    </kit-section-card>
   }
 
   <!-- Recent Cron Execution Logs -->
-  <section class="pipeline-card">
-    <div class="pipeline-card-header mb-md">
-      <h3 class="pipeline-card-title">Recent Cron Execution Logs</h3>
-      <div class="flex items-center gap-xs">
-        <label for="cron-job-filter" class="text-xs text-secondary"
-          >Filter Job:</label
-        >
-        <select
-          id="cron-job-filter"
-          class="m3-select m3-select-compact"
-          data-testid="pipeline-cron-filter"
-          [value]="cronJobFilter()"
-          (change)="filterChange.emit($event)"
-        >
-          <option value="all">All Jobs</option>
-          <option value="broad_catalog_seed">broad_catalog_seed</option>
-          <option value="igdb_metadata_backfill">igdb_metadata_backfill</option>
-          <option value="igdb_batch">igdb_batch</option>
-          <option value="watched_series_discovery">
-            watched_series_discovery
-          </option>
-          <option value="switch_revisions">switch_revisions</option>
-          <option value="amiibo_catalog">amiibo_catalog</option>
-          <option value="boutique_preorders">boutique_preorders</option>
-          <option value="retail_deals">retail_deals</option>
-          <option value="scheduled_backup">scheduled_backup</option>
-        </select>
-      </div>
+  <kit-section-card title="Recent Cron Execution Logs" [compact]="true">
+    <div cardActions class="flex items-center gap-xs">
+      <label for="cron-job-filter" class="text-xs text-secondary"
+        >Filter Job:</label
+      >
+      <select
+        id="cron-job-filter"
+        class="m3-select m3-select-compact"
+        data-testid="pipeline-cron-filter"
+        [value]="cronJobFilter()"
+        (change)="filterChange.emit($event)"
+      >
+        <option value="all">All Jobs</option>
+        <option value="broad_catalog_seed">broad_catalog_seed</option>
+        <option value="igdb_metadata_backfill">igdb_metadata_backfill</option>
+        <option value="igdb_batch">igdb_batch</option>
+        <option value="watched_series_discovery">
+          watched_series_discovery
+        </option>
+        <option value="switch_revisions">switch_revisions</option>
+        <option value="amiibo_catalog">amiibo_catalog</option>
+        <option value="boutique_preorders">boutique_preorders</option>
+        <option value="retail_deals">retail_deals</option>
+        <option value="scheduled_backup">scheduled_backup</option>
+      </select>
     </div>
 
-    @if (cronLogs().length === 0) {
-      <p class="text-sm text-secondary m-0">
-        No cron execution logs match the selected filter.
-      </p>
-    } @else {
-      <div class="cron-logs-scroll">
-        <table class="cron-logs-table" data-testid="pipeline-cron-table">
-          <thead>
-            <tr>
-              <th>Job</th>
-              <th>Status</th>
-              <th>Duration</th>
-              <th>Timestamp</th>
-              <th>Summary</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (entry of cronLogs(); track entry.id) {
-              <tr>
-                <td>
-                  <code>{{ entry.job_name }}</code>
-                </td>
-                <td>
-                  <span
-                    class="pipeline-badge"
-                    [class.done]="entry.status === 'SUCCESS'"
-                    [class.error]="entry.status !== 'SUCCESS'"
-                  >
-                    {{ entry.status }}
-                  </span>
-                </td>
-                <td>{{ entry.duration_ms }}ms</td>
-                <td class="text-xs text-secondary">
-                  {{ entry.created_at }}
-                </td>
-                <td class="text-sm">{{ entry.summary }}</td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-    }
-  </section>
+    <kit-data-table
+      [columns]="cronColumns"
+      [rows]="cronLogs()"
+      trackByKey="id"
+      tableTestId="pipeline-cron-table"
+      emptyText="No cron execution logs match the selected filter."
+      ariaLabel="Recent cron execution logs"
+    >
+      <ng-template #cellTemplate let-entry let-column="column">
+        @switch (column.key) {
+          @case ('job_name') {
+            <code>{{ entry.job_name }}</code>
+          }
+          @case ('status') {
+            <span
+              class="pipeline-badge"
+              [class.done]="entry.status === 'SUCCESS'"
+              [class.error]="entry.status !== 'SUCCESS'"
+            >
+              {{ entry.status }}
+            </span>
+          }
+          @case ('duration_ms') {
+            <span>{{ entry.duration_ms }}ms</span>
+          }
+          @case ('created_at') {
+            <span class="text-xs text-secondary">{{ entry.created_at }}</span>
+          }
+          @default {
+            <span class="text-sm">{{ entry.summary }}</span>
+          }
+        }
+      </ng-template>
+    </kit-data-table>
+  </kit-section-card>
 </div>

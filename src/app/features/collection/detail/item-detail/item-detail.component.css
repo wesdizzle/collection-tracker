@@ -1,24 +1,12 @@
 .pb-xl {
   padding-bottom: var(--spacing-64);
 }
-.details-nav {
-  margin-top: var(--spacing-16);
-  margin-bottom: var(--spacing-32);
+
+.quick-stats-slot {
+  display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-24);
-}
-
-.back-link {
-  font-family: var(--font-body);
-  font-weight: 600;
-  color: var(--m3-on-surface-variant);
-  padding: var(--spacing-8) var(--spacing-16);
-  border-radius: var(--radius-full);
-}
-
-.back-link:hover {
-  color: var(--m3-primary);
-  background: var(--m3-surface-container-high);
+  align-items: center;
+  gap: var(--spacing-12);
 }
 
 .quick-stats {

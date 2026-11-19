@@ -74,42 +74,13 @@
 }
 
 /* Sub-Tab Navigation */
-.insights-subtabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-8);
-  padding: 4px;
-  background: var(--m3-surface-container);
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--radius-full);
+kit-tabs,
+kit-section-card {
+  display: block;
+}
+
+.insights-subtabs-wrap {
   margin-bottom: var(--spacing-24);
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.subtab-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--m3-on-surface-variant);
-  font-family: var(--font-body);
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.16s ease;
-}
-
-.subtab-pill:hover {
-  color: var(--m3-on-surface);
-}
-
-.subtab-pill.active {
-  background: var(--m3-primary-container);
-  color: var(--m3-on-primary-container);
 }
 
 /* Top Metric Cards Row */
@@ -357,34 +328,9 @@
   box-sizing: border-box;
 }
 
-.panel-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--spacing-12);
-  margin-bottom: var(--spacing-20);
-  min-width: 0;
-  max-width: 100%;
-}
-
-.panel-title-group {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.panel-title {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--m3-on-surface);
-  margin: 0 0 var(--spacing-4) 0;
-  word-break: break-word;
-  overflow-wrap: break-word;
-}
-
-.panel-subtitle {
-  font-size: 0.8125rem;
-  color: var(--m3-on-surface-variant);
-  margin: 0;
+.card-actions-slot {
+  display: inline-flex;
+  align-items: center;
 }
 
 .inline-link-btn {
@@ -1025,19 +971,6 @@
     padding: var(--spacing-16);
   }
 
-  .panel-header {
-    flex-wrap: wrap;
-    gap: var(--spacing-8);
-  }
-
-  .panel-title {
-    font-size: 1rem;
-  }
-
-  .panel-subtitle {
-    font-size: 0.75rem;
-  }
-
   .ledger-scope-wrap {
     max-width: 100%;
     flex: 1 1 100%;
@@ -1058,18 +991,6 @@
     font-size: 1.35rem;
   }
 
-  .insights-subtabs {
-    width: 100%;
-    display: flex;
-  }
-
-  .subtab-pill {
-    flex: 1 1 auto;
-    justify-content: center;
-    padding: 0.45rem 0.65rem;
-    font-size: 0.78rem;
-  }
-
   .summary-cards-grid {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: var(--spacing-12);
@@ -1086,12 +1007,6 @@
   .insight-panel {
     padding: 14px;
     border-radius: var(--radius-sm);
-  }
-
-  .panel-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--spacing-8);
   }
 
   .legend-item {
