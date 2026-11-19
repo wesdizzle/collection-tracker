@@ -682,6 +682,7 @@ export function computeCollectionGrowthSeries(
 
   const isToysOnly = scope === 'toys_only';
   const isGamesOnly = scope === 'games_only';
+  const isWithCostBasis = scope === 'with_cost_basis';
   const platformId = scope.startsWith('platform:')
     ? Number(scope.slice('platform:'.length))
     : null;
@@ -747,6 +748,11 @@ export function computeCollectionGrowthSeries(
     entry: JournalEntry | null,
     currentValueCents: number | null,
   ) => {
+    const paidDollars = getJournalPricePaidNumber(entry);
+    if (isWithCostBasis && paidDollars === null) {
+      return;
+    }
+
     totalOwnedInScope++;
     if (currentValueCents !== null) {
       hasFreshMarketPrices = true;
@@ -768,7 +774,6 @@ export function computeCollectionGrowthSeries(
       }
     }
 
-    const paidDollars = getJournalPricePaidNumber(entry);
     const pricePaidCents =
       paidDollars !== null ? Math.round(paidDollars * 100) : null;
 

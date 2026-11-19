@@ -273,4 +273,70 @@ describe('MarketValuationPanelComponent', () => {
         .disabled,
     ).toBe(true);
   });
+
+  it('renders compact toolbar variant driven by externalScope without duplicate scope select or KPI tiles', () => {
+    scanProgress.set({
+      ...scanProgress(),
+      active: false,
+    });
+
+    const ownedGames: Game[] = [
+      {
+        stable_id: 1,
+        id: 'rel-cib',
+        game_id: 'g-cib',
+        title: 'CIB Game',
+        series: 'S',
+        canonical_series: 'S',
+        platform: 'SNES',
+        platform_id: 15,
+        ownership_status: 1,
+        play_status: PlayStatus.Played,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
+      {
+        stable_id: 2,
+        id: 'rel-boxed',
+        game_id: 'g-boxed',
+        title: 'Boxed Game',
+        series: 'S',
+        canonical_series: 'S',
+        platform: 'GameCube',
+        platform_id: 20,
+        ownership_status: 1,
+        play_status: PlayStatus.Played,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 0,
+      },
+    ];
+    marketPricesMap.set(
+      new Map([
+        ['game:g-cib', makePrice('game', 'g-cib', 2000, 5000)],
+        ['game:g-boxed', makePrice('game', 'g-boxed', 1000, 3000)],
+      ]),
+    );
+
+    fixture.componentRef.setInput('ownedGames', ownedGames);
+    fixture.componentRef.setInput('ownedToys', []);
+    fixture.componentRef.setInput('platforms', []);
+    fixture.componentRef.setInput('variant', 'toolbar');
+    fixture.componentRef.setInput('externalScope', 'platform:15');
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(
+      el.querySelector('[data-testid="market-valuation-toolbar"]'),
+    ).toBeTruthy();
+    expect(
+      el.querySelector('[data-testid="valuation-scope-select"]'),
+    ).toBeNull();
+    expect(
+      el.querySelector('[data-testid="estimated-total-value"]'),
+    ).toBeNull();
+    expect(component.valuationSummary().totalOwnedCount).toBe(1);
+    expect(component.valuationSummary().totalEstimatedCents).toBe(5000);
+  });
 });

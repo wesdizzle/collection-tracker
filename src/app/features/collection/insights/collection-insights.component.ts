@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   inject,
   computed,
   signal,
@@ -7,29 +8,42 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import {
   KitMeterSegment,
   KitSegmentedMeterComponent,
+  KitSelectComponent,
+  KitSelectGroup,
+  KitSelectOption,
   createAnimatedNumber,
 } from '@wesdizzle/app-kit/angular';
 import { CollectionService } from '../../../core/services/collection.service';
 import {
   Game,
-  JournalEntry,
+  ReleaseDecadeFilter,
   Toy,
   computeItemEstimatedValueCents,
   getMarketPriceKey,
   isMarketPriceFresh,
 } from '../../../core/models/collection.models';
 import {
-  findGameJournalEntry,
-  findToyJournalEntry,
-  getProvenanceSourceLabel,
-} from '../../../core/models/provenance-analytics';
+  PhysicalBackupSummary,
+  ScopedJournalSummary,
+  ScopedValuationSummary,
+  ToyLineCompletionStat,
+  computePhysicalBackupStats,
+  computeScopedJournalSummary,
+  computeScopedValuation,
+  computeToyLineStats,
+  isPhysicalReleaseGame,
+} from '../../../core/models/insights-analytics';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import { CollectionGrowthChartComponent } from './collection-growth-chart/collection-growth-chart.component';
 import { MarketValuationPanelComponent } from './market-valuation-panel/market-valuation-panel.component';
+
+export type InsightsSubTab = 'overview' | 'value' | 'catalog';
+export type PlatformSortMode = 'owned' | 'completion' | 'value' | 'name';
 
 export interface PlatformCompletionStat {
   id: number;
@@ -39,8 +53,6 @@ export interface PlatformCompletionStat {
   ownedCount: number;
   catalogCount: number;
   completionPct: number;
-  backupCount: number;
-  backupPct: number;
   estimatedValueDollars?: number;
   pricedCount?: number;
 }
@@ -51,16 +63,10 @@ export interface SeriesStat {
 }
 
 export interface DecadeStat {
-  decade: string;
+  decade: Exclude<ReleaseDecadeFilter, 'all'>;
   eraName: string;
   count: number;
   pct: number;
-}
-
-export interface MerchantStat {
-  name: string;
-  count: number;
-  totalSpendDollars: number;
 }
 
 @Component({
@@ -71,6 +77,7 @@ export interface MerchantStat {
     RouterModule,
     IconComponent,
     KitSegmentedMeterComponent,
+    KitSelectComponent,
     CollectionGrowthChartComponent,
     MarketValuationPanelComponent,
   ],
@@ -80,15 +87,64 @@ export interface MerchantStat {
 })
 export class CollectionInsightsComponent implements OnInit {
   public readonly collectionService = inject(CollectionService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+
   public isRefreshing = signal(false);
+  public readonly requestedSubTab = signal<InsightsSubTab>('overview');
+  public readonly ledgerScope = signal<string>('all_owned');
+  public readonly showAllCatalogPlatforms = signal<boolean>(false);
+  public readonly selectedBrand = signal<string>('all');
+  public readonly platformSort = signal<PlatformSortMode>('owned');
+  public readonly showAllSeries = signal<boolean>(false);
+  public readonly showAllMerchants = signal<boolean>(false);
+  public readonly expandedToyLines = signal<Set<string>>(new Set());
+
   public readonly canViewMarketPrices = computed<boolean>(
     () => this.collectionService.canViewMarketPrices?.() === true,
+  );
+  public readonly isMarketUnconfigured = computed<boolean>(
+    () => this.collectionService.marketPricingConfigured?.() === false,
   );
   public readonly canShowProvenance = computed<boolean>(() =>
     typeof this.collectionService.canShowPersonalState === 'function'
       ? this.collectionService.canShowPersonalState()
       : this.collectionService.isAuthenticated(),
   );
+
+  public readonly activeSubTab = computed<InsightsSubTab>(() => {
+    const requested = this.requestedSubTab();
+    if (requested === 'value' && !this.canShowProvenance()) {
+      return 'overview';
+    }
+    return requested;
+  });
+
+  constructor() {
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((params) => {
+        const tab = params.get('tab');
+        if (tab === 'value' || tab === 'catalog' || tab === 'overview') {
+          this.requestedSubTab.set(tab);
+        } else {
+          this.requestedSubTab.set('overview');
+        }
+      });
+  }
+
+  public setActiveSubTab(tab: InsightsSubTab): void {
+    const next =
+      tab === 'value' && !this.canShowProvenance() ? 'overview' : tab;
+    this.requestedSubTab.set(next);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: next === 'overview' ? null : next },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
 
   async ngOnInit(): Promise<void> {
     if (
@@ -100,10 +156,7 @@ export class CollectionInsightsComponent implements OnInit {
     if (typeof this.collectionService.ensureFullCatalogLoaded === 'function') {
       void this.collectionService.ensureFullCatalogLoaded();
     }
-    if (
-      this.collectionService.isAuthenticated() &&
-      !this.collectionService.journalLoaded()
-    ) {
+    if (this.canShowProvenance() && !this.collectionService.journalLoaded()) {
       this.collectionService.loadAllJournalEntries().subscribe();
     }
   }
@@ -112,22 +165,11 @@ export class CollectionInsightsComponent implements OnInit {
     this.isRefreshing.set(true);
     try {
       await this.collectionService.refreshAll();
-      if (this.collectionService.isAuthenticated()) {
+      if (this.canShowProvenance()) {
         this.collectionService.loadAllJournalEntries().subscribe();
       }
     } finally {
       this.isRefreshing.set(false);
-    }
-  }
-
-  public onToggleJournalVisibility(): void {
-    this.collectionService.toggleJournalVisibility();
-    if (
-      this.collectionService.isAuthenticated() &&
-      this.collectionService.journalRevealed() &&
-      !this.collectionService.journalLoaded()
-    ) {
-      this.collectionService.loadAllJournalEntries().subscribe();
     }
   }
 
@@ -153,6 +195,10 @@ export class CollectionInsightsComponent implements OnInit {
 
   public readonly ownedToys = computed<Toy[]>(() =>
     this.collectionService.toys().filter((t) => t.ownership_status === 1),
+  );
+
+  public readonly totalOwnedCount = computed<number>(
+    () => this.ownedGames().length + this.ownedToys().length,
   );
 
   public readonly catalogToysCount = computed<number>(
@@ -182,30 +228,32 @@ export class CollectionInsightsComponent implements OnInit {
     () => this.wishlistToys().length,
   );
 
-  /** --- Preservation & Backup Health --- */
+  public readonly totalSeekingCount = computed<number>(
+    () => this.seekingGamesCount() + this.seekingToysCount(),
+  );
+
+  /** --- Preservation & Backup Health (Single Source of Truth) --- */
   public readonly physicalOwnedGames = computed<Game[]>(() =>
-    this.ownedReleases().filter(
-      (g) =>
-        g.release_medium !== 'digital_extracted_rom' &&
-        g.release_medium !== 'digital_native',
-    ),
+    this.ownedReleases().filter((g) => isPhysicalReleaseGame(g)),
   );
 
   public readonly backedUpOwnedGames = computed<Game[]>(() =>
     this.physicalOwnedGames().filter((g) => Boolean(g.backup_status)),
   );
 
-  public readonly backupRatePct = computed<number>(() => {
-    const total = this.physicalOwnedGames().length;
-    if (total === 0) return 0;
-    return Math.round((this.backedUpOwnedGames().length / total) * 100);
-  });
-
-  public readonly missingBackupsCount = computed<number>(() =>
-    Math.max(
-      0,
-      this.physicalOwnedGames().length - this.backedUpOwnedGames().length,
+  public readonly backupSummary = computed<PhysicalBackupSummary>(() =>
+    computePhysicalBackupStats(
+      this.collectionService.games(),
+      this.collectionService.platforms(),
     ),
+  );
+
+  public readonly backupRatePct = computed<number>(
+    () => this.backupSummary().backupRatePct,
+  );
+
+  public readonly missingBackupsCount = computed<number>(
+    () => this.backupSummary().missingCount,
   );
 
   /** --- Condition Completeness --- */
@@ -247,7 +295,7 @@ export class CollectionInsightsComponent implements OnInit {
     const games = this.collectionService.games();
     const owned = this.ownedGames();
 
-    const canPrice = this.collectionService.canViewMarketPrices?.() === true;
+    const canPrice = this.canViewMarketPrices();
     const nowMs = canPrice
       ? (this.collectionService.marketPriceNowMs?.() ?? Date.now())
       : 0;
@@ -258,7 +306,6 @@ export class CollectionInsightsComponent implements OnInit {
     const stats: PlatformCompletionStat[] = [];
 
     for (const p of platforms) {
-      // Catalog games belonging to this platform or children
       const catalog = games.filter(
         (g) => g.platform_id === p.id || g.parent_platform_id === p.id,
       );
@@ -267,15 +314,10 @@ export class CollectionInsightsComponent implements OnInit {
       const ownedOnPlatform = owned.filter(
         (g) => g.platform_id === p.id || g.parent_platform_id === p.id,
       );
-      const backedUp = ownedOnPlatform.filter((g) => Boolean(g.backup_status));
 
       const completionPct =
         catalog.length > 0
           ? Math.round((ownedOnPlatform.length / catalog.length) * 100)
-          : 0;
-      const backupPct =
-        ownedOnPlatform.length > 0
-          ? Math.round((backedUp.length / ownedOnPlatform.length) * 100)
           : 0;
 
       let pricedCount = 0;
@@ -303,8 +345,6 @@ export class CollectionInsightsComponent implements OnInit {
         ownedCount: ownedOnPlatform.length,
         catalogCount: catalog.length,
         completionPct,
-        backupCount: backedUp.length,
-        backupPct,
         ...(pricedCount > 0
           ? {
               pricedCount,
@@ -314,7 +354,6 @@ export class CollectionInsightsComponent implements OnInit {
       });
     }
 
-    // Sort by owned count desc, then completion percentage desc
     return stats.sort(
       (a, b) =>
         b.ownedCount - a.ownedCount ||
@@ -323,13 +362,121 @@ export class CollectionInsightsComponent implements OnInit {
     );
   });
 
+  public readonly topOwnedPlatformsPreview = computed<PlatformCompletionStat[]>(
+    () =>
+      this.platformStats()
+        .filter((p) => p.ownedCount > 0)
+        .slice(0, 5),
+  );
+
+  public readonly platformBrands = computed<string[]>(() => {
+    const showAll = this.showAllCatalogPlatforms();
+    const base = showAll
+      ? this.platformStats()
+      : this.platformStats().filter((p) => p.ownedCount > 0);
+    const brands = new Set<string>();
+    for (const p of base) {
+      brands.add(p.brand);
+    }
+    return Array.from(brands).sort((a, b) => {
+      if (a === 'Other' && b !== 'Other') return 1;
+      if (b === 'Other' && a !== 'Other') return -1;
+      return a.localeCompare(b);
+    });
+  });
+
+  public readonly platformSortOptions = computed<
+    KitSelectOption<PlatformSortMode>[]
+  >(() => {
+    const opts: KitSelectOption<PlatformSortMode>[] = [
+      { value: 'owned', label: 'Sort: Most Owned' },
+      { value: 'completion', label: 'Sort: Completion %' },
+      { value: 'name', label: 'Sort: Name (A–Z)' },
+    ];
+    if (this.canViewMarketPrices()) {
+      opts.splice(2, 0, { value: 'value', label: 'Sort: Est. Value' });
+    }
+    return opts;
+  });
+
+  public readonly filteredPlatformStats = computed<PlatformCompletionStat[]>(
+    () => {
+      const showAll = this.showAllCatalogPlatforms();
+      const brand = this.selectedBrand();
+      const sortMode = this.platformSort();
+
+      let list = this.platformStats().filter((p) =>
+        showAll ? true : p.ownedCount > 0,
+      );
+      if (brand !== 'all') {
+        list = list.filter((p) => p.brand === brand);
+      }
+
+      return [...list].sort((a, b) => {
+        if (sortMode === 'completion') {
+          return (
+            b.completionPct - a.completionPct ||
+            b.ownedCount - a.ownedCount ||
+            a.name.localeCompare(b.name)
+          );
+        }
+        if (sortMode === 'value') {
+          return (
+            (b.estimatedValueDollars ?? 0) - (a.estimatedValueDollars ?? 0) ||
+            b.ownedCount - a.ownedCount ||
+            a.name.localeCompare(b.name)
+          );
+        }
+        if (sortMode === 'name') {
+          return a.name.localeCompare(b.name);
+        }
+        return (
+          b.ownedCount - a.ownedCount ||
+          b.completionPct - a.completionPct ||
+          a.name.localeCompare(b.name)
+        );
+      });
+    },
+  );
+
+  public onPlatformSortChange(mode: PlatformSortMode): void {
+    this.platformSort.set(mode || 'owned');
+  }
+
+  public onToggleShowAllCatalogPlatforms(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.showAllCatalogPlatforms.set(Boolean(input.checked));
+  }
+
+  /** --- Toy Line & Series Completion --- */
+  public readonly toyLineStats = computed<ToyLineCompletionStat[]>(() =>
+    computeToyLineStats(this.collectionService.toys()),
+  );
+
+  public isToyLineExpanded(lineName: string): boolean {
+    return this.expandedToyLines().has(lineName);
+  }
+
+  public toggleToyLineExpanded(lineName: string): void {
+    this.expandedToyLines.update((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineName)) {
+        next.delete(lineName);
+      } else {
+        next.add(lineName);
+      }
+      return next;
+    });
+  }
+
   /** --- Franchise Representation --- */
-  public readonly topSeries = computed<SeriesStat[]>(() => {
+  public readonly allSeries = computed<SeriesStat[]>(() => {
     const seriesMap = new Map<string, number>();
 
     for (const g of this.ownedGames()) {
-      const s = g.canonical_series || g.series || 'Other';
-      seriesMap.set(s, (seriesMap.get(s) || 0) + 1);
+      const raw = (g.canonical_series || g.series || '').trim();
+      if (!raw) continue;
+      seriesMap.set(raw, (seriesMap.get(raw) || 0) + 1);
     }
 
     return Array.from(seriesMap.entries())
@@ -339,11 +486,14 @@ export class CollectionInsightsComponent implements OnInit {
       }))
       .sort(
         (a, b) => b.ownedCount - a.ownedCount || a.name.localeCompare(b.name),
-      )
-      .slice(0, 8);
+      );
   });
 
-  /** --- Play Status / Backlog Breakdown --- */
+  public readonly topSeries = computed<SeriesStat[]>(() =>
+    this.showAllSeries() ? this.allSeries() : this.allSeries().slice(0, 8),
+  );
+
+  /** --- Play Status / Backlog Breakdown (All 6 Statuses) --- */
   public readonly playStatusStats = computed(() => {
     const owned = this.ownedGames();
     const total = owned.length;
@@ -370,22 +520,13 @@ export class CollectionInsightsComponent implements OnInit {
     };
   });
 
-  public readonly playingGames = computed<Game[]>(() =>
-    this.ownedGames()
-      .filter((g) => g.play_status === 2)
-      .slice(0, 4),
-  );
-
-  public readonly queuedGames = computed<Game[]>(() =>
-    this.ownedGames()
-      .filter((g) => g.play_status === 3)
-      .slice(0, 4),
-  );
-
   /** --- Release Era / Decade Distribution --- */
   public readonly decadeDistribution = computed<DecadeStat[]>(() => {
     const games = this.ownedGames();
-    const eras: Record<string, { eraName: string; count: number }> = {
+    const eras: Record<
+      Exclude<ReleaseDecadeFilter, 'all'>,
+      { eraName: string; count: number }
+    > = {
       '70s_80s': {
         eraName: '1970s & 1980s (Early Era)',
         count: 0,
@@ -430,7 +571,13 @@ export class CollectionInsightsComponent implements OnInit {
       }
     }
 
-    const order = ['70s_80s', '90s', '00s', '10s', '20s'];
+    const order: Array<Exclude<ReleaseDecadeFilter, 'all'>> = [
+      '70s_80s',
+      '90s',
+      '00s',
+      '10s',
+      '20s',
+    ];
     return order.map((key) => {
       const item = eras[key];
       const pct =
@@ -443,6 +590,182 @@ export class CollectionInsightsComponent implements OnInit {
       };
     });
   });
+
+  /** --- Unified Scope & Financial Analytics (Value & Ledger Tab) --- */
+  public readonly ledgerPlatformOptions = computed<
+    Array<{ id: number; name: string; count: number }>
+  >(() => {
+    const owned = this.ownedGames();
+    const counts = new Map<number, number>();
+    for (const g of owned) {
+      counts.set(g.platform_id, (counts.get(g.platform_id) || 0) + 1);
+    }
+    return this.collectionService
+      .platforms()
+      .filter((p) => (counts.get(p.id) || 0) > 0)
+      .map((p) => ({
+        id: p.id,
+        name: p.display_name || p.name,
+        count: counts.get(p.id) || 0,
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  });
+
+  public readonly ledgerScopeOptions = computed<KitSelectOption<string>[]>(
+    () => [
+      {
+        value: 'all_owned',
+        label: `All Owned (${this.ownedGames().length + this.ownedToys().length})`,
+      },
+      {
+        value: 'with_cost_basis',
+        label: 'Owned With Purchase Price',
+      },
+      {
+        value: 'games_only',
+        label: `Owned Games Only (${this.ownedGames().length})`,
+      },
+      {
+        value: 'toys_only',
+        label: `Owned Toys Only (${this.ownedToys().length})`,
+      },
+    ],
+  );
+
+  public readonly ledgerScopeGroups = computed<KitSelectGroup<string>[]>(() => {
+    const opts = this.ledgerPlatformOptions();
+    if (opts.length === 0) return [];
+    return [
+      {
+        label: 'Platforms',
+        options: opts.map((p) => ({
+          value: `platform:${p.id}`,
+          label: `${p.name} (${p.count})`,
+        })),
+      },
+    ];
+  });
+
+  public readonly selectedLedgerPlatformId = computed<number | null>(() => {
+    const scope = this.ledgerScope();
+    if (!scope.startsWith('platform:')) return null;
+    const id = Number(scope.slice('platform:'.length));
+    return Number.isFinite(id) ? id : null;
+  });
+
+  public onLedgerScopeChange(scope: string): void {
+    this.ledgerScope.set(scope || 'all_owned');
+  }
+
+  public readonly ledgerDrillRoute = computed<string[]>(() =>
+    this.ledgerScope() === 'toys_only'
+      ? ['/collection/toys']
+      : ['/collection/games'],
+  );
+
+  public readonly allOwnedJournalSummary = computed<ScopedJournalSummary>(() =>
+    computeScopedJournalSummary({
+      ownedGames: this.ownedGames(),
+      ownedToys: this.ownedToys(),
+      journalMap: this.collectionService.journalEntriesMap?.() ?? new Map(),
+      scope: 'all_owned',
+    }),
+  );
+
+  public readonly scopedJournalSummary = computed<ScopedJournalSummary>(() =>
+    computeScopedJournalSummary({
+      ownedGames: this.ownedGames(),
+      ownedToys: this.ownedToys(),
+      journalMap: this.collectionService.journalEntriesMap?.() ?? new Map(),
+      scope: this.ledgerScope(),
+    }),
+  );
+
+  /** Backward-compatible alias used across tests/templates */
+  public readonly journalSummary = this.scopedJournalSummary;
+
+  public readonly allOwnedValuationSummary = computed<ScopedValuationSummary>(
+    () =>
+      computeScopedValuation({
+        ownedGames: this.ownedGames(),
+        ownedToys: this.ownedToys(),
+        platforms: this.collectionService.platforms(),
+        journalMap: this.collectionService.journalEntriesMap?.() ?? new Map(),
+        marketPricesMap:
+          this.collectionService.marketPricesMap?.() ?? new Map(),
+        nowMs: this.collectionService.marketPriceNowMs?.() ?? Date.now(),
+        scope: 'all_owned',
+        canViewMarketPrices: this.canViewMarketPrices(),
+      }),
+  );
+
+  public readonly scopedValuationSummary = computed<ScopedValuationSummary>(
+    () =>
+      computeScopedValuation({
+        ownedGames: this.ownedGames(),
+        ownedToys: this.ownedToys(),
+        platforms: this.collectionService.platforms(),
+        journalMap: this.collectionService.journalEntriesMap?.() ?? new Map(),
+        marketPricesMap:
+          this.collectionService.marketPricesMap?.() ?? new Map(),
+        nowMs: this.collectionService.marketPriceNowMs?.() ?? Date.now(),
+        scope: this.ledgerScope(),
+        canViewMarketPrices: this.canViewMarketPrices(),
+      }),
+  );
+
+  public readonly displayedMerchants = computed(() => {
+    const all = this.scopedJournalSummary().allMerchants;
+    return this.showAllMerchants() ? all : all.slice(0, 6);
+  });
+
+  public readonly unpricedOwnedCount = computed<number>(() => {
+    if (!this.canViewMarketPrices() || this.isMarketUnconfigured()) return 0;
+    const summary = this.allOwnedValuationSummary();
+    return Math.max(0, summary.totalOwnedCount - summary.pricedCount);
+  });
+
+  public readonly hasAuditActions = computed<boolean>(
+    () =>
+      this.missingBackupsCount() > 0 ||
+      (this.canShowProvenance() &&
+        this.allOwnedJournalSummary().missingCount > 0) ||
+      this.looseCount() > 0 ||
+      this.unpricedOwnedCount() > 0,
+  );
+
+  public getProvenanceCoverageQueryParams(
+    js: ScopedJournalSummary,
+  ): Record<string, string | number> {
+    const params: Record<string, string | number> = {
+      reset: 1,
+      ownership: 1,
+      provenance_status:
+        js.recordedCount < js.totalOwnedCount ? 'missing' : 'recorded',
+    };
+    const pid = this.selectedLedgerPlatformId();
+    if (pid !== null) {
+      params['platform_id'] = pid;
+    }
+    return params;
+  }
+
+  public getMerchantQueryParams(
+    merchantName: string,
+  ): Record<string, string | number> {
+    const params: Record<string, string | number> = {
+      reset: 1,
+      ownership: 1,
+      provenance_status: 'all',
+      provenance_source: merchantName,
+      provenance_exact: 1,
+    };
+    const pid = this.selectedLedgerPlatformId();
+    if (pid !== null) {
+      params['platform_id'] = pid;
+    }
+    return params;
+  }
 
   public formatDollars(dollars: number | null | undefined): string {
     if (dollars === null || dollars === undefined) return '$0.00';
@@ -463,109 +786,32 @@ export class CollectionInsightsComponent implements OnInit {
     });
   }
 
-  /** --- Acquisition Cost Basis & Provenance Summary (Authenticated Users Only) --- */
-  public readonly journalSummary = computed(() => {
-    const map = this.collectionService.journalEntriesMap();
-    const games = this.ownedGames();
-    const toys = this.ownedToys();
-    const totalOwnedCount = games.length + toys.length;
-
-    let recordedCount = 0;
-    let paidEntryCount = 0;
-    let totalTrackedSpendDollars = 0;
-    const merchantCounts = new Map<
-      string,
-      { count: number; totalSpendDollars: number }
-    >();
-
-    const accumulateEntry = (entry: JournalEntry | null) => {
-      if (!entry) return;
-      recordedCount++;
-
-      if (entry.price_paid !== null && entry.price_paid !== undefined) {
-        const paid = Number(entry.price_paid);
-        totalTrackedSpendDollars += paid;
-        if (paid > 0) {
-          paidEntryCount++;
-        }
-      }
-
-      const merchantName = getProvenanceSourceLabel(entry);
-      if (merchantName) {
-        const cur = merchantCounts.get(merchantName) || {
-          count: 0,
-          totalSpendDollars: 0,
-        };
-        cur.count += 1;
-        cur.totalSpendDollars += Number(entry.price_paid || 0);
-        merchantCounts.set(merchantName, cur);
-      }
-    };
-
-    for (const g of games) {
-      accumulateEntry(findGameJournalEntry(g, map));
+  public formatCents(cents: number | null | undefined): string {
+    if (cents === null || cents === undefined || !Number.isFinite(cents)) {
+      return '$0.00';
     }
+    return this.formatDollars(cents / 100);
+  }
 
-    for (const t of toys) {
-      accumulateEntry(findToyJournalEntry(t, map));
+  public formatSignedCents(cents: number | null | undefined): string {
+    if (cents === null || cents === undefined || !Number.isFinite(cents)) {
+      return '$0.00';
     }
-
-    const coveragePct =
-      totalOwnedCount > 0
-        ? Math.round((recordedCount / totalOwnedCount) * 100)
-        : 0;
-    const averagePricePaidDollars =
-      paidEntryCount > 0
-        ? Math.round((totalTrackedSpendDollars / paidEntryCount) * 100) / 100
-        : 0;
-
-    const topMerchants: MerchantStat[] = Array.from(merchantCounts.entries())
-      .map(([name, data]) => ({
-        name,
-        count: data.count,
-        totalSpendDollars: Math.round(data.totalSpendDollars * 100) / 100,
-      }))
-      .sort(
-        (a, b) =>
-          b.count - a.count || b.totalSpendDollars - a.totalSpendDollars,
-      )
-      .slice(0, 6);
-
-    return {
-      totalOwnedCount,
-      recordedCount,
-      coveragePct,
-      paidEntryCount,
-      totalTrackedSpendDollars:
-        Math.round(totalTrackedSpendDollars * 100) / 100,
-      averagePricePaidDollars,
-      topMerchants,
-    };
-  });
+    const abs = this.formatCents(Math.abs(cents));
+    return cents >= 0 ? `+${abs}` : `-${abs}`;
+  }
 
   /** --- Animated KPI Display Signals & Segmented Meter Models --- */
   public readonly animatedPlayedPct = createAnimatedNumber(
     computed(() => this.playStatusStats().playedPct),
   );
-  public readonly animatedOwnedGamesCount = createAnimatedNumber(
-    computed(() => this.ownedGames().length),
+  public readonly animatedTotalOwnedCount = createAnimatedNumber(
+    this.totalOwnedCount,
   );
   public readonly animatedBackupRatePct = createAnimatedNumber(
     this.backupRatePct,
   );
-  public readonly animatedOwnedToysCount = createAnimatedNumber(
-    computed(() => this.ownedToys().length),
-  );
-
-  public readonly backupMeterSegments = computed<KitMeterSegment[]>(() => [
-    {
-      id: 'backup-rate',
-      label: 'Preserved physical releases',
-      pct: this.backupRatePct(),
-      color: this.backupRatePct() >= 80 ? '#22c55e' : 'var(--m3-primary)',
-      title: `${this.backedUpOwnedGames().length} / ${this.physicalOwnedGames().length} preserved (${this.backupRatePct()}%)`,
-    },
-  ]);
+  public readonly animatedCibPct = createAnimatedNumber(this.cibPct);
 
   public readonly conditionMeterSegments = computed<KitMeterSegment[]>(() => {
     const segs: KitMeterSegment[] = [];

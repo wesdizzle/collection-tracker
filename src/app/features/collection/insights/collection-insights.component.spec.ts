@@ -1,18 +1,25 @@
 import '../../../../test-setup';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import {
+  ActivatedRoute,
+  Router,
+  convertToParamMap,
+  provideRouter,
+} from '@angular/router';
 import { signal } from '@angular/core';
-import { of } from 'rxjs';
+import { BehaviorSubject, of } from 'rxjs';
 import { CollectionInsightsComponent } from './collection-insights.component';
 import { CollectionService } from '../../../core/services/collection.service';
 import {
+  EBAY_PRICE_TTL_MS,
+  EphemeralMarketPrice,
   Game,
-  Toy,
-  Platform,
   JournalEntry,
+  Platform,
+  Toy,
 } from '../../../core/models/collection.models';
 
 describe('CollectionInsightsComponent', () => {
@@ -24,9 +31,18 @@ describe('CollectionInsightsComponent', () => {
   const mockPlatforms = signal<Platform[]>([]);
   const mockIsAdmin = signal<boolean>(false);
   const mockIsAuthenticated = signal<boolean>(false);
-  const mockJournalRevealed = signal<boolean>(false);
+  const mockCanShowPersonalState = signal<boolean>(false);
   const mockJournalLoaded = signal<boolean>(false);
   const mockJournalEntriesMap = signal<Map<string, JournalEntry>>(new Map());
+  const mockCanViewMarketPrices = signal<boolean>(false);
+  const mockMarketPricingConfigured = signal<boolean | null>(true);
+  const nowMs = Date.UTC(2026, 10, 19, 12, 0, 0);
+  const mockMarketPriceNowMs = signal<number>(nowMs);
+  const mockMarketPricesMap = signal<Map<string, EphemeralMarketPrice>>(
+    new Map(),
+  );
+
+  const queryParamSubject = new BehaviorSubject(convertToParamMap({}));
 
   const mockCollectionService = {
     games: mockGames.asReadonly(),
@@ -34,15 +50,41 @@ describe('CollectionInsightsComponent', () => {
     platforms: mockPlatforms.asReadonly(),
     isAdmin: mockIsAdmin.asReadonly(),
     isAuthenticated: mockIsAuthenticated.asReadonly(),
-    journalRevealed: mockJournalRevealed.asReadonly(),
+    canShowPersonalState: mockCanShowPersonalState.asReadonly(),
     journalLoaded: mockJournalLoaded.asReadonly(),
     journalEntriesMap: mockJournalEntriesMap.asReadonly(),
+    canViewMarketPrices: mockCanViewMarketPrices.asReadonly(),
+    marketPricingConfigured: mockMarketPricingConfigured.asReadonly(),
+    marketPriceNowMs: mockMarketPriceNowMs.asReadonly(),
+    marketPricesMap: mockMarketPricesMap.asReadonly(),
     refreshAll: async () => {},
     loadAllJournalEntries: () => of([]),
-    toggleJournalVisibility: () => {
-      mockJournalRevealed.set(!mockJournalRevealed());
-    },
   };
+
+  function makePrice(
+    itemType: 'game' | 'toy',
+    itemId: string,
+    looseCents: number | null,
+    cibCents: number | null,
+  ): EphemeralMarketPrice {
+    const fetchedMs = nowMs - 300_000;
+    return {
+      item_type: itemType,
+      item_id: itemId,
+      loose_cents: looseCents,
+      cib_cents: cibCents,
+      new_cents: null,
+      loose_sample_size: looseCents ? 4 : 0,
+      cib_sample_size: cibCents ? 4 : 0,
+      new_sample_size: 0,
+      confidence: 'medium',
+      source: 'ebay_browse',
+      fetched_at: new Date(fetchedMs).toISOString(),
+      expires_at: new Date(fetchedMs + EBAY_PRICE_TTL_MS).toISOString(),
+      query_used: itemId,
+      sample_listings: { loose: [], cib: [], new: [] },
+    };
+  }
 
   beforeEach(async () => {
     mockGames.set([]);
@@ -50,9 +92,13 @@ describe('CollectionInsightsComponent', () => {
     mockPlatforms.set([]);
     mockIsAdmin.set(false);
     mockIsAuthenticated.set(false);
-    mockJournalRevealed.set(false);
+    mockCanShowPersonalState.set(false);
     mockJournalLoaded.set(false);
     mockJournalEntriesMap.set(new Map());
+    mockCanViewMarketPrices.set(false);
+    mockMarketPricingConfigured.set(true);
+    mockMarketPricesMap.set(new Map());
+    queryParamSubject.next(convertToParamMap({}));
 
     await TestBed.configureTestingModule({
       imports: [CollectionInsightsComponent],
@@ -60,6 +106,10 @@ describe('CollectionInsightsComponent', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { queryParamMap: queryParamSubject.asObservable() },
+        },
         { provide: CollectionService, useValue: mockCollectionService },
       ],
     }).compileComponents();
@@ -68,13 +118,11 @@ describe('CollectionInsightsComponent', () => {
     component = fixture.componentInstance;
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
-  });
-
-  it('should handle empty collection with zero fallbacks', () => {
+  it('should create and handle empty collection with zero fallbacks', () => {
     fixture.detectChanges();
 
+    expect(component).toBeTruthy();
+    expect(component.activeSubTab()).toBe('overview');
     expect(component.playStatusStats().playedPct).toBe(0);
     expect(component.ownedGames().length).toBe(0);
     expect(component.ownedToys().length).toBe(0);
@@ -85,7 +133,10 @@ describe('CollectionInsightsComponent', () => {
     expect(component.topSeries().length).toBe(0);
   });
 
-  it('should correctly calculate play backlog progress, toy completion, and condition breakdowns', () => {
+  it('should calculate play backlog progress (all 6 statuses), toy completion, condition breakdowns, and Overview audit actions', () => {
+    mockIsAuthenticated.set(true);
+    mockCanShowPersonalState.set(true);
+
     const testGames: Game[] = [
       {
         stable_id: 1,
@@ -132,6 +183,36 @@ describe('CollectionInsightsComponent', () => {
         has_case: 0,
         has_manual: 0, // Loose
       },
+      {
+        stable_id: 4,
+        id: 'paused-game',
+        title: 'Paused Game',
+        series: 'Mario',
+        canonical_series: 'Mario',
+        release_date: '2005-01-01',
+        platform: 'SNES',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 4, // Paused
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
+      {
+        stable_id: 5,
+        id: 'dropped-game',
+        title: 'Dropped Game',
+        series: 'Mario',
+        canonical_series: 'Mario',
+        release_date: '2008-01-01',
+        platform: 'SNES',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 5, // Dropped
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
     ];
 
     const testToys: Toy[] = [
@@ -165,65 +246,63 @@ describe('CollectionInsightsComponent', () => {
     mockToys.set(testToys);
     fixture.detectChanges();
 
-    // Play backlog stats: 1 played, 1 playing, 1 queued out of 3 owned -> 33%
     expect(component.playStatusStats().played).toBe(1);
     expect(component.playStatusStats().playing).toBe(1);
     expect(component.playStatusStats().queued).toBe(1);
-    expect(component.playStatusStats().playedPct).toBe(33);
+    expect(component.playStatusStats().paused).toBe(1);
+    expect(component.playStatusStats().dropped).toBe(1);
+    expect(component.playStatusStats().playedPct).toBe(20);
 
-    // Toy catalog completion: 1 owned out of 2 catalog toys -> 50%
     expect(component.ownedToys().length).toBe(1);
     expect(component.catalogToysCount()).toBe(2);
     expect(component.toyCompletionPct()).toBe(50);
     expect(component.seekingToysCount()).toBe(1);
 
-    // Condition counts
-    expect(component.cibCount()).toBe(1);
+    expect(component.cibCount()).toBe(3);
     expect(component.boxedOnlyCount()).toBe(1);
     expect(component.looseCount()).toBe(1);
-    expect(component.cibPct()).toBe(33); // 1/3 ~ 33%
-  });
 
-  it('should correctly calculate preservation backup rate and missing backups', () => {
-    const testGames: Game[] = [
-      {
-        stable_id: 1,
-        id: 'g1',
-        title: 'Game 1',
-        series: 'S1',
-        canonical_series: 'S1',
-        release_date: '2000-01-01',
-        platform: 'PS2',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 0,
-        backup_status: 1, // backed up
-      },
-      {
-        stable_id: 2,
-        id: 'g2',
-        title: 'Game 2',
-        series: 'S1',
-        canonical_series: 'S1',
-        release_date: '2001-01-01',
-        platform: 'PS2',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 0,
-        backup_status: 0, // missing
-      },
-    ];
+    const el = fixture.nativeElement as HTMLElement;
+    const backupKpi = el.querySelector(
+      'a[data-testid="kpi-backup-card"]',
+    ) as HTMLAnchorElement;
+    expect(backupKpi?.getAttribute('href')).toContain('/collection/backups');
+    expect(
+      el.querySelector('[data-testid="insights-audit-strip"]'),
+    ).toBeTruthy();
+    expect(
+      el.querySelector('[data-testid="audit-missing-backups"]'),
+    ).toBeTruthy();
+    expect(
+      el.querySelector('[data-testid="audit-missing-provenance"]'),
+    ).toBeTruthy();
+    expect(el.querySelector('[data-testid="audit-loose-games"]')).toBeTruthy();
 
-    mockGames.set(testGames);
+    // Switch to Catalog & Stats tab and verify 6 play status chips + clickable drill-downs
+    component.setActiveSubTab('catalog');
     fixture.detectChanges();
 
-    expect(component.physicalOwnedGames().length).toBe(2);
-    expect(component.backedUpOwnedGames().length).toBe(1);
-    expect(component.backupRatePct()).toBe(50);
-    expect(component.missingBackupsCount()).toBe(1);
+    const playChips = el.querySelectorAll(
+      '[data-testid="insights-play-status-link"]',
+    );
+    expect(playChips.length).toBe(6);
+
+    const conditionLinks = el.querySelectorAll(
+      '[data-testid="insights-condition-link"]',
+    );
+    expect(conditionLinks.length).toBe(3);
+    expect(conditionLinks[0].getAttribute('href')).toContain('reset=1');
+    expect(conditionLinks[0].getAttribute('href')).toContain('condition=cib');
+
+    const seriesLinks = el.querySelectorAll(
+      '[data-testid="insights-series-link"]',
+    );
+    expect(seriesLinks.length).toBe(3);
+    expect(seriesLinks[0].getAttribute('href')).toContain('series=Mario');
+    expect(seriesLinks[0].getAttribute('href')).toContain('series_exact=1');
   });
 
-  it('should calculate platform completion percentage and catalog counts', () => {
+  it('defaults platform list to owned-only in Catalog & Stats and supports toggle, brand filter, sorting, and toy line completion', () => {
     const testPlatforms: Platform[] = [
       {
         id: 1,
@@ -231,6 +310,14 @@ describe('CollectionInsightsComponent', () => {
         display_name: 'Super Nintendo',
         brand: 'Nintendo',
         launch_date: '1990-11-21',
+        image_url: '',
+      },
+      {
+        id: 2,
+        name: 'PS1',
+        display_name: 'PlayStation',
+        brand: 'Sony',
+        launch_date: '1995-09-09',
         image_url: '',
       },
     ];
@@ -245,7 +332,7 @@ describe('CollectionInsightsComponent', () => {
         release_date: '1990-11-21',
         platform: 'SNES',
         platform_id: 1,
-        ownership_status: 1, // owned
+        ownership_status: 1,
         play_status: 0,
         backup_status: 1,
       },
@@ -258,26 +345,360 @@ describe('CollectionInsightsComponent', () => {
         release_date: '1990-11-21',
         platform: 'SNES',
         platform_id: 1,
-        ownership_status: 0, // unowned catalog release
+        ownership_status: 0,
+        play_status: 0,
+        backup_status: 0,
+      },
+      {
+        stable_id: 3,
+        id: 'ff7',
+        title: 'Final Fantasy VII',
+        series: 'Final Fantasy',
+        canonical_series: 'Final Fantasy',
+        release_date: '1997-01-31',
+        platform: 'PS1',
+        platform_id: 2,
+        ownership_status: 0, // unowned platform!
         play_status: 0,
         backup_status: 0,
       },
     ];
 
+    const testToys: Toy[] = [
+      {
+        stable_id: 101,
+        id: 'mario-amiibo',
+        name: 'Mario',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Super Mario',
+        series_line: 'Super Mario',
+        release_date: '2015-03-20',
+        ownership_status: 1,
+        image_url: '',
+      },
+      {
+        stable_id: 102,
+        id: 'luigi-amiibo',
+        name: 'Luigi',
+        line: 'amiibo',
+        type: 'Figure',
+        series_name: 'Super Mario',
+        series_line: 'Super Mario',
+        release_date: '2015-03-20',
+        ownership_status: 0,
+        image_url: '',
+      },
+    ];
+
     mockPlatforms.set(testPlatforms);
     mockGames.set(testGames);
+    mockToys.set(testToys);
+    component.setActiveSubTab('catalog');
     fixture.detectChanges();
 
-    const stats = component.platformStats();
-    expect(stats.length).toBe(1);
-    expect(stats[0].name).toBe('Super Nintendo');
-    expect(stats[0].ownedCount).toBe(1);
-    expect(stats[0].catalogCount).toBe(2);
-    expect(stats[0].completionPct).toBe(50);
-    expect(stats[0].backupPct).toBe(100);
+    // Owned-only default excludes PlayStation (0 owned)
+    expect(component.filteredPlatformStats().map((p) => p.id)).toEqual([1]);
+
+    // Toggling "Show unowned catalog platforms" reveals PlayStation
+    const checkbox = fixture.nativeElement.querySelector(
+      '[data-testid="insights-show-all-platforms-checkbox"]',
+    ) as HTMLInputElement;
+    checkbox.click();
+    fixture.detectChanges();
+    expect(component.filteredPlatformStats().map((p) => p.id)).toEqual([1, 2]);
+
+    // Brand filter narrows to Sony
+    component.selectedBrand.set('Sony');
+    fixture.detectChanges();
+    expect(component.filteredPlatformStats().map((p) => p.id)).toEqual([2]);
+
+    // Platform rows do not render the old ROM backup footer text
+    const platEl = fixture.nativeElement.querySelector(
+      '[data-testid="insights-platforms-panel"]',
+    ) as HTMLElement;
+    expect(platEl.textContent).not.toContain('ROM Backups:');
+
+    // Toy Line & Series panel renders amiibo completion and drill-down links
+    const toyPanel = fixture.nativeElement.querySelector(
+      '[data-testid="insights-toy-lines-panel"]',
+    ) as HTMLElement;
+    expect(toyPanel).toBeTruthy();
+    expect(toyPanel.textContent).toContain('amiibo');
+    const toyLineLink = toyPanel.querySelector(
+      '[data-testid="insights-toy-line-link"]',
+    ) as HTMLAnchorElement;
+    expect(toyLineLink?.getAttribute('href')).toContain('/collection/toys');
+    expect(toyLineLink?.getAttribute('href')).toContain('line=amiibo');
   });
 
-  it('should calculate decadeDistribution across historical eras', () => {
+  it('should deduplicate multi-disc releases in ownedGames while preserving physical backup tracking in ownedReleases', () => {
+    const multiDiscGames: Game[] = [
+      {
+        stable_id: 10,
+        game_id: 'ffvii-ps1',
+        id: 'ffvii-disc-1',
+        title: 'Final Fantasy VII (Disc 1)',
+        series: 'Final Fantasy',
+        canonical_series: 'Final Fantasy',
+        platform: 'PS1',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 0,
+        release_date: '1997-01-31',
+      },
+      {
+        stable_id: 11,
+        game_id: 'ffvii-ps1',
+        id: 'ffvii-disc-2',
+        title: 'Final Fantasy VII (Disc 2)',
+        series: 'Final Fantasy',
+        canonical_series: 'Final Fantasy',
+        platform: 'PS1',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 0,
+        release_date: '1997-01-31',
+      },
+      {
+        stable_id: 12,
+        game_id: 'ffvii-ps1',
+        id: 'ffvii-disc-3',
+        title: 'Final Fantasy VII (Disc 3)',
+        series: 'Final Fantasy',
+        canonical_series: 'Final Fantasy',
+        platform: 'PS1',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 0,
+        has_case: 1,
+        has_manual: 0,
+        release_date: '1997-01-31',
+      },
+    ];
+
+    mockGames.set(multiDiscGames);
+    component.setActiveSubTab('catalog');
+    fixture.detectChanges();
+
+    expect(component.ownedReleases().length).toBe(3);
+    expect(component.ownedGames().length).toBe(1);
+    expect(component.physicalOwnedGames().length).toBe(3);
+    expect(component.backedUpOwnedGames().length).toBe(2);
+    expect(fixture.nativeElement.innerHTML).toContain(
+      'Game + Box / Case (No Manual)',
+    );
+  });
+
+  it('should render Value & Ledger tab with unified scope across cost basis, live valuation, growth chart, and sources; omit when unauthenticated', () => {
+    const router = TestBed.inject(Router);
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    mockIsAuthenticated.set(true);
+    mockIsAdmin.set(true);
+    mockCanShowPersonalState.set(true);
+    mockCanViewMarketPrices.set(true);
+
+    mockPlatforms.set([
+      {
+        id: 1,
+        name: 'SNES',
+        display_name: 'SNES',
+        brand: 'Nintendo',
+        launch_date: '1990-11-21',
+        image_url: '',
+      },
+      {
+        id: 2,
+        name: 'Switch',
+        display_name: 'Switch',
+        brand: 'Nintendo',
+        launch_date: '2017-03-03',
+        image_url: '',
+      },
+    ]);
+
+    mockGames.set([
+      {
+        stable_id: 1,
+        id: 'chrono-trigger-snes',
+        game_id: 'chrono-trigger-snes',
+        title: 'Chrono Trigger',
+        series: 'Chrono',
+        canonical_series: 'Chrono',
+        release_date: '1995-03-11',
+        platform: 'SNES',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
+      {
+        stable_id: 2,
+        id: 'smw-snes',
+        game_id: 'smw-snes',
+        title: 'Super Mario World',
+        series: 'Mario',
+        canonical_series: 'Mario',
+        release_date: '1990-11-21',
+        platform: 'SNES',
+        platform_id: 1,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
+      {
+        stable_id: 3,
+        id: 'botw-switch',
+        game_id: 'botw-switch',
+        title: 'Zelda: Breath of the Wild',
+        series: 'Zelda',
+        canonical_series: 'Zelda',
+        release_date: '2017-03-03',
+        platform: 'Switch',
+        platform_id: 2,
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
+    ]);
+
+    const entries = new Map<string, JournalEntry>([
+      [
+        'game:chrono-trigger-snes',
+        {
+          id: 1,
+          item_type: 'game',
+          item_id: 'chrono-trigger-snes',
+          purchase_date: '2018-05-10',
+          is_approximate_date: 0,
+          price_paid: 120.0,
+          merchant: 'eBay',
+        },
+      ],
+      [
+        'game:smw-snes',
+        {
+          id: 2,
+          item_type: 'game',
+          item_id: 'smw-snes',
+          purchase_date: '2019-06-01',
+          is_approximate_date: 0,
+          price_paid: 40.0,
+          merchant: 'eBay',
+        },
+      ],
+      [
+        'game:botw-switch',
+        {
+          id: 3,
+          item_type: 'game',
+          item_id: 'botw-switch',
+          purchase_date: '2020-02-01',
+          is_approximate_date: 0,
+          price_paid: 50.0,
+          merchant: 'Best Buy',
+        },
+      ],
+    ]);
+    mockJournalEntriesMap.set(entries);
+
+    mockMarketPricesMap.set(
+      new Map([
+        [
+          'game:chrono-trigger-snes',
+          makePrice('game', 'chrono-trigger-snes', 20000, 32000),
+        ],
+      ]),
+    );
+
+    queryParamSubject.next(convertToParamMap({ tab: 'value' }));
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(component.activeSubTab()).toBe('value');
+
+    const revealed = compiled.querySelector(
+      '[data-testid="insights-journal-revealed"]',
+    );
+    expect(revealed).toBeTruthy();
+    expect(revealed?.textContent).toContain('$210.00');
+    expect(revealed?.textContent).toContain('3 / 3');
+
+    // Growth chart hides duplicate scope select & KPI strip when embedded in Value & Ledger
+    expect(
+      compiled.querySelector('[data-testid="collection-growth-chart-panel"]'),
+    ).toBeTruthy();
+    expect(
+      compiled.querySelector('[data-testid="growth-scope-select"]'),
+    ).toBeNull();
+    expect(
+      compiled.querySelector('[data-testid="growth-kpi-strip"]'),
+    ).toBeNull();
+    expect(
+      compiled.querySelector('[data-testid="market-valuation-toolbar"]'),
+    ).toBeTruthy();
+
+    // Changing unified scope updates cost basis, valuation, growth chart, and merchants together
+    component.onLedgerScopeChange('platform:1');
+    fixture.detectChanges();
+
+    expect(revealed?.textContent).toContain('$160.00');
+    expect(revealed?.textContent).toContain('$80.00');
+    expect(revealed?.textContent).toContain('2 / 2');
+    expect(component.scopedValuationSummary().totalEstimatedCents).toBe(32000);
+    expect(
+      component.scopedJournalSummary().allMerchants.map((m) => m.name),
+    ).toEqual(['eBay']);
+
+    const coverageLink = compiled.querySelector(
+      'a[data-testid="insights-provenance-coverage-link"]',
+    ) as HTMLAnchorElement;
+    expect(coverageLink.getAttribute('href')).toContain('reset=1');
+    expect(coverageLink.getAttribute('href')).toContain(
+      'provenance_status=recorded',
+    );
+    expect(coverageLink.getAttribute('href')).toContain('platform_id=1');
+
+    const sourceLink = compiled.querySelector(
+      'a[data-testid="insights-source-link"]',
+    ) as HTMLAnchorElement;
+    expect(sourceLink.getAttribute('href')).toContain('provenance_source=eBay');
+    expect(sourceLink.getAttribute('href')).toContain('provenance_exact=1');
+
+    // Unauthenticated: Value & Ledger tab disappears and ?tab=value falls back to Overview
+    mockIsAuthenticated.set(false);
+    mockIsAdmin.set(false);
+    mockCanShowPersonalState.set(false);
+    mockCanViewMarketPrices.set(false);
+    fixture.detectChanges();
+
+    expect(component.activeSubTab()).toBe('overview');
+    expect(
+      compiled.querySelector('[data-testid="insights-tab-value"]'),
+    ).toBeNull();
+    expect(
+      compiled.querySelector('[data-testid="insights-journal-panel"]'),
+    ).toBeNull();
+    expect(
+      compiled.querySelector('[data-testid="collection-growth-chart-panel"]'),
+    ).toBeNull();
+  });
+
+  it('calculates decadeDistribution across historical eras and renders clickable era drill-downs', () => {
     const testGames: Game[] = [
       {
         stable_id: 1,
@@ -347,252 +768,21 @@ describe('CollectionInsightsComponent', () => {
     ];
 
     mockGames.set(testGames);
+    component.setActiveSubTab('catalog');
     fixture.detectChanges();
 
     const decades = component.decadeDistribution();
     expect(decades.length).toBe(5);
+    expect(decades.find((d) => d.decade === '70s_80s')?.count).toBe(1);
+    expect(decades.find((d) => d.decade === '20s')?.pct).toBe(20);
 
-    const era70s80s = decades.find((d) => d.decade === '70s_80s');
-    const era90s = decades.find((d) => d.decade === '90s');
-    const era00s = decades.find((d) => d.decade === '00s');
-    const era10s = decades.find((d) => d.decade === '10s');
-    const era20s = decades.find((d) => d.decade === '20s');
-
-    expect(era70s80s?.count).toBe(1);
-    expect(era90s?.count).toBe(1);
-    expect(era00s?.count).toBe(1);
-    expect(era10s?.count).toBe(1);
-    expect(era20s?.count).toBe(1);
-
-    expect(era70s80s?.pct).toBe(20);
-    expect(era20s?.pct).toBe(20);
-  });
-
-  it('should identify playing and queued games and render interactive drill-down links', () => {
-    const testGames: Game[] = [
-      {
-        stable_id: 1,
-        id: 'playing-1',
-        title: 'Currently Playing Game',
-        series: 'Series 1',
-        canonical_series: 'Series 1',
-        platform: 'Switch',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 2, // Playing
-        backup_status: 1,
-        release_date: '2023-01-01',
-      },
-      {
-        stable_id: 2,
-        id: 'queued-1',
-        title: 'Up Next Game',
-        series: 'Series 1',
-        canonical_series: 'Series 1',
-        platform: 'Switch',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 3, // Queued
-        backup_status: 0,
-        release_date: '2023-01-01',
-      },
-    ];
-
-    mockGames.set(testGames);
-    fixture.detectChanges();
-
-    expect(component.playingGames().length).toBe(1);
-    expect(component.playingGames()[0].title).toBe('Currently Playing Game');
-
-    expect(component.queuedGames().length).toBe(1);
-    expect(component.queuedGames()[0].title).toBe('Up Next Game');
-
-    const backupLinks = fixture.nativeElement.querySelectorAll(
-      '.backup-stat-item.clickable',
+    const eraLinks = fixture.nativeElement.querySelectorAll(
+      '[data-testid="insights-decade-link"]',
+    ) as NodeListOf<HTMLAnchorElement>;
+    expect(eraLinks.length).toBe(5);
+    expect(eraLinks[0].getAttribute('href')).toContain(
+      'release_decade=70s_80s',
     );
-    expect(backupLinks.length).toBe(3);
-
-    const playChips = fixture.nativeElement.querySelectorAll(
-      '.play-status-chip.clickable',
-    );
-    expect(playChips.length).toBe(4);
-  });
-
-  it('should deduplicate multi-disc releases in ownedGames while preserving physical backup tracking in ownedReleases', () => {
-    const multiDiscGames: Game[] = [
-      {
-        stable_id: 10,
-        game_id: 'ffvii-ps1',
-        id: 'ffvii-disc-1',
-        title: 'Final Fantasy VII (Disc 1)',
-        series: 'Final Fantasy',
-        canonical_series: 'Final Fantasy',
-        platform: 'PS1',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 1,
-        backup_status: 1,
-        has_case: 1,
-        has_manual: 0,
-        release_date: '1997-01-31',
-      },
-      {
-        stable_id: 11,
-        game_id: 'ffvii-ps1',
-        id: 'ffvii-disc-2',
-        title: 'Final Fantasy VII (Disc 2)',
-        series: 'Final Fantasy',
-        canonical_series: 'Final Fantasy',
-        platform: 'PS1',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 1,
-        backup_status: 1,
-        has_case: 1,
-        has_manual: 0,
-        release_date: '1997-01-31',
-      },
-      {
-        stable_id: 12,
-        game_id: 'ffvii-ps1',
-        id: 'ffvii-disc-3',
-        title: 'Final Fantasy VII (Disc 3)',
-        series: 'Final Fantasy',
-        canonical_series: 'Final Fantasy',
-        platform: 'PS1',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 1,
-        backup_status: 0,
-        has_case: 1,
-        has_manual: 0,
-        release_date: '1997-01-31',
-      },
-    ];
-
-    mockGames.set(multiDiscGames);
-    fixture.detectChanges();
-
-    // ownedReleases has all 3 discs
-    expect(component.ownedReleases().length).toBe(3);
-    // ownedGames deduplicates by game_id so it counts as 1 distinct game
-    expect(component.ownedGames().length).toBe(1);
-    // physicalOwnedGames tracks all 3 discs for backup coverage
-    expect(component.physicalOwnedGames().length).toBe(3);
-    expect(component.backedUpOwnedGames().length).toBe(2);
-
-    // Verify boxed condition label rendered in HTML
-    const html = fixture.nativeElement.innerHTML;
-    expect(html).toContain('Game + Box / Case (No Manual)');
-  });
-
-  it('should render acquisition cost basis panel directly when authenticated and omit when unauthenticated', () => {
-    mockIsAuthenticated.set(true);
-
-    mockGames.set([
-      {
-        stable_id: 1,
-        id: 'chrono-trigger-snes',
-        title: 'Chrono Trigger',
-        series: 'Chrono',
-        canonical_series: 'Chrono',
-        release_date: '1995-03-11',
-        platform: 'SNES',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 1,
-        backup_status: 1,
-        has_case: 1,
-        has_manual: 1,
-      },
-      {
-        stable_id: 2,
-        id: 'smw-snes',
-        title: 'Super Mario World',
-        series: 'Mario',
-        canonical_series: 'Mario',
-        release_date: '1990-11-21',
-        platform: 'SNES',
-        platform_id: 1,
-        ownership_status: 1,
-        play_status: 1,
-        backup_status: 1,
-        has_case: 1,
-        has_manual: 1,
-      },
-    ]);
-
-    const entries = new Map<string, JournalEntry>();
-    entries.set('game:chrono-trigger-snes', {
-      id: 1,
-      item_type: 'game',
-      item_id: 'chrono-trigger-snes',
-      purchase_date: '2018-05-10',
-      is_approximate_date: 0,
-      price_paid: 120.0,
-      merchant: 'eBay',
-      gifted_by: null,
-      receipt_url: 'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
-      notes: null,
-    });
-    entries.set('game:smw-snes', {
-      id: 2,
-      item_type: 'game',
-      item_id: 'smw-snes',
-      purchase_date: '2019-06-01',
-      is_approximate_date: 0,
-      price_paid: 40.0,
-      merchant: 'eBay',
-      gifted_by: null,
-      receipt_url: null,
-      notes: null,
-    });
-    mockJournalEntriesMap.set(entries);
-
-    fixture.detectChanges();
-    const compiled = fixture.nativeElement as HTMLElement;
-
-    // Authenticated: rendered directly with total spend ($160.00) and average price paid ($80.00)
-    const revealed = compiled.querySelector(
-      '[data-testid="insights-journal-revealed"]',
-    );
-    expect(revealed).toBeTruthy();
-    expect(revealed?.textContent).toContain('$160.00');
-    expect(revealed?.textContent).toContain('$80.00');
-    expect(revealed?.textContent).toContain('2 / 2');
-    expect(compiled.innerHTML).toContain('eBay');
-
-    // Growth chart and clickable provenance links render when authenticated
-    const growthPanel = compiled.querySelector(
-      '[data-testid="collection-growth-chart-panel"]',
-    );
-    expect(growthPanel).toBeTruthy();
-
-    const coverageLink = compiled.querySelector(
-      'a[data-testid="insights-provenance-coverage-link"]',
-    ) as HTMLAnchorElement;
-    expect(coverageLink).toBeTruthy();
-    expect(coverageLink.getAttribute('href')).toContain('/collection/games');
-    expect(coverageLink.getAttribute('href')).toContain(
-      'provenance_status=recorded',
-    );
-
-    const sourceLink = compiled.querySelector(
-      'a[data-testid="insights-source-link"]',
-    ) as HTMLAnchorElement;
-    expect(sourceLink).toBeTruthy();
-    expect(sourceLink.textContent).toContain('eBay');
-    expect(sourceLink.getAttribute('href')).toContain('provenance_source=eBay');
-    expect(sourceLink.getAttribute('href')).toContain('provenance_exact=1');
-
-    // Unauthenticated: both panels and growth chart are completely omitted
-    mockIsAuthenticated.set(false);
-    fixture.detectChanges();
-    expect(
-      compiled.querySelector('[data-testid="insights-journal-panel"]'),
-    ).toBeNull();
-    expect(
-      compiled.querySelector('[data-testid="collection-growth-chart-panel"]'),
-    ).toBeNull();
+    expect(eraLinks[0].getAttribute('href')).toContain('reset=1');
   });
 });

@@ -312,10 +312,6 @@ export class ItemDetailComponent {
     return /^\d{4}(-\d{2})?$/.test(d);
   }
 
-  onToggleJournalVisibility(): void {
-    this.collectionService.toggleJournalVisibility();
-  }
-
   openJournalEditor(): void {
     const entry = this.journalEntry();
     this.journalSaveError.set(null);

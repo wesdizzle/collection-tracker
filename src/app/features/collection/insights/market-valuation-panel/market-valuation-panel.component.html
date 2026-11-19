@@ -1,46 +1,7 @@
 @if (canRender()) {
-  <section
-    class="insight-panel valuation-panel"
-    data-testid="market-valuation-panel"
-  >
-    <div class="panel-header">
-      <div class="panel-title-group">
-        <h2 class="panel-title">
-          <app-icon name="coins" [size]="18" />
-          <span>Live eBay Valuation &amp; ROI</span>
-        </h2>
-        <p class="panel-subtitle">
-          On-demand eBay active replacement floor (6-hour ephemeral cache)
-        </p>
-      </div>
-    </div>
-
-    @if (isUnconfigured()) {
-      <div class="notice-banner muted" data-testid="insights-ebay-unconfigured">
-        <app-icon name="lock" [size]="16" />
-        <span>
-          Awaiting <code>EBAY_CLIENT_ID</code> and
-          <code>EBAY_CLIENT_SECRET</code> Worker secrets. Live market scanning
-          will unlock once configured.
-        </span>
-      </div>
-    }
-
-    <div class="controls-bar">
-      <kit-select
-        class="scope-kit-select"
-        dropdownName="valuation_scope"
-        triggerId="valuation-scope-select"
-        ariaLabel="Valuation scan scope"
-        data-testid="valuation-scope-select"
-        [value]="selectedScope()"
-        [disabled]="scanProgress().active"
-        [options]="scopeOptions()"
-        [groups]="scopeGroups()"
-        (valueChange)="onScopeChange($event)"
-      />
-
-      <div class="action-buttons">
+  @if (variant() === 'toolbar') {
+    <div class="valuation-toolbar-wrap" data-testid="market-valuation-toolbar">
+      <div class="action-buttons toolbar-actions">
         @if (scanProgress().active) {
           <button
             type="button"
@@ -93,131 +54,308 @@
           <span>Export CSV</span>
         </button>
       </div>
-    </div>
 
-    @if (
-      scanProgress().active ||
-      scanProgress().rateLimited ||
-      scanProgress().cancelled ||
-      scanProgress().lastError ||
-      scanProgress().statusMessage
-    ) {
-      <div class="scan-status-box" data-testid="valuation-scan-status">
-        <div class="scan-status-header">
-          <span>
-            {{
-              scanProgress().statusMessage
-                ? scanProgress().statusMessage
-                : scanProgress().active
-                  ? 'Scanning ' + scanProgress().scopeLabel + '...'
-                  : scanProgress().cancelled
-                    ? 'Scan cancelled'
-                    : scanProgress().rateLimited
-                      ? 'eBay API rate limit reached (partial results saved)'
-                      : 'Scan finished'
-            }}
-          </span>
-          <strong>
-            {{ scanProgress().completedItems }} /
-            {{ scanProgress().totalItems }} ({{ scanProgressPct() }}%)
-          </strong>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill" [style.width.%]="scanProgressPct()"></div>
-        </div>
-        <div class="scan-meta">
-          <span>Cache hits: {{ scanProgress().cacheHits }}</span>
-          <span>Live fetched: {{ scanProgress().fetchedCount }}</span>
-          @if (scanProgress().errorCount > 0) {
-            <span>Errors: {{ scanProgress().errorCount }}</span>
-          }
-          @if (scanProgress().active && scanProgress().wakeLockActive) {
-            <span class="wake-lock-pill" data-testid="wake-lock-pill">
-              <app-icon name="eye" [size]="12" /> Keeping screen awake
-            </span>
-          }
-        </div>
-        @if (scanProgress().lastError; as errMsg) {
-          <p class="scan-error">{{ errMsg }}</p>
-        }
-      </div>
-    }
-
-    <div class="freshness-note" data-testid="insights-freshness-disclosure">
-      <app-icon name="clock" [size]="14" />
-      <span>{{ valuationSummary().disclosureText }}</span>
-    </div>
-
-    <div class="valuation-kpi-grid">
-      <div class="kpi-tile">
-        <span class="kpi-label">Estimated Value (Scope)</span>
-        <span class="kpi-value" data-testid="estimated-total-value">
-          {{ formatCents(valuationSummary().totalEstimatedCents) }}
-        </span>
-        <span class="kpi-sub">CIB / Boxed midpoint / Loose</span>
-      </div>
-
-      <div class="kpi-tile">
-        <span class="kpi-label">Valuation Coverage</span>
-        <span class="kpi-value" data-testid="valuation-coverage">
-          {{ valuationSummary().pricedCount }} /
-          {{ valuationSummary().totalOwnedCount }}
-        </span>
-        <span class="kpi-sub"
-          >{{ valuationSummary().coveragePct }}% priced (&lt;6h)</span
+      @if (isUnconfigured()) {
+        <div
+          class="notice-banner muted"
+          data-testid="insights-ebay-unconfigured"
         >
-      </div>
+          <app-icon name="lock" [size]="16" />
+          <span>
+            Awaiting <code>EBAY_CLIENT_ID</code> and
+            <code>EBAY_CLIENT_SECRET</code> Worker secrets. Live market scanning
+            will unlock once configured.
+          </span>
+        </div>
+      }
 
-      <div class="kpi-tile">
-        <span class="kpi-label">Unrealized Gain / Loss</span>
-        @if (valuationSummary().matchedCount > 0) {
-          <span
-            class="kpi-value"
-            data-testid="unrealized-gain-loss"
-            [class.positive]="valuationSummary().unrealizedDeltaCents > 0"
-            [class.negative]="valuationSummary().unrealizedDeltaCents < 0"
-          >
-            {{ formatSignedCents(valuationSummary().unrealizedDeltaCents) }}
-          </span>
-          <span class="kpi-sub">
-            {{ valuationSummary().matchedCount }} matched vs
-            {{ formatCents(valuationSummary().matchedCostBasisCents) }} cost
-            @if (valuationSummary().unrealizedRoiPct !== null) {
-              ({{ valuationSummary().unrealizedRoiPct! >= 0 ? '+' : ''
-              }}{{ valuationSummary().unrealizedRoiPct }}%)
+      @if (
+        scanProgress().active ||
+        scanProgress().rateLimited ||
+        scanProgress().cancelled ||
+        scanProgress().lastError ||
+        scanProgress().statusMessage
+      ) {
+        <div class="scan-status-box" data-testid="valuation-scan-status">
+          <div class="scan-status-header">
+            <span>
+              {{
+                scanProgress().statusMessage
+                  ? scanProgress().statusMessage
+                  : scanProgress().active
+                    ? 'Scanning ' + scanProgress().scopeLabel + '...'
+                    : scanProgress().cancelled
+                      ? 'Scan cancelled'
+                      : scanProgress().rateLimited
+                        ? 'eBay API rate limit reached (partial results saved)'
+                        : 'Scan finished'
+              }}
+            </span>
+            <strong>
+              {{ scanProgress().completedItems }} /
+              {{ scanProgress().totalItems }} ({{ scanProgressPct() }}%)
+            </strong>
+          </div>
+          <div class="progress-track">
+            <div
+              class="progress-fill"
+              [style.width.%]="scanProgressPct()"
+            ></div>
+          </div>
+          <div class="scan-meta">
+            <span>Cache hits: {{ scanProgress().cacheHits }}</span>
+            <span>Live fetched: {{ scanProgress().fetchedCount }}</span>
+            @if (scanProgress().errorCount > 0) {
+              <span>Errors: {{ scanProgress().errorCount }}</span>
             }
-          </span>
-        } @else {
-          <span class="kpi-value">—</span>
-          <span class="kpi-sub">Requires price_paid + live comp</span>
-        }
+            @if (scanProgress().active && scanProgress().wakeLockActive) {
+              <span class="wake-lock-pill" data-testid="wake-lock-pill">
+                <app-icon name="eye" [size]="12" /> Keeping screen awake
+              </span>
+            }
+          </div>
+          @if (scanProgress().lastError; as errMsg) {
+            <p class="scan-error">{{ errMsg }}</p>
+          }
+        </div>
+      }
+
+      <div class="freshness-note" data-testid="insights-freshness-disclosure">
+        <app-icon name="clock" [size]="14" />
+        <span>{{ valuationSummary().disclosureText }}</span>
       </div>
     </div>
-
-    @if (valuationSummary().topValuable.length > 0) {
-      <div class="top-valuable-list">
-        <h3 class="top-list-title">Top Valuable Owned Items (Live Snapshot)</h3>
-        @for (
-          item of valuationSummary().topValuable;
-          track item.routeId + item.itemType
-        ) {
-          <a
-            [routerLink]="['/', item.itemType, item.routeId]"
-            class="top-item-row"
-          >
-            <div class="top-item-main">
-              <span class="top-item-title">{{ item.title }}</span>
-              <span class="top-item-sub">{{ item.subtitle }}</span>
-            </div>
-            <div class="top-item-right">
-              <span class="tier-chip">{{ item.tierLabel }}</span>
-              <strong class="top-item-price">
-                {{ formatCents(item.estimatedCents) }}
-              </strong>
-            </div>
-          </a>
-        }
+  } @else {
+    <section
+      class="insight-panel valuation-panel"
+      data-testid="market-valuation-panel"
+    >
+      <div class="panel-header">
+        <div class="panel-title-group">
+          <h2 class="panel-title">
+            <app-icon name="coins" [size]="18" />
+            <span>Live eBay Valuation &amp; ROI</span>
+          </h2>
+          <p class="panel-subtitle">
+            On-demand eBay active replacement floor (6-hour ephemeral cache)
+          </p>
+        </div>
       </div>
-    }
-  </section>
+
+      @if (isUnconfigured()) {
+        <div
+          class="notice-banner muted"
+          data-testid="insights-ebay-unconfigured"
+        >
+          <app-icon name="lock" [size]="16" />
+          <span>
+            Awaiting <code>EBAY_CLIENT_ID</code> and
+            <code>EBAY_CLIENT_SECRET</code> Worker secrets. Live market scanning
+            will unlock once configured.
+          </span>
+        </div>
+      }
+
+      <div class="controls-bar">
+        <kit-select
+          class="scope-kit-select"
+          dropdownName="valuation_scope"
+          triggerId="valuation-scope-select"
+          ariaLabel="Valuation scan scope"
+          data-testid="valuation-scope-select"
+          [value]="effectiveScope()"
+          [disabled]="scanProgress().active"
+          [options]="scopeOptions()"
+          [groups]="scopeGroups()"
+          (valueChange)="onScopeChange($event)"
+        />
+
+        <div class="action-buttons">
+          @if (scanProgress().active) {
+            <button
+              type="button"
+              class="val-btn danger"
+              data-testid="cancel-valuation-scan-btn"
+              (click)="cancelScan()"
+            >
+              <app-icon name="square-stop" [size]="15" />
+              <span>Cancel Scan</span>
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="val-btn primary"
+              data-testid="start-valuation-scan-btn"
+              [disabled]="isUnconfigured() || scopedEntries().length === 0"
+              (click)="startScan()"
+            >
+              <app-icon name="zap" [size]="15" />
+              <span>
+                {{
+                  valuationSummary().pricedCount > 0 &&
+                  remainingUnpricedCount() > 0
+                    ? 'Resume Scan (' + remainingUnpricedCount() + ' left)'
+                    : 'Scan Live eBay Prices'
+                }}
+              </span>
+            </button>
+          }
+
+          <button
+            type="button"
+            class="val-btn"
+            [disabled]="isSyncingDevices() || scanProgress().active"
+            (click)="syncFromDevices()"
+            title="Pull recent <6h prices cached from other devices"
+          >
+            <app-icon name="refresh" [size]="15" />
+            <span>{{
+              isSyncingDevices() ? 'Syncing...' : 'Sync Devices'
+            }}</span>
+          </button>
+
+          <button
+            type="button"
+            class="val-btn"
+            [disabled]="valuationSummary().pricedCount === 0"
+            (click)="exportCsv()"
+            title="Export priced items in scope as CSV"
+          >
+            <app-icon name="copy" [size]="15" />
+            <span>Export CSV</span>
+          </button>
+        </div>
+      </div>
+
+      @if (
+        scanProgress().active ||
+        scanProgress().rateLimited ||
+        scanProgress().cancelled ||
+        scanProgress().lastError ||
+        scanProgress().statusMessage
+      ) {
+        <div class="scan-status-box" data-testid="valuation-scan-status">
+          <div class="scan-status-header">
+            <span>
+              {{
+                scanProgress().statusMessage
+                  ? scanProgress().statusMessage
+                  : scanProgress().active
+                    ? 'Scanning ' + scanProgress().scopeLabel + '...'
+                    : scanProgress().cancelled
+                      ? 'Scan cancelled'
+                      : scanProgress().rateLimited
+                        ? 'eBay API rate limit reached (partial results saved)'
+                        : 'Scan finished'
+              }}
+            </span>
+            <strong>
+              {{ scanProgress().completedItems }} /
+              {{ scanProgress().totalItems }} ({{ scanProgressPct() }}%)
+            </strong>
+          </div>
+          <div class="progress-track">
+            <div
+              class="progress-fill"
+              [style.width.%]="scanProgressPct()"
+            ></div>
+          </div>
+          <div class="scan-meta">
+            <span>Cache hits: {{ scanProgress().cacheHits }}</span>
+            <span>Live fetched: {{ scanProgress().fetchedCount }}</span>
+            @if (scanProgress().errorCount > 0) {
+              <span>Errors: {{ scanProgress().errorCount }}</span>
+            }
+            @if (scanProgress().active && scanProgress().wakeLockActive) {
+              <span class="wake-lock-pill" data-testid="wake-lock-pill">
+                <app-icon name="eye" [size]="12" /> Keeping screen awake
+              </span>
+            }
+          </div>
+          @if (scanProgress().lastError; as errMsg) {
+            <p class="scan-error">{{ errMsg }}</p>
+          }
+        </div>
+      }
+
+      <div class="freshness-note" data-testid="insights-freshness-disclosure">
+        <app-icon name="clock" [size]="14" />
+        <span>{{ valuationSummary().disclosureText }}</span>
+      </div>
+
+      <div class="valuation-kpi-grid">
+        <div class="kpi-tile">
+          <span class="kpi-label">Estimated Value (Scope)</span>
+          <span class="kpi-value" data-testid="estimated-total-value">
+            {{ formatCents(valuationSummary().totalEstimatedCents) }}
+          </span>
+          <span class="kpi-sub">CIB / Boxed midpoint / Loose</span>
+        </div>
+
+        <div class="kpi-tile">
+          <span class="kpi-label">Valuation Coverage</span>
+          <span class="kpi-value" data-testid="valuation-coverage">
+            {{ valuationSummary().pricedCount }} /
+            {{ valuationSummary().totalOwnedCount }}
+          </span>
+          <span class="kpi-sub"
+            >{{ valuationSummary().coveragePct }}% priced (&lt;6h)</span
+          >
+        </div>
+
+        <div class="kpi-tile">
+          <span class="kpi-label">Unrealized Gain / Loss</span>
+          @if (valuationSummary().matchedCount > 0) {
+            <span
+              class="kpi-value"
+              data-testid="unrealized-gain-loss"
+              [class.positive]="valuationSummary().unrealizedDeltaCents > 0"
+              [class.negative]="valuationSummary().unrealizedDeltaCents < 0"
+            >
+              {{ formatSignedCents(valuationSummary().unrealizedDeltaCents) }}
+            </span>
+            <span class="kpi-sub">
+              {{ valuationSummary().matchedCount }} matched vs
+              {{ formatCents(valuationSummary().matchedCostBasisCents) }} cost
+              @if (valuationSummary().unrealizedRoiPct !== null) {
+                ({{ valuationSummary().unrealizedRoiPct! >= 0 ? '+' : ''
+                }}{{ valuationSummary().unrealizedRoiPct }}%)
+              }
+            </span>
+          } @else {
+            <span class="kpi-value">—</span>
+            <span class="kpi-sub">Requires price_paid + live comp</span>
+          }
+        </div>
+      </div>
+
+      @if (valuationSummary().topValuable.length > 0) {
+        <div class="top-valuable-list">
+          <h3 class="top-list-title">
+            Top Valuable Owned Items (Live Snapshot)
+          </h3>
+          @for (
+            item of valuationSummary().topValuable;
+            track item.routeId + item.itemType
+          ) {
+            <a
+              [routerLink]="['/', item.itemType, item.routeId]"
+              class="top-item-row"
+            >
+              <div class="top-item-main">
+                <span class="top-item-title">{{ item.title }}</span>
+                <span class="top-item-sub">{{ item.subtitle }}</span>
+              </div>
+              <div class="top-item-right">
+                <span class="tier-chip">{{ item.tierLabel }}</span>
+                <strong class="top-item-price">
+                  {{ formatCents(item.estimatedCents) }}
+                </strong>
+              </div>
+            </a>
+          }
+        </div>
+      }
+    </section>
+  }
 }

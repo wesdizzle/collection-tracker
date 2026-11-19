@@ -2851,19 +2851,6 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
-   * Toggles the visibility of private acquisition journal data.
-   * If the user is not authenticated, redirects to /api/auth/login.
-   */
-  public toggleJournalVisibility(): void {
-    if (!this.isAuthenticated()) {
-      if (typeof window !== 'undefined') {
-        window.location.href = '/api/auth/login';
-      }
-      return;
-    }
-  }
-
-  /**
    * Fetches the acquisition journal entry for a single item (admin-only).
    */
   public getJournalEntry(

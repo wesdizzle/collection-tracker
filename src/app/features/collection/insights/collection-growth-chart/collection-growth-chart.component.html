@@ -36,17 +36,19 @@
         </button>
       </div>
 
-      <kit-select
-        class="growth-select-control growth-select-scope"
-        dropdownName="growth_scope"
-        triggerId="growth-scope-select"
-        ariaLabel="Growth chart scope"
-        data-testid="growth-scope-select"
-        [value]="selectedScope()"
-        [options]="scopeOptions()"
-        [groups]="scopeGroups()"
-        (valueChange)="onScopeChange($event)"
-      />
+      @if (!hideScopeSelect()) {
+        <kit-select
+          class="growth-select-control growth-select-scope"
+          dropdownName="growth_scope"
+          triggerId="growth-scope-select"
+          ariaLabel="Growth chart scope"
+          data-testid="growth-scope-select"
+          [value]="selectedScope()"
+          [options]="scopeOptions()"
+          [groups]="scopeGroups()"
+          (valueChange)="onScopeChange($event)"
+        />
+      }
 
       <kit-select
         class="growth-select-control growth-select-compact"
@@ -101,7 +103,7 @@
     }
   </div>
 
-  @if (growthData().summary; as s) {
+  @if (!hideKpiStrip() && growthData().summary; as s) {
     <div class="growth-kpi-strip" data-testid="growth-kpi-strip">
       <div class="growth-kpi-card">
         <span class="growth-kpi-label">Dated in Timeline</span>

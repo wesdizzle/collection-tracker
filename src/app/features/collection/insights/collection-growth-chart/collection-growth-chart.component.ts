@@ -55,8 +55,14 @@ export class CollectionGrowthChartComponent {
   public readonly ownedGames = input.required<readonly Game[]>();
   public readonly ownedToys = input.required<readonly Toy[]>();
   public readonly platforms = input<readonly Platform[]>([]);
+  public readonly externalScope = input<string | null>(null);
+  public readonly hideScopeSelect = input<boolean>(false);
+  public readonly hideKpiStrip = input<boolean>(false);
 
   public readonly selectedScope = signal<string>('all_owned');
+  public readonly effectiveScope = computed<string>(
+    () => this.externalScope() ?? this.selectedScope(),
+  );
   public readonly viewMode = signal<'cumulative' | 'period'>('cumulative');
   public readonly granularity = signal<GrowthGranularity>('auto');
   public readonly timeRange = signal<GrowthTimeRange>('all');
@@ -155,7 +161,7 @@ export class CollectionGrowthChartComponent {
       marketPricesMap: this.marketPricesMap(),
       nowMs: this.marketPriceNowMs(),
       canViewMarketPrices: this.canViewMarketPrices(),
-      scope: this.selectedScope(),
+      scope: this.effectiveScope(),
       granularity: this.granularity(),
       range: this.timeRange(),
       includeApproximateDates: this.includeApproximateDates(),
@@ -291,7 +297,7 @@ export class CollectionGrowthChartComponent {
   });
 
   public readonly missingDateRoute = computed<string[]>(() =>
-    this.selectedScope() === 'toys_only'
+    this.effectiveScope() === 'toys_only'
       ? ['/collection/toys']
       : ['/collection/games'],
   );
@@ -300,6 +306,7 @@ export class CollectionGrowthChartComponent {
     Record<string, string | number>
   >(() => {
     const params: Record<string, string | number> = {
+      reset: 1,
       ownership: 1,
       provenance_status: 'missing_date',
     };
@@ -311,7 +318,7 @@ export class CollectionGrowthChartComponent {
   });
 
   public readonly selectedPlatformId = computed<number | null>(() => {
-    const scope = this.selectedScope();
+    const scope = this.effectiveScope();
     if (!scope.startsWith('platform:')) return null;
     const id = Number(scope.slice('platform:'.length));
     return Number.isFinite(id) ? id : null;
@@ -342,10 +349,11 @@ export class CollectionGrowthChartComponent {
   public onBucketClick(point: KitChartPoint): void {
     const bucket = this.asBucket(point.meta);
     if (!bucket) return;
-    const scope = this.selectedScope();
+    const scope = this.effectiveScope();
     const targetRoute =
       scope === 'toys_only' ? '/collection/toys' : '/collection/games';
     const queryParams: Record<string, string | number> = {
+      reset: 1,
       ownership: 1,
       provenance_status: 'all',
       acquired_from: bucket.drillFromIso,

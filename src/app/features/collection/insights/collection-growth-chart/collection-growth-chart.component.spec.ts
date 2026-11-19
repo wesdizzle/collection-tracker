@@ -375,6 +375,7 @@ describe('CollectionGrowthChartComponent', () => {
 
     expect(navSpy).toHaveBeenCalledWith(['/collection/games'], {
       queryParams: {
+        reset: 1,
         ownership: 1,
         provenance_status: 'all',
         acquired_from: bucket.drillFromIso,
@@ -388,6 +389,7 @@ describe('CollectionGrowthChartComponent', () => {
     component.onBucketClick(component.chartPoints()[0]);
     expect(navSpy).toHaveBeenLastCalledWith(['/collection/games'], {
       queryParams: {
+        reset: 1,
         ownership: 1,
         provenance_status: 'all',
         acquired_from: component.asBucket(component.chartPoints()[0].meta)!
@@ -405,11 +407,28 @@ describe('CollectionGrowthChartComponent', () => {
     component.onBucketClick(toyPoint);
     expect(navSpy).toHaveBeenLastCalledWith(['/collection/toys'], {
       queryParams: {
+        reset: 1,
         ownership: 1,
         provenance_status: 'all',
         acquired_from: component.asBucket(toyPoint.meta)!.drillFromIso,
         acquired_to: component.asBucket(toyPoint.meta)!.drillToIso,
       },
     });
+  });
+
+  it('supports controlled externalScope, hideScopeSelect, and hideKpiStrip inputs', () => {
+    fixture.componentRef.setInput('externalScope', 'platform:2');
+    fixture.componentRef.setInput('hideScopeSelect', true);
+    fixture.componentRef.setInput('hideKpiStrip', true);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="growth-scope-select"]')).toBeNull();
+    expect(el.querySelector('[data-testid="growth-kpi-strip"]')).toBeNull();
+    expect(component.effectiveScope()).toBe('platform:2');
+    expect(component.growthData().summary.totalOwnedInScope).toBe(1);
+    expect(component.growthData().summary.latestCumulativeCostBasisCents).toBe(
+      10000,
+    );
   });
 });

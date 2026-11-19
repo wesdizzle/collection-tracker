@@ -17,29 +17,17 @@ import {
   EphemeralMarketPrice,
   Game,
   JournalEntry,
-  MarketPriceItemType,
   MarketPriceScanProgress,
   Platform,
   Toy,
-  computeItemEstimatedValueCents,
-  formatPriceAge,
-  getMarketPriceKey,
-  isMarketPriceFresh,
 } from '../../../../core/models/collection.models';
+import {
+  ScopedOwnedValuationEntry,
+  ScopedValuationSummary,
+  computeScopedValuation,
+} from '../../../../core/models/insights-analytics';
 import { CollectionService } from '../../../../core/services/collection.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
-
-interface ScopedOwnedEntry {
-  itemType: MarketPriceItemType;
-  canonicalId: string;
-  routeId: string;
-  title: string;
-  subtitle: string;
-  estimatedCents: number | null;
-  tierLabel: string;
-  price: EphemeralMarketPrice | null;
-  journalEntry: JournalEntry | null;
-}
 
 @Component({
   selector: 'app-market-valuation-panel',
@@ -55,8 +43,13 @@ export class MarketValuationPanelComponent {
   public readonly ownedGames = input.required<Game[]>();
   public readonly ownedToys = input.required<Toy[]>();
   public readonly platforms = input.required<Platform[]>();
+  public readonly externalScope = input<string | null>(null);
+  public readonly variant = input<'full' | 'toolbar'>('full');
 
   public readonly selectedScope = signal<string>('all_owned');
+  public readonly effectiveScope = computed<string>(
+    () => this.externalScope() ?? this.selectedScope(),
+  );
   public readonly isSyncingDevices = signal<boolean>(false);
 
   public readonly canRender = computed<boolean>(
@@ -159,201 +152,40 @@ export class MarketValuationPanelComponent {
     () => this.collectionService.marketPriceNowMs?.() ?? Date.now(),
   );
 
-  private findGameJournalEntry(g: Game): JournalEntry | null {
-    const map = this.journalMap();
-    return (
-      map.get(`game:${g.game_id || g.id}`) ||
-      map.get(`game:${g.id}`) ||
-      (g.stable_id !== undefined ? map.get(`game:${g.stable_id}`) : null) ||
-      null
-    );
-  }
-
-  private findFreshPrice(
-    itemType: MarketPriceItemType,
-    itemId: string,
-    canonicalId?: string | null,
-  ): EphemeralMarketPrice | null {
-    const now = this.nowMs();
-    const map = this.pricesMap();
-    if (canonicalId) {
-      const c = map.get(getMarketPriceKey(itemType, canonicalId));
-      if (c && isMarketPriceFresh(c, now)) return c;
-    }
-    const d = map.get(getMarketPriceKey(itemType, itemId));
-    return d && isMarketPriceFresh(d, now) ? d : null;
-  }
-
-  public readonly scopedEntries = computed<ScopedOwnedEntry[]>(() => {
-    if (!this.canRender()) return [];
-    const scope = this.selectedScope();
-    const games = this.ownedGames();
-    const toys = this.ownedToys();
-    const jMap = this.journalMap();
-
-    const includeGames =
-      scope !== 'toys_only' &&
-      (!scope.startsWith('platform:') || games.length > 0);
-    const includeToys =
-      scope === 'all_owned' ||
-      scope === 'with_cost_basis' ||
-      scope === 'toys_only';
-    const platformId = scope.startsWith('platform:')
-      ? Number(scope.slice('platform:'.length))
-      : null;
-
-    const result: ScopedOwnedEntry[] = [];
-
-    if (includeGames) {
-      for (const g of games) {
-        if (platformId !== null && g.platform_id !== platformId) {
-          continue;
-        }
-        const jEntry = this.findGameJournalEntry(g);
-        if (
-          scope === 'with_cost_basis' &&
-          (jEntry?.price_paid === null || jEntry?.price_paid === undefined)
-        ) {
-          continue;
-        }
-        const canonicalId = g.game_id || g.id;
-        const price = this.findFreshPrice('game', g.id, canonicalId);
-        const est = computeItemEstimatedValueCents(g, price);
-        result.push({
-          itemType: 'game',
-          canonicalId,
-          routeId: g.id,
-          title: g.title,
-          subtitle: g.display_name || g.platform || 'Game',
-          estimatedCents: est.cents,
-          tierLabel: est.tierLabel,
-          price,
-          journalEntry: jEntry,
-        });
-      }
+  public readonly valuationSummary = computed<ScopedValuationSummary>(() => {
+    if (!this.canRender()) {
+      return {
+        entries: [],
+        totalOwnedCount: 0,
+        pricedCount: 0,
+        coveragePct: 0,
+        totalEstimatedCents: 0,
+        matchedCount: 0,
+        matchedCostBasisCents: 0,
+        matchedEstimatedCents: 0,
+        unrealizedDeltaCents: 0,
+        unrealizedRoiPct: null,
+        topValuable: [],
+        topCostBasis: [],
+        disclosureText: 'No active live eBay snapshots in the last 6 hours.',
+      };
     }
 
-    if (includeToys) {
-      for (const t of toys) {
-        const jEntry = jMap.get(`toy:${t.id}`) || null;
-        if (
-          scope === 'with_cost_basis' &&
-          (jEntry?.price_paid === null || jEntry?.price_paid === undefined)
-        ) {
-          continue;
-        }
-        const price = this.findFreshPrice('toy', t.id);
-        const est = computeItemEstimatedValueCents(t, price);
-        result.push({
-          itemType: 'toy',
-          canonicalId: t.id,
-          routeId: t.id,
-          title: t.name,
-          subtitle: t.series_name ? `${t.line} · ${t.series_name}` : t.line,
-          estimatedCents: est.cents,
-          tierLabel: est.tierLabel,
-          price,
-          journalEntry: jEntry,
-        });
-      }
-    }
-
-    return result;
+    return computeScopedValuation({
+      ownedGames: this.ownedGames(),
+      ownedToys: this.ownedToys(),
+      platforms: this.platforms(),
+      journalMap: this.journalMap(),
+      marketPricesMap: this.pricesMap(),
+      nowMs: this.nowMs(),
+      scope: this.effectiveScope(),
+      canViewMarketPrices: true,
+    });
   });
 
-  public readonly valuationSummary = computed(() => {
-    const entries = this.scopedEntries();
-    const totalOwnedCount = entries.length;
-    let pricedCount = 0;
-    let totalEstimatedCents = 0;
-
-    let matchedCount = 0;
-    let matchedCostBasisCents = 0;
-    let matchedEstimatedCents = 0;
-
-    let newestFetchedMs = 0;
-    let oldestFetchedMs = Number.POSITIVE_INFINITY;
-    let newestPrice: EphemeralMarketPrice | null = null;
-    let oldestPrice: EphemeralMarketPrice | null = null;
-
-    for (const entry of entries) {
-      if (entry.estimatedCents !== null) {
-        pricedCount++;
-        totalEstimatedCents += entry.estimatedCents;
-
-        const paidRaw = entry.journalEntry?.price_paid;
-        if (
-          paidRaw !== null &&
-          paidRaw !== undefined &&
-          Number.isFinite(Number(paidRaw))
-        ) {
-          matchedCount++;
-          matchedCostBasisCents += Math.round(Number(paidRaw) * 100);
-          matchedEstimatedCents += entry.estimatedCents;
-        }
-      }
-
-      if (entry.price?.fetched_at) {
-        const fetchedMs = Date.parse(entry.price.fetched_at);
-        if (Number.isFinite(fetchedMs)) {
-          if (fetchedMs > newestFetchedMs) {
-            newestFetchedMs = fetchedMs;
-            newestPrice = entry.price;
-          }
-          if (fetchedMs < oldestFetchedMs) {
-            oldestFetchedMs = fetchedMs;
-            oldestPrice = entry.price;
-          }
-        }
-      }
-    }
-
-    const coveragePct =
-      totalOwnedCount > 0
-        ? Math.round((pricedCount / totalOwnedCount) * 100)
-        : 0;
-    const unrealizedDeltaCents = matchedEstimatedCents - matchedCostBasisCents;
-    const unrealizedRoiPct =
-      matchedCostBasisCents > 0
-        ? Math.round((unrealizedDeltaCents / matchedCostBasisCents) * 100)
-        : null;
-
-    const topValuable = entries
-      .filter(
-        (e): e is ScopedOwnedEntry & { estimatedCents: number } =>
-          e.estimatedCents !== null,
-      )
-      .sort((a, b) => b.estimatedCents - a.estimatedCents)
-      .slice(0, 8);
-
-    const now = this.nowMs();
-    let disclosureText = 'No active live eBay snapshots in the last 6 hours.';
-    if (oldestPrice && newestPrice) {
-      if (oldestPrice === newestPrice || oldestFetchedMs === newestFetchedMs) {
-        disclosureText = formatPriceAge(
-          newestPrice.fetched_at,
-          newestPrice.expires_at,
-          now,
-        );
-      } else {
-        disclosureText = `Live eBay active listings · Oldest snapshot: ${formatPriceAge(oldestPrice.fetched_at, oldestPrice.expires_at, now).replace('Live eBay active listings · ', '')}`;
-      }
-    }
-
-    return {
-      totalOwnedCount,
-      pricedCount,
-      coveragePct,
-      totalEstimatedCents,
-      matchedCount,
-      matchedCostBasisCents,
-      matchedEstimatedCents,
-      unrealizedDeltaCents,
-      unrealizedRoiPct,
-      topValuable,
-      disclosureText,
-    };
-  });
+  public readonly scopedEntries = computed<ScopedOwnedValuationEntry[]>(
+    () => this.valuationSummary().entries,
+  );
 
   public readonly scanProgressPct = computed<number>(() => {
     const p = this.scanProgress();
@@ -394,7 +226,7 @@ export class MarketValuationPanelComponent {
 
   public async startScan(): Promise<void> {
     if (!this.canRender() || this.scanProgress().active) return;
-    const scope = this.selectedScope();
+    const scope = this.effectiveScope();
     const items = this.scopedEntries().map((e) => ({
       itemType: e.itemType,
       itemId: e.canonicalId,
@@ -422,7 +254,7 @@ export class MarketValuationPanelComponent {
 
   public exportCsv(): void {
     const priced = this.scopedEntries().filter(
-      (e): e is ScopedOwnedEntry & { estimatedCents: number } =>
+      (e): e is ScopedOwnedValuationEntry & { estimatedCents: number } =>
         e.estimatedCents !== null && e.price !== null,
     );
     if (priced.length === 0 || typeof document === 'undefined') return;

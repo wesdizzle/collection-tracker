@@ -273,3 +273,21 @@
   color: var(--m3-primary);
   font-weight: 600;
 }
+
+.valuation-toolbar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-10, 10px);
+  width: 100%;
+  min-width: 0;
+}
+
+.toolbar-actions {
+  justify-content: flex-start;
+}
+
+.valuation-toolbar-wrap .notice-banner,
+.valuation-toolbar-wrap .scan-status-box,
+.valuation-toolbar-wrap .freshness-note {
+  margin-bottom: 0;
+}
