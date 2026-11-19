@@ -12,6 +12,9 @@ import {
   KitChartDiffBand,
   KitChartPoint,
   KitChartSeries,
+  KitSelectComponent,
+  KitSelectGroup,
+  KitSelectOption,
   KitTimeSeriesChartComponent,
 } from '@wesdizzle/app-kit/angular';
 import {
@@ -38,6 +41,7 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
     CommonModule,
     RouterModule,
     IconComponent,
+    KitSelectComponent,
     KitTimeSeriesChartComponent,
   ],
   templateUrl: './collection-growth-chart.component.html',
@@ -96,6 +100,52 @@ export class CollectionGrowthChartComponent {
       }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   });
+
+  public readonly scopeOptions = computed<KitSelectOption<string>[]>(() => [
+    {
+      value: 'all_owned',
+      label: `All Owned (${this.ownedGames().length + this.ownedToys().length})`,
+    },
+    {
+      value: 'games_only',
+      label: `Games Only (${this.ownedGames().length})`,
+    },
+    {
+      value: 'toys_only',
+      label: `Toys Only (${this.ownedToys().length})`,
+    },
+  ]);
+
+  public readonly scopeGroups = computed<KitSelectGroup<string>[]>(() => {
+    const opts = this.platformFilterOptions();
+    if (opts.length === 0) return [];
+    return [
+      {
+        label: 'Platforms',
+        options: opts.map((p) => ({
+          value: `platform:${p.id}`,
+          label: `${p.name} (${p.count})`,
+        })),
+      },
+    ];
+  });
+
+  public readonly granularityOptions: readonly KitSelectOption<GrowthGranularity>[] =
+    [
+      { value: 'auto', label: 'Granularity: Auto' },
+      { value: 'year', label: 'By Year' },
+      { value: 'quarter', label: 'By Quarter' },
+      { value: 'month', label: 'By Month' },
+    ];
+
+  public readonly timeRangeOptions: readonly KitSelectOption<GrowthTimeRange>[] =
+    [
+      { value: 'all', label: 'Range: All Time' },
+      { value: '5y', label: 'Last 5 Years' },
+      { value: '3y', label: 'Last 3 Years' },
+      { value: '1y', label: 'Last 12 Months' },
+      { value: 'ytd', label: 'Year to Date' },
+    ];
 
   public readonly growthData = computed<CollectionGrowthSeriesResult>(() =>
     computeCollectionGrowthSeries({
@@ -267,19 +317,16 @@ export class CollectionGrowthChartComponent {
     return Number.isFinite(id) ? id : null;
   });
 
-  public onScopeChange(event: Event): void {
-    const select = event.target as HTMLSelectElement;
-    this.selectedScope.set(select.value || 'all_owned');
+  public onScopeChange(value: string): void {
+    this.selectedScope.set(value || 'all_owned');
   }
 
-  public onGranularityChange(event: Event): void {
-    const select = event.target as HTMLSelectElement;
-    this.granularity.set((select.value as GrowthGranularity) || 'auto');
+  public onGranularityChange(value: GrowthGranularity): void {
+    this.granularity.set(value || 'auto');
   }
 
-  public onTimeRangeChange(event: Event): void {
-    const select = event.target as HTMLSelectElement;
-    this.timeRange.set((select.value as GrowthTimeRange) || 'all');
+  public onTimeRangeChange(value: GrowthTimeRange): void {
+    this.timeRange.set(value || 'all');
   }
 
   public onIncludeApproxToggle(event: Event): void {

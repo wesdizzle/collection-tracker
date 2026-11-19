@@ -240,5 +240,37 @@ describe('MarketValuationPanelComponent', () => {
     expect(
       el.querySelector('[data-testid="unrealized-gain-loss"]')?.textContent,
     ).toContain('+$50.00');
+
+    // Verify custom kit-select scope selector opens, filters platform option, and respects scan disabled state
+    const trigger = el.querySelector(
+      '#valuation-scope-select',
+    ) as HTMLButtonElement;
+    expect(trigger).toBeTruthy();
+    expect(trigger.disabled).toBe(false);
+    trigger.click();
+    fixture.detectChanges();
+
+    const scopeHost = el.querySelector(
+      '[data-testid="valuation-scope-select"]',
+    );
+    const snesBtn = Array.from(
+      scopeHost?.querySelectorAll('.dropdown-item') || [],
+    ).find((b) => b.textContent?.includes('SNES (3)')) as HTMLButtonElement;
+    expect(snesBtn).toBeTruthy();
+    snesBtn.click();
+    fixture.detectChanges();
+
+    expect(component.selectedScope()).toBe('platform:15');
+    expect(component.valuationSummary().pricedCount).toBe(2);
+
+    scanProgress.set({
+      ...scanProgress(),
+      active: true,
+    });
+    fixture.detectChanges();
+    expect(
+      (el.querySelector('#valuation-scope-select') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 });

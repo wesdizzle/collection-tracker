@@ -1,8 +1,18 @@
+:host {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .valuation-panel {
   background: var(--m3-surface-container);
   border: 1px solid var(--m3-outline-variant);
   border-radius: var(--radius-md);
   padding: var(--spacing-20);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .panel-header {
@@ -30,16 +40,18 @@
   flex-direction: column;
   gap: var(--spacing-12);
   margin-bottom: var(--spacing-12);
+  min-width: 0;
+  max-width: 100%;
 }
 
-.scope-select {
+.scope-kit-select {
   width: 100%;
-  padding: 0.55rem 0.75rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--m3-outline);
-  background: var(--m3-surface-container-high);
-  color: var(--m3-on-surface);
-  font-size: 0.875rem;
+  min-width: 0;
+  max-width: 100%;
+  --kit-input-height: 40px;
+  --kit-input-font-size: 0.875rem;
+  --kit-dropdown-width: 100%;
+  --kit-dropdown-max-width: 100%;
 }
 
 .action-buttons {

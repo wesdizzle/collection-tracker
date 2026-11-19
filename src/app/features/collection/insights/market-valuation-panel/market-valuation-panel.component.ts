@@ -9,6 +9,11 @@ import {
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import {
+  KitSelectComponent,
+  KitSelectGroup,
+  KitSelectOption,
+} from '@wesdizzle/app-kit/angular';
+import {
   EphemeralMarketPrice,
   Game,
   JournalEntry,
@@ -39,7 +44,7 @@ interface ScopedOwnedEntry {
 @Component({
   selector: 'app-market-valuation-panel',
   standalone: true,
-  imports: [CommonModule, RouterModule, IconComponent],
+  imports: [CommonModule, RouterModule, IconComponent, KitSelectComponent],
   templateUrl: './market-valuation-panel.component.html',
   styleUrls: ['./market-valuation-panel.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -95,6 +100,39 @@ export class MarketValuationPanelComponent {
         count: counts.get(p.id) || 0,
       }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  });
+
+  public readonly scopeOptions = computed<KitSelectOption<string>[]>(() => [
+    {
+      value: 'all_owned',
+      label: `All Owned (${this.ownedGames().length + this.ownedToys().length})`,
+    },
+    {
+      value: 'with_cost_basis',
+      label: 'Owned With Purchase Price',
+    },
+    {
+      value: 'games_only',
+      label: `Owned Games Only (${this.ownedGames().length})`,
+    },
+    {
+      value: 'toys_only',
+      label: `Owned Toys Only (${this.ownedToys().length})`,
+    },
+  ]);
+
+  public readonly scopeGroups = computed<KitSelectGroup<string>[]>(() => {
+    const opts = this.platformFilterOptions();
+    if (opts.length === 0) return [];
+    return [
+      {
+        label: 'Platforms',
+        options: opts.map((p) => ({
+          value: `platform:${p.id}`,
+          label: `${p.name} (${p.count})`,
+        })),
+      },
+    ];
   });
 
   private readonly journalMap = computed<Map<string, JournalEntry>>(
@@ -325,9 +363,8 @@ export class MarketValuationPanelComponent {
     return cents >= 0 ? `+${abs}` : `-${abs}`;
   }
 
-  public onScopeChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value || 'all_owned';
-    this.selectedScope.set(value);
+  public onScopeChange(value: string): void {
+    this.selectedScope.set(value || 'all_owned');
   }
 
   public getScopeLabel(scope: string): string {

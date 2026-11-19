@@ -36,53 +36,39 @@
         </button>
       </div>
 
-      <select
-        class="growth-select"
-        aria-label="Growth chart scope"
-        [value]="selectedScope()"
-        (change)="onScopeChange($event)"
+      <kit-select
+        class="growth-select-control growth-select-scope"
+        dropdownName="growth_scope"
+        triggerId="growth-scope-select"
+        ariaLabel="Growth chart scope"
         data-testid="growth-scope-select"
-      >
-        <option value="all_owned">
-          All Owned ({{ ownedGames().length + ownedToys().length }})
-        </option>
-        <option value="games_only">
-          Games Only ({{ ownedGames().length }})
-        </option>
-        <option value="toys_only">Toys Only ({{ ownedToys().length }})</option>
-        @for (p of platformFilterOptions(); track p.id) {
-          <option [value]="'platform:' + p.id">
-            {{ p.name }} ({{ p.count }})
-          </option>
-        }
-      </select>
+        [value]="selectedScope()"
+        [options]="scopeOptions()"
+        [groups]="scopeGroups()"
+        (valueChange)="onScopeChange($event)"
+      />
 
-      <select
-        class="growth-select"
-        aria-label="Growth chart time granularity"
-        [value]="granularity()"
-        (change)="onGranularityChange($event)"
+      <kit-select
+        class="growth-select-control growth-select-compact"
+        dropdownName="growth_granularity"
+        triggerId="growth-granularity-select"
+        ariaLabel="Growth chart time granularity"
         data-testid="growth-granularity-select"
-      >
-        <option value="auto">Granularity: Auto</option>
-        <option value="year">By Year</option>
-        <option value="quarter">By Quarter</option>
-        <option value="month">By Month</option>
-      </select>
+        [value]="granularity()"
+        [options]="granularityOptions"
+        (valueChange)="onGranularityChange($event)"
+      />
 
-      <select
-        class="growth-select"
-        aria-label="Growth chart time range"
-        [value]="timeRange()"
-        (change)="onTimeRangeChange($event)"
+      <kit-select
+        class="growth-select-control growth-select-compact growth-select-range"
+        dropdownName="growth_range"
+        triggerId="growth-range-select"
+        ariaLabel="Growth chart time range"
         data-testid="growth-range-select"
-      >
-        <option value="all">Range: All Time</option>
-        <option value="5y">Last 5 Years</option>
-        <option value="3y">Last 3 Years</option>
-        <option value="1y">Last 12 Months</option>
-        <option value="ytd">Year to Date</option>
-      </select>
+        [value]="timeRange()"
+        [options]="timeRangeOptions"
+        (valueChange)="onTimeRangeChange($event)"
+      />
     </div>
   </header>
 

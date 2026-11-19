@@ -27,29 +27,18 @@
     }
 
     <div class="controls-bar">
-      <select
-        class="scope-select"
-        aria-label="Valuation scan scope"
+      <kit-select
+        class="scope-kit-select"
+        dropdownName="valuation_scope"
+        triggerId="valuation-scope-select"
+        ariaLabel="Valuation scan scope"
+        data-testid="valuation-scope-select"
         [value]="selectedScope()"
         [disabled]="scanProgress().active"
-        (change)="onScopeChange($event)"
-      >
-        <option value="all_owned">
-          All Owned ({{ ownedGames().length + ownedToys().length }})
-        </option>
-        <option value="with_cost_basis">Owned With Purchase Price</option>
-        <option value="games_only">
-          Owned Games Only ({{ ownedGames().length }})
-        </option>
-        <option value="toys_only">
-          Owned Toys Only ({{ ownedToys().length }})
-        </option>
-        @for (p of platformFilterOptions(); track p.id) {
-          <option [value]="'platform:' + p.id">
-            {{ p.name }} ({{ p.count }})
-          </option>
-        }
-      </select>
+        [options]="scopeOptions()"
+        [groups]="scopeGroups()"
+        (valueChange)="onScopeChange($event)"
+      />
 
       <div class="action-buttons">
         @if (scanProgress().active) {

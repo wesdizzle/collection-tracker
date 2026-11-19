@@ -227,36 +227,77 @@ describe('CollectionGrowthChartComponent', () => {
     ).toBe('Period Spend');
   });
 
-  it('switches scopes across all_owned, games_only, toys_only, and platform:<id>', () => {
+  it('switches scopes across all_owned, games_only, toys_only, and platform:<id> via kit-select controls', () => {
     const el = fixture.nativeElement as HTMLElement;
-    const scopeSelect = el.querySelector(
-      '[data-testid="growth-scope-select"]',
-    ) as unknown as HTMLSelectElement;
+    const selectScopeOption = (optionLabel: string) => {
+      const trigger = el.querySelector(
+        '#growth-scope-select',
+      ) as HTMLButtonElement;
+      expect(trigger).toBeTruthy();
+      trigger.click();
+      fixture.detectChanges();
+      const scopeHost = el.querySelector('[data-testid="growth-scope-select"]');
+      const items = Array.from(
+        scopeHost?.querySelectorAll('.dropdown-item') || [],
+      ) as HTMLButtonElement[];
+      const match = items.find((btn) => btn.textContent?.includes(optionLabel));
+      expect(match).toBeTruthy();
+      match!.click();
+      fixture.detectChanges();
+    };
 
-    scopeSelect.value = 'toys_only';
-    scopeSelect.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
+    selectScopeOption('Toys Only (1)');
+    expect(component.selectedScope()).toBe('toys_only');
     expect(component.growthData().summary.totalOwnedInScope).toBe(1);
     expect(component.growthData().summary.latestCumulativeCostBasisCents).toBe(
       2000,
     );
     expect(component.missingDateRoute()).toEqual(['/collection/toys']);
 
-    scopeSelect.value = 'games_only';
-    scopeSelect.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
+    selectScopeOption('Games Only (3)');
+    expect(component.selectedScope()).toBe('games_only');
     expect(component.growthData().summary.totalOwnedInScope).toBe(3);
     expect(component.growthData().summary.datedItemCount).toBe(2);
     expect(component.growthData().summary.undatedItemCount).toBe(1);
 
-    scopeSelect.value = 'platform:2';
-    scopeSelect.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
+    selectScopeOption('SNES (1)');
+    expect(component.selectedScope()).toBe('platform:2');
     expect(component.growthData().summary.totalOwnedInScope).toBe(1);
     expect(component.growthData().summary.latestCumulativeCostBasisCents).toBe(
       10000,
     );
     expect(component.missingDateQueryParams()['platform_id']).toBe(2);
+
+    // Granularity & Time Range kit-select dropdowns update signals cleanly
+    const granularityTrigger = el.querySelector(
+      '#growth-granularity-select',
+    ) as HTMLButtonElement;
+    granularityTrigger.click();
+    fixture.detectChanges();
+    const granHost = el.querySelector(
+      '[data-testid="growth-granularity-select"]',
+    );
+    const byYearBtn = Array.from(
+      granHost?.querySelectorAll('.dropdown-item') || [],
+    ).find((b) => b.textContent?.includes('By Year')) as HTMLButtonElement;
+    expect(byYearBtn).toBeTruthy();
+    byYearBtn.click();
+    fixture.detectChanges();
+    expect(component.granularity()).toBe('year');
+
+    const rangeTrigger = el.querySelector(
+      '#growth-range-select',
+    ) as HTMLButtonElement;
+    rangeTrigger.click();
+    fixture.detectChanges();
+    const rangeHost = el.querySelector('[data-testid="growth-range-select"]');
+    const fiveYBtn = Array.from(
+      rangeHost?.querySelectorAll('.dropdown-item') || [],
+    ).find((b) => b.textContent?.includes('Last 5 Years')) as HTMLButtonElement;
+    expect(fiveYBtn).toBeTruthy();
+    fiveYBtn.click();
+    fixture.detectChanges();
+    expect(component.timeRange()).toBe('5y');
   });
 
   it('disables current_value series when no fresh comps exist and enables series + diffBand with fresh <6h eBay prices', () => {
