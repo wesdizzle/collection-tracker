@@ -47,6 +47,8 @@ import {
   FilterState,
   PlatformGroup,
   ProvenanceStatusFilter,
+  ConditionFilter,
+  ReleaseDecadeFilter,
   ToyGroup,
   ListState,
   ViewMode,
@@ -120,47 +122,43 @@ export class CollectionListComponent
   private queryParamsSub?: Subscription;
   private statePersistTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private createDefaultFilters(): FilterState {
+    return {
+      ownership: 1,
+      play_status: 'all',
+      backup_status: 'all',
+      physical_verified: 'all',
+      platform_id: undefined,
+      regions: [],
+      line: '',
+      type: '',
+      name: '',
+      nameExact: false,
+      series: '',
+      seriesExact: false,
+      tag: '',
+      tagExact: false,
+      sortBy: 'default',
+      deals_only: false,
+      retail_available: false,
+      budget_label: 'all',
+      condition: 'all',
+      release_decade: 'all',
+      provenance_status: 'all',
+      provenance_source: '',
+      provenanceSourceExact: false,
+      acquired_year: 'all',
+      acquired_from: '',
+      acquired_to: '',
+      price_paid_min: null,
+      price_paid_max: null,
+    };
+  }
+
   private applyQueryParams(qp: Record<string, unknown>) {
     if (!qp || Object.keys(qp).length === 0) return;
 
-    if (qp['reset'] === '1' || qp['reset'] === 'true') {
-      this.filters.set({
-        ownership: 1,
-        play_status: 'all',
-        backup_status: 'all',
-        physical_verified: 'all',
-        platform_id: undefined,
-        regions: [],
-        line: '',
-        type: '',
-        name: '',
-        nameExact: false,
-        series: '',
-        seriesExact: false,
-        tag: '',
-        tagExact: false,
-        sortBy: 'default',
-        deals_only: false,
-        retail_available: false,
-        budget_label: 'all',
-        provenance_status: 'all',
-        provenance_source: '',
-        provenanceSourceExact: false,
-        acquired_year: 'all',
-        acquired_from: '',
-        acquired_to: '',
-        price_paid_min: null,
-        price_paid_max: null,
-      });
-      this.displayLimit.set(100);
-      this.router.navigate([], {
-        relativeTo: this.route,
-        queryParams: {},
-        replaceUrl: true,
-      });
-      return;
-    }
-
+    const shouldReset = qp['reset'] === '1' || qp['reset'] === 'true';
     const qpFilters: Partial<FilterState> = {};
     if (qp['platform_id'] !== undefined) {
       const pid = parseInt(String(qp['platform_id']), 10);
@@ -189,6 +187,8 @@ export class CollectionListComponent
         qpFilters.play_status = 2;
       } else if (psVal === 'played') {
         qpFilters.play_status = 1;
+      } else if (psVal === 'all') {
+        qpFilters.play_status = 'all';
       } else {
         const ps = parseInt(psVal, 10);
         if (!isNaN(ps)) qpFilters.play_status = ps as PlayStatus;
@@ -228,6 +228,42 @@ export class CollectionListComponent
       qpFilters.retail_available =
         String(qp['retail_available']) === 'true' ||
         String(qp['retail_available']) === '1';
+    }
+    if (qp['condition'] !== undefined) {
+      const cond = String(qp['condition']) as ConditionFilter;
+      if (
+        cond === 'all' ||
+        cond === 'cib' ||
+        cond === 'boxed_only' ||
+        cond === 'loose' ||
+        cond === 'manual_only'
+      ) {
+        qpFilters.condition = cond;
+      }
+    }
+    if (qp['release_decade'] !== undefined) {
+      const dec = String(qp['release_decade']) as ReleaseDecadeFilter;
+      if (
+        dec === 'all' ||
+        dec === '70s_80s' ||
+        dec === '90s' ||
+        dec === '00s' ||
+        dec === '10s' ||
+        dec === '20s'
+      ) {
+        qpFilters.release_decade = dec;
+      }
+    }
+    if (qp['series'] !== undefined) {
+      qpFilters.series = String(qp['series']);
+    }
+    if (qp['series_exact'] !== undefined) {
+      qpFilters.seriesExact =
+        String(qp['series_exact']) === 'true' ||
+        String(qp['series_exact']) === '1';
+    }
+    if (qp['line'] !== undefined) {
+      qpFilters.line = String(qp['line']);
     }
     if (qp['search'] || qp['name'] || qp['q']) {
       qpFilters.name = String(qp['search'] || qp['name'] || qp['q']);
@@ -325,8 +361,23 @@ export class CollectionListComponent
         }
       }
     }
-    if (Object.keys(qpFilters).length > 0) {
+    if (shouldReset) {
+      const nextFilters: FilterState = {
+        ...this.createDefaultFilters(),
+        ...qpFilters,
+      };
+      this.filters.set(nextFilters);
+      this.displayLimit.set(100);
+      this.maybeEnsureFullCatalogForFilters(nextFilters);
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: {},
+        replaceUrl: true,
+      });
+    } else if (Object.keys(qpFilters).length > 0) {
       this.filters.update((f) => ({ ...f, ...qpFilters }));
+      this.displayLimit.set(100);
+      this.maybeEnsureFullCatalogForFilters(this.filters());
       this.router.navigate([], {
         relativeTo: this.route,
         queryParams: {},
@@ -337,23 +388,7 @@ export class CollectionListComponent
 
   /** --- Reactive Application State --- */
   public currentTab = signal<'games' | 'toys'>('games');
-  public filters = signal<FilterState>({
-    ownership: 1,
-    play_status: 'all',
-    backup_status: 'all',
-    physical_verified: 'all',
-    platform_id: undefined,
-    regions: [],
-    line: '',
-    type: '',
-    name: '',
-    nameExact: false,
-    series: '',
-    seriesExact: false,
-    tag: '',
-    tagExact: false,
-    sortBy: 'default',
-  });
+  public filters = signal<FilterState>(this.createDefaultFilters());
   public displayLimit = signal<number>(100);
   public viewMode = signal<ViewMode>('grid');
   public lastUpdated = this.collectionService.lastUpdated;
@@ -895,6 +930,37 @@ export class CollectionListComponent
         } else if (f.budget_label === 'standard_only') {
           if (hasExclusiveBudget || hasOptionalBudget) return false;
         }
+      }
+
+      // Packaging Condition Filter
+      if (f.condition && f.condition !== 'all') {
+        const hasCase = Boolean(g.has_case);
+        const hasManual = Boolean(g.has_manual);
+        if (f.condition === 'cib') {
+          if (!hasCase || !hasManual) return false;
+        } else if (f.condition === 'boxed_only') {
+          if (!hasCase || hasManual) return false;
+        } else if (f.condition === 'loose') {
+          if (hasCase) return false;
+        } else if (f.condition === 'manual_only') {
+          if (hasCase || !hasManual) return false;
+        }
+      }
+
+      // Release Era / Decade Filter
+      if (f.release_decade && f.release_decade !== 'all') {
+        const dateStr = g.release_date;
+        const match = dateStr ? dateStr.match(/\b(19\d\d|20\d\d)\b/) : null;
+        if (!match) return false;
+        const year = parseInt(match[1], 10);
+        if (f.release_decade === '70s_80s' && year >= 1990) return false;
+        if (f.release_decade === '90s' && (year < 1990 || year >= 2000))
+          return false;
+        if (f.release_decade === '00s' && (year < 2000 || year >= 2010))
+          return false;
+        if (f.release_decade === '10s' && (year < 2010 || year >= 2020))
+          return false;
+        if (f.release_decade === '20s' && year < 2020) return false;
       }
 
       // Platform Filter (Checks both direct platform and parent platform for cross-compatible hardware)

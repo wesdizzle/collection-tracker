@@ -438,4 +438,44 @@ describe('CollectionFiltersComponent', () => {
     expect(emitted?.price_paid_min).toBeNull();
     expect(emitted?.price_paid_max).toBeNull();
   });
+
+  it('should render Condition and Release Era dropdowns on games tab, count them when active, and reset them cleanly', () => {
+    fixture.componentRef.setInput('currentTab', 'games');
+    fixture.componentRef.setInput('filters', {
+      ownership: 1,
+      condition: 'cib',
+      release_decade: '90s',
+    });
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('#filter-condition'),
+    ).toBeTruthy();
+    expect(
+      fixture.nativeElement.querySelector('#filter-release-decade'),
+    ).toBeTruthy();
+    expect(component.activeFilterCount()).toBe(2);
+
+    let emitted: FilterState | undefined;
+    component.filtersChange.subscribe((f) => {
+      emitted = f;
+    });
+
+    component.selectOption('condition', 'loose');
+    expect(emitted?.condition).toBe('loose');
+
+    component.selectOption('release_decade', '00s');
+    expect(emitted?.release_decade).toBe('00s');
+
+    component.resetFilters();
+    expect(emitted?.condition).toBe('all');
+    expect(emitted?.release_decade).toBe('all');
+
+    fixture.componentRef.setInput('currentTab', 'toys');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#filter-condition')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('#filter-release-decade'),
+    ).toBeNull();
+  });
 });

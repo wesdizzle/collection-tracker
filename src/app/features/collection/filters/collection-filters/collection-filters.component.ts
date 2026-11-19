@@ -28,9 +28,11 @@ import {
   closeAllKitDropdowns,
 } from '@wesdizzle/app-kit/angular';
 import {
+  ConditionFilter,
   FilterState,
   PlatformGroup,
   ProvenanceStatusFilter,
+  ReleaseDecadeFilter,
   ViewMode,
 } from '../../../../core/models/collection.models';
 import { CollectionService } from '../../../../core/services/collection.service';
@@ -250,6 +252,8 @@ export class CollectionFiltersComponent implements OnDestroy {
     if (f.physical_verified !== undefined && f.physical_verified !== 'all')
       count++;
     if (f.budget_label && f.budget_label !== 'all') count++;
+    if (f.condition && f.condition !== 'all') count++;
+    if (f.release_decade && f.release_decade !== 'all') count++;
     if (f.line) count++;
     if (f.type) count++;
     if (f.series) count++;
@@ -329,6 +333,8 @@ export class CollectionFiltersComponent implements OnDestroy {
       deals_only: false,
       retail_available: false,
       budget_label: 'all',
+      condition: 'all',
+      release_decade: 'all',
       provenance_status: 'all',
       provenance_source: '',
       provenanceSourceExact: false,
@@ -469,6 +475,29 @@ export class CollectionFiltersComponent implements OnDestroy {
     { value: 'standard_only', label: 'Standard label only' },
     { value: 'standard_and_budget', label: 'Standard and budget labels' },
     { value: 'budget_only', label: 'Budget label only' },
+  ];
+
+  readonly conditionOptions: {
+    value: ConditionFilter;
+    label: string;
+  }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'cib', label: 'Complete in Box (CIB)' },
+    { value: 'boxed_only', label: 'Case Only (No Manual)' },
+    { value: 'loose', label: 'Loose Disc / Cart' },
+    { value: 'manual_only', label: 'Manual Only (No Case)' },
+  ];
+
+  readonly releaseDecadeOptions: {
+    value: ReleaseDecadeFilter;
+    label: string;
+  }[] = [
+    { value: 'all', label: 'All Eras' },
+    { value: '70s_80s', label: '1970s & 1980s' },
+    { value: '90s', label: '1990s' },
+    { value: '00s', label: '2000s' },
+    { value: '10s', label: '2010s' },
+    { value: '20s', label: '2020s' },
   ];
 
   readonly provenanceStatusOptions: {

@@ -235,6 +235,21 @@ export type ProvenanceStatusFilter =
   | 'has_receipt'
   | 'has_notes';
 
+export type ConditionFilter =
+  | 'all'
+  | 'cib'
+  | 'boxed_only'
+  | 'loose'
+  | 'manual_only';
+
+export type ReleaseDecadeFilter =
+  | 'all'
+  | '70s_80s'
+  | '90s'
+  | '00s'
+  | '10s'
+  | '20s';
+
 export interface FilterState {
   ownership:
     | 'all'
@@ -249,6 +264,8 @@ export interface FilterState {
     | 'standard_only'
     | 'standard_and_budget'
     | 'budget_only';
+  condition?: ConditionFilter;
+  release_decade?: ReleaseDecadeFilter;
   platform_id?: number;
   regions?: string[];
   is_linked?: boolean;

@@ -81,6 +81,26 @@
       (valueChange)="selectOption('budget_label', $event)"
     />
 
+    <!-- Packaging Condition -->
+    <kit-select
+      label="Condition"
+      dropdownName="condition"
+      triggerId="filter-condition"
+      [value]="filters().condition ?? 'all'"
+      [options]="conditionOptions"
+      (valueChange)="selectOption('condition', $event)"
+    />
+
+    <!-- Release Era -->
+    <kit-select
+      label="Release Era"
+      dropdownName="release_decade"
+      triggerId="filter-release-decade"
+      [value]="filters().release_decade ?? 'all'"
+      [options]="releaseDecadeOptions"
+      (valueChange)="selectOption('release_decade', $event)"
+    />
+
     <!-- Platform -->
     <kit-select
       label="Platform"

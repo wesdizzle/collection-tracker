@@ -3079,4 +3079,207 @@ describe('CollectionListComponent', () => {
     expect(component.effectiveSortBy()).toBe('default');
     expect(component.compactTableFilters().sortBy).toBe('default');
   });
+
+  it('filters games by packaging condition and release decade and applies reset=1 together with drill-down query presets', async () => {
+    const cs = TestBed.inject(CollectionService);
+    const router = TestBed.inject(Router);
+    const httpMock = TestBed.inject(HttpTestingController);
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    cs.setAdminForTesting(true);
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'cib-80s',
+        game_id: 'cib-80s',
+        title: 'Super Mario Bros.',
+        series: 'Mario',
+        canonical_series: 'Mario',
+        platform: 'NES',
+        platform_id: 1,
+        region: 'USA',
+        release_date: '1985-09-13',
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 1,
+      },
+      {
+        stable_id: 2,
+        id: 'boxed-90s',
+        game_id: 'boxed-90s',
+        title: 'Chrono Trigger',
+        series: 'Chrono',
+        canonical_series: 'Chrono',
+        platform: 'SNES',
+        platform_id: 2,
+        region: 'USA',
+        release_date: '1995-03-11',
+        ownership_status: 1,
+        play_status: 1,
+        backup_status: 1,
+        has_case: 1,
+        has_manual: 0,
+      },
+      {
+        stable_id: 3,
+        id: 'loose-00s',
+        game_id: 'loose-00s',
+        title: 'Halo 2',
+        series: 'Halo',
+        canonical_series: 'Halo',
+        platform: 'Xbox',
+        platform_id: 3,
+        region: 'USA',
+        release_date: '2004-11-09',
+        ownership_status: 1,
+        play_status: 0,
+        backup_status: 0,
+        has_case: 0,
+        has_manual: 0,
+      },
+      {
+        stable_id: 4,
+        id: 'manual-only-20s',
+        game_id: 'manual-only-20s',
+        title: 'Switch Indie',
+        series: 'Mario',
+        canonical_series: 'Mario',
+        platform: 'Switch',
+        platform_id: 4,
+        region: 'USA',
+        release_date: '2022-05-01',
+        ownership_status: 1,
+        play_status: 0,
+        backup_status: 1,
+        has_case: 0,
+        has_manual: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        stable_id: 10,
+        id: 'toy-mario',
+        name: 'Mario',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Super Mario',
+        series_line: 'Super Mario',
+        release_date: '2015-03-20',
+        ownership_status: 1,
+        image_url: '',
+      },
+      {
+        stable_id: 11,
+        id: 'toy-spyro',
+        name: 'Spyro',
+        line: 'Skylanders',
+        type: 'Figure',
+        series_name: 'Spyro Adventure',
+        series_line: 'Spyro Adventure',
+        release_date: '2011-10-16',
+        ownership_status: 1,
+        image_url: '',
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    await initPromise;
+    httpMock.expectOne('/api/journal/entries').flush({
+      authorized: true,
+      entries: [],
+    });
+
+    // Condition filtering
+    component.onFiltersChange({ ...component.filters(), condition: 'cib' });
+    expect(component.filteredGames().map((g) => g.id)).toEqual(['cib-80s']);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      condition: 'boxed_only',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual(['boxed-90s']);
+
+    component.onFiltersChange({ ...component.filters(), condition: 'loose' });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'loose-00s',
+      'manual-only-20s',
+    ]);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      condition: 'manual_only',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'manual-only-20s',
+    ]);
+
+    // Release decade filtering
+    component.onFiltersChange({
+      ...component.filters(),
+      condition: 'all',
+      release_decade: '90s',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual(['boxed-90s']);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      release_decade: '70s_80s',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual(['cib-80s']);
+
+    component.onFiltersChange({
+      ...component.filters(),
+      release_decade: '20s',
+    });
+    expect(component.filteredGames().map((g) => g.id)).toEqual([
+      'manual-only-20s',
+    ]);
+
+    // Apply stale filters first, then trigger reset=1 + drill-down presets
+    component.onFiltersChange({
+      ...component.filters(),
+      platform_id: 2,
+      backup_status: 1,
+      release_decade: '90s',
+      series: 'Chrono',
+      seriesExact: true,
+    });
+
+    const applyQp = (qp: Record<string, unknown>) =>
+      (
+        component as unknown as {
+          applyQueryParams: (qp: Record<string, unknown>) => void;
+        }
+      ).applyQueryParams(qp);
+
+    applyQp({
+      reset: '1',
+      ownership: '1',
+      condition: 'cib',
+      series: 'Mario',
+      series_exact: '1',
+    });
+
+    expect(component.filters().platform_id).toBeUndefined();
+    expect(component.filters().backup_status).toBe('all');
+    expect(component.filters().release_decade).toBe('all');
+    expect(component.filters().condition).toBe('cib');
+    expect(component.filters().series).toBe('Mario');
+    expect(component.filters().seriesExact).toBe(true);
+    expect(component.filteredGames().map((g) => g.id)).toEqual(['cib-80s']);
+
+    // Toy line drill-down with reset=1
+    component.currentTab.set('toys');
+    applyQp({
+      reset: '1',
+      ownership: '1',
+      line: 'Skylanders',
+    });
+    expect(component.filters().condition).toBe('all');
+    expect(component.filters().series).toBe('');
+    expect(component.filters().line).toBe('Skylanders');
+    expect(component.filteredToys().map((t) => t.id)).toEqual(['toy-spyro']);
+  });
 });
