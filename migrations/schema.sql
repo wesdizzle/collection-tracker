@@ -238,6 +238,14 @@ CREATE TABLE IF NOT EXISTS cron_execution_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS price_query_overrides (
+    item_type TEXT NOT NULL CHECK (item_type IN ('game', 'toy')),
+    item_id TEXT NOT NULL,
+    custom_query TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (item_type, item_id)
+) WITHOUT ROWID;
+
 -- ============================================================================
 -- 3. INDEXES
 -- ============================================================================

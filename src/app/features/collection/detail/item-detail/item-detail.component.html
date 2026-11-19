@@ -784,6 +784,14 @@
         </section>
       }
 
+      @if (collectionService.canViewMarketPrices()) {
+        <app-item-market-price
+          itemType="game"
+          [item]="g"
+          [journalEntry]="journalEntry()"
+        />
+      }
+
       <section class="market-section animate-slide-up mb-xl">
         <div class="market-header flex justify-between items-center mb-md">
           <h2 class="text-xl font-bold flex items-center gap-xs m-0">
@@ -942,6 +950,14 @@
     }
 
     @if (toy(); as t) {
+      @if (collectionService.canViewMarketPrices()) {
+        <app-item-market-price
+          itemType="toy"
+          [item]="t"
+          [journalEntry]="journalEntry()"
+        />
+      }
+
       <section class="market-section animate-slide-up mb-xl">
         <div class="market-header flex justify-between items-center mb-md">
           <h2 class="text-xl font-bold flex items-center gap-xs m-0">

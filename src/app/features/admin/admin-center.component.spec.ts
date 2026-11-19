@@ -75,6 +75,8 @@ describe('AdminCenterComponent', () => {
     getCatalogSeedStatus: ReturnType<typeof vi.fn>;
     getAdminCronLogs: ReturnType<typeof vi.fn>;
     updateCatalogSeedControl: ReturnType<typeof vi.fn>;
+    getMarketPricingRateLimits: ReturnType<typeof vi.fn>;
+    clearMarketPriceCache: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -89,6 +91,22 @@ describe('AdminCenterComponent', () => {
           paused: payload.paused ?? baseStatus.paused,
         }),
       ),
+      getMarketPricingRateLimits: vi.fn(() =>
+        of({
+          configured: true,
+          ebayRateLimit: {
+            limit: 5000,
+            remaining: 4820,
+            count: 180,
+            reset: '2026-11-19T00:00:00Z',
+            timeWindowSeconds: 86400,
+          },
+          cachedCount: 12,
+          shardCount: 8,
+          ttlHours: 6,
+        }),
+      ),
+      clearMarketPriceCache: vi.fn().mockResolvedValue(true),
     };
 
     await TestBed.configureTestingModule({
@@ -180,5 +198,40 @@ describe('AdminCenterComponent', () => {
     fixture.detectChanges();
 
     expect(component.pipelineError()).toBe('Forbidden');
+  });
+
+  it('renders Live eBay Valuation Cache & Quota card and wires Purge 6h Cache Now', async () => {
+    const el = fixture.nativeElement as HTMLElement;
+    const card = el.querySelector(
+      '[data-testid="market-pricing-admin-card"]',
+    ) as HTMLElement;
+    expect(card).toBeTruthy();
+    expect(card.textContent).toContain('Configured');
+    expect(card.textContent).toContain('4820 / 5000 remaining');
+    expect(card.textContent).toContain('12 items across 8 R2 shards');
+
+    const purgeBtn = card.querySelector(
+      '[data-testid="purge-market-cache-btn"]',
+    ) as HTMLButtonElement;
+    purgeBtn.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(mockCollectionService.clearMarketPriceCache).toHaveBeenCalled();
+    expect(component.toastMessage()).toContain('Purged all 6-hour eBay');
+
+    mockCollectionService.getMarketPricingRateLimits.mockReturnValueOnce(
+      of({
+        configured: false,
+        ebayRateLimit: null,
+        cachedCount: 0,
+        shardCount: 8,
+        ttlHours: 6,
+      }),
+    );
+    await component.loadPipelineDiagnostics();
+    fixture.detectChanges();
+
+    expect(card.textContent).toContain('Awaiting eBay API Keys');
   });
 });

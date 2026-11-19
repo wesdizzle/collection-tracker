@@ -148,6 +148,24 @@ import {
   BoutiquePreOrder,
 } from '../shared/physical_feeds';
 import { DealNotificationPreferences } from '../src/app/core/models/collection.models';
+import {
+  EbayNotConfiguredError,
+  EbayRateLimitError,
+  isEbayConfigured,
+  resetEbayTokenCache,
+} from './ebay_client';
+import {
+  clearAllEbayPriceShards,
+  fetchLiveBatchMarketPrices,
+  fetchLiveItemMarketPrice,
+  getMarketPricingDiagnostics,
+  loadAllPriceQueryOverrides,
+  MAX_LIVE_BATCH_ITEMS,
+  purgeSingleExpiredPriceShard,
+  readAllCachedMarketPrices,
+  savePriceQueryOverride,
+} from './market_pricing';
+import { PRICE_CACHE_SHARD_COUNT } from '../shared/market_pricing';
 
 export interface Env {
   DB: D1Database;
@@ -163,6 +181,9 @@ export interface Env {
   APP_REPO_URL?: string;
   TWITCH_CLIENT_ID?: string;
   TWITCH_CLIENT_SECRET?: string;
+  EBAY_CLIENT_ID?: string;
+  EBAY_CLIENT_SECRET?: string;
+  MARKET_PRICING_ACCESS?: string;
   BESTBUY_API_KEY?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
@@ -362,6 +383,7 @@ export function resetWorkerRateLimits(): void {
   cachedCatalogManifest = null;
   cachedCatalogToys = null;
   cachedCatalogDeltaGames = null;
+  resetEbayTokenCache();
   resetR2SnapshotCache();
 }
 
@@ -892,6 +914,10 @@ const JSON_BODY_MUTATION_PATHS = new Set([
   '/api/collection/backups/apply',
   '/api/collection/sort',
   '/api/journal',
+  '/api/prices/live',
+  '/api/prices/live-batch',
+  '/api/prices/override',
+  '/api/prices/cache/clear',
   '/api/notifications/subscribe',
   '/api/notifications/preferences',
   '/api/notifications/unsubscribe',
@@ -909,6 +935,7 @@ const BACKUP_TABLES = [
   'push_subscriptions',
   'sync_state',
   'journal_entries',
+  'price_query_overrides',
   'users',
   'user_tracking_rules',
   'user_game_releases',
@@ -4252,6 +4279,21 @@ export function isAuthorizedAdmin(
     return true;
   }
 
+  return false;
+}
+
+export function isMarketPricingAuthorized(
+  request: Request,
+  env: Env,
+  sessionUser?: SessionUser | null,
+): boolean {
+  if (isAuthorizedAdmin(request, env, sessionUser)) {
+    return true;
+  }
+  const policy = (env.MARKET_PRICING_ACCESS || 'admin').trim().toLowerCase();
+  if (policy === 'authenticated' && sessionUser) {
+    return true;
+  }
   return false;
 }
 
@@ -8654,6 +8696,345 @@ Disallow: /
       return Response.json(result);
     }
 
+    // Endpoint: GET /api/prices/cached (?sync=1 bypasses 5m L1 Edge Cache and reads R2 L2)
+    else if (request.method === 'GET' && path === '/api/prices/cached') {
+      const privateHeaders = {
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+      };
+      if (!isMarketPricingAuthorized(request, env, sessionUser)) {
+        return Response.json(
+          { error: 'Unauthorized: Admin authentication required.' },
+          { status: 403, headers: privateHeaders },
+        );
+      }
+      const bypassL1 = url.searchParams.get('sync') === '1';
+      const [prices, overrides] = await Promise.all([
+        readAllCachedMarketPrices(env, { bypassL1 }),
+        loadAllPriceQueryOverrides(env),
+      ]);
+      return Response.json(
+        {
+          configured: isEbayConfigured(env),
+          prices,
+          overrides,
+          serverTime: new Date().toISOString(),
+        },
+        { headers: privateHeaders },
+      );
+    }
+
+    // Endpoint: POST /api/prices/live
+    else if (request.method === 'POST' && path === '/api/prices/live') {
+      const privateHeaders = {
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+      };
+      if (!isMarketPricingAuthorized(request, env, sessionUser)) {
+        return Response.json(
+          { error: 'Unauthorized: Admin authentication required.' },
+          { status: 403, headers: privateHeaders },
+        );
+      }
+      const rl = checkWorkerRateLimit(
+        'prices-live',
+        getRateLimitClientKey(request, sessionUser),
+        20,
+        60_000,
+      );
+      if (!rl.allowed) {
+        return Response.json(
+          {
+            error:
+              'Too many live price checks requested. Please wait before trying again.',
+          },
+          {
+            status: 429,
+            headers: {
+              ...privateHeaders,
+              'Retry-After': String(rl.retryAfterSec),
+            },
+          },
+        );
+      }
+
+      const body = (await request.json().catch(() => null)) as {
+        itemType?: string;
+        itemId?: string;
+        force?: boolean;
+      } | null;
+      const itemType = body?.itemType;
+      const itemId = (body?.itemId || '').trim();
+      if ((itemType !== 'game' && itemType !== 'toy') || !itemId) {
+        return Response.json(
+          { error: 'Valid itemType (game|toy) and itemId are required.' },
+          { status: 400, headers: privateHeaders },
+        );
+      }
+
+      if (!isEbayConfigured(env)) {
+        return Response.json(
+          {
+            error:
+              'eBay Browse API credentials (EBAY_CLIENT_ID / EBAY_CLIENT_SECRET) are not configured.',
+            code: 'ebay_not_configured',
+          },
+          { status: 503, headers: privateHeaders },
+        );
+      }
+
+      try {
+        const result = await fetchLiveItemMarketPrice(env, itemType, itemId, {
+          force: Boolean(body?.force),
+        });
+        if (!result.price && result.error === 'Item not found in catalog.') {
+          return Response.json(
+            { error: result.error },
+            { status: 404, headers: privateHeaders },
+          );
+        }
+        return Response.json(result, { headers: privateHeaders });
+      } catch (err) {
+        if (err instanceof EbayNotConfiguredError) {
+          return Response.json(
+            { error: err.message, code: 'ebay_not_configured' },
+            { status: 503, headers: privateHeaders },
+          );
+        }
+        if (err instanceof EbayRateLimitError) {
+          return Response.json(
+            {
+              error: err.message,
+              code: 'ebay_rate_limited',
+              retryAfterSec: err.retryAfterSec,
+            },
+            {
+              status: 429,
+              headers: {
+                ...privateHeaders,
+                'Retry-After': String(err.retryAfterSec),
+              },
+            },
+          );
+        }
+        throw err;
+      }
+    }
+
+    // Endpoint: POST /api/prices/live-batch
+    else if (request.method === 'POST' && path === '/api/prices/live-batch') {
+      const privateHeaders = {
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+      };
+      if (!isMarketPricingAuthorized(request, env, sessionUser)) {
+        return Response.json(
+          { error: 'Unauthorized: Admin authentication required.' },
+          { status: 403, headers: privateHeaders },
+        );
+      }
+      const rl = checkWorkerRateLimit(
+        'prices-live-batch',
+        getRateLimitClientKey(request, sessionUser),
+        120,
+        60_000,
+      );
+      if (!rl.allowed) {
+        return Response.json(
+          {
+            error:
+              'Batch price scan rate limit exceeded. Please wait before continuing.',
+          },
+          {
+            status: 429,
+            headers: {
+              ...privateHeaders,
+              'Retry-After': String(rl.retryAfterSec),
+            },
+          },
+        );
+      }
+
+      const body = (await request.json().catch(() => null)) as {
+        items?: Array<{ itemType?: string; itemId?: string }>;
+        force?: boolean;
+      } | null;
+      const rawItems = Array.isArray(body?.items) ? body.items : [];
+      if (rawItems.length === 0 || rawItems.length > MAX_LIVE_BATCH_ITEMS) {
+        return Response.json(
+          {
+            error: `items must be an array of 1 to ${MAX_LIVE_BATCH_ITEMS} entries.`,
+          },
+          { status: 400, headers: privateHeaders },
+        );
+      }
+
+      const validItems: Array<{ itemType: 'game' | 'toy'; itemId: string }> =
+        [];
+      for (const entry of rawItems) {
+        const it = entry?.itemType;
+        const id = (entry?.itemId || '').trim();
+        if ((it !== 'game' && it !== 'toy') || !id) {
+          return Response.json(
+            {
+              error:
+                'Every item must include valid itemType (game|toy) and itemId.',
+            },
+            { status: 400, headers: privateHeaders },
+          );
+        }
+        validItems.push({ itemType: it, itemId: id });
+      }
+
+      if (!isEbayConfigured(env)) {
+        return Response.json(
+          {
+            error:
+              'eBay Browse API credentials (EBAY_CLIENT_ID / EBAY_CLIENT_SECRET) are not configured.',
+            code: 'ebay_not_configured',
+          },
+          { status: 503, headers: privateHeaders },
+        );
+      }
+
+      try {
+        const result = await fetchLiveBatchMarketPrices(env, validItems, {
+          force: Boolean(body?.force),
+        });
+        return Response.json(result, { headers: privateHeaders });
+      } catch (err) {
+        if (err instanceof EbayNotConfiguredError) {
+          return Response.json(
+            { error: err.message, code: 'ebay_not_configured' },
+            { status: 503, headers: privateHeaders },
+          );
+        }
+        throw err;
+      }
+    }
+
+    // Endpoint: PUT /api/prices/override (Admin-only)
+    else if (request.method === 'PUT' && path === '/api/prices/override') {
+      const privateHeaders = {
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+      };
+      if (!isAuthorizedAdmin(request, env, sessionUser)) {
+        return Response.json(
+          { error: 'Unauthorized: Admin authentication required.' },
+          { status: 403, headers: privateHeaders },
+        );
+      }
+
+      const body = (await request.json().catch(() => null)) as {
+        itemType?: string;
+        itemId?: string;
+        customQuery?: string | null;
+        refreshNow?: boolean;
+      } | null;
+      const itemType = body?.itemType;
+      const itemId = (body?.itemId || '').trim();
+      if ((itemType !== 'game' && itemType !== 'toy') || !itemId) {
+        return Response.json(
+          { error: 'Valid itemType (game|toy) and itemId are required.' },
+          { status: 400, headers: privateHeaders },
+        );
+      }
+      const customQuery =
+        body?.customQuery === null || body?.customQuery === undefined
+          ? null
+          : String(body.customQuery).trim();
+      if (customQuery && customQuery.length > 160) {
+        return Response.json(
+          { error: 'customQuery must be 160 characters or fewer.' },
+          { status: 400, headers: privateHeaders },
+        );
+      }
+
+      let saved: { itemId: string; customQuery: string | null };
+      try {
+        saved = await savePriceQueryOverride(
+          env,
+          itemType,
+          itemId,
+          customQuery,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/no such table:\s*price_query_overrides/i.test(msg)) {
+          return Response.json(
+            {
+              error:
+                'price_query_overrides table is not migrated yet. Apply migrations/add_price_query_overrides.sql first.',
+              code: 'table_not_migrated',
+            },
+            { status: 503, headers: privateHeaders },
+          );
+        }
+        throw err;
+      }
+
+      let price = null;
+      let priceError: string | null = null;
+      if (body?.refreshNow) {
+        if (!isEbayConfigured(env)) {
+          priceError =
+            'Query saved, but eBay API credentials are not yet configured.';
+        } else {
+          try {
+            const refreshed = await fetchLiveItemMarketPrice(
+              env,
+              itemType,
+              saved.itemId,
+              { force: true },
+            );
+            price = refreshed.price;
+            priceError = refreshed.error ?? null;
+          } catch (err) {
+            priceError = err instanceof Error ? err.message : String(err);
+          }
+        }
+      }
+
+      return Response.json(
+        {
+          success: true,
+          itemType,
+          itemId: saved.itemId,
+          customQuery: saved.customQuery,
+          price,
+          priceError,
+        },
+        { headers: privateHeaders },
+      );
+    }
+
+    // Endpoint: GET /api/prices/rate-limits (Admin-only)
+    else if (request.method === 'GET' && path === '/api/prices/rate-limits') {
+      const privateHeaders = {
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+      };
+      if (!isAuthorizedAdmin(request, env, sessionUser)) {
+        return Response.json(
+          { error: 'Unauthorized: Admin authentication required.' },
+          { status: 403, headers: privateHeaders },
+        );
+      }
+      const diag = await getMarketPricingDiagnostics(env);
+      return Response.json(diag, { headers: privateHeaders });
+    }
+
+    // Endpoint: POST /api/prices/cache/clear (Admin-only)
+    else if (request.method === 'POST' && path === '/api/prices/cache/clear') {
+      const privateHeaders = {
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+      };
+      if (!isAuthorizedAdmin(request, env, sessionUser)) {
+        return Response.json(
+          { error: 'Unauthorized: Admin authentication required.' },
+          { status: 403, headers: privateHeaders },
+        );
+      }
+      await clearAllEbayPriceShards(env);
+      return Response.json({ cleared: true }, { headers: privateHeaders });
+    }
+
     // Endpoint: GET /api/config
     else if (request.method === 'GET' && path === '/api/config') {
       const appName = env.APP_NAME || 'Collection Tracker';
@@ -9303,6 +9684,18 @@ export default {
       } catch (pruneErr) {
         console.warn('[WorkerCron] Failed to prune aged cron logs:', pruneErr);
       }
+    }
+
+    // Rotating sweep of 1 ephemeral eBay price shard per tick (max 1-2 subrequests, 0 D1 writes)
+    if (env.BACKUP_BUCKET && typeof env.BACKUP_BUCKET.get === 'function') {
+      const shardToSweep =
+        Math.floor(Date.now() / (30 * 60_000)) % PRICE_CACHE_SHARD_COUNT;
+      await purgeSingleExpiredPriceShard(env, shardToSweep).catch((err) => {
+        console.warn(
+          `[WorkerCron] Failed to sweep expired eBay price shard ${shardToSweep}:`,
+          err,
+        );
+      });
     }
   },
 };

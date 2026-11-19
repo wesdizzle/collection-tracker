@@ -1,5 +1,6 @@
 import {
   Component,
+  inject,
   input,
   output,
   ChangeDetectionStrategy,
@@ -9,10 +10,12 @@ import {
   Game,
   Toy,
   FilterState,
+  formatPriceAge,
   getMediaIconName,
   normalizeBudgetToken,
   formatToyRegionBadge,
 } from '../../../../core/models/collection.models';
+import { CollectionService } from '../../../../core/services/collection.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
@@ -24,6 +27,10 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CompactTableComponent {
+  private readonly collectionService = inject(CollectionService, {
+    optional: true,
+  });
+
   mode = input.required<'games' | 'toys'>();
   games = input<Game[]>([]);
   toys = input<Toy[]>([]);
@@ -106,6 +113,30 @@ export class CompactTableComponent {
       return { cents: item.retail_price, label: item.retail_store || 'Retail' };
     }
     return null;
+  }
+
+  public getMarketValueBadge(
+    item: Game | Toy,
+    itemType: 'game' | 'toy',
+  ): { cents: number; text: string; title: string } | null {
+    if (!this.collectionService?.canViewMarketPrices?.()) return null;
+    const nowMs = this.collectionService.marketPriceNowMs?.() ?? Date.now();
+    const est = this.collectionService.getEstimatedValue?.(item, itemType);
+    if (!est || est.cents === null || !est.price) return null;
+    const text =
+      est.cents >= 100
+        ? `Est. $${Math.round(est.cents / 100)}`
+        : `Est. $${(est.cents / 100).toFixed(2)}`;
+    const age = formatPriceAge(
+      est.price.fetched_at,
+      est.price.expires_at,
+      nowMs,
+    );
+    return {
+      cents: est.cents,
+      text,
+      title: `eBay ${est.tierLabel} · ${age}`,
+    };
   }
 
   public getBackedUpDiscCount(game: Game): number {

@@ -7,10 +7,11 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { catchError, firstValueFrom, of } from 'rxjs';
 import {
   CatalogSeedStatus,
   CronExecutionLogEntry,
+  MarketPricingRateLimitStatus,
 } from '../../core/models/collection.models';
 import { CollectionService } from '../../core/services/collection.service';
 import { IconComponent } from '../../shared/components/icon/icon.component';
@@ -40,6 +41,9 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
   public readonly pipelineLoading = signal<boolean>(false);
   public readonly pipelineActionBusy = signal<boolean>(false);
   public readonly pipelineError = signal<string | null>(null);
+  public readonly marketPricingStatus =
+    signal<MarketPricingRateLimitStatus | null>(null);
+  public readonly marketCachePurging = signal<boolean>(false);
   public readonly toastMessage = signal<string | null>(null);
 
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -113,18 +117,28 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
     this.pipelineError.set(null);
 
     try {
-      const [status, logsRes] = await Promise.all([
+      const [status, logsRes, marketStatus] = await Promise.all([
         this.collectionService.getCatalogSeedStatus
           ? firstValueFrom(this.collectionService.getCatalogSeedStatus())
           : Promise.resolve(null),
         this.collectionService.getAdminCronLogs
           ? firstValueFrom(this.collectionService.getAdminCronLogs(40))
           : Promise.resolve({ logs: [] as CronExecutionLogEntry[] }),
+        this.collectionService.getMarketPricingRateLimits
+          ? firstValueFrom(
+              this.collectionService
+                .getMarketPricingRateLimits()
+                .pipe(catchError(() => of(null))),
+            )
+          : Promise.resolve(null),
       ]);
       if (status) {
         this.pipelineStatus.set(status);
       }
       this.cronLogs.set(logsRes?.logs || []);
+      if (marketStatus) {
+        this.marketPricingStatus.set(marketStatus);
+      }
     } catch (err: unknown) {
       console.error('[AdminCenter] Pipeline diagnostics failed:', err);
       this.pipelineError.set(
@@ -233,6 +247,35 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
         `Watched-series discovery completed (cursor ${s.seriesDiscovery?.cursor ?? 0}).`,
       'Failed to run watched-series discovery.',
     );
+  }
+
+  public async purgeMarketPriceCache(): Promise<void> {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    if (!this.collectionService.clearMarketPriceCache) return;
+    this.marketCachePurging.set(true);
+    try {
+      const cleared = await this.collectionService.clearMarketPriceCache();
+      if (cleared) {
+        this.showToast('Purged all 6-hour eBay market price cache shards.');
+        if (this.collectionService.getMarketPricingRateLimits) {
+          const updated = await firstValueFrom(
+            this.collectionService
+              .getMarketPricingRateLimits()
+              .pipe(catchError(() => of(null))),
+          );
+          if (updated) {
+            this.marketPricingStatus.set(updated);
+          }
+        }
+      } else {
+        this.showToast('Failed to purge eBay market price cache.');
+      }
+    } finally {
+      this.marketCachePurging.set(false);
+    }
   }
 
   private extractErrorMessage(err: unknown, fallback: string): string {

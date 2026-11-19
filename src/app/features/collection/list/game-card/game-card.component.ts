@@ -11,6 +11,7 @@ import {
 import { RouterModule } from '@angular/router';
 import {
   Game,
+  formatPriceAge,
   getMediaIconName,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
@@ -43,6 +44,29 @@ export class GameCardComponent {
       (g.game_id !== undefined && active.id === String(g.game_id)) ||
       (g.stable_id !== undefined && active.id === String(g.stable_id));
     return matches ? this.getCoverViewTransitionName(g) : null;
+  });
+
+  public readonly marketValueBadge = computed<{
+    text: string;
+    title: string;
+  } | null>(() => {
+    if (!this.collectionService.canViewMarketPrices?.()) return null;
+    const nowMs = this.collectionService.marketPriceNowMs?.() ?? Date.now();
+    const est = this.collectionService.getEstimatedValue?.(this.game(), 'game');
+    if (!est || est.cents === null || !est.price) return null;
+    const formatted =
+      est.cents >= 100
+        ? `Est. $${Math.round(est.cents / 100)}`
+        : `Est. $${(est.cents / 100).toFixed(2)}`;
+    const age = formatPriceAge(
+      est.price.fetched_at,
+      est.price.expires_at,
+      nowMs,
+    );
+    return {
+      text: formatted,
+      title: `eBay ${est.tierLabel} · ${age} (Loose/CIB/New breakdown on detail)`,
+    };
   });
 
   onCardActivate(): void {

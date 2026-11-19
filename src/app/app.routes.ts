@@ -25,6 +25,14 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'privacy',
+    title: 'Privacy Notice',
+    loadComponent: () =>
+      import('./features/privacy/privacy-page.component').then(
+        (m) => m.PrivacyPageComponent,
+      ),
+  },
+  {
     path: 'profile',
     redirectTo: '/collection/games',
     pathMatch: 'full',

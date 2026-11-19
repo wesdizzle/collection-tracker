@@ -46,6 +46,15 @@ import worker, {
 } from './worker';
 import { normalizeTitleForMatching } from '../shared/title_matching';
 import {
+  getPriceShardR2Key,
+  purgeSingleExpiredPriceShard,
+} from './market_pricing';
+import {
+  EBAY_PRICE_TTL_MS,
+  getMarketPriceKey,
+  getPriceShardIndex,
+} from '../shared/market_pricing';
+import {
   KIT_DEGRADED_HEADER,
   KIT_SNAPSHOT_TIMESTAMP_HEADER,
   resetR2SnapshotCache,
@@ -6879,6 +6888,364 @@ describe('Worker API Logic', () => {
         fetchSpy.mockRestore();
         webPushSpy.mockRestore();
       }
+    });
+  });
+
+  describe('Live eBay Market Pricing Engine', () => {
+    async function buildSignedCookie(role: 'admin' | 'user', id = 1) {
+      const token = await signSession(
+        {
+          id,
+          username: role === 'admin' ? 'alice' : 'bob',
+          role,
+          homeRegion: 'USA',
+        },
+        mockEnv.SESSION_SECRET!,
+      );
+      return `${SESSION_COOKIE}=${token}`;
+    }
+
+    it('enforces Admin-only access by default and supports MARKET_PRICING_ACCESS=authenticated', async () => {
+      const userCookie = await buildSignedCookie('user', 2);
+      const adminCookie = await buildSignedCookie('admin', 1);
+
+      // Unauthenticated request to non-loopback origin -> 403
+      const anonRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/cached'),
+        mockEnv,
+      );
+      expect(anonRes.status).toBe(403);
+
+      // Regular authenticated user -> 403 by default
+      const userRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/cached', {
+          headers: { Cookie: userCookie },
+        }),
+        mockEnv,
+      );
+      expect(userRes.status).toBe(403);
+
+      // Regular authenticated user allowed on /api/prices/cached when MARKET_PRICING_ACCESS=authenticated
+      const multiUserEnv: Env = {
+        ...mockEnv,
+        MARKET_PRICING_ACCESS: 'authenticated',
+      };
+      const allowedUserRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/cached', {
+          headers: { Cookie: userCookie },
+        }),
+        multiUserEnv,
+      );
+      expect(allowedUserRes.status).toBe(200);
+
+      // Admin-only management routes remain locked even when MARKET_PRICING_ACCESS=authenticated
+      const userOverrideRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/override', {
+          method: 'PUT',
+          headers: {
+            Cookie: userCookie,
+            'Content-Type': 'application/json',
+            Origin: 'https://tracker.example.com',
+          },
+          body: JSON.stringify({
+            itemType: 'game',
+            itemId: 'mario',
+            customQuery: 'Mario NES',
+          }),
+        }),
+        multiUserEnv,
+      );
+      expect(userOverrideRes.status).toBe(403);
+
+      // Admin passes
+      const adminRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/cached', {
+          headers: { Cookie: adminCookie },
+        }),
+        mockEnv,
+      );
+      expect(adminRes.status).toBe(200);
+      const adminData = (await adminRes.json()) as { configured: boolean };
+      expect(adminData.configured).toBe(false);
+    });
+
+    it('gracefully handles unconfigured eBay credentials without errors', async () => {
+      const adminCookie = await buildSignedCookie('admin', 1);
+      const res = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/live', {
+          method: 'POST',
+          headers: {
+            Cookie: adminCookie,
+            'Content-Type': 'application/json',
+            Origin: 'https://tracker.example.com',
+          },
+          body: JSON.stringify({ itemType: 'game', itemId: 'mario' }),
+        }),
+        mockEnv,
+      );
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { code?: string };
+      expect(body.code).toBe('ebay_not_configured');
+    });
+
+    it('fetches live eBay prices, caches in 8 R2 shards for <6h, syncs cross-device, and purges expired items', async () => {
+      const adminCookie = await buildSignedCookie('admin', 1);
+      const ebayEnv: Env = {
+        ...mockEnv,
+        EBAY_CLIENT_ID: 'ebay-test-id',
+        EBAY_CLIENT_SECRET: 'ebay-test-secret',
+      };
+
+      let browseCalls = 0;
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          if (url.includes('/identity/v1/oauth2/token')) {
+            return new Response(
+              JSON.stringify({ access_token: 'ebay-tok', expires_in: 7200 }),
+              { status: 200 },
+            );
+          }
+          if (url.includes('/buy/browse/v1/item_summary/search')) {
+            browseCalls++;
+            return new Response(
+              JSON.stringify({
+                itemSummaries: [
+                  {
+                    title: 'Super Mario Bros NES Loose Cart Authentic',
+                    price: { value: '18.00', currency: 'USD' },
+                    shippingOptions: [{ shippingCostType: 'FREE' }],
+                    conditionId: '3000',
+                    itemWebUrl: 'https://www.ebay.com/itm/101',
+                  },
+                  {
+                    title: 'Super Mario Bros NES Cart Only Tested',
+                    price: { value: '20.00', currency: 'USD' },
+                    shippingOptions: [{ shippingCostType: 'FREE' }],
+                    conditionId: '3000',
+                    itemWebUrl: 'https://www.ebay.com/itm/102',
+                  },
+                  {
+                    title: 'Super Mario Bros NES Game Only',
+                    price: { value: '22.00', currency: 'USD' },
+                    shippingOptions: [{ shippingCostType: 'FREE' }],
+                    conditionId: '3000',
+                    itemWebUrl: 'https://www.ebay.com/itm/103',
+                  },
+                  {
+                    title: 'Super Mario Bros NES Complete in Box CIB',
+                    price: { value: '95.00', currency: 'USD' },
+                    shippingOptions: [{ shippingCostType: 'FREE' }],
+                    conditionId: '3000',
+                    itemWebUrl: 'https://www.ebay.com/itm/104',
+                  },
+                ],
+              }),
+              { status: 200 },
+            );
+          }
+          return new Response('{}', { status: 404 });
+        });
+
+      try {
+        // 1. Live batch request populates R2 shard
+        const batchRes = await worker.fetch(
+          new Request('https://tracker.example.com/api/prices/live-batch', {
+            method: 'POST',
+            headers: {
+              Cookie: adminCookie,
+              'Content-Type': 'application/json',
+              Origin: 'https://tracker.example.com',
+            },
+            body: JSON.stringify({
+              items: [
+                { itemType: 'game', itemId: 'gb-mario' },
+                { itemType: 'toy', itemId: 'link-amiibo' },
+              ],
+            }),
+          }),
+          ebayEnv,
+        );
+        expect(batchRes.status).toBe(200);
+        const batchData = (await batchRes.json()) as {
+          fetchedCount: number;
+          cacheHits: number;
+          prices: Record<string, { loose_cents: number; expires_at: string }>;
+        };
+        expect(batchData.fetchedCount).toBe(2);
+        expect(batchData.cacheHits).toBe(0);
+        expect(batchData.prices['game:mario']?.loose_cents).toBe(1900);
+        expect(browseCalls).toBe(2);
+
+        // 2. Second request hits R2 shard cache with 0 eBay calls
+        const hitRes = await worker.fetch(
+          new Request('https://tracker.example.com/api/prices/live-batch', {
+            method: 'POST',
+            headers: {
+              Cookie: adminCookie,
+              'Content-Type': 'application/json',
+              Origin: 'https://tracker.example.com',
+            },
+            body: JSON.stringify({
+              items: [{ itemType: 'game', itemId: 'mario' }],
+            }),
+          }),
+          ebayEnv,
+        );
+        expect(hitRes.status).toBe(200);
+        const hitData = (await hitRes.json()) as {
+          fetchedCount: number;
+          cacheHits: number;
+        };
+        expect(hitData.cacheHits).toBe(1);
+        expect(hitData.fetchedCount).toBe(0);
+        expect(browseCalls).toBe(2);
+
+        // 3. Cross-device sync reads fresh cached items across shards
+        const syncRes = await worker.fetch(
+          new Request('https://tracker.example.com/api/prices/cached?sync=1', {
+            headers: { Cookie: adminCookie },
+          }),
+          ebayEnv,
+        );
+        expect(syncRes.status).toBe(200);
+        const syncData = (await syncRes.json()) as {
+          configured: boolean;
+          prices: Record<string, unknown>;
+        };
+        expect(syncData.configured).toBe(true);
+        expect(Object.keys(syncData.prices)).toContain('game:mario');
+        expect(Object.keys(syncData.prices)).toContain('toy:link-amiibo');
+
+        // 4. Hard 6-hour expiration deletes stale shard entries automatically
+        const marioShard = getPriceShardIndex('game', 'mario');
+        const marioShardKey = getPriceShardR2Key(marioShard);
+        const expiredMs = Date.now() + EBAY_PRICE_TTL_MS + 10_000;
+        const sweep = await purgeSingleExpiredPriceShard(
+          ebayEnv,
+          marioShard,
+          expiredMs,
+        );
+        expect(sweep.pruned).toBe(true);
+        expect(sweep.remainingCount).toBe(0);
+        expect(mockBucket.storage.has(marioShardKey)).toBe(false);
+
+        // 5. Clear remaining cache shards
+        const clearRes = await worker.fetch(
+          new Request('https://tracker.example.com/api/prices/cache/clear', {
+            method: 'POST',
+            headers: {
+              Cookie: adminCookie,
+              'Content-Type': 'application/json',
+              Origin: 'https://tracker.example.com',
+            },
+            body: JSON.stringify({}),
+          }),
+          ebayEnv,
+        );
+        expect(clearRes.status).toBe(200);
+        const linkShard = getPriceShardIndex('toy', 'link-amiibo');
+        expect(mockBucket.storage.has(getPriceShardR2Key(linkShard))).toBe(
+          false,
+        );
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('persists and deletes user-owned query overrides and handles unmigrated table gracefully', async () => {
+      const adminCookie = await buildSignedCookie('admin', 1);
+
+      const putRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/override', {
+          method: 'PUT',
+          headers: {
+            Cookie: adminCookie,
+            'Content-Type': 'application/json',
+            Origin: 'https://tracker.example.com',
+          },
+          body: JSON.stringify({
+            itemType: 'game',
+            itemId: 'gb-mario',
+            customQuery: 'Super Mario Bros 5-screw NES',
+          }),
+        }),
+        mockEnv,
+      );
+      expect(putRes.status).toBe(200);
+      const putData = (await putRes.json()) as {
+        itemId: string;
+        customQuery: string;
+      };
+      expect(putData.itemId).toBe('mario');
+      expect(putData.customQuery).toBe('Super Mario Bros 5-screw NES');
+
+      const cachedRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/cached', {
+          headers: { Cookie: adminCookie },
+        }),
+        mockEnv,
+      );
+      const cachedBody = (await cachedRes.json()) as {
+        overrides: Record<string, string>;
+      };
+      expect(cachedBody.overrides[getMarketPriceKey('game', 'mario')]).toBe(
+        'Super Mario Bros 5-screw NES',
+      );
+
+      // Clear override
+      const delRes = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/override', {
+          method: 'PUT',
+          headers: {
+            Cookie: adminCookie,
+            'Content-Type': 'application/json',
+            Origin: 'https://tracker.example.com',
+          },
+          body: JSON.stringify({
+            itemType: 'game',
+            itemId: 'mario',
+            customQuery: '',
+          }),
+        }),
+        mockEnv,
+      );
+      expect(delRes.status).toBe(200);
+      const rowAfterDel = db
+        .prepare('SELECT * FROM price_query_overrides')
+        .all();
+      expect(rowAfterDel).toHaveLength(0);
+
+      // Simulate unmigrated remote DB before DDL migration runs
+      db.exec('DROP TABLE price_query_overrides');
+      const unmigratedCached = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/cached', {
+          headers: { Cookie: adminCookie },
+        }),
+        mockEnv,
+      );
+      expect(unmigratedCached.status).toBe(200);
+
+      const unmigratedPut = await worker.fetch(
+        new Request('https://tracker.example.com/api/prices/override', {
+          method: 'PUT',
+          headers: {
+            Cookie: adminCookie,
+            'Content-Type': 'application/json',
+            Origin: 'https://tracker.example.com',
+          },
+          body: JSON.stringify({
+            itemType: 'game',
+            itemId: 'mario',
+            customQuery: 'Mario NES',
+          }),
+        }),
+        mockEnv,
+      );
+      expect(unmigratedPut.status).toBe(503);
+      const unmigratedErr = (await unmigratedPut.json()) as { code: string };
+      expect(unmigratedErr.code).toBe('table_not_migrated');
     });
   });
 });

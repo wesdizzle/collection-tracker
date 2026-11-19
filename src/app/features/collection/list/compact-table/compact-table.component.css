@@ -428,8 +428,20 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 0.25rem;
+  flex-wrap: wrap;
   text-align: right;
   padding-right: 0.25rem;
+}
+
+.market-est-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: var(--m3-surface-container-highest);
+  color: var(--m3-primary);
+  border: 1px solid var(--m3-outline-variant);
+  font-weight: 700;
 }
 
 .deal-sale-badge {

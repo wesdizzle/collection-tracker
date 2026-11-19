@@ -394,7 +394,19 @@
                   {{ '$' + (badge.cents / 100).toFixed(2) }}
                   {{ badge.label }}
                 </span>
-              } @else {
+              }
+              @if (getMarketValueBadge(game, 'game'); as marketBadge) {
+                <span
+                  class="market-est-badge compact-badge"
+                  [title]="marketBadge.title"
+                >
+                  <app-icon name="coins" [size]="11" />
+                  {{ marketBadge.text }}
+                </span>
+              } @else if (
+                !(game.retail_on_sale && game.retail_price) &&
+                !getGamePriceBadge(game)
+              ) {
                 <span class="empty-cell-dash">-</span>
               }
             </div>
@@ -574,7 +586,19 @@
                   {{ '$' + (badge.cents / 100).toFixed(2) }}
                   {{ badge.label }}
                 </span>
-              } @else {
+              }
+              @if (getMarketValueBadge(toy, 'toy'); as marketBadge) {
+                <span
+                  class="market-est-badge compact-badge"
+                  [title]="marketBadge.title"
+                >
+                  <app-icon name="coins" [size]="11" />
+                  {{ marketBadge.text }}
+                </span>
+              } @else if (
+                !(toy.retail_on_sale && toy.retail_price) &&
+                !getGamePriceBadge(toy)
+              ) {
                 <span class="empty-cell-dash">-</span>
               }
             </div>

@@ -146,5 +146,13 @@
         </span>
       </div>
     }
+    @if (marketValueBadge(); as marketBadge) {
+      <div class="mt-2xs">
+        <span class="market-est-badge" [title]="marketBadge.title">
+          <app-icon name="coins" [size]="12" />
+          {{ marketBadge.text }}
+        </span>
+      </div>
+    }
   </div>
 </div>

@@ -14,8 +14,15 @@ import {
   createAnimatedNumber,
 } from '@wesdizzle/app-kit/angular';
 import { CollectionService } from '../../../core/services/collection.service';
-import { Game, Toy } from '../../../core/models/collection.models';
+import {
+  Game,
+  Toy,
+  computeItemEstimatedValueCents,
+  getMarketPriceKey,
+  isMarketPriceFresh,
+} from '../../../core/models/collection.models';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
+import { MarketValuationPanelComponent } from './market-valuation-panel/market-valuation-panel.component';
 
 export interface PlatformCompletionStat {
   id: number;
@@ -27,6 +34,8 @@ export interface PlatformCompletionStat {
   completionPct: number;
   backupCount: number;
   backupPct: number;
+  estimatedValueDollars?: number;
+  pricedCount?: number;
 }
 
 export interface SeriesStat {
@@ -55,6 +64,7 @@ export interface MerchantStat {
     RouterModule,
     IconComponent,
     KitSegmentedMeterComponent,
+    MarketValuationPanelComponent,
   ],
   templateUrl: './collection-insights.component.html',
   styleUrl: './collection-insights.component.css',
@@ -63,6 +73,9 @@ export interface MerchantStat {
 export class CollectionInsightsComponent implements OnInit {
   public readonly collectionService = inject(CollectionService);
   public isRefreshing = signal(false);
+  public readonly canViewMarketPrices = computed<boolean>(
+    () => this.collectionService.canViewMarketPrices?.() === true,
+  );
 
   async ngOnInit(): Promise<void> {
     if (
@@ -221,6 +234,14 @@ export class CollectionInsightsComponent implements OnInit {
     const games = this.collectionService.games();
     const owned = this.ownedGames();
 
+    const canPrice = this.collectionService.canViewMarketPrices?.() === true;
+    const nowMs = canPrice
+      ? (this.collectionService.marketPriceNowMs?.() ?? Date.now())
+      : 0;
+    const pricesMap = canPrice
+      ? (this.collectionService.marketPricesMap?.() ?? null)
+      : null;
+
     const stats: PlatformCompletionStat[] = [];
 
     for (const p of platforms) {
@@ -244,6 +265,23 @@ export class CollectionInsightsComponent implements OnInit {
           ? Math.round((backedUp.length / ownedOnPlatform.length) * 100)
           : 0;
 
+      let pricedCount = 0;
+      let estimatedCents = 0;
+      if (canPrice && pricesMap) {
+        for (const g of ownedOnPlatform) {
+          const canonical =
+            pricesMap.get(getMarketPriceKey('game', g.game_id || g.id)) ||
+            pricesMap.get(getMarketPriceKey('game', g.id));
+          if (canonical && isMarketPriceFresh(canonical, nowMs)) {
+            const est = computeItemEstimatedValueCents(g, canonical);
+            if (est.cents !== null) {
+              pricedCount++;
+              estimatedCents += est.cents;
+            }
+          }
+        }
+      }
+
       stats.push({
         id: p.id,
         name: p.display_name || p.name,
@@ -254,6 +292,12 @@ export class CollectionInsightsComponent implements OnInit {
         completionPct,
         backupCount: backedUp.length,
         backupPct,
+        ...(pricedCount > 0
+          ? {
+              pricedCount,
+              estimatedValueDollars: Math.round(estimatedCents / 100),
+            }
+          : {}),
       });
     }
 
@@ -394,6 +438,15 @@ export class CollectionInsightsComponent implements OnInit {
       currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
+    });
+  }
+
+  public formatWholeDollars(dollars: number | null | undefined): string {
+    if (dollars === null || dollars === undefined) return '$0';
+    return dollars.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
     });
   }
 

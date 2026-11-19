@@ -10,6 +10,7 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **In-Browser Backup Directory Scanner (`/collection/backups`)**: Uses the File System Access API (`window.showDirectoryPicker`) and `<input type="file" webkitdirectory>` fallback to crawl local ROM/disc folders in the browser by filename only (zero file bytes read, hashed, or uploaded). Gracefully ignores digital-only backups and unmatched files, proposes **Ownership Switches** when a scanned backup matches a different regional or revision SKU of an already-owned game (preserving `has_case` and `has_manual`), and presents a diff review screen before applying updates.
 - **Multi-Disc Sets**: Groups multi-disc releases with inline disc expansion trays to track backup status per disc.
 - **Collection Journal (Provenance & Cost Basis)**: Records acquisition date (with approximate date flags), purchase price / cost basis, merchant attribution, gift provenance, receipt verification URLs, and private notes behind authenticated access.
+- **Live eBay Market Valuation (Ephemeral 6h Engine)**: Estimates current replacement value (Loose, CIB, New/Sealed) for physical games and toys-to-life items via the official eBay Browse API using IQR outlier rejection and 25th-percentile active-floor estimation, strictly honoring eBay's 6-hour freshness limit with zero eBay data persisted in D1 or backup snapshots (shared across devices via an 8-shard L1 `caches.default` + L2 ephemeral R2 `cache/ebay-prices/` cache and L3 ephemeral IndexedDB). Includes collection-wide valuation scans, cost-basis ROI comparison in Insights, custom query overrides, and a public `/privacy` disclosure route.
 - **Toy Collection**: Supports amiibo, Skylanders, and Starlink figures and cards with series tracking, variant classification, and metadata from AmiiboAPI and SCL.
 - **Admin Center (`/admin`) & Autonomous Pipelines**: Protected admin dashboard for monitoring cron execution health and triggering catalog seeding, boutique pre-order auto-ingestion, retail deal auto-ingestion, and watched-series IGDB discovery—without exposing manual third-party catalog search to regular users.
 - **Watched-Series Alerts, Boutique Drops & Retail Deals**: Monitors followed game series (`notify_watched_series`), limited-print boutique distributors (Limited Run Games, Super Rare Games, iam8bit, Fangamer, Strictly Limited Games), and retail price drops (Best Buy, VGP, PNP Games), dispatching Web Push notifications (RFC 8291 / RFC 8292) with region awareness, stock availability gating, and ownership suppression.
@@ -178,12 +179,12 @@ No Cloudflare account IDs, D1 database UUIDs, personal domains, or secret keys a
 
 ### Configuration Matrix: Code vs. Cloudflare Secrets vs. GitHub Actions Secrets
 
-| Location                              | Variable / Setting                                                                                                                                                                                                              | Purpose                                                                                                                                                                    |
-| :------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Tracked Code (`wrangler.toml`)**    | `database_id = "local-dev-db"`                                                                                                                                                                                                  | Placeholder for local Wrangler dev and clean git history.                                                                                                                  |
-| **Local `.dev.vars` (gitignored)**    | `D1_DATABASE_ID`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `SESSION_SECRET`, `TWITCH_*`, `VAPID_*`, `APP_*`                                                                                                                             | Used by `npm run dev`, `npm run secrets:push`, and local `npm run deploy`.                                                                                                 |
-| **Cloudflare Worker Secrets**         | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `SESSION_SECRET`, `ADMIN_EMAIL`, `ADMIN_KEY`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `APP_NAME`, `APP_SHORT_NAME`, `APP_TAGLINE`, `APP_REPO_URL` | Runtime secrets injected into `env` on the Cloudflare Worker edge. Uploaded via `npm run secrets:push` or `npx tsx scripts/deploy.ts --put-secret <KEY>`.                  |
-| **GitHub Actions Repository Secrets** | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `D1_DATABASE_ID`                                                                                                                                                               | Used by `.github/workflows/ci.yml` (`deploy` job) to inject `D1_DATABASE_ID` into `wrangler.toml` in-memory during `npm run deploy` and restore `wrangler.toml` afterward. |
+| Location                              | Variable / Setting                                                                                                                                                                                                                                                                               | Purpose                                                                                                                                                                    |
+| :------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tracked Code (`wrangler.toml`)**    | `database_id = "local-dev-db"`                                                                                                                                                                                                                                                                   | Placeholder for local Wrangler dev and clean git history.                                                                                                                  |
+| **Local `.dev.vars` (gitignored)**    | `D1_DATABASE_ID`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `SESSION_SECRET`, `TWITCH_*`, `VAPID_*`, `APP_*`                                                                                                                                                                                              | Used by `npm run dev`, `npm run secrets:push`, and local `npm run deploy`.                                                                                                 |
+| **Cloudflare Worker Secrets**         | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `SESSION_SECRET`, `ADMIN_EMAIL`, `ADMIN_KEY`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `MARKET_PRICING_ACCESS`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `APP_NAME`, `APP_SHORT_NAME`, `APP_TAGLINE`, `APP_REPO_URL` | Runtime secrets injected into `env` on the Cloudflare Worker edge. Uploaded via `npm run secrets:push` or `npx tsx scripts/deploy.ts --put-secret <KEY>`.                  |
+| **GitHub Actions Repository Secrets** | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `D1_DATABASE_ID`                                                                                                                                                                                                                                | Used by `.github/workflows/ci.yml` (`deploy` job) to inject `D1_DATABASE_ID` into `wrangler.toml` in-memory during `npm run deploy` and restore `wrangler.toml` afterward. |
 
 ### Registering `collection-tracker` with Your OIDC Identity Provider
 
@@ -243,25 +244,28 @@ Configure a public OIDC client in your identity provider with Authorization Code
 
 The app defaults to **Collection Tracker** as a neutral instance name. Deployers can customize branding, OIDC authentication, and notifications via environment variables or Cloudflare Worker secrets:
 
-| Variable               | Description                                                                | Default                                  |
-| :--------------------- | :------------------------------------------------------------------------- | :--------------------------------------- |
-| `OIDC_ISSUER`          | OIDC Identity Provider issuer URL (e.g. `https://id.example.com`)          | _(Optional on localhost; required prod)_ |
-| `OIDC_CLIENT_ID`       | OIDC Client ID registered with the identity provider                       | `collection-tracker`                     |
-| `SESSION_SECRET`       | Dedicated HMAC-SHA256 secret for signing `app_user_session` & OIDC cookies | _(Recommended)_                          |
-| `ADMIN_SESSION_DAYS`   | Duration in days for signed `app_user_session` cookies                     | `30`                                     |
-| `ADMIN_EMAIL`          | Contact email used in VAPID `mailto:` claim and admin role fallback        | _(Optional)_                             |
-| `ADMIN_KEY`            | Optional secret token for headless CLI / API administrative access         | _(Optional)_                             |
-| `APP_NAME`             | Title shown in header, page titles, and exports                            | `Collection Tracker`                     |
-| `APP_SHORT_NAME`       | Short name for PWA home screen tiles                                       | `Tracker`                                |
-| `APP_TAGLINE`          | Tagline for SEO and metadata                                               | `Physical Game & Toy Collection Tracker` |
-| `APP_AUTHOR`           | Author credit in exported CSV and DAT files                                | `Collection Tracker`                     |
-| `APP_REPO_URL`         | Optional repository URL rendered as a GitHub icon link in the app header   | _(Optional)_                             |
-| `CUSTOM_FAVICON_SVG`   | Optional raw SVG string served at `/favicon.svg`                           | Cartridge emblem (`/favicon.svg`)        |
-| `TWITCH_CLIENT_ID`     | Twitch Client ID for real-time IGDB metadata discovery                     | _(Optional)_                             |
-| `TWITCH_CLIENT_SECRET` | Twitch Client Secret for IGDB OAuth authentication                         | _(Optional)_                             |
-| `BESTBUY_API_KEY`      | Optional Best Buy API key for enhanced deal scanning                       | _(Optional)_                             |
-| `VAPID_PUBLIC_KEY`     | Web Push VAPID application public key (RFC 8292)                           | _(Built-in default)_                     |
-| `VAPID_PRIVATE_KEY`    | Web Push VAPID private key (secret)                                        | _(Optional)_                             |
+| Variable                | Description                                                                | Default                                  |
+| :---------------------- | :------------------------------------------------------------------------- | :--------------------------------------- |
+| `OIDC_ISSUER`           | OIDC Identity Provider issuer URL (e.g. `https://id.example.com`)          | _(Optional on localhost; required prod)_ |
+| `OIDC_CLIENT_ID`        | OIDC Client ID registered with the identity provider                       | `collection-tracker`                     |
+| `SESSION_SECRET`        | Dedicated HMAC-SHA256 secret for signing `app_user_session` & OIDC cookies | _(Recommended)_                          |
+| `ADMIN_SESSION_DAYS`    | Duration in days for signed `app_user_session` cookies                     | `30`                                     |
+| `ADMIN_EMAIL`           | Contact email used in VAPID `mailto:` claim and admin role fallback        | _(Optional)_                             |
+| `ADMIN_KEY`             | Optional secret token for headless CLI / API administrative access         | _(Optional)_                             |
+| `APP_NAME`              | Title shown in header, page titles, and exports                            | `Collection Tracker`                     |
+| `APP_SHORT_NAME`        | Short name for PWA home screen tiles                                       | `Tracker`                                |
+| `APP_TAGLINE`           | Tagline for SEO and metadata                                               | `Physical Game & Toy Collection Tracker` |
+| `APP_AUTHOR`            | Author credit in exported CSV and DAT files                                | `Collection Tracker`                     |
+| `APP_REPO_URL`          | Optional repository URL rendered as a GitHub icon link in the app header   | _(Optional)_                             |
+| `CUSTOM_FAVICON_SVG`    | Optional raw SVG string served at `/favicon.svg`                           | Cartridge emblem (`/favicon.svg`)        |
+| `TWITCH_CLIENT_ID`      | Twitch Client ID for real-time IGDB metadata discovery                     | _(Optional)_                             |
+| `TWITCH_CLIENT_SECRET`  | Twitch Client Secret for IGDB OAuth authentication                         | _(Optional)_                             |
+| `EBAY_CLIENT_ID`        | eBay Developer Production App ID for live Browse API market valuations     | _(Optional)_                             |
+| `EBAY_CLIENT_SECRET`    | eBay Developer Production Cert ID for eBay OAuth client credentials        | _(Optional)_                             |
+| `MARKET_PRICING_ACCESS` | Access policy for live eBay valuations (`admin` or `authenticated`)        | `admin`                                  |
+| `BESTBUY_API_KEY`       | Optional Best Buy API key for enhanced deal scanning                       | _(Optional)_                             |
+| `VAPID_PUBLIC_KEY`      | Web Push VAPID application public key (RFC 8292)                           | _(Built-in default)_                     |
+| `VAPID_PRIVATE_KEY`     | Web Push VAPID private key (secret)                                        | _(Optional)_                             |
 
 ## License
 

@@ -110,6 +110,14 @@
   <div class="insights-content-grid">
     <!-- Left Column: Preservation, Condition & Backlog -->
     <div class="insights-column">
+      @if (canViewMarketPrices()) {
+        <app-market-valuation-panel
+          [ownedGames]="ownedGames()"
+          [ownedToys]="ownedToys()"
+          [platforms]="collectionService.platforms()"
+        />
+      }
+
       <!-- Acquisition Cost Basis & Provenance Panel (Authenticated Users Only) -->
       @if (collectionService.isAuthenticated()) {
         <section
@@ -522,6 +530,11 @@
                     p.backupPct
                   }}%)
                 </span>
+                @if ((p.pricedCount ?? 0) > 0) {
+                  <span class="platform-value-badge">
+                    Est. {{ formatWholeDollars(p.estimatedValueDollars) }}
+                  </span>
+                }
               </div>
             </a>
           }

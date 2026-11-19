@@ -318,6 +318,73 @@
     </div>
   }
 
+  @if (marketPricingStatus(); as mps) {
+    <section
+      class="pipeline-card mb-lg"
+      data-testid="market-pricing-admin-card"
+    >
+      <div class="pipeline-card-header">
+        <h3 class="pipeline-card-title">
+          Live eBay Valuation Cache &amp; Quota
+        </h3>
+        <span
+          class="pipeline-badge"
+          [class.done]="mps.configured"
+          [class.warn]="!mps.configured"
+        >
+          {{ mps.configured ? 'Configured' : 'Awaiting eBay API Keys' }}
+        </span>
+      </div>
+
+      <div class="pipeline-stats-list">
+        <div class="pipeline-stat-row">
+          <span class="text-secondary">Active Unexpired Items</span>
+          <span class="font-bold">
+            {{ mps.cachedCount }} items across {{ mps.shardCount }} R2 shards
+            (≤{{ mps.ttlHours }}h TTL, 0 D1 writes)
+          </span>
+        </div>
+        @if (mps.ebayRateLimit; as rl) {
+          <div class="pipeline-stat-row">
+            <span class="text-secondary">Daily eBay Browse Quota</span>
+            <span class="font-bold">
+              {{ rl.remaining }} / {{ rl.limit }} remaining
+            </span>
+          </div>
+          @if (rl.reset) {
+            <div class="pipeline-stat-row">
+              <span class="text-secondary">Quota Window Reset</span>
+              <span>{{ rl.reset }}</span>
+            </div>
+          }
+        } @else {
+          <div class="pipeline-stat-row">
+            <span class="text-secondary">Daily eBay Browse Quota</span>
+            <span>
+              {{
+                mps.configured
+                  ? 'Quota telemetry unavailable'
+                  : 'Configure EBAY_CLIENT_ID &amp; EBAY_CLIENT_SECRET'
+              }}
+            </span>
+          </div>
+        }
+      </div>
+
+      <div class="pipeline-card-actions">
+        <button
+          type="button"
+          class="m3-btn m3-btn-secondary btn-sm"
+          data-testid="purge-market-cache-btn"
+          [disabled]="marketCachePurging() || actionBusy()"
+          (click)="purgeMarketCache.emit()"
+        >
+          {{ marketCachePurging() ? 'Purging Cache...' : 'Purge 6h Cache Now' }}
+        </button>
+      </div>
+    </section>
+  }
+
   <!-- Recent Cron Execution Logs -->
   <section class="pipeline-card">
     <div class="pipeline-card-header mb-md">

@@ -105,6 +105,7 @@ export const PROTECTED_TABLES = [
   'user_game_releases',
   'user_tracking_rules',
   'journal_entries',
+  'price_query_overrides',
 ] as const;
 
 export const MAX_SECONDARY_INDEXES: Record<string, number> = {
@@ -117,6 +118,7 @@ export const MAX_SECONDARY_INDEXES: Record<string, number> = {
   user_toys: 1,
   user_tracking_rules: 0,
   journal_entries: 1,
+  price_query_overrides: 0,
 };
 
 export const D1_MAX_COMPOUND_SELECT_TERMS = 5;
@@ -247,6 +249,16 @@ export function runCollectionStaticSchemaCostGuard(
       name: 'journal lookup by (user_id, item_type, item_id)',
       sql: 'SELECT id, purchase_date, price_paid, notes FROM journal_entries WHERE user_id = ? AND item_type = ? AND item_id = ?',
       params: [1, 'game', '1'],
+    },
+    {
+      name: 'price query override lookup by PK',
+      sql: 'SELECT custom_query, updated_at FROM price_query_overrides WHERE item_type = ? AND item_id = ?',
+      params: ['game', 'super-mario-odyssey-nintendo-switch'],
+    },
+    {
+      name: 'price query overrides batch lookup by PK',
+      sql: 'SELECT item_type, item_id, custom_query FROM price_query_overrides WHERE item_type = ? AND item_id IN (?)',
+      params: ['game', 'super-mario-odyssey-nintendo-switch'],
     },
     {
       name: 'backup apply: source completeness lookup',

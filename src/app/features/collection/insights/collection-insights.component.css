@@ -930,3 +930,9 @@
     font-size: 0.75rem;
   }
 }
+
+.platform-value-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--m3-primary);
+}

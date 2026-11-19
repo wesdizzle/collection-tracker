@@ -7,7 +7,13 @@ import {
   HttpTestingController,
 } from '@angular/common/http/testing';
 import { CollectionService } from './collection.service';
-import { Game, formatJournalDate } from '../models/collection.models';
+import {
+  EBAY_PRICE_TTL_MS,
+  EphemeralMarketPrice,
+  Game,
+  formatJournalDate,
+  getPriceShardIndex,
+} from '../models/collection.models';
 import {
   KIT_DEGRADED_HEADER,
   KIT_SNAPSHOT_TIMESTAMP_HEADER,
@@ -977,6 +983,11 @@ describe('CollectionService', () => {
       httpMock
         .expectOne('/api/journal/entries')
         .flush({ authorized: true, entries: [] });
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
       expect(service.isAuthenticated()).toBe(true);
       expect(readCachedKitAuthSnapshot()?.user.username).toBe('alice');
 
@@ -992,6 +1003,11 @@ describe('CollectionService', () => {
         .expectOne('/api/platforms')
         .flush([{ id: 1, name: 'NES', display_name: 'NES' }]);
       await refreshP;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
       expect(saveStoredSpy).toHaveBeenCalled();
 
       // 3. Simulate D1 503 on subsequent /api/auth/me -> session and games stay intact!
@@ -1159,12 +1175,22 @@ describe('CollectionService', () => {
         },
       });
       await pRecoverAuth;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
 
       const pRecoverData = service.refreshAll();
       httpMock.expectOne('/api/games').flush([]);
       httpMock.expectOne('/api/toys').flush([]);
       httpMock.expectOne('/api/platforms').flush([]);
       await pRecoverData;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
 
       expect(service.degradedMode()).toBeNull();
       expect(service.isDegraded()).toBe(false);
@@ -1247,6 +1273,11 @@ describe('CollectionService', () => {
           },
         });
         await pHealthy1;
+        httpMock
+          .match('/api/prices/cached?sync=1')
+          .forEach((r) =>
+            r.flush({ configured: false, prices: {}, overrides: {} }),
+          );
 
         expect(redirectSpy).toHaveBeenCalledTimes(1);
         expect(redirectSpy).toHaveBeenCalledWith(
@@ -1279,6 +1310,11 @@ describe('CollectionService', () => {
           },
         });
         await pHealthy2;
+        httpMock
+          .match('/api/prices/cached?sync=1')
+          .forEach((r) =>
+            r.flush({ configured: false, prices: {}, overrides: {} }),
+          );
         expect(redirectSpy).toHaveBeenCalledTimes(1);
       } finally {
         fetchSpy.mockRestore();
@@ -1368,6 +1404,11 @@ describe('CollectionService', () => {
       httpMock.expectOne('/api/toys').flush([]);
       httpMock.expectOne('/api/platforms').flush([]);
       await pRefresh;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
 
       expect(service.games().map((g) => g.title)).toEqual(['Live Game']);
       expect(service.isDegraded()).toBe(false);
@@ -1462,6 +1503,11 @@ describe('CollectionService', () => {
       httpMock.expectOne('/api/toys').flush([]);
       httpMock.expectOne('/api/platforms').flush([]);
       await pRefresh;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
 
       expect(service.catalogIsPartial()).toBe(true);
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1695,6 +1741,11 @@ describe('CollectionService', () => {
       httpMock.expectOne('/api/toys').flush([]);
       httpMock.expectOne('/api/platforms').flush([]);
       await pRefresh;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
 
       // Phase 1 snapshot save must preserve the full IndexedDB catalogVersion & games
       expect(storeMap.get(1)?.state.catalogVersion).toBe('v2026-11-17');
@@ -1764,6 +1815,11 @@ describe('CollectionService', () => {
       httpMock.expectOne('/api/toys').flush([]);
       httpMock.expectOne('/api/platforms').flush([]);
       await pRefresh;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
 
       await new Promise((resolve) => setTimeout(resolve, 0));
       httpMock.expectOne('/api/catalog/games?manifest=1').flush({
@@ -1810,6 +1866,187 @@ describe('CollectionService', () => {
       expect(service.catalogSyncProgress().active).toBe(false);
       expect(service.catalogSyncProgress().percent).toBe(100);
       expect(service.games().map((g) => g.id)).toEqual(['gap-game-50000']);
+    });
+  });
+
+  describe('Live eBay Market Pricing (6h Ephemeral Cache)', () => {
+    beforeEach(() => {
+      service.setAdminForTesting(true);
+      service.setPublicView(false, null);
+    });
+
+    function makePrice(
+      itemType: 'game' | 'toy',
+      itemId: string,
+      offsetMs = -60_000,
+    ): EphemeralMarketPrice {
+      const fetchedAtMs = Date.now() + offsetMs;
+      return {
+        item_type: itemType,
+        item_id: itemId,
+        loose_cents: 1900,
+        cib_cents: itemType === 'game' ? 4500 : null,
+        new_cents: 9500,
+        loose_sample_size: 4,
+        cib_sample_size: itemType === 'game' ? 3 : 0,
+        new_sample_size: 1,
+        confidence: 'medium',
+        source: 'ebay_browse',
+        fetched_at: new Date(fetchedAtMs).toISOString(),
+        expires_at: new Date(fetchedAtMs + EBAY_PRICE_TTL_MS).toISOString(),
+        query_used: itemId,
+        sample_listings: { loose: [], cib: [], new: [] },
+      };
+    }
+
+    it('syncCachedMarketPrices populates fresh entries, filters expired >6h entries, and tracks configuration', async () => {
+      const fresh = makePrice('game', 'chrono-trigger');
+      const expired = makePrice(
+        'game',
+        'stale-game',
+        -(EBAY_PRICE_TTL_MS + 60_000),
+      );
+
+      const syncPromise = service.syncCachedMarketPrices(true);
+      const req = httpMock.expectOne('/api/prices/cached?sync=1');
+      expect(req.request.method).toBe('GET');
+      req.flush({
+        configured: true,
+        prices: {
+          'game:chrono-trigger': fresh,
+          'game:stale-game': expired,
+        },
+        overrides: {
+          'game:chrono-trigger': 'Chrono Trigger SNES',
+        },
+      });
+
+      const res = await syncPromise;
+      expect(res.configured).toBe(true);
+      expect(res.count).toBe(1);
+      expect(service.marketPricingConfigured()).toBe(true);
+      expect(
+        service.getMarketPrice('game', 'chrono-trigger')?.loose_cents,
+      ).toBe(1900);
+      expect(service.getMarketPrice('game', 'stale-game')).toBeNull();
+      expect(service.getPriceQueryOverride('game', 'chrono-trigger')).toBe(
+        'Chrono Trigger SNES',
+      );
+    });
+
+    it('checkLiveItemPrice handles 503 ebay_not_configured gracefully and caches 200 live responses', async () => {
+      const unconfPromise = service.checkLiveItemPrice('game', 'mario');
+      const req503 = httpMock.expectOne('/api/prices/live');
+      req503.flush(
+        {
+          error: 'eBay API credentials not configured.',
+          code: 'ebay_not_configured',
+        },
+        { status: 503, statusText: 'Service Unavailable' },
+      );
+      const unconf = await unconfPromise;
+      expect(unconf.notConfigured).toBe(true);
+      expect(unconf.price).toBeNull();
+      expect(service.marketPricingConfigured()).toBe(false);
+
+      const livePrice = makePrice('game', 'mario');
+      const livePromise = service.checkLiveItemPrice('game', 'gb-mario');
+      const req200 = httpMock.expectOne('/api/prices/live');
+      expect(req200.request.body).toEqual({
+        itemType: 'game',
+        itemId: 'gb-mario',
+        force: false,
+      });
+      req200.flush({
+        price: livePrice,
+        canonicalKey: 'game:mario',
+        cacheHit: false,
+      });
+      const liveRes = await livePromise;
+      expect(liveRes.notConfigured).toBeUndefined();
+      expect(liveRes.price?.cib_cents).toBe(4500);
+      expect(service.marketPricingConfigured()).toBe(true);
+      // Both canonical ID and aliased release ID resolve the live snapshot
+      expect(service.getMarketPrice('game', 'mario')?.cib_cents).toBe(4500);
+      expect(service.getMarketPrice('game', 'gb-mario')?.cib_cents).toBe(4500);
+    });
+
+    it('startCollectionValuationScan skips fresh items, groups misses by shard, and supports cancellation', async () => {
+      // Seed 1 already-fresh item
+      const syncP = service.syncCachedMarketPrices(false);
+      httpMock.expectOne('/api/prices/cached').flush({
+        configured: true,
+        prices: { 'game:fresh-one': makePrice('game', 'fresh-one') },
+        overrides: {},
+      });
+      await syncP;
+
+      // Pick 2 IDs that map to two different R2 shards
+      const idA = 'miss-alpha-1';
+      const shardA = getPriceShardIndex('game', idA);
+      let idB = 'miss-beta-2';
+      for (let i = 2; i < 50; i++) {
+        const candidate = `miss-beta-${i}`;
+        if (getPriceShardIndex('game', candidate) !== shardA) {
+          idB = candidate;
+          break;
+        }
+      }
+
+      const scanPromise = service.startCollectionValuationScan(
+        [
+          { itemType: 'game', itemId: 'fresh-one' },
+          { itemType: 'game', itemId: idA },
+          { itemType: 'game', itemId: idB },
+        ],
+        'Test Scan',
+      );
+
+      // Should skip fresh-one and issue separate shard-grouped batches for idA and idB
+      await Promise.resolve();
+      const firstBatch = httpMock.expectOne('/api/prices/live-batch');
+      expect(firstBatch.request.body.items.length).toBe(1);
+      const returnedId = firstBatch.request.body.items[0].itemId;
+      firstBatch.flush({
+        prices: { [`game:${returnedId}`]: makePrice('game', returnedId) },
+        cacheHits: 0,
+        fetchedCount: 1,
+        errors: {},
+        rateLimited: false,
+      });
+
+      // Cancel mid-scan before second shard batch is sent
+      service.cancelCollectionValuationScan();
+      await scanPromise;
+
+      httpMock.expectNone('/api/prices/live-batch');
+      expect(service.marketPriceScanProgress().cancelled).toBe(true);
+      expect(service.marketPriceScanProgress().active).toBe(false);
+      expect(service.getMarketPrice('game', returnedId)?.loose_cents).toBe(
+        1900,
+      );
+    });
+
+    it('wipes ephemeral marketPricesMap and priceOverridesMap on unauthenticated sign-out', async () => {
+      const syncP = service.syncCachedMarketPrices(false);
+      httpMock.expectOne('/api/prices/cached').flush({
+        configured: true,
+        prices: { 'toy:mario-amiibo': makePrice('toy', 'mario-amiibo') },
+        overrides: { 'toy:mario-amiibo': 'Mario Amiibo Smash' },
+      });
+      await syncP;
+      expect(service.marketPricesMap().size).toBe(1);
+      expect(service.priceOverridesMap().size).toBe(1);
+
+      const authP = service.refreshAuthStatus();
+      httpMock
+        .expectOne('/api/auth/me')
+        .flush({ authenticated: false, user: null });
+      await authP;
+
+      expect(service.marketPricesMap().size).toBe(0);
+      expect(service.priceOverridesMap().size).toBe(0);
+      expect(service.marketPricingConfigured()).toBeNull();
     });
   });
 });

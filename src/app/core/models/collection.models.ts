@@ -254,6 +254,8 @@ export interface FilterState {
     | 'default'
     | 'retail_asc'
     | 'discount_desc'
+    | 'market_value_desc'
+    | 'market_value_asc'
     | 'release_desc'
     | 'release_asc';
 }
@@ -852,4 +854,48 @@ export interface CatalogSyncProgress {
   loadedChunks: number;
   totalChunks: number;
   percent: number;
+}
+
+export {
+  type EphemeralMarketPrice,
+  type EbaySampleListing,
+  type MarketPriceConfidence,
+  type MarketPriceConditionBucket,
+  type MarketPriceItemType,
+  EBAY_PRICE_TTL_MS,
+  PRICE_CACHE_SHARD_COUNT,
+  getMarketPriceKey,
+  getPriceShardIndex,
+  computeItemEstimatedValueCents,
+  isMarketPriceFresh,
+  formatPriceAge,
+} from '../../../../shared/market_pricing';
+
+export interface EbayRateLimitSnapshot {
+  limit: number;
+  remaining: number;
+  count: number;
+  reset: string | null;
+  timeWindowSeconds: number;
+}
+
+export interface MarketPricingRateLimitStatus {
+  configured: boolean;
+  ebayRateLimit: EbayRateLimitSnapshot | null;
+  cachedCount: number;
+  shardCount: number;
+  ttlHours: number;
+}
+
+export interface MarketPriceScanProgress {
+  active: boolean;
+  scopeLabel: string;
+  totalItems: number;
+  completedItems: number;
+  cacheHits: number;
+  fetchedCount: number;
+  errorCount: number;
+  rateLimited: boolean;
+  cancelled: boolean;
+  lastError: string | null;
 }

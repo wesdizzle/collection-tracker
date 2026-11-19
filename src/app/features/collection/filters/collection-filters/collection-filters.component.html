@@ -23,7 +23,7 @@
     dropdownName="sortBy"
     triggerId="filter-sort-by"
     [value]="filters().sortBy || 'default'"
-    [options]="sortByOptions"
+    [options]="sortByOptions()"
     placeholder="Default"
     (valueChange)="selectOption('sortBy', $event)"
   />

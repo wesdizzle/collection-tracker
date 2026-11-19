@@ -63,6 +63,14 @@ import {
   CatalogManifest,
   UserCollectionOverlayResponse,
   CatalogSyncProgress,
+  EphemeralMarketPrice,
+  MarketPriceItemType,
+  MarketPriceScanProgress,
+  MarketPricingRateLimitStatus,
+  getMarketPriceKey,
+  getPriceShardIndex,
+  computeItemEstimatedValueCents,
+  isMarketPriceFresh,
 } from '../models/collection.models';
 
 interface CollectionOfflineSnapshot {
@@ -176,6 +184,58 @@ export class CollectionService implements OnDestroy {
     storeName: 'collection_state',
     keyPrefix: 'user_collection_state',
   });
+
+  private ephemeralPriceStore = new KitOfflineStore<
+    Record<string, EphemeralMarketPrice>
+  >({
+    dbName: 'collection_tracker_price_cache',
+    storeName: 'ephemeral_prices',
+    keyPrefix: 'ebay_prices_v1',
+    requestPersistenceOnInit: false,
+  });
+
+  private _marketPricesMap = signal<Map<string, EphemeralMarketPrice>>(
+    new Map(),
+  );
+  public readonly marketPricesMap = this._marketPricesMap.asReadonly();
+
+  private _priceOverridesMap = signal<Map<string, string>>(new Map());
+  public readonly priceOverridesMap = this._priceOverridesMap.asReadonly();
+
+  private _priceCanonicalAliases = new Map<string, string>();
+
+  private _marketPricingConfigured = signal<boolean | null>(null);
+  public readonly marketPricingConfigured =
+    this._marketPricingConfigured.asReadonly();
+
+  private _marketPriceNowMs = signal<number>(Date.now());
+  public readonly marketPriceNowMs = this._marketPriceNowMs.asReadonly();
+
+  private _marketPriceScanProgress = signal<MarketPriceScanProgress>({
+    active: false,
+    scopeLabel: '',
+    totalItems: 0,
+    completedItems: 0,
+    cacheHits: 0,
+    fetchedCount: 0,
+    errorCount: 0,
+    rateLimited: false,
+    cancelled: false,
+    lastError: null,
+  });
+  public readonly marketPriceScanProgress =
+    this._marketPriceScanProgress.asReadonly();
+
+  public readonly canViewMarketPrices = computed(
+    () => this.isAdmin() && !this._isPublicView(),
+  );
+
+  private _priceExpiryTimer: ReturnType<typeof setInterval> | null = null;
+  private _activePriceScanId = 0;
+  private _priceScanCancelled = false;
+  private _marketPricesHydratedForUser: number | null = null;
+  private _lastSyncedPriceUserId: number | null = null;
+
   private _visibilityListener?: () => void;
   private _focusListener?: () => void;
   private _pageshowListener?: (event: PageTransitionEvent) => void;
@@ -199,6 +259,9 @@ export class CollectionService implements OnDestroy {
   }
 
   public ngOnDestroy(): void {
+    this.stopPriceExpiryTimer();
+    this._activePriceScanId++;
+    this._priceScanCancelled = true;
     if (typeof document !== 'undefined' && this._visibilityListener) {
       document.removeEventListener(
         'visibilitychange',
@@ -276,6 +339,7 @@ export class CollectionService implements OnDestroy {
    * back to the landing page ('/').
    */
   private handleUnauthenticatedState(wasAuthenticated: boolean): void {
+    const prevUserId = this._currentUser()?.id ?? null;
     clearCachedKitAuthSnapshot();
     this._authDegradedMode.set(null);
     this._dataDegradedMode.set(null);
@@ -287,6 +351,7 @@ export class CollectionService implements OnDestroy {
     this._currentUser.set(null);
     this._journalEntriesMap.set(new Map());
     this._journalLoaded.set(false);
+    this.resetEphemeralPricingState(prevUserId);
     if (wasAuthenticated) {
       if (!this._isPublicView()) {
         this._games.set([]);
@@ -418,6 +483,19 @@ export class CollectionService implements OnDestroy {
         }
       }
       clearSilentSsoAttempt(clientId);
+      if (effectiveUser.role === 'admin' && !this._isPublicView()) {
+        if (this._marketPricesHydratedForUser !== effectiveUser.id) {
+          this._marketPricesHydratedForUser = effectiveUser.id;
+          void this.hydrateEphemeralPricesFromStore(effectiveUser.id);
+        }
+        if (
+          !isDegradedResponse &&
+          this._lastSyncedPriceUserId !== effectiveUser.id
+        ) {
+          this._lastSyncedPriceUserId = effectiveUser.id;
+          void this.syncCachedMarketPrices(true);
+        }
+      }
       if (
         !isDegradedResponse &&
         (!wasAuthenticated || !this._journalLoaded())
@@ -1300,6 +1378,9 @@ export class CollectionService implements OnDestroy {
         localStorage.setItem('app_last_updated', now.toISOString());
         if (targetOwner === 'self' && this._currentUser()?.id) {
           await this.saveOfflineSnapshot(now.getTime(), false);
+        }
+        if (this.canViewMarketPrices()) {
+          void this.syncCachedMarketPrices(true);
         }
       } else if (
         !this._activeRefreshSawError &&
@@ -2996,5 +3077,698 @@ export class CollectionService implements OnDestroy {
       ...game,
       title: this.formatTitle(name) || 'Unknown Game',
     };
+  }
+
+  /** --- Live eBay Ephemeral Market Pricing (Strict 6-Hour TTL) --- */
+
+  public getMarketPrice(
+    itemType: MarketPriceItemType,
+    itemId: string,
+    canonicalGameId?: string | null,
+  ): EphemeralMarketPrice | null {
+    if (!this.canViewMarketPrices()) return null;
+    const nowMs = this._marketPriceNowMs();
+    const map = this._marketPricesMap();
+    const keysToTry: string[] = [];
+    if (canonicalGameId) {
+      keysToTry.push(getMarketPriceKey(itemType, canonicalGameId));
+    }
+    const directKey = getMarketPriceKey(itemType, itemId);
+    keysToTry.push(directKey);
+    const aliasedKey = this._priceCanonicalAliases.get(directKey);
+    if (aliasedKey) {
+      keysToTry.push(aliasedKey);
+    }
+
+    for (const key of keysToTry) {
+      const candidate = map.get(key);
+      if (candidate && isMarketPriceFresh(candidate, nowMs)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  public getPriceQueryOverride(
+    itemType: MarketPriceItemType,
+    itemId: string,
+    canonicalGameId?: string | null,
+  ): string {
+    const map = this._priceOverridesMap();
+    if (canonicalGameId) {
+      const canonical = map.get(getMarketPriceKey(itemType, canonicalGameId));
+      if (canonical) return canonical;
+    }
+    const directKey = getMarketPriceKey(itemType, itemId);
+    const direct = map.get(directKey);
+    if (direct) return direct;
+    const aliased = this._priceCanonicalAliases.get(directKey);
+    return (aliased ? map.get(aliased) : undefined) || '';
+  }
+
+  public getEstimatedValue(
+    item: Game | Toy,
+    itemType: MarketPriceItemType,
+  ): {
+    cents: number | null;
+    tierLabel: string;
+    price: EphemeralMarketPrice | null;
+  } {
+    const canonicalId =
+      itemType === 'game' ? (item as Game).game_id || item.id : item.id;
+    const price = this.getMarketPrice(itemType, item.id, canonicalId);
+    const valuation = computeItemEstimatedValueCents(item, price);
+    return { ...valuation, price };
+  }
+
+  public async syncCachedMarketPrices(
+    syncR2 = true,
+  ): Promise<{ configured: boolean; count: number }> {
+    if (!this.canViewMarketPrices()) {
+      return { configured: false, count: 0 };
+    }
+    try {
+      const res = await firstValueFrom(
+        this.http.get<{
+          configured?: boolean;
+          prices?: Record<string, EphemeralMarketPrice>;
+          overrides?: Record<string, string>;
+        }>(`/api/prices/cached${syncR2 ? '?sync=1' : ''}`),
+      );
+      if (typeof res?.configured === 'boolean') {
+        this._marketPricingConfigured.set(res.configured);
+      }
+      const nowMs = Date.now();
+      this._marketPriceNowMs.set(nowMs);
+      const nextPrices = new Map<string, EphemeralMarketPrice>();
+      for (const [k, v] of this._marketPricesMap().entries()) {
+        if (isMarketPriceFresh(v, nowMs)) {
+          nextPrices.set(k, v);
+        }
+      }
+      if (res?.prices && typeof res.prices === 'object') {
+        for (const [k, v] of Object.entries(res.prices)) {
+          if (v && isMarketPriceFresh(v, nowMs)) {
+            nextPrices.set(k, v);
+          }
+        }
+      }
+      this._marketPricesMap.set(nextPrices);
+
+      const nextOverrides = new Map<string, string>();
+      if (res?.overrides && typeof res.overrides === 'object') {
+        for (const [k, q] of Object.entries(res.overrides)) {
+          if (q) nextOverrides.set(k, q);
+        }
+      }
+      this._priceOverridesMap.set(nextOverrides);
+      this.ensurePriceExpiryTimer();
+      await this.persistEphemeralPricesToStore(nextPrices);
+      return {
+        configured: Boolean(res?.configured),
+        count: nextPrices.size,
+      };
+    } catch {
+      return {
+        configured: Boolean(this._marketPricingConfigured()),
+        count: this._marketPricesMap().size,
+      };
+    }
+  }
+
+  public async checkLiveItemPrice(
+    itemType: MarketPriceItemType,
+    itemId: string,
+    force = false,
+  ): Promise<{
+    price: EphemeralMarketPrice | null;
+    cacheHit: boolean;
+    error?: string;
+    notConfigured?: boolean;
+  }> {
+    if (!this.canViewMarketPrices()) {
+      return { price: null, cacheHit: false, error: 'Unauthorized.' };
+    }
+    try {
+      const res = await firstValueFrom(
+        this.http.post<{
+          price: EphemeralMarketPrice | null;
+          canonicalKey: string;
+          cacheHit: boolean;
+          error?: string;
+        }>('/api/prices/live', { itemType, itemId, force }),
+      );
+      this._marketPricingConfigured.set(true);
+      const nowMs = Date.now();
+      this._marketPriceNowMs.set(nowMs);
+      if (res?.price && isMarketPriceFresh(res.price, nowMs)) {
+        const directKey = getMarketPriceKey(itemType, itemId);
+        const canonicalKey =
+          res.canonicalKey || getMarketPriceKey(itemType, res.price.item_id);
+        if (canonicalKey !== directKey) {
+          this._priceCanonicalAliases.set(directKey, canonicalKey);
+        }
+        const nextMap = new Map(this._marketPricesMap());
+        nextMap.set(canonicalKey, res.price);
+        this._marketPricesMap.set(nextMap);
+        this.ensurePriceExpiryTimer();
+        await this.persistEphemeralPricesToStore(nextMap);
+      }
+      return {
+        price: res?.price ?? null,
+        cacheHit: Boolean(res?.cacheHit),
+        error: res?.error,
+      };
+    } catch (err: unknown) {
+      const extracted = this.extractPricingHttpError(err);
+      if (extracted.notConfigured) {
+        this._marketPricingConfigured.set(false);
+        return {
+          price: null,
+          cacheHit: false,
+          notConfigured: true,
+          error: extracted.message,
+        };
+      }
+      return {
+        price: null,
+        cacheHit: false,
+        error: extracted.message,
+      };
+    }
+  }
+
+  public async startCollectionValuationScan(
+    items: Array<{ itemType: MarketPriceItemType; itemId: string }>,
+    scopeLabel: string,
+    force = false,
+  ): Promise<void> {
+    if (!this.canViewMarketPrices()) return;
+
+    const scanId = ++this._activePriceScanId;
+    this._priceScanCancelled = false;
+
+    const uniqueByKey = new Map<
+      string,
+      { itemType: MarketPriceItemType; itemId: string }
+    >();
+    for (const item of items) {
+      const cleanId = (item.itemId || '').trim();
+      if (!cleanId) continue;
+      const key = getMarketPriceKey(item.itemType, cleanId);
+      if (!uniqueByKey.has(key)) {
+        uniqueByKey.set(key, { itemType: item.itemType, itemId: cleanId });
+      }
+    }
+
+    const deduped = Array.from(uniqueByKey.values());
+    if (deduped.length === 0) {
+      this._marketPriceScanProgress.set({
+        active: false,
+        scopeLabel,
+        totalItems: 0,
+        completedItems: 0,
+        cacheHits: 0,
+        fetchedCount: 0,
+        errorCount: 0,
+        rateLimited: false,
+        cancelled: false,
+        lastError: null,
+      });
+      return;
+    }
+
+    let initialHits = 0;
+    const misses: Array<{ itemType: MarketPriceItemType; itemId: string }> = [];
+    for (const item of deduped) {
+      if (!force && this.getMarketPrice(item.itemType, item.itemId)) {
+        initialHits++;
+      } else {
+        misses.push(item);
+      }
+    }
+
+    const totalItems = deduped.length;
+    let completedItems = initialHits;
+    let cacheHits = initialHits;
+    let fetchedCount = 0;
+    let errorCount = 0;
+    let rateLimited = false;
+    let lastError: string | null = null;
+
+    this._marketPriceScanProgress.set({
+      active: misses.length > 0,
+      scopeLabel,
+      totalItems,
+      completedItems,
+      cacheHits,
+      fetchedCount,
+      errorCount,
+      rateLimited: false,
+      cancelled: false,
+      lastError: null,
+    });
+
+    if (misses.length === 0) return;
+
+    // Group misses by deterministic 8-shard hash so every 10-item chunk hits 1 R2 shard
+    const shardBuckets = new Map<
+      number,
+      Array<{ itemType: MarketPriceItemType; itemId: string }>
+    >();
+    for (const miss of misses) {
+      const shardIdx = getPriceShardIndex(miss.itemType, miss.itemId);
+      const bucket = shardBuckets.get(shardIdx) || [];
+      bucket.push(miss);
+      shardBuckets.set(shardIdx, bucket);
+    }
+
+    const chunks: Array<
+      Array<{ itemType: MarketPriceItemType; itemId: string }>
+    > = [];
+    for (const bucket of shardBuckets.values()) {
+      for (let i = 0; i < bucket.length; i += 10) {
+        chunks.push(bucket.slice(i, i + 10));
+      }
+    }
+
+    for (const chunk of chunks) {
+      if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+        break;
+      }
+
+      let chunkDone = false;
+      let attempt = 0;
+      const backoffMs = [2000, 4000, 8000];
+
+      while (!chunkDone && attempt < 3) {
+        if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+          break;
+        }
+        try {
+          const res = await firstValueFrom(
+            this.http.post<{
+              prices?: Record<string, EphemeralMarketPrice>;
+              cacheHits?: number;
+              fetchedCount?: number;
+              errors?: Record<string, string>;
+              rateLimited?: boolean;
+              retryAfterSec?: number;
+            }>('/api/prices/live-batch', { items: chunk, force }),
+          );
+
+          this._marketPricingConfigured.set(true);
+          const nowMs = Date.now();
+          this._marketPriceNowMs.set(nowMs);
+
+          const returnedPrices = res?.prices || {};
+          if (Object.keys(returnedPrices).length > 0) {
+            const nextMap = new Map(this._marketPricesMap());
+            for (const [k, price] of Object.entries(returnedPrices)) {
+              if (price && isMarketPriceFresh(price, nowMs)) {
+                nextMap.set(k, price);
+              }
+            }
+            this._marketPricesMap.set(nextMap);
+            this.ensurePriceExpiryTimer();
+            await this.persistEphemeralPricesToStore(nextMap);
+          }
+
+          const batchHits = Number(res?.cacheHits ?? 0);
+          const batchFetched = Number(res?.fetchedCount ?? 0);
+          const errEntries = Object.entries(res?.errors || {});
+          cacheHits += batchHits;
+          fetchedCount += batchFetched;
+          errorCount += errEntries.length;
+          if (errEntries.length > 0) {
+            lastError = errEntries[0][1];
+          }
+
+          if (res?.rateLimited) {
+            rateLimited = true;
+            lastError =
+              lastError ||
+              'eBay API rate limit reached; partial results preserved.';
+            completedItems = Math.min(
+              totalItems,
+              completedItems + batchHits + batchFetched,
+            );
+            chunkDone = true;
+            break;
+          }
+
+          completedItems = Math.min(totalItems, completedItems + chunk.length);
+          chunkDone = true;
+        } catch (err: unknown) {
+          const extracted = this.extractPricingHttpError(err);
+          if (extracted.notConfigured) {
+            this._marketPricingConfigured.set(false);
+            lastError = extracted.message;
+            errorCount += chunk.length;
+            this._marketPriceScanProgress.set({
+              active: false,
+              scopeLabel,
+              totalItems,
+              completedItems,
+              cacheHits,
+              fetchedCount,
+              errorCount,
+              rateLimited: false,
+              cancelled: false,
+              lastError,
+            });
+            return;
+          }
+          if (extracted.status === 429 && attempt < 2) {
+            const waitMs = extracted.retryAfterSec
+              ? Math.min(8000, Math.max(500, extracted.retryAfterSec * 1000))
+              : backoffMs[attempt];
+            attempt++;
+            await this.delayMs(waitMs);
+            continue;
+          }
+          if (extracted.status === 429) {
+            rateLimited = true;
+          }
+          lastError = extracted.message;
+          errorCount += chunk.length;
+          chunkDone = true;
+        }
+      }
+
+      if (this._priceScanCancelled || scanId !== this._activePriceScanId) {
+        break;
+      }
+
+      this._marketPriceScanProgress.set({
+        active: !rateLimited,
+        scopeLabel,
+        totalItems,
+        completedItems,
+        cacheHits,
+        fetchedCount,
+        errorCount,
+        rateLimited,
+        cancelled: false,
+        lastError,
+      });
+
+      if (rateLimited) {
+        break;
+      }
+    }
+
+    if (scanId === this._activePriceScanId) {
+      this._marketPriceScanProgress.update((p) => ({
+        ...p,
+        active: false,
+        completedItems,
+        cacheHits,
+        fetchedCount,
+        errorCount,
+        rateLimited,
+        cancelled: this._priceScanCancelled,
+        lastError,
+      }));
+    }
+  }
+
+  public cancelCollectionValuationScan(): void {
+    this._priceScanCancelled = true;
+    this._activePriceScanId++;
+    this._marketPriceScanProgress.update((p) => ({
+      ...p,
+      active: false,
+      cancelled: true,
+    }));
+  }
+
+  public async savePriceQueryOverride(
+    itemType: MarketPriceItemType,
+    itemId: string,
+    customQuery: string | null,
+    refreshNow = true,
+  ): Promise<{
+    success: boolean;
+    itemId: string;
+    customQuery: string | null;
+    price: EphemeralMarketPrice | null;
+    priceError?: string | null;
+    error?: string;
+  }> {
+    if (!this.canViewMarketPrices()) {
+      return {
+        success: false,
+        itemId,
+        customQuery,
+        price: null,
+        error: 'Unauthorized.',
+      };
+    }
+    try {
+      const res = await firstValueFrom(
+        this.http.put<{
+          success: boolean;
+          itemType: MarketPriceItemType;
+          itemId: string;
+          customQuery: string | null;
+          price: EphemeralMarketPrice | null;
+          priceError?: string | null;
+        }>('/api/prices/override', {
+          itemType,
+          itemId,
+          customQuery,
+          refreshNow,
+        }),
+      );
+      const canonicalId = res.itemId || itemId;
+      const canonicalKey = getMarketPriceKey(itemType, canonicalId);
+      const directKey = getMarketPriceKey(itemType, itemId);
+      if (canonicalKey !== directKey) {
+        this._priceCanonicalAliases.set(directKey, canonicalKey);
+      }
+
+      const nextOverrides = new Map(this._priceOverridesMap());
+      if (res.customQuery) {
+        nextOverrides.set(canonicalKey, res.customQuery);
+      } else {
+        nextOverrides.delete(canonicalKey);
+        nextOverrides.delete(directKey);
+      }
+      this._priceOverridesMap.set(nextOverrides);
+
+      const nowMs = Date.now();
+      this._marketPriceNowMs.set(nowMs);
+      if (res.price && isMarketPriceFresh(res.price, nowMs)) {
+        const nextPrices = new Map(this._marketPricesMap());
+        nextPrices.set(canonicalKey, res.price);
+        this._marketPricesMap.set(nextPrices);
+        this.ensurePriceExpiryTimer();
+        await this.persistEphemeralPricesToStore(nextPrices);
+      }
+      return {
+        success: Boolean(res.success),
+        itemId: canonicalId,
+        customQuery: res.customQuery ?? null,
+        price: res.price ?? null,
+        priceError: res.priceError ?? null,
+      };
+    } catch (err: unknown) {
+      const extracted = this.extractPricingHttpError(err);
+      return {
+        success: false,
+        itemId,
+        customQuery,
+        price: null,
+        error: extracted.message,
+      };
+    }
+  }
+
+  public getMarketPricingRateLimits(): Observable<MarketPricingRateLimitStatus> {
+    return this.http.get<MarketPricingRateLimitStatus>(
+      '/api/prices/rate-limits',
+    );
+  }
+
+  public async clearMarketPriceCache(): Promise<boolean> {
+    if (!this.canViewMarketPrices()) return false;
+    try {
+      const res = await firstValueFrom(
+        this.http.post<{ cleared: boolean }>('/api/prices/cache/clear', {}),
+      );
+      if (res?.cleared) {
+        this._marketPricesMap.set(new Map());
+        this.stopPriceExpiryTimer();
+        const userId = this._currentUser()?.id ?? null;
+        if (userId) {
+          await this.ephemeralPriceStore
+            .saveStateLocally({}, Date.now(), false, userId)
+            .catch(() => {});
+        }
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  private resetEphemeralPricingState(previousUserId: number | null): void {
+    this._activePriceScanId++;
+    this._priceScanCancelled = true;
+    this.stopPriceExpiryTimer();
+    this._marketPricesMap.set(new Map());
+    this._priceOverridesMap.set(new Map());
+    this._priceCanonicalAliases.clear();
+    this._marketPricingConfigured.set(null);
+    this._marketPricesHydratedForUser = null;
+    this._lastSyncedPriceUserId = null;
+    this._marketPriceScanProgress.set({
+      active: false,
+      scopeLabel: '',
+      totalItems: 0,
+      completedItems: 0,
+      cacheHits: 0,
+      fetchedCount: 0,
+      errorCount: 0,
+      rateLimited: false,
+      cancelled: false,
+      lastError: null,
+    });
+    if (previousUserId) {
+      this.ephemeralPriceStore
+        .saveStateLocally({}, Date.now(), false, previousUserId)
+        .catch(() => {});
+    }
+  }
+
+  private async hydrateEphemeralPricesFromStore(userId: number): Promise<void> {
+    if (!userId || !this.canViewMarketPrices()) return;
+    try {
+      const stored = await this.ephemeralPriceStore.getStoredState(userId);
+      if (!stored?.state) return;
+      const nowMs = Date.now();
+      this._marketPriceNowMs.set(nowMs);
+      const next = new Map(this._marketPricesMap());
+      let changed = false;
+      for (const [k, v] of Object.entries(stored.state)) {
+        if (v && isMarketPriceFresh(v, nowMs)) {
+          if (!next.has(k)) {
+            next.set(k, v);
+          }
+        } else {
+          changed = true;
+        }
+      }
+      if (next.size > 0) {
+        this._marketPricesMap.set(next);
+        this.ensurePriceExpiryTimer();
+      }
+      if (changed) {
+        await this.persistEphemeralPricesToStore(next, userId);
+      }
+    } catch {
+      // Ignore IndexedDB errors for ephemeral cache
+    }
+  }
+
+  private async persistEphemeralPricesToStore(
+    pricesMap: Map<string, EphemeralMarketPrice>,
+    explicitUserId?: number | null,
+  ): Promise<void> {
+    const userId = explicitUserId ?? this._currentUser()?.id ?? null;
+    if (!userId || !this.canViewMarketPrices()) return;
+    const nowMs = Date.now();
+    const record: Record<string, EphemeralMarketPrice> = {};
+    for (const [k, v] of pricesMap.entries()) {
+      if (isMarketPriceFresh(v, nowMs)) {
+        record[k] = v;
+      }
+    }
+    await this.ephemeralPriceStore
+      .saveStateLocally(record, nowMs, false, userId)
+      .catch(() => {});
+  }
+
+  private ensurePriceExpiryTimer(): void {
+    if (typeof window === 'undefined') return;
+    if (this._marketPricesMap().size === 0) {
+      this.stopPriceExpiryTimer();
+      return;
+    }
+    if (this._priceExpiryTimer !== null) return;
+    this._priceExpiryTimer = setInterval(() => {
+      this.pruneExpiredMarketPrices();
+    }, 60_000);
+  }
+
+  private stopPriceExpiryTimer(): void {
+    if (this._priceExpiryTimer !== null) {
+      clearInterval(this._priceExpiryTimer);
+      this._priceExpiryTimer = null;
+    }
+  }
+
+  private pruneExpiredMarketPrices(): void {
+    const nowMs = Date.now();
+    this._marketPriceNowMs.set(nowMs);
+    const cur = this._marketPricesMap();
+    if (cur.size === 0) {
+      this.stopPriceExpiryTimer();
+      return;
+    }
+    let removed = false;
+    const next = new Map<string, EphemeralMarketPrice>();
+    for (const [k, v] of cur.entries()) {
+      if (isMarketPriceFresh(v, nowMs)) {
+        next.set(k, v);
+      } else {
+        removed = true;
+      }
+    }
+    if (removed) {
+      this._marketPricesMap.set(next);
+      void this.persistEphemeralPricesToStore(next);
+    }
+    if (next.size === 0) {
+      this.stopPriceExpiryTimer();
+    }
+  }
+
+  private extractPricingHttpError(err: unknown): {
+    status: number;
+    message: string;
+    notConfigured: boolean;
+    retryAfterSec?: number;
+  } {
+    if (err instanceof HttpErrorResponse) {
+      const body =
+        err.error && typeof err.error === 'object'
+          ? (err.error as Record<string, unknown>)
+          : null;
+      const code = typeof body?.['code'] === 'string' ? body['code'] : '';
+      const rawMsg =
+        typeof body?.['error'] === 'string'
+          ? body['error']
+          : err.message || 'eBay pricing request failed.';
+      const retryRaw = Number(body?.['retryAfterSec']);
+      return {
+        status: err.status,
+        message: rawMsg,
+        notConfigured: err.status === 503 && code === 'ebay_not_configured',
+        retryAfterSec: Number.isFinite(retryRaw) ? retryRaw : undefined,
+      };
+    }
+    return {
+      status: 0,
+      message:
+        err instanceof Error ? err.message : 'eBay pricing request failed.',
+      notConfigured: false,
+    };
+  }
+
+  protected delayMs(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

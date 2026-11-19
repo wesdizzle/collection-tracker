@@ -11,6 +11,7 @@ import {
   Component,
   OnDestroy,
   computed,
+  inject,
   input,
   output,
   signal,
@@ -31,6 +32,7 @@ import {
   PlatformGroup,
   ViewMode,
 } from '../../../../core/models/collection.models';
+import { CollectionService } from '../../../../core/services/collection.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 @Component({
@@ -48,6 +50,9 @@ import { IconComponent } from '../../../../shared/components/icon/icon.component
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CollectionFiltersComponent implements OnDestroy {
+  private readonly collectionService = inject(CollectionService, {
+    optional: true,
+  });
   private quickSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private seriesDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private tagDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -412,13 +417,22 @@ export class CollectionFiltersComponent implements OnDestroy {
     { value: 'budget_only', label: 'Budget label only' },
   ];
 
-  readonly sortByOptions = [
-    { value: 'default', label: 'Default' },
-    { value: 'release_desc', label: 'Release Date: Newest First' },
-    { value: 'release_asc', label: 'Release Date: Oldest First' },
-    { value: 'retail_asc', label: 'Lowest Retail Price' },
-    { value: 'discount_desc', label: 'Deepest Sale Discount' },
-  ];
+  readonly sortByOptions = computed(() => {
+    const base = [
+      { value: 'default', label: 'Default' },
+      { value: 'release_desc', label: 'Release Date: Newest First' },
+      { value: 'release_asc', label: 'Release Date: Oldest First' },
+      { value: 'retail_asc', label: 'Lowest Retail Price' },
+      { value: 'discount_desc', label: 'Deepest Sale Discount' },
+    ];
+    if (this.collectionService?.canViewMarketPrices?.()) {
+      base.push(
+        { value: 'market_value_desc', label: 'Market Value: High to Low' },
+        { value: 'market_value_asc', label: 'Market Value: Low to High' },
+      );
+    }
+    return base;
+  });
 
   readonly platformAllOption: KitSelectOption<number | undefined> = {
     value: undefined,
@@ -684,7 +698,7 @@ export class CollectionFiltersComponent implements OnDestroy {
 
   getSortByLabel(): string {
     const val = this.filters().sortBy || 'default';
-    const opt = this.sortByOptions.find((o) => o.value === val);
+    const opt = this.sortByOptions().find((o) => o.value === val);
     return opt ? opt.label : 'Default';
   }
 

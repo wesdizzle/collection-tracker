@@ -50,12 +50,19 @@ import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { NavigationHistoryService } from '../../../../core/services/navigation-history.service';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 import { IconName } from '../../../../shared/components/icon/icon.catalog';
+import { ItemMarketPriceComponent } from '../item-market-price/item-market-price.component';
 
 @Component({
   selector: 'app-item-detail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, FormsModule, RouterModule, IconComponent],
+  imports: [
+    DatePipe,
+    FormsModule,
+    RouterModule,
+    IconComponent,
+    ItemMarketPriceComponent,
+  ],
   templateUrl: './item-detail.component.html',
   styleUrls: ['./item-detail.component.css'],
 })

@@ -1,0 +1,227 @@
+@if (collectionService.canViewMarketPrices()) {
+  <section
+    class="ebay-market-section animate-slide-up mb-xl"
+    data-testid="item-market-price-section"
+  >
+    <div class="market-header">
+      <div class="market-title-wrap">
+        <h2 class="market-title">
+          <app-icon name="coins" [size]="20" />
+          <span>Live eBay Market Snapshot</span>
+        </h2>
+        @if (marketPrice(); as price) {
+          <span
+            class="confidence-pill"
+            [class.conf-high]="price.confidence === 'high'"
+            [class.conf-medium]="price.confidence === 'medium'"
+            [class.conf-low]="price.confidence === 'low' || !price.confidence"
+          >
+            {{
+              price.confidence ? price.confidence + ' confidence' : 'No comps'
+            }}
+          </span>
+        }
+      </div>
+
+      <div class="market-actions">
+        <button
+          type="button"
+          class="action-pill-btn"
+          (click)="toggleOverrideEditor()"
+          title="Configure custom eBay search keywords for this item"
+        >
+          <app-icon name="edit" [size]="14" />
+          <span>Custom Query</span>
+        </button>
+
+        @if (!isUnconfigured()) {
+          <button
+            type="button"
+            class="action-pill-btn primary"
+            data-testid="check-live-ebay-btn"
+            [disabled]="loading()"
+            (click)="checkLivePrice(!!marketPrice())"
+          >
+            @if (loading()) {
+              <span>Checking eBay...</span>
+            } @else if (marketPrice()) {
+              <app-icon name="refresh" [size]="14" />
+              <span>Refresh</span>
+            } @else {
+              <app-icon name="zap" [size]="14" />
+              <span>Check Live eBay Price</span>
+            }
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (isUnconfigured()) {
+      <div class="notice-banner muted" data-testid="ebay-unconfigured-notice">
+        <app-icon name="lock" [size]="16" />
+        <span>
+          Live eBay Browse API credentials (<code>EBAY_CLIENT_ID</code> /
+          <code>EBAY_CLIENT_SECRET</code>) are not configured on this worker
+          yet. Valuation will activate automatically once added.
+        </span>
+      </div>
+    }
+
+    @if (errorMessage(); as err) {
+      <div class="notice-banner error">
+        <app-icon name="alert-triangle" [size]="16" />
+        <span>{{ err }}</span>
+      </div>
+    }
+
+    @if (marketPrice(); as price) {
+      <div class="disclosure-row" data-testid="ebay-freshness-disclosure">
+        <app-icon name="clock" [size]="14" />
+        <span>{{ freshnessText() }}</span>
+      </div>
+
+      <div class="tier-grid">
+        <div
+          class="tier-card"
+          [class.active-tier]="
+            (itemType() === 'game' && gameCompletenessMode() === 'loose') ||
+            (itemType() === 'toy' && toyIsOwned())
+          "
+        >
+          <span class="tier-label">Loose</span>
+          <span class="tier-price">{{ formatCents(price.loose_cents) }}</span>
+          <span class="tier-samples">{{ price.loose_sample_size }} comps</span>
+        </div>
+
+        @if (itemType() === 'game') {
+          <div
+            class="tier-card"
+            [class.active-tier]="gameCompletenessMode() === 'cib'"
+          >
+            <span class="tier-label">Complete in Box (CIB)</span>
+            <span class="tier-price">{{ formatCents(price.cib_cents) }}</span>
+            <span class="tier-samples">{{ price.cib_sample_size }} comps</span>
+          </div>
+        }
+
+        <div class="tier-card">
+          <span class="tier-label">New / Sealed</span>
+          <span class="tier-price">{{ formatCents(price.new_cents) }}</span>
+          <span class="tier-samples">{{ price.new_sample_size }} comps</span>
+        </div>
+      </div>
+
+      @if (
+        gameCompletenessMode() === 'boxed' && estimatedValue().cents !== null
+      ) {
+        <div class="boxed-callout" data-testid="boxed-midpoint-callout">
+          <app-icon name="physical-box" [size]="15" />
+          <span>
+            Your copy is <strong>Case Only (No Manual)</strong> — estimated
+            completeness midpoint:
+            <strong>{{ formatCents(estimatedValue().cents) }}</strong>
+          </span>
+        </div>
+      }
+
+      @if (gainLossSummary(); as gl) {
+        <div class="gain-loss-bar" data-testid="ebay-gain-loss">
+          <div class="gl-cell">
+            <span class="gl-label">Purchase Cost</span>
+            <span class="gl-value">{{ formatCents(gl.costBasisCents) }}</span>
+          </div>
+          <div class="gl-cell">
+            <span class="gl-label">Estimated ({{ gl.tierLabel }})</span>
+            <span class="gl-value">{{ formatCents(gl.estimatedCents) }}</span>
+          </div>
+          <div class="gl-cell">
+            <span class="gl-label">Unrealized Gain / Loss</span>
+            <span
+              class="gl-value"
+              [class.gl-positive]="gl.deltaCents > 0"
+              [class.gl-negative]="gl.deltaCents < 0"
+            >
+              {{ formatSignedCents(gl.deltaCents) }}
+              @if (gl.pct !== null) {
+                <span>({{ gl.pct >= 0 ? '+' : '' }}{{ gl.pct }}%)</span>
+              }
+            </span>
+          </div>
+        </div>
+      }
+
+      @if (sampleListings().length > 0) {
+        <div class="sample-listings-wrap">
+          <span class="samples-heading">Live Active eBay Listings</span>
+          <div class="sample-links-list">
+            @for (listing of sampleListings(); track listing.url) {
+              <a
+                class="sample-listing-link"
+                [href]="listing.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span class="sample-cond">{{ listing.condition }}</span>
+                <span class="sample-title">{{ listing.title }}</span>
+                <span class="sample-price">
+                  {{ formatCents(listing.totalCents) }} ↗
+                </span>
+              </a>
+            }
+          </div>
+        </div>
+      }
+    } @else if (!isUnconfigured() && !loading()) {
+      <p class="empty-prompt">
+        No live eBay valuation cached in the last 6 hours. Click
+        <strong>Check Live eBay Price</strong> to fetch current active listings
+        on demand.
+      </p>
+    }
+
+    @if (showOverrideEditor()) {
+      <div class="override-editor" data-testid="ebay-override-editor">
+        <label class="override-label" for="ebay-custom-query-input">
+          Custom eBay Search Keywords (max 160 chars)
+        </label>
+        @if (marketPrice()?.query_used; as qUsed) {
+          <p class="query-hint">
+            Last query used: <code>{{ qUsed }}</code>
+          </p>
+        }
+        <div class="override-controls">
+          <input
+            id="ebay-custom-query-input"
+            type="text"
+            maxlength="160"
+            class="override-input"
+            [ngModel]="overrideDraft()"
+            (ngModelChange)="overrideDraft.set($event)"
+            placeholder="e.g., Chrono Trigger SNES Authentic"
+          />
+          <button
+            type="button"
+            class="action-pill-btn primary"
+            [disabled]="overrideSaving()"
+            (click)="saveCustomOverride(false)"
+          >
+            {{ overrideSaving() ? 'Saving...' : 'Save & Refresh' }}
+          </button>
+          @if (savedOverride()) {
+            <button
+              type="button"
+              class="action-pill-btn"
+              [disabled]="overrideSaving()"
+              (click)="saveCustomOverride(true)"
+            >
+              Clear
+            </button>
+          }
+        </div>
+        @if (overrideFeedback(); as fb) {
+          <p class="override-feedback">{{ fb }}</p>
+        }
+      </div>
+    }
+  </section>
+}

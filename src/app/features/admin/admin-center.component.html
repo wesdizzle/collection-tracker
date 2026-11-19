@@ -29,12 +29,15 @@
     [dailyBudgetPct]="dailyBudgetPct()"
     [backfillProgressPct]="backfillProgressPct()"
     [rollingProgressPct]="rollingProgressPct()"
+    [marketPricingStatus]="marketPricingStatus()"
+    [marketCachePurging]="marketCachePurging()"
     (refresh)="loadPipelineDiagnostics()"
     (togglePause)="togglePipelinePause()"
     (runSeedBatch)="triggerSeedBatchNow()"
     (runBackfillBatch)="triggerBackfillBatchNow()"
     (runRollingRefresh)="triggerRollingRefreshNow()"
     (runSeriesDiscovery)="triggerSeriesDiscoveryNow()"
+    (purgeMarketCache)="purgeMarketPriceCache()"
     (filterChange)="onCronJobFilterChange($event)"
   />
 </div>

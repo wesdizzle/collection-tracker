@@ -66,6 +66,7 @@ const TABLE_HYDRATION_ORDER = [
   'user_game_releases',
   'user_toys',
   'journal_entries',
+  'price_query_overrides',
   'push_subscriptions',
   'sync_state',
   'cron_execution_logs',

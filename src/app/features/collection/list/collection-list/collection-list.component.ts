@@ -879,10 +879,15 @@ export class CollectionListComponent
      * from O(N log N) to O(N).
      */
     const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    const isMarketValueSort =
+      f.sortBy === 'market_value_desc' || f.sortBy === 'market_value_asc';
     const decoratedGames = filteredGamesList.map((g) => ({
       item: g,
       retailPrice: g.retail_price ?? null,
       discountPct: g.retail_discount_pct ?? 0,
+      marketValue: isMarketValueSort
+        ? (this.collectionService.getEstimatedValue?.(g, 'game').cents ?? null)
+        : null,
       platformLaunchDate: g.platform_launch_date || '9999-99-99',
       normBrand: this.normalizeForSort(g.brand || ''),
       normSeries: this.normalizeForSort(g.canonical_series || g.title),
@@ -894,6 +899,19 @@ export class CollectionListComponent
     }));
 
     decoratedGames.sort((a, b) => {
+      // Market Value Sorting (High to Low / Low to High, unpriced always last)
+      if (isMarketValueSort) {
+        if (a.marketValue !== null && b.marketValue !== null) {
+          if (a.marketValue !== b.marketValue) {
+            return f.sortBy === 'market_value_desc'
+              ? b.marketValue - a.marketValue
+              : a.marketValue - b.marketValue;
+          }
+        } else if (a.marketValue !== b.marketValue) {
+          return a.marketValue !== null ? -1 : 1;
+        }
+      }
+
       // Retail Price Sorting (Low to High)
       if (f.sortBy === 'retail_asc') {
         if (a.retailPrice !== null || b.retailPrice !== null) {
@@ -933,6 +951,8 @@ export class CollectionListComponent
       const isBypassPlatformGroupSort =
         f.sortBy === 'retail_asc' ||
         f.sortBy === 'discount_desc' ||
+        f.sortBy === 'market_value_desc' ||
+        f.sortBy === 'market_value_asc' ||
         f.sortBy === 'release_desc' ||
         f.sortBy === 'release_asc';
 
@@ -1061,7 +1081,10 @@ export class CollectionListComponent
     const f = this.filters();
 
     const isPriceSort =
-      f.sortBy === 'retail_asc' || f.sortBy === 'discount_desc';
+      f.sortBy === 'retail_asc' ||
+      f.sortBy === 'discount_desc' ||
+      f.sortBy === 'market_value_desc' ||
+      f.sortBy === 'market_value_asc';
 
     const isReleaseDateSort =
       f.sortBy === 'release_desc' || f.sortBy === 'release_asc';
@@ -1073,9 +1096,13 @@ export class CollectionListComponent
           ? 'Ranked by Lowest Retail Price'
           : f.sortBy === 'discount_desc'
             ? 'Ranked by Biggest Sale %'
-            : f.sortBy === 'release_desc'
-              ? 'Ranked by Release Date (Newest First)'
-              : 'Ranked by Release Date (Oldest First)';
+            : f.sortBy === 'market_value_desc'
+              ? 'Sorted by Market Value (High to Low)'
+              : f.sortBy === 'market_value_asc'
+                ? 'Sorted by Market Value (Low to High)'
+                : f.sortBy === 'release_desc'
+                  ? 'Ranked by Release Date (Newest First)'
+                  : 'Ranked by Release Date (Oldest First)';
       const headerTitle = f.platform_id
         ? `${displayed[0]?.display_name || displayed[0]?.platform || 'Platform'} (${sortLabel})`
         : `All Platforms (${sortLabel})`;
@@ -1251,10 +1278,15 @@ export class CollectionListComponent
      * Precomputing line, series name, toy name, and type orders reduces string normalization
      * overhead during sorting across hundreds of toys.
      */
+    const isMarketValueSort =
+      f.sortBy === 'market_value_desc' || f.sortBy === 'market_value_asc';
     const decoratedToys = filteredToysList.map((toy) => ({
       item: toy,
       retailPrice: toy.retail_price ?? null,
       discountPct: toy.retail_discount_pct ?? 0,
+      marketValue: isMarketValueSort
+        ? (this.collectionService.getEstimatedValue?.(toy, 'toy').cents ?? null)
+        : null,
       normLine: this.normalizeForSort(toy.line),
       seriesIndex: toy.series_index ?? 9999,
       normSeries: this.normalizeForSort(toy.series_name || ''),
@@ -1266,6 +1298,19 @@ export class CollectionListComponent
     }));
 
     decoratedToys.sort((a, b) => {
+      // Market Value Sorting (High to Low / Low to High, unpriced always last)
+      if (isMarketValueSort) {
+        if (a.marketValue !== null && b.marketValue !== null) {
+          if (a.marketValue !== b.marketValue) {
+            return f.sortBy === 'market_value_desc'
+              ? b.marketValue - a.marketValue
+              : a.marketValue - b.marketValue;
+          }
+        } else if (a.marketValue !== b.marketValue) {
+          return a.marketValue !== null ? -1 : 1;
+        }
+      }
+
       // Retail Price Sorting (Low to High)
       if (f.sortBy === 'retail_asc') {
         if (a.retailPrice !== null || b.retailPrice !== null) {
@@ -1304,6 +1349,8 @@ export class CollectionListComponent
       const isBypassLineGroupSort =
         f.sortBy === 'retail_asc' ||
         f.sortBy === 'discount_desc' ||
+        f.sortBy === 'market_value_desc' ||
+        f.sortBy === 'market_value_asc' ||
         f.sortBy === 'release_desc' ||
         f.sortBy === 'release_asc';
 
@@ -1373,6 +1420,8 @@ export class CollectionListComponent
     const isFlatSort =
       f.sortBy === 'retail_asc' ||
       f.sortBy === 'discount_desc' ||
+      f.sortBy === 'market_value_desc' ||
+      f.sortBy === 'market_value_asc' ||
       f.sortBy === 'release_desc' ||
       f.sortBy === 'release_asc';
 
@@ -1382,9 +1431,13 @@ export class CollectionListComponent
           ? 'Ranked by Lowest Retail Price'
           : f.sortBy === 'discount_desc'
             ? 'Ranked by Biggest Sale %'
-            : f.sortBy === 'release_desc'
-              ? 'Ranked by Release Date (Newest First)'
-              : 'Ranked by Release Date (Oldest First)';
+            : f.sortBy === 'market_value_desc'
+              ? 'Sorted by Market Value (High to Low)'
+              : f.sortBy === 'market_value_asc'
+                ? 'Sorted by Market Value (Low to High)'
+                : f.sortBy === 'release_desc'
+                  ? 'Ranked by Release Date (Newest First)'
+                  : 'Ranked by Release Date (Oldest First)';
       const lineTitle = f.line
         ? `${f.line} (${sortLabel})`
         : `All Lines (${sortLabel})`;
@@ -1719,6 +1772,8 @@ export class CollectionListComponent
         'default',
         'retail_asc',
         'discount_desc',
+        'market_value_desc',
+        'market_value_asc',
         'release_desc',
         'release_asc',
       ]);

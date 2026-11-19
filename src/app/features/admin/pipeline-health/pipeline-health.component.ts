@@ -7,6 +7,7 @@ import {
 import {
   CatalogSeedStatus,
   CronExecutionLogEntry,
+  MarketPricingRateLimitStatus,
 } from '../../../core/models/collection.models';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 
@@ -34,6 +35,10 @@ export class PipelineHealthComponent {
   readonly dailyBudgetPct = input<number>(0);
   readonly backfillProgressPct = input<number>(0);
   readonly rollingProgressPct = input<number>(0);
+  readonly marketPricingStatus = input<MarketPricingRateLimitStatus | null>(
+    null,
+  );
+  readonly marketCachePurging = input<boolean>(false);
 
   readonly refresh = output<void>();
   readonly togglePause = output<void>();
@@ -41,5 +46,6 @@ export class PipelineHealthComponent {
   readonly runBackfillBatch = output<void>();
   readonly runRollingRefresh = output<void>();
   readonly runSeriesDiscovery = output<void>();
+  readonly purgeMarketCache = output<void>();
   readonly filterChange = output<Event>();
 }
