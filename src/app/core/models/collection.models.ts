@@ -204,12 +204,16 @@ export interface ToySeriesGroup {
   seriesName: string;
   toys: Toy[];
   totalCount: number;
+  catalogCount?: number;
+  completionPct?: number;
 }
 
 export interface ToyGroup {
   lineName: string;
   seriesGroups: ToySeriesGroup[];
   totalCount: number;
+  catalogCount?: number;
+  completionPct?: number;
 }
 
 export interface Platform {

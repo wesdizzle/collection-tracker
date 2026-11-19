@@ -3362,4 +3362,338 @@ describe('CollectionListComponent', () => {
     expect(component.showActivePlayShelf()).toBe(false);
     expect(el.querySelector('[data-testid="active-play-shelf"]')).toBeNull();
   });
+
+  it('renders platform completion, CIB, and backup micro-pills on Owned Games and guards partial catalog & public view', async () => {
+    const cs = TestBed.inject(CollectionService);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    cs.setAdminForTesting(true);
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'gc-1',
+        game_id: 'gc-1',
+        title: 'Metroid Prime',
+        platform: 'GameCube',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        release_medium: 'optical_disc',
+        backup_status: 1,
+      },
+      {
+        stable_id: 2,
+        id: 'gc-2',
+        game_id: 'gc-2',
+        title: 'Wind Waker',
+        platform: 'GameCube',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 0,
+        has_case: 1,
+        has_manual: 0,
+        release_medium: 'optical_disc',
+        backup_status: 0,
+      },
+      {
+        stable_id: 3,
+        id: 'gc-3',
+        game_id: 'gc-3',
+        title: 'Luigi Mansion',
+        platform: 'GameCube',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 0,
+        play_status: 0,
+      },
+      {
+        stable_id: 4,
+        id: 'gc-4',
+        game_id: 'gc-4',
+        title: 'Digital Arcade Title',
+        platform: 'GameCube',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 0,
+        has_case: 0,
+        has_manual: 0,
+        release_medium: 'digital_native',
+        backup_status: 0,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([
+      {
+        id: 1,
+        name: 'GameCube',
+        display_name: 'GameCube',
+        brand: 'Nintendo',
+        launch_date: '2001-09-14',
+        image_url: '',
+      },
+    ]);
+    await initPromise;
+    httpMock.expectOne('/api/journal/entries').flush({
+      authorized: true,
+      entries: [],
+    });
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(
+      el
+        .querySelector('.platform-badge')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    ).toBe('3 / 4 (75%)');
+    expect(
+      el
+        .querySelector('[data-testid="platform-cib-pill"]')
+        ?.textContent?.trim(),
+    ).toBe('1 CIB');
+    expect(
+      el
+        .querySelector('[data-testid="platform-backup-pill"]')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    ).toBe('1/2 Backed Up');
+
+    // Partial catalog hides X / Y (%) and falls back to N Items
+    vi.spyOn(cs, 'catalogIsPartial').mockReturnValue(true);
+    component.onFiltersChange({ ...component.filters(), regions: ['USA'] });
+    fixture.detectChanges();
+    expect(
+      el
+        .querySelector('.platform-badge')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    ).toBe('3 Items');
+
+    // Public view hides Backed Up micro-pill
+    cs.setPublicView(true, {
+      username: 'alice',
+      displayName: 'Alice',
+      bio: null,
+      homeRegion: 'USA',
+    });
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="platform-backup-pill"]')).toBeNull();
+  });
+
+  it('renders toy line and series completion badges when unowned catalog entries exist', async () => {
+    const httpMock = TestBed.inject(HttpTestingController);
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush([]);
+    httpMock.expectOne('/api/toys').flush([
+      {
+        stable_id: 101,
+        id: 'toy-1',
+        name: 'Mario',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Smash Bros',
+        series_line: 'Amiibo',
+        ownership_status: 1,
+      },
+      {
+        stable_id: 102,
+        id: 'toy-2',
+        name: 'Link',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Smash Bros',
+        series_line: 'Amiibo',
+        ownership_status: 1,
+      },
+      {
+        stable_id: 103,
+        id: 'toy-3',
+        name: 'Samus',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Smash Bros',
+        series_line: 'Amiibo',
+        ownership_status: 0,
+      },
+      {
+        stable_id: 104,
+        id: 'toy-4',
+        name: 'Guardian',
+        line: 'Amiibo',
+        type: 'Figure',
+        series_name: 'Zelda',
+        series_line: 'Amiibo',
+        ownership_status: 1,
+      },
+    ]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    await initPromise;
+    component.currentTab.set('toys');
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(
+      el
+        .querySelector('.platform-badge')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    ).toBe('3 / 4 (75%)');
+    const seriesBadges = Array.from(el.querySelectorAll('.series-badge')).map(
+      (n) => n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+    expect(seriesBadges).toContain('2 / 3 (67%)');
+    expect(seriesBadges).toContain('1 Items');
+  });
+
+  it('renders filtered spend/value summary strip in personal view and hides it in public view', async () => {
+    const cs = TestBed.inject(CollectionService);
+    const httpMock = TestBed.inject(HttpTestingController);
+
+    cs.setAdminForTesting(true);
+    const initPromise = component.ngOnInit();
+    httpMock.expectOne('/api/games').flush([
+      {
+        stable_id: 1,
+        id: 'alpha-game',
+        game_id: 'alpha-game',
+        title: 'Alpha Quest',
+        platform: 'Switch',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 1,
+        has_case: 1,
+        has_manual: 1,
+        backup_status: 1,
+      },
+      {
+        stable_id: 2,
+        id: 'beta-game',
+        game_id: 'beta-game',
+        title: 'Beta Racer',
+        platform: 'Switch',
+        platform_id: 1,
+        region: 'USA',
+        ownership_status: 1,
+        play_status: 0,
+        has_case: 0,
+        has_manual: 0,
+        backup_status: 0,
+      },
+    ]);
+    httpMock.expectOne('/api/toys').flush([]);
+    httpMock.expectOne('/api/platforms').flush([]);
+    await initPromise;
+    httpMock.expectOne('/api/journal/entries').flush({
+      authorized: true,
+      entries: [
+        {
+          id: 1,
+          item_type: 'game',
+          item_id: 'alpha-game',
+          purchase_date: '2024-01-01',
+          is_approximate_date: 0,
+          price_paid: 50,
+          merchant: 'Local Store',
+          gifted_by: null,
+          receipt_url: null,
+          notes: null,
+        },
+        {
+          id: 2,
+          item_type: 'game',
+          item_id: 'beta-game',
+          purchase_date: '2024-02-01',
+          is_approximate_date: 0,
+          price_paid: 20,
+          merchant: 'eBay',
+          gifted_by: null,
+          receipt_url: null,
+          notes: null,
+        },
+      ],
+    });
+
+    const nowIso = new Date().toISOString();
+    const expIso = new Date(Date.now() + 3600_000).toISOString();
+    const syncPromise = cs.syncCachedMarketPrices(false);
+    httpMock.expectOne('/api/prices/cached').flush({
+      configured: true,
+      prices: {
+        'game:alpha-game': {
+          item_type: 'game',
+          item_id: 'alpha-game',
+          loose_cents: 6000,
+          cib_cents: 8000,
+          new_cents: null,
+          loose_sample_size: 3,
+          cib_sample_size: 4,
+          new_sample_size: 0,
+          confidence: 'high',
+          source: 'ebay_browse',
+          fetched_at: nowIso,
+          expires_at: expIso,
+          query_used: 'Alpha Quest Switch',
+          sample_listings: { loose: [], cib: [], new: [] },
+        },
+        'game:beta-game': {
+          item_type: 'game',
+          item_id: 'beta-game',
+          loose_cents: 1500,
+          cib_cents: 2500,
+          new_cents: null,
+          loose_sample_size: 3,
+          cib_sample_size: 2,
+          new_sample_size: 0,
+          confidence: 'medium',
+          source: 'ebay_browse',
+          fetched_at: nowIso,
+          expires_at: expIso,
+          query_used: 'Beta Racer Switch',
+          sample_listings: { loose: [], cib: [], new: [] },
+        },
+      },
+    });
+    await syncPromise;
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const strip = el.querySelector(
+      '[data-testid="filtered-financial-summary"]',
+    );
+    expect(strip).toBeTruthy();
+    expect(strip?.textContent).toContain('2 shown');
+    expect(strip?.textContent).toContain('$70.00');
+    expect(strip?.textContent).toContain('$95.00');
+    expect(strip?.textContent).toContain('+$25.00');
+
+    // Narrow filter updates financial strip to filtered subset
+    component.onFiltersChange({ ...component.filters(), name: 'Alpha' });
+    fixture.detectChanges();
+    const updatedStrip = el.querySelector(
+      '[data-testid="filtered-financial-summary"]',
+    );
+    expect(updatedStrip?.textContent).toContain('1 shown');
+    expect(updatedStrip?.textContent).toContain('$50.00');
+    expect(updatedStrip?.textContent).toContain('$80.00');
+    expect(updatedStrip?.textContent).toContain('+$30.00');
+
+    // Public view never renders filtered financial strip
+    cs.setPublicView(true, {
+      username: 'alice',
+      displayName: 'Alice',
+      bio: null,
+      homeRegion: 'USA',
+    });
+    fixture.detectChanges();
+    expect(
+      el.querySelector('[data-testid="filtered-financial-summary"]'),
+    ).toBeNull();
+  });
 });

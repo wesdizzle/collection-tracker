@@ -34,6 +34,46 @@
   >
   </app-collection-filters>
 
+  @if (filteredFinancialSummary(); as summary) {
+    <div
+      class="filtered-financial-strip"
+      data-testid="filtered-financial-summary"
+    >
+      <span class="financial-chip financial-chip-count">
+        <strong>{{ summary.itemCount }}</strong> shown
+      </span>
+      @if (summary.paidCount > 0) {
+        <span class="financial-chip" data-testid="filtered-spend-chip">
+          <span class="financial-label">Tracked Spend</span>
+          <strong class="financial-value">{{
+            formatCurrencyDollars(summary.totalSpendDollars)
+          }}</strong>
+          <span class="financial-sub">({{ summary.paidCount }} logged)</span>
+        </span>
+      }
+      @if (summary.pricedCount > 0) {
+        <span class="financial-chip" data-testid="filtered-value-chip">
+          <span class="financial-label">Est. Value</span>
+          <strong class="financial-value">{{
+            formatCurrencyCents(summary.totalEstimatedCents)
+          }}</strong>
+          <span class="financial-sub">({{ summary.pricedCount }} priced)</span>
+        </span>
+      }
+      @if (summary.matchedCount > 0) {
+        <span class="financial-chip" data-testid="filtered-delta-chip">
+          <span class="financial-label">Delta</span>
+          <strong
+            class="financial-value"
+            [class.delta-positive]="summary.matchedDeltaCents > 0"
+            [class.delta-negative]="summary.matchedDeltaCents < 0"
+            >{{ formatSignedCurrencyCents(summary.matchedDeltaCents) }}</strong
+          >
+        </span>
+      }
+    </div>
+  }
+
   @if (showActivePlayShelf()) {
     <app-active-play-shelf
       [playingGames]="activePlayingGames()"
@@ -65,7 +105,42 @@
                   <span class="platform-year">{{ group.launchYear }}</span>
                 }
               </h2>
-              <div class="platform-badge">{{ group.totalCount }} Items</div>
+              <div class="platform-meta-pills">
+                <div class="platform-badge">
+                  @if (
+                    !group.isFlatSort &&
+                    group.catalogCount &&
+                    group.catalogCount > group.totalCount
+                  ) {
+                    {{ group.totalCount }} / {{ group.catalogCount }} ({{
+                      group.completionPct
+                    }}%)
+                  } @else {
+                    {{ group.totalCount }} Items
+                  }
+                </div>
+                @if (!group.isFlatSort && (group.cibCount ?? 0) > 0) {
+                  <span
+                    class="platform-meta-pill"
+                    data-testid="platform-cib-pill"
+                  >
+                    {{ group.cibCount }} CIB
+                  </span>
+                }
+                @if (
+                  !group.isFlatSort &&
+                  !collectionService.isPublicView() &&
+                  (group.physicalCount ?? 0) > 0
+                ) {
+                  <span
+                    class="platform-meta-pill"
+                    data-testid="platform-backup-pill"
+                  >
+                    {{ group.backedUpCount ?? 0 }}/{{ group.physicalCount }}
+                    Backed Up
+                  </span>
+                }
+              </div>
             </div>
           </header>
 
@@ -125,7 +200,17 @@
               <h2 class="platform-title uppercase letter-spacing-wide">
                 {{ group.lineName }}
               </h2>
-              <div class="platform-badge">{{ group.totalCount }} Items</div>
+              <div class="platform-badge">
+                @if (
+                  group.catalogCount && group.catalogCount > group.totalCount
+                ) {
+                  {{ group.totalCount }} / {{ group.catalogCount }} ({{
+                    group.completionPct
+                  }}%)
+                } @else {
+                  {{ group.totalCount }} Items
+                }
+              </div>
             </div>
           </header>
 
@@ -133,7 +218,18 @@
             <div class="series-section mb-lg">
               <header class="series-header">
                 <h3 class="series-title">{{ series.seriesName }}</h3>
-                <div class="series-badge">{{ series.totalCount }} Items</div>
+                <div class="series-badge">
+                  @if (
+                    series.catalogCount &&
+                    series.catalogCount > series.totalCount
+                  ) {
+                    {{ series.totalCount }} / {{ series.catalogCount }} ({{
+                      series.completionPct
+                    }}%)
+                  } @else {
+                    {{ series.totalCount }} Items
+                  }
+                </div>
               </header>
               @if (viewMode() === 'grid') {
                 <div class="grid">

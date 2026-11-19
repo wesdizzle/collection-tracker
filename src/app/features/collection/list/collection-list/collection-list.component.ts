@@ -69,6 +69,7 @@ import {
   matchesProvenanceFilters,
   parseJournalDate,
 } from '../../../../core/models/provenance-analytics';
+import { isPhysicalReleaseGame } from '../../../../core/models/insights-analytics';
 import {
   COMPANION_DISC1_PAIRS,
   CompanionDiscPair,
@@ -87,6 +88,12 @@ interface GameGroup {
   launchYear?: string;
   games: Game[];
   totalCount: number;
+  isFlatSort?: boolean;
+  catalogCount?: number;
+  completionPct?: number;
+  cibCount?: number;
+  physicalCount?: number;
+  backedUpCount?: number;
 }
 
 @Component({
@@ -438,6 +445,102 @@ export class CollectionListComponent
         this.activeQueuedGames().length > 0)
     );
   });
+
+  private readonly usdFormatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  });
+
+  public readonly filteredFinancialSummary = computed<{
+    itemCount: number;
+    paidCount: number;
+    totalSpendDollars: number;
+    pricedCount: number;
+    totalEstimatedCents: number;
+    matchedCount: number;
+    matchedDeltaCents: number;
+  } | null>(() => {
+    if (this.collectionService.canShowPersonalState?.() !== true) {
+      return null;
+    }
+
+    const tab = this.currentTab();
+    const journalMap =
+      this.collectionService.journalEntriesMap?.() ?? new Map();
+    const canPrice = this.collectionService.canViewMarketPrices?.() === true;
+    const rawItems =
+      tab === 'games' ? this.filteredGames() : this.filteredToys();
+    const itemCount = rawItems.length;
+    if (itemCount === 0) {
+      return null;
+    }
+
+    let paidCount = 0;
+    let totalSpendDollars = 0;
+    let pricedCount = 0;
+    let totalEstimatedCents = 0;
+    let matchedCount = 0;
+    let matchedDeltaCents = 0;
+
+    for (const item of rawItems) {
+      const jEntry =
+        tab === 'games'
+          ? findGameJournalEntry(item as Game, journalMap)
+          : findToyJournalEntry(item as Toy, journalMap);
+      const paidDollars = getJournalPricePaidNumber(jEntry);
+      if (paidDollars !== null) {
+        paidCount++;
+        totalSpendDollars += paidDollars;
+      }
+      const estCents = canPrice
+        ? (this.collectionService.getEstimatedValue?.(
+            item,
+            tab === 'games' ? 'game' : 'toy',
+          )?.cents ?? null)
+        : null;
+      if (estCents !== null) {
+        pricedCount++;
+        totalEstimatedCents += estCents;
+      }
+      if (paidDollars !== null && estCents !== null) {
+        matchedCount++;
+        matchedDeltaCents += estCents - Math.round(paidDollars * 100);
+      }
+    }
+
+    if (paidCount === 0 && pricedCount === 0) {
+      return null;
+    }
+
+    return {
+      itemCount,
+      paidCount,
+      totalSpendDollars,
+      pricedCount,
+      totalEstimatedCents,
+      matchedCount,
+      matchedDeltaCents,
+    };
+  });
+
+  public formatCurrencyDollars(dollars: number): string {
+    return this.usdFormatter.format(dollars);
+  }
+
+  public formatCurrencyCents(cents: number): string {
+    return this.usdFormatter.format(cents / 100);
+  }
+
+  public formatSignedCurrencyCents(cents: number): string {
+    if (cents > 0) {
+      return `+${this.usdFormatter.format(cents / 100)}`;
+    }
+    if (cents < 0) {
+      return `−${this.usdFormatter.format(Math.abs(cents) / 100)}`;
+    }
+    return this.usdFormatter.format(0);
+  }
 
   public readonly effectiveSortBy = computed<
     NonNullable<FilterState['sortBy']>
@@ -1430,15 +1533,42 @@ export class CollectionListComponent
           platformLogo: f.platform_id ? displayed[0]?.platform_logo : null,
           games: displayed,
           totalCount: allFiltered.length,
+          isFlatSort: true,
         },
       ];
     }
 
-    // 1. Calculate total counts per platform from ALL filtered games
+    // 1. Calculate total counts and owned completion stats per platform from ALL filtered games
     const counts = new Map<string, number>();
+    const showOwnedStats = f.ownership === OwnershipStatus.Owned;
+    const cibCounts = new Map<string, number>();
+    const physicalCounts = new Map<string, number>();
+    const backedUpCounts = new Map<string, number>();
+
     for (const g of allFiltered) {
       const p = g.display_name || g.platform;
       counts.set(p, (counts.get(p) || 0) + 1);
+      if (showOwnedStats) {
+        if (g.has_case && g.has_manual) {
+          cibCounts.set(p, (cibCounts.get(p) || 0) + 1);
+        }
+        if (isPhysicalReleaseGame(g)) {
+          physicalCounts.set(p, (physicalCounts.get(p) || 0) + 1);
+          if (g.backup_status) {
+            backedUpCounts.set(p, (backedUpCounts.get(p) || 0) + 1);
+          }
+        }
+      }
+    }
+
+    let catalogCounts: Map<string, number> | null = null;
+    if (showOwnedStats && !this.collectionService.catalogIsPartial?.()) {
+      catalogCounts = new Map<string, number>();
+      for (const cg of this.discMergedGames()) {
+        if (cg.bundle_parent_id) continue;
+        const cp = cg.display_name || cg.platform;
+        catalogCounts.set(cp, (catalogCounts.get(cp) || 0) + 1);
+      }
     }
 
     // 2. Build groups from DISPLAYED games
@@ -1449,6 +1579,12 @@ export class CollectionListComponent
       const p = game.display_name || game.platform;
       let group = groupMap.get(p);
       if (!group) {
+        const totalCount = counts.get(p) || 0;
+        const catalogCount = catalogCounts?.get(p);
+        const completionPct =
+          catalogCount && catalogCount > 0
+            ? Math.round((totalCount / catalogCount) * 100)
+            : undefined;
         group = {
           platformName: p,
           platformLogo: game.platform_logo,
@@ -1471,7 +1607,17 @@ export class CollectionListComponent
               })()
             : undefined,
           games: [],
-          totalCount: counts.get(p) || 0,
+          totalCount,
+          ...(showOwnedStats
+            ? {
+                catalogCount:
+                  catalogCount && catalogCount > 0 ? catalogCount : undefined,
+                completionPct,
+                cibCount: cibCounts.get(p) || 0,
+                physicalCount: physicalCounts.get(p) || 0,
+                backedUpCount: backedUpCounts.get(p) || 0,
+              }
+            : {}),
         };
         groups.push(group);
         groupMap.set(p, group);
@@ -1856,6 +2002,7 @@ export class CollectionListComponent
     // 1. Get total counts per line and per series from ALL filtered toys
     const lineCounts = new Map<string, number>();
     const seriesCounts = new Map<string, Map<string, number>>();
+    const showOwnedStats = f.ownership === OwnershipStatus.Owned;
 
     for (const toy of allFiltered) {
       const line = toy.line || 'Unknown';
@@ -1868,6 +2015,23 @@ export class CollectionListComponent
       sMap.set(series, (sMap.get(series) || 0) + 1);
     }
 
+    let lineCatalogCounts: Map<string, number> | null = null;
+    let seriesCatalogCounts: Map<string, Map<string, number>> | null = null;
+    if (showOwnedStats) {
+      lineCatalogCounts = new Map<string, number>();
+      seriesCatalogCounts = new Map<string, Map<string, number>>();
+      for (const toy of this.collectionService.toys()) {
+        const line = toy.line || 'Unknown';
+        const series = toy.series_name || 'No Series';
+        lineCatalogCounts.set(line, (lineCatalogCounts.get(line) || 0) + 1);
+        if (!seriesCatalogCounts.has(line)) {
+          seriesCatalogCounts.set(line, new Map());
+        }
+        const sMap = seriesCatalogCounts.get(line)!;
+        sMap.set(series, (sMap.get(series) || 0) + 1);
+      }
+    }
+
     // 2. Build nested groups from DISPLAYED toys
     const groups: ToyGroup[] = [];
     const lineMap = new Map<string, ToyGroup>();
@@ -1878,10 +2042,18 @@ export class CollectionListComponent
 
       let lineGroup = lineMap.get(lineName);
       if (!lineGroup) {
+        const totalCount = lineCounts.get(lineName) || 0;
+        const catalogCount = lineCatalogCounts?.get(lineName);
         lineGroup = {
           lineName,
           seriesGroups: [],
-          totalCount: lineCounts.get(lineName) || 0,
+          totalCount,
+          ...(catalogCount && catalogCount > 0
+            ? {
+                catalogCount,
+                completionPct: Math.round((totalCount / catalogCount) * 100),
+              }
+            : {}),
         };
         groups.push(lineGroup);
         lineMap.set(lineName, lineGroup);
@@ -1891,10 +2063,20 @@ export class CollectionListComponent
         (sg) => sg.seriesName === seriesName,
       );
       if (!seriesGroup) {
+        const totalCount = seriesCounts.get(lineName)?.get(seriesName) || 0;
+        const catalogCount = seriesCatalogCounts
+          ?.get(lineName)
+          ?.get(seriesName);
         seriesGroup = {
           seriesName,
           toys: [],
-          totalCount: seriesCounts.get(lineName)?.get(seriesName) || 0,
+          totalCount,
+          ...(catalogCount && catalogCount > 0
+            ? {
+                catalogCount,
+                completionPct: Math.round((totalCount / catalogCount) * 100),
+              }
+            : {}),
         };
         lineGroup.seriesGroups.push(seriesGroup);
       }

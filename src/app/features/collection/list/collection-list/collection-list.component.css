@@ -94,6 +94,83 @@
   flex-shrink: 0;
 }
 
+.platform-meta-pills {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.platform-meta-pill {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--m3-on-surface-variant);
+  background: var(--m3-surface-container-highest);
+  border: 1px solid var(--m3-outline-variant);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.filtered-financial-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+  margin-bottom: 1rem;
+  padding: 0.55rem 0.9rem;
+  background: var(--m3-surface-container);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  color: var(--m3-on-surface-variant);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.financial-chip {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.financial-chip-count {
+  padding-right: 0.5rem;
+  border-right: 1px solid var(--m3-outline-variant);
+}
+
+.financial-label {
+  font-weight: 500;
+  color: var(--m3-on-surface-variant);
+}
+
+.financial-value {
+  font-weight: 700;
+  color: var(--m3-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.financial-sub {
+  font-size: 0.74rem;
+  color: var(--m3-on-surface-variant);
+  opacity: 0.85;
+}
+
+.financial-value.delta-positive {
+  color: var(--m3-primary);
+}
+
+.financial-value.delta-negative {
+  color: var(--m3-error);
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -107,6 +184,17 @@
     padding: 0.625rem 0.875rem;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+  .platform-meta-pills {
+    justify-content: flex-start;
+  }
+  .filtered-financial-strip {
+    padding: 0.5rem 0.75rem;
+    gap: 0.4rem 0.75rem;
+  }
+  .financial-chip-count {
+    border-right: none;
+    padding-right: 0;
   }
   .platform-title {
     font-size: 1rem;
