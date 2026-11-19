@@ -8086,6 +8086,7 @@ Disallow: /
         await env.DB.prepare('UPDATE toys SET sort_index = ? WHERE id = ?')
           .bind(sort_index, id)
           .run();
+        await invalidateToysCatalogChunk(env);
       }
 
       await invalidateEdgeApiCache(request.url, {

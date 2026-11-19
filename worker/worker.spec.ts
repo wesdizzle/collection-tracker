@@ -426,6 +426,32 @@ describe('Worker API Logic', () => {
     expect(updatedGame.sort_index).toBe(42);
   });
 
+  it('POST /api/collection/sort updates toy sort_index and invalidates R2 toys catalog chunk', async () => {
+    mockBucket.storage.set(
+      R2_CATALOG_TOYS_CHUNK_KEY,
+      JSON.stringify([{ id: 'link-amiibo', sort_index: 0 }]),
+    );
+
+    const req = new Request('http://localhost/api/collection/sort', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: 'link-amiibo',
+        type: 'toy',
+        sort_index: 15,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await worker.fetch(req, mockEnv);
+    expect(res.status).toBe(200);
+
+    const updatedToy = db
+      .prepare('SELECT sort_index FROM toys WHERE id = ?')
+      .get('link-amiibo') as { sort_index: number };
+    expect(updatedToy.sort_index).toBe(15);
+    expect(mockBucket.storage.has(R2_CATALOG_TOYS_CHUNK_KEY)).toBe(false);
+  });
+
   it('performScheduledBackup dumps tables, deduplicates unchanged SHA-256 via head(), and saves daily snapshot to R2', async () => {
     // Non-daily call updates latest.json and lite fallback snapshots
     const nonDailyRes = await performScheduledBackup(mockEnv, false);
