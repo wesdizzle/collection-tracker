@@ -2,6 +2,8 @@
   display: block;
   position: relative;
   z-index: 20;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .deals-icon {
@@ -49,26 +51,35 @@
   align-items: center;
   gap: var(--spacing-8);
   flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .price-range-group {
   min-width: 190px;
+  max-width: 100%;
 }
 
 .price-range-inputs {
   display: flex;
   align-items: center;
   gap: var(--spacing-6);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .price-range-input {
   width: 92px !important;
+  min-width: 0;
+  max-width: 100%;
   padding: 0 0.65rem !important;
 }
 
 .price-range-sep {
   color: var(--m3-on-surface-variant);
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .acquired-period-pill {
@@ -76,16 +87,40 @@
   color: var(--m3-on-primary-container) !important;
   border-color: var(--m3-primary) !important;
   box-shadow: none !important;
+  max-width: 100%;
+  min-width: 0;
 }
 
-@media (max-width: 480px) {
-  .deals-toggle-btn {
-    width: 100%;
-    justify-content: center;
+@media (max-width: 768px) {
+  .price-range-group {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 calc(50% - 8px);
   }
 
   .price-range-input {
     flex: 1 1 0;
-    width: auto !important;
+    min-width: 0;
+    width: 0 !important;
+  }
+
+  .secondary-actions-group {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .price-range-group,
+  .acquired-period-pill-group {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .deals-toggle-btn {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    justify-content: center;
   }
 }

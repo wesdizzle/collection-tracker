@@ -144,6 +144,7 @@ import { ProfileModalComponent } from '../../../profile/profile-modal.component'
       .content-area {
         flex: 1;
         width: 100%;
+        min-width: 0;
       }
 
       .main-footer {
