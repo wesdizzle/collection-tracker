@@ -1,6 +1,7 @@
 import '../../../test-setup';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { AdminCenterComponent } from './admin-center.component';
 import { CollectionService } from '../../core/services/collection.service';
@@ -112,6 +113,7 @@ describe('AdminCenterComponent', () => {
     await TestBed.configureTestingModule({
       imports: [AdminCenterComponent],
       providers: [
+        provideRouter([]),
         { provide: CollectionService, useValue: mockCollectionService },
       ],
     }).compileComponents();
@@ -135,6 +137,11 @@ describe('AdminCenterComponent', () => {
     expect(el.textContent).toContain('Admin Center');
     expect(el.textContent).toContain('Watched-Series IGDB Discovery');
     expect(el.textContent).toContain('Scanned 10 watched series');
+    const verifyLink = el.querySelector(
+      '[data-testid="admin-verify-ownership-link"]',
+    ) as HTMLAnchorElement | null;
+    expect(verifyLink).toBeTruthy();
+    expect(verifyLink?.getAttribute('href')).toBe('/admin/verify-ownership');
   });
 
   it('filters cron execution logs by job name including watched_series_discovery', () => {

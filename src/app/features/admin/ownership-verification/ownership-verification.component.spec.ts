@@ -3,9 +3,9 @@ import { provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { of } from 'rxjs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BackupScannerComponent } from './backup-scanner.component';
+import { OwnershipVerificationComponent } from './ownership-verification.component';
 import { CollectionService } from '../../../core/services/collection.service';
-import { BackupScannerService } from '../../../core/services/backup-scanner.service';
+import { OwnershipVerificationService } from '../../../core/services/ownership-verification.service';
 import {
   Game,
   OwnershipStatus,
@@ -13,10 +13,12 @@ import {
   Platform,
 } from '../../../core/models/collection.models';
 
-describe('BackupScannerComponent', () => {
-  let component: BackupScannerComponent;
-  let fixture: ComponentFixture<BackupScannerComponent>;
+describe('OwnershipVerificationComponent', () => {
+  let component: OwnershipVerificationComponent;
+  let fixture: ComponentFixture<OwnershipVerificationComponent>;
   let applyDiffSpy: ReturnType<typeof vi.fn>;
+  let updateProfileSpy: ReturnType<typeof vi.fn>;
+  let mockTrackIndividualMedia: ReturnType<typeof signal<boolean>>;
 
   const mockGames = signal<Game[]>([
     {
@@ -34,7 +36,7 @@ describe('BackupScannerComponent', () => {
       rom_name: 'Super Mario World (USA).sfc',
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Played,
-      backup_status: 0,
+      has_media: 0,
       has_case: 1,
       has_manual: 1,
     },
@@ -54,7 +56,7 @@ describe('BackupScannerComponent', () => {
       rom_name: 'Super Mario World (USA) (Rev 1).sfc',
       ownership_status: OwnershipStatus.Unowned,
       play_status: PlayStatus.Played,
-      backup_status: 0,
+      has_media: 0,
       has_case: 0,
       has_manual: 0,
     },
@@ -73,7 +75,7 @@ describe('BackupScannerComponent', () => {
       rom_name: 'Chrono Trigger (USA).sfc',
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Played,
-      backup_status: 1,
+      has_media: 1,
     },
     {
       stable_id: 102,
@@ -90,7 +92,7 @@ describe('BackupScannerComponent', () => {
       rom_name: 'Chrono Trigger (Japan).sfc',
       ownership_status: OwnershipStatus.Unowned,
       play_status: PlayStatus.Played,
-      backup_status: 0,
+      has_media: 0,
     },
   ]);
 
@@ -106,6 +108,7 @@ describe('BackupScannerComponent', () => {
   ]);
 
   beforeEach(async () => {
+    mockTrackIndividualMedia = signal<boolean>(false);
     applyDiffSpy = vi.fn().mockReturnValue(
       of({
         success: true,
@@ -114,32 +117,42 @@ describe('BackupScannerComponent', () => {
         transferredCount: 1,
       }),
     );
+    updateProfileSpy = vi.fn().mockImplementation((patch) => {
+      if (typeof patch?.trackIndividualMedia === 'boolean') {
+        mockTrackIndividualMedia.set(patch.trackIndividualMedia);
+      }
+      return of({ trackIndividualMedia: true });
+    });
 
     await TestBed.configureTestingModule({
-      imports: [BackupScannerComponent],
+      imports: [OwnershipVerificationComponent],
       providers: [
         provideRouter([]),
-        BackupScannerService,
+        OwnershipVerificationService,
         {
           provide: CollectionService,
           useValue: {
             games: mockGames.asReadonly(),
             platforms: mockPlatforms.asReadonly(),
             canShowPersonalState: signal(true).asReadonly(),
+            trackIndividualMedia: mockTrackIndividualMedia.asReadonly(),
             loadPlatforms: () => of([]),
             loadGames: () => of([]),
-            applyBackupScanDiff: applyDiffSpy,
+            updateProfile: updateProfileSpy,
+            applyOwnershipVerificationDiff: applyDiffSpy,
           },
         },
       ],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(BackupScannerComponent);
+    fixture = TestBed.createComponent(OwnershipVerificationComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });
 
-  it('pre-checks same-region ownership switches, leaves cross-region switches unchecked, and respects Prune toggle on Apply', () => {
+  it('defaults pruneMissingMedia to false, pre-checks same-region switches, fixes /game/:slug links, and honors Prune toggle on Apply', () => {
+    expect(component.pruneMissingMedia()).toBe(false);
+
     const mockFileList = [
       {
         name: 'Super Mario World (USA) (Rev 1).sfc',
@@ -152,7 +165,7 @@ describe('BackupScannerComponent', () => {
     ];
 
     const crawl =
-      component.backupScannerService.crawlFromFileList(mockFileList);
+      component.ownershipVerificationService.crawlFromFileList(mockFileList);
     component['applyCrawlResult'](crawl);
     fixture.detectChanges();
 
@@ -164,14 +177,19 @@ describe('BackupScannerComponent', () => {
     // Cross-region switch (Chrono Trigger USA -> Japan: stable_id 102) is unchecked by default
     expect(component.isSwitchSelected(102)).toBe(false);
 
-    // Disable pruning (simulating a partial SD card scan)
-    component.pruneMissingBackups.set(false);
+    // Verify ownership switch game title links directly to /game/:slug
+    const switchLink = fixture.nativeElement.querySelector(
+      '[data-testid="switch-game-link-101"]',
+    ) as HTMLAnchorElement;
+    expect(switchLink?.getAttribute('href')).toBe('/game/super-mario-world');
+
+    // Default pruneMissingMedia is false -> effectiveSelectedClearCount is 0 and clearMediaOwned is []
     expect(component.effectiveSelectedClearCount()).toBe(0);
 
     component.onApplySelectedDiff();
     expect(applyDiffSpy).toHaveBeenCalledWith({
-      setBackedUp: ['smw-usa-rev1', 'ct-jpn'],
-      clearBackedUp: [],
+      setMediaOwned: ['smw-usa-rev1', 'ct-jpn'],
+      clearMediaOwned: [],
       ownershipTransfers: [
         {
           fromReleaseIds: ['smw-usa-rev0'],
@@ -181,6 +199,76 @@ describe('BackupScannerComponent', () => {
         },
       ],
     });
+
+    // Enabling pruneMissingMedia passes selected switch fromReleaseIds in clearMediaOwned
+    applyDiffSpy.mockClear();
+    component.pruneMissingMedia.set(true);
+    fixture.detectChanges();
+
+    component.onApplySelectedDiff();
+    expect(applyDiffSpy).toHaveBeenCalledWith({
+      setMediaOwned: ['smw-usa-rev1', 'ct-jpn'],
+      clearMediaOwned: ['smw-usa-rev0'],
+      ownershipTransfers: [
+        {
+          fromReleaseIds: ['smw-usa-rev0'],
+          toReleaseIds: ['smw-usa-rev1'],
+          hasCase: 1,
+          hasManual: 1,
+        },
+      ],
+    });
+  });
+
+  it('tracks missingFromScan releases and includes them in clearMediaOwned only when pruneMissingMedia is true', () => {
+    const mockFileList = [
+      {
+        name: 'Super Mario World (USA).sfc',
+        webkitRelativePath: 'SNES/Super Mario World (USA).sfc',
+      },
+    ];
+
+    const crawl =
+      component.ownershipVerificationService.crawlFromFileList(mockFileList);
+    component['applyCrawlResult'](crawl);
+    fixture.detectChanges();
+
+    const report = component.scanReport()!;
+    expect(report.diff.releases.missingFromScan.map((r) => r.id)).toEqual([
+      'ct-usa',
+    ]);
+    expect(component.effectiveSelectedClearCount()).toBe(0);
+
+    component.pruneMissingMedia.set(true);
+    fixture.detectChanges();
+    expect(component.effectiveSelectedClearCount()).toBe(1);
+
+    component.onApplySelectedDiff();
+    expect(applyDiffSpy).toHaveBeenCalledWith({
+      setMediaOwned: ['smw-usa-rev0'],
+      clearMediaOwned: ['ct-usa'],
+      ownershipTransfers: [],
+    });
+  });
+
+  it('shows opt-in banner when trackIndividualMedia is false and enables it on click', () => {
+    const el = fixture.nativeElement as HTMLElement;
+    expect(
+      el.querySelector('[data-testid="media-tracking-opt-in-banner"]'),
+    ).toBeTruthy();
+
+    const enableBtn = el.querySelector(
+      '[data-testid="enable-media-tracking-btn"]',
+    ) as HTMLButtonElement;
+    enableBtn.click();
+    fixture.detectChanges();
+
+    expect(updateProfileSpy).toHaveBeenCalledWith({
+      trackIndividualMedia: true,
+    });
+    expect(
+      el.querySelector('[data-testid="media-tracking-opt-in-banner"]'),
+    ).toBeNull();
   });
 
   it('opens custom Platform Scope dropdown, selects a platform override, and closes on Escape', () => {
@@ -226,7 +314,7 @@ describe('BackupScannerComponent', () => {
     expect(component.isPlatformDropdownOpen()).toBe(false);
   });
 
-  it('supports declaring unowned newly backed up releases as owned with case and manual checkboxes', () => {
+  it('supports declaring unowned newly verified releases as owned with case and manual checkboxes', () => {
     const mockFileList = [
       {
         name: 'Chrono Trigger (USA).sfc',
@@ -239,11 +327,11 @@ describe('BackupScannerComponent', () => {
     ];
 
     const crawl =
-      component.backupScannerService.crawlFromFileList(mockFileList);
+      component.ownershipVerificationService.crawlFromFileList(mockFileList);
     component['applyCrawlResult'](crawl);
     fixture.detectChanges();
 
-    // ct-jpn is unowned (ownership_status: 0) and newly backed up
+    // ct-jpn is unowned (ownership_status: 0) and newly verified
     expect(component.isSetSelected('ct-jpn')).toBe(true);
     expect(component.isDeclaredOwned('ct-jpn')).toBe(false);
     expect(component.isDeclaredCase('ct-jpn')).toBe(false);
@@ -261,8 +349,8 @@ describe('BackupScannerComponent', () => {
 
     component.onApplySelectedDiff();
     expect(applyDiffSpy).toHaveBeenCalledWith({
-      setBackedUp: ['ct-jpn'],
-      clearBackedUp: [],
+      setMediaOwned: ['ct-jpn'],
+      clearMediaOwned: [],
       ownershipTransfers: [],
       ownershipDeclarations: [
         { releaseId: 'ct-jpn', hasCase: 1, hasManual: 1 },
@@ -276,29 +364,27 @@ describe('BackupScannerComponent', () => {
     expect(component.isDeclaredManual('ct-jpn')).toBe(false);
   });
 
-  it('displays ROM preservation health totals, clickable missing-backup links, and scopes scanner from platform breakdown', () => {
+  it('displays Media Ownership Health totals, clickable missing-media links, and scopes scanner from platform breakdown', () => {
     const el = fixture.nativeElement as HTMLElement;
-    const healthCard = el.querySelector(
-      '[data-testid="preservation-health-card"]',
-    );
+    const healthCard = el.querySelector('[data-testid="media-health-card"]');
     expect(healthCard).toBeTruthy();
 
-    // From mockGames: 2 owned physical releases (smw-usa-rev0 missing, ct-usa backed up) -> 50%
-    expect(component.preservationStats().physicalCount).toBe(2);
-    expect(component.preservationStats().backedUpCount).toBe(1);
-    expect(component.preservationStats().missingCount).toBe(1);
-    expect(component.preservationStats().backupRatePct).toBe(50);
+    // From mockGames: 2 owned physical releases (smw-usa-rev0 missing, ct-usa verified) -> 50%
+    expect(component.mediaHealthStats().physicalCount).toBe(2);
+    expect(component.mediaHealthStats().ownedMediaCount).toBe(1);
+    expect(component.mediaHealthStats().missingCount).toBe(1);
+    expect(component.mediaHealthStats().mediaOwnedRatePct).toBe(50);
 
     expect(
-      el.querySelector('[data-testid="preservation-rate-pill"]')?.textContent,
-    ).toContain('50% Preserved');
+      el.querySelector('[data-testid="media-rate-pill"]')?.textContent,
+    ).toContain('50% Verified');
 
     const missingLink = el.querySelector(
-      '[data-testid="preservation-stat-missing"]',
+      '[data-testid="media-stat-missing"]',
     ) as HTMLAnchorElement;
     expect(missingLink).toBeTruthy();
     expect(missingLink.getAttribute('href')).toContain('/collection/games');
-    expect(missingLink.getAttribute('href')).toContain('backup_status=0');
+    expect(missingLink.getAttribute('href')).toContain('has_media=0');
     expect(missingLink.getAttribute('href')).toContain('reset=1');
 
     const platMissingLink = el.querySelector(
@@ -306,7 +392,7 @@ describe('BackupScannerComponent', () => {
     ) as HTMLAnchorElement;
     expect(platMissingLink).toBeTruthy();
     expect(platMissingLink.getAttribute('href')).toContain('platform_id=15');
-    expect(platMissingLink.getAttribute('href')).toContain('backup_status=0');
+    expect(platMissingLink.getAttribute('href')).toContain('has_media=0');
 
     // Clicking Scope Scanner sets platformOverrideId
     const scopeBtn = el.querySelector(
@@ -319,13 +405,11 @@ describe('BackupScannerComponent', () => {
 
     // Toggle collapse/expand
     const toggleBtn = el.querySelector(
-      '[data-testid="toggle-preservation-health-btn"]',
+      '[data-testid="toggle-media-health-btn"]',
     ) as HTMLButtonElement;
     toggleBtn.click();
     fixture.detectChanges();
-    expect(component.preservationHealthExpanded()).toBe(false);
-    expect(
-      el.querySelector('[data-testid="preservation-stat-missing"]'),
-    ).toBeNull();
+    expect(component.mediaHealthExpanded()).toBe(false);
+    expect(el.querySelector('[data-testid="media-stat-missing"]')).toBeNull();
   });
 });

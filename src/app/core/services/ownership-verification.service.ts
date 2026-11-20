@@ -1,12 +1,12 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { CollectionService } from './collection.service';
 import {
-  BackupScanReport,
   CatalogReleaseCandidate,
   CrawledFileEntry,
+  OwnershipVerificationReport,
   PlatformRow,
-  scanBackupEntries,
-} from '../../../../shared/backup_scanner';
+  scanMediaEntries,
+} from '../../../../shared/ownership_verifier';
 
 export interface FileSystemHandleLike {
   readonly kind: 'file' | 'directory';
@@ -34,7 +34,7 @@ export interface DirectoryCrawlResult {
 @Injectable({
   providedIn: 'root',
 })
-export class BackupScannerService {
+export class OwnershipVerificationService {
   private collectionService = inject(CollectionService);
 
   private _isCrawling = signal<boolean>(false);
@@ -62,7 +62,7 @@ export class BackupScannerService {
   }
 
   /**
-   * Prompts the user to pick a local directory using `window.showDirectoryPicker({ mode: 'read' })`
+   * Prompts the admin to pick a local directory using `window.showDirectoryPicker({ mode: 'read' })`
    * and crawls directory and file names recursively without reading any file contents.
    * Returns `null` if the user cancels the picker (`AbortError`).
    */
@@ -205,7 +205,7 @@ export class BackupScannerService {
       | ReadonlyArray<{ name: string; webkitRelativePath?: string }>,
   ): DirectoryCrawlResult {
     const entries: CrawledFileEntry[] = [];
-    let rootFolderName = 'Backups';
+    let rootFolderName = 'MediaLibrary';
 
     const length = files.length;
     for (let i = 0; i < length; i++) {
@@ -230,14 +230,14 @@ export class BackupScannerService {
   }
 
   /**
-   * Computes a complete `BackupScanReport` against the user's loaded catalog releases
+   * Computes a complete `OwnershipVerificationReport` against the loaded catalog releases
    * and platform definitions.
    */
-  public buildScanReport(options: {
+  public buildVerificationReport(options: {
     rootFolderName: string;
     entries: CrawledFileEntry[];
     platformOverrideId?: number | null;
-  }): BackupScanReport {
+  }): OwnershipVerificationReport {
     const rawPlatforms = this.collectionService.platforms();
     const rawGames = this.collectionService.games();
 
@@ -308,12 +308,12 @@ export class BackupScannerService {
         variants: g.variants ?? null,
         canonical_release_id: g.canonical_release_id ?? null,
         ownership_status: Number(g.ownership_status ?? 0),
-        backup_status: g.backup_status ? 1 : 0,
+        has_media: g.has_media ? 1 : 0,
         has_case: g.has_case ? 1 : 0,
         has_manual: g.has_manual ? 1 : 0,
       }));
 
-    return scanBackupEntries({
+    return scanMediaEntries({
       rootFolderName: options.rootFolderName,
       entries: options.entries,
       platforms,

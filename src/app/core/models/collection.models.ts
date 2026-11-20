@@ -50,7 +50,7 @@ export interface GameRelease {
   serial_code?: string | null;
   is_source_verified?: number;
   source?: string | null;
-  backup_status: number;
+  has_media: number;
   ownership_status: number;
   release_date?: string | null;
   image_url?: string | null;
@@ -64,14 +64,14 @@ export interface GameRelease {
   comments?: string | null;
 }
 
-export interface SharedBackupReleaseLink {
+export interface SharedMediaReleaseLink {
   id: string;
   title: string;
   region?: string | null;
   variants?: string | null;
   rom_name?: string | null;
   ownership_status: number;
-  backup_status: number;
+  has_media: number;
 }
 
 export interface Game {
@@ -92,7 +92,7 @@ export interface Game {
   ownership_status: OwnershipStatus;
   play_status: PlayStatus;
   queued?: boolean | number;
-  backup_status: boolean | number;
+  has_media: boolean | number;
   has_case?: boolean | number;
   has_manual?: boolean | number;
   retail_price?: number | null;
@@ -136,10 +136,11 @@ export interface Game {
   releases?: GameRelease[];
   other_releases?: GameRelease[];
   bundled_games?: BundledGame[];
-  shared_backup_releases?: SharedBackupReleaseLink[];
+  shared_media_releases?: SharedMediaReleaseLink[];
   voucher_notes?: string[];
   discIds?: string[];
-  discBackups?: number[];
+  discMediaOwned?: number[];
+  discLabels?: string[];
   discRomNames?: string[];
   searchableNames?: string[];
   searchableSeries?: string[];
@@ -155,7 +156,7 @@ export interface BundledGame {
   release_medium?: string;
   origin_metadata?: string | null;
   rom_name?: string | null;
-  backup_status?: number;
+  has_media?: number;
 }
 
 export interface Toy {
@@ -261,7 +262,7 @@ export interface FilterState {
     | 'home_region_and_owned'
     | OwnershipStatus;
   play_status?: 'all' | PlayStatus;
-  backup_status?: 'all' | 0 | 1 | 'uncataloged';
+  has_media?: 'all' | 0 | 1;
   physical_verified?: 'all' | 0 | 1;
   budget_label?:
     | 'all'
@@ -398,10 +399,19 @@ export function isOpticalPlatform(
 
 export function getMediaIconName(
   platform: string | null | undefined,
-  backedUp: boolean | number,
+  mediaOwned: boolean | number,
 ): 'disc' | 'rom-archive' | 'missing-dump' {
-  if (!backedUp) return 'missing-dump';
+  if (!mediaOwned) return 'missing-dump';
   return isOpticalPlatform(platform) ? 'disc' : 'rom-archive';
+}
+
+export function getMediaNoun(
+  platform: string | null | undefined,
+  plural = false,
+): string {
+  const optical = isOpticalPlatform(platform);
+  if (plural) return optical ? 'Discs' : 'Carts';
+  return optical ? 'Disc' : 'Cart';
 }
 
 export function getOwnRecordValue<T>(
@@ -760,6 +770,7 @@ export interface UserProfile {
   displayName: string | null;
   bio: string | null;
   autoTrackSeriesOnAdd?: boolean;
+  trackIndividualMedia?: boolean;
 }
 
 export interface UserTrackingRule {
@@ -877,7 +888,8 @@ export interface UserCollectionOverlayResponse {
   ugr: Array<{
     release_id: string;
     ownership_status: number;
-    backup_status: number;
+    has_media?: number;
+    backup_status?: number;
     has_case: number;
     has_manual: number;
   }>;

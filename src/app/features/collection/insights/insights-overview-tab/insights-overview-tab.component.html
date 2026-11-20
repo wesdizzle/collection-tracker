@@ -103,31 +103,48 @@
     </div>
   </button>
 
-  <a
-    [routerLink]="['/collection/backups']"
-    class="stat-card clickable-card kit-stagger-item"
-    [style.--stagger-index]="3"
-    data-testid="kpi-backup-card"
-    title="Open ROM Preservation & Local Backup Scanner"
-  >
-    <div class="stat-card-header">
-      <span class="stat-label">Backup Health</span>
-      <span
-        class="card-icon-badge"
-        [class.success-badge]="backupRatePct() >= 80"
-        [class.warning-badge]="backupRatePct() < 80"
-      >
-        <app-icon name="verified-badge" [size]="20" />
-      </span>
-    </div>
-    <div class="stat-main-value">{{ animatedBackupRatePct() }}%</div>
-    <div class="stat-subtext">
-      <span
-        >{{ backedUpCount() }} / {{ physicalOwnedCount() }} physical
-        releases</span
-      >
-    </div>
-  </a>
+  @if (canTrackIndividualMedia()) {
+    <a
+      [routerLink]="
+        isAdmin() ? ['/admin/verify-ownership'] : ['/collection/games']
+      "
+      [queryParams]="
+        isAdmin()
+          ? null
+          : {
+              reset: 1,
+              ownership: 1,
+              has_media: missingMediaCount() > 0 ? 0 : 1,
+            }
+      "
+      class="stat-card clickable-card kit-stagger-item"
+      [style.--stagger-index]="3"
+      data-testid="kpi-media-card"
+      [title]="
+        isAdmin()
+          ? 'Open Ownership Verification Scanner'
+          : 'View physical media ownership in your library'
+      "
+    >
+      <div class="stat-card-header">
+        <span class="stat-label">Media Ownership</span>
+        <span
+          class="card-icon-badge"
+          [class.success-badge]="mediaOwnedRatePct() >= 80"
+          [class.warning-badge]="mediaOwnedRatePct() < 80"
+        >
+          <app-icon name="verified-badge" [size]="20" />
+        </span>
+      </div>
+      <div class="stat-main-value">{{ animatedMediaOwnedRatePct() }}%</div>
+      <div class="stat-subtext">
+        <span
+          >{{ ownedMediaCount() }} / {{ physicalOwnedCount() }} physical
+          releases</span
+        >
+      </div>
+    </a>
+  }
 
   <a
     [routerLink]="['/collection/games']"
@@ -169,36 +186,42 @@
   <kit-section-card
     class="audit-strip-panel"
     title="Attention Needed"
-    subtitle="Actionable gaps across backups, provenance, packaging, and market comps"
+    subtitle="Actionable gaps across media ownership, provenance, packaging, and market comps"
     [compact]="true"
     testId="insights-audit-strip"
   >
     <div class="audit-cards-grid">
-      @if (missingBackupsCount() > 0) {
+      @if (canTrackIndividualMedia() && missingMediaCount() > 0) {
         <div
           class="audit-card warning-accent"
-          data-testid="audit-missing-backups"
+          data-testid="audit-missing-media"
         >
           <div class="audit-card-main">
             <span class="audit-icon warning">
               <app-icon name="missing-dump" [size]="18" />
             </span>
             <div class="audit-copy">
-              <strong>{{ missingBackupsCount() }} missing ROM dumps</strong>
-              <span>Physical releases without verified archival backups</span>
+              <strong>{{ missingMediaCount() }} missing discs / carts</strong>
+              <span
+                >Physical releases without verified disc or cartridge
+                ownership</span
+              >
             </div>
           </div>
           <div class="audit-actions">
-            <a
-              [routerLink]="['/collection/backups']"
-              class="audit-action-btn primary"
-            >
-              Open Scanner
-            </a>
+            @if (isAdmin()) {
+              <a
+                [routerLink]="['/admin/verify-ownership']"
+                class="audit-action-btn primary"
+              >
+                Verify Ownership
+              </a>
+            }
             <a
               [routerLink]="['/collection/games']"
-              [queryParams]="{ reset: 1, ownership: 1, backup_status: 0 }"
+              [queryParams]="{ reset: 1, ownership: 1, has_media: 0 }"
               class="audit-action-btn"
+              [class.primary]="!isAdmin()"
             >
               Filter Games
             </a>

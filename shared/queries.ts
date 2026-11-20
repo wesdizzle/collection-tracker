@@ -36,7 +36,7 @@ export function buildGamesListQuery(userId?: number | null): string {
     : '';
 
   const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
-  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
   const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
   const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
   const playStatusCol = userId ? 'COALESCE(ug.play_status, 0)' : '0';
@@ -91,7 +91,7 @@ export function buildGamesListQuery(userId?: number | null): string {
            r.also_released_as,
            r.rom_name,
            r.rom_crc,
-           ${backupCol} as backup_status,
+           ${hasMediaCol} as has_media,
            ${hasCaseCol} as has_case,
            ${hasManualCol} as has_manual,
            g.retail_price,
@@ -189,12 +189,12 @@ export function buildCatalogDeltaGamesQuery(userId?: number | null): string {
 }
 
 export const USER_GAME_RELEASES_OVERLAY_QUERY = `
-  SELECT release_id, ownership_status, backup_status, has_case, has_manual
+  SELECT release_id, ownership_status, has_media, has_case, has_manual
   FROM user_game_releases
   WHERE user_id = ?
     AND (
       ownership_status > 0
-      OR backup_status > 0
+      OR has_media > 0
       OR has_case > 0
       OR has_manual > 0
     )
@@ -223,7 +223,7 @@ export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
       WHERE ugr_act.user_id = ?
         AND (
           ugr_act.ownership_status > 0
-          OR ugr_act.backup_status > 0
+          OR ugr_act.has_media > 0
           OR ugr_act.has_case > 0
           OR ugr_act.has_manual > 0
         )
@@ -239,7 +239,7 @@ export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
   )
   AND (
     COALESCE(ugr.ownership_status, 0) > 0
-    OR COALESCE(ugr.backup_status, 0) > 0
+    OR COALESCE(ugr.has_media, 0) > 0
     OR COALESCE(ugr.has_case, 0) > 0
     OR COALESCE(ugr.has_manual, 0) > 0
     OR COALESCE(ug.play_status, 0) > 0
@@ -277,7 +277,7 @@ export function buildGameDetailQuery(userId?: number | null): string {
     : '';
 
   const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
-  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
   const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
   const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
   const playStatusCol = userId ? 'COALESCE(ug.play_status, 0)' : '0';
@@ -329,7 +329,7 @@ export function buildGameDetailQuery(userId?: number | null): string {
             r.also_released_as,
             r.rom_name,
             r.rom_crc,
-            ${backupCol} as backup_status,
+            ${hasMediaCol} as has_media,
             ${hasCaseCol} as has_case,
             ${hasManualCol} as has_manual,
             g.retail_price,
@@ -403,7 +403,7 @@ export function buildGameReleasesByGameIdQuery(
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
     : '';
-  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
   const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
   const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
   const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
@@ -422,7 +422,7 @@ export function buildGameReleasesByGameIdQuery(
 
   return `
      SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-            ${backupCol} as backup_status,
+            ${hasMediaCol} as has_media,
             ${ownershipCol} as ownership_status,
             COALESCE(cr.raw_title, r.also_released_as) as title,
             COALESCE(
@@ -458,7 +458,7 @@ export function buildBundledGamesByParentQuery(userId?: number | null): string {
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
     : '';
-  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
 
   return `
     SELECT g.stable_id,
@@ -469,7 +469,7 @@ export function buildBundledGamesByParentQuery(userId?: number | null): string {
            g.release_medium,
            g.origin_metadata,
            COALESCE(r.rom_name, g.title) as rom_name,
-           ${backupCol} as backup_status,
+           ${hasMediaCol} as has_media,
            COALESCE(pp.display_name, p.display_name) as platform_name,
            COALESCE(pp.display_name, p.display_name) as platform
     FROM games g
@@ -719,13 +719,13 @@ export function buildTargetedCompanionByCrcQuery(
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
     : '';
-  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
   const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
   const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
   const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
   return `
     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           ${backupCol} as backup_status, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasMediaCol} as has_media, ${ownershipCol} as ownership_status, r.release_date,
            ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
            g.title as game_title, g.platform_id
     FROM game_releases r
@@ -747,13 +747,13 @@ export function buildTargetedCompanionByCrcBatchQuery(
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
     : '';
-  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
   const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
   const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
   const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
   return `
     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           ${backupCol} as backup_status, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasMediaCol} as has_media, ${ownershipCol} as ownership_status, r.release_date,
            ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
            g.title as game_title, g.platform_id
     FROM game_releases r
@@ -769,13 +769,13 @@ export function buildTargetedCompanionByGameIdQuery(
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
     : '';
-  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
   const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
   const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
   const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
   return `
     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           ${backupCol} as backup_status, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasMediaCol} as has_media, ${ownershipCol} as ownership_status, r.release_date,
            ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
            g.title as game_title, g.platform_id
     FROM game_releases r
@@ -794,13 +794,13 @@ export function buildTargetedCompanionByTitleQuery(
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
     : '';
-  const backupCol = userId ? 'COALESCE(ugr.backup_status, 0)' : '0';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
   const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
   const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
   const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
   return `
     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           ${backupCol} as backup_status, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasMediaCol} as has_media, ${ownershipCol} as ownership_status, r.release_date,
            ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
            g.title as game_title, g.platform_id
     FROM game_releases r
@@ -815,7 +815,7 @@ export const TARGETED_COMPANION_BY_TITLE_QUERY =
 
 export const PLATFORM_RELEASES_FOR_COMPANION_QUERY = `
     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
-           0 as backup_status, 0 as ownership_status, r.release_date,
+           0 as has_media, 0 as ownership_status, r.release_date,
            0 as has_case, 0 as has_manual,
            g.title as game_title, g.platform_id
     FROM game_releases r
@@ -1008,7 +1008,7 @@ export interface CompanionDiscCandidateRow {
   also_released_as?: string | null;
   rom_name: string | null;
   rom_crc: string | null;
-  backup_status: number;
+  has_media: number;
   ownership_status: number;
   release_date: string | null;
   has_case?: number;
@@ -1021,14 +1021,14 @@ export interface CompanionDiscCandidateRow {
   companion_game_title?: string;
 }
 
-export interface SharedBackupReleaseLink {
+export interface SharedMediaReleaseLink {
   id: string;
   title: string;
   region: string | null;
   variants: string | null;
   rom_name: string | null;
   ownership_status: number;
-  backup_status: number;
+  has_media: number;
 }
 
 function regionsOverlap(
@@ -1055,9 +1055,9 @@ function regionsOverlap(
  * 1. Per-disc labels (`disc_label`) on `game.releases`.
  * 2. Case 1 (When viewing a GOTY/expanded release or Box Set):
  *    Attaches matching regional companion discs from standalone releases (with their
- *    `backup_status` and a link back to the standalone release) without altering `ownership_status`.
+ *    `has_media` and a link back to the standalone release) without altering `ownership_status`.
  * 3. Case 2 (When viewing a Superseded original release or a standalone game included in a Box Set):
- *    Attaches `shared_backup_releases` linking forward to the GOTY/expanded release(s) or Box Set(s).
+ *    Attaches `shared_media_releases` linking forward to the GOTY/expanded release(s) or Box Set(s).
  * 4. Case 3 (When viewing a Physical Release that bundled companion games via digital vouchers):
  *    Attaches `voucher_notes` detailing the voucher companion contents without creating phantom entries.
  */
@@ -1071,7 +1071,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     variants?: string | null;
     rom_name?: string | null;
     releases?: Array<Record<string, unknown>>;
-    shared_backup_releases?: SharedBackupReleaseLink[];
+    shared_media_releases?: SharedMediaReleaseLink[];
     voucher_notes?: string[];
   },
   platformReleases: CompanionDiscCandidateRow[],
@@ -1124,7 +1124,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     ) {
       score += 50;
     }
-    if (c.backup_status === 1) score += 25;
+    if (c.has_media === 1) score += 25;
     if (c.ownership_status === 1) score += 10;
     const cVar = (c.variants || '').toLowerCase();
     if (!cVar || cVar === 'superseded') score += 5;
@@ -1223,7 +1223,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
           also_released_as: d.also_released_as,
           rom_name: d.rom_name,
           rom_crc: d.rom_crc,
-          backup_status: d.backup_status,
+          has_media: d.has_media,
           ownership_status: d.ownership_status,
           release_date: d.release_date,
           disc_label: discLabel,
@@ -1310,7 +1310,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
             also_released_as: bestStandalone.also_released_as,
             rom_name: bestStandalone.rom_name,
             rom_crc: bestStandalone.rom_crc,
-            backup_status: bestStandalone.backup_status,
+            has_media: bestStandalone.has_media,
             ownership_status: bestStandalone.ownership_status,
             release_date: bestStandalone.release_date,
             disc_label: spec.discLabel,
@@ -1350,7 +1350,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
   }
 
   // 4. Check if this release is the Superseded (Original) side of a SupersededReleasePair (Case 2)
-  const sharedLinks: SharedBackupReleaseLink[] = [];
+  const sharedLinks: SharedMediaReleaseLink[] = [];
   for (const pair of SUPERSEDED_RELEASE_PAIRS) {
     if (pair.platformId !== game.platform_id) continue;
 
@@ -1405,7 +1405,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
           variants: sup.variants,
           rom_name: sup.rom_name,
           ownership_status: sup.ownership_status,
-          backup_status: sup.backup_status,
+          has_media: sup.has_media,
         });
       }
     }
@@ -1455,7 +1455,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
             variants: boxCand.variants,
             rom_name: boxCand.rom_name,
             ownership_status: boxCand.ownership_status,
-            backup_status: boxCand.backup_status,
+            has_media: boxCand.has_media,
           });
         }
       }
@@ -1482,7 +1482,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
             variants: cand.variants,
             rom_name: cand.rom_name,
             ownership_status: cand.ownership_status,
-            backup_status: cand.backup_status,
+            has_media: cand.has_media,
           });
         }
       }
@@ -1532,14 +1532,14 @@ export function enrichGameDetailWithCompanionsAndVouchers(
           variants: partCand.variants,
           rom_name: partCand.rom_name,
           ownership_status: partCand.ownership_status,
-          backup_status: partCand.backup_status,
+          has_media: partCand.has_media,
         });
       }
     }
   }
 
   if (sharedLinks.length > 0) {
-    game.shared_backup_releases = sharedLinks;
+    game.shared_media_releases = sharedLinks;
   }
 
   // 6. Check if this release is a Physical Parent in CANONICAL_VOUCHER_BUNDLES

@@ -1458,7 +1458,7 @@ describe('CollectionListComponent', () => {
         variants: 'Superseded',
         rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 3798,
@@ -1472,7 +1472,7 @@ describe('CollectionListComponent', () => {
         rom_name:
           'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
         ownership_status: 0,
-        backup_status: 0,
+        has_media: 0,
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);
@@ -1484,9 +1484,12 @@ describe('CollectionListComponent', () => {
     const games = component.filteredGames();
     const goty = games.find((g) => g.id === 'oblivion-goty-usa');
     expect(goty).toBeTruthy();
-    // Case 1: Original Disc 1 is backed up, GOTY Disc 2 is NOT backed up -> GOTY card is unowned and not backed up
+    // Case 1: Original Disc 1 has media, GOTY Disc 2 does NOT -> discIds, discLabels, and discMediaOwned stay 1-to-1
     expect(goty?.ownership_status).toBe(0);
-    expect(goty?.backup_status).toBe(0);
+    expect(goty?.discIds).toEqual(['oblivion-base-usa', 'oblivion-goty-usa']);
+    expect(goty?.discLabels).toEqual(['Disc 1 (Base Release)', 'Disc 2']);
+    expect(goty?.discMediaOwned).toEqual([1, 0]);
+    expect(goty?.has_media).toBe(0);
   });
 
   it('should extract canonical optional budget labels and render ± badges on cards', async () => {
@@ -1621,50 +1624,61 @@ describe('CollectionListComponent', () => {
     ]);
   });
 
-  it('should toggle individual disc backup status in multi-disc sets when admin', async () => {
+  it('should toggle single release media ownership and open multi-disc checklist modal', async () => {
     const collectionService = TestBed.inject(CollectionService);
     collectionService.setAdminForTesting(true);
     const updateSpy = vi
-      .spyOn(collectionService, 'updateBackupStatus')
+      .spyOn(collectionService, 'updateMediaOwned')
       .mockReturnValue(of({ success: true }));
+
+    const singleGame = {
+      id: 'chrono-snes',
+      title: 'Chrono Trigger',
+      discIds: ['chrono-snes'],
+      discMediaOwned: [0],
+      has_media: 0,
+    } as unknown as Game;
+
+    const mockEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as MouseEvent;
+
+    component.onToggleSingleMediaOwned(mockEvent, singleGame);
+    expect(updateSpy).toHaveBeenCalledWith('chrono-snes', 1);
+    expect(singleGame.discMediaOwned?.[0]).toBe(1);
+    expect(singleGame.has_media).toBe(1);
 
     const multiDiscGame = {
       id: 'mgs-ps1',
       title: 'Metal Gear Solid',
       discIds: ['mgs-disc1', 'mgs-disc2'],
-      discBackups: [1, 0],
-      backup_status: 0,
+      discMediaOwned: [1, 0],
+      has_media: 0,
     } as unknown as Game;
+    expect(component.getOwnedDiscCount(multiDiscGame)).toBe(1);
 
-    expect(component.getBackedUpDiscCount(multiDiscGame)).toBe(1);
+    component.onOpenDiscChecklist(mockEvent, multiDiscGame);
+    expect(component.discModalGameId()).toBe('mgs-ps1');
 
-    // Toggle Disc 2 to backed up
-    const mockEvent = {
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    } as unknown as MouseEvent;
-
-    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
-
+    component.onDiscModalToggleDisc({ releaseId: 'mgs-disc2', nextValue: 1 });
     expect(updateSpy).toHaveBeenCalledWith('mgs-disc2', 1);
-    expect(multiDiscGame.discBackups?.[1]).toBe(1);
-    expect(multiDiscGame.backup_status).toBe(1);
-    expect(component.getBackedUpDiscCount(multiDiscGame)).toBe(2);
   });
 
-  it('should not toggle disc backup and prompt admin login when not admin', () => {
+  it('should not toggle media ownership and prompt login when not authenticated', () => {
     const collectionService = TestBed.inject(CollectionService);
     collectionService.setAdminForTesting(false);
     const promptSpy = vi
       .spyOn(collectionService, 'promptAdminLogin')
       .mockImplementation(() => {});
-    const updateSpy = vi.spyOn(collectionService, 'updateBackupStatus');
+    const updateSpy = vi.spyOn(collectionService, 'updateMediaOwned');
 
-    const multiDiscGame = {
-      id: 'mgs-ps1',
-      discIds: ['mgs-disc1', 'mgs-disc2'],
-      discBackups: [1, 0],
-      backup_status: 0,
+    const singleGame = {
+      id: 'chrono-snes',
+      title: 'Chrono Trigger',
+      discIds: ['chrono-snes'],
+      discMediaOwned: [0],
+      has_media: 0,
     } as unknown as Game;
 
     const mockEvent = {
@@ -1672,27 +1686,30 @@ describe('CollectionListComponent', () => {
       stopPropagation: vi.fn(),
     } as unknown as MouseEvent;
 
-    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
-
+    component.onToggleSingleMediaOwned(mockEvent, singleGame);
     expect(promptSpy).toHaveBeenCalled();
     expect(updateSpy).not.toHaveBeenCalled();
-    expect(multiDiscGame.discBackups?.[1]).toBe(0);
-    expect(multiDiscGame.backup_status).toBe(0);
+    expect(singleGame.discMediaOwned?.[0]).toBe(0);
+    expect(singleGame.has_media).toBe(0);
+
+    component.onOpenDiscChecklist(mockEvent, singleGame);
+    expect(component.discModalGameId()).toBeNull();
   });
 
-  it('should roll back disc backup on server error', () => {
+  it('should roll back media ownership on server error', () => {
     const collectionService = TestBed.inject(CollectionService);
     collectionService.setAdminForTesting(true);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(collectionService, 'updateBackupStatus').mockReturnValue(
+    vi.spyOn(collectionService, 'updateMediaOwned').mockReturnValue(
       throwError(() => new Error('Server error')),
     );
 
-    const multiDiscGame = {
-      id: 'mgs-ps1',
-      discIds: ['mgs-disc1', 'mgs-disc2'],
-      discBackups: [1, 0],
-      backup_status: 0,
+    const singleGame = {
+      id: 'chrono-snes',
+      title: 'Chrono Trigger',
+      discIds: ['chrono-snes'],
+      discMediaOwned: [0],
+      has_media: 0,
     } as unknown as Game;
 
     const mockEvent = {
@@ -1700,10 +1717,10 @@ describe('CollectionListComponent', () => {
       stopPropagation: vi.fn(),
     } as unknown as MouseEvent;
 
-    component.onToggleDiscBackup(mockEvent, multiDiscGame, 1);
+    component.onToggleSingleMediaOwned(mockEvent, singleGame);
 
-    expect(multiDiscGame.discBackups?.[1]).toBe(0);
-    expect(multiDiscGame.backup_status).toBe(0);
+    expect(singleGame.discMediaOwned?.[0]).toBe(0);
+    expect(singleGame.has_media).toBe(0);
 
     errorSpy.mockRestore();
   });
@@ -2008,11 +2025,11 @@ describe('CollectionListComponent', () => {
         applyQueryParams: (qp: Record<string, unknown>) => void;
       }
     ).applyQueryParams({
-      backup_status: '0',
+      has_media: '0',
       ownership: '1',
     });
 
-    expect(component.filters().backup_status).toBe(0);
+    expect(component.filters().has_media).toBe(0);
     expect(component.filters().ownership).toBe(1);
     expect(navigateSpy).toHaveBeenCalledWith([], {
       relativeTo: expect.anything(),
@@ -2186,7 +2203,7 @@ describe('CollectionListComponent', () => {
     ]);
   });
 
-  it('should omit backup badges and ignore backup_status filtering on publicly shared collection page', async () => {
+  it('should omit media badges and ignore has_media filtering on publicly shared collection page or when trackIndividualMedia is off', async () => {
     component.collectionService.setPublicView(true, {
       username: 'alice',
       displayName: 'Alice',
@@ -2194,28 +2211,28 @@ describe('CollectionListComponent', () => {
       homeRegion: 'USA',
     });
     component.currentTab.set('games');
-    component.filters.set({ ownership: 'all', backup_status: 1 });
+    component.filters.set({ ownership: 'all', has_media: 1 });
     const httpMock = TestBed.inject(HttpTestingController);
     const initPromise = component.ngOnInit();
 
     httpMock.expectOne('/api/u/alice/games').flush([
       {
-        id: 'backed-up-game',
-        title: 'Backed Up Game',
+        id: 'media-owned-game',
+        title: 'Media Owned Game',
         platform: 'Nintendo Switch',
         display_name: 'Nintendo Switch',
         platform_id: 26,
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
-        id: 'unbacked-game',
-        title: 'Unbacked Game',
+        id: 'missing-media-game',
+        title: 'Missing Media Game',
         platform: 'Nintendo Switch',
         display_name: 'Nintendo Switch',
         platform_id: 26,
         ownership_status: 1,
-        backup_status: 0,
+        has_media: 0,
       },
     ]);
     httpMock.expectOne('/api/u/alice/toys').flush([]);
@@ -2231,18 +2248,16 @@ describe('CollectionListComponent', () => {
     await initPromise;
     fixture.detectChanges();
 
-    // Both games should be included because backup_status filter is ignored in public view
+    // Both games should be included because has_media filter is ignored in public view
     expect(component.filteredGames().length).toBe(2);
 
-    // Grid view omits backup badges and backup filter dropdown
+    // Grid view omits media badges and Disc / Cart filter dropdown
     expect(fixture.nativeElement.querySelectorAll('.backup-badge').length).toBe(
       0,
     );
-    expect(
-      fixture.nativeElement.querySelector('#filter-backup-status'),
-    ).toBeNull();
+    expect(fixture.nativeElement.querySelector('#filter-has-media')).toBeNull();
 
-    // Compact table view also omits backup chips
+    // Compact table view also omits media chips
     component.viewMode.set('compact');
     fixture.detectChanges();
     expect(
@@ -2508,14 +2523,14 @@ describe('CollectionListComponent', () => {
           {
             release_id: 'owned-mario',
             ownership_status: 1,
-            backup_status: 0,
+            has_media: 0,
             has_case: 0,
             has_manual: 0,
           },
           {
             release_id: 'seeking-zelda',
             ownership_status: 2,
-            backup_status: 0,
+            has_media: 0,
             has_case: 0,
             has_manual: 0,
           },
@@ -2614,7 +2629,7 @@ describe('CollectionListComponent', () => {
         canonical_series: 'Mario',
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
         release_date: '2020-01-01',
@@ -2631,7 +2646,7 @@ describe('CollectionListComponent', () => {
         canonical_series: 'Zelda',
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
         release_date: '1995-01-01',
@@ -2648,7 +2663,7 @@ describe('CollectionListComponent', () => {
         canonical_series: 'Zelda',
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
         release_date: '1994-01-01',
@@ -2665,7 +2680,7 @@ describe('CollectionListComponent', () => {
         canonical_series: 'Metroid',
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
         release_date: '1994-03-19',
@@ -2983,7 +2998,7 @@ describe('CollectionListComponent', () => {
         region: 'USA',
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -2997,7 +3012,7 @@ describe('CollectionListComponent', () => {
         region: 'USA',
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -3102,7 +3117,7 @@ describe('CollectionListComponent', () => {
         release_date: '1985-09-13',
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -3119,7 +3134,7 @@ describe('CollectionListComponent', () => {
         release_date: '1995-03-11',
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 0,
       },
@@ -3136,7 +3151,7 @@ describe('CollectionListComponent', () => {
         release_date: '2004-11-09',
         ownership_status: 1,
         play_status: 0,
-        backup_status: 0,
+        has_media: 0,
         has_case: 0,
         has_manual: 0,
       },
@@ -3153,7 +3168,7 @@ describe('CollectionListComponent', () => {
         release_date: '2022-05-01',
         ownership_status: 1,
         play_status: 0,
-        backup_status: 1,
+        has_media: 1,
         has_case: 0,
         has_manual: 1,
       },
@@ -3241,7 +3256,7 @@ describe('CollectionListComponent', () => {
     component.onFiltersChange({
       ...component.filters(),
       platform_id: 2,
-      backup_status: 1,
+      has_media: 1,
       release_decade: '90s',
       series: 'Chrono',
       seriesExact: true,
@@ -3263,7 +3278,7 @@ describe('CollectionListComponent', () => {
     });
 
     expect(component.filters().platform_id).toBeUndefined();
-    expect(component.filters().backup_status).toBe('all');
+    expect(component.filters().has_media).toBe('all');
     expect(component.filters().release_decade).toBe('all');
     expect(component.filters().condition).toBe('cib');
     expect(component.filters().series).toBe('Mario');
@@ -3301,7 +3316,7 @@ describe('CollectionListComponent', () => {
         region: 'USA',
         ownership_status: 1,
         play_status: 2,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 2,
@@ -3313,7 +3328,7 @@ describe('CollectionListComponent', () => {
         region: 'USA',
         ownership_status: 1,
         play_status: 3,
-        backup_status: 1,
+        has_media: 1,
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);
@@ -3363,11 +3378,21 @@ describe('CollectionListComponent', () => {
     expect(el.querySelector('[data-testid="active-play-shelf"]')).toBeNull();
   });
 
-  it('renders platform completion, CIB, and backup micro-pills on Owned Games and guards partial catalog & public view', async () => {
+  it('renders platform completion, CIB, and Media Owned micro-pills on Owned Games and guards trackIndividualMedia & public view', async () => {
     const cs = TestBed.inject(CollectionService);
     const httpMock = TestBed.inject(HttpTestingController);
 
-    cs.setAdminForTesting(true);
+    cs.setCurrentUserForTesting({
+      id: 1,
+      email: 'admin@example.com',
+      username: 'alice',
+      role: 'admin',
+      isPublic: false,
+      homeRegion: 'USA',
+      displayName: 'Alice',
+      bio: null,
+      trackIndividualMedia: true,
+    });
     const initPromise = component.ngOnInit();
     httpMock.expectOne('/api/games').flush([
       {
@@ -3383,7 +3408,7 @@ describe('CollectionListComponent', () => {
         has_case: 1,
         has_manual: 1,
         release_medium: 'optical_disc',
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 2,
@@ -3398,7 +3423,7 @@ describe('CollectionListComponent', () => {
         has_case: 1,
         has_manual: 0,
         release_medium: 'optical_disc',
-        backup_status: 0,
+        has_media: 0,
       },
       {
         stable_id: 3,
@@ -3424,7 +3449,7 @@ describe('CollectionListComponent', () => {
         has_case: 0,
         has_manual: 0,
         release_medium: 'digital_native',
-        backup_status: 0,
+        has_media: 0,
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);
@@ -3459,10 +3484,10 @@ describe('CollectionListComponent', () => {
     ).toBe('1 CIB');
     expect(
       el
-        .querySelector('[data-testid="platform-backup-pill"]')
+        .querySelector('[data-testid="platform-media-pill"]')
         ?.textContent?.replace(/\s+/g, ' ')
         .trim(),
-    ).toBe('1/2 Backed Up');
+    ).toBe('1/2 Media Owned');
 
     // Partial catalog hides X / Y (%) and falls back to N Items
     vi.spyOn(cs, 'catalogIsPartial').mockReturnValue(true);
@@ -3475,7 +3500,33 @@ describe('CollectionListComponent', () => {
         .trim(),
     ).toBe('3 Items');
 
-    // Public view hides Backed Up micro-pill
+    // Disabling trackIndividualMedia hides Media Owned micro-pill
+    cs.setCurrentUserForTesting({
+      id: 1,
+      email: 'admin@example.com',
+      username: 'alice',
+      role: 'admin',
+      isPublic: false,
+      homeRegion: 'USA',
+      displayName: 'Alice',
+      bio: null,
+      trackIndividualMedia: false,
+    });
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="platform-media-pill"]')).toBeNull();
+
+    // Public view also hides Media Owned micro-pill even if trackIndividualMedia is true
+    cs.setCurrentUserForTesting({
+      id: 1,
+      email: 'admin@example.com',
+      username: 'alice',
+      role: 'admin',
+      isPublic: false,
+      homeRegion: 'USA',
+      displayName: 'Alice',
+      bio: null,
+      trackIndividualMedia: true,
+    });
     cs.setPublicView(true, {
       username: 'alice',
       displayName: 'Alice',
@@ -3483,7 +3534,7 @@ describe('CollectionListComponent', () => {
       homeRegion: 'USA',
     });
     fixture.detectChanges();
-    expect(el.querySelector('[data-testid="platform-backup-pill"]')).toBeNull();
+    expect(el.querySelector('[data-testid="platform-media-pill"]')).toBeNull();
   });
 
   it('renders toy line and series completion badges when unowned catalog entries exist', async () => {
@@ -3570,7 +3621,7 @@ describe('CollectionListComponent', () => {
         play_status: 1,
         has_case: 1,
         has_manual: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 2,
@@ -3584,7 +3635,7 @@ describe('CollectionListComponent', () => {
         play_status: 0,
         has_case: 0,
         has_manual: 0,
-        backup_status: 0,
+        has_media: 0,
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);

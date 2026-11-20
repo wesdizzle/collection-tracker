@@ -21,6 +21,28 @@
   color: var(--m3-on-surface-variant);
 }
 
+.admin-action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-8);
+  padding: 0.55rem 0.95rem;
+  border-radius: var(--radius-md);
+  background: var(--m3-surface-container-high);
+  border: 1px solid var(--m3-outline-variant);
+  color: var(--m3-on-surface);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.admin-action-link:hover {
+  background: var(--m3-surface-container-highest);
+  border-color: var(--m3-primary);
+}
+
 .admin-toast {
   position: fixed;
   bottom: var(--spacing-24);

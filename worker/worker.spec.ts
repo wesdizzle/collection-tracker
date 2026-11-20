@@ -133,7 +133,7 @@ describe('Worker API Logic', () => {
       VALUES (1, 'mario', 'Super Mario Bros', 'Mario', 'Super Mario', 1, 0);
       INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, release_date)
       VALUES ('gb-mario', 1, 'USA', null, null, null, '1985-10-18');
-      INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+      INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
       VALUES (1, 'gb-mario', 1, 0);
       INSERT OR IGNORE INTO toy_series (id, name, line, sort_index)
       VALUES ('smash', 'Smash', 'amiibo', 0);
@@ -2958,7 +2958,7 @@ describe('Worker API Logic', () => {
         expect(regions).toContain('Europe');
       });
 
-      it('GET /api/user/profile and PUT /api/user/profile manages user settings and homeRegion', async () => {
+      it('GET /api/user/profile and PUT /api/user/profile manages user settings, homeRegion, and trackIndividualMedia', async () => {
         const adminToken = await signSession(
           { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
           mockEnv.SESSION_SECRET!,
@@ -2979,11 +2979,13 @@ describe('Worker API Logic', () => {
           username: string;
           homeRegion: string;
           isPublic: boolean;
+          trackIndividualMedia: boolean;
         };
         expect(initial.username).toBe('alice');
         expect(initial.homeRegion).toBe('USA');
+        expect(initial.trackIndividualMedia).toBe(false);
 
-        // 2. PUT profile updating homeRegion, isPublic, bio
+        // 2. PUT profile updating homeRegion, isPublic, bio, trackIndividualMedia
         const putReq = new Request(
           'https://collection-tracker.example.com/api/user/profile',
           {
@@ -2994,6 +2996,7 @@ describe('Worker API Logic', () => {
               isPublic: true,
               bio: 'Retro gaming archivist',
               displayName: 'Alice M.',
+              trackIndividualMedia: true,
             }),
           },
         );
@@ -3004,27 +3007,77 @@ describe('Worker API Logic', () => {
           isPublic: boolean;
           bio: string;
           displayName: string;
+          trackIndividualMedia: boolean;
         };
         expect(updated.homeRegion).toBe('Japan');
         expect(updated.isPublic).toBe(true);
         expect(updated.bio).toBe('Retro gaming archivist');
         expect(updated.displayName).toBe('Alice M.');
+        expect(updated.trackIndividualMedia).toBe(true);
 
-        // 3. Verify in DB
+        // 3. Verify GET /api/user/profile and GET /api/auth/me return trackIndividualMedia: true
+        const getRes2 = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/user/profile',
+            { headers: authHeaders },
+          ),
+          mockEnv,
+        );
+        expect(getRes2.status).toBe(200);
+        expect(
+          ((await getRes2.json()) as { trackIndividualMedia: boolean })
+            .trackIndividualMedia,
+        ).toBe(true);
+
+        const meRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/api/auth/me', {
+            headers: authHeaders,
+          }),
+          mockEnv,
+        );
+        expect(meRes.status).toBe(200);
+        const meJson = (await meRes.json()) as {
+          authenticated: boolean;
+          user: { trackIndividualMedia: boolean };
+        };
+        expect(meJson.authenticated).toBe(true);
+        expect(meJson.user.trackIndividualMedia).toBe(true);
+
+        // 4. Verify in DB
         const dbRow = db
           .prepare(
-            'SELECT home_region, is_public, bio, display_name FROM users WHERE id = 1',
+            'SELECT home_region, is_public, bio, display_name, track_individual_media FROM users WHERE id = 1',
           )
           .get() as {
           home_region: string;
           is_public: number;
           bio: string;
           display_name: string;
+          track_individual_media: number;
         };
         expect(dbRow.home_region).toBe('Japan');
         expect(dbRow.is_public).toBe(1);
         expect(dbRow.bio).toBe('Retro gaming archivist');
         expect(dbRow.display_name).toBe('Alice M.');
+        expect(dbRow.track_individual_media).toBe(1);
+
+        // 5. Toggle back to false
+        const putDisableRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/user/profile',
+            {
+              method: 'PUT',
+              headers: authHeaders,
+              body: JSON.stringify({ trackIndividualMedia: false }),
+            },
+          ),
+          mockEnv,
+        );
+        expect(putDisableRes.status).toBe(200);
+        expect(
+          ((await putDisableRes.json()) as { trackIndividualMedia: boolean })
+            .trackIndividualMedia,
+        ).toBe(false);
       });
 
       it('GET /api/u/:username returns public profile, and 404 for private or missing profiles', async () => {
@@ -3757,11 +3810,11 @@ describe('Worker API Logic', () => {
       });
     });
 
-    describe('POST /api/collection/backups/apply', () => {
-      it('rejects unauthenticated requests with 401 and cross-origin requests with 403', async () => {
+    describe('POST /api/admin/verify-ownership/apply', () => {
+      it('rejects unauthenticated requests with 401, non-admin sessions with 403, and cross-origin requests with 403', async () => {
         const unauthRes = await worker.fetch(
           new Request(
-            'https://collection-tracker.example.com/api/collection/backups/apply',
+            'https://collection-tracker.example.com/api/admin/verify-ownership/apply',
             {
               method: 'POST',
               headers: {
@@ -3769,8 +3822,8 @@ describe('Worker API Logic', () => {
                 Origin: 'https://collection-tracker.example.com',
               },
               body: JSON.stringify({
-                setBackedUp: ['gb-mario'],
-                clearBackedUp: [],
+                setMediaOwned: ['gb-mario'],
+                clearMediaOwned: [],
               }),
             },
           ),
@@ -3778,16 +3831,45 @@ describe('Worker API Logic', () => {
         );
         expect(unauthRes.status).toBe(401);
 
+        const nonAdminToken = await signSession(
+          {
+            id: 2,
+            username: 'bob',
+            role: 'user',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+        const nonAdminRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/admin/verify-ownership/apply',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Origin: 'https://collection-tracker.example.com',
+                Cookie: `${HOST_SESSION_COOKIE}=${nonAdminToken}`,
+              },
+              body: JSON.stringify({
+                setMediaOwned: ['gb-mario'],
+                clearMediaOwned: [],
+              }),
+            },
+          ),
+          mockEnv,
+        );
+        expect(nonAdminRes.status).toBe(403);
+
         const csrfRes = await worker.fetch(
-          new Request('http://localhost/api/collection/backups/apply', {
+          new Request('http://localhost/api/admin/verify-ownership/apply', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Origin: 'https://evil.example.com',
             },
             body: JSON.stringify({
-              setBackedUp: ['gb-mario'],
-              clearBackedUp: [],
+              setMediaOwned: ['gb-mario'],
+              clearMediaOwned: [],
             }),
           }),
           mockEnv,
@@ -3795,13 +3877,13 @@ describe('Worker API Logic', () => {
         expect(csrfRes.status).toBe(403);
       });
 
-      it('applies setBackedUp and clearBackedUp isolated to the authenticated user', async () => {
+      it('applies setMediaOwned and clearMediaOwned isolated to the authenticated admin user', async () => {
         db.exec(`
           INSERT INTO users (id, username, is_public, home_region, display_name)
           VALUES (2, 'bob', 1, 'USA', 'Bob');
           INSERT INTO game_releases (id, game_id, region, variants, rom_name)
           VALUES ('gb-mario-rev1', 1, 'USA', 'Rev 1', 'Super Mario Bros (USA) (Rev 1).nes');
-          INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
           VALUES (1, 'gb-mario-rev1', 0, 1),
                  (2, 'gb-mario', 1, 0),
                  (2, 'gb-mario-rev1', 1, 1);
@@ -3811,22 +3893,22 @@ describe('Worker API Logic', () => {
           {
             id: 1,
             username: 'alice',
-            role: 'user',
+            role: 'admin',
             homeRegion: 'USA',
           },
           mockEnv.SESSION_SECRET!,
         );
 
         const res = await worker.fetch(
-          new Request('http://localhost/api/collection/backups/apply', {
+          new Request('http://localhost/api/admin/verify-ownership/apply', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Cookie: `${SESSION_COOKIE}=${token}`,
             },
             body: JSON.stringify({
-              setBackedUp: ['gb-mario'],
-              clearBackedUp: ['gb-mario-rev1'],
+              setMediaOwned: ['gb-mario'],
+              clearMediaOwned: ['gb-mario-rev1'],
             }),
           }),
           mockEnv,
@@ -3849,38 +3931,38 @@ describe('Worker API Logic', () => {
 
         const aliceRows = db
           .prepare(
-            'SELECT release_id, ownership_status, backup_status FROM user_game_releases WHERE user_id = 1 ORDER BY release_id',
+            'SELECT release_id, ownership_status, has_media FROM user_game_releases WHERE user_id = 1 ORDER BY release_id',
           )
           .all() as Array<{
           release_id: string;
           ownership_status: number;
-          backup_status: number;
+          has_media: number;
         }>;
         expect(aliceRows).toEqual([
-          { release_id: 'gb-mario', ownership_status: 1, backup_status: 1 },
+          { release_id: 'gb-mario', ownership_status: 1, has_media: 1 },
           {
             release_id: 'gb-mario-rev1',
             ownership_status: 0,
-            backup_status: 0,
+            has_media: 0,
           },
         ]);
 
         // Bob's rows remain completely untouched
         const bobRows = db
           .prepare(
-            'SELECT release_id, ownership_status, backup_status FROM user_game_releases WHERE user_id = 2 ORDER BY release_id',
+            'SELECT release_id, ownership_status, has_media FROM user_game_releases WHERE user_id = 2 ORDER BY release_id',
           )
           .all() as Array<{
           release_id: string;
           ownership_status: number;
-          backup_status: number;
+          has_media: number;
         }>;
         expect(bobRows).toEqual([
-          { release_id: 'gb-mario', ownership_status: 1, backup_status: 0 },
+          { release_id: 'gb-mario', ownership_status: 1, has_media: 0 },
           {
             release_id: 'gb-mario-rev1',
             ownership_status: 1,
-            backup_status: 1,
+            has_media: 1,
           },
         ]);
       });
@@ -3894,7 +3976,7 @@ describe('Worker API Logic', () => {
                  ('ff7-rev0-d2', 50, 'USA', null, 'Final Fantasy VII (USA) (Disc 2).cue'),
                  ('ff7-rev1-d1', 50, 'USA', 'Rev 1', 'Final Fantasy VII (USA) (Disc 1) (Rev 1).cue'),
                  ('ff7-rev1-d2', 50, 'USA', 'Rev 1', 'Final Fantasy VII (USA) (Disc 2) (Rev 1).cue');
-          INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media, has_case, has_manual)
           VALUES (1, 'ff7-rev0-d1', 1, 0, 1, 1),
                  (1, 'ff7-rev0-d2', 1, 0, 1, 1);
           INSERT INTO user_games (user_id, game_id, play_status, queued)
@@ -3907,23 +3989,23 @@ describe('Worker API Logic', () => {
           {
             id: 1,
             username: 'alice',
-            role: 'user',
+            role: 'admin',
             homeRegion: 'USA',
           },
           mockEnv.SESSION_SECRET!,
         );
 
-        // Only Disc 1 of Rev 1 was dumped in the scan, while ownership transfers to the full 2-disc Rev 1 SKU
+        // Only Disc 1 of Rev 1 was verified in the scan, while ownership transfers to the full 2-disc Rev 1 SKU
         const res = await worker.fetch(
-          new Request('http://localhost/api/collection/backups/apply', {
+          new Request('http://localhost/api/admin/verify-ownership/apply', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Cookie: `${SESSION_COOKIE}=${token}`,
             },
             body: JSON.stringify({
-              setBackedUp: ['ff7-rev1-d1'],
-              clearBackedUp: [],
+              setMediaOwned: ['ff7-rev1-d1'],
+              clearMediaOwned: [],
               ownershipTransfers: [
                 {
                   fromReleaseIds: ['ff7-rev0-d1', 'ff7-rev0-d2'],
@@ -3952,7 +4034,7 @@ describe('Worker API Logic', () => {
 
         const ff7Rels = db
           .prepare(
-            `SELECT release_id, ownership_status, backup_status, has_case, has_manual
+            `SELECT release_id, ownership_status, has_media, has_case, has_manual
              FROM user_game_releases
              WHERE user_id = 1 AND release_id LIKE 'ff7-%'
              ORDER BY release_id`,
@@ -3960,7 +4042,7 @@ describe('Worker API Logic', () => {
           .all() as Array<{
           release_id: string;
           ownership_status: number;
-          backup_status: number;
+          has_media: number;
           has_case: number;
           has_manual: number;
         }>;
@@ -3969,28 +4051,28 @@ describe('Worker API Logic', () => {
           {
             release_id: 'ff7-rev0-d1',
             ownership_status: 0,
-            backup_status: 0,
+            has_media: 0,
             has_case: 0,
             has_manual: 0,
           },
           {
             release_id: 'ff7-rev0-d2',
             ownership_status: 0,
-            backup_status: 0,
+            has_media: 0,
             has_case: 0,
             has_manual: 0,
           },
           {
             release_id: 'ff7-rev1-d1',
             ownership_status: 1,
-            backup_status: 1,
+            has_media: 1,
             has_case: 1,
             has_manual: 1,
           },
           {
             release_id: 'ff7-rev1-d2',
             ownership_status: 1,
-            backup_status: 0,
+            has_media: 0,
             has_case: 1,
             has_manual: 1,
           },
@@ -4028,22 +4110,22 @@ describe('Worker API Logic', () => {
           {
             id: 1,
             username: 'alice',
-            role: 'user',
+            role: 'admin',
             homeRegion: 'USA',
           },
           mockEnv.SESSION_SECRET!,
         );
 
         const res = await worker.fetch(
-          new Request('http://localhost/api/collection/backups/apply', {
+          new Request('http://localhost/api/admin/verify-ownership/apply', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Cookie: `${SESSION_COOKIE}=${token}`,
             },
             body: JSON.stringify({
-              setBackedUp: ['other-game-rel'],
-              clearBackedUp: [],
+              setMediaOwned: ['other-game-rel'],
+              clearMediaOwned: [],
               ownershipTransfers: [
                 {
                   fromReleaseIds: ['gb-mario'],
@@ -4067,7 +4149,7 @@ describe('Worker API Logic', () => {
           INSERT INTO game_releases (id, game_id, region, variants, rom_name)
           VALUES ('sm-usa', 60, 'USA', null, 'Super Metroid (USA).sfc'),
                  ('sm-jpn', 60, 'Japan', null, 'Super Metroid (Japan).sfc');
-          INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media, has_case, has_manual)
           VALUES (1, 'sm-jpn', 2, 0, 0, 1);
         `);
 
@@ -4075,22 +4157,22 @@ describe('Worker API Logic', () => {
           {
             id: 1,
             username: 'alice',
-            role: 'user',
+            role: 'admin',
             homeRegion: 'USA',
           },
           mockEnv.SESSION_SECRET!,
         );
 
         const res = await worker.fetch(
-          new Request('http://localhost/api/collection/backups/apply', {
+          new Request('http://localhost/api/admin/verify-ownership/apply', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Cookie: `${SESSION_COOKIE}=${token}`,
             },
             body: JSON.stringify({
-              setBackedUp: ['sm-usa', 'sm-jpn'],
-              clearBackedUp: [],
+              setMediaOwned: ['sm-usa', 'sm-jpn'],
+              clearMediaOwned: [],
               ownershipDeclarations: [
                 { releaseId: 'sm-usa', hasCase: 1, hasManual: 0 },
                 { releaseId: 'sm-jpn', hasCase: 1, hasManual: 0 },
@@ -4118,7 +4200,7 @@ describe('Worker API Logic', () => {
 
         const rows = db
           .prepare(
-            `SELECT release_id, ownership_status, backup_status, has_case, has_manual
+            `SELECT release_id, ownership_status, has_media, has_case, has_manual
              FROM user_game_releases
              WHERE user_id = 1 AND release_id IN ('sm-usa', 'sm-jpn')
              ORDER BY release_id`,
@@ -4126,7 +4208,7 @@ describe('Worker API Logic', () => {
           .all() as Array<{
           release_id: string;
           ownership_status: number;
-          backup_status: number;
+          has_media: number;
           has_case: number;
           has_manual: number;
         }>;
@@ -4135,18 +4217,232 @@ describe('Worker API Logic', () => {
           {
             release_id: 'sm-jpn',
             ownership_status: 1,
-            backup_status: 1,
+            has_media: 1,
             has_case: 1,
             has_manual: 1, // preserved existing has_manual = 1 via MAX
           },
           {
             release_id: 'sm-usa',
             ownership_status: 1,
-            backup_status: 1,
+            has_media: 1,
             has_case: 1,
             has_manual: 0,
           },
         ]);
+      });
+
+      it('POST /api/collection/toggle with field has_media accepts integers/booleans and updates only the targeted release', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id)
+          VALUES (55, 'mgs-ps1', 'Metal Gear Solid', 1);
+          INSERT INTO game_releases (id, game_id, region, variants, rom_name)
+          VALUES ('mgs-d1', 55, 'USA', 'Disc 1', 'Metal Gear Solid (USA) (Disc 1).cue'),
+                 ('mgs-d2', 55, 'USA', 'Disc 2', 'Metal Gear Solid (USA) (Disc 2).cue');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
+          VALUES (1, 'mgs-d1', 1, 0),
+                 (1, 'mgs-d2', 1, 0);
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'user',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        const toggleTrueRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/collection/toggle',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Origin: 'https://collection-tracker.example.com',
+                Cookie: `${HOST_SESSION_COOKIE}=${token}`,
+              },
+              body: JSON.stringify({
+                id: 'mgs-d1',
+                type: 'game',
+                field: 'has_media',
+                status: true,
+              }),
+            },
+          ),
+          mockEnv,
+        );
+        expect(toggleTrueRes.status).toBe(200);
+
+        const rowsAfterEnable = db
+          .prepare(
+            "SELECT release_id, has_media FROM user_game_releases WHERE user_id = 1 AND release_id IN ('mgs-d1', 'mgs-d2') ORDER BY release_id",
+          )
+          .all() as Array<{ release_id: string; has_media: number }>;
+        expect(rowsAfterEnable).toEqual([
+          { release_id: 'mgs-d1', has_media: 1 },
+          { release_id: 'mgs-d2', has_media: 0 },
+        ]);
+
+        const toggleZeroRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/collection/toggle',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Origin: 'https://collection-tracker.example.com',
+                Cookie: `${HOST_SESSION_COOKIE}=${token}`,
+              },
+              body: JSON.stringify({
+                id: 'mgs-d1',
+                type: 'game',
+                field: 'has_media',
+                status: 0,
+              }),
+            },
+          ),
+          mockEnv,
+        );
+        expect(toggleZeroRes.status).toBe(200);
+
+        const rowAfterDisable = db
+          .prepare(
+            "SELECT has_media FROM user_game_releases WHERE user_id = 1 AND release_id = 'mgs-d1'",
+          )
+          .get() as { has_media: number };
+        expect(rowAfterDisable.has_media).toBe(0);
+      });
+
+      it('hydrates has_media from legacy backup_status fields in R2 fallback snapshots', async () => {
+        resetR2SnapshotCache();
+        resetWorkerRateLimits();
+
+        const legacySnapshot = {
+          version: 'v1-legacy',
+          timestamp: '2026-11-19T00:00:00Z',
+          tables: {
+            platforms: [
+              { id: 1, name: 'SNES', display_name: 'SNES', sort_index: 0 },
+            ],
+            games: [
+              {
+                stable_id: 1,
+                id: 'mario',
+                title: 'Super Mario Bros',
+                platform_id: 1,
+                sort_index: 0,
+              },
+            ],
+            game_releases: [
+              {
+                id: 'gb-mario',
+                game_id: 1,
+                region: 'USA',
+                variants: null,
+                rom_name: 'Super Mario Bros (USA).nes',
+                rom_crc: null,
+                release_date: '1985-10-18',
+              },
+            ],
+            users: [
+              {
+                id: 1,
+                username: 'alice',
+                is_public: 1,
+                home_region: 'USA',
+              },
+            ],
+            user_game_releases: [
+              {
+                user_id: 1,
+                release_id: 'gb-mario',
+                ownership_status: 1,
+                backup_status: 1,
+                has_case: 1,
+                has_manual: 0,
+              },
+            ],
+            user_games: [{ user_id: 1, game_id: 1, play_status: 2 }],
+            toy_series: [],
+            toys: [],
+            user_toys: [],
+            game_bundles: [],
+            journal_entries: [],
+            price_query_overrides: [],
+          },
+        };
+        mockBucket.storage.set(
+          'snapshots/latest.json',
+          JSON.stringify(legacySnapshot),
+        );
+
+        const failingDb = {
+          prepare: () => ({
+            bind: () => ({
+              all: async () => {
+                throw new Error('D1_ERROR: exceeded rows read quota');
+              },
+              first: async () => {
+                throw new Error('D1_ERROR: exceeded rows read quota');
+              },
+              run: async () => {
+                throw new Error('D1_ERROR: exceeded rows read quota');
+              },
+            }),
+            all: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            first: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            run: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+          }),
+          batch: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+        } as unknown as Env['DB'];
+
+        const token = await signSession(
+          { id: 1, username: 'alice', role: 'user', homeRegion: 'USA' },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        const gamesRes = await worker.fetch(
+          new Request('https://collection-tracker.example.com/api/games', {
+            headers: { Cookie: `${HOST_SESSION_COOKIE}=${token}` },
+          }),
+          { ...mockEnv, DB: failingDb },
+        );
+        expect(gamesRes.status).toBe(200);
+        const gamesBody = (await gamesRes.json()) as Array<{
+          id: string;
+          has_media?: number;
+        }>;
+        expect(gamesBody[0]).toMatchObject({
+          id: 'gb-mario',
+          has_media: 1,
+        });
+
+        const detailRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/games/gb-mario',
+            {
+              headers: { Cookie: `${HOST_SESSION_COOKIE}=${token}` },
+            },
+          ),
+          { ...mockEnv, DB: failingDb },
+        );
+        expect(detailRes.status).toBe(200);
+        const detailBody = (await detailRes.json()) as {
+          has_media?: number;
+          releases?: Array<{ id: string; has_media?: number }>;
+        };
+        expect(detailBody.has_media).toBe(1);
+        expect(detailBody.releases?.[0]?.has_media).toBe(1);
       });
     });
 

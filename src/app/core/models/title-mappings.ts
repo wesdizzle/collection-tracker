@@ -17,7 +17,7 @@ export interface CompanionDiscPair {
 /**
  * Pairs where a 2-disc GOTY/expanded release reuses the original 1-disc release
  * verbatim as Disc 1. Used so the GOTY release card requires BOTH Disc 1 (base game)
- * and Disc 2 (add-on/DLC) to be backed up before reporting backup_status = 1,
+ * and Disc 2 (add-on/DLC) to have verified media before reporting has_media = 1,
  * without altering ownership_status.
  */
 export const COMPANION_DISC1_PAIRS: ReadonlyArray<CompanionDiscPair> = [

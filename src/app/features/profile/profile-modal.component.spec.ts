@@ -288,23 +288,57 @@ describe('ProfileModalComponent', () => {
     ).toBeNull();
   });
 
-  it('should close profile modal and navigate to /collection/backups when Scan Local Backups is clicked', () => {
+  it('should close profile modal and navigate to /admin/verify-ownership when Verify Owned Media is clicked by admin, and hide it for non-admins', () => {
     const router = TestBed.inject(Router);
     const navSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
     modalService.open();
     fixture.detectChanges();
 
-    const scanBtn = fixture.nativeElement.querySelector(
-      '[data-testid="profile-backup-scanner-btn"]',
+    const verifyBtn = fixture.nativeElement.querySelector(
+      '[data-testid="profile-verify-ownership-btn"]',
     ) as HTMLButtonElement;
-    expect(scanBtn).toBeTruthy();
+    expect(verifyBtn).toBeTruthy();
 
-    scanBtn.click();
+    verifyBtn.click();
     fixture.detectChanges();
 
     expect(modalService.isOpen()).toBe(false);
-    expect(navSpy).toHaveBeenCalledWith(['/collection/backups']);
+    expect(navSpy).toHaveBeenCalledWith(['/admin/verify-ownership']);
+
+    collectionService.setCurrentUserForTesting({
+      ...mockUser,
+      role: 'user',
+    });
+    modalService.open();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="profile-verify-ownership-btn"]',
+      ),
+    ).toBeNull();
+  });
+
+  it('should toggle trackIndividualMedia preference via updateProfile', () => {
+    const updateSpy = vi
+      .spyOn(collectionService, 'updateProfile')
+      .mockReturnValue(of({ ...mockUser, trackIndividualMedia: true }));
+
+    modalService.open();
+    fixture.detectChanges();
+
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-testid="toggle-track-individual-media"]',
+    ) as HTMLInputElement;
+    expect(toggle).toBeTruthy();
+    expect(toggle.checked).toBe(false);
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(updateSpy).toHaveBeenCalledWith({ trackIndividualMedia: true });
+    expect(component.trackIndividualMedia()).toBe(true);
   });
 
   it('should navigate to /admin when Admin Center button is clicked by admin', () => {

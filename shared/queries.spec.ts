@@ -213,7 +213,7 @@ describe('resolveLocalizedReleaseTitle', () => {
         release_date: null,
         platform_id: 19,
         ownership_status: 1,
-        backup_status: 0,
+        has_media: 0,
       },
       {
         id: 'rel-a',
@@ -224,7 +224,7 @@ describe('resolveLocalizedReleaseTitle', () => {
         release_date: '1991-11-21',
         platform_id: 19,
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         id: 'rel-c',
@@ -235,7 +235,7 @@ describe('resolveLocalizedReleaseTitle', () => {
         release_date: '1986-08-06',
         platform_id: 18,
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
     ];
 
@@ -308,7 +308,7 @@ describe('resolveLocalizedReleaseTitle', () => {
          ('r3', 3, 'USA')`,
       ).run();
       db.prepare(
-        `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media, has_case, has_manual)
          VALUES (1, 'r1', 1, 1, 1, 0), (1, 'r2', 0, 0, 0, 0)`,
       ).run();
       db.prepare(
@@ -430,7 +430,7 @@ describe('resolveLocalizedReleaseTitle', () => {
         {
           release_id: 'r1',
           ownership_status: 1,
-          backup_status: 1,
+          has_media: 1,
           has_case: 1,
           has_manual: 0,
         },

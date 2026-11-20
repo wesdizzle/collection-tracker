@@ -40,6 +40,7 @@ import {
   PlayStatus,
   GameRelease,
   getMediaIconName,
+  getMediaNoun,
   JournalEntry,
   STANDARD_MERCHANTS,
   formatJournalDate,
@@ -940,24 +941,25 @@ export class ItemDetailComponent {
     );
   }
 
-  onEditBackedUp(game: Game) {
-    if (!this.collectionService.canShowPersonalState()) return;
+  onEditMediaOwned(game: Game) {
+    if (!this.collectionService.canTrackIndividualMedia()) return;
+    const ownedLabel = `${getMediaNoun(game.display_name || game.platform, false)} Owned`;
     this.collectionService.showOptions(
-      'Backup Status',
-      'Select the backup status for this game:',
+      'Media Ownership',
+      'Select the physical media status for this game:',
       [
-        { value: 1, label: 'Backed Up' },
-        { value: 0, label: 'No Backup' },
+        { value: 1, label: ownedLabel },
+        { value: 0, label: 'Missing' },
       ],
       (value: string | number) => {
-        const backupVal = Number(value);
+        const mediaVal = Number(value);
         this.collectionService
-          .updateBackupStatus(game.id, backupVal)
+          .updateMediaOwned(game.id, mediaVal)
           .subscribe(() => {
-            game.backup_status = backupVal;
-            this.itemOverride.set({ ...game, backup_status: backupVal });
+            game.has_media = mediaVal;
+            this.itemOverride.set({ ...game, has_media: mediaVal });
             this.collectionService.patchGameOptimistic(game.id, {
-              backup_status: backupVal,
+              has_media: mediaVal,
             });
           });
       },
@@ -966,9 +968,17 @@ export class ItemDetailComponent {
 
   getMediaIcon(
     platform: string | null | undefined,
-    backedUp: boolean | number,
+    mediaOwned: boolean | number,
   ): IconName {
-    return getMediaIconName(platform, backedUp);
+    return getMediaIconName(platform, mediaOwned);
+  }
+
+  getMediaOwnedLabel(
+    platform: string | null | undefined,
+    mediaOwned: boolean | number | undefined,
+  ): string {
+    if (!mediaOwned) return 'Missing';
+    return `${getMediaNoun(platform, false)} Owned`;
   }
 
   getReleasesSectionLabel(game: Game): string {
@@ -982,43 +992,44 @@ export class ItemDetailComponent {
     return isDisc ? 'Physical Disc Release' : 'Physical Cartridge Release';
   }
 
-  onToggleDiscBackup(release: GameRelease) {
-    if (!this.collectionService.canShowPersonalState()) return;
+  onToggleDiscMediaOwned(release: GameRelease) {
+    if (!this.collectionService.canTrackIndividualMedia()) return;
+    const game = this.game();
+    const noun = getMediaNoun(game?.display_name || game?.platform, false);
+    const ownedLabel = `${noun} Owned`;
     this.collectionService.showOptions(
-      'Backup Status',
-      'Select the backup status for this disc:',
+      'Media Ownership',
+      `Select physical ${noun.toLowerCase()} status for this release:`,
       [
-        { value: 1, label: 'Backed Up' },
-        { value: 0, label: 'No Backup' },
+        { value: 1, label: ownedLabel },
+        { value: 0, label: 'Missing' },
       ],
       (value: string | number) => {
-        const backupVal = Number(value);
+        const mediaVal = Number(value);
         this.collectionService
-          .updateBackupStatus(release.id, backupVal)
+          .updateMediaOwned(release.id, mediaVal)
           .subscribe(() => {
-            release.backup_status = backupVal;
+            release.has_media = mediaVal;
             const g = this.game();
             if (g && g.releases) {
               const targetRel = g.releases.find((r) => r.id === release.id);
-              if (targetRel) targetRel.backup_status = backupVal;
+              if (targetRel) targetRel.has_media = mediaVal;
               const nextReleases = g.releases.map((r) =>
-                r.id === release.id ? { ...r, backup_status: backupVal } : r,
+                r.id === release.id ? { ...r, has_media: mediaVal } : r,
               );
-              const nextBackupStatus = nextReleases.every(
-                (r) => r.backup_status === 1,
-              )
+              const nextHasMedia = nextReleases.every((r) => r.has_media === 1)
                 ? 1
                 : 0;
-              g.backup_status = nextBackupStatus;
+              g.has_media = nextHasMedia;
               this.itemOverride.set({
                 ...g,
                 releases: nextReleases,
-                backup_status: nextBackupStatus,
+                has_media: nextHasMedia,
               });
             }
-            this.collectionService.patchDiscBackupOptimistic(
+            this.collectionService.patchDiscMediaOptimistic(
               release.id,
-              backupVal,
+              mediaVal,
             );
           });
       },

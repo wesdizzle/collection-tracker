@@ -1,0 +1,138 @@
+<dialog
+  #dialogEl
+  class="disc-modal-dialog"
+  [class.dragging]="isDraggingSheet()"
+  [class.slide-up-enter]="isEntering()"
+  [class.closing]="isClosing()"
+  [style.transform]="
+    effectiveTransformY() !== null
+      ? 'translateY(' + effectiveTransformY() + 'px)'
+      : null
+  "
+  (click)="onDialogClick($event)"
+  (cancel)="onDialogCancel($event)"
+  [attr.aria-label]="
+    game()
+      ? game()!.title + ' ' + mediaNoun() + ' ownership checklist'
+      : 'Media ownership checklist'
+  "
+  data-testid="disc-ownership-dialog"
+>
+  @if (game(); as g) {
+    <div
+      class="disc-modal-drag-area"
+      (touchstart)="onDragHandleTouchStart($event)"
+      (touchmove)="onDragHandleTouchMove($event)"
+      (touchend)="onDragHandleTouchEnd()"
+      (touchcancel)="sheetDrag.reset()"
+    >
+      <div class="disc-drag-handle-bar">
+        <div class="disc-drag-handle"></div>
+      </div>
+
+      <header class="disc-modal-header">
+        <div class="disc-header-meta">
+          @if (g.image_url) {
+            <img
+              [src]="g.image_url"
+              [alt]="g.title + ' cover art'"
+              class="disc-header-cover"
+              loading="eager"
+            />
+          } @else {
+            <div class="disc-header-cover disc-header-cover--placeholder">
+              <app-icon name="disc" [size]="20" />
+            </div>
+          }
+          <div class="disc-header-text">
+            <h2 class="disc-modal-title">{{ g.title }}</h2>
+            <div class="disc-header-sub">
+              <span class="disc-platform-label">{{
+                g.display_name || g.platform
+              }}</span>
+              <span
+                class="disc-count-pill"
+                [class.complete]="allOwned()"
+                data-testid="disc-modal-count-pill"
+              >
+                {{ ownedCount() }} / {{ totalCount() }}
+                {{ mediaNounPlural() }} Owned
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="disc-close-btn"
+          (click)="requestDismiss()"
+          aria-label="Close checklist"
+          data-testid="disc-modal-close-btn"
+        >
+          <app-icon name="close" [size]="18" />
+        </button>
+      </header>
+    </div>
+
+    <div class="disc-modal-body" data-testid="disc-modal-rows">
+      @for (row of discRows(); track row.releaseId + ':' + $index) {
+        <button
+          type="button"
+          role="switch"
+          class="disc-row-btn"
+          [class.owned]="row.owned"
+          [attr.aria-checked]="row.owned"
+          [disabled]="isSaving()"
+          (click)="onToggleRow(row)"
+          [attr.data-testid]="'disc-row-' + row.releaseId"
+        >
+          <span class="disc-row-left">
+            <span class="disc-row-check" aria-hidden="true">
+              @if (row.owned) {
+                <app-icon name="check" [size]="14" />
+              } @else {
+                <app-icon name="disc" [size]="14" />
+              }
+            </span>
+            <span class="disc-row-label">{{ row.label }}</span>
+          </span>
+          <span class="disc-row-status">
+            {{ row.owned ? mediaNoun() + ' Owned' : 'Missing' }}
+          </span>
+        </button>
+      }
+    </div>
+
+    <footer class="disc-modal-footer">
+      <div class="disc-bulk-actions">
+        <button
+          type="button"
+          class="disc-bulk-btn disc-bulk-btn--primary"
+          [disabled]="isSaving() || allOwned()"
+          (click)="onMarkAll()"
+          data-testid="disc-modal-mark-all"
+        >
+          Mark All Owned
+        </button>
+        <button
+          type="button"
+          class="disc-bulk-btn disc-bulk-btn--secondary"
+          [disabled]="isSaving() || !anyOwned()"
+          (click)="onClearAll()"
+          data-testid="disc-modal-clear-all"
+        >
+          Clear All
+        </button>
+      </div>
+
+      <a
+        [routerLink]="detailRoute()"
+        class="disc-details-link"
+        (click)="onNavigateToDetails()"
+        data-testid="disc-modal-details-link"
+      >
+        View Details →
+      </a>
+    </footer>
+  }
+</dialog>

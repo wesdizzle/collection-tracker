@@ -77,6 +77,65 @@ interface CollectionOfflineSnapshot {
   catalogVersion?: string | null;
 }
 
+export function readHasMedia(
+  row?: { has_media?: unknown; backup_status?: unknown } | null,
+): number {
+  return Number(row?.has_media ?? row?.backup_status ?? 0) > 0 ? 1 : 0;
+}
+
+function normalizeGameMediaFields(raw: Game): Game {
+  const legacy = raw as Game & {
+    backup_status?: unknown;
+    discBackups?: number[];
+  };
+  const hasMedia =
+    raw.has_media !== undefined
+      ? raw.has_media
+      : readHasMedia({ backup_status: legacy.backup_status });
+  const discMediaOwned =
+    raw.discMediaOwned ??
+    (Array.isArray(legacy.discBackups) ? legacy.discBackups : undefined);
+  const releases = Array.isArray(raw.releases)
+    ? raw.releases.map((r) => ({
+        ...r,
+        has_media:
+          r.has_media !== undefined
+            ? r.has_media
+            : readHasMedia(
+                r as { has_media?: unknown; backup_status?: unknown },
+              ),
+      }))
+    : raw.releases;
+  const bundledGames = Array.isArray(raw.bundled_games)
+    ? raw.bundled_games.map((b) => ({
+        ...b,
+        has_media:
+          b.has_media !== undefined
+            ? b.has_media
+            : readHasMedia(
+                b as { has_media?: unknown; backup_status?: unknown },
+              ),
+      }))
+    : raw.bundled_games;
+
+  if (
+    hasMedia === raw.has_media &&
+    discMediaOwned === raw.discMediaOwned &&
+    releases === raw.releases &&
+    bundledGames === raw.bundled_games
+  ) {
+    return raw;
+  }
+
+  return {
+    ...raw,
+    has_media: hasMedia,
+    ...(discMediaOwned !== undefined ? { discMediaOwned } : {}),
+    ...(releases !== undefined ? { releases } : {}),
+    ...(bundledGames !== undefined ? { bundled_games: bundledGames } : {}),
+  };
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -120,6 +179,9 @@ export class CollectionService implements OnDestroy {
   public readonly publicProfile = this.authSession.publicProfile;
 
   public readonly canShowPersonalState = this.authSession.canShowPersonalState;
+  public readonly trackIndividualMedia = this.authSession.trackIndividualMedia;
+  public readonly canTrackIndividualMedia =
+    this.authSession.canTrackIndividualMedia;
 
   public readonly journalRevealed = computed(() => this.canShowPersonalState());
 
@@ -868,10 +930,10 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
-   * Immutably updates a game release's backup_status in the in-memory games signal
-   * and recalculates the parent game's backup_status when discBackups are present.
+   * Immutably updates a game release's has_media in the in-memory games signal
+   * and recalculates the parent game's has_media when discMediaOwned are present.
    */
-  public patchDiscBackupOptimistic(discId: string, status: number): void {
+  public patchDiscMediaOptimistic(discId: string, status: number): void {
     this._games.update((games) =>
       games.map((g) => {
         let matched = false;
@@ -880,37 +942,37 @@ export class CollectionService implements OnDestroy {
           nextReleases = g.releases.map((r) => {
             if (r.id === discId) {
               matched = true;
-              return { ...r, backup_status: status };
+              return { ...r, has_media: status };
             }
             return r;
           });
         }
-        let nextDiscBackups = g.discBackups;
-        if (Array.isArray(g.discIds) && Array.isArray(g.discBackups)) {
+        let nextDiscMediaOwned = g.discMediaOwned;
+        if (Array.isArray(g.discIds) && Array.isArray(g.discMediaOwned)) {
           const idx = g.discIds.indexOf(discId);
           if (idx !== -1) {
             matched = true;
-            nextDiscBackups = [...g.discBackups];
-            nextDiscBackups[idx] = status;
+            nextDiscMediaOwned = [...g.discMediaOwned];
+            nextDiscMediaOwned[idx] = status;
           }
         }
         if (g.id === discId) {
           matched = true;
         }
         if (!matched) return g;
-        const nextBackupStatus =
-          Array.isArray(nextDiscBackups) && nextDiscBackups.length > 0
-            ? nextDiscBackups.every((b) => b === 1)
+        const nextHasMedia =
+          Array.isArray(nextDiscMediaOwned) && nextDiscMediaOwned.length > 0
+            ? nextDiscMediaOwned.every((b) => b === 1)
               ? 1
               : 0
             : g.id === discId
               ? status
-              : g.backup_status;
+              : g.has_media;
         return {
           ...g,
           releases: nextReleases,
-          discBackups: nextDiscBackups,
-          backup_status: nextBackupStatus,
+          discMediaOwned: nextDiscMediaOwned,
+          has_media: nextHasMedia,
         };
       }),
     );
@@ -961,7 +1023,9 @@ export class CollectionService implements OnDestroy {
 
     let hydratedAny = false;
     if (this._games().length === 0 && stored.state.games?.length) {
-      this._games.set(stored.state.games);
+      this._games.set(
+        stored.state.games.map((g) => normalizeGameMediaFields(g)),
+      );
       hydratedAny = true;
     }
     if (this._toys().length === 0 && stored.state.toys?.length) {
@@ -1205,7 +1269,9 @@ export class CollectionService implements OnDestroy {
     phase1ById: Map<string, Game>,
     alreadyEnriched = false,
   ): Game {
-    const baseGame = alreadyEnriched ? rawGame : this.enrichGameTitle(rawGame);
+    const baseGame = alreadyEnriched
+      ? normalizeGameMediaFields(rawGame)
+      : this.enrichGameTitle(rawGame);
     const phase1Match = phase1ById.get(baseGame.id);
     const ugRow = ugByStableId.get(Number(baseGame.stable_id));
     const ugrSelf = ugrByReleaseId.get(baseGame.id);
@@ -1218,7 +1284,7 @@ export class CollectionService implements OnDestroy {
       !baseGame.ownership_status &&
       !baseGame.play_status &&
       !baseGame.queued &&
-      !baseGame.backup_status &&
+      !baseGame.has_media &&
       !baseGame.has_case &&
       !baseGame.has_manual &&
       !baseGame.releases?.length &&
@@ -1234,26 +1300,26 @@ export class CollectionService implements OnDestroy {
         return {
           ...r,
           ownership_status: Number(relUgr?.ownership_status ?? 0),
-          backup_status: Number(relUgr?.backup_status ?? 0),
+          has_media: readHasMedia(relUgr),
           has_case: Number(relUgr?.has_case ?? 0),
           has_manual: Number(relUgr?.has_manual ?? 0),
         };
       });
     }
 
-    let nextDiscBackups = baseGame.discBackups;
+    let nextDiscMediaOwned = baseGame.discMediaOwned;
     if (Array.isArray(baseGame.discIds)) {
-      nextDiscBackups = baseGame.discIds.map((discId) =>
-        Number(ugrByReleaseId.get(discId)?.backup_status ?? 0),
+      nextDiscMediaOwned = baseGame.discIds.map((discId) =>
+        readHasMedia(ugrByReleaseId.get(discId)),
       );
     }
 
-    const rolledUpBackupStatus =
-      Array.isArray(nextDiscBackups) && nextDiscBackups.length > 0
-        ? nextDiscBackups.every((b) => Number(b) === 1)
+    const rolledUpHasMedia =
+      Array.isArray(nextDiscMediaOwned) && nextDiscMediaOwned.length > 0
+        ? nextDiscMediaOwned.every((b) => Number(b) === 1)
           ? 1
           : 0
-        : Number(ugrSelf?.backup_status ?? 0);
+        : readHasMedia(ugrSelf);
 
     const overlaid: Game = {
       ...baseGame,
@@ -1262,12 +1328,12 @@ export class CollectionService implements OnDestroy {
       ) as OwnershipStatus,
       play_status: Number(ugRow?.play_status ?? 0) as PlayStatus,
       queued: Number(ugRow?.queued ?? 0),
-      backup_status: rolledUpBackupStatus,
+      has_media: rolledUpHasMedia,
       has_case: Number(ugrSelf?.has_case ?? 0),
       has_manual: Number(ugrSelf?.has_manual ?? 0),
       ...(nextReleases !== undefined ? { releases: nextReleases } : {}),
-      ...(nextDiscBackups !== undefined
-        ? { discBackups: nextDiscBackups }
+      ...(nextDiscMediaOwned !== undefined
+        ? { discMediaOwned: nextDiscMediaOwned }
         : {}),
     };
 
@@ -1280,11 +1346,11 @@ export class CollectionService implements OnDestroy {
       ownership_status: phase1Match.ownership_status,
       play_status: phase1Match.play_status,
       queued: phase1Match.queued ?? overlaid.queued,
-      backup_status: phase1Match.backup_status,
+      has_media: phase1Match.has_media,
       has_case: phase1Match.has_case ?? overlaid.has_case,
       has_manual: phase1Match.has_manual ?? overlaid.has_manual,
       releases: phase1Match.releases ?? overlaid.releases,
-      discBackups: phase1Match.discBackups ?? overlaid.discBackups,
+      discMediaOwned: phase1Match.discMediaOwned ?? overlaid.discMediaOwned,
       retail_price: phase1Match.retail_price ?? overlaid.retail_price,
       retail_regular_price:
         phase1Match.retail_regular_price ?? overlaid.retail_regular_price,
@@ -1391,8 +1457,7 @@ export class CollectionService implements OnDestroy {
           (overlaid.ownership_status !== cachedGame.ownership_status ||
             overlaid.play_status !== cachedGame.play_status ||
             Number(overlaid.queued ?? 0) !== Number(cachedGame.queued ?? 0) ||
-            Boolean(overlaid.backup_status) !==
-              Boolean(cachedGame.backup_status) ||
+            Boolean(overlaid.has_media) !== Boolean(readHasMedia(cachedGame)) ||
             Boolean(overlaid.has_case) !== Boolean(cachedGame.has_case) ||
             Boolean(overlaid.has_manual) !== Boolean(cachedGame.has_manual) ||
             overlaid.retail_updated_at !== cachedGame.retail_updated_at)
@@ -1684,7 +1749,7 @@ export class CollectionService implements OnDestroy {
           variants: r.variants || null,
           rom_name: r.rom_name || null,
           rom_crc: r.rom_crc || null,
-          backup_status: Number(r.backup_status) || 0,
+          has_media: readHasMedia(r),
           ownership_status: Number(r.ownership_status) || 0,
           release_date: r.release_date || null,
           also_released_as: r.also_released_as || null,
@@ -1703,7 +1768,7 @@ export class CollectionService implements OnDestroy {
                 variants: cached.variants || null,
                 rom_name: cached.rom_name || null,
                 rom_crc: cached.rom_crc || null,
-                backup_status: Number(cached.backup_status) || 0,
+                has_media: readHasMedia(cached),
                 ownership_status: Number(cached.ownership_status) || 0,
                 release_date: cached.release_date || null,
               },
@@ -1973,9 +2038,9 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
-   * Updates the 'backup_status' of a game.
+   * Updates the 'has_media' ownership status of a physical game release.
    */
-  updateBackupStatus(id: string, status: number): Observable<unknown> {
+  updateMediaOwned(id: string, status: number): Observable<unknown> {
     const blocked = this.checkDegradedReadOnly();
     if (blocked) return blocked;
     if (this._isPublicView()) {
@@ -1992,14 +2057,36 @@ export class CollectionService implements OnDestroy {
         id,
         type: 'game',
         status,
-        field: 'backup_status',
+        field: 'has_media',
       })
       .pipe(
         tap(() => {
           this._games.update((games) =>
             games.map((g) => {
+              let nextDiscMediaOwned = g.discMediaOwned;
+              if (Array.isArray(g.discIds) && Array.isArray(g.discMediaOwned)) {
+                const discIdx = g.discIds.indexOf(id);
+                if (discIdx !== -1) {
+                  nextDiscMediaOwned = [...g.discMediaOwned];
+                  nextDiscMediaOwned[discIdx] = status;
+                }
+              }
+
               if (g.id === id || g.game_id === id) {
-                return { ...g, backup_status: status };
+                const rolledUp =
+                  Array.isArray(nextDiscMediaOwned) &&
+                  nextDiscMediaOwned.length > 0
+                    ? nextDiscMediaOwned.every((b) => b === 1)
+                      ? 1
+                      : 0
+                    : status;
+                return {
+                  ...g,
+                  has_media: rolledUp,
+                  ...(nextDiscMediaOwned !== undefined
+                    ? { discMediaOwned: nextDiscMediaOwned }
+                    : {}),
+                };
               }
               if (g.releases) {
                 const rIdx = g.releases.findIndex((r) => r.id === id);
@@ -2007,17 +2094,20 @@ export class CollectionService implements OnDestroy {
                   const updatedReleases = [...g.releases];
                   updatedReleases[rIdx] = {
                     ...updatedReleases[rIdx],
-                    backup_status: status,
+                    has_media: status,
                   };
-                  const allBackedUp = updatedReleases.every(
-                    (r) => r.backup_status === 1,
+                  const allOwned = updatedReleases.every(
+                    (r) => r.has_media === 1,
                   )
                     ? 1
                     : 0;
                   return {
                     ...g,
                     releases: updatedReleases,
-                    backup_status: allBackedUp,
+                    has_media: allOwned,
+                    ...(nextDiscMediaOwned !== undefined
+                      ? { discMediaOwned: nextDiscMediaOwned }
+                      : {}),
                   };
                 }
               }
@@ -2031,12 +2121,12 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
-   * Applies a batch backup scan diff (newly backed up releases, cleared missing backups,
-   * and optional SKU-level ownership transfers) in a single atomic Worker request.
+   * Applies an admin ownership verification batch diff (newly verified media releases,
+   * pruned missing releases, and optional SKU-level ownership transfers) in a single atomic Worker request.
    */
-  applyBackupScanDiff(payload: {
-    setBackedUp: string[];
-    clearBackedUp: string[];
+  applyOwnershipVerificationDiff(payload: {
+    setMediaOwned: string[];
+    clearMediaOwned: string[];
     ownershipTransfers?: Array<{
       fromReleaseIds: string[];
       toReleaseIds: string[];
@@ -2066,10 +2156,13 @@ export class CollectionService implements OnDestroy {
         () => new Error('Unauthorized: Authentication required'),
       );
     }
+    if (!this.isAdmin()) {
+      return throwError(() => new Error('Forbidden: Admin access required.'));
+    }
 
     const requestBody: {
-      setBackedUp: string[];
-      clearBackedUp: string[];
+      setMediaOwned: string[];
+      clearMediaOwned: string[];
       ownershipTransfers: Array<{
         fromReleaseIds: string[];
         toReleaseIds: string[];
@@ -2080,8 +2173,8 @@ export class CollectionService implements OnDestroy {
         hasManual: number;
       }>;
     } = {
-      setBackedUp: payload.setBackedUp,
-      clearBackedUp: payload.clearBackedUp,
+      setMediaOwned: payload.setMediaOwned,
+      clearMediaOwned: payload.clearMediaOwned,
       ownershipTransfers: (payload.ownershipTransfers || []).map((t) => ({
         fromReleaseIds: t.fromReleaseIds,
         toReleaseIds: t.toReleaseIds,
@@ -2107,11 +2200,11 @@ export class CollectionService implements OnDestroy {
         clearCount: number;
         transferredCount: number;
         declaredOwnedCount?: number;
-      }>('/api/collection/backups/apply', requestBody)
+      }>('/api/admin/verify-ownership/apply', requestBody)
       .pipe(
         tap(() => {
-          const setIdSet = new Set(payload.setBackedUp);
-          const clearIdSet = new Set(payload.clearBackedUp);
+          const setIdSet = new Set(payload.setMediaOwned);
+          const clearIdSet = new Set(payload.clearMediaOwned);
           const declareOwnedMap = new Map<
             string,
             { hasCase: number; hasManual: number }
@@ -2157,16 +2250,16 @@ export class CollectionService implements OnDestroy {
           this._games.update((games) =>
             games.map((g) => {
               let changed = false;
-              let nextBackup = g.backup_status;
+              let nextHasMedia = g.has_media;
               let nextOwnership = g.ownership_status;
               let nextCase = g.has_case;
               let nextManual = g.has_manual;
 
               if (setIdSet.has(g.id)) {
-                nextBackup = 1;
+                nextHasMedia = 1;
                 changed = true;
               } else if (clearIdSet.has(g.id)) {
-                nextBackup = 0;
+                nextHasMedia = 0;
                 changed = true;
               }
 
@@ -2187,7 +2280,7 @@ export class CollectionService implements OnDestroy {
               } else if (declareOwnedMap.has(g.id)) {
                 const decl = declareOwnedMap.get(g.id)!;
                 nextOwnership = OwnershipStatus.Owned;
-                nextBackup = 1;
+                nextHasMedia = 1;
                 nextCase = Math.max(Number(g.has_case || 0), decl.hasCase);
                 nextManual = Math.max(
                   Number(g.has_manual || 0),
@@ -2200,17 +2293,17 @@ export class CollectionService implements OnDestroy {
               if (g.releases && g.releases.length > 0) {
                 let relChanged = false;
                 const mappedReleases = g.releases.map((r) => {
-                  let rBackup = r.backup_status;
+                  let rMedia = r.has_media;
                   let rOwn = r.ownership_status;
                   let rCase = r.has_case;
                   let rManual = r.has_manual;
                   let rMod = false;
 
                   if (setIdSet.has(r.id)) {
-                    rBackup = 1;
+                    rMedia = 1;
                     rMod = true;
                   } else if (clearIdSet.has(r.id)) {
-                    rBackup = 0;
+                    rMedia = 0;
                     rMod = true;
                   }
                   if (transferFromSet.has(r.id)) {
@@ -2230,7 +2323,7 @@ export class CollectionService implements OnDestroy {
                   } else if (declareOwnedMap.has(r.id)) {
                     const decl = declareOwnedMap.get(r.id)!;
                     rOwn = OwnershipStatus.Owned;
-                    rBackup = 1;
+                    rMedia = 1;
                     rCase = Math.max(Number(r.has_case || 0), decl.hasCase);
                     rManual = Math.max(
                       Number(r.has_manual || 0),
@@ -2242,7 +2335,7 @@ export class CollectionService implements OnDestroy {
                   relChanged = true;
                   return {
                     ...r,
-                    backup_status: rBackup,
+                    has_media: rMedia,
                     ownership_status: rOwn,
                     has_case: rCase,
                     has_manual: rManual,
@@ -2254,10 +2347,10 @@ export class CollectionService implements OnDestroy {
                 }
               }
 
-              let nextDiscBackups = g.discBackups;
-              if (g.discIds && g.discBackups && g.discIds.length > 1) {
+              let nextDiscMediaOwned = g.discMediaOwned;
+              if (g.discIds && g.discMediaOwned && g.discIds.length > 1) {
                 let discChanged = false;
-                const mappedDiscBackups = g.discIds.map((did, idx) => {
+                const mappedDiscMedia = g.discIds.map((did, idx) => {
                   if (setIdSet.has(did)) {
                     discChanged = true;
                     return 1;
@@ -2266,11 +2359,11 @@ export class CollectionService implements OnDestroy {
                     discChanged = true;
                     return 0;
                   }
-                  return g.discBackups?.[idx] ?? 0;
+                  return g.discMediaOwned?.[idx] ?? 0;
                 });
                 if (discChanged) {
-                  nextDiscBackups = mappedDiscBackups;
-                  nextBackup = mappedDiscBackups.every((b) => b === 1) ? 1 : 0;
+                  nextDiscMediaOwned = mappedDiscMedia;
+                  nextHasMedia = mappedDiscMedia.every((b) => b === 1) ? 1 : 0;
                   changed = true;
                 }
               }
@@ -2278,12 +2371,12 @@ export class CollectionService implements OnDestroy {
               if (!changed) return g;
               return {
                 ...g,
-                backup_status: nextBackup,
+                has_media: nextHasMedia,
                 ownership_status: nextOwnership,
                 has_case: nextCase,
                 has_manual: nextManual,
                 releases: nextReleases,
-                discBackups: nextDiscBackups,
+                discMediaOwned: nextDiscMediaOwned,
               };
             }),
           );
@@ -2717,7 +2810,7 @@ export class CollectionService implements OnDestroy {
    * @returns A new Game object with the appropriately formatted title.
    */
   private enrichGameTitle(rawGame: Game): Game {
-    const game = rawGame;
+    const game = normalizeGameMediaFields(rawGame);
     const baseTitle = this.formatTitle(game.title || '');
     if (!game.rom_name) {
       return {

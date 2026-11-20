@@ -1,14 +1,14 @@
 # Collection Tracker
 
-A web application for tracking physical video games, toys-to-life figures (amiibo, Skylanders, Starlink), digital backups, and collection acquisition provenance. Built with Angular and Cloudflare Workers.
+A web application for tracking physical video games, individual discs/cartridges/cards, toys-to-life figures (amiibo, Skylanders, Starlink), and collection acquisition provenance. Built with Angular and Cloudflare Workers.
 
 ## Features
 
 - **Game & Release Tracking**: Tracks games across 50+ platforms. Distinguishes intellectual property, commercial retail releases, and individual physical media (cartridges, discs, bonus/demo discs).
 - **Physical Classification & Release Tracking**: Tracks games across `verified_physical`, `likely_physical`, `unverified`, and `digital_only` classifications alongside release lifecycle states (`announced_unreleased`, `released`) and automated launch-day notifications.
-- **Physical Release Verification**: Reconciles items against canonical No-Intro and Redump XML DAT catalogs. Clean ROM titles can override displayed titles, matching filenames used by ROM managers.
-- **In-Browser Backup Directory Scanner (`/collection/backups`)**: Uses the File System Access API (`window.showDirectoryPicker`) and `<input type="file" webkitdirectory>` fallback to crawl local ROM/disc folders in the browser by filename only (zero file bytes read, hashed, or uploaded). Gracefully ignores digital-only backups and unmatched files, proposes **Ownership Switches** when a scanned backup matches a different regional or revision SKU of an already-owned game (preserving `has_case` and `has_manual`), and presents a diff review screen before applying updates.
-- **Multi-Disc Sets**: Groups multi-disc releases with inline disc expansion trays to track backup status per disc.
+- **Physical Release Verification**: Reconciles items against canonical No-Intro and Redump XML DAT catalogs. Clean titles can override displayed titles and match standard release filenames.
+- **Admin Ownership Verification Scanner (`/admin/verify-ownership`)**: Admin-only in-browser scanner using the File System Access API (`window.showDirectoryPicker`) and `<input type="file" webkitdirectory>` fallback to crawl local media directories by filename only (zero file bytes read, hashed, or uploaded) to verify individual disc/cartridge ownership (`has_media`). Gracefully ignores digital-only and unmatched files, proposes **Ownership Switches** when a scanned entry matches a different regional or revision SKU of an already-owned game (preserving `has_case` and `has_manual`), and presents a diff review screen before applying updates.
+- **Multi-Disc Sets & Optional Individual Media Tracking**: Opt-in per-user `trackIndividualMedia` preference reveals per-disc/cartridge ownership indicators, a per-disc checklist modal on multi-disc games, and inline disc expansion trays without cluttering standard views or public profiles.
 - **Collection Journal (Provenance & Cost Basis)**: Records acquisition date (with approximate date flags), purchase price / cost basis, merchant attribution, gift provenance, receipt verification URLs, and private notes behind authenticated access.
 - **Live eBay Market Valuation (Ephemeral 6h Engine)**: Estimates current replacement value (Loose, CIB, New/Sealed) for physical games and toys-to-life items via the official eBay Browse API using IQR outlier rejection and 25th-percentile active-floor estimation, strictly honoring eBay's 6-hour freshness limit with zero eBay data persisted in D1 or backup snapshots (shared across devices via an 8-shard L1 `caches.default` + L2 ephemeral R2 `cache/ebay-prices/` cache and L3 ephemeral IndexedDB). Includes collection-wide valuation scans, cost-basis ROI comparison in Insights, custom query overrides, and a public `/privacy` disclosure route.
 - **Toy Collection**: Supports amiibo, Skylanders, and Starlink figures and cards with series tracking, variant classification, and metadata from AmiiboAPI and SCL.
@@ -25,7 +25,7 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 - **Testing**: Vitest
 - **Build**: Angular CLI (`ng build` with esbuild)
 - **Edge API & Hosting**: Cloudflare Workers (`worker/worker.ts`), unified across production edge and local Wrangler development (`npx wrangler dev --local --port 8787`)
-- **Isomorphic Domain Library (`shared/`)**: Pure TypeScript modules (`shared/backup_scanner.ts`, `shared/title_matching.ts`, `shared/canonical_releases.ts`, `shared/switch_revisions.ts`, `shared/queries.ts`, `shared/retail.ts`, `shared/physical_feeds.ts`) shared directly between the Angular browser app and Cloudflare Worker without Node.js dependencies
+- **Isomorphic Domain Library (`shared/`)**: Pure TypeScript modules (`shared/ownership_verifier.ts`, `shared/title_matching.ts`, `shared/canonical_releases.ts`, `shared/switch_revisions.ts`, `shared/queries.ts`, `shared/retail.ts`, `shared/physical_feeds.ts`) shared directly between the Angular browser app and Cloudflare Worker without Node.js dependencies
 - **Database**: Cloudflare D1 (SQLite-compatible) in production; Wrangler local D1 SQLite for local staging and development
 - **Storage**: Cloudflare R2 for automated daily snapshots
 
@@ -36,8 +36,8 @@ A web application for tracking physical video games, toys-to-life figures (amiib
 The database models catalog and collection items across structured tiers:
 
 1. **Catalog Game (`games` table)**: The shared title/intellectual property for a platform (e.g., _Final Fantasy VII_ on PlayStation). Stores platform ID, series classifications, physical status, genres, and retail deal availability.
-2. **Catalog Media (`game_releases` table)**: Physical discs, cartridges, or verified ROM images within a commercial retail SKU. A multi-disc game or package with a pack-in demo has multiple `game_releases` records linked to the same `game_id`. Individual media rows are displayed in the item detail view under "Physical Discs / ROMs".
-3. **User Collection & Ownership (`users`, `user_game_releases`, `user_games`, `user_toys` tables)**: Decoupled per-user state tracking ownership status (`owned`, `wishlist`), completeness (`has_case`, `has_manual`), backup status, and play status (`unplayed`, `playing`, `completed`, `abandoned`). Supports multiple user profiles on a single shared catalog instance.
+2. **Catalog Media (`game_releases` table)**: Physical discs, cartridges, or game cards within a commercial retail SKU. A multi-disc game or package with a pack-in demo has multiple `game_releases` records linked to the same `game_id`. Individual media rows are displayed in the item detail view under "Included Discs / Cartridges".
+3. **User Collection & Ownership (`users`, `user_game_releases`, `user_games`, `user_toys` tables)**: Decoupled per-user state tracking release ownership status (`owned`, `wishlist`), completeness (`has_case`, `has_manual`), individual physical media verification (`has_media`), per-user display opt-in (`track_individual_media`), and play status (`unplayed`, `playing`, `completed`, `abandoned`). Supports multiple user profiles on a single shared catalog instance.
 4. **Public Profiles & Route Reuse Isolation (`/u/:username`)**: Users can share public profile views (`/u/:username/games`, `/u/:username/toys`). Private collections (`is_public = 0`) return 404 with edge-cache privacy guards (`Cache-Control: private, no-cache`). Angular's custom `CollectionRouteReuseStrategy` isolates detached tab DOM caches by full URL route keys (`u/alice/games` vs `collection/games`), preventing cross-profile state leakage.
 5. **Private Acquisition Journal (`journal_entries` table)**: Private provenance, purchase price / cost basis, purchase date, approximate date flag, merchant attribution, gift provenance (`gifted_by`), receipt verification URL, and personal notes for a game or toy, protected behind authenticated session verification.
 
@@ -84,22 +84,22 @@ Retail packages containing bonus discs, soundtrack CDs, or pack-in demos (such a
 
 - Redump disc pages expose cross-links in their comments table (`Includes <a href=/disc/13075/>Mega Man Legends 2 (USA) (Demo)</a>` and `Bundled with <a href=/disc/13074/>The Misadventures of Tron Bonne</a>`).
 - In `canonical_releases`, companion pack-in discs are linked to the host game via `packin_host_normalized_title` and store their `redump_disc_id`.
-- During ingestion and collection detail views, companion discs are cleanly nested inside the host game's release tray under "Physical Discs / ROMs", preventing namesake base games from stealing pack-in demo backups.
+- During ingestion and collection detail views, companion discs are cleanly nested inside the host game's release tray under "Included Discs / Cartridges", preventing namesake base games from stealing pack-in demo media ownership.
 
-### Metadata Reconciliation & In-Browser Backup Scanning
+### Metadata Reconciliation & Ownership Verification Scanning
 
-Catalog matching, release reconciliation, and backup scanning run through pure isomorphic modules in `shared/`:
+Catalog matching, release reconciliation, and admin ownership verification run through pure isomorphic modules in `shared/`:
 
 - **Title Matching Strategies (`shared/title_matching.ts`)**:
   - _Strategy 1 (Exact Match)_: Compares normalized titles with diacritics stripped, punctuation cleaned, and common publisher prefixes removed.
   - _Strategy 2 (Segment/Subtitle Matching)_: Splits titles on colons and dashes to match base games against subtitle variations.
   - _Strategy 3 (Middle-Segment Stripping)_: Handles mission packs and multi-segment naming patterns.
   - _Strategy 4 (Bonus Disc Matching)_: Uses parenthetical identifiers and pack-in host metadata to resolve companion discs.
-- **In-Browser Backup Scanner & Ownership Reassignment (`shared/backup_scanner.ts`)**:
-  - Evaluates local directory trees by filename only, supporting both multi-platform roots (auto-detecting platform subdirectories) and single-platform folders.
+- **Admin Ownership Verification Scanner (`shared/ownership_verifier.ts`)**:
+  - Evaluates local directory trees by filename only, supporting both multi-platform roots (auto-detecting platform subdirectories) and single-platform folders to verify individual physical discs, cartridges, and cards (`has_media`).
   - Matches Switch TitleIDs (`[16-hex]`) and version tags (`[vN]`), optical/cartridge serial codes (`SLUS-01041`), Redump/No-Intro parenthetical region/revision/disc tags, and normalized titles.
-  - Gracefully ignores digital-only dumps, Switch update/DLC files (`[UPD]`, `[DLC]`, non-`000` TitleIDs), and non-ROM sidecar files in a collapsible summary drawer.
-  - Detects **Ownership Switches** when a game has an owned release SKU without a backup in the scan while a different SKU of the same game is matched by the scan, proposing an atomic ownership transfer that preserves `has_case` and `has_manual` while keeping `user_games` and `journal_entries` untouched.
+  - Gracefully ignores digital-only titles, Switch update/DLC files (`[UPD]`, `[DLC]`, non-`000` TitleIDs), and unmatched files in a collapsible summary drawer.
+  - Detects **Ownership Switches** when a game has an owned release SKU without a matched file in the scan while a different SKU of the same game is matched by the scan, proposing an atomic ownership transfer that preserves `has_case` and `has_manual` while keeping `user_games` and `journal_entries` untouched.
 - **Strict Physical-Only Boundary**: The catalog tracks physical media exclusively. Ingestion pipelines reject digital installers (`.pkg`), mini-console extractions, and Virtual Console wrappers at the ingestion boundary.
 - **Amiibo Multi-Pose Figures & Card Sets (`shared/amiibo_poses.ts`)**: Amiibo entities with multiple swappable physical figures (e.g. Mr. Game & Watch's 4 poses: Default, Parachute, Bell, and Judge) are deterministically expanded into unique catalog entries with canonical pose qualifiers, distinct stable IDs, and pose-specific slugs.
 - **Nintendo Switch & Switch 2 Cartridge Revisions (`shared/switch_revisions.ts`)**:

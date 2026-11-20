@@ -31,6 +31,7 @@ describe('CollectionInsightsComponent', () => {
   const mockToys = signal<Toy[]>([]);
   const mockPlatforms = signal<Platform[]>([]);
   const mockIsAdmin = signal<boolean>(false);
+  const mockCanTrackIndividualMedia = signal<boolean>(false);
   const mockIsAuthenticated = signal<boolean>(false);
   const mockIsPublicView = signal<boolean>(false);
   const mockPublicProfile = signal<PublicUserProfile | null>(null);
@@ -52,6 +53,7 @@ describe('CollectionInsightsComponent', () => {
     toys: mockToys.asReadonly(),
     platforms: mockPlatforms.asReadonly(),
     isAdmin: mockIsAdmin.asReadonly(),
+    canTrackIndividualMedia: mockCanTrackIndividualMedia.asReadonly(),
     isAuthenticated: mockIsAuthenticated.asReadonly(),
     isPublicView: mockIsPublicView.asReadonly(),
     publicProfile: mockPublicProfile.asReadonly(),
@@ -100,6 +102,7 @@ describe('CollectionInsightsComponent', () => {
     mockToys.set([]);
     mockPlatforms.set([]);
     mockIsAdmin.set(false);
+    mockCanTrackIndividualMedia.set(false);
     mockIsAuthenticated.set(false);
     mockIsPublicView.set(false);
     mockPublicProfile.set(null);
@@ -138,7 +141,7 @@ describe('CollectionInsightsComponent', () => {
     expect(component.ownedGames().length).toBe(0);
     expect(component.ownedToys().length).toBe(0);
     expect(component.toyCompletionPct()).toBe(0);
-    expect(component.backupRatePct()).toBe(0);
+    expect(component.mediaOwnedRatePct()).toBe(0);
     expect(component.cibPct()).toBe(0);
     expect(component.platformStats().length).toBe(0);
     expect(component.topSeries().length).toBe(0);
@@ -147,6 +150,7 @@ describe('CollectionInsightsComponent', () => {
   it('should calculate play backlog progress (all 6 statuses), toy completion, condition breakdowns, and Overview audit actions', () => {
     mockIsAuthenticated.set(true);
     mockCanShowPersonalState.set(true);
+    mockCanTrackIndividualMedia.set(true);
 
     const testGames: Game[] = [
       {
@@ -160,7 +164,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 1, // Played
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -175,7 +179,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 2, // Playing
-        backup_status: 0,
+        has_media: 0,
         has_case: 1,
         has_manual: 0, // Boxed only
       },
@@ -190,7 +194,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 2,
         ownership_status: 1,
         play_status: 3, // Queued
-        backup_status: 1,
+        has_media: 1,
         has_case: 0,
         has_manual: 0, // Loose
       },
@@ -205,7 +209,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 4, // Paused
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -220,7 +224,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 5, // Dropped
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -274,16 +278,52 @@ describe('CollectionInsightsComponent', () => {
     expect(component.looseCount()).toBe(1);
 
     const el = fixture.nativeElement as HTMLElement;
-    const backupKpi = el.querySelector(
-      'a[data-testid="kpi-backup-card"]',
+    // Non-admin with individual media tracking enabled routes KPI to filtered games & hides Verify Ownership button
+    const nonAdminMediaKpi = el.querySelector(
+      'a[data-testid="kpi-media-card"]',
     ) as HTMLAnchorElement;
-    expect(backupKpi?.getAttribute('href')).toContain('/collection/backups');
+    expect(nonAdminMediaKpi?.getAttribute('href')).toContain(
+      '/collection/games',
+    );
+    expect(nonAdminMediaKpi?.getAttribute('href')).toContain('has_media=0');
+    expect(nonAdminMediaKpi?.getAttribute('href')).not.toContain(
+      '/admin/verify-ownership',
+    );
     expect(
       el.querySelector('[data-testid="insights-audit-strip"]'),
     ).toBeTruthy();
-    expect(
-      el.querySelector('[data-testid="audit-missing-backups"]'),
-    ).toBeTruthy();
+    const missingMediaAuditNonAdmin = el.querySelector(
+      '[data-testid="audit-missing-media"]',
+    );
+    expect(missingMediaAuditNonAdmin).toBeTruthy();
+    expect(missingMediaAuditNonAdmin?.textContent).not.toContain(
+      'Verify Ownership',
+    );
+
+    // Admin with individual media tracking enabled routes KPI to /admin/verify-ownership & sees Verify Ownership button
+    mockIsAdmin.set(true);
+    fixture.detectChanges();
+    const adminMediaKpi = el.querySelector(
+      'a[data-testid="kpi-media-card"]',
+    ) as HTMLAnchorElement;
+    expect(adminMediaKpi?.getAttribute('href')).toContain(
+      '/admin/verify-ownership',
+    );
+    const missingMediaAuditAdmin = el.querySelector(
+      '[data-testid="audit-missing-media"]',
+    );
+    expect(missingMediaAuditAdmin?.textContent).toContain('Verify Ownership');
+
+    // Disabling individual media tracking omits kpi-media-card and audit-missing-media (even for admin)
+    mockCanTrackIndividualMedia.set(false);
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="kpi-media-card"]')).toBeNull();
+    expect(el.querySelector('[data-testid="audit-missing-media"]')).toBeNull();
+
+    // Restore tracking for subsequent assertions
+    mockCanTrackIndividualMedia.set(true);
+    fixture.detectChanges();
+
     expect(
       el.querySelector('[data-testid="audit-missing-provenance"]'),
     ).toBeTruthy();
@@ -345,7 +385,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 0,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 2,
@@ -358,7 +398,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 0,
         play_status: 0,
-        backup_status: 0,
+        has_media: 0,
       },
       {
         stable_id: 3,
@@ -371,7 +411,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 2,
         ownership_status: 0, // unowned platform!
         play_status: 0,
-        backup_status: 0,
+        has_media: 0,
       },
     ];
 
@@ -443,7 +483,7 @@ describe('CollectionInsightsComponent', () => {
     expect(toyLineLink?.getAttribute('href')).toContain('line=amiibo');
   });
 
-  it('should deduplicate multi-disc releases in ownedGames while preserving physical backup tracking in ownedReleases', () => {
+  it('should deduplicate multi-disc releases in ownedGames while preserving physical media ownership tracking in ownedReleases', () => {
     const multiDiscGames: Game[] = [
       {
         stable_id: 10,
@@ -456,7 +496,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 0,
         release_date: '1997-01-31',
@@ -472,7 +512,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 0,
         release_date: '1997-01-31',
@@ -488,7 +528,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 1,
-        backup_status: 0,
+        has_media: 0,
         has_case: 1,
         has_manual: 0,
         release_date: '1997-01-31',
@@ -502,7 +542,7 @@ describe('CollectionInsightsComponent', () => {
     expect(component.ownedReleases().length).toBe(3);
     expect(component.ownedGames().length).toBe(1);
     expect(component.physicalOwnedGames().length).toBe(3);
-    expect(component.backedUpOwnedGames().length).toBe(2);
+    expect(component.mediaOwnedGames().length).toBe(2);
     expect(fixture.nativeElement.innerHTML).toContain(
       'Game + Box / Case (No Manual)',
     );
@@ -549,7 +589,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -565,7 +605,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 1,
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -581,7 +621,7 @@ describe('CollectionInsightsComponent', () => {
         platform_id: 2,
         ownership_status: 1,
         play_status: 1,
-        backup_status: 1,
+        has_media: 1,
         has_case: 1,
         has_manual: 1,
       },
@@ -722,7 +762,7 @@ describe('CollectionInsightsComponent', () => {
         play_status: 1,
         release_date: '1985-09-13',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 2,
@@ -735,7 +775,7 @@ describe('CollectionInsightsComponent', () => {
         play_status: 1,
         release_date: '1990-11-21',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 3,
@@ -748,7 +788,7 @@ describe('CollectionInsightsComponent', () => {
         play_status: 1,
         release_date: '2002-08-26',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 4,
@@ -761,7 +801,7 @@ describe('CollectionInsightsComponent', () => {
         play_status: 1,
         release_date: '2013-11-22',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 5,
@@ -774,7 +814,7 @@ describe('CollectionInsightsComponent', () => {
         play_status: 1,
         release_date: '2023-10-20',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
     ];
 
@@ -809,6 +849,7 @@ describe('CollectionInsightsComponent', () => {
     });
     mockIsAuthenticated.set(true);
     mockIsAdmin.set(true);
+    mockCanTrackIndividualMedia.set(true);
     mockCanViewMarketPrices.set(true);
     mockCanShowPersonalState.set(true);
 
@@ -837,7 +878,7 @@ describe('CollectionInsightsComponent', () => {
         ownership_status: 1,
         has_case: 1,
         has_manual: 1,
-        backup_status: 0,
+        has_media: 0,
       },
       {
         stable_id: 11,
@@ -851,7 +892,7 @@ describe('CollectionInsightsComponent', () => {
         play_status: 2,
         release_date: '2003-03-24',
         ownership_status: 0,
-        backup_status: 0,
+        has_media: 0,
       },
     ]);
     mockToys.set([
@@ -927,10 +968,12 @@ describe('CollectionInsightsComponent', () => {
 
     expect(el.querySelector('a[href*="/collection/games"]')).toBeNull();
     expect(el.querySelector('a[href*="/collection/toys"]')).toBeNull();
-    expect(el.querySelector('a[href*="/collection/backups"]')).toBeNull();
+    expect(el.querySelector('a[href*="/admin/verify-ownership"]')).toBeNull();
+    expect(el.querySelector('[data-testid="kpi-media-card"]')).toBeNull();
 
     const renderedText = el.textContent || '';
     expect(renderedText).not.toContain('Value & Ledger');
+    expect(renderedText).not.toContain('Media Ownership');
     expect(renderedText).not.toContain('Backed Up');
     expect(renderedText).not.toContain('Secret eBay Seller');
     expect(renderedText).not.toContain('eBay');

@@ -63,7 +63,7 @@ describe('ItemMarketPriceComponent', () => {
     platform_id: 15,
     ownership_status: 1,
     play_status: PlayStatus.Played,
-    backup_status: 1,
+    has_media: 1,
     has_case: 1,
     has_manual: 1,
   };

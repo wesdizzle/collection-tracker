@@ -27,7 +27,7 @@ import {
   getRelatedGameIdsForCompanion,
   getRelatedGameTitlesForCompanion,
   CompanionDiscCandidateRow,
-  SharedBackupReleaseLink,
+  SharedMediaReleaseLink,
   enrichGameDetailWithCompanionsAndVouchers,
   isOfficialIGDBGame,
   JournalEntryRow,
@@ -208,14 +208,14 @@ interface DbGame {
   variants?: string | null;
   rom_name?: string | null;
   rom_crc?: string | null;
-  backup_status?: number;
+  has_media?: number;
   ownership_status?: number;
   release_date?: string | null;
   metadata_json?: string | null;
   releases?: Array<Record<string, unknown>>;
   other_releases?: Array<Record<string, unknown>>;
   bundled_games?: unknown[];
-  shared_backup_releases?: SharedBackupReleaseLink[];
+  shared_media_releases?: SharedMediaReleaseLink[];
 }
 
 let cachedTwitchToken: { token: string; expiresAt: number } | null = null;
@@ -911,7 +911,7 @@ const JSON_BODY_MUTATION_PATHS = new Set([
   '/api/user/tracking-rules',
   '/api/admin/catalog-seed',
   '/api/collection/toggle',
-  '/api/collection/backups/apply',
+  '/api/admin/verify-ownership/apply',
   '/api/collection/sort',
   '/api/journal',
   '/api/prices/live',
@@ -1148,7 +1148,7 @@ export async function writeLiteBackupSnapshots(
     for (const ugr of user_game_releases) {
       if (
         Number(ugr['ownership_status'] ?? 0) > 0 ||
-        Number(ugr['backup_status'] ?? 0) > 0 ||
+        Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0) > 0 ||
         Number(ugr['has_case'] ?? 0) === 1 ||
         Number(ugr['has_manual'] ?? 0) === 1
       ) {
@@ -1910,6 +1910,7 @@ interface DbUserRow {
   display_name: string | null;
   bio: string | null;
   auto_track_series_on_add?: number | null;
+  track_individual_media?: number | null;
 }
 
 type SnapshotTables = Record<string, Array<Record<string, unknown>>>;
@@ -1963,6 +1964,7 @@ function toUserProfileResponsePayload(
       profile.auto_track_series_on_add !== null
         ? Boolean(profile.auto_track_series_on_add)
         : true,
+    trackIndividualMedia: Boolean(profile.track_individual_media),
   };
 }
 
@@ -1980,6 +1982,7 @@ function snapshotRowToDbUserRow(row: Record<string, unknown>): DbUserRow {
       row['auto_track_series_on_add'] === null
         ? 1
         : Number(row['auto_track_series_on_add']),
+    track_individual_media: Number(row['track_individual_media'] ?? 0),
   };
 }
 
@@ -2027,7 +2030,7 @@ async function resolveUserProfileWithFallback(
 
   try {
     profile = (await env.DB.prepare(
-      'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add FROM users WHERE id = ?',
+      'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add, COALESCE(track_individual_media, 0) as track_individual_media FROM users WHERE id = ?',
     )
       .bind(sessionUser.id)
       .first()) as DbUserRow | null;
@@ -2078,6 +2081,7 @@ async function resolveUserProfileWithFallback(
       display_name: null,
       bio: null,
       auto_track_series_on_add: 1,
+      track_individual_media: 0,
     },
     degraded: true,
     degradedReason: 'd1_unavailable',
@@ -2258,7 +2262,9 @@ function buildGamesListFromSnapshot(
         also_released_as: r?.['also_released_as'] ?? null,
         rom_name: r?.['rom_name'] ?? null,
         rom_crc: r?.['rom_crc'] ?? null,
-        backup_status: ugr ? Number(ugr['backup_status'] ?? 0) : 0,
+        has_media: ugr
+          ? Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0)
+          : 0,
         has_case: ugr ? Number(ugr['has_case'] ?? 0) : 0,
         has_manual: ugr ? Number(ugr['has_manual'] ?? 0) : 0,
         retail_price: g['retail_price'] ?? null,
@@ -2402,7 +2408,7 @@ function applyGameDetailReleasePartitionAndTitles(
         variants: game.variants || null,
         rom_name: game.rom_name || null,
         rom_crc: game.rom_crc || null,
-        backup_status: game.backup_status || 0,
+        has_media: game.has_media || 0,
         ownership_status: game.ownership_status || 0,
         release_date: game.release_date || null,
       },
@@ -2591,7 +2597,9 @@ function buildGameDetailFromSnapshot(
       (primaryRel?.['also_released_as'] as string | null) ?? null,
     rom_name: (primaryRel?.['rom_name'] as string | null) ?? null,
     rom_crc: (primaryRel?.['rom_crc'] as string | null) ?? null,
-    backup_status: primaryUgr ? Number(primaryUgr['backup_status'] ?? 0) : 0,
+    has_media: primaryUgr
+      ? Number(primaryUgr['has_media'] ?? primaryUgr['backup_status'] ?? 0)
+      : 0,
     has_case: primaryUgr ? Number(primaryUgr['has_case'] ?? 0) : 0,
     has_manual: primaryUgr ? Number(primaryUgr['has_manual'] ?? 0) : 0,
     display_name: (effPlatform?.['display_name'] as string | null) ?? null,
@@ -2615,7 +2623,9 @@ function buildGameDetailFromSnapshot(
       also_released_as: (r['also_released_as'] as string | null) ?? null,
       rom_name: (r['rom_name'] as string | null) ?? null,
       rom_crc: (r['rom_crc'] as string | null) ?? null,
-      backup_status: ugr ? Number(ugr['backup_status'] ?? 0) : 0,
+      has_media: ugr
+        ? Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0)
+        : 0,
       ownership_status: ugr ? Number(ugr['ownership_status'] ?? 0) : 0,
       title: (r['also_released_as'] as string | null) ?? null,
       release_date:
@@ -2682,7 +2692,9 @@ function buildGameDetailFromSnapshot(
         also_released_as: (r['also_released_as'] as string | null) ?? null,
         rom_name: (r['rom_name'] as string | null) ?? null,
         rom_crc: (r['rom_crc'] as string | null) ?? null,
-        backup_status: ugr ? Number(ugr['backup_status'] ?? 0) : 0,
+        has_media: ugr
+          ? Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0)
+          : 0,
         ownership_status: ugr ? Number(ugr['ownership_status'] ?? 0) : 0,
         release_date: (r['release_date'] as string | null) ?? null,
         has_case: ugr ? Number(ugr['has_case'] ?? 0) : 0,
@@ -2732,7 +2744,9 @@ function buildGameDetailFromSnapshot(
         release_medium: bg['release_medium'] ?? null,
         origin_metadata: bg['origin_metadata'] ?? null,
         rom_name: rel?.['rom_name'] || bg['title'],
-        backup_status: ugr ? Number(ugr['backup_status'] ?? 0) : 0,
+        has_media: ugr
+          ? Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0)
+          : 0,
         platform_name: effBp?.['display_name'] ?? null,
         platform: effBp?.['display_name'] ?? null,
       };
@@ -3162,7 +3176,7 @@ export async function applyReactiveSeriesAutoTracking(
       const chosen = matchingRels[0];
       statements.push(
         env.DB.prepare(
-          `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+          `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
            VALUES (?, ?, ?, 0)
            ON CONFLICT(user_id, release_id) DO UPDATE SET
              ownership_status = excluded.ownership_status
@@ -3769,7 +3783,7 @@ export async function evaluateTrackingRulesForNewGames(
 
     const statements = pendingPairs.map((p) =>
       env.DB.prepare(
-        `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status)
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
          VALUES (?, ?, ?, 0)
          ON CONFLICT(user_id, release_id) DO UPDATE SET
            ownership_status = excluded.ownership_status
@@ -4178,6 +4192,7 @@ export async function syncOrResolveOidcUser(
       display_name: claimDisplayName,
       bio: null,
       auto_track_series_on_add: 1,
+      track_individual_media: 0,
     };
   }
 }
@@ -4765,7 +4780,7 @@ async function buildCollectionOverlayPayload(
           return {
             ...row,
             ownership_status: Number(relUgr?.['ownership_status'] ?? 0),
-            backup_status: Number(relUgr?.['backup_status'] ?? 0),
+            has_media: Number(relUgr?.['has_media'] ?? 0),
             has_case: Number(relUgr?.['has_case'] ?? 0),
             has_manual: Number(relUgr?.['has_manual'] ?? 0),
             play_status: Number(stableUg?.['play_status'] ?? 0),
@@ -4940,10 +4955,10 @@ Disallow: /
       }
     } else if (
       request.method === 'POST' &&
-      path === '/api/collection/backups/apply'
+      path === '/api/admin/verify-ownership/apply'
     ) {
       const rl = checkWorkerRateLimit(
-        'backups-apply',
+        'verify-ownership-apply',
         getRateLimitClientKey(request, sessionUser),
         20,
         60_000,
@@ -4952,7 +4967,7 @@ Disallow: /
         return Response.json(
           {
             error:
-              'Too many backup sync requests. Please wait before trying again.',
+              'Too many ownership verification requests. Please wait before trying again.',
           },
           {
             status: 429,
@@ -5177,6 +5192,7 @@ Disallow: /
           displayName?: unknown;
           bio?: unknown;
           autoTrackSeriesOnAdd?: boolean;
+          trackIndividualMedia?: boolean;
         } | null;
 
         if (!body || typeof body !== 'object') {
@@ -5245,6 +5261,10 @@ Disallow: /
           updates.push('auto_track_series_on_add = ?');
           updateParams.push(body.autoTrackSeriesOnAdd ? 1 : 0);
         }
+        if (body.trackIndividualMedia !== undefined) {
+          updates.push('track_individual_media = ?');
+          updateParams.push(body.trackIndividualMedia ? 1 : 0);
+        }
 
         updateParams.push(sessionUser.id);
         await env.DB.prepare(
@@ -5256,7 +5276,7 @@ Disallow: /
         let profile: DbUserRow | null = null;
         try {
           profile = (await env.DB.prepare(
-            'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add FROM users WHERE id = ?',
+            'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add, COALESCE(track_individual_media, 0) as track_individual_media FROM users WHERE id = ?',
           )
             .bind(sessionUser.id)
             .first()) as DbUserRow | null;
@@ -5279,20 +5299,9 @@ Disallow: /
         });
         await markDbDirty(env);
 
-        const res = Response.json({
-          id: profile.id,
-          username: profile.username,
-          role: sessionUser.role,
-          isPublic: Boolean(profile.is_public),
-          homeRegion: profile.home_region || 'USA',
-          displayName: profile.display_name,
-          bio: profile.bio,
-          autoTrackSeriesOnAdd:
-            profile.auto_track_series_on_add !== undefined &&
-            profile.auto_track_series_on_add !== null
-              ? Boolean(profile.auto_track_series_on_add)
-              : true,
-        });
+        const res = Response.json(
+          toUserProfileResponsePayload(profile, sessionUser.role),
+        );
 
         // If homeRegion changed, re-mint session cookie
         if (normalizedRegion !== undefined) {
@@ -7060,7 +7069,7 @@ Disallow: /
       const allowedFields = [
         'ownership_status',
         'play_status',
-        'backup_status',
+        'has_media',
         'has_case',
         'has_manual',
         'physical_status',
@@ -7097,11 +7106,7 @@ Disallow: /
             { status: 400 },
           );
         }
-      } else if (
-        field === 'ownership_status' ||
-        field === 'play_status' ||
-        field === 'backup_status'
-      ) {
+      } else if (field === 'ownership_status' || field === 'play_status') {
         const numStatus = Number(status);
         if (
           typeof status === 'boolean' ||
@@ -7115,7 +7120,7 @@ Disallow: /
           );
         }
       } else {
-        // has_case, has_manual, queued
+        // has_media, has_case, has_manual, queued
         if (
           status !== 0 &&
           status !== 1 &&
@@ -7219,7 +7224,7 @@ Disallow: /
             .bind(currentUserId, stableId, normalizedStatus)
             .run();
         } else {
-          // ownership_status, has_case, has_manual, or backup_status on user_game_releases
+          // ownership_status, has_case, has_manual, or has_media on user_game_releases
           let toggledGameStableId: number | null = null;
           const release = (await env.DB.prepare(
             'SELECT id, game_id, region, variants, rom_name FROM game_releases WHERE id = ?',
@@ -7413,34 +7418,38 @@ Disallow: /
       return Response.json({ success: true });
     }
 
-    // Endpoint: POST /api/collection/backups/apply
+    // Endpoint: POST /api/admin/verify-ownership/apply
     else if (
       request.method === 'POST' &&
-      path === '/api/collection/backups/apply'
+      path === '/api/admin/verify-ownership/apply'
     ) {
-      if (!sessionUser) {
+      if (!isAuthorizedAdmin(request, env, sessionUser)) {
         return Response.json(
-          { error: 'Unauthorized: Authentication required.' },
-          { status: 401 },
+          {
+            error: sessionUser
+              ? 'Forbidden: Admin authentication required.'
+              : 'Unauthorized: Admin authentication required.',
+          },
+          { status: sessionUser ? 403 : 401 },
         );
       }
 
       const body = (await request.json().catch(() => null)) as {
-        setBackedUp?: unknown;
-        clearBackedUp?: unknown;
+        setMediaOwned?: unknown;
+        clearMediaOwned?: unknown;
         ownershipTransfers?: unknown;
         ownershipDeclarations?: unknown;
       } | null;
 
       if (!body || typeof body !== 'object') {
         return Response.json(
-          { error: 'Invalid backup apply payload.' },
+          { error: 'Invalid ownership verification apply payload.' },
           { status: 400 },
         );
       }
 
-      const rawSet = body.setBackedUp ?? [];
-      const rawClear = body.clearBackedUp ?? [];
+      const rawSet = body.setMediaOwned ?? [];
+      const rawClear = body.clearMediaOwned ?? [];
       const rawTransfers = body.ownershipTransfers ?? [];
       const rawDeclarations = body.ownershipDeclarations ?? [];
 
@@ -7453,7 +7462,7 @@ Disallow: /
         return Response.json(
           {
             error:
-              'setBackedUp, clearBackedUp, ownershipTransfers, and ownershipDeclarations must be arrays.',
+              'setMediaOwned, clearMediaOwned, ownershipTransfers, and ownershipDeclarations must be arrays.',
           },
           { status: 400 },
         );
@@ -7466,7 +7475,7 @@ Disallow: /
         rawDeclarations.length > 10000
       ) {
         return Response.json(
-          { error: 'Backup batch payload exceeds maximum size.' },
+          { error: 'Verification batch payload exceeds maximum size.' },
           { status: 400 },
         );
       }
@@ -7493,7 +7502,7 @@ Disallow: /
         rawSet.some((v) => typeof v !== 'string' || !v.trim())
       ) {
         return Response.json(
-          { error: 'setBackedUp must contain non-empty release ID strings.' },
+          { error: 'setMediaOwned must contain non-empty release ID strings.' },
           { status: 400 },
         );
       }
@@ -7502,7 +7511,9 @@ Disallow: /
         rawClear.some((v) => typeof v !== 'string' || !v.trim())
       ) {
         return Response.json(
-          { error: 'clearBackedUp must contain non-empty release ID strings.' },
+          {
+            error: 'clearMediaOwned must contain non-empty release ID strings.',
+          },
           { status: 400 },
         );
       }
@@ -7513,7 +7524,7 @@ Disallow: /
         if (clearIdSet.has(id)) {
           return Response.json(
             {
-              error: `Release ID "${id}" cannot be present in both setBackedUp and clearBackedUp.`,
+              error: `Release ID "${id}" cannot be present in both setMediaOwned and clearMediaOwned.`,
             },
             { status: 400 },
           );
@@ -7550,7 +7561,7 @@ Disallow: /
         if (clearIdSet.has(releaseId)) {
           return Response.json(
             {
-              error: `Release ID "${releaseId}" cannot be present in both ownershipDeclarations and clearBackedUp.`,
+              error: `Release ID "${releaseId}" cannot be present in both ownershipDeclarations and clearMediaOwned.`,
             },
             { status: 400 },
           );
@@ -7650,7 +7661,7 @@ Disallow: /
         parsedTransfers.push({ fromReleaseIds, toReleaseIds });
       }
 
-      const currentUserId = sessionUser.id;
+      const currentUserId = sessionUser ? sessionUser.id : 1;
 
       // Verify ownershipTransfers belong to the exact same game_id and read source has_case / has_manual
       const verifiedTransfers: Array<{
@@ -7771,8 +7782,8 @@ Disallow: /
 
       for (const transfer of verifiedTransfers) {
         for (const fromId of transfer.fromReleaseIds) {
-          const alsoClearBackup = clearIdSet.has(fromId) ? 1 : 0;
-          if (alsoClearBackup === 1) {
+          const alsoClearMedia = clearIdSet.has(fromId) ? 1 : 0;
+          if (alsoClearMedia === 1) {
             handledClearIds.add(fromId);
           }
           statements.push(
@@ -7781,39 +7792,39 @@ Disallow: /
                SET ownership_status = 0,
                    has_case = 0,
                    has_manual = 0,
-                   backup_status = CASE WHEN ? = 1 THEN 0 ELSE backup_status END
+                   has_media = CASE WHEN ? = 1 THEN 0 ELSE has_media END
                WHERE user_id = ? AND release_id = ?
-                 AND (ownership_status != 0 OR has_case != 0 OR has_manual != 0 OR (? = 1 AND backup_status != 0))`,
-            ).bind(alsoClearBackup, currentUserId, fromId, alsoClearBackup),
+                 AND (ownership_status != 0 OR has_case != 0 OR has_manual != 0 OR (? = 1 AND has_media != 0))`,
+            ).bind(alsoClearMedia, currentUserId, fromId, alsoClearMedia),
           );
         }
 
         for (const toId of transfer.toReleaseIds) {
-          const alsoSetBackup = setIdSet.has(toId) ? 1 : 0;
-          if (alsoSetBackup === 1) {
+          const alsoSetMedia = setIdSet.has(toId) ? 1 : 0;
+          if (alsoSetMedia === 1) {
             handledSetIds.add(toId);
           }
           statements.push(
             env.DB.prepare(
-              `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+              `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media, has_case, has_manual)
                SELECT ?, id, 1, ?, ?, ? FROM game_releases WHERE id = ?
                ON CONFLICT(user_id, release_id) DO UPDATE SET
                  ownership_status = 1,
-                 backup_status = CASE WHEN ? = 1 THEN 1 ELSE user_game_releases.backup_status END,
+                 has_media = CASE WHEN ? = 1 THEN 1 ELSE user_game_releases.has_media END,
                  has_case = MAX(user_game_releases.has_case, excluded.has_case),
                  has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
                WHERE user_game_releases.ownership_status IS NOT 1
-                  OR (? = 1 AND user_game_releases.backup_status IS NOT 1)
+                  OR (? = 1 AND user_game_releases.has_media IS NOT 1)
                   OR user_game_releases.has_case < excluded.has_case
                   OR user_game_releases.has_manual < excluded.has_manual`,
             ).bind(
               currentUserId,
-              alsoSetBackup,
+              alsoSetMedia,
               transfer.migratedCase,
               transfer.migratedManual,
               toId,
-              alsoSetBackup,
-              alsoSetBackup,
+              alsoSetMedia,
+              alsoSetMedia,
             ),
           );
         }
@@ -7826,15 +7837,15 @@ Disallow: /
           handledSetIds.add(id);
           statements.push(
             env.DB.prepare(
-              `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+              `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media, has_case, has_manual)
                SELECT ?, id, 1, 1, ?, ? FROM game_releases WHERE id = ?
                ON CONFLICT(user_id, release_id) DO UPDATE SET
                  ownership_status = 1,
-                 backup_status = 1,
+                 has_media = 1,
                  has_case = MAX(user_game_releases.has_case, excluded.has_case),
                  has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
                WHERE user_game_releases.ownership_status IS NOT 1
-                  OR user_game_releases.backup_status IS NOT 1
+                  OR user_game_releases.has_media IS NOT 1
                   OR user_game_releases.has_case < excluded.has_case
                   OR user_game_releases.has_manual < excluded.has_manual`,
             ).bind(currentUserId, decl.hasCase, decl.hasManual, id),
@@ -7842,11 +7853,11 @@ Disallow: /
         } else {
           statements.push(
             env.DB.prepare(
-              `INSERT INTO user_game_releases (user_id, release_id, backup_status)
+              `INSERT INTO user_game_releases (user_id, release_id, has_media)
                SELECT ?, id, 1 FROM game_releases WHERE id = ?
                ON CONFLICT(user_id, release_id) DO UPDATE SET
-                 backup_status = 1
-               WHERE user_game_releases.backup_status IS NOT 1`,
+                 has_media = 1
+               WHERE user_game_releases.has_media IS NOT 1`,
             ).bind(currentUserId, id),
           );
         }
@@ -7856,15 +7867,15 @@ Disallow: /
         if (handledSetIds.has(id)) continue;
         statements.push(
           env.DB.prepare(
-            `INSERT INTO user_game_releases (user_id, release_id, ownership_status, backup_status, has_case, has_manual)
+            `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media, has_case, has_manual)
              SELECT ?, id, 1, 1, ?, ? FROM game_releases WHERE id = ?
              ON CONFLICT(user_id, release_id) DO UPDATE SET
                ownership_status = 1,
-               backup_status = 1,
+               has_media = 1,
                has_case = MAX(user_game_releases.has_case, excluded.has_case),
                has_manual = MAX(user_game_releases.has_manual, excluded.has_manual)
              WHERE user_game_releases.ownership_status IS NOT 1
-                OR user_game_releases.backup_status IS NOT 1
+                OR user_game_releases.has_media IS NOT 1
                 OR user_game_releases.has_case < excluded.has_case
                 OR user_game_releases.has_manual < excluded.has_manual`,
           ).bind(currentUserId, decl.hasCase, decl.hasManual, id),
@@ -7876,8 +7887,8 @@ Disallow: /
         statements.push(
           env.DB.prepare(
             `UPDATE user_game_releases
-             SET backup_status = 0
-             WHERE user_id = ? AND release_id = ? AND backup_status != 0`,
+             SET has_media = 0
+             WHERE user_id = ? AND release_id = ? AND has_media != 0`,
           ).bind(currentUserId, id),
         );
       }
@@ -7889,9 +7900,9 @@ Disallow: /
 
         await invalidateEdgeApiCache(request.url, {
           userId: currentUserId,
-          username: sessionUser.username,
+          username: sessionUser?.username,
         });
-        await markDbDirty(env, 'games', 'backups-apply', {
+        await markDbDirty(env, 'games', 'verify-ownership-apply', {
           clearBoutiqueHash:
             verifiedTransfers.length > 0 || declarationMap.size > 0,
         });

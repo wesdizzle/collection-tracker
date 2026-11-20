@@ -37,7 +37,7 @@ function makeGame(overrides: Partial<Game> = {}): Game {
     platform_id: 26,
     ownership_status: OwnershipStatus.Owned,
     play_status: PlayStatus.Unplayed,
-    backup_status: 0,
+    has_media: 0,
     has_case: 1,
     has_manual: 1,
     ...overrides,

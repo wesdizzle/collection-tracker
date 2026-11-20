@@ -27,11 +27,11 @@ import {
   isMarketPriceFresh,
 } from '../../../core/models/collection.models';
 import {
-  PhysicalBackupSummary,
+  PhysicalMediaSummary,
   ScopedJournalSummary,
   ScopedValuationSummary,
   ToyLineCompletionStat,
-  computePhysicalBackupStats,
+  computePhysicalMediaStats,
   computeScopedJournalSummary,
   computeScopedValuation,
   computeToyLineStats,
@@ -291,28 +291,36 @@ export class CollectionInsightsComponent implements OnInit {
     () => this.seekingGamesCount() + this.seekingToysCount(),
   );
 
-  /** --- Preservation & Backup Health (Single Source of Truth) --- */
+  /** --- Physical Media Ownership Health (Single Source of Truth) --- */
+  public readonly canTrackIndividualMedia = computed<boolean>(() =>
+    Boolean(this.collectionService.canTrackIndividualMedia?.()),
+  );
+
+  public readonly isAdmin = computed<boolean>(() =>
+    Boolean(this.collectionService.isAdmin?.()),
+  );
+
   public readonly physicalOwnedGames = computed<Game[]>(() =>
     this.ownedReleases().filter((g) => isPhysicalReleaseGame(g)),
   );
 
-  public readonly backedUpOwnedGames = computed<Game[]>(() =>
-    this.physicalOwnedGames().filter((g) => Boolean(g.backup_status)),
+  public readonly mediaOwnedGames = computed<Game[]>(() =>
+    this.physicalOwnedGames().filter((g) => Boolean(g.has_media)),
   );
 
-  public readonly backupSummary = computed<PhysicalBackupSummary>(() =>
-    computePhysicalBackupStats(
+  public readonly mediaSummary = computed<PhysicalMediaSummary>(() =>
+    computePhysicalMediaStats(
       this.collectionService.games(),
       this.collectionService.platforms(),
     ),
   );
 
-  public readonly backupRatePct = computed<number>(
-    () => this.backupSummary().backupRatePct,
+  public readonly mediaOwnedRatePct = computed<number>(
+    () => this.mediaSummary().mediaOwnedRatePct,
   );
 
-  public readonly missingBackupsCount = computed<number>(
-    () => this.backupSummary().missingCount,
+  public readonly missingMediaCount = computed<number>(
+    () => this.mediaSummary().missingCount,
   );
 
   /** --- Condition Completeness --- */
@@ -798,7 +806,7 @@ export class CollectionInsightsComponent implements OnInit {
 
   public readonly hasAuditActions = computed<boolean>(
     () =>
-      this.missingBackupsCount() > 0 ||
+      (this.canTrackIndividualMedia() && this.missingMediaCount() > 0) ||
       (this.canShowProvenance() &&
         this.allOwnedJournalSummary().missingCount > 0) ||
       this.looseCount() > 0 ||
@@ -846,8 +854,8 @@ export class CollectionInsightsComponent implements OnInit {
   public readonly animatedTotalOwnedCount = createAnimatedNumber(
     this.totalOwnedCount,
   );
-  public readonly animatedBackupRatePct = createAnimatedNumber(
-    this.backupRatePct,
+  public readonly animatedMediaOwnedRatePct = createAnimatedNumber(
+    this.mediaOwnedRatePct,
   );
   public readonly animatedCibPct = createAnimatedNumber(this.cibPct);
 

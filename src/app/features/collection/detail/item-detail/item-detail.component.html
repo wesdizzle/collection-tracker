@@ -361,24 +361,28 @@
                               }
                             </div>
                           </div>
-                          @if (collectionService.canShowPersonalState()) {
+                          @if (collectionService.canTrackIndividualMedia()) {
                             <div class="disc-actions flex items-center gap-sm">
                               <div
                                 class="stat-pill"
-                                [class.active]="!!b.backup_status"
+                                [class.active]="!!b.has_media"
                               >
                                 <span class="icon">
                                   <app-icon
                                     [name]="
-                                      b.backup_status
-                                        ? 'rom-archive'
-                                        : 'missing-dump'
+                                      getMediaIcon(
+                                        b.platform_name || g.platform,
+                                        !!b.has_media
+                                      )
                                     "
                                     [size]="14"
                                   />
                                 </span>
                                 <span>{{
-                                  b.backup_status ? 'Backed Up' : 'No Backup'
+                                  getMediaOwnedLabel(
+                                    b.platform_name || g.platform,
+                                    b.has_media
+                                  )
                                 }}</span>
                               </div>
                             </div>
@@ -390,7 +394,8 @@
                 }
                 @if (g.releases && g.releases.length > 0) {
                   @if (
-                    collectionService.canShowPersonalState() ||
+                    collectionService.canTrackIndividualMedia() ||
+                    collectionService.isAdmin() ||
                     g.releases.length > 1
                   ) {
                     <div class="meta-box full-width discs-section mt-lg">
@@ -502,39 +507,47 @@
                                   {{
                                     g.platform_id === 26 || g.platform_id === 27
                                       ? 'No cartridge revision exists in community catalog'
-                                      : 'No dump exists in community DAT files'
+                                      : 'Not yet matched in community release catalog'
                                   }}
                                 </div>
                               }
                             </div>
-                            @if (collectionService.canShowPersonalState()) {
+                            @if (
+                              collectionService.canTrackIndividualMedia() ||
+                              collectionService.isAdmin()
+                            ) {
                               <div
                                 class="disc-actions flex items-center gap-sm"
                               >
-                                <button
-                                  type="button"
-                                  class="stat-pill interactive"
-                                  [class.active]="!!release.backup_status"
-                                  [class.missing]="!release.backup_status"
-                                  (click)="onToggleDiscBackup(release)"
-                                  title="Toggle Backup Status"
-                                >
-                                  <span class="icon"
-                                    ><app-icon
-                                      [name]="
-                                        getMediaIcon(
-                                          g.platform,
-                                          release.backup_status
-                                        )
-                                      "
-                                      [size]="14"
-                                  /></span>
-                                  <span>{{
-                                    release.backup_status
-                                      ? 'Backed Up'
-                                      : 'No Backup'
-                                  }}</span>
-                                </button>
+                                @if (
+                                  collectionService.canTrackIndividualMedia()
+                                ) {
+                                  <button
+                                    type="button"
+                                    class="stat-pill interactive"
+                                    [class.active]="!!release.has_media"
+                                    [class.missing]="!release.has_media"
+                                    (click)="onToggleDiscMediaOwned(release)"
+                                    title="Toggle Media Ownership"
+                                  >
+                                    <span class="icon"
+                                      ><app-icon
+                                        [name]="
+                                          getMediaIcon(
+                                            g.display_name || g.platform,
+                                            !!release.has_media
+                                          )
+                                        "
+                                        [size]="14"
+                                    /></span>
+                                    <span>{{
+                                      getMediaOwnedLabel(
+                                        g.display_name || g.platform,
+                                        release.has_media
+                                      )
+                                    }}</span>
+                                  </button>
+                                }
                                 @if (collectionService.isAdmin()) {
                                   <button
                                     type="button"
@@ -553,8 +566,8 @@
                       </div>
 
                       @if (
-                        g.shared_backup_releases &&
-                        g.shared_backup_releases.length > 0
+                        g.shared_media_releases &&
+                        g.shared_media_releases.length > 0
                       ) {
                         <div class="shared-backup-banner mt-md p-sm rounded-md">
                           <div class="text-xs font-semibold mb-2xs">
@@ -563,7 +576,7 @@
                           </div>
                           <div class="flex flex-wrap gap-xs mt-2xs">
                             @for (
-                              shared of g.shared_backup_releases;
+                              shared of g.shared_media_releases;
                               track shared.id
                             ) {
                               <a
@@ -624,7 +637,7 @@
                       {{
                         g.platform_id === 26 || g.platform_id === 27
                           ? 'No cartridge revision exists in community catalog'
-                          : 'No dump exists in community DAT files'
+                          : 'Not yet matched in community release catalog'
                       }}</span
                     >
                   </div>

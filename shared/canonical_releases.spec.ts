@@ -607,7 +607,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           variants: 'Superseded',
           rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
           rom_crc: '34DFCC77',
-          backup_status: 1,
+          has_media: 1,
           ownership_status: 1,
           release_date: '2006-03-20',
         },
@@ -622,7 +622,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           rom_name:
             'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
           rom_crc: '779C2B27',
-          backup_status: 0,
+          has_media: 0,
           ownership_status: 0,
           release_date: '2007-09-11',
         },
@@ -658,7 +658,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
             rom_name:
               'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
             rom_crc: '779C2B27',
-            backup_status: 0,
+            has_media: 0,
             ownership_status: 0,
           },
         ],
@@ -670,13 +670,13 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(gotyDetail.ownership_status).toBe(0);
       expect(gotyDetail.releases).toHaveLength(2);
       expect(gotyDetail.releases[0]['is_companion_base_disc']).toBe(true);
-      expect(gotyDetail.releases[0]['backup_status']).toBe(1);
+      expect(gotyDetail.releases[0]['has_media']).toBe(1);
       expect(gotyDetail.releases[0]['companion_game_id']).toBe(
         'the-elder-scrolls-iv-oblivion-48-usa',
       );
       expect(gotyDetail.releases[1]['disc_label']).toBe('Disc 2');
 
-      // Case 2: Viewing unowned Original release whose Disc 1 is backed up via GOTY
+      // Case 2: Viewing unowned Original release whose Disc 1 is verified via GOTY
       const originalDetail: {
         id: string;
         stable_id: number;
@@ -686,16 +686,16 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         variants: string;
         rom_name: string;
         ownership_status: number;
-        backup_status: number;
+        has_media: number;
         releases: Array<Record<string, unknown>>;
-        shared_backup_releases?: Array<{
+        shared_media_releases?: Array<{
           id: string;
           title: string;
           region: string | null;
           variants: string | null;
           rom_name: string;
           ownership_status: number;
-          backup_status: number;
+          has_media: number;
         }>;
       } = {
         id: 'the-elder-scrolls-iv-oblivion-48-usa',
@@ -706,7 +706,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         variants: 'Superseded',
         rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
         ownership_status: 0,
-        backup_status: 1,
+        has_media: 1,
         releases: [
           {
             id: 'the-elder-scrolls-iv-oblivion-48-usa',
@@ -715,7 +715,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
             variants: 'Superseded',
             rom_name: 'Elder Scrolls IV, The - Oblivion (USA).iso',
             rom_crc: '34DFCC77',
-            backup_status: 1,
+            has_media: 1,
             ownership_status: 0,
           },
         ],
@@ -726,17 +726,17 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         platformReleases,
       );
 
-      // Original remains unowned (0), backed up (1), and includes forward link to GOTY release
+      // Original remains unowned (0), media owned (1), and includes forward link to GOTY release
       expect(originalDetail.ownership_status).toBe(0);
-      expect(originalDetail.backup_status).toBe(1);
-      expect(originalDetail.shared_backup_releases).toBeDefined();
-      expect(originalDetail.shared_backup_releases).toHaveLength(1);
-      expect(originalDetail.shared_backup_releases![0].id).toBe(
+      expect(originalDetail.has_media).toBe(1);
+      expect(originalDetail.shared_media_releases).toBeDefined();
+      expect(originalDetail.shared_media_releases).toHaveLength(1);
+      expect(originalDetail.shared_media_releases![0].id).toBe(
         'the-elder-scrolls-iv-oblivion-game-of-the-year-edition-48-usa',
       );
     });
 
-    it('should enrich physical releases with bundled digital voucher notes without modifying ownership or backup status', () => {
+    it('should enrich physical releases with bundled digital voucher notes without modifying ownership or media status', () => {
       const ffxDetail: {
         id: string;
         title: string;
@@ -745,19 +745,19 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         releases: Array<Record<string, unknown>>;
         voucher_notes?: string[];
         ownership_status: number;
-        backup_status: number;
+        has_media: number;
       } = {
         id: 'final-fantasy-x-x-2-hd-remaster-vita',
         title: 'Final Fantasy X/X-2 HD Remaster',
         platform_id: 33, // Vita
         region: 'USA',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
         releases: [
           {
             id: 'ffx-physical-cart',
             rom_name: 'Final Fantasy X HD Remaster (USA).zip',
-            backup_status: 1,
+            has_media: 1,
           },
         ],
       };
@@ -770,7 +770,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
         'Final Fantasy X-2 HD Remaster',
       );
       expect(ffxDetail.ownership_status).toBe(1);
-      expect(ffxDetail.backup_status).toBe(1);
+      expect(ffxDetail.has_media).toBe(1);
 
       const megaManDetail = {
         id: 'mega-man-legacy-collection-1-2-switch',
@@ -1032,7 +1032,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           variants: null,
           rom_name: 'Alan Wake (World) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru).iso',
           rom_crc: '12345678',
-          backup_status: 1,
+          has_media: 1,
           ownership_status: 1,
           release_date: '2010-05-18',
         },
@@ -1046,7 +1046,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           rom_name:
             'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
           rom_crc: '87654321',
-          backup_status: 0,
+          has_media: 0,
           ownership_status: 0,
           release_date: '2010-05-18',
         },
@@ -1072,7 +1072,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
             rom_name:
               'Alan Wake (USA, Europe) (En,Ja,Fr,De,Es,It,Zh,Ko,Pl,Ru) (Bonus Disc).iso',
             rom_crc: '87654321',
-            backup_status: 0,
+            has_media: 0,
             ownership_status: 0,
           },
         ],
@@ -1098,7 +1098,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           variants: null,
           rom_name: 'Pokemon Colosseum (USA).iso',
           rom_crc: 'AAAA1111',
-          backup_status: 1,
+          has_media: 1,
           ownership_status: 1,
           release_date: '2004-03-22',
         },
@@ -1111,7 +1111,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           variants: null,
           rom_name: 'Pokemon Colosseum Bonus Disc (USA).iso',
           rom_crc: 'BBBB2222',
-          backup_status: 1,
+          has_media: 1,
           ownership_status: 1,
           release_date: '2004-02-09',
         },
@@ -1134,9 +1134,9 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       };
 
       enrichGameDetailWithCompanionsAndVouchers(colosseumDetail, gcReleases);
-      expect(colosseumDetail.shared_backup_releases).toBeDefined();
+      expect(colosseumDetail.shared_media_releases).toBeDefined();
       expect(
-        colosseumDetail.shared_backup_releases!.some(
+        colosseumDetail.shared_media_releases!.some(
           (s) => s.id === 'pokemon-colosseum-bonus-usa',
         ),
       ).toBe(true);

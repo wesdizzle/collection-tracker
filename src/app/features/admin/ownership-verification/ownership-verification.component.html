@@ -1,148 +1,172 @@
-<div class="backup-scanner-page">
-  <!-- ROM Preservation & Backup Health Dashboard -->
-  @if (preservationStats(); as stats) {
+<div class="ownership-verification-page">
+  @if (!collectionService.trackIndividualMedia?.()) {
+    <div
+      class="media-opt-in-banner"
+      role="status"
+      data-testid="media-tracking-opt-in-banner"
+    >
+      <div class="media-opt-in-copy">
+        <strong>Individual disc &amp; cart badges are currently hidden</strong>
+        on your collection and insights views. You can still verify releases
+        here, or enable individual media display in your profile.
+        @if (profileOptInError()) {
+          <span class="media-opt-in-error">{{ profileOptInError() }}</span>
+        }
+      </div>
+      <button
+        type="button"
+        class="btn-inline"
+        [disabled]="isEnablingMediaTracking()"
+        (click)="onEnableIndividualMediaTracking()"
+        data-testid="enable-media-tracking-btn"
+      >
+        {{
+          isEnablingMediaTracking()
+            ? 'Enabling...'
+            : 'Enable Display in Profile'
+        }}
+      </button>
+    </div>
+  }
+
+  <!-- Media Ownership Health Dashboard -->
+  @if (mediaHealthStats(); as stats) {
     <kit-section-card
-      class="preservation-health-card-wrap"
-      title="ROM Preservation &amp; Backup Health"
+      class="media-health-card-wrap"
+      title="Media Ownership Health"
       [subtitle]="
-        'Verified Redump/No-Intro digital backups across ' +
+        'Verified individual disc, cartridge, and card ownership across ' +
         stats.physicalCount +
         ' owned physical releases'
       "
       icon="verified-badge"
       [collapsible]="true"
-      [expanded]="preservationHealthExpanded()"
+      [expanded]="mediaHealthExpanded()"
       collapseLabel="Collapse"
       expandLabel="Show Health"
-      testId="preservation-health-card"
-      toggleTestId="toggle-preservation-health-btn"
-      (expandedChange)="preservationHealthExpanded.set($event)"
+      testId="media-health-card"
+      toggleTestId="toggle-media-health-btn"
+      (expandedChange)="mediaHealthExpanded.set($event)"
     >
       <span
         cardActions
-        class="preservation-rate-pill"
-        [class.success]="stats.backupRatePct >= 80"
-        data-testid="preservation-rate-pill"
+        class="media-rate-pill"
+        [class.success]="stats.mediaOwnedRatePct >= 80"
+        data-testid="media-rate-pill"
       >
-        {{ stats.backupRatePct }}% Preserved
+        {{ stats.mediaOwnedRatePct }}% Verified
       </span>
 
-      <div class="preservation-meter-wrap">
+      <div class="media-meter-wrap">
         <kit-segmented-meter
-          [segments]="backupMeterSegments()"
+          [segments]="mediaMeterSegments()"
           [heightPx]="12"
-          ariaLabel="ROM preservation rate"
+          ariaLabel="Individual physical media ownership rate"
         />
       </div>
 
-      <div class="preservation-stats-row">
+      <div class="media-stats-row">
         <a
-          class="preservation-stat-tile clickable"
+          class="media-stat-tile clickable"
           [routerLink]="['/collection/games']"
-          [queryParams]="{ reset: 1, ownership: 1, backup_status: 1 }"
-          data-testid="preservation-stat-backed-up"
-          title="Filter collection to backed up physical releases"
+          [queryParams]="{ reset: 1, ownership: 1, has_media: 1 }"
+          data-testid="media-stat-verified"
+          title="Filter collection to releases with verified individual media"
         >
-          <span class="preservation-stat-number">{{
-            stats.backedUpCount
-          }}</span>
-          <span class="preservation-stat-desc">Backed Up</span>
+          <span class="media-stat-number">{{ stats.ownedMediaCount }}</span>
+          <span class="media-stat-desc">Media Owned</span>
         </a>
 
         <a
-          class="preservation-stat-tile clickable"
+          class="media-stat-tile clickable"
           [routerLink]="['/collection/games']"
-          [queryParams]="{ reset: 1, ownership: 1, backup_status: 0 }"
-          data-testid="preservation-stat-missing"
-          title="Filter collection to missing backups"
+          [queryParams]="{ reset: 1, ownership: 1, has_media: 0 }"
+          data-testid="media-stat-missing"
+          title="Filter collection to releases missing individual media verification"
         >
           <span
-            class="preservation-stat-number"
+            class="media-stat-number"
             [class.warning]="stats.missingCount > 0"
             >{{ stats.missingCount }}</span
           >
-          <span class="preservation-stat-desc">Missing Backups</span>
+          <span class="media-stat-desc">Missing Media</span>
         </a>
 
         <a
-          class="preservation-stat-tile clickable"
+          class="media-stat-tile clickable"
           [routerLink]="['/collection/games']"
           [queryParams]="{ reset: 1, ownership: 1 }"
-          data-testid="preservation-stat-physical"
-          title="View owned games"
+          data-testid="media-stat-physical"
+          title="View owned physical releases"
         >
-          <span class="preservation-stat-number">{{
-            stats.physicalCount
-          }}</span>
-          <span class="preservation-stat-desc">Physical Total</span>
+          <span class="media-stat-number">{{ stats.physicalCount }}</span>
+          <span class="media-stat-desc">Physical Total</span>
         </a>
       </div>
 
       @if (stats.missingCount > 0) {
-        <div
-          class="preservation-action-banner"
-          data-testid="preservation-missing-banner"
-        >
-          <div class="preservation-banner-text">
+        <div class="media-action-banner" data-testid="media-missing-banner">
+          <div class="media-banner-text">
             <strong>{{ stats.missingCount }} owned physical releases</strong>
-            still need clean dumps to complete your preservation archive.
+            still have unverified or missing individual discs, cartridges, or
+            cards.
           </div>
           <a
             [routerLink]="['/collection/games']"
-            [queryParams]="{ reset: 1, ownership: 1, backup_status: 0 }"
+            [queryParams]="{ reset: 1, ownership: 1, has_media: 0 }"
             class="btn-inline-link"
           >
-            View Missing Backups →
+            View Missing Media →
           </a>
         </div>
       }
 
       @if (stats.platformBreakdown.length > 0) {
         <details
-          class="scanner-details preservation-platforms-details"
+          class="scanner-details media-platforms-details"
           [open]="stats.platformBreakdown.length <= 6"
         >
           <summary>
-            Preservation by Platform ({{ stats.platformBreakdown.length }})
+            Ownership by Platform ({{ stats.platformBreakdown.length }})
           </summary>
-          <div class="details-body preservation-platform-list">
+          <div class="details-body media-platform-list">
             @for (p of stats.platformBreakdown; track p.id) {
               <div
-                class="preservation-platform-row"
-                [attr.data-testid]="'preservation-platform-' + p.id"
+                class="media-platform-row"
+                [attr.data-testid]="'media-platform-' + p.id"
               >
-                <div class="preservation-platform-info">
-                  <div class="preservation-platform-title">
+                <div class="media-platform-info">
+                  <div class="media-platform-title">
                     @if (p.logo) {
                       <img
                         [src]="p.logo"
                         [alt]="p.name"
-                        class="preservation-platform-logo"
+                        class="media-platform-logo"
                       />
                     }
-                    <span class="preservation-platform-name">{{ p.name }}</span>
+                    <span class="media-platform-name">{{ p.name }}</span>
                     @if (p.missingCount > 0) {
-                      <span class="preservation-missing-pill">
+                      <span class="media-missing-pill">
                         {{ p.missingCount }} missing
                       </span>
                     }
                   </div>
-                  <span class="preservation-platform-counts">
-                    {{ p.backedUpCount }} / {{ p.physicalCount }} ({{
-                      p.backupPct
+                  <span class="media-platform-counts">
+                    {{ p.ownedMediaCount }} / {{ p.physicalCount }} ({{
+                      p.mediaOwnedPct
                     }}%)
                   </span>
                 </div>
 
-                <div class="preservation-platform-track">
+                <div class="media-platform-track">
                   <div
-                    class="preservation-platform-fill"
-                    [class.complete]="p.backupPct === 100"
-                    [style.width.%]="p.backupPct"
+                    class="media-platform-fill"
+                    [class.complete]="p.mediaOwnedPct === 100"
+                    [style.width.%]="p.mediaOwnedPct"
                   ></div>
                 </div>
 
-                <div class="preservation-platform-actions">
+                <div class="media-platform-actions">
                   @if (p.missingCount > 0) {
                     <a
                       [routerLink]="['/collection/games']"
@@ -150,7 +174,7 @@
                         reset: 1,
                         ownership: 1,
                         platform_id: p.id,
-                        backup_status: 0,
+                        has_media: 0,
                       }"
                       class="btn-inline-link"
                       [attr.data-testid]="'platform-missing-link-' + p.id"
@@ -179,13 +203,17 @@
     <div class="scanner-hero-top">
       <div class="scanner-hero-title-group">
         <span class="scanner-hero-icon" aria-hidden="true">
-          <app-icon name="rom-archive" [size]="24"></app-icon>
+          <app-icon name="disc" [size]="24"></app-icon>
         </span>
         <div>
-          <h1 class="scanner-title">Local Backup Scanner</h1>
+          <div class="scanner-title-row">
+            <h1 class="scanner-title">Ownership Verification Scanner</h1>
+            <span class="admin-scope-pill">Admin Only</span>
+          </div>
           <p class="scanner-subtitle">
-            Crawl a local backup directory in your browser by filename only.
-            Zero file bytes are read, hashed, or uploaded.
+            Scan a local media folder by filename in your browser to verify
+            ownership of each individual disc, cartridge, or card. Zero file
+            bytes are read, hashed, or uploaded.
           </p>
         </div>
       </div>
@@ -298,24 +326,26 @@
         <button
           type="button"
           class="btn-choose-folder"
-          [disabled]="backupScannerService.isCrawling() || isApplying()"
+          [disabled]="ownershipVerificationService.isCrawling() || isApplying()"
           (click)="onChooseDirectory()"
         >
-          <app-icon name="rom-archive" [size]="18"></app-icon>
+          <app-icon name="disc" [size]="18"></app-icon>
           <span>
             {{
               lastCrawl()
                 ? 'Rescan / Choose Another Folder'
-                : 'Choose Backup Folder'
+                : 'Choose Media Folder'
             }}
           </span>
         </button>
 
-        @if (backupScannerService.supportsDirectoryPicker()) {
+        @if (ownershipVerificationService.supportsDirectoryPicker()) {
           <button
             type="button"
             class="btn-fallback-picker"
-            [disabled]="backupScannerService.isCrawling() || isApplying()"
+            [disabled]="
+              ownershipVerificationService.isCrawling() || isApplying()
+            "
             (click)="triggerFallbackFileInput()"
             title="Use standard file input directory selector"
           >
@@ -334,15 +364,15 @@
       </div>
     </div>
 
-    @if (backupScannerService.isCrawling()) {
+    @if (ownershipVerificationService.isCrawling()) {
       <div class="scanner-progress-banner" role="status" aria-live="polite">
         <span class="spinner-dot" aria-hidden="true"></span>
         <span>
-          Crawling directory
+          Scanning directory
           <strong>{{
-            backupScannerService.crawlProgress().currentFolder
+            ownershipVerificationService.crawlProgress().currentFolder
           }}</strong>
-          — {{ backupScannerService.crawlProgress().filesFound }} files
+          — {{ ownershipVerificationService.crawlProgress().filesFound }} files
           discovered...
         </span>
       </div>
@@ -359,8 +389,8 @@
       <div class="scanner-alert scanner-alert-success" role="status">
         <app-icon name="check" [size]="18"></app-icon>
         <span>
-          Backup sync applied:
-          <strong>{{ applied.setCount }}</strong> newly backed up,
+          Ownership verification applied:
+          <strong>{{ applied.setCount }}</strong> newly verified,
           <strong>{{ applied.clearCount }}</strong> cleared,
           <strong>{{ applied.transferredCount }}</strong> ownership
           {{ applied.transferredCount === 1 ? 'switch' : 'switches' }}
@@ -384,7 +414,7 @@
           {{ report.rootFolderName }}
         </span>
         <span class="metric-sub">
-          {{ report.totalScannedFiles }} game files across
+          {{ report.totalScannedFiles }} media files across
           {{ report.scannedPlatforms.length }}
           {{ report.scannedPlatforms.length === 1 ? 'platform' : 'platforms' }}
         </span>
@@ -395,27 +425,27 @@
         <span class="metric-value">
           {{ selectedSwitchCount() }} / {{ report.ownershipSwitches.length }}
         </span>
-        <span class="metric-sub">SKU replacements matched by dump</span>
+        <span class="metric-sub">SKU replacements matched by filename</span>
       </div>
 
       <div class="metric-card metric-card-added">
-        <span class="metric-label">+ Newly Backed Up (0 → 1)</span>
+        <span class="metric-label">+ Newly Verified (0 → 1)</span>
         <span class="metric-value">
           {{ selectedSetCount() }} /
-          {{ report.diff.releases.newlyBackedUp.length }}
+          {{ report.diff.releases.newlyVerified.length }}
         </span>
-        <span class="metric-sub">Releases gaining backup status</span>
+        <span class="metric-sub">Releases marked media-owned</span>
       </div>
 
       <div class="metric-card metric-card-removed">
-        <span class="metric-label">- Missing Backups (1 → 0)</span>
+        <span class="metric-label">- Missing from Scan (1 → 0)</span>
         <span class="metric-value">
           {{ effectiveSelectedClearCount() }} /
-          {{ report.diff.releases.lostBackup.length }}
+          {{ report.diff.releases.missingFromScan.length }}
         </span>
         <span class="metric-sub">
           {{
-            pruneMissingBackups()
+            pruneMissingMedia()
               ? 'Prune enabled on scanned platforms'
               : 'Prune disabled (additive scan)'
           }}
@@ -423,11 +453,11 @@
       </div>
 
       <div class="metric-card">
-        <span class="metric-label">= Unchanged Backed Up (1 → 1)</span>
+        <span class="metric-label">= Already Verified (1 → 1)</span>
         <span class="metric-value">
-          {{ report.diff.releases.unchangedBackedUpCount }}
+          {{ report.diff.releases.unchangedVerifiedCount }}
         </span>
-        <span class="metric-sub">Already marked backed up</span>
+        <span class="metric-sub">Already marked media-owned</span>
       </div>
     </section>
 
@@ -435,14 +465,15 @@
       <label class="prune-toggle-label">
         <input
           type="checkbox"
-          [ngModel]="pruneMissingBackups()"
-          (ngModelChange)="pruneMissingBackups.set($event)"
+          [ngModel]="pruneMissingMedia()"
+          (ngModelChange)="pruneMissingMedia.set($event)"
+          data-testid="prune-missing-media-checkbox"
         />
         <span class="prune-toggle-text">
-          <strong>Prune missing backups on scanned platforms (1 → 0)</strong>
+          <strong>Prune missing media on scanned platforms (1 → 0)</strong>
           <small>
-            Uncheck when scanning a partial SD card or single-game folder so
-            existing backups are never cleared.
+            Leave unchecked when scanning a partial shelf, disc binder, or
+            single-platform folder so existing verified ownership is preserved.
           </small>
         </span>
       </label>
@@ -451,10 +482,10 @@
         <app-icon name="search" [size]="16"></app-icon>
         <input
           type="search"
-          placeholder="Filter games, ROM filenames, or platforms..."
+          placeholder="Filter games, filenames, or platforms..."
           [ngModel]="searchQuery()"
           (ngModelChange)="searchQuery.set($event)"
-          aria-label="Filter diff results"
+          aria-label="Filter verification results"
         />
       </div>
     </section>
@@ -482,9 +513,9 @@
               }})
             </h2>
             <p class="diff-section-desc">
-              These games have an owned release SKU with no matching backup in
-              this scan, while a different catalog release SKU of the same game
-              was matched. Same-region revision switches are pre-selected;
+              These games have an owned release SKU with no matching media file
+              in this scan, while a different catalog release SKU of the same
+              game was matched. Same-region revision switches are pre-selected;
               cross-region switches require explicit opt-in. Case and Manual
               flags are automatically carried over.
             </p>
@@ -514,9 +545,9 @@
                 <th class="col-check">Switch</th>
                 <th>Platform</th>
                 <th>Game Title</th>
-                <th>Owned SKU → Discovered Backup SKU</th>
+                <th>Owned SKU → Verified Media SKU</th>
                 <th>Completeness Carried Over</th>
-                <th>Matched Backup File</th>
+                <th>Matched Media File</th>
               </tr>
             </thead>
             <tbody>
@@ -546,7 +577,8 @@
                   <td class="cell-title">
                     <a
                       class="game-link"
-                      [routerLink]="['/collection/item', 'game', sw.gameSlug]"
+                      [routerLink]="['/game', sw.gameSlug]"
+                      [attr.data-testid]="'switch-game-link-' + sw.gameId"
                     >
                       {{ sw.gameTitle }}
                     </a>
@@ -590,37 +622,37 @@
       </section>
     }
 
-    <!-- 2. Newly Backed Up (0 -> 1) Section -->
+    <!-- 2. Newly Verified Media (0 -> 1) Section -->
     <section class="diff-section">
       <div class="diff-section-header">
         <div>
           <h2 class="diff-section-title">
-            + Newly Backed Up Releases (0 → 1) ({{
-              filteredNewlyBackedUp().length
+            + Newly Verified Media (0 → 1) ({{
+              filteredNewlyVerified().length
             }})
           </h2>
           <p class="diff-section-desc">
-            Catalog releases matched by filename that are not yet marked as
-            backed up in your collection.
+            Catalog releases matched by filename that do not yet have verified
+            individual media ownership in your collection.
           </p>
         </div>
-        @if (report.diff.releases.newlyBackedUp.length > 0) {
+        @if (report.diff.releases.newlyVerified.length > 0) {
           <div class="diff-bulk-buttons">
             <button
               type="button"
               class="btn-inline"
-              (click)="setAllNewlyBackedUp(true)"
+              (click)="setAllNewlyVerified(true)"
             >
               Select All
             </button>
             <button
               type="button"
               class="btn-inline"
-              (click)="setAllNewlyBackedUp(false)"
+              (click)="setAllNewlyVerified(false)"
             >
               Deselect All
             </button>
-            @if (unownedNewlyBackedUpCount() > 0) {
+            @if (unownedNewlyVerifiedCount() > 0) {
               <button
                 type="button"
                 class="btn-inline"
@@ -640,9 +672,9 @@
         }
       </div>
 
-      @if (filteredNewlyBackedUp().length === 0) {
+      @if (filteredNewlyVerified().length === 0) {
         <p class="empty-section-note">
-          No newly backed up releases in this scan.
+          No newly verified media releases in this scan.
         </p>
       } @else {
         <div class="diff-table-wrapper">
@@ -652,7 +684,7 @@
                 <th class="col-check">Apply</th>
                 <th>Platform</th>
                 <th>Game Title</th>
-                <th>Catalog Release / ROM</th>
+                <th>Catalog Release</th>
                 <th>Matched Local File</th>
                 <th class="col-check">Owned</th>
                 <th class="col-check">Case</th>
@@ -660,7 +692,7 @@
               </tr>
             </thead>
             <tbody>
-              @for (rel of filteredNewlyBackedUp(); track rel.id) {
+              @for (rel of filteredNewlyVerified(); track rel.id) {
                 <tr [class.row-selected]="isSetSelected(rel.id)">
                   <td class="col-check">
                     <input
@@ -669,7 +701,7 @@
                       (change)="
                         toggleSetSelection(rel.id, $any($event.target).checked)
                       "
-                      [attr.aria-label]="'Mark backed up: ' + rel.title"
+                      [attr.aria-label]="'Mark media verified: ' + rel.title"
                     />
                   </td>
                   <td>
@@ -755,35 +787,35 @@
     <!-- 3. Missing on Scanned Platforms (1 -> 0) Section -->
     <section
       class="diff-section"
-      [class.diff-section-disabled]="!pruneMissingBackups()"
+      [class.diff-section-disabled]="!pruneMissingMedia()"
     >
       <div class="diff-section-header">
         <div>
           <h2 class="diff-section-title">
             - Missing on Scanned Platforms (1 → 0) ({{
-              filteredLostBackups().length
+              filteredMissingFromScan().length
             }})
           </h2>
           <p class="diff-section-desc">
-            Releases on the scanned platform(s) currently marked as backed up
+            Releases on the scanned platform(s) currently marked as media-owned
             that were not found in the selected folder.
           </p>
         </div>
         @if (
-          report.diff.releases.lostBackup.length > 0 && pruneMissingBackups()
+          report.diff.releases.missingFromScan.length > 0 && pruneMissingMedia()
         ) {
           <div class="diff-bulk-buttons">
             <button
               type="button"
               class="btn-inline"
-              (click)="setAllLostBackups(true)"
+              (click)="setAllMissingFromScan(true)"
             >
               Select All
             </button>
             <button
               type="button"
               class="btn-inline"
-              (click)="setAllLostBackups(false)"
+              (click)="setAllMissingFromScan(false)"
             >
               Deselect All
             </button>
@@ -791,15 +823,15 @@
         }
       </div>
 
-      @if (!pruneMissingBackups()) {
+      @if (!pruneMissingMedia()) {
         <p class="empty-section-note">
           Pruning is disabled — these
-          {{ report.diff.releases.lostBackup.length }}
-          releases will keep their existing backup status.
+          {{ report.diff.releases.missingFromScan.length }}
+          releases will keep their existing media ownership status.
         </p>
-      } @else if (filteredLostBackups().length === 0) {
+      } @else if (filteredMissingFromScan().length === 0) {
         <p class="empty-section-note">
-          No missing backups detected on scanned platforms.
+          No missing media detected on scanned platforms.
         </p>
       } @else {
         <div class="diff-table-wrapper">
@@ -809,11 +841,11 @@
                 <th class="col-check">Clear</th>
                 <th>Platform</th>
                 <th>Game Title</th>
-                <th>Catalog Release / ROM</th>
+                <th>Catalog Release</th>
               </tr>
             </thead>
             <tbody>
-              @for (rel of filteredLostBackups(); track rel.id) {
+              @for (rel of filteredMissingFromScan(); track rel.id) {
                 <tr [class.row-selected]="isClearSelected(rel.id)">
                   <td class="col-check">
                     <input
@@ -825,7 +857,9 @@
                           $any($event.target).checked
                         )
                       "
-                      [attr.aria-label]="'Clear backup status: ' + rel.title"
+                      [attr.aria-label]="
+                        'Clear media ownership status: ' + rel.title
+                      "
                     />
                   </td>
                   <td>
@@ -841,7 +875,7 @@
       }
     </section>
 
-    <!-- 4. Collapsible Platform Breakdown & Ignored Unmatched Files -->
+    <!-- 4. Collapsible Platform Breakdown & Unmatched Files -->
     <div class="collapsible-panels">
       <details class="scanner-details">
         <summary>
@@ -849,38 +883,40 @@
           {{ report.scannedPlatforms.length === 1 ? 'platform' : 'platforms' }})
         </summary>
         <div class="details-body">
-          <table class="diff-table">
-            <thead>
-              <tr>
-                <th>Platform</th>
-                <th>Files Scanned</th>
-                <th>Catalog Releases Matched</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (p of report.scannedPlatforms; track p.id) {
+          <div class="diff-table-wrapper">
+            <table class="diff-table">
+              <thead>
                 <tr>
-                  <td>{{ p.name }}</td>
-                  <td>{{ p.scannedFiles }}</td>
-                  <td>{{ p.matchedReleases }}</td>
+                  <th>Platform</th>
+                  <th>Files Scanned</th>
+                  <th>Catalog Releases Matched</th>
                 </tr>
-              }
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                @for (p of report.scannedPlatforms; track p.id) {
+                  <tr>
+                    <td>{{ p.name }}</td>
+                    <td>{{ p.scannedFiles }}</td>
+                    <td>{{ p.matchedReleases }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
         </div>
       </details>
 
       <details class="scanner-details">
         <summary>
-          Already Synced (1 → 1) ({{ filteredUnchangedReleases().length }})
+          Already Verified (1 → 1) ({{ filteredUnchangedReleases().length }})
         </summary>
         <div class="details-body">
           <p class="details-helper">
-            Releases already marked backed up that this scan confirmed again. No
-            changes are applied for these.
+            Releases already marked as media-owned that this scan confirmed
+            again. No changes are applied for these.
           </p>
           @if (filteredUnchangedReleases().length === 0) {
-            <p class="empty-section-note">No already-synced releases.</p>
+            <p class="empty-section-note">No already-verified releases.</p>
           } @else {
             <div class="diff-table-wrapper">
               <table class="diff-table">
@@ -888,7 +924,7 @@
                   <tr>
                     <th>Game</th>
                     <th>Platform</th>
-                    <th>Catalog Release / ROM</th>
+                    <th>Catalog Release</th>
                     <th>Matched File</th>
                   </tr>
                 </thead>
@@ -919,7 +955,7 @@
             <p class="details-helper">
               These files matched a catalog release that an earlier file had
               already matched, so they did not change anything. Check them for
-              misidentified dumps.
+              misidentified entries.
             </p>
             <div class="diff-table-wrapper">
               <table class="diff-table">
@@ -956,7 +992,7 @@
         <div class="details-body">
           <p class="details-helper">
             Files that did not match a physical catalog release (such as
-            digital-only backups or uncataloged dumps) are safely ignored and
+            digital-only titles or uncataloged items) are safely ignored and
             never modify your catalog.
           </p>
           @if (filteredIgnoredFiles().length === 0) {
@@ -990,10 +1026,10 @@
     <!-- Sticky Action Footer -->
     <footer class="scanner-action-bar">
       <div class="action-bar-summary">
-        <strong>Ready to sync:</strong>
-        <span>+{{ selectedSetCount() }} additions</span>
+        <strong>Ready to apply:</strong>
+        <span>+{{ selectedSetCount() }} verified</span>
         <span>•</span>
-        <span>-{{ effectiveSelectedClearCount() }} removals</span>
+        <span>-{{ effectiveSelectedClearCount() }} cleared</span>
         <span>•</span>
         <span>
           {{ selectedSwitchCount() }} ownership
@@ -1013,26 +1049,27 @@
         </span>
       </button>
     </footer>
-  } @else if (!backupScannerService.isCrawling()) {
+  } @else if (!ownershipVerificationService.isCrawling()) {
     <section class="scanner-empty-state">
       <div class="empty-icon-circle" aria-hidden="true">
-        <app-icon name="rom-archive" [size]="36"></app-icon>
+        <app-icon name="disc" [size]="36"></app-icon>
       </div>
-      <h2>Select a Local Backup Directory to Begin</h2>
+      <h2>Select a Local Media Directory to Verify Ownership</h2>
       <p>
-        Point the scanner at either your top-level multi-platform backup root
+        Point the scanner at either your top-level multi-platform library root
         (e.g.
-        <code>Backups/SNES</code>, <code>Backups/Switch</code>) or a single
-        platform's folder. You will review a full diff of backup status changes
-        and any proposed release ownership switches before anything is saved.
+        <code>Library/SNES</code>, <code>Library/Switch</code>) or a single
+        platform's folder. You will review a full diff of individual disc/cart
+        ownership changes and any proposed release SKU switches before anything
+        is saved.
       </p>
       <button
         type="button"
         class="btn-choose-folder"
         (click)="onChooseDirectory()"
       >
-        <app-icon name="rom-archive" [size]="18"></app-icon>
-        <span>Choose Backup Folder</span>
+        <app-icon name="disc" [size]="18"></app-icon>
+        <span>Choose Media Folder</span>
       </button>
     </section>
   }

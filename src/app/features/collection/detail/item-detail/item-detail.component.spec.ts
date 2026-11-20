@@ -47,7 +47,7 @@ describe('ItemDetailComponent', () => {
     summary: 'A classic game.',
     ownership_status: 1,
     play_status: PlayStatus.Played,
-    backup_status: 1,
+    has_media: 1,
   };
 
   const mockToy: Toy = {
@@ -214,7 +214,7 @@ describe('ItemDetailComponent', () => {
             region: 'USA',
             rom_name: 'Super Mario World (USA).sfc',
             rom_crc: 'B19DF4F3',
-            backup_status: 1,
+            has_media: 1,
             ownership_status: 1,
             is_source_verified: 1,
           },
@@ -308,7 +308,7 @@ describe('ItemDetailComponent', () => {
             comments: 'Complete on cart',
             rom_name: '1-2-Switch [0100000000010000][v65536].xci',
             rom_crc: null,
-            backup_status: 1,
+            has_media: 1,
             ownership_status: 1,
           },
         ],
@@ -385,7 +385,7 @@ describe('ItemDetailComponent', () => {
             platform_name: 'Wii U',
             bundle_disc_number: 2,
             rom_name: 'Bayonetta (USA) (Disc 2).wux',
-            backup_status: 1,
+            has_media: 1,
           },
         ],
       }),
@@ -403,7 +403,21 @@ describe('ItemDetailComponent', () => {
     );
     expect(bundlesSection.textContent).toContain('Bayonetta');
     expect(bundlesSection.textContent).toContain('Disc 2');
-    expect(bundlesSection.textContent).toContain('Backed Up');
+    expect(bundlesSection.textContent).not.toContain('Disc Owned');
+
+    collectionService.setCurrentUserForTesting({
+      id: 2,
+      email: 'user@example.com',
+      username: 'user',
+      role: 'user',
+      isPublic: false,
+      homeRegion: 'USA',
+      displayName: null,
+      bio: null,
+      trackIndividualMedia: true,
+    });
+    fixture.detectChanges();
+    expect(bundlesSection.textContent).toContain('Disc Owned');
   });
 
   it('should render external source link for Amiibo, Skylanders, and Starlink toys', async () => {
@@ -715,7 +729,7 @@ describe('ItemDetailComponent', () => {
             game_id: 1,
             region: 'USA',
             ownership_status: 0,
-            backup_status: 0,
+            has_media: 0,
             release_date: '1990-11-21',
           },
         ],
@@ -764,7 +778,7 @@ describe('ItemDetailComponent', () => {
             region: 'USA',
             rom_name: 'Asteroids (Japan, USA).a26',
             ownership_status: 0,
-            backup_status: 0,
+            has_media: 0,
           },
         ],
       };
@@ -796,7 +810,7 @@ describe('ItemDetailComponent', () => {
             game_id: 1896,
             region: 'USA',
             rom_name: 'Ape Escape (USA).cue',
-            backup_status: 1,
+            has_media: 1,
             ownership_status: 1,
           },
         ],
@@ -808,7 +822,7 @@ describe('ItemDetailComponent', () => {
             region: 'Japan',
             rom_name: 'Saru! Get You! (Japan) (Rev 1).cue',
             release_date: '1999-06-24',
-            backup_status: 0,
+            has_media: 0,
             ownership_status: 0,
           },
           {
@@ -818,7 +832,7 @@ describe('ItemDetailComponent', () => {
             region: 'Spain',
             rom_name: 'Ape Escape - La Invasion de los Monos (Spain).cue',
             release_date: '1999-07-02',
-            backup_status: 0,
+            has_media: 0,
             ownership_status: 0,
           },
         ],
@@ -854,7 +868,7 @@ describe('ItemDetailComponent', () => {
   });
 
   describe('Public & Signed-Out Depersonalized Detail View', () => {
-    it('omits play status, ownership status, backup details, and provenance when signed out', async () => {
+    it('omits play status, ownership status, individual media details, and provenance when signed out', async () => {
       collectionService.setAdminForTesting(false);
 
       vi.spyOn(collectionService, 'getGameById').mockReturnValue(
@@ -864,7 +878,7 @@ describe('ItemDetailComponent', () => {
           platform: 'SNES',
           ownership_status: 1,
           play_status: PlayStatus.Played,
-          backup_status: 1,
+          has_media: 1,
           physical_status: 'digital_extracted_rom',
           release_medium: 'digital_extracted_rom',
           origin_metadata: JSON.stringify({
@@ -881,7 +895,7 @@ describe('ItemDetailComponent', () => {
               platform_id: 19,
               platform_name: 'SNES',
               bundle_disc_number: 2,
-              backup_status: 1,
+              has_media: 1,
             },
           ],
           releases: [
@@ -890,18 +904,18 @@ describe('ItemDetailComponent', () => {
               game_id: 1,
               region: 'USA',
               rom_name: 'Super Mario World (USA).sfc',
-              backup_status: 1,
+              has_media: 1,
               ownership_status: 1,
               is_source_verified: 1,
             },
           ],
-          shared_backup_releases: [
+          shared_media_releases: [
             {
               id: 'smas-smw-snes',
               game_id: 2,
               title: 'Super Mario All-Stars + Super Mario World',
               region: 'USA',
-              backup_status: 1,
+              has_media: 1,
               ownership_status: 1,
             },
           ],
@@ -912,7 +926,7 @@ describe('ItemDetailComponent', () => {
               title: 'Super Mario World (Japan)',
               region: 'Japan',
               release_date: '1990-11-21',
-              backup_status: 0,
+              has_media: 0,
               ownership_status: 1,
             },
           ],
@@ -935,7 +949,7 @@ describe('ItemDetailComponent', () => {
       );
       expect(compiled.querySelector('.discs-section')).toBeNull();
       expect(compiled.textContent).not.toContain(
-        'No dump exists in community DAT files',
+        'Not yet matched in community release catalog',
       );
       expect(compiled.querySelector('.other-releases-section')).toBeTruthy();
 
@@ -943,11 +957,11 @@ describe('ItemDetailComponent', () => {
       expect(compiled.querySelector('.play-status-pill')).toBeNull();
       expect(compiled.querySelector('.ownership-pill')).toBeNull();
 
-      // Backup details (Backed Up / No Backup buttons/pills and Extracted Archival ROM pill) are omitted
+      // Media ownership details (Disc/Cart Owned / Missing buttons and Extracted Archival ROM pill) are omitted
       expect(compiled.querySelector('.disc-actions')).toBeNull();
       expect(compiled.querySelector('.stat-pill.extracted-rom')).toBeNull();
-      expect(compiled.textContent).not.toContain('Backed Up');
-      expect(compiled.textContent).not.toContain('No Backup');
+      expect(compiled.textContent).not.toContain('Cart Owned');
+      expect(compiled.textContent).not.toContain('Disc Owned');
 
       // Provenance sections (Archival Origin Provenance and Acquisition Journal & Provenance) are omitted
       expect(compiled.querySelector('.provenance-section')).toBeNull();
@@ -961,7 +975,7 @@ describe('ItemDetailComponent', () => {
       ).not.toContain('Owned');
     });
 
-    it('renders physical disc release section with disc labels (without backup actions) for multi-disc sets when signed out', async () => {
+    it('renders physical disc release section with disc labels (without media actions) for multi-disc sets when signed out or trackIndividualMedia is false', async () => {
       collectionService.setAdminForTesting(false);
       vi.spyOn(collectionService, 'getGameById').mockReturnValue(
         of({
@@ -977,7 +991,7 @@ describe('ItemDetailComponent', () => {
               region: 'USA',
               disc_label: 'Disc 1',
               rom_name: 'Final Fantasy VII (USA) (Disc 1).bin',
-              backup_status: 1,
+              has_media: 1,
               ownership_status: 1,
               is_source_verified: 1,
             },
@@ -988,18 +1002,18 @@ describe('ItemDetailComponent', () => {
               region: 'USA',
               disc_label: 'Disc 2',
               rom_name: 'Final Fantasy VII (USA) (Disc 2).bin',
-              backup_status: 0,
+              has_media: 0,
               ownership_status: 1,
               is_source_verified: 1,
             },
           ],
-          shared_backup_releases: [
+          shared_media_releases: [
             {
               id: 'ff7-gh',
               game_id: 8,
               title: 'Final Fantasy VII (Greatest Hits)',
               region: 'USA',
-              backup_status: 1,
+              has_media: 1,
               ownership_status: 1,
             },
           ],
@@ -1017,11 +1031,25 @@ describe('ItemDetailComponent', () => {
       expect(discsSection?.textContent).toContain('Disc 1');
       expect(discsSection?.textContent).toContain('Disc 2');
       expect(compiled.querySelector('.disc-actions')).toBeNull();
-      expect(discsSection?.textContent).not.toContain('Backed Up');
-      expect(discsSection?.textContent).not.toContain('No Backup');
+      expect(discsSection?.textContent).not.toContain('Disc Owned');
       expect(
         compiled.querySelector('.shared-backup-banner')?.textContent,
       ).not.toContain('Owned');
+
+      // Enabling trackIndividualMedia for a signed-in non-admin reveals Disc Owned / Missing toggles
+      collectionService.setCurrentUserForTesting({
+        id: 2,
+        username: 'bob',
+        role: 'user',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Bob',
+        bio: null,
+        trackIndividualMedia: true,
+      });
+      fixture.detectChanges();
+      expect(discsSection?.textContent).toContain('Disc Owned');
+      expect(discsSection?.textContent).toContain('Missing');
     });
 
     it('omits toy ownership status pill when signed out', async () => {

@@ -32,7 +32,7 @@ describe('CommandPaletteComponent', () => {
       region: 'USA',
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Played,
-      backup_status: true,
+      has_media: true,
     },
     {
       stable_id: 2,
@@ -46,7 +46,7 @@ describe('CommandPaletteComponent', () => {
       region: 'EUR',
       ownership_status: OwnershipStatus.Seeking,
       play_status: PlayStatus.Unplayed,
-      backup_status: false,
+      has_media: false,
     },
   ];
 
@@ -81,6 +81,8 @@ describe('CommandPaletteComponent', () => {
   const mockPlatformsSignal = signal<Platform[]>(mockPlatforms);
   const mockIsPublicViewSignal = signal<boolean>(false);
   const mockCanShowPersonalStateSignal = signal<boolean>(true);
+  const mockIsAdminSignal = signal<boolean>(true);
+  const mockCanTrackIndividualMediaSignal = signal<boolean>(true);
 
   const mockCollectionService = {
     games: mockGamesSignal.asReadonly(),
@@ -88,6 +90,8 @@ describe('CommandPaletteComponent', () => {
     platforms: mockPlatformsSignal.asReadonly(),
     isPublicView: mockIsPublicViewSignal.asReadonly(),
     canShowPersonalState: mockCanShowPersonalStateSignal.asReadonly(),
+    isAdmin: mockIsAdminSignal.asReadonly(),
+    canTrackIndividualMedia: mockCanTrackIndividualMediaSignal.asReadonly(),
     getTabUrl: (tab: string) =>
       mockIsPublicViewSignal() ? `/u/alice/${tab}` : `/collection/${tab}`,
     refreshAll: vi.fn().mockResolvedValue(undefined),
@@ -97,6 +101,8 @@ describe('CommandPaletteComponent', () => {
   beforeEach(async () => {
     mockIsPublicViewSignal.set(false);
     mockCanShowPersonalStateSignal.set(true);
+    mockIsAdminSignal.set(true);
+    mockCanTrackIndividualMediaSignal.set(true);
     if (typeof HTMLDialogElement !== 'undefined') {
       if (!HTMLDialogElement.prototype.showModal) {
         HTMLDialogElement.prototype.showModal = function (
@@ -169,9 +175,29 @@ describe('CommandPaletteComponent', () => {
     expect(resetAction).toBeTruthy();
     expect(resetAction?.title).toBe('Reset All Filters');
 
-    const backupAction = results.find((r) => r.id === 'nav-backups');
-    expect(backupAction).toBeTruthy();
-    expect(backupAction?.title).toBe('Scan Local Backups');
+    const verifyAction = results.find((r) => r.id === 'nav-verify-ownership');
+    expect(verifyAction).toBeTruthy();
+    expect(verifyAction?.title).toBe('Verify Owned Media');
+    expect(verifyAction?.url).toBe('/admin/verify-ownership');
+
+    const missingFilter = results.find((r) => r.id === 'filter-missing-media');
+    expect(missingFilter).toBeTruthy();
+    expect(missingFilter?.title).toBe('Missing Discs / Carts');
+    expect(missingFilter?.queryParams).toEqual({
+      ownership: '1',
+      has_media: '0',
+    });
+
+    // Hides Verify Owned Media for non-admins and Missing Discs / Carts when media tracking is OFF
+    mockIsAdminSignal.set(false);
+    mockCanTrackIndividualMediaSignal.set(false);
+    const nonAdminResults = component.flatResults();
+    expect(
+      nonAdminResults.find((r) => r.id === 'nav-verify-ownership'),
+    ).toBeUndefined();
+    expect(
+      nonAdminResults.find((r) => r.id === 'filter-missing-media'),
+    ).toBeUndefined();
   });
 
   it('should reset list state and navigate with reset param when Reset All Filters is selected', () => {
@@ -599,8 +625,9 @@ describe('CommandPaletteComponent', () => {
     expect(markEl?.textContent?.toLowerCase()).toBe('mario');
   });
 
-  it('should expose public Collection Stats nav action and hide personal insights/backups in public view', () => {
+  it('should expose public Collection Stats nav action and hide personal insights/verify-ownership in public view', () => {
     mockCanShowPersonalStateSignal.set(false);
+    mockCanTrackIndividualMediaSignal.set(false);
     mockIsPublicViewSignal.set(true);
     paletteService.open();
     fixture.detectChanges();
@@ -610,7 +637,12 @@ describe('CommandPaletteComponent', () => {
     expect(publicStats).toBeDefined();
     expect(publicStats?.url).toBe('/u/alice/stats');
     expect(results.find((r) => r.id === 'nav-insights')).toBeUndefined();
-    expect(results.find((r) => r.id === 'nav-backups')).toBeUndefined();
+    expect(
+      results.find((r) => r.id === 'nav-verify-ownership'),
+    ).toBeUndefined();
+    expect(
+      results.find((r) => r.id === 'filter-missing-media'),
+    ).toBeUndefined();
 
     publicStats!.action();
     expect(router.navigate).toHaveBeenCalledWith(['/u/alice/stats'], {

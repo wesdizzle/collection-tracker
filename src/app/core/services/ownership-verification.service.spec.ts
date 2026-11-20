@@ -2,10 +2,10 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  BackupScannerService,
   FileSystemDirectoryHandleLike,
   FileSystemHandleLike,
-} from './backup-scanner.service';
+  OwnershipVerificationService,
+} from './ownership-verification.service';
 import { CollectionService } from './collection.service';
 import {
   Game,
@@ -36,8 +36,8 @@ function createMockFileHandle(name: string): FileSystemHandleLike {
   };
 }
 
-describe('BackupScannerService', () => {
-  let service: BackupScannerService;
+describe('OwnershipVerificationService', () => {
+  let service: OwnershipVerificationService;
   const gamesSignal = signal<Game[]>([
     {
       stable_id: 101,
@@ -54,7 +54,7 @@ describe('BackupScannerService', () => {
       rom_name: 'Super Mario World (USA).sfc',
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Played,
-      backup_status: 0,
+      has_media: 0,
       has_case: 1,
       has_manual: 1,
     },
@@ -74,7 +74,7 @@ describe('BackupScannerService', () => {
       rom_name: 'Super Mario World (USA) (Rev 1).sfc',
       ownership_status: OwnershipStatus.Unowned,
       play_status: PlayStatus.Played,
-      backup_status: 0,
+      has_media: 0,
       has_case: 0,
       has_manual: 0,
     },
@@ -102,7 +102,7 @@ describe('BackupScannerService', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
-        BackupScannerService,
+        OwnershipVerificationService,
         {
           provide: CollectionService,
           useValue: {
@@ -112,11 +112,11 @@ describe('BackupScannerService', () => {
         },
       ],
     });
-    service = TestBed.inject(BackupScannerService);
+    service = TestBed.inject(OwnershipVerificationService);
   });
 
   it('crawls FileSystemDirectoryHandle recursively by name only and collapses Vita sce_sys/param.sfo container folders early', async () => {
-    const rootHandle = createMockDirHandle('Backups', [
+    const rootHandle = createMockDirHandle('MediaLibrary', [
       createMockDirHandle('SNES', [
         createMockFileHandle('Super Mario World (USA) (Rev 1).sfc'),
       ]),
@@ -129,34 +129,35 @@ describe('BackupScannerService', () => {
     ]);
 
     const result = await service.crawlDirectoryHandle(rootHandle);
-    expect(result.rootFolderName).toBe('Backups');
+    expect(result.rootFolderName).toBe('MediaLibrary');
     expect(result.entries).toEqual([
       {
-        relativePath: 'Backups/SNES/Super Mario World (USA) (Rev 1).sfc',
+        relativePath: 'MediaLibrary/SNES/Super Mario World (USA) (Rev 1).sfc',
         fileName: 'Super Mario World (USA) (Rev 1).sfc',
       },
       {
-        relativePath: 'Backups/Vita/PCSE00120.zip',
+        relativePath: 'MediaLibrary/Vita/PCSE00120.zip',
         fileName: 'PCSE00120.zip',
       },
     ]);
   });
 
-  it('crawls FileList fallback via webkitRelativePath and builds scan report with ownership switches', () => {
+  it('crawls FileList fallback via webkitRelativePath and builds verification report with ownership switches', () => {
     const crawl = service.crawlFromFileList([
       {
         name: 'Super Mario World (USA) (Rev 1).sfc',
-        webkitRelativePath: 'Backups/SNES/Super Mario World (USA) (Rev 1).sfc',
+        webkitRelativePath:
+          'MediaLibrary/SNES/Super Mario World (USA) (Rev 1).sfc',
       },
     ]);
 
-    expect(crawl.rootFolderName).toBe('Backups');
-    const report = service.buildScanReport({
+    expect(crawl.rootFolderName).toBe('MediaLibrary');
+    const report = service.buildVerificationReport({
       rootFolderName: crawl.rootFolderName,
       entries: crawl.entries,
     });
 
-    expect(report.diff.releases.newlyBackedUp.map((r) => r.id)).toEqual([
+    expect(report.diff.releases.newlyVerified.map((r) => r.id)).toEqual([
       'smw-snes-rev1',
     ]);
     expect(report.ownershipSwitches).toHaveLength(1);

@@ -24,7 +24,7 @@ describe('ActivePlayShelfComponent', () => {
       platform_id: 1,
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Playing,
-      backup_status: 1,
+      has_media: 1,
     },
   ];
 
@@ -39,7 +39,7 @@ describe('ActivePlayShelfComponent', () => {
       platform_id: 1,
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Queued,
-      backup_status: 1,
+      has_media: 1,
     },
   ];
 

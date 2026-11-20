@@ -1,7 +1,18 @@
-import { Routes, Router } from '@angular/router';
+import { Routes, Router, UrlTree } from '@angular/router';
 import { inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { AuthSessionService } from './core/services/auth-session.service';
+
+async function adminRouteGuard(): Promise<boolean | UrlTree> {
+  const auth = inject(AuthSessionService);
+  auth.exitPublicView();
+  const router = inject(Router);
+  await auth.ensureAuthLoaded();
+  if (!auth.isAdmin()) {
+    return router.createUrlTree(['/collection/games']);
+  }
+  return true;
+}
 
 export const routes: Routes = [
   {
@@ -153,35 +164,30 @@ export const routes: Routes = [
                 (m) => m.CollectionInsightsComponent,
               ),
           },
-          {
-            path: 'backups',
-            title: 'Scan Local Backups',
-            loadComponent: () =>
-              import('./features/collection/backups/backup-scanner.component').then(
-                (m) => m.BackupScannerComponent,
-              ),
-          },
         ],
       },
       {
         path: 'admin',
-        title: 'Admin Center',
-        canActivate: [
-          async () => {
-            const auth = inject(AuthSessionService);
-            auth.exitPublicView();
-            const router = inject(Router);
-            await auth.ensureAuthLoaded();
-            if (!auth.isAdmin()) {
-              return router.createUrlTree(['/collection/games']);
-            }
-            return true;
+        canActivate: [adminRouteGuard],
+        children: [
+          {
+            path: '',
+            pathMatch: 'full',
+            title: 'Admin Center',
+            loadComponent: () =>
+              import('./features/admin/admin-center.component').then(
+                (m) => m.AdminCenterComponent,
+              ),
+          },
+          {
+            path: 'verify-ownership',
+            title: 'Verify Media Ownership',
+            loadComponent: () =>
+              import('./features/admin/ownership-verification/ownership-verification.component').then(
+                (m) => m.OwnershipVerificationComponent,
+              ),
           },
         ],
-        loadComponent: () =>
-          import('./features/admin/admin-center.component').then(
-            (m) => m.AdminCenterComponent,
-          ),
       },
       {
         path: 'discovery',

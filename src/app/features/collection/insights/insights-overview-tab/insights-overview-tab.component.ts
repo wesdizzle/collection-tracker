@@ -43,6 +43,8 @@ export class InsightsOverviewTabComponent {
   public readonly totalSeekingCount = input.required<number>();
   public readonly canShowProvenance = input.required<boolean>();
   public readonly canViewMarketPrices = input.required<boolean>();
+  public readonly canTrackIndividualMedia = input.required<boolean>();
+  public readonly isAdmin = input.required<boolean>();
   public readonly allOwnedValuationSummary =
     input.required<ScopedValuationSummary>();
   public readonly allOwnedJournalSummary =
@@ -50,11 +52,11 @@ export class InsightsOverviewTabComponent {
   public readonly playStatusStats = input.required<PlayStatusStats>();
   public readonly animatedTotalOwnedCount = input.required<number>();
   public readonly animatedPlayedPct = input.required<number>();
-  public readonly animatedBackupRatePct = input.required<number>();
+  public readonly animatedMediaOwnedRatePct = input.required<number>();
   public readonly animatedCibPct = input.required<number>();
-  public readonly backedUpCount = input.required<number>();
+  public readonly ownedMediaCount = input.required<number>();
   public readonly physicalOwnedCount = input.required<number>();
-  public readonly backupRatePct = input.required<number>();
+  public readonly mediaOwnedRatePct = input.required<number>();
   public readonly cibCount = input.required<number>();
   public readonly boxedOnlyCount = input.required<number>();
   public readonly looseCount = input.required<number>();
@@ -62,7 +64,7 @@ export class InsightsOverviewTabComponent {
   public readonly boxedPct = input.required<number>();
   public readonly loosePct = input.required<number>();
   public readonly hasAuditActions = input.required<boolean>();
-  public readonly missingBackupsCount = input.required<number>();
+  public readonly missingMediaCount = input.required<number>();
   public readonly unpricedOwnedCount = input.required<number>();
   public readonly topOwnedPlatformsPreview =
     input.required<PlatformCompletionStat[]>();

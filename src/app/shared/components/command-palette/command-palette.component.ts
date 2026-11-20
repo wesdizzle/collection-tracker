@@ -298,6 +298,14 @@ export class CommandPaletteComponent implements AfterViewInit {
     return this.collectionService.canShowPersonalState?.() ?? true;
   }
 
+  private canTrackMedia(): boolean {
+    return this.collectionService.canTrackIndividualMedia?.() ?? false;
+  }
+
+  private isAdminUser(): boolean {
+    return this.collectionService.isAdmin?.() ?? false;
+  }
+
   private get navigationActions(): CommandPaletteItem[] {
     const gamesUrl = this.getGamesTabUrl();
     const toysUrl = this.getToysTabUrl();
@@ -331,27 +339,30 @@ export class CommandPaletteComponent implements AfterViewInit {
         url: '/collection/insights',
         action: () => this.navigate('/collection/insights'),
       });
-      if (this.collectionService.isAdmin?.() ?? true) {
-        items.push({
-          id: 'nav-admin',
-          title: 'Admin Center',
-          subtitle:
-            'Inspect autonomous pipeline health, D1 quota, and cron logs',
-          category: 'Navigation',
-          icon: 'compass',
-          url: '/admin',
-          action: () => this.navigate('/admin'),
-        });
+      if (this.isAdminUser()) {
+        items.push(
+          {
+            id: 'nav-admin',
+            title: 'Admin Center',
+            subtitle:
+              'Inspect autonomous pipeline health, D1 quota, and cron logs',
+            category: 'Navigation',
+            icon: 'compass',
+            url: '/admin',
+            action: () => this.navigate('/admin'),
+          },
+          {
+            id: 'nav-verify-ownership',
+            title: 'Verify Owned Media',
+            subtitle:
+              'Match local filenames against catalog releases & audit disc/cart ownership',
+            category: 'Navigation',
+            icon: 'disc',
+            url: '/admin/verify-ownership',
+            action: () => this.navigate('/admin/verify-ownership'),
+          },
+        );
       }
-      items.push({
-        id: 'nav-backups',
-        title: 'Scan Local Backups',
-        subtitle: 'Match local ROM filenames against your catalog & apply diff',
-        category: 'Navigation',
-        icon: 'disc',
-        url: '/collection/backups',
-        action: () => this.navigate('/collection/backups'),
-      });
     } else if (this.collectionService.isPublicView?.()) {
       const statsUrl = this.collectionService.getTabUrl?.('stats') ?? '/';
       items.push({
@@ -439,17 +450,20 @@ export class CommandPaletteComponent implements AfterViewInit {
           queryParams: { ownership: '2' },
           action: () => this.navigate(gamesUrl, { ownership: '2' }),
         },
-        {
-          id: 'filter-missing-backups',
-          title: 'Missing ROM Backups',
-          subtitle: 'Physical items missing verified digital backup',
+      );
+      if (this.canTrackMedia()) {
+        items.push({
+          id: 'filter-missing-media',
+          title: 'Missing Discs / Carts',
+          subtitle: 'Owned games not yet marked as having physical media',
           category: 'Quick Filters',
           icon: 'missing-dump',
           url: gamesUrl,
-          queryParams: { backup_status: '0' },
-          action: () => this.navigate(gamesUrl, { backup_status: '0' }),
-        },
-      );
+          queryParams: { ownership: '1', has_media: '0' },
+          action: () =>
+            this.navigate(gamesUrl, { ownership: '1', has_media: '0' }),
+        });
+      }
     }
     return items;
   }
@@ -582,6 +596,7 @@ export class CommandPaletteComponent implements AfterViewInit {
       });
 
     const showPersonal = this.isPersonalView();
+    const canTrackMedia = this.canTrackMedia();
     const matchingGames: CommandPaletteItem[] = games
       .filter((g) => {
         const aliases =
@@ -613,7 +628,7 @@ export class CommandPaletteComponent implements AfterViewInit {
         category: 'Games',
         icon: getMediaIconName(
           g.display_name || g.platform,
-          showPersonal ? g.backup_status : false,
+          canTrackMedia ? g.has_media : false,
         ) as IconName,
         badge: !showPersonal
           ? undefined

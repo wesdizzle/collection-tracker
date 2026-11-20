@@ -101,23 +101,23 @@ export interface ToyLineCompletionStat {
   topSeries: ToySeriesCompletionStat[];
 }
 
-export interface PlatformBackupStat {
+export interface PlatformMediaStat {
   id: number;
   name: string;
   brand: string;
   logo?: string | null;
   physicalCount: number;
-  backedUpCount: number;
+  ownedMediaCount: number;
   missingCount: number;
-  backupPct: number;
+  mediaOwnedPct: number;
 }
 
-export interface PhysicalBackupSummary {
+export interface PhysicalMediaSummary {
   physicalCount: number;
-  backedUpCount: number;
+  ownedMediaCount: number;
   missingCount: number;
-  backupRatePct: number;
-  platformBreakdown: PlatformBackupStat[];
+  mediaOwnedRatePct: number;
+  platformBreakdown: PlatformMediaStat[];
 }
 
 function parsePlatformScopeId(scope: string): number | null {
@@ -544,41 +544,41 @@ export function computeToyLineStats(
     );
 }
 
-export function computePhysicalBackupStats(
+export function computePhysicalMediaStats(
   allGames: readonly Game[],
   platforms: readonly Platform[],
-): PhysicalBackupSummary {
+): PhysicalMediaSummary {
   const physicalReleases = allGames.filter(
     (g) => g.ownership_status === 1 && isPhysicalReleaseGame(g),
   );
-  const backedUpReleases = physicalReleases.filter((g) =>
-    Boolean(g.backup_status),
+  const ownedMediaReleases = physicalReleases.filter((g) =>
+    Boolean(g.has_media),
   );
   const physicalCount = physicalReleases.length;
-  const backedUpCount = backedUpReleases.length;
-  const missingCount = Math.max(0, physicalCount - backedUpCount);
-  const backupRatePct =
-    physicalCount > 0 ? Math.round((backedUpCount / physicalCount) * 100) : 0;
+  const ownedMediaCount = ownedMediaReleases.length;
+  const missingCount = Math.max(0, physicalCount - ownedMediaCount);
+  const mediaOwnedRatePct =
+    physicalCount > 0 ? Math.round((ownedMediaCount / physicalCount) * 100) : 0;
 
-  const platformBreakdown: PlatformBackupStat[] = [];
+  const platformBreakdown: PlatformMediaStat[] = [];
   for (const p of platforms) {
     const onPlatform = physicalReleases.filter((g) =>
       gameMatchesPlatform(g, p.id),
     );
     if (onPlatform.length === 0) continue;
-    const platBackedUp = onPlatform.filter((g) =>
-      Boolean(g.backup_status),
+    const platMediaOwned = onPlatform.filter((g) =>
+      Boolean(g.has_media),
     ).length;
-    const platMissing = Math.max(0, onPlatform.length - platBackedUp);
+    const platMissing = Math.max(0, onPlatform.length - platMediaOwned);
     platformBreakdown.push({
       id: p.id,
       name: p.display_name || p.name,
       brand: p.brand || 'Other',
       logo: p.image_url,
       physicalCount: onPlatform.length,
-      backedUpCount: platBackedUp,
+      ownedMediaCount: platMediaOwned,
       missingCount: platMissing,
-      backupPct: Math.round((platBackedUp / onPlatform.length) * 100),
+      mediaOwnedPct: Math.round((platMediaOwned / onPlatform.length) * 100),
     });
   }
 
@@ -591,9 +591,9 @@ export function computePhysicalBackupStats(
 
   return {
     physicalCount,
-    backedUpCount,
+    ownedMediaCount,
     missingCount,
-    backupRatePct,
+    mediaOwnedRatePct,
     platformBreakdown,
   };
 }

@@ -265,7 +265,7 @@
                 </div>
               }
               @if (
-                showBackupDetails() &&
+                showMediaDetails() &&
                 game.ownership_status === 1 &&
                 game.release_medium !== 'digital_native' &&
                 (!game.discIds || game.discIds.length <= 1)
@@ -273,52 +273,46 @@
                 <button
                   type="button"
                   class="disc-chip state-layer compact-disc-chip"
-                  [class.backed-up]="!!game.backup_status"
-                  [class.missing]="!game.backup_status"
-                  [title]="
-                    (game.backup_status
-                      ? 'Archival backup verified'
-                      : 'Missing archival backup') + ' - Click to toggle backup'
-                  "
-                  (click)="onToggleDiscBackupClick($event, game, 0)"
+                  [class.backed-up]="!!game.has_media"
+                  [class.missing]="!game.has_media"
+                  [title]="getSingleMediaTooltip(game)"
+                  (click)="onToggleMediaOwnedClick($event, game)"
                 >
                   <app-icon
-                    [name]="getMediaIcon(game, game.backup_status)"
+                    [name]="getMediaIcon(game, game.has_media)"
                     [size]="11"
                   />
                 </button>
               }
               @if (
-                showBackupDetails() && game.discIds && game.discIds.length > 1
+                showMediaDetails() &&
+                game.ownership_status === 1 &&
+                game.release_medium !== 'digital_native' &&
+                game.discIds &&
+                game.discIds.length > 1
               ) {
                 <div
                   class="compact-discs-container"
                   (click)="$event.stopPropagation(); $event.preventDefault()"
                 >
-                  @if (getBackedUpDiscCount(game) === game.discIds.length) {
+                  @if (getOwnedDiscCount(game) === game.discIds.length) {
                     <button
                       type="button"
                       class="disc-chip state-layer compact-disc-chip backed-up"
-                      [title]="
-                        game.discIds.length +
-                        ' Discs All Backed Up - Click to toggle'
-                      "
-                      (click)="onToggleDiscBackupClick($event, game, 0)"
+                      [title]="getMultiDiscTooltip(game)"
+                      (click)="onOpenDiscChecklistClick($event, game)"
                     >
                       <app-icon [name]="getMediaIcon(game, 1)" [size]="11" />
                       <span class="disc-count-num">{{
                         game.discIds.length
                       }}</span>
                     </button>
-                  } @else if (getBackedUpDiscCount(game) === 0) {
+                  } @else if (getOwnedDiscCount(game) === 0) {
                     <button
                       type="button"
                       class="disc-chip state-layer compact-disc-chip missing"
-                      [title]="
-                        game.discIds.length +
-                        ' Discs Missing Backup - Click to toggle'
-                      "
-                      (click)="onToggleDiscBackupClick($event, game, 0)"
+                      [title]="getMultiDiscTooltip(game)"
+                      (click)="onOpenDiscChecklistClick($event, game)"
                     >
                       <app-icon name="missing-dump" [size]="11" />
                       <span class="disc-count-num">{{
@@ -329,29 +323,19 @@
                     <button
                       type="button"
                       class="disc-chip state-layer compact-disc-chip backed-up"
-                      [title]="
-                        getBackedUpDiscCount(game) +
-                        '/' +
-                        game.discIds.length +
-                        ' Discs Backed Up'
-                      "
-                      (click)="onToggleDiscBackupClick($event, game, 0)"
+                      [title]="getMultiDiscTooltip(game)"
+                      (click)="onOpenDiscChecklistClick($event, game)"
                     >
                       <app-icon [name]="getMediaIcon(game, 1)" [size]="11" />
                       <span class="disc-count-num">{{
-                        getBackedUpDiscCount(game)
+                        getOwnedDiscCount(game)
                       }}</span>
                     </button>
                     <button
                       type="button"
                       class="disc-chip state-layer compact-disc-chip missing"
-                      [title]="
-                        getMissingDiscCount(game) +
-                        '/' +
-                        game.discIds.length +
-                        ' Discs Missing Backup'
-                      "
-                      (click)="onToggleDiscBackupClick($event, game, 0)"
+                      [title]="getMultiDiscTooltip(game)"
+                      (click)="onOpenDiscChecklistClick($event, game)"
                     >
                       <app-icon name="missing-dump" [size]="11" />
                       <span class="disc-count-num">{{
@@ -365,7 +349,7 @@
                 game.ownership_status !== 1 &&
                 (!game.discIds ||
                   game.discIds.length <= 1 ||
-                  !showBackupDetails())
+                  !showMediaDetails())
               ) {
                 @if (game.release_date && isUpcomingDate(game.release_date)) {
                   <span class="upcoming-chip" title="Announced / Pre-order">

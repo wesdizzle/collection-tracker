@@ -292,7 +292,7 @@ describe('CollectionService', () => {
         platform_logo: 'ps.png',
         release_date: '2018-09-07',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
         play_status: 0,
         sort_index: 1,
         image_url: 'spiderman.jpg',
@@ -450,7 +450,7 @@ describe('CollectionService', () => {
       expect(promptSpy).toHaveBeenCalledTimes(1);
       expect(errResult).toBeTruthy();
 
-      service.updateBackupStatus('g1', 1).subscribe({
+      service.updateMediaOwned('g1', 1).subscribe({
         error: (err) => (errResult = err),
       });
       expect(promptSpy).toHaveBeenCalledTimes(2);
@@ -496,7 +496,7 @@ describe('CollectionService', () => {
       expect(service.error()).toContain('504 Gateway Timeout');
     });
 
-    it('immutably patches games, toys, and disc backups for OnPush consumers', async () => {
+    it('immutably patches games, toys, and disc media ownership for OnPush consumers', async () => {
       const p1 = service.refreshAll();
       httpMock.expectOne('/api/games').flush([
         {
@@ -505,10 +505,10 @@ describe('CollectionService', () => {
           title: 'Final Fantasy VII',
           ownership_status: 0,
           play_status: 0,
-          backup_status: 0,
-          releases: [{ id: 'g1-d1', region: 'USA', backup_status: 0 }],
+          has_media: 0,
+          releases: [{ id: 'g1-d1', region: 'USA', has_media: 0 }],
           discIds: ['g1-d1'],
-          discBackups: [0],
+          discMediaOwned: [0],
         },
       ]);
       httpMock.expectOne('/api/toys').flush([]);
@@ -521,12 +521,94 @@ describe('CollectionService', () => {
       expect(afterGame).not.toBe(beforeGame);
       expect(afterGame.ownership_status).toBe(1);
 
-      service.patchDiscBackupOptimistic('g1-d1', 1);
+      service.patchDiscMediaOptimistic('g1-d1', 1);
       const afterDiscGame = service.games()[0];
       expect(afterDiscGame).not.toBe(afterGame);
-      expect(afterDiscGame.releases?.[0].backup_status).toBe(1);
-      expect(afterDiscGame.discBackups?.[0]).toBe(1);
-      expect(afterDiscGame.backup_status).toBe(1);
+      expect(afterDiscGame.releases?.[0].has_media).toBe(1);
+      expect(afterDiscGame.discMediaOwned?.[0]).toBe(1);
+      expect(afterDiscGame.has_media).toBe(1);
+    });
+
+    it('gates applyOwnershipVerificationDiff to admins and posts setMediaOwned/clearMediaOwned to /api/admin/verify-ownership/apply', async () => {
+      service.setCurrentUserForTesting({
+        id: 2,
+        email: 'user@example.com',
+        username: 'bob',
+        role: 'user',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Bob',
+        bio: null,
+      });
+
+      const p1 = service.refreshAll();
+      httpMock.expectOne('/api/games').flush([
+        {
+          stable_id: 1,
+          id: 'g1',
+          title: 'Chrono Cross',
+          ownership_status: 1,
+          play_status: 0,
+          has_media: 0,
+          releases: [{ id: 'g1', region: 'USA', has_media: 0 }],
+        },
+      ]);
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await p1;
+
+      let nonAdminErr: unknown;
+      service
+        .applyOwnershipVerificationDiff({
+          setMediaOwned: ['g1'],
+          clearMediaOwned: [],
+        })
+        .subscribe({ error: (err) => (nonAdminErr = err) });
+      expect(nonAdminErr).toBeTruthy();
+
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'admin@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      let result:
+        | {
+            success: boolean;
+            setCount: number;
+            clearCount: number;
+            transferredCount: number;
+          }
+        | undefined;
+      service
+        .applyOwnershipVerificationDiff({
+          setMediaOwned: ['g1'],
+          clearMediaOwned: [],
+        })
+        .subscribe((r) => (result = r));
+
+      const req = httpMock.expectOne('/api/admin/verify-ownership/apply');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({
+        setMediaOwned: ['g1'],
+        clearMediaOwned: [],
+        ownershipTransfers: [],
+      });
+      req.flush({
+        success: true,
+        setCount: 1,
+        clearCount: 0,
+        transferredCount: 0,
+        declaredOwnedCount: 0,
+      });
+
+      expect(result?.success).toBe(true);
+      expect(service.games()[0].has_media).toBe(1);
     });
 
     it('tracks owner context across refreshAll and clears SW data caches on signOut', async () => {
@@ -1495,7 +1577,7 @@ describe('CollectionService', () => {
             platform_id: 1,
             ownership_status: 1,
             play_status: 2,
-            backup_status: 1,
+            has_media: 1,
           },
         ],
         { headers: { 'X-Catalog-Partial': '1' } },
@@ -1532,14 +1614,14 @@ describe('CollectionService', () => {
             {
               release_id: 'owned-1',
               ownership_status: 1,
-              backup_status: 1,
+              has_media: 1,
               has_case: 1,
               has_manual: 1,
             },
             {
               release_id: 'catalog-2',
               ownership_status: 2,
-              backup_status: 0,
+              has_media: 0,
               has_case: 0,
               has_manual: 0,
             },
@@ -1555,7 +1637,7 @@ describe('CollectionService', () => {
               platform_id: 1,
               ownership_status: 0,
               play_status: 0,
-              backup_status: 0,
+              has_media: 0,
             },
           ],
         });
@@ -1581,7 +1663,7 @@ describe('CollectionService', () => {
           platform_id: 1,
           ownership_status: 0,
           play_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'catalog-2',
@@ -1592,7 +1674,7 @@ describe('CollectionService', () => {
           platform_id: 1,
           ownership_status: 0,
           play_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ]);
       chunk1Req.flush([
@@ -1605,7 +1687,7 @@ describe('CollectionService', () => {
           platform_id: 1,
           ownership_status: 0,
           play_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'catalog-4',
@@ -1616,7 +1698,7 @@ describe('CollectionService', () => {
           platform_id: 1,
           ownership_status: 0,
           play_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ]);
 
@@ -1631,6 +1713,7 @@ describe('CollectionService', () => {
       const seeking = service.games().find((g) => g.id === 'catalog-2');
       const delta = service.games().find((g) => g.id === 'delta-5');
       expect(owned?.ownership_status).toBe(1);
+      expect(owned?.has_media).toBe(1);
       expect(owned?.queued).toBe(1);
       expect(seeking?.ownership_status).toBe(2);
       expect(delta?.title).toBe('Added After Midnight');
@@ -1661,7 +1744,7 @@ describe('CollectionService', () => {
               play_status: 3,
               queued: 1,
               backup_status: 1,
-            } as Game,
+            } as unknown as Game,
             {
               id: 'active-owned-2',
               game_id: 'active-owned-2',
@@ -1671,7 +1754,7 @@ describe('CollectionService', () => {
               platform_id: 1,
               ownership_status: 0,
               play_status: 0,
-              backup_status: 0,
+              has_media: 0,
             } as Game,
           ],
         },
@@ -1733,7 +1816,7 @@ describe('CollectionService', () => {
             platform_id: 1,
             ownership_status: 1,
             play_status: 2,
-            backup_status: 0,
+            has_media: 1,
           },
         ],
         { headers: { 'X-Catalog-Partial': '1' } },
@@ -1772,7 +1855,7 @@ describe('CollectionService', () => {
             {
               release_id: 'active-owned-2',
               ownership_status: 1,
-              backup_status: 0,
+              backup_status: 1,
               has_case: 1,
               has_manual: 0,
             },
@@ -1791,8 +1874,9 @@ describe('CollectionService', () => {
       expect(staleReset?.ownership_status).toBe(0);
       expect(staleReset?.play_status).toBe(0);
       expect(staleReset?.queued).toBe(0);
-      expect(staleReset?.backup_status).toBe(0);
+      expect(staleReset?.has_media).toBe(0);
       expect(liveOwned?.ownership_status).toBe(1);
+      expect(liveOwned?.has_media).toBe(1);
       expect(liveOwned?.play_status).toBe(2);
     });
 
@@ -1854,7 +1938,7 @@ describe('CollectionService', () => {
           platform_id: 26,
           ownership_status: 0,
           play_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ]);
       httpMock

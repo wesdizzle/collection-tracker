@@ -335,24 +335,27 @@ describe('CollectionFiltersComponent', () => {
     expect(emittedFilters?.regions).toEqual([]);
   });
 
-  it('should omit backup filter dropdown and exclude backup_status from activeFilterCount when showBackupDetails is false', () => {
+  it('should omit Disc / Cart filter dropdown and exclude has_media from activeFilterCount when showMediaDetails is false', () => {
     fixture.componentRef.setInput('filters', {
       ownership: 1,
-      backup_status: 1,
+      has_media: 1,
     });
     fixture.detectChanges();
 
     expect(
-      fixture.nativeElement.querySelector('#filter-backup-status'),
+      fixture.nativeElement.querySelector('#filter-has-media'),
     ).toBeTruthy();
     expect(component.activeFilterCount()).toBe(1);
+    expect(component.mediaOwnedOptions.map((o) => o.label)).toEqual([
+      'All',
+      'Owned',
+      'Missing',
+    ]);
 
-    fixture.componentRef.setInput('showBackupDetails', false);
+    fixture.componentRef.setInput('showMediaDetails', false);
     fixture.detectChanges();
 
-    expect(
-      fixture.nativeElement.querySelector('#filter-backup-status'),
-    ).toBeNull();
+    expect(fixture.nativeElement.querySelector('#filter-has-media')).toBeNull();
     expect(component.activeFilterCount()).toBe(0);
   });
 

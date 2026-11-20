@@ -13,6 +13,7 @@ import {
   Game,
   formatPriceAge,
   getMediaIconName,
+  getMediaNoun,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
 import {
@@ -38,7 +39,7 @@ export class GameCardComponent {
 
   game = input.required<Game>();
   showPlatform = input<boolean>(false);
-  showBackupDetails = input<boolean>(true);
+  showMediaDetails = input<boolean>(true);
 
   public readonly activeViewTransitionName = computed<string | null>(() => {
     const active = this.collectionService.activeTransitionItem();
@@ -98,11 +99,8 @@ export class GameCardComponent {
   toggleStatus = output<{ event: MouseEvent; game: Game }>();
   toggleCase = output<{ event: MouseEvent; game: Game }>();
   toggleManual = output<{ event: MouseEvent; game: Game }>();
-  toggleDiscBackup = output<{
-    event: MouseEvent;
-    game: Game;
-    discIndex: number;
-  }>();
+  toggleMediaOwned = output<{ event: MouseEvent; game: Game }>();
+  openDiscChecklist = output<{ event: MouseEvent; game: Game }>();
 
   onToggleStatusClick(event: MouseEvent): void {
     event.preventDefault();
@@ -122,10 +120,16 @@ export class GameCardComponent {
     this.toggleManual.emit({ event, game: this.game() });
   }
 
-  onToggleDiscBackupClick(event: MouseEvent, discIndex: number): void {
+  onToggleMediaOwnedClick(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
-    this.toggleDiscBackup.emit({ event, game: this.game(), discIndex });
+    this.toggleMediaOwned.emit({ event, game: this.game() });
+  }
+
+  onOpenDiscChecklistClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openDiscChecklist.emit({ event, game: this.game() });
   }
 
   public isBudgetLabel(label: string): boolean {
@@ -152,21 +156,35 @@ export class GameCardComponent {
     return result;
   }
 
-  public getBackedUpDiscCount(game: Game): number {
-    return (game.discBackups || []).filter((b) => b === 1).length;
+  public getOwnedDiscCount(game: Game): number {
+    return (game.discMediaOwned || []).filter((b) => b === 1).length;
   }
 
   public getMissingDiscCount(game: Game): number {
     const total = game.discIds?.length || 1;
-    const backed = this.getBackedUpDiscCount(game);
-    return Math.max(0, total - backed);
+    const owned = this.getOwnedDiscCount(game);
+    return Math.max(0, total - owned);
   }
 
   public getMediaIcon(
     game: Game,
-    backedUp: boolean | number,
+    mediaOwned: boolean | number,
   ): 'disc' | 'rom-archive' | 'missing-dump' {
-    return getMediaIconName(game.display_name || game.platform, backedUp);
+    return getMediaIconName(game.display_name || game.platform, mediaOwned);
+  }
+
+  public getSingleMediaTooltip(game: Game): string {
+    const noun = getMediaNoun(game.display_name || game.platform, false);
+    return game.has_media
+      ? `${noun} Owned — Click to toggle`
+      : `Missing ${noun} — Click to toggle`;
+  }
+
+  public getMultiDiscTooltip(game: Game): string {
+    const total = game.discIds?.length || 1;
+    const owned = this.getOwnedDiscCount(game);
+    const plural = getMediaNoun(game.display_name || game.platform, true);
+    return `${owned}/${total} ${plural} Owned — Click to manage ${plural.toLowerCase()}`;
   }
 
   public getCoverViewTransitionName(game: Game): string | null {

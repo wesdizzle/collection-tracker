@@ -153,4 +153,44 @@ describe('AuthSessionService', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('computes trackIndividualMedia and canTrackIndividualMedia gated by auth and public view', () => {
+    expect(service.trackIndividualMedia()).toBe(false);
+    expect(service.canTrackIndividualMedia()).toBe(false);
+
+    service._currentUser.set({
+      id: 1,
+      username: 'alice',
+      role: 'user',
+      isPublic: false,
+      homeRegion: 'USA',
+      displayName: null,
+      bio: null,
+      trackIndividualMedia: false,
+    });
+    expect(service.trackIndividualMedia()).toBe(false);
+    expect(service.canTrackIndividualMedia()).toBe(false);
+
+    service._currentUser.set({
+      id: 1,
+      username: 'alice',
+      role: 'user',
+      isPublic: true,
+      homeRegion: 'USA',
+      displayName: null,
+      bio: null,
+      trackIndividualMedia: true,
+    });
+    expect(service.trackIndividualMedia()).toBe(true);
+    expect(service.canTrackIndividualMedia()).toBe(true);
+
+    service.setPublicView(true, {
+      username: 'alice',
+      displayName: 'Alice',
+      bio: null,
+      homeRegion: 'USA',
+    });
+    expect(service.trackIndividualMedia()).toBe(true);
+    expect(service.canTrackIndividualMedia()).toBe(false);
+  });
 });

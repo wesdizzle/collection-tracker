@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isOpticalPlatform,
   getMediaIconName,
+  getMediaNoun,
   isRegionMatchingHome,
   DEFAULT_USER_HOME_REGION,
 } from './collection.models';
@@ -103,14 +104,14 @@ describe('Collection Models Platform and Media Detection', () => {
   });
 
   describe('getMediaIconName', () => {
-    it('returns missing-dump when backup_status is 0 or false', () => {
+    it('returns missing-dump when has_media is 0 or false', () => {
       expect(getMediaIconName('PlayStation 4', 0)).toBe('missing-dump');
       expect(getMediaIconName('Nintendo Switch', 0)).toBe('missing-dump');
       expect(getMediaIconName('Nintendo GameCube', false)).toBe('missing-dump');
       expect(getMediaIconName(null, 0)).toBe('missing-dump');
     });
 
-    it('returns disc for backed-up optical platforms', () => {
+    it('returns disc for optical platforms with owned media', () => {
       expect(getMediaIconName('PlayStation 4', 1)).toBe('disc');
       expect(getMediaIconName('PlayStation 5', true)).toBe('disc');
       expect(getMediaIconName('Nintendo GameCube', 1)).toBe('disc');
@@ -120,7 +121,7 @@ describe('Collection Models Platform and Media Detection', () => {
       expect(getMediaIconName('Sega CD', 1)).toBe('disc');
     });
 
-    it('returns rom-archive for backed-up cartridge and card platforms', () => {
+    it('returns rom-archive for cartridge and card platforms with owned media', () => {
       expect(getMediaIconName('Nintendo Switch', 1)).toBe('rom-archive');
       expect(getMediaIconName('PlayStation Vita', 1)).toBe('rom-archive');
       expect(getMediaIconName('Nintendo 64', 1)).toBe('rom-archive');
@@ -131,6 +132,18 @@ describe('Collection Models Platform and Media Detection', () => {
         'rom-archive',
       );
       expect(getMediaIconName('Atari 2600', 1)).toBe('rom-archive');
+    });
+  });
+
+  describe('getMediaNoun', () => {
+    it('returns Disc/Discs for optical platforms and Cart/Carts for cartridges/cards', () => {
+      expect(getMediaNoun('PlayStation 2')).toBe('Disc');
+      expect(getMediaNoun('PlayStation 2', true)).toBe('Discs');
+      expect(getMediaNoun('Nintendo GameCube')).toBe('Disc');
+      expect(getMediaNoun('Nintendo Switch')).toBe('Cart');
+      expect(getMediaNoun('Nintendo Switch', true)).toBe('Carts');
+      expect(getMediaNoun('PlayStation Vita')).toBe('Cart');
+      expect(getMediaNoun(undefined)).toBe('Cart');
     });
   });
 

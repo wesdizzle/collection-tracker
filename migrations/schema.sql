@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT,
     bio TEXT,
     auto_track_series_on_add INTEGER NOT NULL DEFAULT 1 CHECK (auto_track_series_on_add IN (0, 1)),
+    track_individual_media INTEGER NOT NULL DEFAULT 0 CHECK (track_individual_media IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -170,7 +171,7 @@ CREATE TABLE IF NOT EXISTS user_game_releases (
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     release_id TEXT NOT NULL REFERENCES game_releases (id) ON DELETE CASCADE,
     ownership_status INTEGER NOT NULL DEFAULT 0,
-    backup_status INTEGER NOT NULL DEFAULT 0,
+    has_media INTEGER NOT NULL DEFAULT 0,
     has_case INTEGER NOT NULL DEFAULT 0,
     has_manual INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, release_id)

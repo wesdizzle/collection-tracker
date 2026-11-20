@@ -30,12 +30,12 @@ describe('GameCardComponent', () => {
     ownership_status: OwnershipStatus.Owned,
     has_case: 1,
     has_manual: 1,
-    backup_status: 1,
+    has_media: 1,
     release_date: '2007-11-12',
     image_url: 'https://example.com/smg.jpg',
     canonical_series: 'Super Mario',
     discIds: ['smg-disc-1', 'smg-disc-2'],
-    discBackups: [1, 0],
+    discMediaOwned: [1, 0],
     discRomNames: ['SMG Disc 1.iso', 'SMG Disc 2.iso'],
   };
 
@@ -106,19 +106,19 @@ describe('GameCardComponent', () => {
     expect(manualToggled).toBe(true);
   });
 
-  it('should emit toggleDiscBackup when multi-disc button is clicked', () => {
-    let discIndexEmitted = -1;
-    component.toggleDiscBackup.subscribe((event) => {
-      discIndexEmitted = event.discIndex;
+  it('should emit openDiscChecklist when multi-disc button is clicked', () => {
+    let emittedGameId: string | undefined;
+    component.openDiscChecklist.subscribe((event) => {
+      emittedGameId = event.game.id;
     });
 
-    const backupBadges = fixture.nativeElement.querySelectorAll(
+    const mediaBadges = fixture.nativeElement.querySelectorAll(
       '.backup-badge',
     ) as NodeListOf<HTMLButtonElement>;
-    expect(backupBadges.length).toBe(2);
+    expect(mediaBadges.length).toBe(2);
 
-    backupBadges[0].click();
-    expect(discIndexEmitted).toBe(0);
+    mediaBadges[0].click();
+    expect(emittedGameId).toBe('super-mario-galaxy-wii');
   });
 
   it('should calculate budget labels', () => {
@@ -132,12 +132,12 @@ describe('GameCardComponent', () => {
     ]);
   });
 
-  it('should render backup-badge for single-disc physical games with icon only and emit toggleDiscBackup on click', () => {
+  it('should render media badge for single-disc physical games with icon only and emit toggleMediaOwned on click', () => {
     const singleDiscGame: Game = {
       ...mockGame,
       id: 'single-disc-game',
       discIds: ['single-cart-1'],
-      backup_status: 1,
+      has_media: 1,
       igdb_id: 12345,
     };
     fixture.componentRef.setInput('game', singleDiscGame);
@@ -146,22 +146,22 @@ describe('GameCardComponent', () => {
     // Verify IGDB ribbon is NOT rendered
     expect(fixture.nativeElement.querySelector('.igdb-icon')).toBeNull();
 
-    // Verify backup badge is rendered
-    const backupBadge = fixture.nativeElement.querySelector(
+    // Verify media badge is rendered
+    const mediaBadge = fixture.nativeElement.querySelector(
       '.backup-badge',
     ) as HTMLButtonElement;
-    expect(backupBadge).toBeTruthy();
+    expect(mediaBadge).toBeTruthy();
     // Should have no text when single disc
-    expect(backupBadge.textContent?.trim()).toBe('');
-    expect(backupBadge.querySelector('app-icon')).toBeTruthy();
+    expect(mediaBadge.textContent?.trim()).toBe('');
+    expect(mediaBadge.querySelector('app-icon')).toBeTruthy();
 
-    let emittedIndex = -1;
-    component.toggleDiscBackup.subscribe((evt) => {
-      emittedIndex = evt.discIndex;
+    let emittedGame: Game | undefined;
+    component.toggleMediaOwned.subscribe((evt) => {
+      emittedGame = evt.game;
     });
 
-    backupBadge.click();
-    expect(emittedIndex).toBe(0);
+    mediaBadge.click();
+    expect(emittedGame?.id).toBe('single-disc-game');
   });
 
   it('should determine media icon based on platform (disc for optical, rom-archive for carts)', () => {
@@ -195,15 +195,15 @@ describe('GameCardComponent', () => {
     expect(badge.textContent).toContain('$9.99');
   });
 
-  it('should omit backup badges when showBackupDetails is false', () => {
-    fixture.componentRef.setInput('showBackupDetails', false);
+  it('should omit media badges when showMediaDetails is false', () => {
+    fixture.componentRef.setInput('showMediaDetails', false);
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelectorAll('.backup-badge').length).toBe(
       0,
     );
 
-    // Also verify single-disc game omits backup badge when showBackupDetails is false
+    // Also verify single-disc game omits media badge when showMediaDetails is false
     fixture.componentRef.setInput('game', {
       ...mockGame,
       discIds: ['single-cart-1'],

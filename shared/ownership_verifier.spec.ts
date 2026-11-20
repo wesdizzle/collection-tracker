@@ -1,5 +1,5 @@
 /**
- * ISOMORPHIC BACKUP SCANNER & OWNERSHIP RECONCILIATION TESTS
+ * ISOMORPHIC MEDIA OWNERSHIP VERIFIER & RECONCILIATION TESTS
  */
 
 import { describe, it, expect } from 'vitest';
@@ -15,20 +15,20 @@ import {
   isIgnoredFile,
   isUpdateOrDlcDump,
   collapseContainerDirectories,
-  scanBackupEntries,
+  scanMediaEntries,
   computeOwnershipSwitches,
   GAME_EXTENSIONS,
   PlatformRow,
   ReleaseRow,
   CatalogReleaseCandidate,
-  computeBackupNetDiffs,
-  generateBackupDiffMarkdown,
+  computeMediaNetDiffs,
+  generateVerificationDiffMarkdown,
   ReleaseDiffRow,
   GameDiffRow,
-} from './backup_scanner.js';
+} from './ownership_verifier.js';
 import { stripDiscIndicator } from './queries.js';
 
-describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
+describe('Isomorphic Ownership Verifier & SKU Reconciler', () => {
   const mockPlatforms: PlatformRow[] = [
     {
       id: 13,
@@ -602,7 +602,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: null,
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
           has_case: 1,
           has_manual: 1,
         },
@@ -617,7 +617,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 1',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
           has_case: 0,
           has_manual: 0,
         },
@@ -660,7 +660,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Chrono Trigger (USA).sfc',
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'ct-jpn',
@@ -671,7 +671,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Chrono Trigger (Japan).sfc',
           region: 'Japan',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
@@ -698,7 +698,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Final Fantasy VII (USA) (Disc 1).cue',
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'ff7-d2',
@@ -709,7 +709,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Final Fantasy VII (USA) (Disc 2).cue',
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
@@ -734,7 +734,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Final Fantasy VII (USA) (Disc 1).cue',
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
           has_case: 1,
         },
         {
@@ -746,7 +746,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Final Fantasy VII (USA) (Disc 2).cue',
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
           has_case: 1,
         },
         {
@@ -759,7 +759,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 1',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'ff7-rev1-d2',
@@ -771,7 +771,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 1',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
@@ -805,7 +805,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Zelda (USA).sfc',
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'rel-owned-2',
@@ -816,7 +816,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Zelda (Japan).sfc',
           region: 'Japan',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'rel-unowned-3',
@@ -827,7 +827,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Zelda (Europe).sfc',
           region: 'Europe',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
@@ -852,7 +852,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Misadventures of Tron Bonne, The (USA).cue',
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'mml2-demo',
@@ -863,7 +863,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Mega Man Legends 2 (USA) (Demo).cue',
           region: 'USA',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
@@ -888,7 +888,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Super Mario World (USA).sfc',
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'smw-eur',
@@ -899,7 +899,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: 'Super Mario World (Europe).sfc',
           region: 'Europe',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
@@ -914,7 +914,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
     });
   });
 
-  describe('scanBackupEntries end-to-end client pipeline', () => {
+  describe('scanMediaEntries end-to-end client pipeline', () => {
     const catalogReleases: CatalogReleaseCandidate[] = [
       {
         id: 'bayo-sw-rev0',
@@ -930,7 +930,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         variants: 'Rev 000 (v1.0)',
         canonical_release_id: 10,
         ownership_status: 1,
-        backup_status: 0,
+        has_media: 0,
         has_case: 1,
         has_manual: 0,
       },
@@ -948,7 +948,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         variants: 'Rev 001 (v1.1)',
         canonical_release_id: 11,
         ownership_status: 0,
-        backup_status: 0,
+        has_media: 0,
         has_case: 0,
         has_manual: 0,
       },
@@ -963,12 +963,12 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         rom_name: 'Super Mario World (USA).sfc',
         region: 'USA',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
     ];
 
     it('auto-detects multi-platform root, matches Switch nxdumptool revision, proposes ownership switch, and collects ignored digital-only files', () => {
-      const report = scanBackupEntries({
+      const report = scanMediaEntries({
         rootFolderName: 'Backups',
         platforms: mockPlatforms,
         catalogReleases,
@@ -998,7 +998,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
 
       expect(report.detectedMode).toBe('multi_platform_root');
       expect(report.matchedReleaseIds.has('bayo-sw-rev1')).toBe(true);
-      expect(report.diff.releases.newlyBackedUp.map((r) => r.id)).toEqual([
+      expect(report.diff.releases.newlyVerified.map((r) => r.id)).toEqual([
         'bayo-sw-rev1',
       ]);
       expect(report.ownershipSwitches).toHaveLength(1);
@@ -1017,7 +1017,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
     });
 
     it('auto-detects single-platform folder when selecting a platform directory directly', () => {
-      const report = scanBackupEntries({
+      const report = scanMediaEntries({
         rootFolderName: 'SNES',
         platforms: mockPlatforms,
         catalogReleases,
@@ -1031,7 +1031,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
 
       expect(report.detectedMode).toBe('single_platform');
       expect(report.matchedReleaseIds.has('smw-snes-usa')).toBe(true);
-      expect(report.diff.releases.unchangedBackedUpCount).toBe(1);
+      expect(report.diff.releases.unchangedVerifiedCount).toBe(1);
     });
 
     it('preserves owned USA release for 1-2-Switch when Europe, Japan, and USA share canonical_release_id and Europe is sorted first', () => {
@@ -1049,7 +1049,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           variants: 'Rev 000 (v1.0.0)',
           canonical_release_id: 1192153,
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: '1-2-switch-nintendo-switch-jpn',
@@ -1064,7 +1064,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           variants: 'Rev 000 (v1.0.0)',
           canonical_release_id: 1192153,
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: '1-2-switch-nintendo-switch-usa',
@@ -1079,7 +1079,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           variants: 'Rev 000 (v1.0.0)',
           canonical_release_id: 1192153,
           ownership_status: 1,
-          backup_status: 1,
+          has_media: 1,
           has_case: 1,
           has_manual: 0,
         },
@@ -1096,11 +1096,11 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           variants: 'Rev 001 (v1.1.0)',
           canonical_release_id: 1192151,
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
-      const report = scanBackupEntries({
+      const report = scanMediaEntries({
         rootFolderName: 'Switch',
         platforms: mockPlatforms,
         catalogReleases: switchReleases,
@@ -1139,7 +1139,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           variants: 'Rev 000 (v1.0.0, 1.0.0)',
           canonical_release_id: 1192227,
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'ori-standalone-1',
@@ -1152,7 +1152,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v1.0.0)',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'ori-collection-usa',
@@ -1165,7 +1165,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v1.0.1, 1.2.0)',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'pikmin-12-usa',
@@ -1178,11 +1178,11 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v1.0.1, 1.0.1)',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
-      const report = scanBackupEntries({
+      const report = scanMediaEntries({
         rootFolderName: 'Switch',
         platforms: mockPlatforms,
         catalogReleases: multiGameCatalog,
@@ -1228,7 +1228,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: null,
           region: 'Europe',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'zelda-tp-hd-usa-default',
@@ -1240,11 +1240,11 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           rom_name: null,
           region: 'USA',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
-      const report = scanBackupEntries({
+      const report = scanMediaEntries({
         rootFolderName: 'SNES',
         platforms: mockPlatforms,
         catalogReleases: unlinkedCatalog,
@@ -1267,7 +1267,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
       expect(report.ownershipSwitches).toHaveLength(0);
     });
 
-    it('matches Darkest Dungeon Ancestral Edition, Dave the Diver Anniversary Edition, truncated Final Fantasy I-VI, and letter-suffixed Switch versions while deduplicating ownership switches from lostBackup and preserving SKU labels', () => {
+    it('matches Darkest Dungeon Ancestral Edition, Dave the Diver Anniversary Edition, truncated Final Fantasy I-VI, and letter-suffixed Switch versions while deduplicating ownership switches from missingFromScan and preserving SKU labels', () => {
       const switchCatalog: CatalogReleaseCandidate[] = [
         {
           id: 'dd-ancestral-usa',
@@ -1280,7 +1280,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v1.0.0)',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'dave-diver-usa',
@@ -1293,7 +1293,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v1.0.2.651)',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'ff-pixel-usa',
@@ -1306,7 +1306,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v1.0.0)',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'ender-lilies-usa',
@@ -1319,7 +1319,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 002 (v1.1.5c)',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'etherborn-usa',
@@ -1332,7 +1332,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v1.0.3s)',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'fp2-usa',
@@ -1345,7 +1345,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v1.2.8r)',
           ownership_status: 1,
-          backup_status: 0,
+          has_media: 0,
         },
         {
           id: 'bloodstained-usa-rev1',
@@ -1358,7 +1358,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 001 (v1.03)',
           ownership_status: 1,
-          backup_status: 1,
+          has_media: 1,
           has_case: 1,
         },
         {
@@ -1372,11 +1372,11 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
           region: 'USA',
           variants: 'Rev 000 (v0.10)',
           ownership_status: 0,
-          backup_status: 0,
+          has_media: 0,
         },
       ];
 
-      const report = scanBackupEntries({
+      const report = scanMediaEntries({
         rootFolderName: 'Nintendo Switch',
         platforms: mockPlatforms,
         catalogReleases: switchCatalog,
@@ -1445,11 +1445,11 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         defaultSelected: true,
       });
 
-      // Bloodstained's old release ('bloodstained-usa-rev1') is NOT duplicated in lostBackup
-      expect(report.diff.releases.lostBackup).toHaveLength(0);
+      // Bloodstained's old release ('bloodstained-usa-rev1') is NOT duplicated in missingFromScan
+      expect(report.diff.releases.missingFromScan).toHaveLength(0);
 
       // Newly backed up rows without a database rom_name display their SKU label (region • version)
-      const ddRow = report.diff.releases.newlyBackedUp.find(
+      const ddRow = report.diff.releases.newlyVerified.find(
         (r) => r.id === 'dd-ancestral-usa',
       );
       expect(ddRow?.rom_name).toBe('USA • Rev 000 (v1.0.0)');
@@ -1470,7 +1470,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         rom_crc: '20b2108a',
         region: 'World',
         ownership_status: 1,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         id: 'me-trilogy-d1',
@@ -1484,7 +1484,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         rom_crc: '20b2108a',
         region: 'USA, Europe',
         ownership_status: 2,
-        backup_status: 0,
+        has_media: 0,
       },
     ];
     const x360: PlatformRow = {
@@ -1499,7 +1499,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
     it('does not propagate a shared-CRC match to a Seeking compilation, lists already-synced releases, and records duplicate file matches', () => {
       const file =
         'Mass Effect 3 (World) (En,Ja,Fr,De,Es,It,Pl,Ru) (Disc 1).iso';
-      const report = scanBackupEntries({
+      const report = scanMediaEntries({
         rootFolderName: 'Xbox 360',
         platforms: [x360],
         catalogReleases: me3Catalog,
@@ -1511,8 +1511,8 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
 
       expect(report.matchedReleaseIds.has('me3-standalone-d1')).toBe(true);
       expect(report.matchedReleaseIds.has('me-trilogy-d1')).toBe(false);
-      expect(report.diff.releases.newlyBackedUp).toHaveLength(0);
-      expect(report.unchangedBackedUpReleases.map((r) => r.id)).toEqual([
+      expect(report.diff.releases.newlyVerified).toHaveLength(0);
+      expect(report.unchangedVerifiedReleases.map((r) => r.id)).toEqual([
         'me3-standalone-d1',
       ]);
       expect(report.duplicateMatchedFiles).toHaveLength(1);
@@ -1524,7 +1524,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
     it('still propagates a shared-CRC match to an owned compilation', () => {
       const file =
         'Mass Effect 3 (World) (En,Ja,Fr,De,Es,It,Pl,Ru) (Disc 1).iso';
-      const report = scanBackupEntries({
+      const report = scanMediaEntries({
         rootFolderName: 'Xbox 360',
         platforms: [x360],
         catalogReleases: me3Catalog.map((r) =>
@@ -1536,7 +1536,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
     });
   });
 
-  describe('computeBackupNetDiffs & Markdown Diff Generation', () => {
+  describe('computeMediaNetDiffs & Markdown Diff Generation', () => {
     const priorReleases: ReleaseDiffRow[] = [
       {
         id: 'rel-1',
@@ -1544,7 +1544,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         title: 'Super Mario World',
         platform_name: 'Super Nintendo Entertainment System',
         rom_name: 'Super Mario World (USA).sfc',
-        backup_status: 1,
+        has_media: 1,
       },
       {
         id: 'rel-2',
@@ -1552,7 +1552,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         title: 'Chrono Trigger',
         platform_name: 'Super Nintendo Entertainment System',
         rom_name: 'Chrono Trigger (USA).sfc',
-        backup_status: 0,
+        has_media: 0,
       },
       {
         id: 'rel-3',
@@ -1560,7 +1560,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         title: 'Secret of Mana',
         platform_name: 'Super Nintendo Entertainment System',
         rom_name: 'Secret of Mana (USA).sfc',
-        backup_status: 1,
+        has_media: 1,
       },
       {
         id: 'rel-4',
@@ -1568,7 +1568,7 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         title: 'EarthBound',
         platform_name: 'Super Nintendo Entertainment System',
         rom_name: 'EarthBound (USA).sfc',
-        backup_status: 0,
+        has_media: 0,
       },
     ];
 
@@ -1578,63 +1578,63 @@ describe('Isomorphic Backup Scanner & Ownership Reconciler', () => {
         title: 'Super Mario World',
         platform_id: 15,
         platform_name: 'Super Nintendo Entertainment System',
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 102,
         title: 'Chrono Trigger',
         platform_id: 15,
         platform_name: 'Super Nintendo Entertainment System',
-        backup_status: 0,
+        has_media: 0,
       },
       {
         stable_id: 103,
         title: 'Secret of Mana',
         platform_id: 15,
         platform_name: 'Super Nintendo Entertainment System',
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 104,
         title: 'EarthBound',
         platform_id: 15,
         platform_name: 'Super Nintendo Entertainment System',
-        backup_status: 0,
+        has_media: 0,
       },
     ];
 
     it('correctly calculates releases and games diff transitions', () => {
       const matched = new Set(['rel-1', 'rel-2']);
-      const diff = computeBackupNetDiffs(priorReleases, priorGames, matched);
+      const diff = computeMediaNetDiffs(priorReleases, priorGames, matched);
 
-      expect(diff.releases.newlyBackedUp.map((r) => r.id)).toEqual(['rel-2']);
-      expect(diff.releases.lostBackup.map((r) => r.id)).toEqual(['rel-3']);
-      expect(diff.releases.unchangedBackedUpCount).toBe(1);
-      expect(diff.releases.unchangedUnbackedCount).toBe(1);
-      expect(diff.releases.totalTargetBackedUp).toBe(2);
+      expect(diff.releases.newlyVerified.map((r) => r.id)).toEqual(['rel-2']);
+      expect(diff.releases.missingFromScan.map((r) => r.id)).toEqual(['rel-3']);
+      expect(diff.releases.unchangedVerifiedCount).toBe(1);
+      expect(diff.releases.unchangedMissingCount).toBe(1);
+      expect(diff.releases.totalTargetVerified).toBe(2);
 
-      expect(diff.games.newlyBackedUp.map((g) => g.stable_id)).toEqual([102]);
-      expect(diff.games.lostBackup.map((g) => g.stable_id)).toEqual([103]);
-      expect(diff.games.unchangedBackedUpCount).toBe(1);
-      expect(diff.games.unchangedUnbackedCount).toBe(1);
-      expect(diff.games.totalTargetBackedUp).toBe(2);
+      expect(diff.games.newlyVerified.map((g) => g.stable_id)).toEqual([102]);
+      expect(diff.games.missingFromScan.map((g) => g.stable_id)).toEqual([103]);
+      expect(diff.games.unchangedVerifiedCount).toBe(1);
+      expect(diff.games.unchangedMissingCount).toBe(1);
+      expect(diff.games.totalTargetVerified).toBe(2);
     });
 
     it('generates structured markdown with summary and diff tables', () => {
       const matched = new Set(['rel-1', 'rel-2']);
-      const diff = computeBackupNetDiffs(priorReleases, priorGames, matched);
+      const diff = computeMediaNetDiffs(priorReleases, priorGames, matched);
       const stats = {
         'Super Nintendo Entertainment System': { scanned: 10, matched: 2 },
       };
 
-      const md = generateBackupDiffMarkdown(
+      const md = generateVerificationDiffMarkdown(
         diff,
         stats,
         '/test/backups',
         'DRY RUN',
       );
 
-      expect(md).toContain('# Backup Scan Net Diff Report');
+      expect(md).toContain('# Media Ownership Verification Diff Report');
       expect(md).toContain('`DRY RUN`');
       expect(md).toContain('Super Nintendo Entertainment System');
       expect(md).toContain('Chrono Trigger');

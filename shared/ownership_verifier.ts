@@ -1,5 +1,5 @@
 /**
- * ISOMORPHIC WEB BACKUP SCANNER & OWNERSHIP RECONCILIATION ENGINE
+ * ISOMORPHIC MEDIA OWNERSHIP VERIFIER & SKU RECONCILIATION ENGINE
  *
  * Pure, environment-agnostic TypeScript library shared between the Angular browser
  * application and Node/Worker test suites.
@@ -7,7 +7,7 @@
  * SAFETY & PRIVACY INVARIANTS:
  * - Operates 100% on file and directory names (zero file bytes read, hashed, or uploaded).
  * - Never mutates shared `game_releases` catalog metadata.
- * - Computes surgical per-user diffs for `user_game_releases` (`backup_status`,
+ * - Computes surgical per-user diffs for `user_game_releases` (`has_media`,
  *   plus guarded SKU-level ownership transfers preserving `has_case` and `has_manual`).
  */
 
@@ -48,7 +48,7 @@ export interface ReleaseRow {
   stable_id: number;
   region: string | null;
   ownership_status?: number;
-  backup_status?: number;
+  has_media?: number;
   has_case?: number;
   has_manual?: number;
   variants?: string | null;
@@ -73,7 +73,7 @@ export interface CatalogReleaseCandidate {
   variants?: string | null;
   canonical_release_id?: number | null;
   ownership_status: number;
-  backup_status: number;
+  has_media: number;
   has_case?: number;
   has_manual?: number;
   is_pack_in?: boolean;
@@ -99,7 +99,7 @@ export interface ReleaseDiffRow {
   title: string;
   platform_name: string;
   rom_name: string;
-  backup_status: number;
+  has_media: number;
   ownership_status?: number;
   has_case?: number;
   has_manual?: number;
@@ -113,23 +113,23 @@ export interface GameDiffRow {
   title: string;
   platform_id: number;
   platform_name: string;
-  backup_status?: number;
+  has_media?: number;
 }
 
 export interface NetDiffResult {
   releases: {
-    newlyBackedUp: ReleaseDiffRow[];
-    lostBackup: ReleaseDiffRow[];
-    unchangedBackedUpCount: number;
-    unchangedUnbackedCount: number;
-    totalTargetBackedUp: number;
+    newlyVerified: ReleaseDiffRow[];
+    missingFromScan: ReleaseDiffRow[];
+    unchangedVerifiedCount: number;
+    unchangedMissingCount: number;
+    totalTargetVerified: number;
   };
   games: {
-    newlyBackedUp: GameDiffRow[];
-    lostBackup: GameDiffRow[];
-    unchangedBackedUpCount: number;
-    unchangedUnbackedCount: number;
-    totalTargetBackedUp: number;
+    newlyVerified: GameDiffRow[];
+    missingFromScan: GameDiffRow[];
+    unchangedVerifiedCount: number;
+    unchangedMissingCount: number;
+    totalTargetVerified: number;
   };
 }
 
@@ -154,7 +154,7 @@ export interface OwnershipSwitchProposal {
   defaultSelected: boolean;
 }
 
-export interface IgnoredBackupFile {
+export interface IgnoredScanFile {
   relativePath: string;
   fileName: string;
   platformName: string | null;
@@ -169,7 +169,7 @@ export interface DuplicateMatchedFile {
   firstMatchedFile: string;
 }
 
-export interface BackupScanReport {
+export interface OwnershipVerificationReport {
   rootFolderName: string;
   detectedMode: 'multi_platform_root' | 'single_platform' | 'platform_override';
   scannedPlatforms: Array<{
@@ -186,11 +186,11 @@ export interface BackupScanReport {
   matchConfidenceByReleaseId: Map<string, ReleaseMatchConfidence>;
   diff: NetDiffResult;
   ownershipSwitches: OwnershipSwitchProposal[];
-  ignoredUnmatchedFiles: IgnoredBackupFile[];
+  ignoredUnmatchedFiles: IgnoredScanFile[];
   /** Files whose best match was a release already matched by an earlier file. */
   duplicateMatchedFiles: DuplicateMatchedFile[];
-  /** Releases already backed up that were confirmed again by this scan (1 → 1). */
-  unchangedBackedUpReleases: ReleaseDiffRow[];
+  /** Releases already marked media-owned that were confirmed again by this scan (1 → 1). */
+  unchangedVerifiedReleases: ReleaseDiffRow[];
 }
 
 /**
@@ -372,7 +372,7 @@ export function isUpdateOrDlcDump(filename: string): boolean {
 }
 
 /**
- * Checks if a file is an ignored non-backup format, sidecar, save state, or DLC/update dump.
+ * Checks if a file is an ignored non-game format, sidecar, save state, or DLC/update dump.
  */
 export function isIgnoredFile(filename: string): boolean {
   const baseName = extractFileNameFromPath(filename);
@@ -994,7 +994,7 @@ export function findBestReleaseMatchWithConfidence(
 }
 
 /**
- * Resolves the best physical release match for a given backup file.
+ * Resolves the best physical release match for a given local disc/cartridge file.
  */
 export function findBestReleaseMatch(
   filename: string,
@@ -1527,7 +1527,7 @@ export function matchSwitchNxdumptoolRelease(
       stable_id: targetRel.game_id,
       region: targetRel.region,
       ownership_status: targetRel.ownership_status,
-      backup_status: targetRel.backup_status,
+      has_media: targetRel.has_media,
       has_case: targetRel.has_case,
       has_manual: targetRel.has_manual,
       variants: targetRel.variants,
@@ -1569,7 +1569,7 @@ export function matchUnlinkedCatalogRelease(
     stable_id: r.game_id,
     region: r.region,
     ownership_status: r.ownership_status,
-    backup_status: r.backup_status,
+    has_media: r.has_media,
     has_case: r.has_case,
     has_manual: r.has_manual,
     variants: r.variants,
@@ -1874,29 +1874,29 @@ export function computeOwnershipSwitches(
   );
 }
 
-export function computeBackupNetDiffs(
+export function computeMediaNetDiffs(
   priorReleases: ReleaseDiffRow[],
   priorGames: GameDiffRow[],
   matchedReleaseIds: Set<string>,
 ): NetDiffResult {
-  const newlyBackedUpReleases: ReleaseDiffRow[] = [];
-  const lostBackupReleases: ReleaseDiffRow[] = [];
-  let unchangedBackedUpReleasesCount = 0;
-  let unchangedUnbackedReleasesCount = 0;
+  const newlyVerifiedReleases: ReleaseDiffRow[] = [];
+  const missingFromScanReleases: ReleaseDiffRow[] = [];
+  let unchangedVerifiedReleasesCount = 0;
+  let unchangedMissingReleasesCount = 0;
 
   for (const r of priorReleases) {
     const isMatched = matchedReleaseIds.has(r.id);
     if (isMatched) {
-      if (r.backup_status === 0) {
-        newlyBackedUpReleases.push(r);
+      if (r.has_media === 0) {
+        newlyVerifiedReleases.push(r);
       } else {
-        unchangedBackedUpReleasesCount++;
+        unchangedVerifiedReleasesCount++;
       }
     } else {
-      if (r.backup_status === 1) {
-        lostBackupReleases.push(r);
+      if (r.has_media === 1) {
+        missingFromScanReleases.push(r);
       } else {
-        unchangedUnbackedReleasesCount++;
+        unchangedMissingReleasesCount++;
       }
     }
   }
@@ -1909,79 +1909,78 @@ export function computeBackupNetDiffs(
     releasesByGame.get(r.game_id)!.push(r);
   }
 
-  const newlyBackedUpGames: GameDiffRow[] = [];
-  const lostBackupGames: GameDiffRow[] = [];
-  let unchangedBackedUpGamesCount = 0;
-  let unchangedUnbackedGamesCount = 0;
+  const newlyVerifiedGames: GameDiffRow[] = [];
+  const missingFromScanGames: GameDiffRow[] = [];
+  let unchangedVerifiedGamesCount = 0;
+  let unchangedMissingGamesCount = 0;
 
   for (const g of priorGames) {
     const gRels = releasesByGame.get(g.stable_id) || [];
     const owned = gRels.filter((r) => r.ownership_status === 1);
     const targetRels = owned.length > 0 ? owned : gRels;
 
-    const priorBackedUp =
-      g.backup_status !== undefined
-        ? g.backup_status
-        : targetRels.length > 0 &&
-            targetRels.every((r) => r.backup_status === 1)
+    const priorMediaOwned =
+      g.has_media !== undefined
+        ? g.has_media
+        : targetRels.length > 0 && targetRels.every((r) => r.has_media === 1)
           ? 1
           : 0;
 
-    const isTargetBackedUp =
+    const isTargetVerified =
       targetRels.length > 0 &&
       targetRels.every((r) => matchedReleaseIds.has(r.id));
 
-    if (isTargetBackedUp) {
-      if (priorBackedUp === 0) {
-        newlyBackedUpGames.push({ ...g, backup_status: 1 });
+    if (isTargetVerified) {
+      if (priorMediaOwned === 0) {
+        newlyVerifiedGames.push({ ...g, has_media: 1 });
       } else {
-        unchangedBackedUpGamesCount++;
+        unchangedVerifiedGamesCount++;
       }
     } else {
-      if (priorBackedUp === 1) {
-        lostBackupGames.push({ ...g, backup_status: 0 });
+      if (priorMediaOwned === 1) {
+        missingFromScanGames.push({ ...g, has_media: 0 });
       } else {
-        unchangedUnbackedGamesCount++;
+        unchangedMissingGamesCount++;
       }
     }
   }
 
   return {
     releases: {
-      newlyBackedUp: newlyBackedUpReleases,
-      lostBackup: lostBackupReleases,
-      unchangedBackedUpCount: unchangedBackedUpReleasesCount,
-      unchangedUnbackedCount: unchangedUnbackedReleasesCount,
-      totalTargetBackedUp:
-        newlyBackedUpReleases.length + unchangedBackedUpReleasesCount,
+      newlyVerified: newlyVerifiedReleases,
+      missingFromScan: missingFromScanReleases,
+      unchangedVerifiedCount: unchangedVerifiedReleasesCount,
+      unchangedMissingCount: unchangedMissingReleasesCount,
+      totalTargetVerified:
+        newlyVerifiedReleases.length + unchangedVerifiedReleasesCount,
     },
     games: {
-      newlyBackedUp: newlyBackedUpGames,
-      lostBackup: lostBackupGames,
-      unchangedBackedUpCount: unchangedBackedUpGamesCount,
-      unchangedUnbackedCount: unchangedUnbackedGamesCount,
-      totalTargetBackedUp:
-        newlyBackedUpGames.length + unchangedBackedUpGamesCount,
+      newlyVerified: newlyVerifiedGames,
+      missingFromScan: missingFromScanGames,
+      unchangedVerifiedCount: unchangedVerifiedGamesCount,
+      unchangedMissingCount: unchangedMissingGamesCount,
+      totalTargetVerified:
+        newlyVerifiedGames.length + unchangedVerifiedGamesCount,
     },
   };
 }
 
-export function generateBackupDiffMarkdown(
+export function generateVerificationDiffMarkdown(
   diff: NetDiffResult,
   platformStats: Record<string, { scanned: number; matched: number }>,
   scanDir: string,
   mode: 'DRY RUN' | 'APPLY',
 ): string {
-  let md = `# Backup Scan Net Diff Report\n\n`;
+  let md = `# Media Ownership Verification Diff Report\n\n`;
   md += `- **Date:** ${new Date().toISOString()}\n`;
   md += `- **Scanned Directory:** \`${scanDir}\`\n`;
   md += `- **Execution Mode:** \`${mode}\`\n\n`;
 
   md += `## Overall Summary\n\n`;
-  md += `| Category | + Newly Backed Up (0 -> 1) | - Lost Backup (1 -> 0) | = Unchanged (1 -> 1) | Total Target Backed Up |\n`;
+  md += `| Category | + Newly Verified (0 -> 1) | - Missing from Scan (1 -> 0) | = Unchanged (1 -> 1) | Total Target Verified |\n`;
   md += `| --- | --- | --- | --- | --- |\n`;
-  md += `| **Releases** | ${diff.releases.newlyBackedUp.length} | ${diff.releases.lostBackup.length} | ${diff.releases.unchangedBackedUpCount} | ${diff.releases.totalTargetBackedUp} |\n`;
-  md += `| **Games** | ${diff.games.newlyBackedUp.length} | ${diff.games.lostBackup.length} | ${diff.games.unchangedBackedUpCount} | ${diff.games.totalTargetBackedUp} |\n\n`;
+  md += `| **Releases** | ${diff.releases.newlyVerified.length} | ${diff.releases.missingFromScan.length} | ${diff.releases.unchangedVerifiedCount} | ${diff.releases.totalTargetVerified} |\n`;
+  md += `| **Games** | ${diff.games.newlyVerified.length} | ${diff.games.missingFromScan.length} | ${diff.games.unchangedVerifiedCount} | ${diff.games.totalTargetVerified} |\n\n`;
 
   md += `## Platform Breakdown\n\n`;
   md += `| Platform | Files Scanned | Releases Matched |\n`;
@@ -1991,21 +1990,21 @@ export function generateBackupDiffMarkdown(
   }
   md += `\n`;
 
-  if (diff.releases.newlyBackedUp.length > 0) {
-    md += `## Newly Backed Up Releases (+0 -> 1) (${diff.releases.newlyBackedUp.length})\n\n`;
+  if (diff.releases.newlyVerified.length > 0) {
+    md += `## Newly Verified Releases (+0 -> 1) (${diff.releases.newlyVerified.length})\n\n`;
     md += `| Platform | Game Title | ROM Name | Release ID |\n`;
     md += `| --- | --- | --- | --- |\n`;
-    for (const r of diff.releases.newlyBackedUp) {
+    for (const r of diff.releases.newlyVerified) {
       md += `| ${r.platform_name} | ${r.title} | ${r.rom_name} | \`${r.id}\` |\n`;
     }
     md += `\n`;
   }
 
-  if (diff.releases.lostBackup.length > 0) {
-    md += `## Releases Losing Backup Status (-1 -> 0) (${diff.releases.lostBackup.length})\n\n`;
+  if (diff.releases.missingFromScan.length > 0) {
+    md += `## Releases Missing from Scan (-1 -> 0) (${diff.releases.missingFromScan.length})\n\n`;
     md += `| Platform | Game Title | ROM Name | Release ID |\n`;
     md += `| --- | --- | --- | --- |\n`;
-    for (const r of diff.releases.lostBackup) {
+    for (const r of diff.releases.missingFromScan) {
       md += `| ${r.platform_name} | ${r.title} | ${r.rom_name} | \`${r.id}\` |\n`;
     }
     md += `\n`;
@@ -2015,17 +2014,17 @@ export function generateBackupDiffMarkdown(
 }
 
 /**
- * Full client-side backup directory scan and reconciliation pipeline.
+ * Full client-side media ownership verification and reconciliation pipeline.
  * Accepts crawled file entries, platform definitions, and the user's catalog releases,
  * returning the complete diff report, ownership switch proposals, and ignored file list.
  */
-export function scanBackupEntries(options: {
+export function scanMediaEntries(options: {
   rootFolderName: string;
   entries: CrawledFileEntry[];
   platforms: PlatformRow[];
   catalogReleases: CatalogReleaseCandidate[];
   platformOverrideId?: number | null;
-}): BackupScanReport {
+}): OwnershipVerificationReport {
   const {
     rootFolderName,
     platforms,
@@ -2091,7 +2090,7 @@ export function scanBackupEntries(options: {
     { platform: PlatformRow; entries: CrawledFileEntry[] }
   >();
   const unrecognizedFoldersSet = new Set<string>();
-  const ignoredUnmatchedFiles: IgnoredBackupFile[] = [];
+  const ignoredUnmatchedFiles: IgnoredScanFile[] = [];
 
   for (const entry of collapsedEntries) {
     if (
@@ -2183,7 +2182,7 @@ export function scanBackupEntries(options: {
         stable_id: r.game_id,
         region: r.region,
         ownership_status: r.ownership_status,
-        backup_status: r.backup_status,
+        has_media: r.has_media,
         has_case: r.has_case,
         has_manual: r.has_manual,
         variants: r.variants,
@@ -2292,7 +2291,7 @@ export function scanBackupEntries(options: {
     title: r.base_title || r.title,
     platform_name: r.platform_name,
     rom_name: r.rom_name || formatSkuLabel([r]),
-    backup_status: r.backup_status ? 1 : 0,
+    has_media: r.has_media ? 1 : 0,
     ownership_status: r.ownership_status,
     has_case: r.has_case ?? 0,
     has_manual: r.has_manual ?? 0,
@@ -2327,14 +2326,14 @@ export function scanBackupEntries(options: {
     }
   }
 
-  const diff = computeBackupNetDiffs(
+  const diff = computeMediaNetDiffs(
     priorReleases,
     Array.from(gamesById.values()),
     matchedReleaseIds,
   );
 
   if (switchFromReleaseIds.size > 0) {
-    diff.releases.lostBackup = diff.releases.lostBackup.filter(
+    diff.releases.missingFromScan = diff.releases.missingFromScan.filter(
       (r) => !switchFromReleaseIds.has(r.id),
     );
   }
@@ -2355,8 +2354,8 @@ export function scanBackupEntries(options: {
     ownershipSwitches,
     ignoredUnmatchedFiles,
     duplicateMatchedFiles,
-    unchangedBackedUpReleases: priorReleases.filter(
-      (r) => r.backup_status === 1 && matchedReleaseIds.has(r.id),
+    unchangedVerifiedReleases: priorReleases.filter(
+      (r) => r.has_media === 1 && matchedReleaseIds.has(r.id),
     ),
   };
 }

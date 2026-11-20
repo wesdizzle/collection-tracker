@@ -185,50 +185,86 @@ import {
                   </svg>
                 </div>
               </button>
-            </div>
-          </div>
 
-          <div class="kit-nav-group">
-            <span class="kit-nav-group-label"
-              >Tools{{ isAdmin() ? ' & Admin' : '' }}</span
-            >
-            <div class="kit-nav-group-list">
-              <button
-                type="button"
-                class="nav-section-btn"
-                (click)="openBackupScanner()"
-                data-testid="profile-backup-scanner-btn"
+              <label
+                class="toggle-row pref-toggle-row"
+                for="toggle-track-individual-media-input"
               >
                 <div class="nav-section-left">
                   <span class="nav-section-icon">
                     <app-icon name="disc" [size]="18" />
                   </span>
                   <div class="nav-section-text">
-                    <span class="nav-section-title">Scan Local Backups</span>
+                    <span class="nav-section-title"
+                      >Track Individual Discs &amp; Carts</span
+                    >
                     <span class="nav-section-desc">
-                      Sync local ROM folder backup status
+                      Show per-disc and cartridge ownership status on your
+                      collection
                     </span>
                   </div>
                 </div>
-                <div class="setting-nav-right">
-                  <svg
-                    class="nav-section-chevron"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
+                <span class="switch-wrapper">
+                  <input
+                    id="toggle-track-individual-media-input"
+                    type="checkbox"
+                    role="switch"
+                    class="sr-only-checkbox"
+                    [attr.aria-checked]="trackIndividualMedia()"
+                    [ngModel]="trackIndividualMedia()"
+                    (ngModelChange)="onToggleTrackIndividualMedia($event)"
+                    data-testid="toggle-track-individual-media"
+                  />
+                  <span
+                    class="switch-track"
+                    [class.checked]="trackIndividualMedia()"
                   >
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                </div>
-              </button>
+                    <span class="switch-thumb"></span>
+                  </span>
+                </span>
+              </label>
+            </div>
+          </div>
 
-              @if (isAdmin()) {
+          @if (isAdmin()) {
+            <div class="kit-nav-group">
+              <span class="kit-nav-group-label">Admin</span>
+              <div class="kit-nav-group-list">
+                <button
+                  type="button"
+                  class="nav-section-btn"
+                  (click)="openOwnershipVerification()"
+                  data-testid="profile-verify-ownership-btn"
+                >
+                  <div class="nav-section-left">
+                    <span class="nav-section-icon">
+                      <app-icon name="disc" [size]="18" />
+                    </span>
+                    <div class="nav-section-text">
+                      <span class="nav-section-title">Verify Owned Media</span>
+                      <span class="nav-section-desc">
+                        Audit individual discs &amp; carts against local library
+                      </span>
+                    </div>
+                  </div>
+                  <div class="setting-nav-right">
+                    <svg
+                      class="nav-section-chevron"
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M9 18l6-6-6-6" />
+                    </svg>
+                  </div>
+                </button>
+
                 <button
                   type="button"
                   class="nav-section-btn"
@@ -291,9 +327,9 @@ import {
                     </svg>
                   </div>
                 </button>
-              }
+              </div>
             </div>
-          </div>
+          }
         </div>
       }
 
@@ -476,6 +512,23 @@ import {
         gap: 12px;
       }
 
+      .pref-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.72rem 0.85rem;
+        cursor: pointer;
+        border-top: 1px solid
+          var(--kit-outline-variant, rgba(255, 255, 255, 0.08));
+        margin: 0;
+        background: transparent;
+      }
+
+      .pref-toggle-row:hover {
+        background: var(--kit-state-hover, rgba(255, 255, 255, 0.04));
+      }
+
       .setting-nav-right {
         display: flex;
         align-items: center;
@@ -627,6 +680,7 @@ export class ProfileModalComponent implements OnInit {
   public isAdmin = this.collectionService.isAdmin;
   public publicProfile = this.collectionService.publicProfile;
   public autoTrackSeriesOnAdd = signal<boolean>(true);
+  public trackIndividualMedia = signal<boolean>(false);
   public trackingRules = signal<UserTrackingRule[]>([]);
   public catalogSeedStatus = signal<CatalogSeedStatus | null>(null);
   public newRuleType: 'series' | 'platform' | 'toy_line' | 'toy_series' =
@@ -730,6 +784,7 @@ export class ProfileModalComponent implements OnInit {
         this.homeRegion = user.homeRegion || 'USA';
         this.isPublic = user.isPublic;
         this.autoTrackSeriesOnAdd.set(user.autoTrackSeriesOnAdd !== false);
+        this.trackIndividualMedia.set(Boolean(user.trackIndividualMedia));
       },
       error: () => {
         const current = this.collectionService.currentUser();
@@ -740,6 +795,7 @@ export class ProfileModalComponent implements OnInit {
           this.homeRegion = current.homeRegion || 'USA';
           this.isPublic = current.isPublic;
           this.autoTrackSeriesOnAdd.set(current.autoTrackSeriesOnAdd !== false);
+          this.trackIndividualMedia.set(Boolean(current.trackIndividualMedia));
         }
       },
     });
@@ -795,9 +851,9 @@ export class ProfileModalComponent implements OnInit {
     this.modalService.setView('tracking');
   }
 
-  public openBackupScanner(): void {
+  public openOwnershipVerification(): void {
     this.modalService.close();
-    void this.router.navigate(['/collection/backups']);
+    void this.router.navigate(['/admin/verify-ownership']);
   }
 
   public openAdminCenter(): void {
@@ -814,6 +870,20 @@ export class ProfileModalComponent implements OnInit {
           this.profile.set(updated);
         },
         error: () => {},
+      });
+  }
+
+  public onToggleTrackIndividualMedia(enabled: boolean): void {
+    this.trackIndividualMedia.set(enabled);
+    this.collectionService
+      .updateProfile({ trackIndividualMedia: enabled })
+      .subscribe({
+        next: (updated) => {
+          this.profile.set(updated);
+        },
+        error: () => {
+          this.trackIndividualMedia.set(!enabled);
+        },
       });
   }
 

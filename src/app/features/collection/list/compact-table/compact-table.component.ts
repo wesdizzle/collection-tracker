@@ -12,6 +12,7 @@ import {
   FilterState,
   formatPriceAge,
   getMediaIconName,
+  getMediaNoun,
   normalizeBudgetToken,
   formatToyRegionBadge,
 } from '../../../../core/models/collection.models';
@@ -41,16 +42,13 @@ export class CompactTableComponent {
   games = input<Game[]>([]);
   toys = input<Toy[]>([]);
   filters = input<FilterState>();
-  showBackupDetails = input<boolean>(true);
+  showMediaDetails = input<boolean>(true);
 
   toggleGameStatus = output<{ event: MouseEvent; game: Game }>();
   toggleCase = output<{ event: MouseEvent; game: Game }>();
   toggleManual = output<{ event: MouseEvent; game: Game }>();
-  toggleDiscBackup = output<{
-    event: MouseEvent;
-    game: Game;
-    discIndex: number;
-  }>();
+  toggleMediaOwned = output<{ event: MouseEvent; game: Game }>();
+  openDiscChecklist = output<{ event: MouseEvent; game: Game }>();
 
   toggleToyStatus = output<{ event: MouseEvent; toy: Toy }>();
 
@@ -72,14 +70,16 @@ export class CompactTableComponent {
     this.toggleManual.emit({ event, game });
   }
 
-  onToggleDiscBackupClick(
-    event: MouseEvent,
-    game: Game,
-    discIndex: number,
-  ): void {
+  onToggleMediaOwnedClick(event: MouseEvent, game: Game): void {
     event.preventDefault();
     event.stopPropagation();
-    this.toggleDiscBackup.emit({ event, game, discIndex });
+    this.toggleMediaOwned.emit({ event, game });
+  }
+
+  onOpenDiscChecklistClick(event: MouseEvent, game: Game): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openDiscChecklist.emit({ event, game });
   }
 
   onToggleToyStatusClick(event: MouseEvent, toy: Toy): void {
@@ -159,21 +159,35 @@ export class CompactTableComponent {
     return formatCompactProvenanceBadge(entry);
   }
 
-  public getBackedUpDiscCount(game: Game): number {
-    return (game.discBackups || []).filter((b) => b === 1).length;
+  public getOwnedDiscCount(game: Game): number {
+    return (game.discMediaOwned || []).filter((b) => b === 1).length;
   }
 
   public getMissingDiscCount(game: Game): number {
     const total = game.discIds?.length || 1;
-    const backed = this.getBackedUpDiscCount(game);
-    return Math.max(0, total - backed);
+    const owned = this.getOwnedDiscCount(game);
+    return Math.max(0, total - owned);
   }
 
   public getMediaIcon(
     game: Game,
-    backedUp: boolean | number,
+    mediaOwned: boolean | number,
   ): 'disc' | 'rom-archive' | 'missing-dump' {
-    return getMediaIconName(game.display_name || game.platform, backedUp);
+    return getMediaIconName(game.display_name || game.platform, mediaOwned);
+  }
+
+  public getSingleMediaTooltip(game: Game): string {
+    const noun = getMediaNoun(game.display_name || game.platform, false);
+    return game.has_media
+      ? `${noun} Owned — Click to toggle`
+      : `Missing ${noun} — Click to toggle`;
+  }
+
+  public getMultiDiscTooltip(game: Game): string {
+    const total = game.discIds?.length || 1;
+    const owned = this.getOwnedDiscCount(game);
+    const plural = getMediaNoun(game.display_name || game.platform, true);
+    return `${owned}/${total} ${plural} Owned — Click to manage ${plural.toLowerCase()}`;
   }
 
   public isUpcomingDate(releaseDate: string | null | undefined): boolean {

@@ -244,9 +244,9 @@ export class CollectionFiltersComponent implements OnDestroy {
     if (f.regions && f.regions.length > 0) count++;
     if (f.play_status && f.play_status !== 'all') count++;
     if (
-      this.showBackupDetails() &&
-      f.backup_status !== undefined &&
-      f.backup_status !== 'all'
+      this.showMediaDetails() &&
+      f.has_media !== undefined &&
+      f.has_media !== 'all'
     )
       count++;
     if (f.physical_verified !== undefined && f.physical_verified !== 'all')
@@ -317,7 +317,7 @@ export class CollectionFiltersComponent implements OnDestroy {
     this.filtersChange.emit({
       ownership: 1,
       play_status: 'all',
-      backup_status: 'all',
+      has_media: 'all',
       physical_verified: 'all',
       platform_id: undefined,
       regions: [],
@@ -409,7 +409,7 @@ export class CollectionFiltersComponent implements OnDestroy {
   public filters = input.required<FilterState>();
   public lastUpdated = input<Date | null>(null);
   public viewMode = input<ViewMode>('grid');
-  public showBackupDetails = input<boolean>(true);
+  public showMediaDetails = input<boolean>(true);
   public showProvenanceFilters = input<boolean>(false);
   public uniqueProvenanceSources = input<string[]>([]);
   public uniqueAcquiredYears = input<number[]>([]);
@@ -450,14 +450,13 @@ export class CollectionFiltersComponent implements OnDestroy {
     { value: 0, label: 'Unplayed' },
   ];
 
-  readonly backupOptions: {
-    value: 'all' | 1 | 0 | 'uncataloged';
+  readonly mediaOwnedOptions: {
+    value: 'all' | 1 | 0;
     label: string;
   }[] = [
     { value: 'all', label: 'All' },
-    { value: 1, label: 'Backed Up' },
-    { value: 0, label: 'No Backup' },
-    { value: 'uncataloged', label: 'Uncataloged (No DAT CRC)' },
+    { value: 1, label: 'Owned' },
+    { value: 0, label: 'Missing' },
   ];
 
   readonly physicalVerifiedOptions: { value: 'all' | 1 | 0; label: string }[] =
@@ -831,9 +830,9 @@ export class CollectionFiltersComponent implements OnDestroy {
     return opt ? opt.label : 'All';
   }
 
-  getBackupLabel(): string {
-    const val = this.filters().backup_status ?? 'all';
-    const opt = this.backupOptions.find((o) => o.value === val);
+  getMediaOwnedLabel(): string {
+    const val = this.filters().has_media ?? 'all';
+    const opt = this.mediaOwnedOptions.find((o) => o.value === val);
     return opt ? opt.label : 'All';
   }
 

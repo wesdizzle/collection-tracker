@@ -49,15 +49,15 @@
       (valueChange)="selectOption('play_status', $event)"
     />
 
-    <!-- Backup -->
-    @if (showBackupDetails()) {
+    <!-- Disc / Cart -->
+    @if (showMediaDetails()) {
       <kit-select
-        label="Backup"
-        dropdownName="backup_status"
-        triggerId="filter-backup-status"
-        [value]="filters().backup_status ?? 'all'"
-        [options]="backupOptions"
-        (valueChange)="selectOption('backup_status', $event)"
+        label="Disc / Cart"
+        dropdownName="has_media"
+        triggerId="filter-has-media"
+        [value]="filters().has_media ?? 'all'"
+        [options]="mediaOwnedOptions"
+        (valueChange)="selectOption('has_media', $event)"
       />
     }
 

@@ -35,7 +35,7 @@ import {
 } from '@angular/core';
 import { Router, ActivatedRoute, RouterModule } from '@angular/router';
 import { ViewportScroller, DecimalPipe } from '@angular/common';
-import { Subscription } from 'rxjs';
+import { Subscription, forkJoin } from 'rxjs';
 import { KitLoadingBannerComponent } from '@wesdizzle/app-kit/angular';
 import { CollectionService } from '../../../../core/services/collection.service';
 
@@ -81,6 +81,7 @@ import { ActivePlayShelfComponent } from '../active-play-shelf/active-play-shelf
 import { GameCardComponent } from '../game-card/game-card.component';
 import { ToyCardComponent } from '../toy-card/toy-card.component';
 import { CompactTableComponent } from '../compact-table/compact-table.component';
+import { DiscOwnershipModalComponent } from '../disc-ownership-modal/disc-ownership-modal.component';
 
 interface GameGroup {
   platformName: string;
@@ -93,7 +94,7 @@ interface GameGroup {
   completionPct?: number;
   cibCount?: number;
   physicalCount?: number;
-  backedUpCount?: number;
+  ownedMediaCount?: number;
 }
 
 @Component({
@@ -109,6 +110,7 @@ interface GameGroup {
     GameCardComponent,
     ToyCardComponent,
     CompactTableComponent,
+    DiscOwnershipModalComponent,
   ],
   templateUrl: './collection-list.component.html',
   styleUrls: ['./collection-list.component.css'],
@@ -131,11 +133,19 @@ export class CollectionListComponent
   private queryParamsSub?: Subscription;
   private statePersistTimer: ReturnType<typeof setTimeout> | null = null;
 
+  public readonly discModalGameId = signal<string | null>(null);
+  public readonly discModalSaving = signal<boolean>(false);
+  public readonly activeDiscModalGame = computed<Game | null>(() => {
+    const id = this.discModalGameId();
+    if (!id) return null;
+    return this.discMergedGames().find((g) => g.id === id) ?? null;
+  });
+
   private createDefaultFilters(): FilterState {
     return {
       ownership: 1,
       play_status: 'all',
-      backup_status: 'all',
+      has_media: 'all',
       physical_verified: 'all',
       platform_id: undefined,
       regions: [],
@@ -174,18 +184,16 @@ export class CollectionListComponent
       if (!isNaN(pid)) qpFilters.platform_id = pid;
     }
     if (
-      qp['backup_status'] !== undefined &&
+      qp['has_media'] !== undefined &&
       !this.collectionService.isPublicView()
     ) {
-      const val = String(qp['backup_status']);
+      const val = String(qp['has_media']);
       if (val === '0' || val === 'missing') {
-        qpFilters.backup_status = 0;
-      } else if (val === '1' || val === 'backed_up') {
-        qpFilters.backup_status = 1;
-      } else if (val === 'uncataloged') {
-        qpFilters.backup_status = 'uncataloged';
+        qpFilters.has_media = 0;
+      } else if (val === '1' || val === 'owned') {
+        qpFilters.has_media = 1;
       } else if (val === 'all') {
-        qpFilters.backup_status = 'all';
+        qpFilters.has_media = 'all';
       }
     }
     if (qp['play_status'] !== undefined) {
@@ -642,6 +650,32 @@ export class CollectionListComponent
     return result;
   }
 
+  private extractDiscLabel(
+    romName: string,
+    index: number,
+    fallbackVariants?: string | null,
+  ): string {
+    const matches: string[] = [];
+    const regex =
+      /\(((?:disc|disco|disque|disk)\s+[0-9a-z]+|install\s+disc|play\s+disc|data\s+disc|bonus\s+disc|game\s+disc|add-on[^)]*)\)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(romName || '')) !== null) {
+      if (m[1]) {
+        matches.push(m[1].trim());
+      }
+    }
+    if (matches.length > 0) {
+      return matches.join(' · ');
+    }
+    if (
+      fallbackVariants &&
+      /disc|disk|install|play|bonus/i.test(fallbackVariants)
+    ) {
+      return fallbackVariants.trim();
+    }
+    return `Disc ${index + 1}`;
+  }
+
   /**
    * Pre-computed grouped games list (disc grouping and companion disc GOTY matching).
    * Depends strictly on collectionService.games(), decoupling expensive multi-disc grouping
@@ -655,7 +689,8 @@ export class CollectionListComponent
       string,
       Game & {
         discIds: string[];
-        discBackups: number[];
+        discMediaOwned: number[];
+        discLabels: string[];
         discRomNames: string[];
         discRomCrcs: string[];
       }
@@ -697,14 +732,19 @@ export class CollectionListComponent
         groupedMap.set(baseKey, {
           ...g,
           discIds: [g.id],
-          discBackups: [g.backup_status ? 1 : 0],
+          discMediaOwned: [g.has_media ? 1 : 0],
+          discLabels: [this.extractDiscLabel(g.rom_name || '', 0, g.variants)],
           discRomNames: [g.rom_name || ''],
           discRomCrcs: [g.rom_crc || ''],
         });
       } else {
         const existing = groupedMap.get(baseKey)!;
+        const nextIdx = existing.discIds.length;
         existing.discIds.push(g.id);
-        existing.discBackups.push(g.backup_status ? 1 : 0);
+        existing.discMediaOwned.push(g.has_media ? 1 : 0);
+        existing.discLabels.push(
+          this.extractDiscLabel(g.rom_name || '', nextIdx, g.variants),
+        );
         existing.discRomNames.push(g.rom_name || '');
         if (g.rom_crc) {
           existing.discRomCrcs.push(g.rom_crc);
@@ -747,7 +787,9 @@ export class CollectionListComponent
     const groupedList = Array.from(groupedMap.values());
     for (let i = 0; i < groupedList.length; i++) {
       const g = groupedList[i];
-      const discBackups = [...g.discBackups];
+      const discIds = [...g.discIds];
+      const discMediaOwned = [...g.discMediaOwned];
+      const discLabels = [...g.discLabels];
       const platPairs =
         g.platform_id != null
           ? this.companionPairsByPlatform.get(g.platform_id)
@@ -764,8 +806,8 @@ export class CollectionListComponent
           ))
       ) {
         // If this is a 2-disc GOTY/expanded release that only catalogs Disc 2 under its own game_id
-        // (reusing the original release as Disc 1), include the regional companion Disc 1's backup_status
-        // so the GOTY release is only marked backed up when BOTH Disc 1 and Disc 2 are backed up.
+        // (reusing the original release as Disc 1), include the regional companion Disc 1's has_media
+        // so the GOTY release is only marked owned across all media when BOTH Disc 1 and Disc 2 are owned.
         const hasDisc1InGroup = g.discRomNames.some((rn) =>
           /\((?:disc|disco|disque|disk)\s+1\b/i.test(rn),
         );
@@ -829,12 +871,17 @@ export class CollectionListComponent
                 return regTokens.some((r) => candRegs.includes(r));
               });
               if (companionCandidates.length > 0) {
-                const companionBackedUp = companionCandidates.some((c) =>
-                  Boolean(c.backup_status),
+                const companionPreferred =
+                  companionCandidates.find((c) => Boolean(c.has_media)) ??
+                  companionCandidates[0];
+                const companionHasMedia = companionCandidates.some((c) =>
+                  Boolean(c.has_media),
                 )
                   ? 1
                   : 0;
-                discBackups.unshift(companionBackedUp);
+                discIds.unshift(companionPreferred.id);
+                discMediaOwned.unshift(companionHasMedia);
+                discLabels.unshift('Disc 1 (Base Release)');
               }
               break;
             }
@@ -842,9 +889,11 @@ export class CollectionListComponent
         }
       }
 
-      // Release is considered backed up if all its discs are backed up
-      g.discBackups = discBackups;
-      g.backup_status = discBackups.every((b) => b === 1) ? 1 : 0;
+      // Release is considered media-complete if all its discs are owned
+      g.discIds = discIds;
+      g.discLabels = discLabels;
+      g.discMediaOwned = discMediaOwned;
+      g.has_media = discMediaOwned.every((b) => b === 1) ? 1 : 0;
     }
 
     return groupedList;
@@ -1014,22 +1063,14 @@ export class CollectionListComponent
         if (f.play_status !== pStatus) return false;
       }
 
-      // Backup Status Filter
+      // Media Ownership Filter
       if (
-        !this.collectionService.isPublicView() &&
-        f.backup_status !== undefined &&
-        f.backup_status !== 'all'
+        this.collectionService.canTrackIndividualMedia() &&
+        f.has_media !== undefined &&
+        f.has_media !== 'all'
       ) {
-        if (f.backup_status === 'uncataloged') {
-          const isBackedUp = (g.backup_status ? 1 : 0) === 1;
-          const hasNoCrc =
-            !g.rom_crc ||
-            (g.discRomCrcs && g.discRomCrcs.some((c: string) => !c));
-          if (!isBackedUp || !hasNoCrc) return false;
-        } else {
-          const bStatus = g.backup_status ? 1 : 0;
-          if (f.backup_status !== bStatus) return false;
-        }
+        const mStatus = g.has_media ? 1 : 0;
+        if (f.has_media !== mStatus) return false;
       }
 
       // Physical Release Verified Filter
@@ -1543,7 +1584,7 @@ export class CollectionListComponent
     const showOwnedStats = f.ownership === OwnershipStatus.Owned;
     const cibCounts = new Map<string, number>();
     const physicalCounts = new Map<string, number>();
-    const backedUpCounts = new Map<string, number>();
+    const ownedMediaCounts = new Map<string, number>();
 
     for (const g of allFiltered) {
       const p = g.display_name || g.platform;
@@ -1554,8 +1595,8 @@ export class CollectionListComponent
         }
         if (isPhysicalReleaseGame(g)) {
           physicalCounts.set(p, (physicalCounts.get(p) || 0) + 1);
-          if (g.backup_status) {
-            backedUpCounts.set(p, (backedUpCounts.get(p) || 0) + 1);
+          if (g.has_media) {
+            ownedMediaCounts.set(p, (ownedMediaCounts.get(p) || 0) + 1);
           }
         }
       }
@@ -1615,7 +1656,7 @@ export class CollectionListComponent
                 completionPct,
                 cibCount: cibCounts.get(p) || 0,
                 physicalCount: physicalCounts.get(p) || 0,
-                backedUpCount: backedUpCounts.get(p) || 0,
+                ownedMediaCount: ownedMediaCounts.get(p) || 0,
               }
             : {}),
         };
@@ -2795,15 +2836,11 @@ export class CollectionListComponent
     });
   }
 
-  public getBackedUpDiscCount(game: Game): number {
-    return (game.discBackups || []).filter((b) => b === 1).length;
+  public getOwnedDiscCount(game: Game): number {
+    return (game.discMediaOwned || []).filter((b) => b === 1).length;
   }
 
-  public onToggleDiscBackup(
-    event: MouseEvent,
-    game: Game,
-    discIndex: number,
-  ): void {
+  public onToggleSingleMediaOwned(event: MouseEvent, game: Game): void {
     event.preventDefault();
     event.stopPropagation();
     if (this.collectionService.isPublicView()) {
@@ -2813,30 +2850,114 @@ export class CollectionListComponent
       this.collectionService.promptAdminLogin();
       return;
     }
-    const discId = game.discIds?.[discIndex];
-    if (!discId) return;
-    const prevDiscBackups = game.discBackups
-      ? [...game.discBackups]
+    const releaseId = game.discIds?.[0] || game.id;
+    if (!releaseId) return;
+    const prevDiscMediaOwned = game.discMediaOwned
+      ? [...game.discMediaOwned]
       : undefined;
-    const prevBackupStatus = game.backup_status;
-    const current = game.discBackups?.[discIndex] === 1;
-    const newStatus = current ? 0 : 1;
-    if (game.discBackups) {
-      game.discBackups[discIndex] = newStatus;
-      game.backup_status = game.discBackups.every((b) => b === 1) ? 1 : 0;
+    const prevHasMedia = game.has_media;
+    const current = Boolean(game.has_media);
+    const newStatus: 0 | 1 = current ? 0 : 1;
+    if (game.discMediaOwned) {
+      game.discMediaOwned[0] = newStatus;
     }
-    this.collectionService.patchDiscBackupOptimistic(discId, newStatus);
-    this.collectionService.updateBackupStatus(discId, newStatus).subscribe({
+    game.has_media = newStatus;
+    this.collectionService.patchDiscMediaOptimistic(releaseId, newStatus);
+    this.collectionService.updateMediaOwned(releaseId, newStatus).subscribe({
       error: (err) => {
-        if (game.discBackups && prevDiscBackups) {
-          game.discBackups = prevDiscBackups;
-          game.backup_status = prevBackupStatus;
+        if (game.discMediaOwned && prevDiscMediaOwned) {
+          game.discMediaOwned = prevDiscMediaOwned;
         }
-        this.collectionService.patchDiscBackupOptimistic(
-          discId,
+        game.has_media = prevHasMedia;
+        this.collectionService.patchDiscMediaOptimistic(
+          releaseId,
           current ? 1 : 0,
         );
-        console.error('Failed to toggle disc backup:', err);
+        console.error('Failed to toggle media ownership:', err);
+      },
+    });
+  }
+
+  public onOpenDiscChecklist(event: MouseEvent, game: Game): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.collectionService.isPublicView()) {
+      return;
+    }
+    if (!this.collectionService.isAuthenticated()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    this.discModalGameId.set(game.id);
+  }
+
+  public onCloseDiscModal(): void {
+    this.discModalGameId.set(null);
+  }
+
+  public onDiscModalToggleDisc(payload: {
+    releaseId: string;
+    nextValue: 0 | 1;
+  }): void {
+    if (this.collectionService.isPublicView()) return;
+    if (!this.collectionService.isAuthenticated()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    const { releaseId, nextValue } = payload;
+    const active = this.activeDiscModalGame();
+    const idx = active?.discIds?.indexOf(releaseId) ?? -1;
+    const prevStatus =
+      idx >= 0 ? Number(active?.discMediaOwned?.[idx] ?? 0) : nextValue ? 0 : 1;
+    this.collectionService.patchDiscMediaOptimistic(releaseId, nextValue);
+    this.collectionService.updateMediaOwned(releaseId, nextValue).subscribe({
+      error: (err) => {
+        this.collectionService.patchDiscMediaOptimistic(releaseId, prevStatus);
+        console.error('Failed to update disc ownership:', err);
+      },
+    });
+  }
+
+  public onDiscModalSetAll(payload: {
+    releaseIds: string[];
+    nextValue: 0 | 1;
+  }): void {
+    if (this.collectionService.isPublicView()) return;
+    if (!this.collectionService.isAuthenticated()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    if (payload.releaseIds.length === 0) return;
+
+    const active = this.activeDiscModalGame();
+    const prevByRelease = new Map<string, number>();
+    for (const id of payload.releaseIds) {
+      const idx = active?.discIds?.indexOf(id) ?? -1;
+      const prev =
+        idx >= 0
+          ? Number(active?.discMediaOwned?.[idx] ?? 0)
+          : payload.nextValue
+            ? 0
+            : 1;
+      prevByRelease.set(id, prev);
+      this.collectionService.patchDiscMediaOptimistic(id, payload.nextValue);
+    }
+
+    this.discModalSaving.set(true);
+    forkJoin(
+      payload.releaseIds.map((id) =>
+        this.collectionService.updateMediaOwned(id, payload.nextValue),
+      ),
+    ).subscribe({
+      next: () => {
+        this.discModalSaving.set(false);
+      },
+      error: (err) => {
+        this.discModalSaving.set(false);
+        for (const [id, prev] of prevByRelease.entries()) {
+          this.collectionService.patchDiscMediaOptimistic(id, prev);
+        }
+        console.error('Failed to batch update disc ownership:', err);
       },
     });
   }

@@ -33,13 +33,13 @@ describe('CompactTableComponent', () => {
       ownership_status: OwnershipStatus.Owned,
       has_case: 1,
       has_manual: 0,
-      backup_status: 1,
+      has_media: 1,
       retail_price: 3999,
       retail_store: 'Best Buy',
       release_date: '2017-03-03',
       image_url: 'https://example.com/botw.jpg',
       discIds: ['botw-cart-1'],
-      discBackups: [1],
+      discMediaOwned: [1],
     },
   ];
 
@@ -146,7 +146,7 @@ describe('CompactTableComponent', () => {
       expect(manualEmitted).toBe(true);
     });
 
-    it('should render backup chip for single-disc owned games with icon only, omit igdb ribbon, and emit toggleDiscBackup on click', () => {
+    it('should render media chip for single-disc owned games with icon only, omit igdb ribbon, and emit toggleMediaOwned on click', () => {
       expect(fixture.nativeElement.querySelector('.igdb-icon')).toBeNull();
 
       const discBtn = fixture.nativeElement.querySelector(
@@ -157,13 +157,37 @@ describe('CompactTableComponent', () => {
       expect(discBtn.textContent?.trim()).toBe('');
       expect(discBtn.querySelector('app-icon')).toBeTruthy();
 
-      let emittedIndex = -1;
-      component.toggleDiscBackup.subscribe((evt) => {
-        emittedIndex = evt.discIndex;
+      let emittedId: string | undefined;
+      component.toggleMediaOwned.subscribe((evt) => {
+        emittedId = evt.game.id;
       });
 
       discBtn.click();
-      expect(emittedIndex).toBe(0);
+      expect(emittedId).toBe('zelda-botw');
+    });
+
+    it('should emit openDiscChecklist when multi-disc chip is clicked', () => {
+      fixture.componentRef.setInput('games', [
+        {
+          ...mockGames[0],
+          platform: 'PlayStation',
+          discIds: ['disc-1', 'disc-2'],
+          discMediaOwned: [1, 0],
+        },
+      ]);
+      fixture.detectChanges();
+
+      let emittedId: string | undefined;
+      component.openDiscChecklist.subscribe((evt) => {
+        emittedId = evt.game.id;
+      });
+
+      const discBtns = fixture.nativeElement.querySelectorAll(
+        '.col-completeness .compact-discs-container .compact-disc-chip',
+      ) as NodeListOf<HTMLButtonElement>;
+      expect(discBtns.length).toBe(2);
+      discBtns[0].click();
+      expect(emittedId).toBe('zelda-botw');
     });
 
     it('should determine media icon based on platform (disc for optical, rom-archive for carts)', () => {
@@ -180,8 +204,8 @@ describe('CompactTableComponent', () => {
       expect(component.getMediaIcon(opticalGame, 0)).toBe('missing-dump');
     });
 
-    it('should omit backup chips when showBackupDetails is false', () => {
-      fixture.componentRef.setInput('showBackupDetails', false);
+    it('should omit media chips when showMediaDetails is false', () => {
+      fixture.componentRef.setInput('showMediaDetails', false);
       fixture.detectChanges();
 
       expect(
@@ -190,12 +214,12 @@ describe('CompactTableComponent', () => {
         ),
       ).toBeNull();
 
-      // Multi-disc owned game should also omit backup chips when showBackupDetails is false
+      // Multi-disc owned game should also omit media chips when showMediaDetails is false
       fixture.componentRef.setInput('games', [
         {
           ...mockGames[0],
           discIds: ['disc-1', 'disc-2'],
-          discBackups: [1, 0],
+          discMediaOwned: [1, 0],
         },
       ]);
       fixture.detectChanges();

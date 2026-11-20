@@ -25,7 +25,7 @@
     "
     [lastUpdated]="lastUpdated()"
     [viewMode]="viewMode()"
-    [showBackupDetails]="!collectionService.isPublicView()"
+    [showMediaDetails]="collectionService.canTrackIndividualMedia()"
     [showProvenanceFilters]="showProvenanceFilters()"
     [uniqueProvenanceSources]="uniqueProvenanceSources()"
     [uniqueAcquiredYears]="uniqueAcquiredYears()"
@@ -129,15 +129,15 @@
                 }
                 @if (
                   !group.isFlatSort &&
-                  !collectionService.isPublicView() &&
+                  collectionService.canTrackIndividualMedia() &&
                   (group.physicalCount ?? 0) > 0
                 ) {
                   <span
                     class="platform-meta-pill"
-                    data-testid="platform-backup-pill"
+                    data-testid="platform-media-pill"
                   >
-                    {{ group.backedUpCount ?? 0 }}/{{ group.physicalCount }}
-                    Backed Up
+                    {{ group.ownedMediaCount ?? 0 }}/{{ group.physicalCount }}
+                    Media Owned
                   </span>
                 }
               </div>
@@ -149,7 +149,9 @@
               @for (game of group.games; track game.id) {
                 <app-game-card
                   [game]="game"
-                  [showBackupDetails]="!collectionService.isPublicView()"
+                  [showMediaDetails]="
+                    collectionService.canTrackIndividualMedia()
+                  "
                   [showPlatform]="
                     !!(
                       effectiveSortBy() !== 'default' && !filters().platform_id
@@ -160,12 +162,11 @@
                   "
                   (toggleCase)="onToggleCase($event.event, $event.game)"
                   (toggleManual)="onToggleManual($event.event, $event.game)"
-                  (toggleDiscBackup)="
-                    onToggleDiscBackup(
-                      $event.event,
-                      $event.game,
-                      $event.discIndex
-                    )
+                  (toggleMediaOwned)="
+                    onToggleSingleMediaOwned($event.event, $event.game)
+                  "
+                  (openDiscChecklist)="
+                    onOpenDiscChecklist($event.event, $event.game)
                   "
                 />
               }
@@ -175,14 +176,17 @@
               mode="games"
               [games]="group.games"
               [filters]="compactTableFilters()"
-              [showBackupDetails]="!collectionService.isPublicView()"
+              [showMediaDetails]="collectionService.canTrackIndividualMedia()"
               (toggleGameStatus)="
                 onToggleStatus($event.event, $event.game, 'game')
               "
               (toggleCase)="onToggleCase($event.event, $event.game)"
               (toggleManual)="onToggleManual($event.event, $event.game)"
-              (toggleDiscBackup)="
-                onToggleDiscBackup($event.event, $event.game, $event.discIndex)
+              (toggleMediaOwned)="
+                onToggleSingleMediaOwned($event.event, $event.game)
+              "
+              (openDiscChecklist)="
+                onOpenDiscChecklist($event.event, $event.game)
               "
             />
           }
@@ -264,4 +268,12 @@
     class="scroll-trigger"
     style="height: 50px; width: 100%"
   ></div>
+
+  <app-disc-ownership-modal
+    [game]="activeDiscModalGame()"
+    [isSaving]="discModalSaving()"
+    (closed)="onCloseDiscModal()"
+    (toggleDisc)="onDiscModalToggleDisc($event)"
+    (setAllDiscs)="onDiscModalSetAll($event)"
+  />
 </div>

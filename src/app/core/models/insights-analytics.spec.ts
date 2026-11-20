@@ -10,7 +10,7 @@ import {
   Toy,
 } from './collection.models';
 import {
-  computePhysicalBackupStats,
+  computePhysicalMediaStats,
   computeScopedJournalSummary,
   computeScopedValuation,
   computeToyLineStats,
@@ -76,7 +76,7 @@ describe('insights-analytics', () => {
       platform_id: 1,
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Played,
-      backup_status: 1,
+      has_media: 1,
       has_case: 1,
       has_manual: 1,
     },
@@ -91,7 +91,7 @@ describe('insights-analytics', () => {
       platform_id: 2,
       ownership_status: OwnershipStatus.Owned,
       play_status: PlayStatus.Playing,
-      backup_status: 0,
+      has_media: 0,
       has_case: 1,
       has_manual: 0,
     },
@@ -262,7 +262,7 @@ describe('insights-analytics', () => {
     expect(stats[1].catalogCount).toBe(1);
   });
 
-  it('computes physical backup stats across multi-disc releases excluding digital-native games', () => {
+  it('computes physical media ownership stats across multi-disc releases excluding digital-native games', () => {
     const games: Game[] = [
       ...ownedGames,
       {
@@ -276,7 +276,7 @@ describe('insights-analytics', () => {
         platform_id: 2,
         ownership_status: OwnershipStatus.Owned,
         play_status: PlayStatus.Playing,
-        backup_status: 1,
+        has_media: 1,
       },
       {
         stable_id: 4,
@@ -289,18 +289,18 @@ describe('insights-analytics', () => {
         platform_id: 2,
         ownership_status: OwnershipStatus.Owned,
         play_status: PlayStatus.Unplayed,
-        backup_status: 0,
+        has_media: 0,
         release_medium: 'digital_native',
       },
     ];
 
-    const backupSummary = computePhysicalBackupStats(games, platforms);
-    expect(backupSummary.physicalCount).toBe(3);
-    expect(backupSummary.backedUpCount).toBe(2);
-    expect(backupSummary.missingCount).toBe(1);
-    expect(backupSummary.backupRatePct).toBe(67);
-    expect(backupSummary.platformBreakdown[0].id).toBe(2);
-    expect(backupSummary.platformBreakdown[0].missingCount).toBe(1);
-    expect(backupSummary.platformBreakdown[0].physicalCount).toBe(2);
+    const mediaSummary = computePhysicalMediaStats(games, platforms);
+    expect(mediaSummary.physicalCount).toBe(3);
+    expect(mediaSummary.ownedMediaCount).toBe(2);
+    expect(mediaSummary.missingCount).toBe(1);
+    expect(mediaSummary.mediaOwnedRatePct).toBe(67);
+    expect(mediaSummary.platformBreakdown[0].id).toBe(2);
+    expect(mediaSummary.platformBreakdown[0].missingCount).toBe(1);
+    expect(mediaSummary.platformBreakdown[0].physicalCount).toBe(2);
   });
 });

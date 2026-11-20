@@ -92,6 +92,12 @@ export class AuthSessionService {
   public readonly canShowPersonalState = computed(
     () => this.isAuthenticated() && !this._isPublicView(),
   );
+  public readonly trackIndividualMedia = computed(() =>
+    Boolean(this._currentUser()?.trackIndividualMedia),
+  );
+  public readonly canTrackIndividualMedia = computed(
+    () => this.canShowPersonalState() && this.trackIndividualMedia(),
+  );
 
   private _authPromise: Promise<UserProfile | null> | null = null;
   private _lastAuthCheckMs = 0;

@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { catchError, firstValueFrom, of } from 'rxjs';
+import { RouterLink } from '@angular/router';
 import {
   CatalogSeedStatus,
   CronExecutionLogEntry,
@@ -27,7 +28,7 @@ import { PipelineHealthComponent } from './pipeline-health/pipeline-health.compo
 @Component({
   selector: 'app-admin-center',
   standalone: true,
-  imports: [IconComponent, PipelineHealthComponent],
+  imports: [RouterLink, IconComponent, PipelineHealthComponent],
   templateUrl: './admin-center.component.html',
   styleUrls: ['./admin-center.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,

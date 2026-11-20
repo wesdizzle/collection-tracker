@@ -18,26 +18,26 @@ import {
   KitSegmentedMeterComponent,
 } from '@wesdizzle/app-kit/angular';
 import {
-  PhysicalBackupSummary,
-  computePhysicalBackupStats,
+  PhysicalMediaSummary,
+  computePhysicalMediaStats,
 } from '../../../core/models/insights-analytics';
 import { CollectionService } from '../../../core/services/collection.service';
 import {
-  BackupScannerService,
   DirectoryCrawlResult,
-} from '../../../core/services/backup-scanner.service';
+  OwnershipVerificationService,
+} from '../../../core/services/ownership-verification.service';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import {
-  BackupScanReport,
   DuplicateMatchedFile,
-  IgnoredBackupFile,
+  IgnoredScanFile,
   OwnershipSwitchProposal,
+  OwnershipVerificationReport,
   ReleaseDiffRow,
-} from '../../../../../shared/backup_scanner';
+} from '../../../../../shared/ownership_verifier';
 import { Platform } from '../../../core/models/collection.models';
 
 @Component({
-  selector: 'app-backup-scanner',
+  selector: 'app-ownership-verification',
   standalone: true,
   imports: [
     CommonModule,
@@ -47,13 +47,13 @@ import { Platform } from '../../../core/models/collection.models';
     KitSectionCardComponent,
     KitSegmentedMeterComponent,
   ],
-  templateUrl: './backup-scanner.component.html',
-  styleUrl: './backup-scanner.component.css',
+  templateUrl: './ownership-verification.component.html',
+  styleUrl: './ownership-verification.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class BackupScannerComponent implements OnInit {
+export class OwnershipVerificationComponent implements OnInit {
   public collectionService = inject(CollectionService);
-  public backupScannerService = inject(BackupScannerService);
+  public ownershipVerificationService = inject(OwnershipVerificationService);
 
   @ViewChild('fallbackDirInput')
   public fallbackDirInput?: ElementRef<HTMLInputElement>;
@@ -67,19 +67,19 @@ export class BackupScannerComponent implements OnInit {
   /** Whether the custom Platform Scope dropdown menu is open */
   public isPlatformDropdownOpen = signal<boolean>(false);
 
-  /** Whether the Preservation Health summary card is expanded */
-  public preservationHealthExpanded = signal<boolean>(true);
+  /** Whether the Media Ownership Health summary card is expanded */
+  public mediaHealthExpanded = signal<boolean>(true);
 
-  /** Current computed scan report */
-  public scanReport = signal<BackupScanReport | null>(null);
+  /** Current computed ownership verification report */
+  public scanReport = signal<OwnershipVerificationReport | null>(null);
 
-  /** Whether missing backups (`1 -> 0`) on scanned platforms should be pruned */
-  public pruneMissingBackups = signal<boolean>(true);
+  /** Whether missing media (`1 -> 0`) on scanned platforms should be pruned (default off for additive verification) */
+  public pruneMissingMedia = signal<boolean>(false);
 
   /** Search query for filtering diff tables */
   public searchQuery = signal<string>('');
 
-  /** Selected release IDs for `+ Newly Backed Up (0 -> 1)` */
+  /** Selected release IDs for `+ Newly Verified Media (0 -> 1)` */
   public selectedSetIds = signal<Set<string>>(new Set());
 
   /** Selected release IDs for `- Missing on Scanned Platforms (1 -> 0)` */
@@ -88,18 +88,20 @@ export class BackupScannerComponent implements OnInit {
   /** Selected game IDs (`stable_id`) for `Ownership Switches` */
   public selectedSwitchGameIds = signal<Set<number>>(new Set());
 
-  /** Release IDs declared as Owned (`ownership_status = 1`) in `+ Newly Backed Up` */
+  /** Release IDs declared as Owned (`ownership_status = 1`) in `+ Newly Verified Media` */
   public declaredOwnedIds = signal<Set<string>>(new Set());
 
-  /** Release IDs declared with Case (`has_case = 1`) in `+ Newly Backed Up` */
+  /** Release IDs declared with Case (`has_case = 1`) in `+ Newly Verified Media` */
   public declaredCaseIds = signal<Set<string>>(new Set());
 
-  /** Release IDs declared with Manual (`has_manual = 1`) in `+ Newly Backed Up` */
+  /** Release IDs declared with Manual (`has_manual = 1`) in `+ Newly Verified Media` */
   public declaredManualIds = signal<Set<string>>(new Set());
 
-  /** Error and status banners */
+  /** Error, profile opt-in, and apply status banners */
   public scanError = signal<string | null>(null);
   public isApplying = signal<boolean>(false);
+  public isEnablingMediaTracking = signal<boolean>(false);
+  public profileOptInError = signal<string | null>(null);
   public applySuccessBanner = signal<{
     setCount: number;
     clearCount: number;
@@ -107,26 +109,26 @@ export class BackupScannerComponent implements OnInit {
     declaredOwnedCount: number;
   } | null>(null);
 
-  /** Overall and per-platform physical ROM preservation stats */
-  public preservationStats = computed<PhysicalBackupSummary>(() =>
-    computePhysicalBackupStats(
+  /** Overall and per-platform physical media ownership stats */
+  public mediaHealthStats = computed<PhysicalMediaSummary>(() =>
+    computePhysicalMediaStats(
       this.collectionService.games(),
       this.collectionService.platforms(),
     ),
   );
 
-  public backupMeterSegments = computed<KitMeterSegment[]>(() => {
-    const stats = this.preservationStats();
+  public mediaMeterSegments = computed<KitMeterSegment[]>(() => {
+    const stats = this.mediaHealthStats();
     return [
       {
-        id: 'backup-rate',
-        label: 'Preserved physical releases',
-        pct: stats.backupRatePct,
+        id: 'media-ownership-rate',
+        label: 'Verified physical media',
+        pct: stats.mediaOwnedRatePct,
         color:
-          stats.backupRatePct >= 80
-            ? 'var(--kit-success, #22c55e)'
+          stats.mediaOwnedRatePct >= 80
+            ? 'var(--badge-success-fg)'
             : 'var(--m3-primary)',
-        title: `${stats.backedUpCount} / ${stats.physicalCount} preserved (${stats.backupRatePct}%)`,
+        title: `${stats.ownedMediaCount} / ${stats.physicalCount} verified (${stats.mediaOwnedRatePct}%)`,
       },
     ];
   });
@@ -165,12 +167,12 @@ export class BackupScannerComponent implements OnInit {
     );
   });
 
-  public filteredNewlyBackedUp = computed<ReleaseDiffRow[]>(() => {
+  public filteredNewlyVerified = computed<ReleaseDiffRow[]>(() => {
     const report = this.scanReport();
     if (!report) return [];
     const q = this.searchQuery().trim().toLowerCase();
-    if (!q) return report.diff.releases.newlyBackedUp;
-    return report.diff.releases.newlyBackedUp.filter(
+    if (!q) return report.diff.releases.newlyVerified;
+    return report.diff.releases.newlyVerified.filter(
       (r) =>
         r.title.toLowerCase().includes(q) ||
         r.platform_name.toLowerCase().includes(q) ||
@@ -179,12 +181,12 @@ export class BackupScannerComponent implements OnInit {
     );
   });
 
-  public filteredLostBackups = computed<ReleaseDiffRow[]>(() => {
+  public filteredMissingFromScan = computed<ReleaseDiffRow[]>(() => {
     const report = this.scanReport();
     if (!report) return [];
     const q = this.searchQuery().trim().toLowerCase();
-    if (!q) return report.diff.releases.lostBackup;
-    return report.diff.releases.lostBackup.filter(
+    if (!q) return report.diff.releases.missingFromScan;
+    return report.diff.releases.missingFromScan.filter(
       (r) =>
         r.title.toLowerCase().includes(q) ||
         r.platform_name.toLowerCase().includes(q) ||
@@ -192,7 +194,7 @@ export class BackupScannerComponent implements OnInit {
     );
   });
 
-  public filteredIgnoredFiles = computed<IgnoredBackupFile[]>(() => {
+  public filteredIgnoredFiles = computed<IgnoredScanFile[]>(() => {
     const report = this.scanReport();
     if (!report) return [];
     const q = this.searchQuery().trim().toLowerCase();
@@ -208,7 +210,7 @@ export class BackupScannerComponent implements OnInit {
   public filteredUnchangedReleases = computed<ReleaseDiffRow[]>(() => {
     const report = this.scanReport();
     if (!report) return [];
-    const rows = report.unchangedBackedUpReleases ?? [];
+    const rows = report.unchangedVerifiedReleases ?? [];
     const q = this.searchQuery().trim().toLowerCase();
     if (!q) return rows;
     return rows.filter(
@@ -236,17 +238,17 @@ export class BackupScannerComponent implements OnInit {
   public selectedSetCount = computed(() => this.selectedSetIds().size);
 
   public effectiveSelectedClearCount = computed(() =>
-    this.pruneMissingBackups() ? this.selectedClearIds().size : 0,
+    this.pruneMissingMedia() ? this.selectedClearIds().size : 0,
   );
 
   public selectedSwitchCount = computed(
     () => this.selectedSwitchGameIds().size,
   );
 
-  public unownedNewlyBackedUpCount = computed(() => {
+  public unownedNewlyVerifiedCount = computed(() => {
     const report = this.scanReport();
     if (!report) return 0;
-    return report.diff.releases.newlyBackedUp.filter(
+    return report.diff.releases.newlyVerified.filter(
       (r) => r.ownership_status !== 1,
     ).length;
   });
@@ -285,8 +287,32 @@ export class BackupScannerComponent implements OnInit {
     }
   }
 
-  public togglePreservationHealth(): void {
-    this.preservationHealthExpanded.update((open) => !open);
+  public toggleMediaHealth(): void {
+    this.mediaHealthExpanded.update((open) => !open);
+  }
+
+  public onEnableIndividualMediaTracking(): void {
+    if (this.isEnablingMediaTracking()) {
+      return;
+    }
+    this.isEnablingMediaTracking.set(true);
+    this.profileOptInError.set(null);
+
+    this.collectionService
+      .updateProfile({ trackIndividualMedia: true })
+      .subscribe({
+        next: () => {
+          this.isEnablingMediaTracking.set(false);
+        },
+        error: (err: unknown) => {
+          this.isEnablingMediaTracking.set(false);
+          const msg =
+            err && typeof err === 'object' && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : 'Failed to enable individual disc and cart tracking.';
+          this.profileOptInError.set(msg);
+        },
+      });
   }
 
   public onScopePlatformFromBreakdown(platformId: number): void {
@@ -297,9 +323,10 @@ export class BackupScannerComponent implements OnInit {
     this.scanError.set(null);
     this.applySuccessBanner.set(null);
 
-    if (this.backupScannerService.supportsDirectoryPicker()) {
+    if (this.ownershipVerificationService.supportsDirectoryPicker()) {
       try {
-        const crawl = await this.backupScannerService.pickAndCrawlDirectory();
+        const crawl =
+          await this.ownershipVerificationService.pickAndCrawlDirectory();
         if (!crawl) {
           return;
         }
@@ -331,7 +358,9 @@ export class BackupScannerComponent implements OnInit {
     if (!input?.files || input.files.length === 0) {
       return;
     }
-    const crawl = this.backupScannerService.crawlFromFileList(input.files);
+    const crawl = this.ownershipVerificationService.crawlFromFileList(
+      input.files,
+    );
     this.applyCrawlResult(crawl);
   }
 
@@ -376,26 +405,26 @@ export class BackupScannerComponent implements OnInit {
 
   private applyCrawlResult(crawl: DirectoryCrawlResult): void {
     this.lastCrawl.set(crawl);
-    this.preservationHealthExpanded.set(false);
+    this.mediaHealthExpanded.set(false);
     this.recomputeReport(crawl);
   }
 
   private recomputeReport(crawl: DirectoryCrawlResult): void {
-    const report = this.backupScannerService.buildScanReport({
+    const report = this.ownershipVerificationService.buildVerificationReport({
       rootFolderName: crawl.rootFolderName,
       entries: crawl.entries,
       platformOverrideId: this.platformOverrideId(),
     });
     this.scanReport.set(report);
 
-    // Pre-select all newly backed up releases (0 -> 1)
+    // Pre-select all newly verified releases (0 -> 1)
     this.selectedSetIds.set(
-      new Set(report.diff.releases.newlyBackedUp.map((r) => r.id)),
+      new Set(report.diff.releases.newlyVerified.map((r) => r.id)),
     );
 
-    // Pre-select all lost backup releases (1 -> 0) (governed by pruneMissingBackups toggle)
+    // Pre-select missing releases (1 -> 0) (applied only if pruneMissingMedia is enabled)
     this.selectedClearIds.set(
-      new Set(report.diff.releases.lostBackup.map((r) => r.id)),
+      new Set(report.diff.releases.missingFromScan.map((r) => r.id)),
     );
 
     // Pre-select only ownership switches where defaultSelected === true (same-region switches)
@@ -407,7 +436,7 @@ export class BackupScannerComponent implements OnInit {
       ),
     );
 
-    // Reset per-item ownership/CIB declarations for newly discovered backups
+    // Reset per-item ownership/CIB declarations for newly verified items
     this.declaredOwnedIds.set(new Set());
     this.declaredCaseIds.set(new Set());
     this.declaredManualIds.set(new Set());
@@ -477,7 +506,7 @@ export class BackupScannerComponent implements OnInit {
   public setAllUnownedAsOwned(checked: boolean): void {
     const report = this.scanReport();
     if (!report) return;
-    const unownedIds = report.diff.releases.newlyBackedUp
+    const unownedIds = report.diff.releases.newlyVerified
       .filter((r) => r.ownership_status !== 1)
       .map((r) => r.id);
     if (checked) {
@@ -507,12 +536,12 @@ export class BackupScannerComponent implements OnInit {
     });
   }
 
-  public setAllNewlyBackedUp(checked: boolean): void {
+  public setAllNewlyVerified(checked: boolean): void {
     const report = this.scanReport();
     if (!report) return;
     if (checked) {
       this.selectedSetIds.set(
-        new Set(report.diff.releases.newlyBackedUp.map((r) => r.id)),
+        new Set(report.diff.releases.newlyVerified.map((r) => r.id)),
       );
     } else {
       this.selectedSetIds.set(new Set());
@@ -532,12 +561,12 @@ export class BackupScannerComponent implements OnInit {
     });
   }
 
-  public setAllLostBackups(checked: boolean): void {
+  public setAllMissingFromScan(checked: boolean): void {
     const report = this.scanReport();
     if (!report) return;
     if (checked) {
       this.selectedClearIds.set(
-        new Set(report.diff.releases.lostBackup.map((r) => r.id)),
+        new Set(report.diff.releases.missingFromScan.map((r) => r.id)),
       );
     } else {
       this.selectedClearIds.set(new Set());
@@ -586,17 +615,17 @@ export class BackupScannerComponent implements OnInit {
       }
     }
     const clearIdSet = new Set<string>(
-      this.pruneMissingBackups() ? this.selectedClearIds() : [],
+      this.pruneMissingMedia() ? this.selectedClearIds() : [],
     );
-    if (this.pruneMissingBackups()) {
+    if (this.pruneMissingMedia()) {
       for (const s of selectedSwitches) {
         for (const fid of s.fromReleaseIds) {
           clearIdSet.add(fid);
         }
       }
     }
-    const setBackedUp = Array.from(setIdSet);
-    const clearBackedUp = Array.from(clearIdSet);
+    const setMediaOwned = Array.from(setIdSet);
+    const clearMediaOwned = Array.from(clearIdSet);
     const ownershipTransfers = selectedSwitches.map((s) => ({
       fromReleaseIds: s.fromReleaseIds,
       toReleaseIds: s.toReleaseIds,
@@ -604,7 +633,7 @@ export class BackupScannerComponent implements OnInit {
       hasManual: s.hasManual,
     }));
 
-    const ownershipDeclarations = setBackedUp
+    const ownershipDeclarations = setMediaOwned
       .filter((id) => this.declaredOwnedIds().has(id))
       .map((id) => ({
         releaseId: id,
@@ -617,9 +646,9 @@ export class BackupScannerComponent implements OnInit {
     this.applySuccessBanner.set(null);
 
     this.collectionService
-      .applyBackupScanDiff({
-        setBackedUp,
-        clearBackedUp,
+      .applyOwnershipVerificationDiff({
+        setMediaOwned,
+        clearMediaOwned,
         ownershipTransfers,
         ...(ownershipDeclarations.length > 0 ? { ownershipDeclarations } : {}),
       })
@@ -643,7 +672,7 @@ export class BackupScannerComponent implements OnInit {
           const msg =
             err?.error?.error ||
             err?.message ||
-            'Failed to apply backup updates.';
+            'Failed to apply media ownership updates.';
           this.scanError.set(msg);
         },
       });
