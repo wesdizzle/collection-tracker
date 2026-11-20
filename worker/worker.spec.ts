@@ -22,6 +22,8 @@ import worker, {
   R2_CATALOG_TOYS_CHUNK_KEY,
   X_CATALOG_PARTIAL_HEADER,
   X_CATALOG_CHUNK_SIZE_HEADER,
+  buildIgdbSearchTokens,
+  fetchIgdbMetadataForTitles,
   getCatalogChunkR2Key,
   getBroadCatalogSeedStatus,
   isAuthorizedAdmin,
@@ -4433,13 +4435,33 @@ describe('Worker API Logic', () => {
                 return new Response('boom', { status: opts.igdbStatus });
               }
               const out = [
-                ...body.matchAll(
-                  /query games "(q\d+)" \{.*?name ~ \*"([^"]*)"\*/g,
-                ),
-              ].map((m) => ({
-                name: m[1],
-                result: resultsByTitle[m[2]] || [],
-              }));
+                ...body.matchAll(/query games "(q\d+)" \{([^}]*)\}/g),
+              ].map((m) => {
+                const subQuery = m[2];
+                const tokens = [
+                  ...subQuery.matchAll(/(?<![.\w])name ~ \*"([^"]*)"\*/g),
+                ].map((tm) => tm[1]);
+                let matchedResults: unknown[] = [];
+                if (tokens.length === 1 && resultsByTitle[tokens[0]]) {
+                  matchedResults = resultsByTitle[tokens[0]];
+                } else if (tokens.length > 0) {
+                  for (const [key, entries] of Object.entries(resultsByTitle)) {
+                    const keyLower = key.toLowerCase();
+                    if (
+                      tokens.every((tok) =>
+                        keyLower.includes(tok.toLowerCase()),
+                      )
+                    ) {
+                      matchedResults = entries;
+                      break;
+                    }
+                  }
+                }
+                return {
+                  name: m[1],
+                  result: matchedResults,
+                };
+              });
               return Response.json(out);
             }
             return new Response('unexpected', { status: 500 });
@@ -4491,6 +4513,192 @@ describe('Worker API Logic', () => {
             59,
           )?.id,
         ).toBe(7);
+      });
+
+      it('buildIgdbSearchTokens extracts significant tokens for DAT punctuation, articles, apostrophes, and Unicode', () => {
+        expect(buildIgdbSearchTokens('Guitar Hero - Van Halen')).toEqual([
+          'Guitar',
+          'Halen',
+          'Hero',
+          'Van',
+        ]);
+        expect(
+          buildIgdbSearchTokens('Legend of Zelda, The - Ocarina of Time'),
+        ).toEqual(['Ocarina', 'Legend', 'Zelda', 'Time']);
+        expect(buildIgdbSearchTokens("Nicktoons Movin'")).toEqual([
+          'Nicktoons',
+          'Movin',
+        ]);
+        expect(buildIgdbSearchTokens('Gretzky NHL 06')).toEqual([
+          'Gretzky',
+          'NHL',
+          '06',
+        ]);
+        expect(buildIgdbSearchTokens("SingStar '80s")).toEqual([
+          'SingStar',
+          '80s',
+        ]);
+        expect(
+          buildIgdbSearchTokens("Disney Presents Piglet's Big Game"),
+        ).toEqual(['Piglet', 'Game', 'Big']);
+        expect(buildIgdbSearchTokens('N')).toEqual(['N']);
+        expect(buildIgdbSearchTokens('ポケットモンスター')).toEqual([
+          'ポケットモンスター',
+        ]);
+      });
+
+      it('selectStrictIgdbMatch accepts localized names and preserves name > alternative > localized precedence', () => {
+        const leMansNorm = normalizeTitleForMatching('Le Mans 24 Hours');
+        const leMansCandidate = {
+          id: 27556,
+          name: 'Test Drive: Le Mans',
+          platforms: [8],
+          alternative_names: [{ name: '24 Heures Du Mans' }],
+          game_localizations: [{ name: 'Le Mans 24 Hours' }],
+        };
+        expect(
+          selectStrictIgdbMatch([leMansCandidate], leMansNorm, 8)?.id,
+        ).toBe(27556);
+        expect(
+          selectStrictIgdbMatch([leMansCandidate], leMansNorm, 99),
+        ).toBeNull();
+        expect(
+          selectStrictIgdbMatch(
+            [
+              {
+                ...leMansCandidate,
+                game_localizations: [{ name: 'Le Mans 25 Hours' }],
+              },
+            ],
+            leMansNorm,
+            8,
+          ),
+        ).toBeNull();
+
+        const targetNorm = normalizeTitleForMatching('Shadow Gate');
+        const localizedMatch = {
+          id: 101,
+          name: 'Different Title',
+          platforms: [18],
+          game_localizations: [{ name: 'Shadow Gate' }],
+        };
+        const altMatch = {
+          id: 102,
+          name: 'Another Title',
+          platforms: [18],
+          alternative_names: [{ name: 'Shadow Gate' }],
+        };
+        const nameMatch = {
+          id: 103,
+          name: 'Shadow Gate',
+          platforms: [18],
+        };
+        expect(
+          selectStrictIgdbMatch(
+            [localizedMatch, altMatch, nameMatch],
+            targetNorm,
+            18,
+          )?.id,
+        ).toBe(103);
+        expect(
+          selectStrictIgdbMatch([localizedMatch, altMatch], targetNorm, 18)?.id,
+        ).toBe(102);
+        expect(
+          selectStrictIgdbMatch([localizedMatch], targetNorm, 18)?.id,
+        ).toBe(101);
+      });
+
+      it('fetchIgdbMetadataForTitles builds token-ANDed clauses with companion platforms and localized names', async () => {
+        const { igdbBodies } = stubIgdbFetch({
+          'Guitar Hero: Van Halen': [
+            {
+              id: 2675,
+              name: 'Guitar Hero: Van Halen',
+              url: 'https://www.igdb.com/games/guitar-hero-van-halen',
+              summary: 'Rock rhythm game.',
+              cover: { image_id: 'ghvh1' },
+              genres: [{ name: 'Music' }],
+              collections: [{ name: 'Guitar Hero' }],
+              platforms: [8],
+            },
+          ],
+          'Bio Miracle Bokutte Upa': [
+            {
+              id: 41245,
+              name: 'Bio Miracle Bokutte Upa',
+              url: 'https://www.igdb.com/games/bio-miracle-bokutte-upa',
+              summary: 'Famicom platformer.',
+              cover: { image_id: 'bmbu1' },
+              platforms: [99],
+            },
+          ],
+          'Le Mans 24 Hours': [
+            {
+              id: 27556,
+              name: 'Test Drive: Le Mans',
+              url: 'https://www.igdb.com/games/test-drive-le-mans',
+              summary: 'Endurance racing.',
+              cover: { image_id: 'lemans1' },
+              platforms: [8],
+              game_localizations: [{ name: 'Le Mans 24 Hours' }],
+            },
+          ],
+        });
+        try {
+          const result = await fetchIgdbMetadataForTitles(mockEnv, [
+            {
+              key: 'ghvh',
+              title: 'Guitar Hero - Van Halen',
+              normalizedTitle: normalizeTitleForMatching(
+                'Guitar Hero - Van Halen',
+              ),
+              igdbPlatformId: 8,
+            },
+            {
+              key: 'upa',
+              title: 'Bio Miracle Bokutte Upa',
+              normalizedTitle: normalizeTitleForMatching(
+                'Bio Miracle Bokutte Upa',
+              ),
+              igdbPlatformId: 18,
+            },
+            {
+              key: 'snes-check',
+              title: 'F-Zero',
+              normalizedTitle: normalizeTitleForMatching('F-Zero'),
+              igdbPlatformId: 19,
+            },
+            {
+              key: 'lemans',
+              title: 'Le Mans 24 Hours',
+              normalizedTitle: normalizeTitleForMatching('Le Mans 24 Hours'),
+              igdbPlatformId: 8,
+            },
+          ]);
+
+          expect(igdbBodies.length).toBe(1);
+          const body = igdbBodies[0];
+          expect(body).toContain('where platforms = (18,99)');
+          expect(body).toContain('where platforms = (19,58)');
+          expect(body).toContain(
+            '(name ~ *"Guitar"* & name ~ *"Halen"* & name ~ *"Hero"* & name ~ *"Van"*)',
+          );
+          expect(body).toContain(
+            '(alternative_names.name ~ *"Guitar"* & alternative_names.name ~ *"Halen"* & alternative_names.name ~ *"Hero"* & alternative_names.name ~ *"Van"*)',
+          );
+          expect(body).toContain(
+            '(game_localizations.name ~ *"Guitar"* & game_localizations.name ~ *"Halen"* & game_localizations.name ~ *"Hero"* & game_localizations.name ~ *"Van"*)',
+          );
+
+          expect(result.get('ghvh')?.igdb_id).toBe(2675);
+          expect(result.get('ghvh')?.image_url).toBe(
+            'https://images.igdb.com/igdb/image/upload/t_cover_big/ghvh1.jpg',
+          );
+          expect(result.get('upa')?.igdb_id).toBe(41245);
+          expect(result.get('lemans')?.igdb_id).toBe(27556);
+        } finally {
+          vi.unstubAllGlobals();
+        }
       });
 
       it('syncWorkerBroadCatalogPopulation inserts IGDB metadata inline when strictly matched and still inserts unmatched games', async () => {
@@ -4628,6 +4836,52 @@ describe('Worker API Logic', () => {
             batchSize: 1000,
           });
           expect(fourth).toMatchObject({ skipped: true, reason: 'completed' });
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerIgdbMetadataBackfill matches bare DAT-hyphenated games against IGDB colon titles', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, physical_status)
+          VALUES (9201, 'guitar-hero-van-halen-ps2', 'Guitar Hero - Van Halen', 30, 'verified_physical');
+        `);
+        stubIgdbFetch({
+          'Guitar Hero: Van Halen': [
+            {
+              id: 2675,
+              name: 'Guitar Hero: Van Halen',
+              url: 'https://www.igdb.com/games/guitar-hero-van-halen',
+              summary: 'Van Halen rhythm game.',
+              cover: { image_id: 'ghvh_cover' },
+              genres: [{ name: 'Music' }],
+              collections: [{ name: 'Guitar Hero' }],
+              franchises: [{ name: 'Guitar Hero' }],
+              platforms: [8],
+            },
+          ],
+        });
+        try {
+          const res = await syncWorkerIgdbMetadataBackfill(mockEnv, {
+            batchSize: 1000,
+          });
+          expect(res.skipped).toBe(false);
+          expect(res.matched).toBe(1);
+
+          const updated = db
+            .prepare(
+              'SELECT igdb_id, igdb_url, image_url, summary, genres, canonical_series FROM games WHERE stable_id = 9201',
+            )
+            .get();
+          expect(updated).toEqual({
+            igdb_id: 2675,
+            igdb_url: 'https://www.igdb.com/games/guitar-hero-van-halen',
+            image_url:
+              'https://images.igdb.com/igdb/image/upload/t_cover_big/ghvh_cover.jpg',
+            summary: 'Van Halen rhythm game.',
+            genres: 'Music',
+            canonical_series: 'Guitar Hero',
+          });
         } finally {
           vi.unstubAllGlobals();
         }

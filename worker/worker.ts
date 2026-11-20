@@ -11917,6 +11917,71 @@ export interface IgdbSearchCandidate {
 
 const IGDB_MULTIQUERY_MAX = 10;
 
+const IGDB_SEARCH_STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'and',
+  'in',
+  'of',
+  'for',
+  'with',
+  'on',
+  'at',
+  'to',
+  'by',
+  'or',
+  'from',
+  'version',
+  'edition',
+  'vs',
+  'vol',
+  'volume',
+  'featuring',
+  'ft',
+  'presents',
+  'disney',
+  'sega',
+  'nintendo',
+  'sony',
+  'microsoft',
+  'capcom',
+  'konami',
+  'namco',
+  'square',
+  'enix',
+  'atari',
+  'ubisoft',
+  'ea',
+  'marvel',
+  'sid',
+  'meier',
+  'meiers',
+  'tom',
+  'clancy',
+  'clancys',
+  'lego',
+  'nickelodeon',
+  'lara',
+  'croft',
+  'walt',
+  'pictures',
+  'dreamworks',
+  'hedgehog',
+  'ds',
+  'gba',
+  'gbc',
+  'n64',
+  'nes',
+  'snes',
+  'ps3',
+  'ps2',
+  'ps1',
+  'wii',
+  'xbox',
+  '3ds',
+]);
+
 function sanitizeIgdbSearchTerm(title: string): string {
   return (title || '')
     .replace(/["\\]/g, '')
@@ -11925,7 +11990,40 @@ function sanitizeIgdbSearchTerm(title: string): string {
 }
 
 /**
- * Strictly selects the IGDB candidate whose normalized name (or an alternative name)
+ * Extracts up to 4 longest significant alphanumeric tokens for IGDB `multiquery`
+ * substring predicates so DAT punctuation differences (like `" - "` vs `":"`)
+ * and stripped articles/prefixes still match upstream IGDB entries.
+ */
+export function buildIgdbSearchTokens(title: string): string[] {
+  const cleaned = (title || '')
+    .replace(/[\u2018\u2019\u201B\u2032`]/g, "'")
+    .replace(/'s\b/gi, '')
+    .replace(/["\\]/g, '');
+  const raw = cleaned.match(/[\p{L}\p{N}]+/gu) || [];
+  const filtered = raw.filter(
+    (t) =>
+      (t.length >= 2 || /^\p{N}$/u.test(t)) &&
+      !IGDB_SEARCH_STOPWORDS.has(t.toLowerCase()),
+  );
+  let pool = filtered.length > 0 ? filtered : raw.filter((t) => t.length >= 1);
+  if (pool.length === 0) {
+    pool = [sanitizeIgdbSearchTerm(title)].filter(Boolean);
+  }
+  const uniq: string[] = [];
+  const seen = new Set<string>();
+  for (const t of pool) {
+    const key = t.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniq.push(t);
+    }
+  }
+  uniq.sort((a, b) => b.length - a.length);
+  return uniq.slice(0, 4);
+}
+
+/**
+ * Strictly selects the IGDB candidate whose normalized name (or an alternative/localized name)
  * exactly equals `normalizedTitle` and that lists `igdbPlatformId`. When a matched base
  * game's `first_release_date` predates `platformLaunchDate` (or links a dedicated remaster/port
  * on `igdbPlatformId`), prefers the native platform edition in `candidates`. Ambiguous or fuzzy
@@ -11945,12 +12043,20 @@ export function selectStrictIgdbMatch(
   const onPlatform = (candidates || []).filter((c) =>
     extractIgdbPlatformIds(c.platforms).some((pid) => companionIds.has(pid)),
   );
+  const matchesPrimaryName = (c: IgdbSearchCandidate) =>
+    normalizeTitleForMatching(c.name || '') === normalizedTitle;
+  const matchesAlternativeName = (c: IgdbSearchCandidate) =>
+    (c.alternative_names || []).some(
+      (a) => normalizeTitleForMatching(a.name || '') === normalizedTitle,
+    );
+  const matchesLocalized = (c: IgdbSearchCandidate) =>
+    (c.game_localizations || []).some(
+      (l) => normalizeTitleForMatching(l.name || '') === normalizedTitle,
+    );
+
   const exactMatches = onPlatform.filter(
     (c) =>
-      normalizeTitleForMatching(c.name || '') === normalizedTitle ||
-      (c.alternative_names || []).some(
-        (a) => normalizeTitleForMatching(a.name || '') === normalizedTitle,
-      ),
+      matchesPrimaryName(c) || matchesAlternativeName(c) || matchesLocalized(c),
   );
 
   for (const match of exactMatches) {
@@ -11995,17 +12101,11 @@ export function selectStrictIgdbMatch(
     }
   }
 
-  const byName = onPlatform.find(
-    (c) => normalizeTitleForMatching(c.name || '') === normalizedTitle,
-  );
+  const byName = onPlatform.find(matchesPrimaryName);
   if (byName) return byName;
-  return (
-    onPlatform.find((c) =>
-      (c.alternative_names || []).some(
-        (a) => normalizeTitleForMatching(a.name || '') === normalizedTitle,
-      ),
-    ) || null
-  );
+  const byAlternative = onPlatform.find(matchesAlternativeName);
+  if (byAlternative) return byAlternative;
+  return onPlatform.find(matchesLocalized) || null;
 }
 
 function toIgdbGameMeta(c: IgdbSearchCandidate): IgdbGameMeta {
@@ -12059,17 +12159,25 @@ export async function fetchIgdbMetadataForTitles(
       i.igdbPlatformId &&
       i.igdbPlatformId > 0 &&
       i.normalizedTitle &&
-      sanitizeIgdbSearchTerm(i.title).length > 0,
+      buildIgdbSearchTokens(i.title).length > 0,
   );
 
   for (let start = 0; start < eligible.length; start += IGDB_MULTIQUERY_MAX) {
     const chunk = eligible.slice(start, start + IGDB_MULTIQUERY_MAX);
     const body = chunk
       .map((item, idx) => {
-        const term = sanitizeIgdbSearchTerm(item.title);
-        // NOTE: IGDB `search` returns no rows inside multiquery sub-queries, so use
-        // case-insensitive substring filters and apply strict normalized matching locally.
-        return `query games "q${idx}" { fields id, name, url, summary, cover.image_id, cover.url, genres.name, collections.name, franchises.name, platforms, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region; where platforms = (${item.igdbPlatformId}) & (name ~ *"${term}"* | alternative_names.name ~ *"${term}"*); sort id asc; limit 50; };`;
+        const tokens = buildIgdbSearchTokens(item.title);
+        const platformIds = getIgdbCompanionPlatformIds(
+          item.igdbPlatformId as number,
+        ).join(',');
+        const buildFieldClause = (field: string) =>
+          tokens.length === 1
+            ? `${field} ~ *"${tokens[0]}"*`
+            : `(${tokens.map((t) => `${field} ~ *"${t}"*`).join(' & ')})`;
+        // NOTE: IGDB `search` returns no rows inside multiquery sub-queries, and inner `*`
+        // wildcards inside quotes are treated literally, so AND separate token substring filters
+        // and apply strict normalized matching locally.
+        return `query games "q${idx}" { fields id, name, url, summary, cover.image_id, cover.url, genres.name, collections.name, franchises.name, platforms, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region; where platforms = (${platformIds}) & (${buildFieldClause('name')} | ${buildFieldClause('alternative_names.name')} | ${buildFieldClause('game_localizations.name')}); sort id asc; limit 50; };`;
       })
       .join('\n');
     try {
