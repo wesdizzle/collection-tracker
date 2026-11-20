@@ -532,6 +532,14 @@ a {
   margin-right: auto;
 }
 
+:root {
+  --kit-vt-media-duration: var(--kit-motion-duration-enter, 280ms);
+  --kit-vt-media-easing: var(
+    --kit-motion-easing-expressive,
+    cubic-bezier(0.16, 1, 0.3, 1)
+  );
+}
+
 /* Router View Transitions (M3 Expressive cross-fade & cover art morphing) */
 ::view-transition-old(root),
 ::view-transition-new(root) {

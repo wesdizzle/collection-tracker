@@ -176,6 +176,11 @@ button.stat-pill {
   object-fit: cover;
 }
 
+.art-frame:not(.toy-frame) img {
+  border-radius: inherit;
+  view-transition-class: kit-vt-media;
+}
+
 .item-title {
   font-size: 3.5rem;
   font-weight: 800;
