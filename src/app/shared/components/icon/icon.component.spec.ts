@@ -25,11 +25,18 @@ describe('IconComponent', () => {
     fixture.componentRef.setInput('className', 'custom-coin');
     fixture.detectChanges();
 
+    const wrap = fixture.nativeElement.querySelector(
+      '.kit-icon-wrap',
+    ) as HTMLElement | null;
+    expect(wrap).toBeTruthy();
+    expect(wrap?.style.width).toBe('24px');
+    expect(wrap?.style.height).toBe('24px');
+
     const svg = fixture.nativeElement.querySelector('svg');
     expect(svg).toBeTruthy();
     expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
-    expect(svg.style.width).toBe('24px');
-    expect(svg.style.height).toBe('24px');
+    expect(svg.getAttribute('width')).toBe('100%');
+    expect(svg.getAttribute('height')).toBe('100%');
     expect(svg.classList.contains('custom-coin')).toBe(true);
     expect(svg.innerHTML).toContain('circle');
   });
