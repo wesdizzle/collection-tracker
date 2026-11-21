@@ -17,6 +17,7 @@ import {
   JournalEntry,
   FilterState,
 } from '../../../../core/models/collection.models';
+import { getRomGroupingKey } from '../../../../core/models/title-mappings';
 
 /**
  * UNIT TEST: CollectionListComponent
@@ -887,11 +888,7 @@ describe('CollectionListComponent', () => {
 
   describe('Multi-disc grouping and getRomGroupingKey', () => {
     it('should correctly build grouping keys for multi-disc vs single-disc files', () => {
-      const fn = (
-        component as unknown as {
-          getRomGroupingKey: (filename: string | null | undefined) => string;
-        }
-      ).getRomGroupingKey.bind(component);
+      const fn = getRomGroupingKey;
       expect(fn('Castlevania - Symphony of the Night (Disc 1).cue')).toBe(
         'multi:castlevania - symphony of the night',
       );
@@ -995,14 +992,14 @@ describe('CollectionListComponent', () => {
 
       const usaGroup = games.find((g) => g.region === 'USA');
       expect(usaGroup).toBeTruthy();
-      expect(usaGroup?.discIds).toContain('cv-1');
-      expect(usaGroup?.discIds).toContain('cv-2');
-      expect(usaGroup?.discIds.length).toBe(2);
+      expect(usaGroup?.mediaItems.map((m) => m.id)).toContain('cv-1');
+      expect(usaGroup?.mediaItems.map((m) => m.id)).toContain('cv-2');
+      expect(usaGroup?.mediaItems.length).toBe(2);
 
       const jpGroup = games.find((g) => g.region === 'Japan');
       expect(jpGroup).toBeTruthy();
-      expect(jpGroup?.discIds).toContain('cv-jp-1');
-      expect(jpGroup?.discIds.length).toBe(1);
+      expect(jpGroup?.mediaItems.map((m) => m.id)).toContain('cv-jp-1');
+      expect(jpGroup?.mediaItems.length).toBe(1);
     });
   });
 
@@ -1484,11 +1481,26 @@ describe('CollectionListComponent', () => {
     const games = component.filteredGames();
     const goty = games.find((g) => g.id === 'oblivion-goty-usa');
     expect(goty).toBeTruthy();
-    // Case 1: Original Disc 1 has media, GOTY Disc 2 does NOT -> discIds, discLabels, and discMediaOwned stay 1-to-1
+    // Case 1: Original Disc 1 has media, GOTY Disc 2 does NOT -> mediaItems stays 1-to-1 aligned
     expect(goty?.ownership_status).toBe(0);
-    expect(goty?.discIds).toEqual(['oblivion-base-usa', 'oblivion-goty-usa']);
-    expect(goty?.discLabels).toEqual(['Disc 1 (Base Release)', 'Disc 2']);
-    expect(goty?.discMediaOwned).toEqual([1, 0]);
+    expect(goty?.mediaItems).toEqual([
+      {
+        id: 'oblivion-base-usa',
+        label: 'Disc 1 (Base Release)',
+        hasMedia: 1,
+        romName: 'Elder Scrolls IV, The - Oblivion (USA).iso',
+        romCrc: null,
+        isCompanionBase: true,
+      },
+      {
+        id: 'oblivion-goty-usa',
+        label: 'Disc 2',
+        hasMedia: 0,
+        romName:
+          'Elder Scrolls IV, The - Oblivion - Game of the Year Edition (USA) (Disc 2).iso',
+        romCrc: null,
+      },
+    ]);
     expect(goty?.has_media).toBe(0);
   });
 
@@ -1634,8 +1646,7 @@ describe('CollectionListComponent', () => {
     const singleGame = {
       id: 'chrono-snes',
       title: 'Chrono Trigger',
-      discIds: ['chrono-snes'],
-      discMediaOwned: [0],
+      mediaItems: [{ id: 'chrono-snes', label: 'Cart', hasMedia: 0 }],
       has_media: 0,
     } as unknown as Game;
 
@@ -1646,14 +1657,16 @@ describe('CollectionListComponent', () => {
 
     component.onToggleSingleMediaOwned(mockEvent, singleGame);
     expect(updateSpy).toHaveBeenCalledWith('chrono-snes', 1);
-    expect(singleGame.discMediaOwned?.[0]).toBe(1);
+    expect(singleGame.mediaItems?.[0]?.hasMedia).toBe(1);
     expect(singleGame.has_media).toBe(1);
 
     const multiDiscGame = {
       id: 'mgs-ps1',
       title: 'Metal Gear Solid',
-      discIds: ['mgs-disc1', 'mgs-disc2'],
-      discMediaOwned: [1, 0],
+      mediaItems: [
+        { id: 'mgs-disc1', label: 'Disc 1', hasMedia: 1 },
+        { id: 'mgs-disc2', label: 'Disc 2', hasMedia: 0 },
+      ],
       has_media: 0,
     } as unknown as Game;
     expect(component.getOwnedDiscCount(multiDiscGame)).toBe(1);
@@ -1676,8 +1689,7 @@ describe('CollectionListComponent', () => {
     const singleGame = {
       id: 'chrono-snes',
       title: 'Chrono Trigger',
-      discIds: ['chrono-snes'],
-      discMediaOwned: [0],
+      mediaItems: [{ id: 'chrono-snes', label: 'Cart', hasMedia: 0 }],
       has_media: 0,
     } as unknown as Game;
 
@@ -1689,7 +1701,7 @@ describe('CollectionListComponent', () => {
     component.onToggleSingleMediaOwned(mockEvent, singleGame);
     expect(promptSpy).toHaveBeenCalled();
     expect(updateSpy).not.toHaveBeenCalled();
-    expect(singleGame.discMediaOwned?.[0]).toBe(0);
+    expect(singleGame.mediaItems?.[0]?.hasMedia).toBe(0);
     expect(singleGame.has_media).toBe(0);
 
     component.onOpenDiscChecklist(mockEvent, singleGame);
@@ -1707,8 +1719,7 @@ describe('CollectionListComponent', () => {
     const singleGame = {
       id: 'chrono-snes',
       title: 'Chrono Trigger',
-      discIds: ['chrono-snes'],
-      discMediaOwned: [0],
+      mediaItems: [{ id: 'chrono-snes', label: 'Cart', hasMedia: 0 }],
       has_media: 0,
     } as unknown as Game;
 
@@ -1719,7 +1730,7 @@ describe('CollectionListComponent', () => {
 
     component.onToggleSingleMediaOwned(mockEvent, singleGame);
 
-    expect(singleGame.discMediaOwned?.[0]).toBe(0);
+    expect(singleGame.mediaItems?.[0]?.hasMedia).toBe(0);
     expect(singleGame.has_media).toBe(0);
 
     errorSpy.mockRestore();

@@ -507,8 +507,7 @@ describe('CollectionService', () => {
           play_status: 0,
           has_media: 0,
           releases: [{ id: 'g1-d1', region: 'USA', has_media: 0 }],
-          discIds: ['g1-d1'],
-          discMediaOwned: [0],
+          mediaItems: [{ id: 'g1-d1', label: 'Disc 1', hasMedia: 0 }],
         },
       ]);
       httpMock.expectOne('/api/toys').flush([]);
@@ -525,7 +524,7 @@ describe('CollectionService', () => {
       const afterDiscGame = service.games()[0];
       expect(afterDiscGame).not.toBe(afterGame);
       expect(afterDiscGame.releases?.[0].has_media).toBe(1);
-      expect(afterDiscGame.discMediaOwned?.[0]).toBe(1);
+      expect(afterDiscGame.mediaItems?.[0].hasMedia).toBe(1);
       expect(afterDiscGame.has_media).toBe(1);
     });
 

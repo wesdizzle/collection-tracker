@@ -26,9 +26,11 @@ describe('DiscOwnershipModalComponent', () => {
     ownership_status: OwnershipStatus.Owned,
     play_status: PlayStatus.Playing,
     has_media: 0,
-    discIds: ['ff7-d1', 'ff7-d2', 'ff7-d3'],
-    discLabels: ['Disc 1', 'Disc 2', 'Disc 3'],
-    discMediaOwned: [1, 0, 0],
+    mediaItems: [
+      { id: 'ff7-d1', label: 'Disc 1', hasMedia: 1 },
+      { id: 'ff7-d2', label: 'Disc 2', hasMedia: 0 },
+      { id: 'ff7-d3', label: 'Disc 3', hasMedia: 0 },
+    ],
   };
 
   beforeEach(async () => {
@@ -57,7 +59,7 @@ describe('DiscOwnershipModalComponent', () => {
     fixture.detectChanges();
   });
 
-  it('opens when game input is provided and aligns discIds, discLabels, and discMediaOwned 1-to-1', () => {
+  it('opens when game input is provided and renders mediaItems cleanly', () => {
     fixture.componentRef.setInput('game', mockMultiDiscGame);
     fixture.detectChanges();
 

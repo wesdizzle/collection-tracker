@@ -38,8 +38,7 @@ describe('CompactTableComponent', () => {
       retail_store: 'Best Buy',
       release_date: '2017-03-03',
       image_url: 'https://example.com/botw.jpg',
-      discIds: ['botw-cart-1'],
-      discMediaOwned: [1],
+      mediaItems: [{ id: 'botw-cart-1', label: 'Cart', hasMedia: 1 }],
     },
   ];
 
@@ -171,8 +170,10 @@ describe('CompactTableComponent', () => {
         {
           ...mockGames[0],
           platform: 'PlayStation',
-          discIds: ['disc-1', 'disc-2'],
-          discMediaOwned: [1, 0],
+          mediaItems: [
+            { id: 'disc-1', label: 'Disc 1', hasMedia: 1 },
+            { id: 'disc-2', label: 'Disc 2', hasMedia: 0 },
+          ],
         },
       ]);
       fixture.detectChanges();
@@ -218,8 +219,10 @@ describe('CompactTableComponent', () => {
       fixture.componentRef.setInput('games', [
         {
           ...mockGames[0],
-          discIds: ['disc-1', 'disc-2'],
-          discMediaOwned: [1, 0],
+          mediaItems: [
+            { id: 'disc-1', label: 'Disc 1', hasMedia: 1 },
+            { id: 'disc-2', label: 'Disc 2', hasMedia: 0 },
+          ],
         },
       ]);
       fixture.detectChanges();

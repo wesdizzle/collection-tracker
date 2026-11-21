@@ -14,6 +14,10 @@ import {
   formatPriceAge,
   getMediaIconName,
   getMediaNoun,
+  getMissingMediaCount,
+  getOwnedMediaCount,
+  getTotalMediaCount,
+  isMultiMediaRelease,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
 import {
@@ -156,14 +160,20 @@ export class GameCardComponent {
     return result;
   }
 
+  public isMultiDisc(game: Game): boolean {
+    return isMultiMediaRelease(game);
+  }
+
+  public getTotalDiscCount(game: Game): number {
+    return getTotalMediaCount(game);
+  }
+
   public getOwnedDiscCount(game: Game): number {
-    return (game.discMediaOwned || []).filter((b) => b === 1).length;
+    return getOwnedMediaCount(game);
   }
 
   public getMissingDiscCount(game: Game): number {
-    const total = game.discIds?.length || 1;
-    const owned = this.getOwnedDiscCount(game);
-    return Math.max(0, total - owned);
+    return getMissingMediaCount(game);
   }
 
   public getMediaIcon(
@@ -181,8 +191,8 @@ export class GameCardComponent {
   }
 
   public getMultiDiscTooltip(game: Game): string {
-    const total = game.discIds?.length || 1;
-    const owned = this.getOwnedDiscCount(game);
+    const total = getTotalMediaCount(game);
+    const owned = getOwnedMediaCount(game);
     const plural = getMediaNoun(game.display_name || game.platform, true);
     return `${owned}/${total} ${plural} Owned — Click to manage ${plural.toLowerCase()}`;
   }

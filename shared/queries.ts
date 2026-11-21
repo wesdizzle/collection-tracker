@@ -29,6 +29,11 @@ import {
   normalizeForLabelMatch,
 } from './special_labels.js';
 
+/**
+ * Builds the flat catalog list SQL query (`CatalogMediaRow`: 1 row per physical media unit in `game_releases`).
+ * Flat rows keep R2 catalog chunks compact and enable O(1) user overlay merging; virtual Retail Release (SKU)
+ * grouping happens in `groupCatalogMediaIntoReleases` on the frontend.
+ */
 export function buildGamesListQuery(userId?: number | null): string {
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?
@@ -396,6 +401,10 @@ export function getGameDetailQueryParams(
   return [id, id, id];
 }
 
+/**
+ * Queries all individual physical media rows (`PhysicalMedia` / `game_releases`) belonging to a Platform Game
+ * (`games.stable_id`), enriched with per-user `has_media`, `ownership_status`, `has_case`, and `has_manual`.
+ */
 export function buildGameReleasesByGameIdQuery(
   userId?: number | null,
   isAll?: boolean,
