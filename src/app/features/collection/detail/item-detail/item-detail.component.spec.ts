@@ -244,6 +244,39 @@ describe('ItemDetailComponent', () => {
     expect(discsSection.textContent).not.toContain('B19DF4F3');
   });
 
+  it('does not render game or release deletion buttons even for admins', async () => {
+    collectionService.setAdminForTesting(true);
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        releases: [
+          {
+            id: 'super-mario-world-snes-usa',
+            game_id: 1,
+            region: 'USA',
+            rom_name: 'Super Mario World (USA).sfc',
+            has_media: 1,
+            ownership_status: 1,
+            is_source_verified: 1,
+          },
+        ],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(
+      compiled.querySelector('[data-testid="delete-game-btn"]'),
+    ).toBeNull();
+    expect(
+      compiled.querySelector('button[title="Remove this release"]'),
+    ).toBeNull();
+    expect(compiled.querySelector('[data-testid="delete-modal"]')).toBeNull();
+  });
+
   it('should render the IGDB verified pill as an anchor tag with correct URL', async () => {
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(
       of({

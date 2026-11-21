@@ -45,7 +45,7 @@ import {
   STANDARD_MERCHANTS,
   formatJournalDate,
 } from '../../../../core/models/collection.models';
-import { combineLatest, of, Observable, firstValueFrom } from 'rxjs';
+import { combineLatest, of, Observable } from 'rxjs';
 import { switchMap, catchError, startWith } from 'rxjs/operators';
 import { toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { KitDetailShellComponent } from '@wesdizzle/app-kit/angular';
@@ -80,14 +80,6 @@ export class ItemDetailComponent {
 
   public journalRefreshTrigger = signal<number>(0);
 
-  /** Pending game/release deletion awaiting user confirmation. */
-  public pendingDelete = signal<{
-    kind: 'game' | 'release';
-    id: string;
-    label: string;
-  } | null>(null);
-  public deleting = signal<boolean>(false);
-  public deleteError = signal<string | null>(null);
   public isEditingJournal = signal<boolean>(false);
   public journalSaving = signal<boolean>(false);
   public journalSaveError = signal<string | null>(null);
@@ -678,69 +670,6 @@ export class ItemDetailComponent {
       return true;
     }
     return false;
-  }
-
-  /**
-   * Opens the delete confirmation for an entire game.
-   */
-  public requestDeleteGame(game: Game): void {
-    this.deleteError.set(null);
-    this.pendingDelete.set({
-      kind: 'game',
-      id: game.game_id || game.id,
-      label: game.title,
-    });
-  }
-
-  /**
-   * Opens the delete confirmation for a single release.
-   */
-  public requestDeleteRelease(release: GameRelease): void {
-    this.deleteError.set(null);
-    this.pendingDelete.set({
-      kind: 'release',
-      id: release.id,
-      label: release.rom_name || release.region || release.id,
-    });
-  }
-
-  public cancelDelete(): void {
-    if (this.deleting()) return;
-    this.pendingDelete.set(null);
-    this.deleteError.set(null);
-  }
-
-  /**
-   * Executes the confirmed deletion. Deleting a game returns to the list;
-   * deleting a release reloads the collection so the detail view refreshes.
-   */
-  public async confirmDelete(): Promise<void> {
-    const pd = this.pendingDelete();
-    if (!pd || this.deleting()) return;
-    this.deleting.set(true);
-    this.deleteError.set(null);
-    try {
-      if (pd.kind === 'game') {
-        await firstValueFrom(this.collectionService.deleteGame(pd.id));
-        this.pendingDelete.set(null);
-        this.router.navigate(['/collection', 'games']);
-      } else {
-        await firstValueFrom(this.collectionService.deleteRelease(pd.id));
-        this.pendingDelete.set(null);
-        const g = this.game();
-        if (g) {
-          const nextReleases = (g.releases || []).filter((r) => r.id !== pd.id);
-          g.releases = nextReleases;
-          this.itemOverride.set({ ...g, releases: nextReleases });
-        }
-      }
-    } catch (err) {
-      this.deleteError.set(
-        err instanceof Error ? err.message : 'Deletion failed.',
-      );
-    } finally {
-      this.deleting.set(false);
-    }
   }
 
   /**
