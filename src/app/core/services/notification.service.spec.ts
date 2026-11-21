@@ -25,6 +25,11 @@ describe('NotificationService', () => {
   let mockSwPush: {
     isEnabled: boolean;
     notificationClicks: Subject<{ notification: { data?: { url?: string } } }>;
+    messages: Subject<object>;
+    pushSubscriptionChanges: Subject<{
+      oldSubscription: PushSubscription | null;
+      newSubscription: PushSubscription | null;
+    }>;
     requestSubscription: ReturnType<typeof vi.fn>;
     unsubscribe: ReturnType<typeof vi.fn>;
   };
@@ -45,6 +50,8 @@ describe('NotificationService', () => {
     mockSwPush = {
       isEnabled: true,
       notificationClicks: new Subject(),
+      messages: new Subject(),
+      pushSubscriptionChanges: new Subject(),
       requestSubscription: vi.fn(),
       unsubscribe: vi.fn().mockResolvedValue(undefined),
     };
@@ -245,5 +252,202 @@ describe('NotificationService', () => {
     expect(service.isSettingsModalOpen()).toBe(true);
     service.closeSettingsModal();
     expect(service.isSettingsModalOpen()).toBe(false);
+  });
+
+  it('should confirm device delivery when SwPush.messages emits matching testId after HTTP response', async () => {
+    service.currentEndpoint.set('https://push.example.com/sub/test-1');
+
+    const testPromise = service.sendTestAlert();
+    await Promise.resolve();
+
+    const testReq = httpTesting.expectOne('/api/notifications/test');
+    testReq.flush({ success: true, status: 201, testId: 'test-alert-abc' });
+    await Promise.resolve();
+
+    mockSwPush.messages.next({
+      notification: { data: { testId: 'test-alert-abc' } },
+    });
+
+    const result = await testPromise;
+    expect(result).toBe(true);
+    expect(service.lastTestMessage()).toBe(
+      '✓ Test alert delivered to this device!',
+    );
+    expect(service.lastTestError()).toBeNull();
+  });
+
+  it('should confirm device delivery when SwPush.messages emits matching testId before HTTP response arrives', async () => {
+    service.currentEndpoint.set('https://push.example.com/sub/test-1');
+
+    const testPromise = service.sendTestAlert();
+    await Promise.resolve();
+
+    const testReq = httpTesting.expectOne('/api/notifications/test');
+    mockSwPush.messages.next({ data: { testId: 'test-alert-early' } });
+    testReq.flush({ success: true, status: 201, testId: 'test-alert-early' });
+
+    const result = await testPromise;
+    expect(result).toBe(true);
+    expect(service.lastTestMessage()).toBe(
+      '✓ Test alert delivered to this device!',
+    );
+  });
+
+  it('should report awaiting-delivery diagnostic message when SwPush.messages times out', async () => {
+    vi.useFakeTimers();
+    try {
+      service.currentEndpoint.set('https://push.example.com/sub/test-1');
+
+      const testPromise = service.sendTestAlert();
+      await Promise.resolve();
+
+      const testReq = httpTesting.expectOne('/api/notifications/test');
+      testReq.flush({
+        success: true,
+        status: 201,
+        testId: 'test-alert-timeout',
+      });
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(6000);
+
+      const result = await testPromise;
+      expect(result).toBe(true);
+      expect(service.lastTestMessage()).toContain(
+        'Push service accepted test (HTTP 201)',
+      );
+      expect(service.lastTestMessage()).toContain('awaiting delivery');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should resolve the live PushManager subscription endpoint over stale cached endpoint', async () => {
+    service.currentEndpoint.set('https://push.example.com/sub/stale-cached');
+    service.isSubscribed.set(true);
+
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: {
+        getRegistration: vi.fn().mockResolvedValue({
+          active: {},
+          pushManager: {
+            getSubscription: vi.fn().mockResolvedValue({
+              endpoint: 'https://push.example.com/sub/live-active',
+            }),
+          },
+        }),
+      },
+      configurable: true,
+    });
+
+    const testPromise = service.sendTestAlert();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const testReq = httpTesting.expectOne('/api/notifications/test');
+    expect(testReq.request.body.endpoint).toBe(
+      'https://push.example.com/sub/live-active',
+    );
+    testReq.flush({ success: true });
+
+    const result = await testPromise;
+    expect(result).toBe(true);
+    expect(service.currentEndpoint()).toBe(
+      'https://push.example.com/sub/live-active',
+    );
+    expect(localStorage.getItem('app_push_endpoint')).toBe(
+      'https://push.example.com/sub/live-active',
+    );
+  });
+
+  it('should clean up previous endpoint on enableNotifications when replaced', async () => {
+    service.currentEndpoint.set('https://push.example.com/sub/old-endpoint');
+    const mockSub = {
+      endpoint: 'https://push.example.com/sub/new-endpoint',
+      toJSON: () => ({
+        endpoint: 'https://push.example.com/sub/new-endpoint',
+        keys: { p256dh: 'new-p256dh', auth: 'new-auth' },
+      }),
+    };
+    mockSwPush.requestSubscription.mockResolvedValue(mockSub);
+
+    const enablePromise = service.enableNotifications();
+
+    const vapidReq = httpTesting.expectOne(
+      '/api/notifications/vapid-public-key',
+    );
+    vapidReq.flush({ publicKey: 'mock-vapid-key' });
+
+    for (let i = 0; i < 6; i++) {
+      await Promise.resolve();
+    }
+
+    const subReq = httpTesting.expectOne('/api/notifications/subscribe');
+    expect(subReq.request.body.endpoint).toBe(
+      'https://push.example.com/sub/new-endpoint',
+    );
+    subReq.flush({ success: true, id: 'sub-new' });
+
+    for (let i = 0; i < 4; i++) {
+      await Promise.resolve();
+    }
+
+    const unsubReq = httpTesting.expectOne('/api/notifications/unsubscribe');
+    expect(unsubReq.request.body.endpoint).toBe(
+      'https://push.example.com/sub/old-endpoint',
+    );
+    unsubReq.flush({ success: true });
+
+    const result = await enablePromise;
+    expect(result).toBe(true);
+    expect(service.currentEndpoint()).toBe(
+      'https://push.example.com/sub/new-endpoint',
+    );
+  });
+
+  it('should sync rotated subscription on SwPush.pushSubscriptionChanges', async () => {
+    const oldSub = {
+      endpoint: 'https://push.example.com/sub/rotated-old',
+    } as PushSubscription;
+    const newSub = {
+      endpoint: 'https://push.example.com/sub/rotated-new',
+      toJSON: () => ({
+        endpoint: 'https://push.example.com/sub/rotated-new',
+        keys: { p256dh: 'rot-p256dh', auth: 'rot-auth' },
+      }),
+    } as unknown as PushSubscription;
+
+    mockSwPush.pushSubscriptionChanges.next({
+      oldSubscription: oldSub,
+      newSubscription: newSub,
+    });
+
+    await Promise.resolve();
+
+    const subReq = httpTesting.expectOne('/api/notifications/subscribe');
+    expect(subReq.request.body.endpoint).toBe(
+      'https://push.example.com/sub/rotated-new',
+    );
+    subReq.flush({ success: true });
+
+    for (let i = 0; i < 4; i++) {
+      await Promise.resolve();
+    }
+
+    const unsubReq = httpTesting.expectOne('/api/notifications/unsubscribe');
+    expect(unsubReq.request.body.endpoint).toBe(
+      'https://push.example.com/sub/rotated-old',
+    );
+    unsubReq.flush({ success: true });
+
+    for (let i = 0; i < 4; i++) {
+      await Promise.resolve();
+    }
+
+    expect(service.currentEndpoint()).toBe(
+      'https://push.example.com/sub/rotated-new',
+    );
+    expect(service.isSubscribed()).toBe(true);
   });
 });

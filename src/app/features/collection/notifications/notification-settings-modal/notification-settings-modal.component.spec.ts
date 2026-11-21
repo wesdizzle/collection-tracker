@@ -15,6 +15,8 @@ describe('NotificationSettingsModalComponent', () => {
     permissionState: ReturnType<typeof signal<NotificationPermission>>;
     preferences: ReturnType<typeof signal<DealNotificationPreferences>>;
     isProcessing: ReturnType<typeof signal<boolean>>;
+    lastTestError: ReturnType<typeof signal<string | null>>;
+    lastTestMessage: ReturnType<typeof signal<string | null>>;
     enableNotifications: ReturnType<typeof vi.fn>;
     disableNotifications: ReturnType<typeof vi.fn>;
     updatePreferences: ReturnType<typeof vi.fn>;
@@ -37,6 +39,8 @@ describe('NotificationSettingsModalComponent', () => {
       permissionState: signal('granted'),
       preferences: signal(defaultPrefs),
       isProcessing: signal(false),
+      lastTestError: signal<string | null>(null),
+      lastTestMessage: signal<string | null>(null),
       enableNotifications: vi.fn().mockResolvedValue(true),
       disableNotifications: vi.fn().mockResolvedValue(true),
       updatePreferences: vi.fn().mockResolvedValue(true),
@@ -133,6 +137,14 @@ describe('NotificationSettingsModalComponent', () => {
     expect(mockNotificationService.sendTestAlert).toHaveBeenCalled();
     expect(component.testSuccess()).toBe(true);
     expect(component.testMessage()).toContain('Test alert sent');
+
+    mockNotificationService.lastTestMessage.set(
+      '✓ Test alert delivered to this device!',
+    );
+    await component.onSendTest();
+    expect(component.testMessage()).toBe(
+      '✓ Test alert delivered to this device!',
+    );
   });
 
   it('should save preferences and close modal', async () => {
