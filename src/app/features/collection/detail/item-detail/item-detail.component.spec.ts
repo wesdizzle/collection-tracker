@@ -201,9 +201,20 @@ describe('ItemDetailComponent', () => {
   });
 
   it('should display physical release verified badge and metadata when releases are present', async () => {
+    collectionService.setCurrentUserForTesting({
+      id: 1,
+      username: 'alice',
+      role: 'admin',
+      isPublic: true,
+      homeRegion: 'USA',
+      displayName: 'Alice',
+      bio: null,
+      trackIndividualMedia: true,
+    });
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(
       of({
         ...mockGame,
+        region: 'USA',
         rom_name: 'Super Mario World (USA).sfc',
         rom_crc: 'B19DF4F3',
         is_source_verified: 1,
@@ -232,10 +243,11 @@ describe('ItemDetailComponent', () => {
     expect(romPill).toBeTruthy();
     expect(romPill.textContent).toContain('Verified Source Match');
 
-    // Check for physical discs / releases section
+    // Check for physical discs / releases section and Single Cartridge fallback label
     const discsSection = compiled.querySelector('.discs-section');
     expect(discsSection).toBeTruthy();
     expect(discsSection.textContent).toContain('Physical Cartridge Release');
+    expect(discsSection.textContent).toContain('Single Cartridge');
 
     // Filenames and raw CRC32 must NOT be rendered in the UI
     expect(discsSection.textContent).not.toContain(
@@ -245,10 +257,20 @@ describe('ItemDetailComponent', () => {
   });
 
   it('does not render game or release deletion buttons even for admins', async () => {
-    collectionService.setAdminForTesting(true);
+    collectionService.setCurrentUserForTesting({
+      id: 1,
+      username: 'alice',
+      role: 'admin',
+      isPublic: true,
+      homeRegion: 'USA',
+      displayName: 'Alice',
+      bio: null,
+      trackIndividualMedia: true,
+    });
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(
       of({
         ...mockGame,
+        region: 'USA',
         releases: [
           {
             id: 'super-mario-world-snes-usa',
@@ -268,6 +290,7 @@ describe('ItemDetailComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.disc-actions')).toBeTruthy();
     expect(
       compiled.querySelector('[data-testid="delete-game-btn"]'),
     ).toBeNull();
@@ -275,6 +298,160 @@ describe('ItemDetailComponent', () => {
       compiled.querySelector('button[title="Remove this release"]'),
     ).toBeNull();
     expect(compiled.querySelector('[data-testid="delete-modal"]')).toBeNull();
+  });
+
+  it('hides physical media section for a single unlabeled release when trackIndividualMedia is false even for admins, while preserving shared banners', async () => {
+    collectionService.setCurrentUserForTesting({
+      id: 1,
+      username: 'alice',
+      role: 'admin',
+      isPublic: true,
+      homeRegion: 'USA',
+      displayName: 'Alice',
+      bio: null,
+      trackIndividualMedia: false,
+    });
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        region: 'USA',
+        platform: 'Atari 2600',
+        platform_id: 2,
+        rom_name: 'Asteroids (USA).a26',
+        releases: [
+          {
+            id: 'asteroids-atari-2600-70a59647',
+            game_id: 4,
+            region: 'USA',
+            rom_name: 'Asteroids (USA).a26',
+            has_media: 1,
+            ownership_status: 1,
+            is_source_verified: 1,
+          },
+        ],
+        shared_media_releases: [
+          {
+            id: 'atari-anthology-ps2',
+            game_id: 99,
+            title: 'Atari Anthology',
+            region: 'USA',
+            has_media: 0,
+            ownership_status: 0,
+          },
+        ],
+        voucher_notes: ['Includes digital manual voucher'],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '4', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.discs-section')).toBeNull();
+    expect(
+      compiled.querySelector('.shared-backup-banner')?.textContent,
+    ).toContain('Atari Anthology');
+    expect(
+      compiled.querySelector('.voucher-notice-banner')?.textContent,
+    ).toContain('Includes digital manual voucher');
+  });
+
+  it('shows Single Disc fallback label for an unlabeled single optical release when trackIndividualMedia is true', async () => {
+    collectionService.setCurrentUserForTesting({
+      id: 1,
+      username: 'alice',
+      role: 'admin',
+      isPublic: true,
+      homeRegion: 'USA',
+      displayName: 'Alice',
+      bio: null,
+      trackIndividualMedia: true,
+    });
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        title: 'Metal Gear Solid',
+        platform: 'PlayStation',
+        platform_id: 29,
+        region: 'USA',
+        releases: [
+          {
+            id: 'mgs-ps1-usa',
+            game_id: 10,
+            region: 'USA',
+            rom_name: 'Metal Gear Solid (USA).bin',
+            has_media: 1,
+            ownership_status: 1,
+            is_source_verified: 1,
+          },
+        ],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '10', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const discsSection = compiled.querySelector('.discs-section');
+    expect(discsSection).toBeTruthy();
+    expect(discsSection?.textContent).toContain('Physical Disc Release');
+    expect(discsSection?.textContent).toContain('Single Disc');
+    expect(discsSection?.textContent).not.toContain('Single Cartridge');
+  });
+
+  it('omits Single Cartridge fallback when explicit release metadata is present and uses numbered labels for unlabeled multi-item sets', async () => {
+    collectionService.setCurrentUserForTesting({
+      id: 1,
+      username: 'alice',
+      role: 'admin',
+      isPublic: true,
+      homeRegion: 'USA',
+      displayName: 'Alice',
+      bio: null,
+      trackIndividualMedia: false,
+    });
+    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+      of({
+        ...mockGame,
+        title: 'Final Fantasy VII',
+        platform: 'PlayStation',
+        platform_id: 29,
+        region: 'USA',
+        releases: [
+          {
+            id: 'ff7-usa-1',
+            game_id: 20,
+            region: 'USA',
+            rom_name: 'FF7-1.bin',
+            has_media: 1,
+            ownership_status: 1,
+            is_source_verified: 1,
+          },
+          {
+            id: 'ff7-usa-2',
+            game_id: 20,
+            region: 'USA',
+            rom_name: 'FF7-2.bin',
+            has_media: 0,
+            ownership_status: 1,
+            is_source_verified: 1,
+          },
+        ],
+      }),
+    );
+    paramMapSubject.next(convertToParamMap({ id: '20', type: 'game' }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const discsSection = compiled.querySelector('.discs-section');
+    expect(discsSection).toBeTruthy();
+    expect(discsSection?.textContent).toContain('Disc 1');
+    expect(discsSection?.textContent).toContain('Disc 2');
+    expect(discsSection?.textContent).not.toContain('Single Disc');
   });
 
   it('should render the IGDB verified pill as an anchor tag with correct URL', async () => {
@@ -362,6 +539,7 @@ describe('ItemDetailComponent', () => {
       '1-2-Switch [0100000000010000][v65536].xci',
     );
     expect(discsSection.textContent).not.toContain('CRC32');
+    expect(discsSection.textContent).not.toContain('Single Cartridge');
   });
 
   it('should display extracted archival ROM provenance and badge', async () => {
