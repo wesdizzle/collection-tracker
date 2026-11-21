@@ -54,7 +54,6 @@ import {
   UserProfile,
   UserTrackingRule,
   CatalogSeedStatus,
-  CronExecutionLogEntry,
   PublicUserProfile,
   CatalogManifest,
   UserCollectionOverlayResponse,
@@ -627,14 +626,6 @@ export class CollectionService implements OnDestroy {
         CatalogSeedStatus | { status: CatalogSeedStatus }
       >('/api/admin/catalog-seed', payload)
       .pipe(map((res) => (res && 'status' in res ? res.status : res)));
-  }
-
-  public getAdminCronLogs(
-    limit = 40,
-  ): Observable<{ logs: CronExecutionLogEntry[] }> {
-    return this.http.get<{ logs: CronExecutionLogEntry[] }>(
-      `/api/admin/diagnostics/jobs?limit=${limit}`,
-    );
   }
 
   public getPublicUser(username: string): Observable<PublicUserProfile> {

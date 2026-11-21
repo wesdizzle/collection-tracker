@@ -5,10 +5,7 @@ import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { AdminCenterComponent } from './admin-center.component';
 import { CollectionService } from '../../core/services/collection.service';
-import {
-  CatalogSeedStatus,
-  CronExecutionLogEntry,
-} from '../../core/models/collection.models';
+import { CatalogSeedStatus } from '../../core/models/collection.models';
 
 describe('AdminCenterComponent', () => {
   let component: AdminCenterComponent;
@@ -49,32 +46,10 @@ describe('AdminCenterComponent', () => {
     },
   };
 
-  const mockLogs: CronExecutionLogEntry[] = [
-    {
-      id: 1,
-      job_name: 'watched_series_discovery',
-      status: 'SUCCESS',
-      duration_ms: 410,
-      summary: 'Scanned 10 watched series',
-      details: null,
-      created_at: '2026-11-18T11:00:00Z',
-    },
-    {
-      id: 2,
-      job_name: 'retail_deals',
-      status: 'SUCCESS',
-      duration_ms: 280,
-      summary: 'Matched 3 deals',
-      details: null,
-      created_at: '2026-11-18T00:05:00Z',
-    },
-  ];
-
   let mockCollectionService: {
     isAdmin: ReturnType<typeof vi.fn>;
     promptAdminLogin: ReturnType<typeof vi.fn>;
     getCatalogSeedStatus: ReturnType<typeof vi.fn>;
-    getAdminCronLogs: ReturnType<typeof vi.fn>;
     updateCatalogSeedControl: ReturnType<typeof vi.fn>;
     getMarketPricingRateLimits: ReturnType<typeof vi.fn>;
     clearMarketPriceCache: ReturnType<typeof vi.fn>;
@@ -85,7 +60,6 @@ describe('AdminCenterComponent', () => {
       isAdmin: vi.fn(() => true),
       promptAdminLogin: vi.fn(),
       getCatalogSeedStatus: vi.fn(() => of(baseStatus)),
-      getAdminCronLogs: vi.fn(() => of({ logs: mockLogs })),
       updateCatalogSeedControl: vi.fn((payload) =>
         of({
           ...baseStatus,
@@ -125,9 +99,8 @@ describe('AdminCenterComponent', () => {
     fixture.detectChanges();
   });
 
-  it('loads pipeline status, seriesDiscovery card, and cron logs on init', () => {
+  it('loads pipeline status, progress bars, and seriesDiscovery card on init', () => {
     expect(mockCollectionService.getCatalogSeedStatus).toHaveBeenCalled();
-    expect(mockCollectionService.getAdminCronLogs).toHaveBeenCalledWith(40);
     expect(component.seedProgressPct()).toBe(50);
     expect(component.dailyBudgetPct()).toBe(20);
     expect(component.backfillProgressPct()).toBe(25);
@@ -136,28 +109,11 @@ describe('AdminCenterComponent', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.textContent).toContain('Admin Center');
     expect(el.textContent).toContain('Watched-Series IGDB Discovery');
-    expect(el.textContent).toContain('Scanned 10 watched series');
     const verifyLink = el.querySelector(
       '[data-testid="admin-verify-ownership-link"]',
     ) as HTMLAnchorElement | null;
     expect(verifyLink).toBeTruthy();
     expect(verifyLink?.getAttribute('href')).toBe('/admin/verify-ownership');
-  });
-
-  it('filters cron execution logs by job name including watched_series_discovery', () => {
-    expect(component.filteredCronLogs().length).toBe(2);
-
-    const select = fixture.nativeElement.querySelector(
-      '[data-testid="pipeline-cron-filter"]',
-    ) as HTMLSelectElement;
-    select.value = 'watched_series_discovery';
-    select.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
-
-    expect(component.filteredCronLogs().length).toBe(1);
-    expect(component.filteredCronLogs()[0].job_name).toBe(
-      'watched_series_discovery',
-    );
   });
 
   it('triggers pause toggle, seed, backfill, rolling refresh, and watched series discovery actions', async () => {

@@ -24,3 +24,12 @@ crons = ["*/30 * * * *"]
 
 [build]
 command = "npm run build"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true

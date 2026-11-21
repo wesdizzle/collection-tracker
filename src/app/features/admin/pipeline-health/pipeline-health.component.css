@@ -2,32 +2,6 @@
   color: var(--m3-on-surface-variant);
 }
 
-.m3-select {
-  width: 100%;
-  height: 46px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--m3-outline);
-  background: var(--m3-surface-container-high);
-  color: var(--m3-on-surface);
-  font-family: var(--font-body);
-  font-size: 0.9375rem;
-  box-sizing: border-box;
-  padding: 0 var(--spacing-16);
-  cursor: pointer;
-}
-
-.m3-select:focus {
-  outline: none;
-  border-color: var(--m3-primary);
-}
-
-.m3-select-compact {
-  padding: 4px 10px;
-  height: auto;
-  font-size: 0.8rem;
-  min-width: 180px;
-}
-
 .m3-btn {
   padding: 0 24px;
   min-height: 46px;
@@ -166,12 +140,6 @@ kit-section-card {
     var(--kit-warning, #f59e0b) 40%,
     transparent
   );
-}
-
-.pipeline-badge.error {
-  background: color-mix(in srgb, var(--kit-danger, #ef4444) 18%, transparent);
-  color: var(--kit-danger, #ef4444);
-  border-color: color-mix(in srgb, var(--kit-danger, #ef4444) 40%, transparent);
 }
 
 .pipeline-card-actions {

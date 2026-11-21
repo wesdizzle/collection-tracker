@@ -11,7 +11,6 @@ import { catchError, firstValueFrom, of } from 'rxjs';
 import { RouterLink } from '@angular/router';
 import {
   CatalogSeedStatus,
-  CronExecutionLogEntry,
   MarketPricingRateLimitStatus,
 } from '../../core/models/collection.models';
 import { CollectionService } from '../../core/services/collection.service';
@@ -22,8 +21,8 @@ import { PipelineHealthComponent } from './pipeline-health/pipeline-health.compo
  * ADMIN CENTER COMPONENT (/admin)
  *
  * Streamlined administration center housing autonomous catalog pipeline telemetry,
- * daily D1 write quota monitoring, IGDB self-healing sweep status, watched-series
- * discovery controls, and cron execution logs.
+ * daily D1 write quota monitoring, IGDB self-healing sweep status, and watched-series
+ * discovery controls.
  */
 @Component({
   selector: 'app-admin-center',
@@ -37,8 +36,6 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
   private readonly collectionService = inject(CollectionService);
 
   public readonly pipelineStatus = signal<CatalogSeedStatus | null>(null);
-  public readonly cronLogs = signal<CronExecutionLogEntry[]>([]);
-  public readonly cronJobFilter = signal<string>('all');
   public readonly pipelineLoading = signal<boolean>(false);
   public readonly pipelineActionBusy = signal<boolean>(false);
   public readonly pipelineError = signal<string | null>(null);
@@ -48,13 +45,6 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
   public readonly toastMessage = signal<string | null>(null);
 
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
-
-  public readonly filteredCronLogs = computed<CronExecutionLogEntry[]>(() => {
-    const filterVal = this.cronJobFilter();
-    const logs = this.cronLogs();
-    if (!filterVal || filterVal === 'all') return logs;
-    return logs.filter((l) => l.job_name === filterVal);
-  });
 
   public readonly seedProgressPct = computed<number>(() => {
     const status = this.pipelineStatus();
@@ -118,13 +108,10 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
     this.pipelineError.set(null);
 
     try {
-      const [status, logsRes, marketStatus] = await Promise.all([
+      const [status, marketStatus] = await Promise.all([
         this.collectionService.getCatalogSeedStatus
           ? firstValueFrom(this.collectionService.getCatalogSeedStatus())
           : Promise.resolve(null),
-        this.collectionService.getAdminCronLogs
-          ? firstValueFrom(this.collectionService.getAdminCronLogs(40))
-          : Promise.resolve({ logs: [] as CronExecutionLogEntry[] }),
         this.collectionService.getMarketPricingRateLimits
           ? firstValueFrom(
               this.collectionService
@@ -136,26 +123,17 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
       if (status) {
         this.pipelineStatus.set(status);
       }
-      this.cronLogs.set(logsRes?.logs || []);
       if (marketStatus) {
         this.marketPricingStatus.set(marketStatus);
       }
     } catch (err: unknown) {
       console.error('[AdminCenter] Pipeline diagnostics failed:', err);
       this.pipelineError.set(
-        this.extractErrorMessage(
-          err,
-          'Failed to load pipeline telemetry and cron logs.',
-        ),
+        this.extractErrorMessage(err, 'Failed to load pipeline telemetry.'),
       );
     } finally {
       this.pipelineLoading.set(false);
     }
-  }
-
-  public onCronJobFilterChange(event: Event): void {
-    const val = (event.target as HTMLSelectElement).value || 'all';
-    this.cronJobFilter.set(val);
   }
 
   private async runPipelineControlAction(
@@ -168,7 +146,6 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
     },
     successMessage: (status: CatalogSeedStatus) => string,
     fallbackError: string,
-    reloadLogs = true,
   ): Promise<void> {
     if (!this.collectionService.isAdmin()) {
       this.collectionService.promptAdminLogin();
@@ -184,12 +161,6 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
       );
       this.pipelineStatus.set(updatedStatus);
       this.showToast(successMessage(updatedStatus));
-      if (reloadLogs && this.collectionService.getAdminCronLogs) {
-        const logsRes = await firstValueFrom(
-          this.collectionService.getAdminCronLogs(40),
-        );
-        this.cronLogs.set(logsRes?.logs || []);
-      }
     } catch (err: unknown) {
       console.error('[AdminCenter] Pipeline control action failed:', err);
       const msg = this.extractErrorMessage(err, fallbackError);
@@ -210,7 +181,6 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
           ? 'Autonomous catalog seeding paused.'
           : 'Autonomous catalog seeding resumed.',
       'Failed to toggle catalog seed pause state.',
-      false,
     );
   }
 

@@ -884,16 +884,6 @@ export interface CatalogSeedStatus {
   };
 }
 
-export interface CronExecutionLogEntry {
-  id: number;
-  job_name: string;
-  status: string;
-  duration_ms: number;
-  summary: string | null;
-  details: unknown;
-  created_at: string;
-}
-
 /**
  * Formats a toy's comma-separated region list for card/row badges.
  * Preserves the full verifiable region list (e.g. 'USA, Europe, Japan, Australia', 'Japan', 'USA').

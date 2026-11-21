@@ -6,8 +6,7 @@
       </h2>
       <p class="text-sm text-secondary m-0">
         Monitor broad catalog ingestion, daily D1 write quota, continuous IGDB
-        backfill, rolling rule healing, watched-series discovery, and cron
-        execution logs.
+        backfill, rolling rule healing, and watched-series discovery.
       </p>
     </div>
     <button
@@ -241,68 +240,4 @@
       </div>
     </kit-section-card>
   }
-
-  <!-- Recent Cron Execution Logs -->
-  <kit-section-card title="Recent Cron Execution Logs" [compact]="true">
-    <div cardActions class="flex items-center gap-xs">
-      <label for="cron-job-filter" class="text-xs text-secondary"
-        >Filter Job:</label
-      >
-      <select
-        id="cron-job-filter"
-        class="m3-select m3-select-compact"
-        data-testid="pipeline-cron-filter"
-        [value]="cronJobFilter()"
-        (change)="filterChange.emit($event)"
-      >
-        <option value="all">All Jobs</option>
-        <option value="broad_catalog_seed">broad_catalog_seed</option>
-        <option value="igdb_metadata_backfill">igdb_metadata_backfill</option>
-        <option value="igdb_batch">igdb_batch</option>
-        <option value="watched_series_discovery">
-          watched_series_discovery
-        </option>
-        <option value="switch_revisions">switch_revisions</option>
-        <option value="amiibo_catalog">amiibo_catalog</option>
-        <option value="boutique_preorders">boutique_preorders</option>
-        <option value="retail_deals">retail_deals</option>
-        <option value="scheduled_backup">scheduled_backup</option>
-      </select>
-    </div>
-
-    <kit-data-table
-      [columns]="cronColumns"
-      [rows]="cronLogs()"
-      trackByKey="id"
-      tableTestId="pipeline-cron-table"
-      emptyText="No cron execution logs match the selected filter."
-      ariaLabel="Recent cron execution logs"
-    >
-      <ng-template #cellTemplate let-entry let-column="column">
-        @switch (column.key) {
-          @case ('job_name') {
-            <code>{{ entry.job_name }}</code>
-          }
-          @case ('status') {
-            <span
-              class="pipeline-badge"
-              [class.done]="entry.status === 'SUCCESS'"
-              [class.error]="entry.status !== 'SUCCESS'"
-            >
-              {{ entry.status }}
-            </span>
-          }
-          @case ('duration_ms') {
-            <span>{{ entry.duration_ms }}ms</span>
-          }
-          @case ('created_at') {
-            <span class="text-xs text-secondary">{{ entry.created_at }}</span>
-          }
-          @default {
-            <span class="text-sm">{{ entry.summary }}</span>
-          }
-        }
-      </ng-template>
-    </kit-data-table>
-  </kit-section-card>
 </div>

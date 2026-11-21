@@ -5,7 +5,7 @@
         <h1 class="text-gradient m-0">Admin Center</h1>
         <p class="subtitle m-0 mt-2xs">
           Autonomous catalog pipeline telemetry, write budget guardrails, and
-          cron diagnostics.
+          self-healing controls.
         </p>
       </div>
       <a
@@ -28,8 +28,6 @@
 
   <app-pipeline-health
     [status]="pipelineStatus()"
-    [cronLogs]="filteredCronLogs()"
-    [cronJobFilter]="cronJobFilter()"
     [loading]="pipelineLoading()"
     [actionBusy]="pipelineActionBusy()"
     [error]="pipelineError()"
@@ -46,6 +44,5 @@
     (runRollingRefresh)="triggerRollingRefreshNow()"
     (runSeriesDiscovery)="triggerSeriesDiscoveryNow()"
     (purgeMarketCache)="purgeMarketPriceCache()"
-    (filterChange)="onCronJobFilterChange($event)"
   />
 </div>

@@ -69,7 +69,6 @@ const TABLE_HYDRATION_ORDER = [
   'price_query_overrides',
   'push_subscriptions',
   'sync_state',
-  'cron_execution_logs',
 ] as const;
 
 const isDirectD1 = process.argv.includes('--direct-d1');
@@ -216,10 +215,10 @@ function reportSnapshotAge(hasCanonicalSnapshot = false): void {
     const msg = `[D1Pull] Snapshot reflects remote state as of ${row.ts} UTC (~${ageHours.toFixed(1)}h old).`;
     if (ageHours > SNAPSHOT_STALE_HOURS) {
       const canonicalNote = hasCanonicalSnapshot
-        ? 'cron_execution_logs are never included in snapshots.'
-        : 'snapshots/canonical_releases.json was not yet found in R2; cron_execution_logs are never included in snapshots.';
+        ? ''
+        : ' snapshots/canonical_releases.json was not yet found in R2.';
       console.log(
-        `${msg}\n[D1Pull] ⚠️  Snapshot is older than ${SNAPSHOT_STALE_HOURS}h: rows written since then (e.g. cron catalog seeding) are NOT present locally. ${canonicalNote}`,
+        `${msg}\n[D1Pull] ⚠️  Snapshot is older than ${SNAPSHOT_STALE_HOURS}h: rows written since then (e.g. cron catalog seeding) are NOT present locally.${canonicalNote}`,
       );
     } else {
       console.log(msg);

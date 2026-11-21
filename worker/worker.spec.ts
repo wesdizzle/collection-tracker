@@ -27,6 +27,7 @@ import worker, {
   getCatalogChunkR2Key,
   getBroadCatalogSeedStatus,
   isAuthorizedAdmin,
+  logCronExecution,
   markCanonicalReleasesDirty,
   markDbDirty,
   performCanonicalReleasesBackup,
@@ -2429,36 +2430,54 @@ describe('Worker API Logic', () => {
       expect(data.ownership_status).toBe(1);
     });
 
-    it('GET /api/admin/diagnostics/jobs returns logged cron executions when authorized', async () => {
-      // Insert execution log
-      db.prepare(
-        `INSERT INTO cron_execution_logs (job_name, status, duration_ms, summary, details_json)
-         VALUES ('boutique_preorders', 'SUCCESS', 1234, 'Matched 5 pre-orders', '{"matched": 5}')`,
-      ).run();
-
+    it('GET /api/admin/diagnostics/jobs returns 404 after migrating cron logs off D1', async () => {
       const authEnv = { ...mockEnv, ADMIN_KEY: 'test-secret-key' };
 
-      const unauthReq = new Request(
-        'https://collection-tracker.example.com/api/admin/diagnostics/jobs',
-      );
-      const unauthRes = await worker.fetch(unauthReq, authEnv);
-      expect(unauthRes.status).toBe(403);
-
-      const authReq = new Request(
+      const req = new Request(
         'https://collection-tracker.example.com/api/admin/diagnostics/jobs',
         {
           headers: { 'x-admin-key': 'test-secret-key' },
         },
       );
-      const authRes = await worker.fetch(authReq, authEnv);
-      expect(authRes.status).toBe(200);
+      const res = await worker.fetch(req, authEnv);
+      expect(res.status).toBe(404);
+    });
 
-      const data = (await authRes.json()) as {
-        logs: Array<{ job_name: string; summary: string }>;
-      };
-      expect(data.logs.length).toBeGreaterThan(0);
-      expect(data.logs[0].job_name).toBe('boutique_preorders');
-      expect(data.logs[0].summary).toBe('Matched 5 pre-orders');
+    it('logCronExecution emits structured JSON to console.log/console.error without writing to D1', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        logCronExecution(
+          'boutique_preorders',
+          'SUCCESS',
+          1234,
+          'Matched 5 pre-orders',
+          { matched: 5 },
+        );
+        expect(logSpy).toHaveBeenCalledWith({
+          event: 'cron_execution',
+          job_name: 'boutique_preorders',
+          status: 'SUCCESS',
+          duration_ms: 1234,
+          summary: 'Matched 5 pre-orders',
+          details: { matched: 5 },
+        });
+
+        logCronExecution('retail_deals', 'ERROR', 99, 'Failed: boom', {
+          error: 'boom',
+        });
+        expect(errSpy).toHaveBeenCalledWith({
+          event: 'cron_execution',
+          job_name: 'retail_deals',
+          status: 'ERROR',
+          duration_ms: 99,
+          summary: 'Failed: boom',
+          details: { error: 'boom' },
+        });
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+      }
     });
 
     it('POST /api/collection/toggle updates physical_status on a game', async () => {
@@ -2582,25 +2601,26 @@ describe('Worker API Logic', () => {
           } as unknown as Response;
         });
 
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const countBoutiqueLogs = () =>
+        logSpy.mock.calls.filter(
+          ([arg]) =>
+            typeof arg === 'object' &&
+            arg !== null &&
+            (arg as Record<string, unknown>)['event'] === 'cron_execution' &&
+            (arg as Record<string, unknown>)['job_name'] ===
+              'boutique_preorders',
+        ).length;
+
       try {
         // 1. Initial run: boutique_sync_last_run does not exist -> runs boutique sync
         db.prepare(
           `DELETE FROM sync_state WHERE key = 'boutique_sync_last_run'`,
         ).run();
-        db.prepare(
-          `DELETE FROM cron_execution_logs WHERE job_name = 'boutique_preorders'`,
-        ).run();
 
         await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
 
-        const initialLogCount = (
-          db
-            .prepare(
-              `SELECT COUNT(*) as c FROM cron_execution_logs WHERE job_name = 'boutique_preorders'`,
-            )
-            .get() as { c: number }
-        ).c;
-        expect(initialLogCount).toBe(1);
+        expect(countBoutiqueLogs()).toBe(1);
 
         // 2. Second run immediately (simulating 30 min run within 55 min window) -> skips boutique sync
         db.prepare(
@@ -2608,14 +2628,7 @@ describe('Worker API Logic', () => {
         ).run();
         await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
 
-        const skippedLogCount = (
-          db
-            .prepare(
-              `SELECT COUNT(*) as c FROM cron_execution_logs WHERE job_name = 'boutique_preorders'`,
-            )
-            .get() as { c: number }
-        ).c;
-        expect(skippedLogCount).toBe(1); // Still 1, did not re-run!
+        expect(countBoutiqueLogs()).toBe(1); // Still 1, did not re-run!
 
         // 3. Third run after 60 minutes -> executes boutique sync
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -2624,15 +2637,9 @@ describe('Worker API Logic', () => {
         ).run(oneHourAgo, oneHourAgo);
         await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
 
-        const afterHourLogCount = (
-          db
-            .prepare(
-              `SELECT COUNT(*) as c FROM cron_execution_logs WHERE job_name = 'boutique_preorders'`,
-            )
-            .get() as { c: number }
-        ).c;
-        expect(afterHourLogCount).toBe(2); // Ran again!
+        expect(countBoutiqueLogs()).toBe(2); // Ran again!
       } finally {
+        logSpy.mockRestore();
         fetchSpy.mockRestore();
       }
     });

@@ -4303,31 +4303,27 @@ export function isMarketPricingAuthorized(
 }
 
 /**
- * Records a background job execution entry in cron_execution_logs table.
+ * Emits a structured background job execution event to Cloudflare Workers Logs.
  */
-export async function logCronExecution(
-  env: Env,
+export function logCronExecution(
   jobName: string,
   status: 'SUCCESS' | 'ERROR',
   durationMs: number,
   summary?: string,
   details?: unknown,
-): Promise<void> {
-  try {
-    await env.DB.prepare(
-      `INSERT INTO cron_execution_logs (job_name, status, duration_ms, summary, details_json)
-       VALUES (?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        jobName,
-        status,
-        durationMs,
-        summary || null,
-        details ? JSON.stringify(details) : null,
-      )
-      .run();
-  } catch (err) {
-    console.warn(`[WorkerCron] Failed to log execution for ${jobName}:`, err);
+): void {
+  const entry = {
+    event: 'cron_execution',
+    job_name: jobName,
+    status,
+    duration_ms: durationMs,
+    summary: summary ?? null,
+    details: details ?? null,
+  };
+  if (status === 'ERROR') {
+    console.error(entry);
+  } else {
+    console.log(entry);
   }
 }
 
@@ -6979,54 +6975,6 @@ Disallow: /
       });
     }
 
-    // Endpoint: GET /api/admin/diagnostics/jobs
-    else if (path === '/api/admin/diagnostics/jobs') {
-      if (!isAuthorizedAdmin(request, env, sessionUser)) {
-        return Response.json(
-          { error: 'Unauthorized: Admin authentication required.' },
-          { status: 403 },
-        );
-      }
-
-      const parsedLimit = parseInt(url.searchParams.get('limit') || '50', 10);
-      const limit = Number.isNaN(parsedLimit)
-        ? 50
-        : Math.max(1, Math.min(parsedLimit, 200));
-      const { results } = await env.DB.prepare(
-        `SELECT id, job_name, status, duration_ms, summary, details_json, created_at
-           FROM cron_execution_logs
-           ORDER BY id DESC
-           LIMIT ?`,
-      )
-        .bind(limit)
-        .all<{
-          id: number;
-          job_name: string;
-          status: string;
-          duration_ms: number;
-          summary: string | null;
-          details_json: string | null;
-          created_at: string;
-        }>();
-
-      return Response.json({
-        logs: (results || []).map((row) => {
-          let details: unknown = null;
-          if (row.details_json) {
-            try {
-              details = JSON.parse(String(row.details_json));
-            } catch {
-              details = null;
-            }
-          }
-          return {
-            ...row,
-            details,
-          };
-        }),
-      });
-    }
-
     /**
      * AUTHENTICATED MUTATION ENDPOINTS
      */
@@ -9069,7 +9017,6 @@ export default {
    * 1. Generates daily structured R2 database snapshot backup.
    * 2. Scans active retail deals (Best Buy, VGP, PNP Games).
    * 3. Dispatches launch-day push notifications for tracked games releasing today.
-   * 4. Prunes cron execution logs older than 7 days.
    */
   async scheduled(
     event: ScheduledEvent,
@@ -9083,8 +9030,7 @@ export default {
     const igdbStart = Date.now();
     try {
       const res = await syncWorkerIgdbSeriesAndCanonical(env);
-      await logCronExecution(
-        env,
+      logCronExecution(
         'igdb_batch',
         'SUCCESS',
         Date.now() - igdbStart,
@@ -9097,8 +9043,7 @@ export default {
         '[WorkerCron] IGDB series refresh and canonical_series sync failed:',
         err,
       );
-      await logCronExecution(
-        env,
+      logCronExecution(
         'igdb_batch',
         'ERROR',
         Date.now() - igdbStart,
@@ -9112,8 +9057,7 @@ export default {
     try {
       const seedRes = await syncWorkerBroadCatalogPopulation(env);
       if (!seedRes.skipped || seedRes.ingestedGames > 0) {
-        await logCronExecution(
-          env,
+        logCronExecution(
           'broad_catalog_seed',
           'SUCCESS',
           Date.now() - seedStart,
@@ -9124,8 +9068,7 @@ export default {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[WorkerCron] Broad catalog population failed:', err);
-      await logCronExecution(
-        env,
+      logCronExecution(
         'broad_catalog_seed',
         'ERROR',
         Date.now() - seedStart,
@@ -9139,8 +9082,7 @@ export default {
     try {
       const bfRes = await syncWorkerIgdbMetadataBackfill(env);
       if (!bfRes.skipped || bfRes.reason === 'wrapped_to_start') {
-        await logCronExecution(
-          env,
+        logCronExecution(
           'igdb_metadata_backfill',
           'SUCCESS',
           Date.now() - backfillStart,
@@ -9153,8 +9095,7 @@ export default {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[WorkerCron] IGDB metadata backfill failed:', err);
-      await logCronExecution(
-        env,
+      logCronExecution(
         'igdb_metadata_backfill',
         'ERROR',
         Date.now() - backfillStart,
@@ -9192,8 +9133,7 @@ export default {
            VALUES ('boutique_sync_last_run', datetime('now'), datetime('now'))
            ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
         ).run();
-        await logCronExecution(
-          env,
+        logCronExecution(
           'boutique_preorders',
           'SUCCESS',
           Date.now() - boutiqueStart,
@@ -9203,8 +9143,7 @@ export default {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Boutique pre-order sync failed:', err);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'boutique_preorders',
           'ERROR',
           Date.now() - boutiqueStart,
@@ -9241,8 +9180,7 @@ export default {
            ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
         ).run();
         if (!sdRes.skipped || sdRes.ingestedGames > 0) {
-          await logCronExecution(
-            env,
+          logCronExecution(
             'watched_series_discovery',
             'SUCCESS',
             Date.now() - seriesDiscStart,
@@ -9253,8 +9191,7 @@ export default {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Watched series discovery failed:', err);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'watched_series_discovery',
           'ERROR',
           Date.now() - seriesDiscStart,
@@ -9326,8 +9263,7 @@ export default {
              VALUES ('db_dirty', '0', datetime('now'))
              ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')`,
           ).run();
-          await logCronExecution(
-            env,
+          logCronExecution(
             'scheduled_backup',
             'SUCCESS',
             Date.now() - backupStart,
@@ -9337,8 +9273,7 @@ export default {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.error('[WorkerCron] Scheduled backup failed:', err);
-          await logCronExecution(
-            env,
+          logCronExecution(
             'scheduled_backup',
             'ERROR',
             Date.now() - backupStart,
@@ -9421,8 +9356,7 @@ export default {
       const dealsStart = Date.now();
       try {
         const res = await syncWorkerRetailDeals(env);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'retail_deals',
           'SUCCESS',
           Date.now() - dealsStart,
@@ -9432,8 +9366,7 @@ export default {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Retail deal sync failed:', err);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'retail_deals',
           'ERROR',
           Date.now() - dealsStart,
@@ -9448,8 +9381,7 @@ export default {
       const launchStart = Date.now();
       try {
         const res = await syncWorkerLaunchDayNotifications(env);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'launch_day',
           'SUCCESS',
           Date.now() - launchStart,
@@ -9459,8 +9391,7 @@ export default {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Launch-day release scan failed:', err);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'launch_day',
           'ERROR',
           Date.now() - launchStart,
@@ -9476,8 +9407,7 @@ export default {
       const switchStart = Date.now();
       try {
         const res = await syncWorkerSwitchRevisions(env);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'switch_revisions',
           'SUCCESS',
           Date.now() - switchStart,
@@ -9489,8 +9419,7 @@ export default {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Switch revisions sync failed:', err);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'switch_revisions',
           'ERROR',
           Date.now() - switchStart,
@@ -9506,8 +9435,7 @@ export default {
       const amiiboStart = Date.now();
       try {
         const res = await syncWorkerAmiiboCatalog(env);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'amiibo_catalog',
           'SUCCESS',
           Date.now() - amiiboStart,
@@ -9519,8 +9447,7 @@ export default {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Amiibo catalog sync failed:', err);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'amiibo_catalog',
           'ERROR',
           Date.now() - amiiboStart,
@@ -9534,8 +9461,7 @@ export default {
       try {
         const crBackupRes = await performCanonicalReleasesBackup(env);
         if (!crBackupRes.skipped) {
-          await logCronExecution(
-            env,
+          logCronExecution(
             'canonical_releases_backup',
             'SUCCESS',
             Date.now() - canonicalBackupStart,
@@ -9546,8 +9472,7 @@ export default {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[WorkerCron] Canonical releases R2 backup failed:', err);
-        await logCronExecution(
-          env,
+        logCronExecution(
           'canonical_releases_backup',
           'ERROR',
           Date.now() - canonicalBackupStart,
@@ -9567,18 +9492,6 @@ export default {
           '[WorkerCron] Failed to write R2 catalog chunks:',
           chunkErr,
         );
-      }
-
-      // Prune cron execution logs older than 7 days (zero-churn retention)
-      try {
-        await env.DB.prepare(
-          `DELETE FROM cron_execution_logs WHERE created_at < datetime('now', '-7 days')`,
-        ).run();
-        console.log(
-          '[WorkerCron] Pruned cron execution logs older than 7 days.',
-        );
-      } catch (pruneErr) {
-        console.warn('[WorkerCron] Failed to prune aged cron logs:', pruneErr);
       }
     }
 

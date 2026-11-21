@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS ignored_items (
 );
 
 -- ============================================================================
--- 2. MULTI-USER, JOURNAL, PUSH & OBSERVABILITY TABLES
+-- 2. MULTI-USER, JOURNAL & PUSH TABLES
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS users (
@@ -234,16 +234,6 @@ CREATE TABLE IF NOT EXISTS sync_state (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS cron_execution_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_name TEXT NOT NULL,
-    status TEXT NOT NULL,
-    duration_ms INTEGER NOT NULL,
-    summary TEXT,
-    details_json TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS price_query_overrides (
     item_type TEXT NOT NULL CHECK (item_type IN ('game', 'toy')),
     item_id TEXT NOT NULL,
@@ -291,8 +281,6 @@ CREATE INDEX IF NOT EXISTS idx_ugr_release ON user_game_releases (release_id);
 CREATE INDEX IF NOT EXISTS idx_ug_game ON user_games (game_id);
 CREATE INDEX IF NOT EXISTS idx_ut_toy ON user_toys (toy_id);
 CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions (user_id);
-CREATE INDEX IF NOT EXISTS idx_cron_logs_job_date ON cron_execution_logs (job_name, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_cron_logs_created_at ON cron_execution_logs(created_at);
 
 -- ============================================================================
 -- 4. BASE REFERENCE CATALOG (PLATFORMS & TOY SERIES)
