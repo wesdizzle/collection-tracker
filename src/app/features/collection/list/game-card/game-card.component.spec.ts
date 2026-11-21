@@ -34,9 +34,20 @@ describe('GameCardComponent', () => {
     release_date: '2007-11-12',
     image_url: 'https://example.com/smg.jpg',
     canonical_series: 'Super Mario',
-    discIds: ['smg-disc-1', 'smg-disc-2'],
-    discMediaOwned: [1, 0],
-    discRomNames: ['SMG Disc 1.iso', 'SMG Disc 2.iso'],
+    mediaItems: [
+      {
+        id: 'smg-disc-1',
+        label: 'Disc 1',
+        hasMedia: 1,
+        romName: 'SMG Disc 1.iso',
+      },
+      {
+        id: 'smg-disc-2',
+        label: 'Disc 2',
+        hasMedia: 0,
+        romName: 'SMG Disc 2.iso',
+      },
+    ],
   };
 
   beforeEach(async () => {
@@ -136,7 +147,7 @@ describe('GameCardComponent', () => {
     const singleDiscGame: Game = {
       ...mockGame,
       id: 'single-disc-game',
-      discIds: ['single-cart-1'],
+      mediaItems: [{ id: 'single-cart-1', label: 'Disc', hasMedia: 1 }],
       has_media: 1,
       igdb_id: 12345,
     };
@@ -206,7 +217,7 @@ describe('GameCardComponent', () => {
     // Also verify single-disc game omits media badge when showMediaDetails is false
     fixture.componentRef.setInput('game', {
       ...mockGame,
-      discIds: ['single-cart-1'],
+      mediaItems: [{ id: 'single-cart-1', label: 'Disc', hasMedia: 1 }],
     });
     fixture.detectChanges();
 
@@ -298,7 +309,7 @@ describe('GameCardComponent', () => {
     fixture.componentRef.setInput('game', {
       ...mockGame,
       id: 'unrecorded-game-wii',
-      discIds: undefined,
+      mediaItems: undefined,
     });
     fixture.detectChanges();
     expect(

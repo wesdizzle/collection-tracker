@@ -54,6 +54,7 @@ import {
   formatInsightsSignedCents,
   formatInsightsWholeDollars,
 } from './insights-formatters';
+import { deduplicateOwnedPlatformGames } from '../../../core/models/release-grouping';
 
 export type {
   DecadeStat,
@@ -233,24 +234,15 @@ export class CollectionInsightsComponent implements OnInit {
   }
 
   /** --- Owned Datasets --- */
+  /** Owned retail/media rows (one row per physical media item, ungrouped) */
   public readonly ownedReleases = computed<Game[]>(() =>
     this.collectionService.games().filter((g) => g.ownership_status === 1),
   );
 
-  /** Distinct owned games deduplicated across multi-disc releases */
-  public readonly ownedGames = computed<Game[]>(() => {
-    const releases = this.ownedReleases();
-    const seen = new Set<string | number>();
-    const distinct: Game[] = [];
-    for (const g of releases) {
-      const key = g.game_id || g.stable_id || g.id;
-      if (!seen.has(key)) {
-        seen.add(key);
-        distinct.push(g);
-      }
-    }
-    return distinct;
-  });
+  /** Distinct owned platform games (IGDB entity × platform), deduplicated across multi-disc / media rows */
+  public readonly ownedGames = computed<Game[]>(() =>
+    deduplicateOwnedPlatformGames(this.ownedReleases()),
+  );
 
   public readonly ownedToys = computed<Toy[]>(() =>
     this.collectionService.toys().filter((t) => t.ownership_status === 1),

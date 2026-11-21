@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS toy_series (
     UNIQUE (line, name)
 );
 
+-- Conceptual Tier: Platform Game (title x platform; optional igdb_id links cross-platform editions).
 CREATE TABLE IF NOT EXISTS games (
     stable_id INTEGER PRIMARY KEY AUTOINCREMENT,
     id TEXT,
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS games (
     FOREIGN KEY (platform_id) REFERENCES platforms (id)
 );
 
+-- Conceptual Tier: Canonical Authoritative Physical Media Metadata (No-Intro / Redump / Nintendo Revised).
 CREATE TABLE IF NOT EXISTS canonical_releases (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     platform_id INTEGER NOT NULL,
@@ -83,6 +85,7 @@ CREATE TABLE IF NOT EXISTS canonical_releases (
     FOREIGN KEY (platform_id) REFERENCES platforms (id) ON DELETE CASCADE
 );
 
+-- Conceptual Tier: Physical Media (1 row per disc/cart/card). Retail Releases (SKUs) are grouped virtually by (game_id, region, variants, groupingKey) to avoid extra join hops and D1 write amplification.
 CREATE TABLE IF NOT EXISTS game_releases (
     id TEXT PRIMARY KEY,
     game_id INTEGER NOT NULL REFERENCES games (stable_id) ON DELETE CASCADE,
@@ -167,6 +170,7 @@ CREATE TABLE IF NOT EXISTS user_tracking_rules (
     PRIMARY KEY (user_id, rule_type, match_value)
 ) WITHOUT ROWID;
 
+-- Conceptual Tier: Per-user Retail Release (SKU) & Physical Media state. ownership_status/has_case/has_manual sync across sibling media rows of a SKU; has_media tracks each disc/cart individually.
 CREATE TABLE IF NOT EXISTS user_game_releases (
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     release_id TEXT NOT NULL REFERENCES game_releases (id) ON DELETE CASCADE,
@@ -177,6 +181,7 @@ CREATE TABLE IF NOT EXISTS user_game_releases (
     PRIMARY KEY (user_id, release_id)
 ) WITHOUT ROWID;
 
+-- Conceptual Tier: Per-user Platform Game play tracking (play_status, queued).
 CREATE TABLE IF NOT EXISTS user_games (
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     game_id INTEGER NOT NULL REFERENCES games (stable_id) ON DELETE CASCADE,

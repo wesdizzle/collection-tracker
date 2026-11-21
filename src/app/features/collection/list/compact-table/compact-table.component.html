@@ -268,7 +268,7 @@
                 showMediaDetails() &&
                 game.ownership_status === 1 &&
                 game.release_medium !== 'digital_native' &&
-                (!game.discIds || game.discIds.length <= 1)
+                !isMultiDisc(game)
               ) {
                 <button
                   type="button"
@@ -288,14 +288,13 @@
                 showMediaDetails() &&
                 game.ownership_status === 1 &&
                 game.release_medium !== 'digital_native' &&
-                game.discIds &&
-                game.discIds.length > 1
+                isMultiDisc(game)
               ) {
                 <div
                   class="compact-discs-container"
                   (click)="$event.stopPropagation(); $event.preventDefault()"
                 >
-                  @if (getOwnedDiscCount(game) === game.discIds.length) {
+                  @if (getOwnedDiscCount(game) === getTotalDiscCount(game)) {
                     <button
                       type="button"
                       class="disc-chip state-layer compact-disc-chip backed-up"
@@ -304,7 +303,7 @@
                     >
                       <app-icon [name]="getMediaIcon(game, 1)" [size]="11" />
                       <span class="disc-count-num">{{
-                        game.discIds.length
+                        getTotalDiscCount(game)
                       }}</span>
                     </button>
                   } @else if (getOwnedDiscCount(game) === 0) {
@@ -316,7 +315,7 @@
                     >
                       <app-icon name="missing-dump" [size]="11" />
                       <span class="disc-count-num">{{
-                        game.discIds.length
+                        getTotalDiscCount(game)
                       }}</span>
                     </button>
                   } @else {
@@ -347,9 +346,7 @@
               }
               @if (
                 game.ownership_status !== 1 &&
-                (!game.discIds ||
-                  game.discIds.length <= 1 ||
-                  !showMediaDetails())
+                (!isMultiDisc(game) || !showMediaDetails())
               ) {
                 @if (game.release_date && isUpcomingDate(game.release_date)) {
                   <span class="upcoming-chip" title="Announced / Pre-order">

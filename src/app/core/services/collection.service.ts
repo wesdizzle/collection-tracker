@@ -77,6 +77,25 @@ interface CollectionOfflineSnapshot {
   catalogVersion?: string | null;
 }
 
+function patchMediaItemsList(
+  mediaItems: Game['mediaItems'],
+  resolveNext: (item: NonNullable<Game['mediaItems']>[number]) => 0 | 1,
+): Game['mediaItems'] {
+  if (!Array.isArray(mediaItems) || mediaItems.length === 0) {
+    return mediaItems;
+  }
+  let changed = false;
+  const next = mediaItems.map((item) => {
+    const nextMedia = resolveNext(item);
+    if (nextMedia !== item.hasMedia) {
+      changed = true;
+      return { ...item, hasMedia: nextMedia };
+    }
+    return item;
+  });
+  return changed ? next : mediaItems;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -871,10 +890,11 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
-   * Immutably updates a game release's has_media in the in-memory games signal
-   * and recalculates the parent game's has_media when discMediaOwned are present.
+   * Immutably updates a physical media item's has_media in the in-memory games signal
+   * and recalculates the parent release's rolled-up has_media when `mediaItems` are present.
    */
   public patchDiscMediaOptimistic(discId: string, status: number): void {
+    const nextBit: 0 | 1 = status ? 1 : 0;
     this._games.update((games) =>
       games.map((g) => {
         let matched = false;
@@ -888,22 +908,19 @@ export class CollectionService implements OnDestroy {
             return r;
           });
         }
-        let nextDiscMediaOwned = g.discMediaOwned;
-        if (Array.isArray(g.discIds) && Array.isArray(g.discMediaOwned)) {
-          const idx = g.discIds.indexOf(discId);
-          if (idx !== -1) {
-            matched = true;
-            nextDiscMediaOwned = [...g.discMediaOwned];
-            nextDiscMediaOwned[idx] = status;
-          }
+        const nextMediaItems = patchMediaItemsList(g.mediaItems, (m) =>
+          m.id === discId ? nextBit : m.hasMedia,
+        );
+        if (nextMediaItems !== g.mediaItems) {
+          matched = true;
         }
         if (g.id === discId) {
           matched = true;
         }
         if (!matched) return g;
         const nextHasMedia =
-          Array.isArray(nextDiscMediaOwned) && nextDiscMediaOwned.length > 0
-            ? nextDiscMediaOwned.every((b) => b === 1)
+          Array.isArray(nextMediaItems) && nextMediaItems.length > 0
+            ? nextMediaItems.every((m) => m.hasMedia === 1)
               ? 1
               : 0
             : g.id === discId
@@ -912,7 +929,7 @@ export class CollectionService implements OnDestroy {
         return {
           ...g,
           releases: nextReleases,
-          discMediaOwned: nextDiscMediaOwned,
+          mediaItems: nextMediaItems,
           has_media: nextHasMedia,
         };
       }),
@@ -1225,7 +1242,7 @@ export class CollectionService implements OnDestroy {
       !baseGame.has_case &&
       !baseGame.has_manual &&
       !baseGame.releases?.length &&
-      !baseGame.discIds?.length
+      !baseGame.mediaItems?.length
     ) {
       return baseGame;
     }
@@ -1244,16 +1261,13 @@ export class CollectionService implements OnDestroy {
       });
     }
 
-    let nextDiscMediaOwned = baseGame.discMediaOwned;
-    if (Array.isArray(baseGame.discIds)) {
-      nextDiscMediaOwned = baseGame.discIds.map((discId) =>
-        Number(ugrByReleaseId.get(discId)?.has_media ?? 0),
-      );
-    }
+    const nextMediaItems = patchMediaItemsList(baseGame.mediaItems, (m) =>
+      Number(ugrByReleaseId.get(m.id)?.has_media ?? 0) > 0 ? 1 : 0,
+    );
 
     const rolledUpHasMedia =
-      Array.isArray(nextDiscMediaOwned) && nextDiscMediaOwned.length > 0
-        ? nextDiscMediaOwned.every((b) => Number(b) === 1)
+      Array.isArray(nextMediaItems) && nextMediaItems.length > 0
+        ? nextMediaItems.every((m) => m.hasMedia === 1)
           ? 1
           : 0
         : Number(ugrSelf?.has_media ?? 0);
@@ -1269,9 +1283,7 @@ export class CollectionService implements OnDestroy {
       has_case: Number(ugrSelf?.has_case ?? 0),
       has_manual: Number(ugrSelf?.has_manual ?? 0),
       ...(nextReleases !== undefined ? { releases: nextReleases } : {}),
-      ...(nextDiscMediaOwned !== undefined
-        ? { discMediaOwned: nextDiscMediaOwned }
-        : {}),
+      ...(nextMediaItems !== undefined ? { mediaItems: nextMediaItems } : {}),
     };
 
     if (!phase1Match) {
@@ -1287,7 +1299,7 @@ export class CollectionService implements OnDestroy {
       has_case: phase1Match.has_case ?? overlaid.has_case,
       has_manual: phase1Match.has_manual ?? overlaid.has_manual,
       releases: phase1Match.releases ?? overlaid.releases,
-      discMediaOwned: phase1Match.discMediaOwned ?? overlaid.discMediaOwned,
+      mediaItems: phase1Match.mediaItems ?? overlaid.mediaItems,
       retail_price: phase1Match.retail_price ?? overlaid.retail_price,
       retail_regular_price:
         phase1Match.retail_regular_price ?? overlaid.retail_regular_price,
@@ -1998,30 +2010,25 @@ export class CollectionService implements OnDestroy {
       })
       .pipe(
         tap(() => {
+          const nextBit: 0 | 1 = status ? 1 : 0;
           this._games.update((games) =>
             games.map((g) => {
-              let nextDiscMediaOwned = g.discMediaOwned;
-              if (Array.isArray(g.discIds) && Array.isArray(g.discMediaOwned)) {
-                const discIdx = g.discIds.indexOf(id);
-                if (discIdx !== -1) {
-                  nextDiscMediaOwned = [...g.discMediaOwned];
-                  nextDiscMediaOwned[discIdx] = status;
-                }
-              }
+              const nextMediaItems = patchMediaItemsList(g.mediaItems, (m) =>
+                m.id === id ? nextBit : m.hasMedia,
+              );
 
               if (g.id === id || g.game_id === id) {
                 const rolledUp =
-                  Array.isArray(nextDiscMediaOwned) &&
-                  nextDiscMediaOwned.length > 0
-                    ? nextDiscMediaOwned.every((b) => b === 1)
+                  Array.isArray(nextMediaItems) && nextMediaItems.length > 0
+                    ? nextMediaItems.every((m) => m.hasMedia === 1)
                       ? 1
                       : 0
                     : status;
                 return {
                   ...g,
                   has_media: rolledUp,
-                  ...(nextDiscMediaOwned !== undefined
-                    ? { discMediaOwned: nextDiscMediaOwned }
+                  ...(nextMediaItems !== undefined
+                    ? { mediaItems: nextMediaItems }
                     : {}),
                 };
               }
@@ -2042,8 +2049,8 @@ export class CollectionService implements OnDestroy {
                     ...g,
                     releases: updatedReleases,
                     has_media: allOwned,
-                    ...(nextDiscMediaOwned !== undefined
-                      ? { discMediaOwned: nextDiscMediaOwned }
+                    ...(nextMediaItems !== undefined
+                      ? { mediaItems: nextMediaItems }
                       : {}),
                   };
                 }
@@ -2284,25 +2291,21 @@ export class CollectionService implements OnDestroy {
                 }
               }
 
-              let nextDiscMediaOwned = g.discMediaOwned;
-              if (g.discIds && g.discMediaOwned && g.discIds.length > 1) {
-                let discChanged = false;
-                const mappedDiscMedia = g.discIds.map((did, idx) => {
-                  if (setIdSet.has(did)) {
-                    discChanged = true;
-                    return 1;
-                  }
-                  if (clearIdSet.has(did)) {
-                    discChanged = true;
-                    return 0;
-                  }
-                  return g.discMediaOwned?.[idx] ?? 0;
-                });
-                if (discChanged) {
-                  nextDiscMediaOwned = mappedDiscMedia;
-                  nextHasMedia = mappedDiscMedia.every((b) => b === 1) ? 1 : 0;
-                  changed = true;
-                }
+              const nextMediaItems =
+                g.mediaItems && g.mediaItems.length > 1
+                  ? patchMediaItemsList(g.mediaItems, (m) =>
+                      setIdSet.has(m.id)
+                        ? 1
+                        : clearIdSet.has(m.id)
+                          ? 0
+                          : m.hasMedia,
+                    )
+                  : g.mediaItems;
+              if (nextMediaItems !== g.mediaItems && nextMediaItems) {
+                nextHasMedia = nextMediaItems.every((m) => m.hasMedia === 1)
+                  ? 1
+                  : 0;
+                changed = true;
               }
 
               if (!changed) return g;
@@ -2313,7 +2316,7 @@ export class CollectionService implements OnDestroy {
                 has_case: nextCase,
                 has_manual: nextManual,
                 releases: nextReleases,
-                discMediaOwned: nextDiscMediaOwned,
+                mediaItems: nextMediaItems,
               };
             }),
           );

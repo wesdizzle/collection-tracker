@@ -17,7 +17,11 @@ import {
   BottomSheetDragController,
   canAnimateKitDialogExit,
 } from '@wesdizzle/app-kit/angular';
-import { Game, getMediaNoun } from '../../../../core/models/collection.models';
+import {
+  Game,
+  getMediaNoun,
+  getReleaseMediaItems,
+} from '../../../../core/models/collection.models';
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 
 export interface DiscChecklistRow {
@@ -79,13 +83,10 @@ export class DiscOwnershipModalComponent implements AfterViewInit {
     const g = this.game();
     if (!g) return [];
     const noun = getMediaNoun(g.display_name || g.platform, false);
-    const ids = g.discIds ?? (g.id ? [g.id] : []);
-    const states = g.discMediaOwned ?? [g.has_media ? 1 : 0];
-    const labels = g.discLabels ?? [];
-    return ids.map((releaseId, idx) => ({
-      releaseId,
-      label: labels[idx] || `${noun} ${idx + 1}`,
-      owned: Number(states[idx] ?? 0) === 1,
+    return getReleaseMediaItems(g).map((item, idx) => ({
+      releaseId: item.id,
+      label: item.label || `${noun} ${idx + 1}`,
+      owned: item.hasMedia === 1,
     }));
   });
 

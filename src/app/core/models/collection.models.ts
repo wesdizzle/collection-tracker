@@ -3,6 +3,20 @@
  *
  * Centralized high-performance interfaces for the Collection Tracker.
  * Resolves circular dependencies between services and components.
+ *
+ * DOMAIN MODEL GLOSSARY (Conceptual 3 Tiers -> Physical 2-Table D1 Schema):
+ * - **Platform Game (`games` + `user_games`)**: A title on a specific platform (e.g., Chrono
+ *   Trigger on SNES vs. DS; optional `igdb_id` links cross-platform editions). Tracks per-platform
+ *   `play_status` and `queued`.
+ * - **Retail Release / SKU (`RetailReleaseView`)**: A commercial regional/edition SKU on that
+ *   platform. Grouped virtually in `release-grouping.ts` by `(game_id, region, variants,
+ *   getRomGroupingKey)` with SKU ownership (`ownership_status`, `has_case`, `has_manual`)
+ *   fanned out atomically across its sibling media rows in `user_game_releases`.
+ * - **Physical Media (`GameRelease` / `PhysicalMedia`, `ReleaseMediaItem`)**: An individual
+ *   disc, cartridge, or card (`game_releases` + `canonical_releases` + `user_game_releases.has_media`).
+ *   Backend list/chunk APIs emit flat 1-row-per-media `CatalogMediaRow` records for compact R2
+ *   snapshots and O(1) overlay merging, which `groupCatalogMediaIntoReleases` aggregates into
+ *   `RetailReleaseView.mediaItems[]`.
  */
 
 export enum OwnershipStatus {
@@ -37,6 +51,10 @@ export type ReleaseMedium =
   | 'digital_native'
   | 'unreleased_prototype';
 
+/**
+ * Represents a single physical media item (`game_releases` + optional `canonical_releases`
+ * metadata) within a Platform Game's Retail Release (SKU).
+ */
 export interface GameRelease {
   id: string;
   game_id: number;
@@ -64,6 +82,23 @@ export interface GameRelease {
   comments?: string | null;
 }
 
+/** Semantic alias clarifying that each `game_releases` row is an individual physical media item. */
+export type PhysicalMedia = GameRelease;
+
+/**
+ * Normalized individual physical media entry attached to a virtually grouped Retail Release
+ * (`RetailReleaseView`) on the frontend so ID, label, media ownership, and filename metadata stay
+ * 1-to-1 aligned without parallel arrays.
+ */
+export interface ReleaseMediaItem {
+  id: string;
+  label: string;
+  hasMedia: 0 | 1;
+  romName?: string | null;
+  romCrc?: string | null;
+  isCompanionBase?: boolean;
+}
+
 export interface SharedMediaReleaseLink {
   id: string;
   title: string;
@@ -74,10 +109,23 @@ export interface SharedMediaReleaseLink {
   has_media: number;
 }
 
+/**
+ * Unified Game / Catalog Media Row / Detail View interface.
+ *
+ * - In `GET /api/games` & R2 catalog chunks (`CatalogMediaRow`): represents 1 physical media row
+ *   (`game_releases` joined to its parent `games` row, where `id` is the media row ID,
+ *   `stable_id` is the platform-game integer PK, and `game_id` is the platform-game slug).
+ * - In `CollectionListComponent` (`RetailReleaseView`): represents a virtually merged Retail
+ *   Release (SKU) carrying 1+ individual discs/carts in `mediaItems`.
+ * - In `/api/item/game/:id` detail view: carries SKU-sibling media rows in `releases` and sibling
+ *   regional/edition SKUs of the same Platform Game in `other_releases`.
+ */
 export interface Game {
   stable_id: number;
-  id: string; // The durable slug: game-title-platform-name
-  game_id?: string | null; // Grouped game slug reference
+  /** Primary physical media row ID in list/chunk rows (`game_releases.id`), or fallback game slug. */
+  id: string;
+  /** Parent Platform Game slug (`games.id`). */
+  game_id?: string | null;
   title: string;
   base_title?: string | null;
   series: string;
@@ -133,17 +181,25 @@ export interface Game {
   companion_game_id?: string;
   companion_game_title?: string;
   is_companion_base_disc?: boolean;
+  /** Detail view: individual physical media rows belonging to the currently viewed SKU. */
   releases?: GameRelease[];
+  /** Detail view: alternate regional/variant releases belonging to the same Platform Game. */
   other_releases?: GameRelease[];
   bundled_games?: BundledGame[];
   shared_media_releases?: SharedMediaReleaseLink[];
   voucher_notes?: string[];
-  discIds?: string[];
-  discMediaOwned?: number[];
-  discLabels?: string[];
-  discRomNames?: string[];
+  /** Virtually grouped list view: structured list of all individual media items in this SKU. */
+  mediaItems?: ReleaseMediaItem[];
   searchableNames?: string[];
   searchableSeries?: string[];
+}
+
+/** Semantic alias for raw 1-row-per-media catalog items returned by list/chunk APIs. */
+export type CatalogMediaRow = Game;
+
+/** Virtually merged Retail Release (SKU) view model containing 1+ structured media items. */
+export interface RetailReleaseView extends Game {
+  mediaItems: ReleaseMediaItem[];
 }
 
 export interface BundledGame {
@@ -959,4 +1015,44 @@ export interface MarketPriceScanProgress {
   waitingForWake?: boolean;
   wakeLockActive?: boolean;
   statusMessage?: string | null;
+}
+
+/**
+ * Returns the structured list of physical media items for a game release row,
+ * falling back to a single-item entry derived from `id` and `has_media` when
+ * inspecting an ungrouped `CatalogMediaRow`.
+ */
+export function getReleaseMediaItems(game: Game): ReleaseMediaItem[] {
+  if (Array.isArray(game.mediaItems) && game.mediaItems.length > 0) {
+    return game.mediaItems;
+  }
+  if (!game.id) {
+    return [];
+  }
+  const noun = getMediaNoun(game.display_name || game.platform, false);
+  return [
+    {
+      id: game.id,
+      label: noun,
+      hasMedia: game.has_media ? 1 : 0,
+      romName: game.rom_name ?? null,
+      romCrc: game.rom_crc ?? null,
+    },
+  ];
+}
+
+export function getOwnedMediaCount(game: Game): number {
+  return getReleaseMediaItems(game).filter((m) => m.hasMedia === 1).length;
+}
+
+export function getTotalMediaCount(game: Game): number {
+  return getReleaseMediaItems(game).length || 1;
+}
+
+export function getMissingMediaCount(game: Game): number {
+  return Math.max(0, getTotalMediaCount(game) - getOwnedMediaCount(game));
+}
+
+export function isMultiMediaRelease(game: Game): boolean {
+  return getReleaseMediaItems(game).length > 1;
 }

@@ -54,11 +54,15 @@ import {
   ViewMode,
   OwnershipStatus,
   PlayStatus,
+  RetailReleaseView,
+  getOwnedMediaCount,
+  getReleaseMediaItems,
   getSeriesCrossLanguageAliases,
   isRegionMatchingHome,
   isItemAvailableAtRetail,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
+import { groupCatalogMediaIntoReleases } from '../../../../core/models/release-grouping';
 import {
   findGameJournalEntry,
   findToyJournalEntry,
@@ -70,12 +74,6 @@ import {
   parseJournalDate,
 } from '../../../../core/models/provenance-analytics';
 import { isPhysicalReleaseGame } from '../../../../core/models/insights-analytics';
-import {
-  COMPANION_DISC1_PAIRS,
-  CompanionDiscPair,
-  normalizeForLabelMatch,
-  getRomGroupingKey,
-} from '../../../../core/models/title-mappings';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 import { ActivePlayShelfComponent } from '../active-play-shelf/active-play-shelf.component';
 import { GameCardComponent } from '../game-card/game-card.component';
@@ -591,35 +589,10 @@ export class CollectionListComponent
   });
 
   private static readonly NON_ASCII_RE = /[\u0080-\uffff]/;
-  private static readonly COMPANION_CANDIDATE_TITLE_RE =
-    /(?:oblivion|skyrim|fallout|dishonored|dragon\s*age|borderlands|killzone|saints\s*row|mafia|outlast|modern\s*warfare|double\s*dash|metroid\s*prime|resident\s*evil|persona|gran\s*turismo|fable|splinter\s*cell|alan\s*wake|bioshock|dead\s*rising|gears\s*of\s*war|mass\s*effect|perfect\s*dark|quake|viva\s*pi)/i;
-
-  private readonly COMPANION_DISC1_PAIRS = COMPANION_DISC1_PAIRS;
-  private readonly companionPairsByPlatform = (() => {
-    const map = new Map<number, CompanionDiscPair[]>();
-    for (const pair of COMPANION_DISC1_PAIRS) {
-      let list = map.get(pair.platformId);
-      if (!list) {
-        list = [];
-        map.set(pair.platformId, list);
-      }
-      list.push(pair);
-    }
-    return map;
-  })();
-  private readonly companionSupersetIds = new Set<number>(
-    COMPANION_DISC1_PAIRS.map((p) => p.supersetStableId).filter(
-      (id): id is number => id !== undefined,
-    ),
-  );
   private readonly searchFieldsCache = new WeakMap<
     Game,
     { names?: string[]; series?: string[] }
   >();
-
-  private normalizeForLabelMatch(name: string): string {
-    return normalizeForLabelMatch(name);
-  }
 
   private normalizeBudgetToken(token: string): string | null {
     return normalizeBudgetToken(token);
@@ -650,254 +623,14 @@ export class CollectionListComponent
     return result;
   }
 
-  private extractDiscLabel(
-    romName: string,
-    index: number,
-    fallbackVariants?: string | null,
-  ): string {
-    const matches: string[] = [];
-    const regex =
-      /\(((?:disc|disco|disque|disk)\s+[0-9a-z]+|install\s+disc|play\s+disc|data\s+disc|bonus\s+disc|game\s+disc|add-on[^)]*)\)/gi;
-    let m: RegExpExecArray | null;
-    while ((m = regex.exec(romName || '')) !== null) {
-      if (m[1]) {
-        matches.push(m[1].trim());
-      }
-    }
-    if (matches.length > 0) {
-      return matches.join(' · ');
-    }
-    if (
-      fallbackVariants &&
-      /disc|disk|install|play|bonus/i.test(fallbackVariants)
-    ) {
-      return fallbackVariants.trim();
-    }
-    return `Disc ${index + 1}`;
-  }
-
   /**
-   * Pre-computed grouped games list (disc grouping and companion disc GOTY matching).
-   * Depends strictly on collectionService.games(), decoupling expensive multi-disc grouping
+   * Pre-computed grouped retail releases (multi-disc grouping and companion GOTY matching).
+   * Depends strictly on collectionService.games(), decoupling expensive grouping
    * and candidate scans from active filter and search keystrokes.
    */
-  public discMergedGames = computed(() => {
-    const allGames = this.collectionService.games();
-
-    // Group multiple discs of the same release version (game_id, region, variants, and base rom name)
-    const groupedMap = new Map<
-      string,
-      Game & {
-        discIds: string[];
-        discMediaOwned: number[];
-        discLabels: string[];
-        discRomNames: string[];
-        discRomCrcs: string[];
-      }
-    >();
-    for (const g of allGames) {
-      const isPackIn =
-        g.rom_name &&
-        ((g.platform_id === 29 &&
-          /^mega man legends 2.*\(demo\)/i.test(g.rom_name)) ||
-          (g.platform_id === 30 &&
-            /^metal gear solid 2 - sons of liberty - trial edition.*\(demo\)/i.test(
-              g.rom_name,
-            )) ||
-          (g.platform_id === 30 &&
-            /^final fantasy xii\s*\(usa\)\s*\(demo\)/i.test(g.rom_name)));
-
-      const romKey = this.getRomGroupingKey(g.rom_name);
-      let baseKey = romKey.startsWith('multi:')
-        ? `${g.game_id || g.id}_${romKey}`
-        : `${g.game_id || g.id}_${g.region || ''}_${g.variants || ''}_${g.canonical_release_id || ''}_${romKey}`;
-
-      if (isPackIn) {
-        // Pack-in companion bonus discs (e.g. Mega Man Legends 2 Demo inside Tron Bonne)
-        // merge into the host game's primary release group so they don't spawn duplicate cards.
-        const hostEntry = Array.from(groupedMap.entries()).find(
-          ([k, val]) =>
-            (val.game_id === g.game_id || val.stable_id === g.stable_id) &&
-            val.region === g.region &&
-            !k.includes('_Demo_') &&
-            !k.includes('_demo_'),
-        );
-        if (hostEntry) {
-          baseKey = hostEntry[0];
-        } else {
-          baseKey = `${g.game_id || g.id}_${g.region || ''}_primary`;
-        }
-      }
-      if (!groupedMap.has(baseKey)) {
-        groupedMap.set(baseKey, {
-          ...g,
-          discIds: [g.id],
-          discMediaOwned: [g.has_media ? 1 : 0],
-          discLabels: [this.extractDiscLabel(g.rom_name || '', 0, g.variants)],
-          discRomNames: [g.rom_name || ''],
-          discRomCrcs: [g.rom_crc || ''],
-        });
-      } else {
-        const existing = groupedMap.get(baseKey)!;
-        const nextIdx = existing.discIds.length;
-        existing.discIds.push(g.id);
-        existing.discMediaOwned.push(g.has_media ? 1 : 0);
-        existing.discLabels.push(
-          this.extractDiscLabel(g.rom_name || '', nextIdx, g.variants),
-        );
-        existing.discRomNames.push(g.rom_name || '');
-        if (g.rom_crc) {
-          existing.discRomCrcs.push(g.rom_crc);
-        }
-        existing.ownership_status = Math.max(
-          existing.ownership_status,
-          g.ownership_status,
-        );
-        existing.play_status = Math.max(existing.play_status, g.play_status);
-        if (g.also_released_as) {
-          const merged = new Set(
-            [
-              ...(existing.also_released_as || '').split(','),
-              ...g.also_released_as.split(','),
-            ]
-              .map((s) => s.trim())
-              .filter(Boolean),
-          );
-          existing.also_released_as = Array.from(merged).join(', ');
-        }
-      }
-    }
-
-    // Pre-index candidate games only for platforms with configured companion disc pairs
-    const allGamesByPlatform = new Map<number, typeof allGames>();
-    for (const g of allGames) {
-      if (
-        g.platform_id != null &&
-        this.companionPairsByPlatform.has(g.platform_id)
-      ) {
-        let pList = allGamesByPlatform.get(g.platform_id);
-        if (!pList) {
-          pList = [];
-          allGamesByPlatform.set(g.platform_id, pList);
-        }
-        pList.push(g);
-      }
-    }
-
-    const groupedList = Array.from(groupedMap.values());
-    for (let i = 0; i < groupedList.length; i++) {
-      const g = groupedList[i];
-      const discIds = [...g.discIds];
-      const discMediaOwned = [...g.discMediaOwned];
-      const discLabels = [...g.discLabels];
-      const platPairs =
-        g.platform_id != null
-          ? this.companionPairsByPlatform.get(g.platform_id)
-          : undefined;
-
-      if (
-        platPairs &&
-        (this.companionSupersetIds.has(g.stable_id) ||
-          CollectionListComponent.COMPANION_CANDIDATE_TITLE_RE.test(
-            g.title || '',
-          ) ||
-          CollectionListComponent.COMPANION_CANDIDATE_TITLE_RE.test(
-            g.rom_name || '',
-          ))
-      ) {
-        // If this is a 2-disc GOTY/expanded release that only catalogs Disc 2 under its own game_id
-        // (reusing the original release as Disc 1), include the regional companion Disc 1's has_media
-        // so the GOTY release is only marked owned across all media when BOTH Disc 1 and Disc 2 are owned.
-        const hasDisc1InGroup = g.discRomNames.some((rn) =>
-          /\((?:disc|disco|disque|disk)\s+1\b/i.test(rn),
-        );
-        if (!hasDisc1InGroup) {
-          const romLower = (g.rom_name || '').toLowerCase();
-          const normRom = this.normalizeForLabelMatch(
-            g.rom_name || g.title || '',
-          );
-          const normTitle = this.normalizeForLabelMatch(g.title || '');
-          const regTokens = (g.region || '')
-            .toLowerCase()
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean);
-          for (const pair of platPairs) {
-            const isSupersetMatch =
-              (!pair.supersetRomMarker ||
-                romLower.includes(pair.supersetRomMarker)) &&
-              ((pair.supersetStableId !== undefined &&
-                pair.supersetStableId === g.stable_id) ||
-                normRom === pair.supersetNormalizedTitle ||
-                normTitle === pair.supersetNormalizedTitle) &&
-              !pair.excludedRegions?.some((ex) => regTokens.includes(ex));
-            if (isSupersetMatch) {
-              const platformCandidates =
-                allGamesByPlatform.get(pair.platformId) || [];
-              const companionCandidates = platformCandidates.filter((cand) => {
-                if (cand.id === g.id) {
-                  return false;
-                }
-                const candRomLower = (cand.rom_name || '').toLowerCase();
-                if (
-                  pair.supersetRomMarker &&
-                  candRomLower.includes(pair.supersetRomMarker)
-                ) {
-                  return false;
-                }
-                if (
-                  pair.originalExcludeMarker &&
-                  candRomLower.includes(pair.originalExcludeMarker)
-                ) {
-                  return false;
-                }
-                const candNorm = this.normalizeForLabelMatch(
-                  cand.rom_name || cand.title || '',
-                );
-                if (
-                  cand.stable_id !== pair.originalStableId &&
-                  candNorm !== pair.originalNormalizedTitle
-                ) {
-                  return false;
-                }
-                const candRegs = (cand.region || '')
-                  .toLowerCase()
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean);
-                if (regTokens.includes('world') || candRegs.includes('world')) {
-                  return true;
-                }
-                return regTokens.some((r) => candRegs.includes(r));
-              });
-              if (companionCandidates.length > 0) {
-                const companionPreferred =
-                  companionCandidates.find((c) => Boolean(c.has_media)) ??
-                  companionCandidates[0];
-                const companionHasMedia = companionCandidates.some((c) =>
-                  Boolean(c.has_media),
-                )
-                  ? 1
-                  : 0;
-                discIds.unshift(companionPreferred.id);
-                discMediaOwned.unshift(companionHasMedia);
-                discLabels.unshift('Disc 1 (Base Release)');
-              }
-              break;
-            }
-          }
-        }
-      }
-
-      // Release is considered media-complete if all its discs are owned
-      g.discIds = discIds;
-      g.discLabels = discLabels;
-      g.discMediaOwned = discMediaOwned;
-      g.has_media = discMediaOwned.every((b) => b === 1) ? 1 : 0;
-    }
-
-    return groupedList;
-  });
+  public discMergedGames = computed<RetailReleaseView[]>(() =>
+    groupCatalogMediaIntoReleases(this.collectionService.games()),
+  );
 
   private getOrBuildSearchableNames(g: Game): string[] {
     let cached = this.searchFieldsCache.get(g);
@@ -910,9 +643,9 @@ export class CollectionListComponent
       names.add(this.normalizeString(g.base_title));
     }
     if (g.rom_name) names.add(this.normalizeString(g.rom_name));
-    if (g.discRomNames) {
-      for (const rn of g.discRomNames) {
-        if (rn) names.add(this.normalizeString(rn));
+    if (g.mediaItems) {
+      for (const item of g.mediaItems) {
+        if (item.romName) names.add(this.normalizeString(item.romName));
       }
     }
     if (g.also_released_as) {
@@ -1507,10 +1240,6 @@ export class CollectionListComponent
       default:
         return 99;
     }
-  }
-
-  private getRomGroupingKey(filename: string | null | undefined): string {
-    return getRomGroupingKey(filename);
   }
 
   /** Virtual list window based on displayLimit for infinite scroll performance */
@@ -2837,7 +2566,7 @@ export class CollectionListComponent
   }
 
   public getOwnedDiscCount(game: Game): number {
-    return (game.discMediaOwned || []).filter((b) => b === 1).length;
+    return getOwnedMediaCount(game);
   }
 
   public onToggleSingleMediaOwned(event: MouseEvent, game: Game): void {
@@ -2850,23 +2579,24 @@ export class CollectionListComponent
       this.collectionService.promptAdminLogin();
       return;
     }
-    const releaseId = game.discIds?.[0] || game.id;
+    const firstMedia = getReleaseMediaItems(game)[0];
+    const releaseId = firstMedia?.id || game.id;
     if (!releaseId) return;
-    const prevDiscMediaOwned = game.discMediaOwned
-      ? [...game.discMediaOwned]
-      : undefined;
+    const prevMediaItems = game.mediaItems ? [...game.mediaItems] : undefined;
     const prevHasMedia = game.has_media;
     const current = Boolean(game.has_media);
     const newStatus: 0 | 1 = current ? 0 : 1;
-    if (game.discMediaOwned) {
-      game.discMediaOwned[0] = newStatus;
+    if (game.mediaItems?.length) {
+      game.mediaItems = game.mediaItems.map((m, idx) =>
+        idx === 0 ? { ...m, hasMedia: newStatus } : m,
+      );
     }
     game.has_media = newStatus;
     this.collectionService.patchDiscMediaOptimistic(releaseId, newStatus);
     this.collectionService.updateMediaOwned(releaseId, newStatus).subscribe({
       error: (err) => {
-        if (game.discMediaOwned && prevDiscMediaOwned) {
-          game.discMediaOwned = prevDiscMediaOwned;
+        if (prevMediaItems) {
+          game.mediaItems = prevMediaItems;
         }
         game.has_media = prevHasMedia;
         this.collectionService.patchDiscMediaOptimistic(
@@ -2906,9 +2636,10 @@ export class CollectionListComponent
     }
     const { releaseId, nextValue } = payload;
     const active = this.activeDiscModalGame();
-    const idx = active?.discIds?.indexOf(releaseId) ?? -1;
-    const prevStatus =
-      idx >= 0 ? Number(active?.discMediaOwned?.[idx] ?? 0) : nextValue ? 0 : 1;
+    const matchedItem = active
+      ? getReleaseMediaItems(active).find((m) => m.id === releaseId)
+      : undefined;
+    const prevStatus = matchedItem ? matchedItem.hasMedia : nextValue ? 0 : 1;
     this.collectionService.patchDiscMediaOptimistic(releaseId, nextValue);
     this.collectionService.updateMediaOwned(releaseId, nextValue).subscribe({
       error: (err) => {
@@ -2930,15 +2661,17 @@ export class CollectionListComponent
     if (payload.releaseIds.length === 0) return;
 
     const active = this.activeDiscModalGame();
+    const mediaById = new Map(
+      (active ? getReleaseMediaItems(active) : []).map((m) => [m.id, m]),
+    );
     const prevByRelease = new Map<string, number>();
     for (const id of payload.releaseIds) {
-      const idx = active?.discIds?.indexOf(id) ?? -1;
-      const prev =
-        idx >= 0
-          ? Number(active?.discMediaOwned?.[idx] ?? 0)
-          : payload.nextValue
-            ? 0
-            : 1;
+      const matchedItem = mediaById.get(id);
+      const prev = matchedItem
+        ? matchedItem.hasMedia
+        : payload.nextValue
+          ? 0
+          : 1;
       prevByRelease.set(id, prev);
       this.collectionService.patchDiscMediaOptimistic(id, payload.nextValue);
     }

@@ -100,7 +100,7 @@
           showMediaDetails() &&
           game().ownership_status === 1 &&
           game().release_medium !== 'digital_native' &&
-          (!game().discIds || game().discIds!.length <= 1)
+          !isMultiDisc(game())
         ) {
           <button
             type="button"
@@ -120,10 +120,9 @@
           showMediaDetails() &&
           game().ownership_status === 1 &&
           game().release_medium !== 'digital_native' &&
-          game().discIds &&
-          game().discIds!.length > 1
+          isMultiDisc(game())
         ) {
-          @if (getOwnedDiscCount(game()) === game().discIds!.length) {
+          @if (getOwnedDiscCount(game()) === getTotalDiscCount(game())) {
             <button
               type="button"
               class="backup-badge state-layer interactive backed-up"
@@ -131,7 +130,7 @@
               (click)="onOpenDiscChecklistClick($event)"
             >
               <app-icon [name]="getMediaIcon(game(), 1)" [size]="13" />
-              <span class="backup-text">{{ game().discIds!.length }}</span>
+              <span class="backup-text">{{ getTotalDiscCount(game()) }}</span>
             </button>
           } @else if (getOwnedDiscCount(game()) === 0) {
             <button
@@ -141,7 +140,7 @@
               (click)="onOpenDiscChecklistClick($event)"
             >
               <app-icon name="missing-dump" [size]="13" />
-              <span class="backup-text">{{ game().discIds!.length }}</span>
+              <span class="backup-text">{{ getTotalDiscCount(game()) }}</span>
             </button>
           } @else {
             <div
