@@ -412,4 +412,54 @@ describe('OwnershipVerificationComponent', () => {
     expect(component.mediaHealthExpanded()).toBe(false);
     expect(el.querySelector('[data-testid="media-stat-missing"]')).toBeNull();
   });
+
+  it('renders a single Choose Media Folder CTA with inline guidance and subtle fallback picker link', () => {
+    const pickerSpy = vi
+      .spyOn(component.ownershipVerificationService, 'supportsDirectoryPicker')
+      .mockReturnValue(true);
+
+    const localFixture = TestBed.createComponent(
+      OwnershipVerificationComponent,
+    );
+    const localComponent = localFixture.componentInstance;
+    const localFallbackSpy = vi
+      .spyOn(localComponent, 'triggerFallbackFileInput')
+      .mockImplementation(() => {});
+    localFixture.detectChanges();
+
+    const el = localFixture.nativeElement as HTMLElement;
+    expect(
+      el.querySelectorAll('[data-testid="choose-media-folder-btn"]'),
+    ).toHaveLength(1);
+    expect(el.querySelector('.scanner-empty-state')).toBeNull();
+    expect(
+      el.querySelector('[data-testid="scanner-folder-hint"]'),
+    ).toBeTruthy();
+
+    const fallbackBtn = el.querySelector(
+      '[data-testid="fallback-file-input-btn"]',
+    ) as HTMLButtonElement;
+    expect(fallbackBtn).toBeTruthy();
+    fallbackBtn.click();
+    expect(localFallbackSpy).toHaveBeenCalledTimes(1);
+
+    const crawl = localComponent.ownershipVerificationService.crawlFromFileList(
+      [
+        {
+          name: 'Chrono Trigger (USA).sfc',
+          webkitRelativePath: 'SNES/Chrono Trigger (USA).sfc',
+        },
+      ],
+    );
+    localComponent['applyCrawlResult'](crawl);
+    localFixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="scanner-folder-hint"]')).toBeNull();
+    expect(
+      el.querySelector('[data-testid="fallback-file-input-btn"]'),
+    ).toBeTruthy();
+
+    localFallbackSpy.mockRestore();
+    pickerSpy.mockRestore();
+  });
 });

@@ -187,7 +187,7 @@ import {
               </button>
 
               <label
-                class="toggle-row pref-toggle-row"
+                class="pref-toggle-row"
                 for="toggle-track-individual-media-input"
               >
                 <div class="nav-section-left">
@@ -196,11 +196,10 @@ import {
                   </span>
                   <div class="nav-section-text">
                     <span class="nav-section-title"
-                      >Track Individual Discs &amp; Carts</span
+                      >Show Individual Discs &amp; Carts</span
                     >
                     <span class="nav-section-desc">
-                      Show per-disc and cartridge ownership status on your
-                      collection
+                      Display saved per-disc &amp; cart status
                     </span>
                   </div>
                 </div>
@@ -516,17 +515,21 @@ import {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.72rem 0.85rem;
+        gap: 12px;
+        width: 100%;
+        padding: 10px 14px;
+        box-sizing: border-box;
         cursor: pointer;
-        border-top: 1px solid
-          var(--kit-outline-variant, rgba(255, 255, 255, 0.08));
+        border: none;
+        border-top: 1px solid var(--kit-outline-variant);
+        border-radius: 0;
         margin: 0;
         background: transparent;
+        transition: background-color 0.15s;
       }
 
       .pref-toggle-row:hover {
-        background: var(--kit-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--kit-surface-high);
       }
 
       .setting-nav-right {

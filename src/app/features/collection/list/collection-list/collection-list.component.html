@@ -110,7 +110,7 @@
                   @if (
                     !group.isFlatSort &&
                     group.catalogCount &&
-                    group.catalogCount > group.totalCount
+                    group.catalogCount >= group.totalCount
                   ) {
                     {{ group.totalCount }} / {{ group.catalogCount }} ({{
                       group.completionPct
@@ -206,7 +206,7 @@
               </h2>
               <div class="platform-badge">
                 @if (
-                  group.catalogCount && group.catalogCount > group.totalCount
+                  group.catalogCount && group.catalogCount >= group.totalCount
                 ) {
                   {{ group.totalCount }} / {{ group.catalogCount }} ({{
                     group.completionPct
@@ -225,7 +225,7 @@
                 <div class="series-badge">
                   @if (
                     series.catalogCount &&
-                    series.catalogCount > series.totalCount
+                    series.catalogCount >= series.totalCount
                   ) {
                     {{ series.totalCount }} / {{ series.catalogCount }} ({{
                       series.completionPct

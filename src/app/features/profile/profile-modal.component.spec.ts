@@ -334,6 +334,15 @@ describe('ProfileModalComponent', () => {
     expect(toggle).toBeTruthy();
     expect(toggle.checked).toBe(false);
 
+    const toggleRow = toggle.closest('label') as HTMLLabelElement;
+    expect(toggleRow).toBeTruthy();
+    expect(toggleRow.classList.contains('pref-toggle-row')).toBe(true);
+    expect(toggleRow.classList.contains('toggle-row')).toBe(false);
+    expect(toggleRow.textContent).toContain('Show Individual Discs & Carts');
+    expect(toggleRow.textContent).toContain(
+      'Display saved per-disc & cart status',
+    );
+
     toggle.click();
     fixture.detectChanges();
 

@@ -328,6 +328,7 @@
           class="btn-choose-folder"
           [disabled]="ownershipVerificationService.isCrawling() || isApplying()"
           (click)="onChooseDirectory()"
+          data-testid="choose-media-folder-btn"
         >
           <app-icon name="disc" [size]="18"></app-icon>
           <span>
@@ -339,20 +340,6 @@
           </span>
         </button>
 
-        @if (ownershipVerificationService.supportsDirectoryPicker()) {
-          <button
-            type="button"
-            class="btn-fallback-picker"
-            [disabled]="
-              ownershipVerificationService.isCrawling() || isApplying()
-            "
-            (click)="triggerFallbackFileInput()"
-            title="Use standard file input directory selector"
-          >
-            Browser File Input
-          </button>
-        }
-
         <input
           #fallbackDirInput
           type="file"
@@ -363,6 +350,36 @@
         />
       </div>
     </div>
+
+    @if (
+      (!scanReport() && !ownershipVerificationService.isCrawling()) ||
+      ownershipVerificationService.supportsDirectoryPicker()
+    ) {
+      <div class="scanner-hero-footnote">
+        @if (!scanReport() && !ownershipVerificationService.isCrawling()) {
+          <p class="scanner-folder-hint" data-testid="scanner-folder-hint">
+            Point the scanner at a multi-platform library root (e.g.
+            <code>Library/SNES</code>, <code>Library/Switch</code>) or a single
+            platform's folder. You will review all proposed changes before
+            anything is saved.
+          </p>
+        }
+        @if (ownershipVerificationService.supportsDirectoryPicker()) {
+          <button
+            type="button"
+            class="btn-fallback-link"
+            [disabled]="
+              ownershipVerificationService.isCrawling() || isApplying()
+            "
+            (click)="triggerFallbackFileInput()"
+            data-testid="fallback-file-input-btn"
+            title="Use standard file input directory selector"
+          >
+            Use standard browser file input
+          </button>
+        }
+      </div>
+    }
 
     @if (ownershipVerificationService.isCrawling()) {
       <div class="scanner-progress-banner" role="status" aria-live="polite">
@@ -1049,28 +1066,5 @@
         </span>
       </button>
     </footer>
-  } @else if (!ownershipVerificationService.isCrawling()) {
-    <section class="scanner-empty-state">
-      <div class="empty-icon-circle" aria-hidden="true">
-        <app-icon name="disc" [size]="36"></app-icon>
-      </div>
-      <h2>Select a Local Media Directory to Verify Ownership</h2>
-      <p>
-        Point the scanner at either your top-level multi-platform library root
-        (e.g.
-        <code>Library/SNES</code>, <code>Library/Switch</code>) or a single
-        platform's folder. You will review a full diff of individual disc/cart
-        ownership changes and any proposed release SKU switches before anything
-        is saved.
-      </p>
-      <button
-        type="button"
-        class="btn-choose-folder"
-        (click)="onChooseDirectory()"
-      >
-        <app-icon name="disc" [size]="18"></app-icon>
-        <span>Choose Media Folder</span>
-      </button>
-    </section>
   }
 </div>
