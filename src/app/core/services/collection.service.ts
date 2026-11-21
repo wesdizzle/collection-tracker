@@ -77,65 +77,6 @@ interface CollectionOfflineSnapshot {
   catalogVersion?: string | null;
 }
 
-export function readHasMedia(
-  row?: { has_media?: unknown; backup_status?: unknown } | null,
-): number {
-  return Number(row?.has_media ?? row?.backup_status ?? 0) > 0 ? 1 : 0;
-}
-
-function normalizeGameMediaFields(raw: Game): Game {
-  const legacy = raw as Game & {
-    backup_status?: unknown;
-    discBackups?: number[];
-  };
-  const hasMedia =
-    raw.has_media !== undefined
-      ? raw.has_media
-      : readHasMedia({ backup_status: legacy.backup_status });
-  const discMediaOwned =
-    raw.discMediaOwned ??
-    (Array.isArray(legacy.discBackups) ? legacy.discBackups : undefined);
-  const releases = Array.isArray(raw.releases)
-    ? raw.releases.map((r) => ({
-        ...r,
-        has_media:
-          r.has_media !== undefined
-            ? r.has_media
-            : readHasMedia(
-                r as { has_media?: unknown; backup_status?: unknown },
-              ),
-      }))
-    : raw.releases;
-  const bundledGames = Array.isArray(raw.bundled_games)
-    ? raw.bundled_games.map((b) => ({
-        ...b,
-        has_media:
-          b.has_media !== undefined
-            ? b.has_media
-            : readHasMedia(
-                b as { has_media?: unknown; backup_status?: unknown },
-              ),
-      }))
-    : raw.bundled_games;
-
-  if (
-    hasMedia === raw.has_media &&
-    discMediaOwned === raw.discMediaOwned &&
-    releases === raw.releases &&
-    bundledGames === raw.bundled_games
-  ) {
-    return raw;
-  }
-
-  return {
-    ...raw,
-    has_media: hasMedia,
-    ...(discMediaOwned !== undefined ? { discMediaOwned } : {}),
-    ...(releases !== undefined ? { releases } : {}),
-    ...(bundledGames !== undefined ? { bundled_games: bundledGames } : {}),
-  };
-}
-
 @Injectable({
   providedIn: 'root',
 })
@@ -1023,9 +964,7 @@ export class CollectionService implements OnDestroy {
 
     let hydratedAny = false;
     if (this._games().length === 0 && stored.state.games?.length) {
-      this._games.set(
-        stored.state.games.map((g) => normalizeGameMediaFields(g)),
-      );
+      this._games.set(stored.state.games);
       hydratedAny = true;
     }
     if (this._toys().length === 0 && stored.state.toys?.length) {
@@ -1269,9 +1208,7 @@ export class CollectionService implements OnDestroy {
     phase1ById: Map<string, Game>,
     alreadyEnriched = false,
   ): Game {
-    const baseGame = alreadyEnriched
-      ? normalizeGameMediaFields(rawGame)
-      : this.enrichGameTitle(rawGame);
+    const baseGame = alreadyEnriched ? rawGame : this.enrichGameTitle(rawGame);
     const phase1Match = phase1ById.get(baseGame.id);
     const ugRow = ugByStableId.get(Number(baseGame.stable_id));
     const ugrSelf = ugrByReleaseId.get(baseGame.id);
@@ -1300,7 +1237,7 @@ export class CollectionService implements OnDestroy {
         return {
           ...r,
           ownership_status: Number(relUgr?.ownership_status ?? 0),
-          has_media: readHasMedia(relUgr),
+          has_media: Number(relUgr?.has_media ?? 0),
           has_case: Number(relUgr?.has_case ?? 0),
           has_manual: Number(relUgr?.has_manual ?? 0),
         };
@@ -1310,7 +1247,7 @@ export class CollectionService implements OnDestroy {
     let nextDiscMediaOwned = baseGame.discMediaOwned;
     if (Array.isArray(baseGame.discIds)) {
       nextDiscMediaOwned = baseGame.discIds.map((discId) =>
-        readHasMedia(ugrByReleaseId.get(discId)),
+        Number(ugrByReleaseId.get(discId)?.has_media ?? 0),
       );
     }
 
@@ -1319,7 +1256,7 @@ export class CollectionService implements OnDestroy {
         ? nextDiscMediaOwned.every((b) => Number(b) === 1)
           ? 1
           : 0
-        : readHasMedia(ugrSelf);
+        : Number(ugrSelf?.has_media ?? 0);
 
     const overlaid: Game = {
       ...baseGame,
@@ -1457,7 +1394,7 @@ export class CollectionService implements OnDestroy {
           (overlaid.ownership_status !== cachedGame.ownership_status ||
             overlaid.play_status !== cachedGame.play_status ||
             Number(overlaid.queued ?? 0) !== Number(cachedGame.queued ?? 0) ||
-            Boolean(overlaid.has_media) !== Boolean(readHasMedia(cachedGame)) ||
+            Boolean(overlaid.has_media) !== Boolean(cachedGame.has_media) ||
             Boolean(overlaid.has_case) !== Boolean(cachedGame.has_case) ||
             Boolean(overlaid.has_manual) !== Boolean(cachedGame.has_manual) ||
             overlaid.retail_updated_at !== cachedGame.retail_updated_at)
@@ -1749,7 +1686,7 @@ export class CollectionService implements OnDestroy {
           variants: r.variants || null,
           rom_name: r.rom_name || null,
           rom_crc: r.rom_crc || null,
-          has_media: readHasMedia(r),
+          has_media: Number(r.has_media) || 0,
           ownership_status: Number(r.ownership_status) || 0,
           release_date: r.release_date || null,
           also_released_as: r.also_released_as || null,
@@ -1768,7 +1705,7 @@ export class CollectionService implements OnDestroy {
                 variants: cached.variants || null,
                 rom_name: cached.rom_name || null,
                 rom_crc: cached.rom_crc || null,
-                has_media: readHasMedia(cached),
+                has_media: Number(cached.has_media) || 0,
                 ownership_status: Number(cached.ownership_status) || 0,
                 release_date: cached.release_date || null,
               },
@@ -2809,8 +2746,7 @@ export class CollectionService implements OnDestroy {
    * @param game The source Game object to enrich.
    * @returns A new Game object with the appropriately formatted title.
    */
-  private enrichGameTitle(rawGame: Game): Game {
-    const game = normalizeGameMediaFields(rawGame);
+  private enrichGameTitle(game: Game): Game {
     const baseTitle = this.formatTitle(game.title || '');
     if (!game.rom_name) {
       return {

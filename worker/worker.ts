@@ -1148,7 +1148,7 @@ export async function writeLiteBackupSnapshots(
     for (const ugr of user_game_releases) {
       if (
         Number(ugr['ownership_status'] ?? 0) > 0 ||
-        Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0) > 0 ||
+        Number(ugr['has_media'] ?? 0) > 0 ||
         Number(ugr['has_case'] ?? 0) === 1 ||
         Number(ugr['has_manual'] ?? 0) === 1
       ) {
@@ -2262,9 +2262,7 @@ function buildGamesListFromSnapshot(
         also_released_as: r?.['also_released_as'] ?? null,
         rom_name: r?.['rom_name'] ?? null,
         rom_crc: r?.['rom_crc'] ?? null,
-        has_media: ugr
-          ? Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0)
-          : 0,
+        has_media: ugr ? Number(ugr['has_media'] ?? 0) : 0,
         has_case: ugr ? Number(ugr['has_case'] ?? 0) : 0,
         has_manual: ugr ? Number(ugr['has_manual'] ?? 0) : 0,
         retail_price: g['retail_price'] ?? null,
@@ -2597,9 +2595,7 @@ function buildGameDetailFromSnapshot(
       (primaryRel?.['also_released_as'] as string | null) ?? null,
     rom_name: (primaryRel?.['rom_name'] as string | null) ?? null,
     rom_crc: (primaryRel?.['rom_crc'] as string | null) ?? null,
-    has_media: primaryUgr
-      ? Number(primaryUgr['has_media'] ?? primaryUgr['backup_status'] ?? 0)
-      : 0,
+    has_media: primaryUgr ? Number(primaryUgr['has_media'] ?? 0) : 0,
     has_case: primaryUgr ? Number(primaryUgr['has_case'] ?? 0) : 0,
     has_manual: primaryUgr ? Number(primaryUgr['has_manual'] ?? 0) : 0,
     display_name: (effPlatform?.['display_name'] as string | null) ?? null,
@@ -2623,9 +2619,7 @@ function buildGameDetailFromSnapshot(
       also_released_as: (r['also_released_as'] as string | null) ?? null,
       rom_name: (r['rom_name'] as string | null) ?? null,
       rom_crc: (r['rom_crc'] as string | null) ?? null,
-      has_media: ugr
-        ? Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0)
-        : 0,
+      has_media: ugr ? Number(ugr['has_media'] ?? 0) : 0,
       ownership_status: ugr ? Number(ugr['ownership_status'] ?? 0) : 0,
       title: (r['also_released_as'] as string | null) ?? null,
       release_date:
@@ -2692,9 +2686,7 @@ function buildGameDetailFromSnapshot(
         also_released_as: (r['also_released_as'] as string | null) ?? null,
         rom_name: (r['rom_name'] as string | null) ?? null,
         rom_crc: (r['rom_crc'] as string | null) ?? null,
-        has_media: ugr
-          ? Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0)
-          : 0,
+        has_media: ugr ? Number(ugr['has_media'] ?? 0) : 0,
         ownership_status: ugr ? Number(ugr['ownership_status'] ?? 0) : 0,
         release_date: (r['release_date'] as string | null) ?? null,
         has_case: ugr ? Number(ugr['has_case'] ?? 0) : 0,
@@ -2744,9 +2736,7 @@ function buildGameDetailFromSnapshot(
         release_medium: bg['release_medium'] ?? null,
         origin_metadata: bg['origin_metadata'] ?? null,
         rom_name: rel?.['rom_name'] || bg['title'],
-        has_media: ugr
-          ? Number(ugr['has_media'] ?? ugr['backup_status'] ?? 0)
-          : 0,
+        has_media: ugr ? Number(ugr['has_media'] ?? 0) : 0,
         platform_name: effBp?.['display_name'] ?? null,
         platform: effBp?.['display_name'] ?? null,
       };

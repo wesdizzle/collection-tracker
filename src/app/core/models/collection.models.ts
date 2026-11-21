@@ -889,7 +889,6 @@ export interface UserCollectionOverlayResponse {
     release_id: string;
     ownership_status: number;
     has_media?: number;
-    backup_status?: number;
     has_case: number;
     has_manual: number;
   }>;

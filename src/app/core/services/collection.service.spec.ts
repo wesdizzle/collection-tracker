@@ -1743,8 +1743,8 @@ describe('CollectionService', () => {
               ownership_status: 1,
               play_status: 3,
               queued: 1,
-              backup_status: 1,
-            } as unknown as Game,
+              has_media: 1,
+            } as Game,
             {
               id: 'active-owned-2',
               game_id: 'active-owned-2',
@@ -1855,7 +1855,7 @@ describe('CollectionService', () => {
             {
               release_id: 'active-owned-2',
               ownership_status: 1,
-              backup_status: 1,
+              has_media: 1,
               has_case: 1,
               has_manual: 0,
             },

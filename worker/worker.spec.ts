@@ -4315,13 +4315,13 @@ describe('Worker API Logic', () => {
         expect(rowAfterDisable.has_media).toBe(0);
       });
 
-      it('hydrates has_media from legacy backup_status fields in R2 fallback snapshots', async () => {
+      it('hydrates has_media from R2 fallback snapshots', async () => {
         resetR2SnapshotCache();
         resetWorkerRateLimits();
 
-        const legacySnapshot = {
-          version: 'v1-legacy',
-          timestamp: '2026-11-19T00:00:00Z',
+        const r2Snapshot = {
+          version: 'v1-snapshot',
+          timestamp: '2026-11-21T00:00:00Z',
           tables: {
             platforms: [
               { id: 1, name: 'SNES', display_name: 'SNES', sort_index: 0 },
@@ -4359,7 +4359,7 @@ describe('Worker API Logic', () => {
                 user_id: 1,
                 release_id: 'gb-mario',
                 ownership_status: 1,
-                backup_status: 1,
+                has_media: 1,
                 has_case: 1,
                 has_manual: 0,
               },
@@ -4375,7 +4375,7 @@ describe('Worker API Logic', () => {
         };
         mockBucket.storage.set(
           'snapshots/latest.json',
-          JSON.stringify(legacySnapshot),
+          JSON.stringify(r2Snapshot),
         );
 
         const failingDb = {
