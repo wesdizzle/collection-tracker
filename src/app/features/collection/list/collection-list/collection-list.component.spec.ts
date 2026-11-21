@@ -1231,7 +1231,9 @@ describe('CollectionListComponent', () => {
     const platformBadge =
       fixture.nativeElement.querySelector('.platform-badge');
     expect(platformBadge).toBeTruthy();
-    expect(platformBadge.textContent.trim()).toBe('2 Items');
+    expect(platformBadge.textContent.replace(/\s+/g, ' ').trim()).toBe(
+      '2 / 2 (100%)',
+    );
   });
 
   it('should filter games by seeking_or_unowned and deals_only', async () => {
@@ -3593,6 +3595,16 @@ describe('CollectionListComponent', () => {
         series_line: 'Amiibo',
         ownership_status: 1,
       },
+      {
+        stable_id: 105,
+        id: 'toy-5',
+        name: 'Fox McCloud',
+        line: 'Starlink',
+        type: 'Figure',
+        series_name: 'Star Fox',
+        series_line: 'Starlink',
+        ownership_status: 1,
+      },
     ]);
     httpMock.expectOne('/api/platforms').flush([]);
     await initPromise;
@@ -3600,17 +3612,23 @@ describe('CollectionListComponent', () => {
     fixture.detectChanges();
 
     const el = fixture.nativeElement as HTMLElement;
-    expect(
-      el
-        .querySelector('.platform-badge')
-        ?.textContent?.replace(/\s+/g, ' ')
-        .trim(),
-    ).toBe('3 / 4 (75%)');
+    const lineBadges = Array.from(el.querySelectorAll('.platform-badge')).map(
+      (n) => n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+    expect(lineBadges).toEqual(['3 / 4 (75%)', '1 / 1 (100%)']);
     const seriesBadges = Array.from(el.querySelectorAll('.series-badge')).map(
       (n) => n.textContent?.replace(/\s+/g, ' ').trim(),
     );
     expect(seriesBadges).toContain('2 / 3 (67%)');
-    expect(seriesBadges).toContain('1 Items');
+    expect(seriesBadges).toContain('1 / 1 (100%)');
+
+    // Non-Owned filter keeps N Items format rather than N / N (100%)
+    component.onFiltersChange({ ...component.filters(), ownership: 'all' });
+    fixture.detectChanges();
+    const allLineBadges = Array.from(
+      el.querySelectorAll('.platform-badge'),
+    ).map((n) => n.textContent?.replace(/\s+/g, ' ').trim());
+    expect(allLineBadges).toEqual(['4 Items', '1 Items']);
   });
 
   it('renders filtered spend/value summary strip in personal view and hides it in public view', async () => {

@@ -284,7 +284,6 @@
   cursor: not-allowed;
 }
 
-.btn-fallback-picker,
 .btn-inline {
   background: var(--m3-surface-container-high);
   color: var(--m3-on-surface);
@@ -299,15 +298,54 @@
     border-color 0.15s ease;
 }
 
-.btn-fallback-picker:hover:not(:disabled),
 .btn-inline:hover:not(:disabled) {
   background: var(--m3-surface-container-highest);
   border-color: var(--m3-outline);
 }
 
-.btn-fallback-picker:disabled,
 .btn-inline:disabled {
   opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.scanner-hero-footnote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--m3-outline-variant);
+}
+
+.scanner-folder-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--m3-on-surface-variant);
+  line-height: 1.45;
+  flex: 1 1 320px;
+}
+
+.btn-fallback-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--m3-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+
+.btn-fallback-link:hover:not(:disabled) {
+  opacity: 0.82;
+}
+
+.btn-fallback-link:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -719,43 +757,6 @@
   color: var(--m3-on-surface);
 }
 
-.scanner-empty-state {
-  background: var(--glass-bg, var(--m3-surface-container));
-  border: 1px dashed var(--m3-outline);
-  border-radius: 14px;
-  padding: 3rem 1.5rem;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.85rem;
-}
-
-.empty-icon-circle {
-  width: 68px;
-  height: 68px;
-  border-radius: 50%;
-  background: var(--m3-primary-container);
-  color: var(--m3-on-primary-container);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.scanner-empty-state h2 {
-  margin: 0;
-  font-size: 1.2rem;
-  color: var(--m3-on-surface);
-}
-
-.scanner-empty-state p {
-  margin: 0;
-  max-width: 580px;
-  font-size: 0.9rem;
-  color: var(--m3-on-surface-variant);
-  line-height: 1.5;
-}
-
 /* Media Ownership Health Summary Card */
 kit-section-card,
 .media-health-card-wrap {
@@ -986,7 +987,6 @@ kit-section-card,
   }
 
   .btn-choose-folder,
-  .btn-fallback-picker,
   .scanner-action-bar .btn-apply-diff {
     width: 100%;
     justify-content: center;
