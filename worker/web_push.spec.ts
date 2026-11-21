@@ -247,8 +247,51 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
 
     const [callUrl, callOptions] = mockFetch.mock.calls[0];
     expect(callUrl).toBe(sub.endpoint);
+    expect(callOptions.redirect).toBe('manual');
     expect(callOptions.headers['Content-Encoding']).toBe('aes128gcm');
     expect(callOptions.headers['Authorization']).toContain('vapid t=');
+  });
+
+  it('should reject 3xx redirect responses without following or deleting subscription', async () => {
+    const uaKeyPair = await crypto.subtle.generateKey(
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      ['deriveBits'],
+    );
+    const uaPublicB64 = uint8ArrayToBase64Url(
+      new Uint8Array(await crypto.subtle.exportKey('raw', uaKeyPair.publicKey)),
+    );
+    const uaAuthB64 = uint8ArrayToBase64Url(
+      crypto.getRandomValues(new Uint8Array(16)),
+    );
+
+    const sub: WebPushSubscription = {
+      endpoint: 'https://fcm.googleapis.com/fcm/send/redirect-test',
+      p256dh: uaPublicB64,
+      auth: uaAuthB64,
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { Location: 'https://attacker.example.com/redirect' },
+      }),
+    );
+
+    const result = await sendWebPushNotification(
+      sub,
+      { title: 'Redirect', body: 'Test' },
+      {
+        fetchFn: mockFetch as unknown as typeof fetch,
+        publicKey: testVapidPublicKey,
+        privateKeyJwk: testVapidJwk,
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe(302);
+    expect(result.shouldDelete).toBe(false);
+    expect(result.error).toMatch(/redirect/i);
   });
 
   it('should mark shouldDelete=true when push service returns 410 Gone or 404', async () => {
