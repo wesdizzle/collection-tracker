@@ -2,7 +2,7 @@
  * EDGE-NATIVE WEB PUSH HELPER (RFC 8291 & RFC 8292)
  *
  * Delegates Web Push payload encryption (`aes128gcm`), VAPID signing, and
- * SSRF-hardened endpoint validation (HTTPS + port 443 + `redirect: 'error'`)
+ * SSRF-hardened endpoint validation (HTTPS + port 443 + `redirect: 'manual'` + 3xx rejection)
  * to `@wesdizzle/app-kit/worker`.
  */
 
