@@ -393,17 +393,17 @@
                   </div>
                 }
                 @if (g.releases && g.releases.length > 0) {
-                  @if (
-                    collectionService.canTrackIndividualMedia() ||
-                    collectionService.isAdmin() ||
-                    g.releases.length > 1
-                  ) {
+                  @if (shouldShowReleasesSection(g)) {
                     <div class="meta-box full-width discs-section mt-lg">
                       <span class="label">{{
                         getReleasesSectionLabel(g)
                       }}</span>
                       <div class="discs-list flex flex-col gap-md">
-                        @for (release of g.releases; track release.id) {
+                        @for (
+                          release of g.releases;
+                          track release.id;
+                          let idx = $index
+                        ) {
                           <div
                             class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
                           >
@@ -414,6 +414,13 @@
                                 @if (release.disc_label) {
                                   <span class="variant-badge">{{
                                     release.disc_label
+                                  }}</span>
+                                } @else if (
+                                  getDefaultReleaseLabel(g, release, idx);
+                                  as defaultLabel
+                                ) {
+                                  <span class="variant-badge">{{
+                                    defaultLabel
                                   }}</span>
                                 }
                                 @if (
@@ -431,7 +438,9 @@
                                   >
                                 }
                                 @if (
-                                  release.region && release.region !== g.region
+                                  release.region &&
+                                  g.region &&
+                                  release.region !== g.region
                                 ) {
                                   <span class="variant-badge region-badge">{{
                                     release.region
@@ -546,68 +555,6 @@
                           </div>
                         }
                       </div>
-
-                      @if (
-                        g.shared_media_releases &&
-                        g.shared_media_releases.length > 0
-                      ) {
-                        <div class="shared-backup-banner mt-md p-sm rounded-md">
-                          <div class="text-xs font-semibold mb-2xs">
-                            <app-icon name="link" [size]="14" /> Included in
-                            Compilation / Expanded Release — Also part of:
-                          </div>
-                          <div class="flex flex-wrap gap-xs mt-2xs">
-                            @for (
-                              shared of g.shared_media_releases;
-                              track shared.id
-                            ) {
-                              <a
-                                [routerLink]="['/game', shared.id]"
-                                class="jump-link-pill"
-                              >
-                                <span class="flex items-center gap-xs"
-                                  ><app-icon name="disc" [size]="12" />
-                                  {{ shared.title }}</span
-                                >
-                                @if (shared.region) {
-                                  <span class="text-2xs text-secondary"
-                                    >({{ shared.region }})</span
-                                  >
-                                }
-                                @if (
-                                  collectionService.canShowPersonalState() &&
-                                  shared.ownership_status === 1
-                                ) {
-                                  <span
-                                    class="text-2xs flex items-center gap-2xs"
-                                    title="Owned in collection"
-                                    ><app-icon name="check" [size]="12" />
-                                    Owned</span
-                                  >
-                                }
-                              </a>
-                            }
-                          </div>
-                        </div>
-                      }
-
-                      @if (g.voucher_notes && g.voucher_notes.length > 0) {
-                        <div
-                          class="voucher-notice-banner mt-md flex flex-col gap-2xs"
-                        >
-                          <div
-                            class="text-xs font-semibold flex items-center gap-xs"
-                          >
-                            <app-icon name="ticket" [size]="14" />
-                            <span>Bundled Digital Content</span>
-                          </div>
-                          @for (note of g.voucher_notes; track note) {
-                            <div class="text-xs text-secondary leading-normal">
-                              {{ note }}
-                            </div>
-                          }
-                        </div>
-                      }
                     </div>
                   }
                 } @else if (!g.rom_name) {
@@ -622,6 +569,76 @@
                           : 'Not yet matched in community release catalog'
                       }}</span
                     >
+                  </div>
+                }
+
+                @if (
+                  (g.shared_media_releases &&
+                    g.shared_media_releases.length > 0) ||
+                  (g.voucher_notes && g.voucher_notes.length > 0)
+                ) {
+                  <div class="meta-box full-width">
+                    @if (
+                      g.shared_media_releases &&
+                      g.shared_media_releases.length > 0
+                    ) {
+                      <div class="shared-backup-banner mt-md p-sm rounded-md">
+                        <div class="text-xs font-semibold mb-2xs">
+                          <app-icon name="link" [size]="14" /> Included in
+                          Compilation / Expanded Release — Also part of:
+                        </div>
+                        <div class="flex flex-wrap gap-xs mt-2xs">
+                          @for (
+                            shared of g.shared_media_releases;
+                            track shared.id
+                          ) {
+                            <a
+                              [routerLink]="['/game', shared.id]"
+                              class="jump-link-pill"
+                            >
+                              <span class="flex items-center gap-xs"
+                                ><app-icon name="disc" [size]="12" />
+                                {{ shared.title }}</span
+                              >
+                              @if (shared.region) {
+                                <span class="text-2xs text-secondary"
+                                  >({{ shared.region }})</span
+                                >
+                              }
+                              @if (
+                                collectionService.canShowPersonalState() &&
+                                shared.ownership_status === 1
+                              ) {
+                                <span
+                                  class="text-2xs flex items-center gap-2xs"
+                                  title="Owned in collection"
+                                  ><app-icon name="check" [size]="12" />
+                                  Owned</span
+                                >
+                              }
+                            </a>
+                          }
+                        </div>
+                      </div>
+                    }
+
+                    @if (g.voucher_notes && g.voucher_notes.length > 0) {
+                      <div
+                        class="voucher-notice-banner mt-md flex flex-col gap-2xs"
+                      >
+                        <div
+                          class="text-xs font-semibold flex items-center gap-xs"
+                        >
+                          <app-icon name="ticket" [size]="14" />
+                          <span>Bundled Digital Content</span>
+                        </div>
+                        @for (note of g.voucher_notes; track note) {
+                          <div class="text-xs text-secondary leading-normal">
+                            {{ note }}
+                          </div>
+                        }
+                      </div>
+                    }
                   </div>
                 }
 

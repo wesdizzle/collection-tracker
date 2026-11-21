@@ -921,6 +921,56 @@ export class ItemDetailComponent {
     return isDisc ? 'Physical Disc Release' : 'Physical Cartridge Release';
   }
 
+  /**
+   * Returns true when a release carries catalog metadata worth rendering in the
+   * physical media section (labels, revisions, serial codes, differing region,
+   * companion links, comments, or unmatched catalog warning).
+   */
+  public hasReleaseMetadata(game: Game, release: GameRelease): boolean {
+    return Boolean(
+      release.disc_label ||
+      (release.variants && release.variants !== release.disc_label) ||
+      release.serial_code ||
+      (release.region && game.region && release.region !== game.region) ||
+      release.companion_game_id ||
+      (game.releases && game.releases.length > 1 && release.also_released_as) ||
+      release.comments ||
+      (!release.rom_name && !release.canonical_release_id),
+    );
+  }
+
+  /**
+   * Determines whether the physical cartridge/disc releases section should render.
+   * Shown for multi-item sets, when individual media ownership tracking is enabled,
+   * or when a single release has explicit catalog metadata/annotations.
+   */
+  public shouldShowReleasesSection(game: Game): boolean {
+    if (!game.releases || game.releases.length === 0) return false;
+    if (game.releases.length > 1) return true;
+    if (this.collectionService.canTrackIndividualMedia()) return true;
+    return game.releases.some((r) => this.hasReleaseMetadata(game, r));
+  }
+
+  /**
+   * Returns a fallback badge label for releases that lack an explicit disc label,
+   * variant/revision label, or serial code.
+   */
+  public getDefaultReleaseLabel(
+    game: Game,
+    release: GameRelease,
+    index: number,
+  ): string | null {
+    if (release.disc_label || release.variants || release.serial_code) {
+      return null;
+    }
+    const platform = game.display_name || game.platform;
+    const isDisc = this.getMediaIcon(platform, 1) === 'disc';
+    if (game.releases && game.releases.length > 1) {
+      return `${getMediaNoun(platform, false)} ${index + 1}`;
+    }
+    return isDisc ? 'Single Disc' : 'Single Cartridge';
+  }
+
   onToggleDiscMediaOwned(release: GameRelease) {
     if (!this.collectionService.canTrackIndividualMedia()) return;
     const game = this.game();
