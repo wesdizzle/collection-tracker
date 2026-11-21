@@ -7907,121 +7907,6 @@ Disallow: /
       });
     }
 
-    // Endpoint: DELETE /api/collection/game?id=<game id | release id | stable_id>
-    else if (request.method === 'DELETE' && path === '/api/collection/game') {
-      if (!isAuthorizedAdmin(request, env, sessionUser)) {
-        return Response.json(
-          { error: 'Unauthorized: Admin authentication required.' },
-          { status: 403 },
-        );
-      }
-
-      const rawId = (url.searchParams.get('id') || '').trim();
-      if (!rawId) {
-        return Response.json(
-          { error: 'Game id is required.' },
-          { status: 400 },
-        );
-      }
-
-      const game = (await env.DB.prepare(
-        `SELECT stable_id, id FROM games WHERE id = ?
-           UNION ALL
-           SELECT g.stable_id, g.id FROM games g
-             JOIN game_releases r ON r.game_id = g.stable_id WHERE r.id = ?
-           LIMIT 1`,
-      )
-        .bind(rawId, rawId)
-        .first()) as { stable_id: number; id: string } | null;
-
-      if (!game) {
-        return Response.json(
-          { error: `Could not find game with ID: ${rawId}` },
-          { status: 404 },
-        );
-      }
-
-      await env.DB.batch([
-        env.DB.prepare(
-          `DELETE FROM journal_entries WHERE item_type = 'game' AND item_id = ?`,
-        ).bind(game.id),
-        env.DB.prepare(
-          `DELETE FROM user_game_releases WHERE release_id IN (SELECT id FROM game_releases WHERE game_id = ?)`,
-        ).bind(game.stable_id),
-        env.DB.prepare('DELETE FROM user_games WHERE game_id = ?').bind(
-          game.stable_id,
-        ),
-        env.DB.prepare('DELETE FROM game_releases WHERE game_id = ?').bind(
-          game.stable_id,
-        ),
-        env.DB.prepare('DELETE FROM games WHERE stable_id = ?').bind(
-          game.stable_id,
-        ),
-      ]);
-
-      invalidateSeriesScanCache();
-      await invalidateCatalogManifest(env);
-      await invalidateEdgeApiCache(request.url, {
-        userId: sessionUser?.id,
-        username: sessionUser?.username,
-        invalidateCatalog: true,
-      });
-      await markDbDirty(env, 'games', game.stable_id, {
-        clearBoutiqueHash: true,
-      });
-      return Response.json({ success: true, deletedGameId: game.id });
-    }
-
-    // Endpoint: DELETE /api/collection/release?id=<release id>
-    else if (
-      request.method === 'DELETE' &&
-      path === '/api/collection/release'
-    ) {
-      if (!isAuthorizedAdmin(request, env, sessionUser)) {
-        return Response.json(
-          { error: 'Unauthorized: Admin authentication required.' },
-          { status: 403 },
-        );
-      }
-
-      const releaseId = (url.searchParams.get('id') || '').trim();
-      if (!releaseId) {
-        return Response.json(
-          { error: 'Release id is required.' },
-          { status: 400 },
-        );
-      }
-
-      await env.DB.prepare(
-        'DELETE FROM user_game_releases WHERE release_id = ?',
-      )
-        .bind(releaseId)
-        .run();
-
-      const result = await env.DB.prepare(
-        'DELETE FROM game_releases WHERE id = ?',
-      )
-        .bind(releaseId)
-        .run();
-
-      if (!result.meta || result.meta.changes === 0) {
-        return Response.json(
-          { error: `Could not find release with ID: ${releaseId}` },
-          { status: 404 },
-        );
-      }
-
-      invalidateSeriesScanCache();
-      await invalidateCatalogManifest(env);
-      await invalidateEdgeApiCache(request.url, {
-        userId: sessionUser?.id,
-        username: sessionUser?.username,
-        invalidateCatalog: true,
-      });
-      await markDbDirty(env, undefined, undefined, { clearBoutiqueHash: true });
-      return Response.json({ success: true, deletedReleaseId: releaseId });
-    }
-
     // Endpoint: POST /api/collection/sort
     else if (request.method === 'POST' && path === '/api/collection/sort') {
       if (!isAuthorizedAdmin(request, env, sessionUser)) {
@@ -9135,6 +9020,10 @@ Disallow: /
           'Cache-Control': 'public, max-age=86400',
         },
       });
+    }
+
+    if (path.startsWith('/api/')) {
+      return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
     /**
