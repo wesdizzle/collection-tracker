@@ -248,8 +248,28 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     const [callUrl, callOptions] = mockFetch.mock.calls[0];
     expect(callUrl).toBe(sub.endpoint);
     expect(callOptions.redirect).toBe('manual');
+    expect(callOptions.headers['Urgency']).toBe('high');
+    expect(callOptions.headers['TTL']).toBe('86400');
     expect(callOptions.headers['Content-Encoding']).toBe('aes128gcm');
     expect(callOptions.headers['Authorization']).toContain('vapid t=');
+
+    const customMockFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 201 }));
+    await sendWebPushNotification(
+      sub,
+      { title: 'Deal Alert', body: 'Custom options' },
+      {
+        fetchFn: customMockFetch as unknown as typeof fetch,
+        publicKey: testVapidPublicKey,
+        privateKeyJwk: testVapidJwk,
+        urgency: 'normal',
+        ttl: 300,
+      },
+    );
+    const [, customOptions] = customMockFetch.mock.calls[0];
+    expect(customOptions.headers['Urgency']).toBe('normal');
+    expect(customOptions.headers['TTL']).toBe('300');
   });
 
   it('should reject 3xx redirect responses without following or deleting subscription', async () => {
@@ -336,7 +356,10 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     const raw = {
       title: 'Deal Alert: Chrono Trigger',
       body: 'Now $49.99 (25% off) at VGP!',
-      data: { url: '/item/chrono-trigger-ds' },
+      tag: 'test-alert-1',
+      renotify: true,
+      timestamp: 1700000000000,
+      data: { url: '/item/chrono-trigger-ds', testId: 'test-alert-1' },
     };
 
     const formatted = buildPushNotificationBody(raw);
@@ -348,7 +371,11 @@ describe('Web Push Helper (RFC 8291 & RFC 8292)', () => {
     expect(parsed.notification.body).toBe(raw.body);
     expect(parsed.notification.icon).toBe('/icons/icon-192.png');
     expect(parsed.notification.badge).toBe('/icons/badge-96.png');
+    expect(parsed.notification.tag).toBe('test-alert-1');
+    expect(parsed.notification.renotify).toBe(true);
+    expect(parsed.notification.timestamp).toBe(1700000000000);
     expect(parsed.notification.data.url).toBe('/item/chrono-trigger-ds');
+    expect(parsed.notification.data.testId).toBe('test-alert-1');
     expect(parsed.notification.data.onActionClick.default).toEqual({
       operation: 'navigateLastFocusedOrOpen',
       url: '/item/chrono-trigger-ds',

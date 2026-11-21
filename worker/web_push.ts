@@ -19,6 +19,7 @@ import {
   type VapidJwk,
   type WebPushSubscription,
   type WebPushNotificationPayload,
+  type WebPushUrgency,
   type SendWebPushOptions,
   type SendWebPushResult,
 } from '@wesdizzle/app-kit/worker';
@@ -27,6 +28,7 @@ export type {
   VapidJwk,
   WebPushSubscription,
   WebPushNotificationPayload,
+  WebPushUrgency,
   SendWebPushOptions,
   SendWebPushResult,
 };

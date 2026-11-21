@@ -8554,6 +8554,8 @@ Disallow: /
         );
       }
 
+      const nowMs = Date.now();
+      const testId = `test-alert-${crypto.randomUUID()}`;
       const result = await sendWebPushNotification(
         sub,
         {
@@ -8561,7 +8563,9 @@ Disallow: /
           body: 'Push notifications are successfully configured for your device!',
           icon: '/icons/icon-192.png',
           badge: '/icons/badge-96.png',
-          data: { url: '/' },
+          tag: testId,
+          timestamp: nowMs,
+          data: { url: '/', testId },
         },
         {
           publicKey: env.VAPID_PUBLIC_KEY,
@@ -8569,6 +8573,7 @@ Disallow: /
           subject: resolveVapidSubject(undefined, request.url, env.ADMIN_EMAIL),
           fetchFn: fetch,
           allowTestHost: isLoopbackRequest(url),
+          urgency: 'high',
         },
       );
 
@@ -8580,7 +8585,7 @@ Disallow: /
           .run();
       }
 
-      return Response.json(result);
+      return Response.json({ ...result, testId });
     }
 
     // Endpoint: GET /api/prices/cached (?sync=1 bypasses 5m L1 Edge Cache and reads R2 L2)

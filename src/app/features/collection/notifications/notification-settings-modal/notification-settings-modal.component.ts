@@ -1400,10 +1400,11 @@ export class NotificationSettingsModalComponent {
     try {
       const ok = await this.notificationService.sendTestAlert();
       this.testSuccess.set(ok);
+      const okMsg = this.notificationService.lastTestMessage?.();
       const err = this.notificationService.lastTestError?.();
       this.testMessage.set(
         ok
-          ? '✓ Test alert sent! Check your notification tray.'
+          ? okMsg || '✓ Test alert sent! Check your notification tray.'
           : err
             ? `Failed: ${err}`
             : 'Failed to send test alert. Verify site permissions or VAPID configuration.',
