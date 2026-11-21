@@ -2,6 +2,15 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
+interface AssetGroup {
+  name: string;
+  installMode: string;
+  updateMode?: string;
+  resources: {
+    files: string[];
+  };
+}
+
 interface DataGroup {
   name: string;
   urls: string[];
@@ -14,6 +23,7 @@ interface DataGroup {
 }
 
 interface NgswConfig {
+  assetGroups: AssetGroup[];
   dataGroups: DataGroup[];
 }
 
@@ -47,6 +57,17 @@ describe('Service Worker Configuration (ngsw-config.json)', () => {
     const urls = extGroup?.urls || [];
     expect(urls).toContain('https://images.igdb.com/**');
     expect(urls).toContain('https://*.amiiboapi.com/**');
+
+    // 4. Verify retired /toys/** assets are excluded from prefetch 'assets' and cached lazily in 'toy-art'
+    const assetsGroup = config.assetGroups.find((g) => g.name === 'assets');
+    expect(assetsGroup).toBeDefined();
+    expect(assetsGroup?.resources.files).toContain('!/toys/**');
+
+    const toyArtGroup = config.assetGroups.find((g) => g.name === 'toy-art');
+    expect(toyArtGroup).toBeDefined();
+    expect(toyArtGroup?.installMode).toBe('lazy');
+    expect(toyArtGroup?.updateMode).toBe('lazy');
+    expect(toyArtGroup?.resources.files).toContain('/toys/**');
   });
 
   it('disables Beasties inlineCritical CSS in angular.json so strict script-src self CSP never blocks global styles', () => {
