@@ -762,7 +762,7 @@ describe('Canonical Series Logic Integrity Suite', () => {
         collections: 'Disney Infinity',
         franchises: 'Star Wars, Marvel, Disney',
       }),
-      'Disney',
+      'Disney Infinity',
     );
     assert.equal(
       computeGameCanonicalSeries({
@@ -1006,5 +1006,469 @@ describe('Canonical Series Logic Integrity Suite', () => {
       'Constructor',
     );
     assert.equal(computeGameCanonicalSeries({ title: 'toString' }), 'toString');
+  });
+
+  it('demotes studio/network/creator umbrellas so Disney, Pixar, DreamWorks, and Nickelodeon games resolve to individual IPs', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Infinity: 2.0',
+        franchises: 'Disney, Marvel',
+      }),
+      'Disney Infinity',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney-Pixar Ratatouille',
+        franchises: 'Disney, Pixar, Ratatouille',
+      }),
+      'Ratatouille',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney-Pixar Up',
+        franchises: 'Up, Disney, Pixar',
+      }),
+      'Up',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney-Pixar Brave',
+        franchises: 'Disney, Brave, Pixar',
+      }),
+      'Brave',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney-Pixar Cars 2',
+        collections: 'Cars',
+        franchises: 'Disney, Pixar, Cars',
+      }),
+      'Cars',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Planes',
+        franchises: 'Disney, Planes',
+      }),
+      'Planes',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Tangled',
+        franchises: 'Tangled, Disney',
+      }),
+      'Tangled',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Magical World 2',
+        collections: 'Disney Magical World',
+        franchises: 'Disney',
+      }),
+      'Disney Magical World',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Princess',
+        collections: 'Disney Princess',
+        franchises: 'Disney',
+      }),
+      'Disney Princess',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Sing It',
+        collections: 'Disney Sing It',
+        franchises: 'Disney',
+      }),
+      'Disney Sing It',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Club Penguin - Game Day!',
+        collections: 'Club Penguin',
+        franchises: 'Disney, Club Penguin',
+      }),
+      'Club Penguin',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'TaleSpin',
+        franchises: 'Disney',
+      }),
+      'TaleSpin',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: "Disney's The Emperor's New Groove",
+        franchises: 'Disney',
+      }),
+      "The Emperor's New Groove",
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: "Disney's Party",
+        franchises: 'Disney, Mickey Mouse',
+      }),
+      'Mickey Mouse',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Disney Illusion Island',
+        franchises: 'Disney, Mickey Mouse, Donald Duck, Goofy',
+      }),
+      'Disney Illusion Island',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'DreamWorks How to Train Your Dragon 2',
+      }),
+      'How to Train Your Dragon',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Nickelodeon SpongeBob SquarePants - Battle for Bikini Bottom',
+      }),
+      'SpongeBob SquarePants - Battle for Bikini Bottom',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Nickelodeon Kart Racers',
+        collections: 'Nickelodeon',
+        franchises: 'Spongebob Squarepants, Teenage Mutant Ninja Turtles',
+      }),
+      'Nickelodeon Kart Racers',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: "Tom Clancy's EndWar",
+        franchises: 'Tom Clancy’s',
+      }),
+      'EndWar',
+    );
+  });
+
+  it('splits sports leagues into actual game franchises while keeping Star Wars unified', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'NBA 2K2',
+        collections: 'NBA 2K',
+        franchises: 'NBA',
+      }),
+      'NBA 2K',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'NBA Live 96',
+        collections: 'NBA Live',
+        franchises: 'NBA',
+      }),
+      'NBA Live',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'MLB The Show 16',
+        collections: 'MLB: The Show',
+        franchises: 'MLB',
+      }),
+      'MLB: The Show',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'NHL 95',
+        collections: 'EA Sports NHL',
+        franchises: 'NHL, NHLPA',
+      }),
+      'EA Sports NHL',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'World Series Baseball',
+        collections: 'SEGA SPORTS',
+        franchises: 'MLB',
+      }),
+      'World Series Baseball',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: "Nigel Mansell's World Championship Racing",
+        franchises: 'Formula 1',
+      }),
+      "Nigel Mansell's World Championship Racing",
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Formula One 2001',
+        collections: 'F1',
+        franchises: 'Formula 1',
+      }),
+      'F1',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Super Star Wars: Return of the Jedi',
+        collections: 'Super Star Wars',
+        franchises: 'Star Wars',
+      }),
+      'Star Wars',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Vader Immortal: A Star Wars VR Series',
+        collections: 'Vader Immortal',
+        franchises: 'Star Wars',
+      }),
+      'Star Wars',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Angry Birds Star Wars',
+        collections: 'Angry Birds',
+        franchises: 'Angry Birds, Star Wars',
+      }),
+      'Angry Birds',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Soulcalibur IV',
+        collections: 'SoulCalibur',
+        franchises: 'SoulCalibur, Star Wars',
+      }),
+      'SoulCalibur',
+    );
+  });
+
+  it('prevents curated substring false positives across Persona, Sim, Yoshi, Mario, Hulk, Marvel, DC, Sonic, and LEGO', () => {
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Personal Trainer - Cooking' }),
+      'Personal Trainer - Cooking',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Kochkurs - Was Wollen Wir Heute Kochen',
+        collections: 'Personal Trainer, Touch! Generations',
+      }),
+      'Personal Trainer',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Simple DS Series Vol. 1' }),
+      'Simple DS Series',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Simon the Sorcerer Origins',
+        collections: 'Simon the Sorcerer',
+      }),
+      'Simon the Sorcerer',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Catz',
+        collections: 'Petz, Nakayoshi Pet, Nakayoshi',
+      }),
+      'Catz',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Catz',
+        collections: 'Petz',
+      }),
+      'Petz',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Mario Andretti Racing' }),
+      'Mario Andretti Racing',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Mario Lemieux Hockey' }),
+      'Mario Lemieux Hockey',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'SSX on Tour with Mario',
+        collections: 'SSX',
+        franchises: 'Mario',
+      }),
+      'SSX',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Mario Power Tennis' }),
+      'Mario Tennis',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Mario Smash Football',
+        collections: 'Mario Strikers, Super Mario',
+        franchises: 'Mario Bros., Mario',
+      }),
+      'Mario Strikers',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'マリオバスケ 3on3',
+        collections: 'Super Mario, Mario Sports',
+        franchises: 'Mario, Final Fantasy, Donkey Kong, Yoshi, Wario',
+      }),
+      'Super Mario',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Space Hulk - Vengeance of the Blood Angels',
+      }),
+      'Space Hulk - Vengeance of the Blood Angels',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: "Hulk Hogan's Main Event" }),
+      "Hulk Hogan's Main Event",
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Marvel Land' }),
+      'Marvel Land',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Marvelous - Mouhitotsu no Takara-jima',
+      }),
+      'Marvelous - Mouhitotsu no Takara-jima',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Constantine',
+        collections: 'DC Universe',
+        franchises: 'DC Comics',
+      }),
+      'Constantine',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Sgt. Rock: On the Frontline',
+        collections: 'DC Universe',
+        franchises: 'DC Comics',
+      }),
+      'Sgt. Rock',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Sonic Wings',
+        collections: 'Aero Fighters',
+      }),
+      'Aero Fighters',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Sonic Spike - World Championship Beach Volleyball',
+      }),
+      'Sonic Spike - World Championship Beach Volleyball',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'LEGO Horizon Adventures',
+        collections: 'Horizon',
+        franchises: 'Horizon, LEGO',
+      }),
+      'LEGO Horizon',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'PS4 IDU - 2017 Spring Refresh - LEGO Dimensions',
+      }),
+      'PS4 IDU - 2017 Spring Refresh - LEGO Dimensions',
+    );
+  });
+
+  it('handles comma-containing IGDB tags, trailing connectors, scoring ties, standalone colon titles, and label ignores', () => {
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Warhammer 40,000: Boltgun',
+        collections: 'Warhammer 40,000',
+        franchises: 'Warhammer 40,000, Warhammer',
+      }),
+      'Warhammer 40,000',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Monsters, Inc. Scream Arena',
+        franchises: 'Monsters, Inc., Pixar',
+      }),
+      'Monsters, Inc.',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Ed, Edd n Eddy: The Mis-Edventures',
+        franchises: 'Cartoon Network, Ed, Edd n Eddy',
+      }),
+      'Ed, Edd n Eddy',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: "Tony Hawk's Pro Skater 3 + 4" }),
+      "Tony Hawk's Pro Skater 3 + 4",
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'La-Mulana 1 & 2' }),
+      'La-Mulana 1 & 2',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({ title: 'Troll and I' }),
+      'Troll and I',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Gunvolt Chronicles: Luminous Avenger iX',
+        collections: 'Gunvolt Chronicles: Luminous Avenger iX',
+      }),
+      'Gunvolt Chronicles: Luminous Avenger iX',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Ben 10: Galactic Racing',
+        franchises: 'Ben 10',
+      }),
+      'Ben 10',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Excite Bike',
+        collections: 'Excitebike',
+        franchises: 'Excite',
+      }),
+      'Excitebike',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Boom Street',
+        collections: 'Itadaki Street',
+        franchises: 'Mario, Dragon Quest',
+      }),
+      'Fortune Street',
+    );
+    assert.deepEqual(
+      computeGameCanonicalSeriesWithSource({ title: 'Anno: Mutationem' }),
+      { series: 'Anno: Mutationem', source: 'title_fallback' },
+    );
+    assert.deepEqual(
+      computeGameCanonicalSeriesWithSource({ title: 'Murdered: Soul Suspect' }),
+      { series: 'Murdered: Soul Suspect', source: 'title_fallback' },
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Wii Music',
+        collections: 'Wii',
+      }),
+      'Wii Music',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Pinball Dreams',
+        collections: 'Pinball',
+      }),
+      'Pinball Dreams',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
+        title: 'Dirt 2',
+        collections: 'Dirt',
+      }),
+      'DiRT',
+    );
   });
 });

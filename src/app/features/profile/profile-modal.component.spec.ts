@@ -414,8 +414,77 @@ describe('ProfileModalComponent', () => {
       clear_existing_seeking: false,
     });
 
+    const refreshSpy = vi
+      .spyOn(collectionService, 'refreshAll')
+      .mockResolvedValue();
+    const showOptionsSpy = vi
+      .spyOn(collectionService, 'showOptions')
+      .mockImplementation((_t, _m, _opts, onConfirm) => onConfirm('keep'));
+
     component.removeRule(component.trackingRules()[0]);
-    expect(deleteSpy).toHaveBeenCalledWith('series', 'Metroid');
+    expect(showOptionsSpy).toHaveBeenCalledTimes(1);
+    expect(deleteSpy).toHaveBeenCalledWith('series', 'Metroid', false);
+    expect(component.trackingRules().length).toBe(0);
+    expect(refreshSpy).not.toHaveBeenCalled();
+  });
+
+  it('should un-seek existing Seeking games when user selects clear on active series rule removal and delete ignored/platform rules directly', () => {
+    const refreshSpy = vi
+      .spyOn(collectionService, 'refreshAll')
+      .mockResolvedValue();
+    const deleteSpy = vi
+      .spyOn(collectionService, 'deleteTrackingRule')
+      .mockReturnValue(of({ status: 'ok' }));
+    const showOptionsSpy = vi
+      .spyOn(collectionService, 'showOptions')
+      .mockImplementation((_t, _m, _opts, onConfirm) => onConfirm('clear'));
+
+    const activeSeriesRule = {
+      user_id: 1,
+      rule_type: 'series' as const,
+      target_value: 'Metroid',
+      auto_status: OwnershipStatus.Seeking,
+      is_ignored: 0,
+    };
+    const ignoredSeriesRule = {
+      user_id: 1,
+      rule_type: 'series' as const,
+      target_value: 'Disney',
+      auto_status: OwnershipStatus.Seeking,
+      is_ignored: 1,
+    };
+    const platformRule = {
+      user_id: 1,
+      rule_type: 'platform' as const,
+      target_value: '26',
+      auto_status: OwnershipStatus.Seeking,
+      is_ignored: 0,
+    };
+    component.trackingRules.set([
+      activeSeriesRule,
+      ignoredSeriesRule,
+      platformRule,
+    ]);
+
+    component.removeRule(activeSeriesRule);
+    expect(showOptionsSpy).toHaveBeenCalledTimes(1);
+    expect(deleteSpy).toHaveBeenCalledWith('series', 'Metroid', true);
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+    expect(component.trackingRules().length).toBe(2);
+
+    showOptionsSpy.mockClear();
+    refreshSpy.mockClear();
+
+    component.removeRule(ignoredSeriesRule);
+    expect(showOptionsSpy).not.toHaveBeenCalled();
+    expect(deleteSpy).toHaveBeenCalledWith('series', 'Disney', false);
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(component.trackingRules().length).toBe(1);
+
+    component.removeRule(platformRule);
+    expect(showOptionsSpy).not.toHaveBeenCalled();
+    expect(deleteSpy).toHaveBeenCalledWith('platform', '26', false);
+    expect(component.trackingRules().length).toBe(0);
   });
 
   it('should render Seeded badge for stage=done with writesUsedToday tooltip and unwrap pause toggle updates', () => {

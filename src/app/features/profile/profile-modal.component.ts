@@ -916,20 +916,53 @@ export class ProfileModalComponent implements OnInit {
 
   public removeRule(rule: UserTrackingRule): void {
     const val = rule.target_value || rule.match_value || '';
-    this.collectionService.deleteTrackingRule(rule.rule_type, val).subscribe({
-      next: () => {
-        this.trackingRules.update((list) =>
-          list.filter(
-            (r) =>
-              !(
-                r.rule_type === rule.rule_type &&
-                (r.target_value || r.match_value) === val
-              ),
-          ),
-        );
-      },
-      error: () => {},
-    });
+    if (rule.rule_type === 'series' && !rule.is_ignored) {
+      this.collectionService.showOptions(
+        'Remove Series Rule',
+        `Remove tracking rule for "${val}"?`,
+        [
+          {
+            value: 'clear',
+            label: 'Remove rule & un-seek existing Seeking games',
+          },
+          {
+            value: 'keep',
+            label: 'Remove rule only (keep existing Seeking games)',
+          },
+        ],
+        (choice: string | number) => {
+          this.executeRemoveRule(rule, val, choice === 'clear');
+        },
+      );
+      return;
+    }
+    this.executeRemoveRule(rule, val, false);
+  }
+
+  private executeRemoveRule(
+    rule: UserTrackingRule,
+    val: string,
+    clearExistingSeeking: boolean,
+  ): void {
+    this.collectionService
+      .deleteTrackingRule(rule.rule_type, val, clearExistingSeeking)
+      .subscribe({
+        next: () => {
+          this.trackingRules.update((list) =>
+            list.filter(
+              (r) =>
+                !(
+                  r.rule_type === rule.rule_type &&
+                  (r.target_value || r.match_value) === val
+                ),
+            ),
+          );
+          if (clearExistingSeeking) {
+            void this.collectionService.refreshAll();
+          }
+        },
+        error: () => {},
+      });
   }
 
   public toggleCatalogSeedPause(): void {

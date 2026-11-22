@@ -600,11 +600,13 @@ export class CollectionService implements OnDestroy {
   public deleteTrackingRule(
     ruleType: 'series' | 'platform' | 'toy_line' | 'toy_series',
     targetValue: string,
+    clearExistingSeeking = false,
   ): Observable<unknown> {
     const blocked = this.checkDegradedReadOnly();
     if (blocked) return blocked;
+    const clearParam = clearExistingSeeking ? '&clear_existing_seeking=1' : '';
     return this.http.delete(
-      `/api/user/tracking-rules?rule_type=${encodeURIComponent(ruleType)}&match_value=${encodeURIComponent(targetValue)}&target_value=${encodeURIComponent(targetValue)}`,
+      `/api/user/tracking-rules?rule_type=${encodeURIComponent(ruleType)}&match_value=${encodeURIComponent(targetValue)}&target_value=${encodeURIComponent(targetValue)}${clearParam}`,
     );
   }
 

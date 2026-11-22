@@ -4565,6 +4565,108 @@ describe('Worker API Logic', () => {
         expect(delRes.status).toBe(200);
       });
 
+      it('DELETE /api/user/tracking-rules clears Seeking releases only when clear_existing_seeking=1 is set', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, region)
+          VALUES
+            (711, 'sw-outlaws', 'Star Wars Outlaws', 35, 'Star Wars', 'USA'),
+            (712, 'sw-kotor', 'Star Wars: Knights of the Old Republic', 47, 'Star Wars', 'USA'),
+            (713, 'metroid-prime', 'Metroid Prime', 26, 'Metroid', 'USA');
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES
+            ('sw-outlaws-usa', 711, 'USA'),
+            ('sw-kotor-usa', 712, 'USA'),
+            ('metroid-prime-usa', 713, 'USA');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+          VALUES
+            (1, 'sw-outlaws-usa', 2),
+            (1, 'sw-kotor-usa', 1),
+            (1, 'metroid-prime-usa', 2);
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES
+            (1, 'series', 'Star Wars', 2, 'home', 0),
+            (1, 'series', 'Metroid', 2, 'home', 0);
+        `);
+
+        const token = await signSession(
+          {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            homeRegion: 'USA',
+          },
+          mockEnv.SESSION_SECRET!,
+        );
+
+        const keepRes = await worker.fetch(
+          new Request(
+            'http://localhost/api/user/tracking-rules?rule_type=series&match_value=Metroid',
+            {
+              method: 'DELETE',
+              headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+            },
+          ),
+          mockEnv,
+        );
+        expect(keepRes.status).toBe(200);
+        const keepJson = (await keepRes.json()) as {
+          success: boolean;
+          clearedCount: number;
+        };
+        expect(keepJson.clearedCount).toBe(0);
+        expect(
+          (
+            db
+              .prepare(
+                "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'metroid-prime-usa'",
+              )
+              .get() as { ownership_status: number }
+          ).ownership_status,
+        ).toBe(2);
+
+        const clearRes = await worker.fetch(
+          new Request(
+            'http://localhost/api/user/tracking-rules?rule_type=series&match_value=Star%20Wars&clear_existing_seeking=1',
+            {
+              method: 'DELETE',
+              headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+            },
+          ),
+          mockEnv,
+        );
+        expect(clearRes.status).toBe(200);
+        const clearJson = (await clearRes.json()) as {
+          success: boolean;
+          clearedCount: number;
+        };
+        expect(clearJson.clearedCount).toBe(1);
+        expect(
+          db
+            .prepare(
+              "SELECT 1 FROM user_tracking_rules WHERE user_id = 1 AND rule_type = 'series' AND match_value = 'Star Wars'",
+            )
+            .get(),
+        ).toBeUndefined();
+        expect(
+          (
+            db
+              .prepare(
+                "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'sw-outlaws-usa'",
+              )
+              .get() as { ownership_status: number }
+          ).ownership_status,
+        ).toBe(0);
+        expect(
+          (
+            db
+              .prepare(
+                "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'sw-kotor-usa'",
+              )
+              .get() as { ownership_status: number }
+          ).ownership_status,
+        ).toBe(1);
+      });
+
       it('syncWorkerBroadCatalogPopulation populates canonical releases into games and evaluates user_tracking_rules', async () => {
         db.exec(`
           INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical)
@@ -5352,6 +5454,191 @@ describe('Worker API Logic', () => {
           expect(stats.selfHealedRulesTotal).toBe(1);
         } finally {
           globalThis.fetch = originalFetch;
+        }
+      });
+
+      it('syncWorkerIgdbSeriesAndCanonical forwards title and slug in alerts and auto-promotes owned standalone games after sequel linkage', async () => {
+        const { syncWorkerIgdbSeriesAndCanonical } = await import('./worker');
+        const envWithIgdb: Env = {
+          ...mockEnv,
+          TWITCH_CLIENT_ID: 'test-client-id',
+          TWITCH_CLIENT_SECRET: 'test-client-secret',
+        };
+
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, collections, canonical_series, igdb_id)
+          VALUES
+            (9311, 'hollow-knight-switch', 'Hollow Knight', 26, NULL, 'Hollow Knight', 14593),
+            (9312, 'hollow-knight-silksong-switch', 'Hollow Knight: Silksong', 26, 'Hollow Knight', 'Hollow Knight', NULL),
+            (9313, 'doom-eternal-switch', 'Doom Eternal', 26, 'Doom', 'Doom', NULL);
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES
+            ('hollow-knight-switch-usa', 9311, 'USA'),
+            ('hollow-knight-silksong-switch-usa', 9312, 'USA'),
+            ('doom-eternal-switch-usa', 9313, 'USA');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+          VALUES (1, 'hollow-knight-switch-usa', 1);
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES (1, 'series', 'Doom', 2, 'home', 0);
+          INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+          VALUES ('sub-igdb-sync', 1, 'https://push.example.com/igdb-sync', 'p256', 'auth', '{"enabled": true, "notify_watched_series": true}', 'agent', datetime('now'), datetime('now'));
+        `);
+
+        const webPushSpy = vi
+          .spyOn(webPush, 'sendWebPushNotification')
+          .mockResolvedValue({
+            success: true,
+            status: 201,
+            shouldDelete: false,
+          });
+
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input) => {
+            const urlStr = String(input);
+            if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+              return new Response(
+                JSON.stringify({ access_token: 'tok', expires_in: 3600 }),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              );
+            }
+            if (urlStr.includes('api.igdb.com/v4/games')) {
+              return new Response(
+                JSON.stringify([
+                  {
+                    id: 14593,
+                    name: 'Hollow Knight',
+                    collections: [{ name: 'Hollow Knight' }],
+                  },
+                ]),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              );
+            }
+            return new Response('[]', { status: 200 });
+          });
+
+        try {
+          const res = await syncWorkerIgdbSeriesAndCanonical(envWithIgdb, {
+            batchSize: 50,
+          });
+          expect(res.selfHealedRulesCount).toBe(2);
+
+          const newRule = db
+            .prepare(
+              "SELECT match_value FROM user_tracking_rules WHERE user_id = 1 AND rule_type = 'series' AND match_value = 'Hollow Knight'",
+            )
+            .get() as { match_value: string } | undefined;
+          expect(newRule?.match_value).toBe('Hollow Knight');
+
+          const promotedSeeking = db
+            .prepare(
+              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'hollow-knight-silksong-switch-usa'",
+            )
+            .get() as { ownership_status: number } | undefined;
+          expect(promotedSeeking?.ownership_status).toBe(2);
+
+          const payloads = webPushSpy.mock.calls.map((c) => c[1]);
+          expect(payloads).toContainEqual(
+            expect.objectContaining({
+              title: '✨ New in Hollow Knight: Hollow Knight: Silksong',
+              data: { url: '/collection/game/hollow-knight-silksong-switch' },
+            }),
+          );
+          expect(payloads).toContainEqual(
+            expect.objectContaining({
+              title: '✨ New in Doom: Doom Eternal',
+              data: { url: '/collection/game/doom-eternal-switch' },
+            }),
+          );
+        } finally {
+          fetchSpy.mockRestore();
+          webPushSpy.mockRestore();
+        }
+      });
+
+      it('syncWorkerIgdbMetadataBackfill forwards title and slug in alerts and auto-promotes owned standalone games', async () => {
+        db.exec(`
+          UPDATE platforms SET igdb_id = 59 WHERE id = 26;
+          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, physical_status)
+          VALUES
+            (9321, 'alien-orig', 'Alien', 26, 'Alien', 'verified_physical'),
+            (9322, 'alien-sequel', 'Alien II', 26, 'Alien', 'verified_physical');
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES
+            ('alien-orig-usa', 9321, 'USA'),
+            ('alien-sequel-usa', 9322, 'USA');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+          VALUES (1, 'alien-orig-usa', 1);
+          INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+          VALUES ('sub-backfill', 1, 'https://push.example.com/bf', 'p256', 'auth', '{"enabled": true, "notify_watched_series": true}', 'agent', datetime('now'), datetime('now'));
+        `);
+        const webPushSpy = vi
+          .spyOn(webPush, 'sendWebPushNotification')
+          .mockResolvedValue({
+            success: true,
+            status: 201,
+            shouldDelete: false,
+          });
+        stubIgdbFetch({
+          Alien: [
+            {
+              ...alienIgdb,
+              collections: [{ name: 'Alien' }],
+            },
+          ],
+          'Alien II': [
+            {
+              id: 4243,
+              name: 'Alien II',
+              url: 'https://www.igdb.com/games/alien-ii',
+              summary: 'Sequel.',
+              cover: { image_id: 'al2' },
+              genres: [{ name: 'Arcade' }],
+              collections: [{ name: 'Alien' }],
+              platforms: [59],
+            },
+          ],
+        });
+        try {
+          const res = await syncWorkerIgdbMetadataBackfill(mockEnv, {
+            batchSize: 1000,
+          });
+          expect(res.skipped).toBe(false);
+          expect(res.matched).toBe(2);
+          expect(res.rulesApplied).toBe(1);
+
+          const rule = db
+            .prepare(
+              "SELECT match_value FROM user_tracking_rules WHERE user_id = 1 AND rule_type = 'series' AND match_value = 'Alien'",
+            )
+            .get() as { match_value: string } | undefined;
+          expect(rule?.match_value).toBe('Alien');
+
+          const sequelStatus = db
+            .prepare(
+              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'alien-sequel-usa'",
+            )
+            .get() as { ownership_status: number } | undefined;
+          expect(sequelStatus?.ownership_status).toBe(2);
+
+          expect(webPushSpy).toHaveBeenCalledTimes(1);
+          expect(webPushSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+              title: '✨ New in Alien: Alien II',
+              data: { url: '/collection/game/alien-sequel' },
+            }),
+            expect.anything(),
+          );
+        } finally {
+          webPushSpy.mockRestore();
+          vi.unstubAllGlobals();
         }
       });
     });
@@ -7408,6 +7695,74 @@ describe('Worker API Logic', () => {
       } finally {
         fetchSpy.mockRestore();
         webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerWatchedSeriesDiscovery ignores IGDB entries whose raw tag matches a watched rule but computeGameCanonicalSeries resolves to another series', async () => {
+      db.prepare(
+        `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+         VALUES (1, 'series', 'Star Wars', 2, 'home', 0)`,
+      ).run();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return new Response(
+              JSON.stringify({
+                access_token: 'mock-igdb-token',
+                expires_in: 3600,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            return new Response(
+              JSON.stringify([
+                {
+                  name: 's0',
+                  result: [
+                    {
+                      id: 99123,
+                      name: 'Soulcalibur IV',
+                      url: 'https://www.igdb.com/games/soulcalibur-iv',
+                      first_release_date: 1217289600,
+                      platforms: [{ id: 12, name: 'Xbox 360' }],
+                      collections: [{ name: 'SoulCalibur' }],
+                      franchises: [
+                        { name: 'SoulCalibur' },
+                        { name: 'Star Wars' },
+                      ],
+                      release_dates: [
+                        { platform: 12, region: 2, date: 1217289600 },
+                      ],
+                    },
+                  ],
+                },
+              ]),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          return new Response('[]', { status: 200 });
+        });
+
+      const igdbEnv: Env = {
+        ...mockEnv,
+        TWITCH_CLIENT_ID: 'mock-client',
+        TWITCH_CLIENT_SECRET: 'mock-secret',
+      };
+
+      try {
+        const res = await syncWorkerWatchedSeriesDiscovery(igdbEnv);
+        expect(res.skipped).toBe(false);
+        expect(res.ingestedGames).toBe(0);
+        expect(res.rulesApplied).toBe(0);
+        expect(
+          db.prepare('SELECT 1 FROM games WHERE igdb_id = 99123').get(),
+        ).toBeUndefined();
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
   });

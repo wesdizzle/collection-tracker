@@ -2991,6 +2991,7 @@ export async function applyReactiveSeriesAutoTracking(
   userId: number,
   gameStableId: number,
   explicitCanonicalSeries?: string | null,
+  options?: { notifySubscribers?: boolean },
 ): Promise<{ trackedSeries: string | null; autoAddedCount: number }> {
   try {
     let autoTrack = 1;
@@ -3097,7 +3098,7 @@ export async function applyReactiveSeriesAutoTracking(
 
     // Find all sibling games in this canonical_series and their releases
     const { results: seriesReleases } = await env.DB.prepare(
-      `SELECT g.stable_id, g.title, g.collections, g.franchises,
+      `SELECT g.stable_id, g.id as game_slug, g.platform_id, g.title, g.collections, g.franchises,
               r.id as release_id, COALESCE(r.region, g.region) as region, r.variants,
               COALESCE(ugr.ownership_status, 0) as ownership_status
        FROM games g
@@ -3109,6 +3110,8 @@ export async function applyReactiveSeriesAutoTracking(
       .bind(userId, canonicalSeries)
       .all<{
         stable_id: number;
+        game_slug: string | null;
+        platform_id: number | null;
         title: string | null;
         collections: string | null;
         franchises: string | null;
@@ -3119,6 +3122,10 @@ export async function applyReactiveSeriesAutoTracking(
       }>();
 
     const untrackableGames = new Set<number>();
+    const gameMetaById = new Map<
+      number,
+      { gameSlug: string; platformId: number | null; title: string }
+    >();
     const byGame = new Map<
       number,
       Array<{
@@ -3133,6 +3140,11 @@ export async function applyReactiveSeriesAutoTracking(
       if (!list) {
         list = [];
         byGame.set(row.stable_id, list);
+        gameMetaById.set(row.stable_id, {
+          gameSlug: row.game_slug || row.release_id,
+          platformId: row.platform_id ?? null,
+          title: row.title || canonicalSeries,
+        });
         if (
           !isSeriesTrackable({
             title: row.title || '',
@@ -3147,6 +3159,7 @@ export async function applyReactiveSeriesAutoTracking(
     }
 
     const statements: D1PreparedStatement[] = [];
+    const addedItems: Array<{ stableId: number; releaseId: string }> = [];
     for (const [stableId, rels] of byGame.entries()) {
       if (stableId === gameStableId) continue;
       // Siblings that only share a generic title-derived series are not real series members
@@ -3173,11 +3186,31 @@ export async function applyReactiveSeriesAutoTracking(
            WHERE user_game_releases.ownership_status = 0`,
         ).bind(userId, chosen.release_id, targetStatus),
       );
+      addedItems.push({ stableId, releaseId: chosen.release_id });
     }
 
     if (statements.length > 0) {
       for (let i = 0; i < statements.length; i += 100) {
         await env.DB.batch(statements.slice(i, i + 100));
+      }
+      if (options?.notifySubscribers && addedItems.length > 0) {
+        const { byId: platformById } = await loadPlatformLookupMaps(env);
+        const alerts: WatchedSeriesAlertItem[] = addedItems.map((added) => {
+          const meta = gameMetaById.get(added.stableId);
+          const platformName =
+            meta?.platformId != null
+              ? (platformById.get(meta.platformId)?.displayName ?? null)
+              : null;
+          return {
+            userId,
+            itemType: 'game',
+            itemId: meta?.gameSlug || added.releaseId,
+            title: meta?.title || canonicalSeries,
+            series: canonicalSeries,
+            platformName,
+          };
+        });
+        await dispatchWatchedSeriesNotifications(env, alerts);
       }
     }
 
@@ -3192,6 +3225,90 @@ export async function applyReactiveSeriesAutoTracking(
     );
     return { trackedSeries: null, autoAddedCount: 0 };
   }
+}
+
+/**
+ * When periodic IGDB sync or metadata backfill links a previously standalone game
+ * into a trackable series (e.g., via a sequel), promote any user's active tracking
+ * on that game into a series rule and auto-add sibling Seeking rows.
+ */
+export async function promoteNewlyTrackableOwnedGames(
+  env: Env,
+  candidates: Array<{ stableId: number; canonicalSeries: string }>,
+): Promise<number> {
+  if (!candidates || candidates.length === 0) return 0;
+
+  const seriesByStableId = new Map<number, string>();
+  for (const candidate of candidates) {
+    const trimmed = candidate.canonicalSeries?.trim();
+    if (trimmed) {
+      seriesByStableId.set(candidate.stableId, trimmed);
+    }
+  }
+  const uniqueIds = Array.from(seriesByStableId.keys());
+  if (uniqueIds.length === 0) return 0;
+
+  let promotedAutoAddedCount = 0;
+  try {
+    const seenUserSeries = new Set<string>();
+    for (let i = 0; i < uniqueIds.length; i += 80) {
+      const chunk = uniqueIds.slice(i, i + 80);
+      const ph = chunk.map(() => '?').join(',');
+      const { results } = await env.DB.prepare(
+        `SELECT DISTINCT ugr.user_id, r.game_id
+         FROM game_releases r
+         JOIN user_game_releases ugr ON ugr.release_id = r.id
+         WHERE r.game_id IN (${ph}) AND ugr.ownership_status > 0`,
+      )
+        .bind(...chunk)
+        .all<{ user_id: number; game_id: number }>();
+
+      for (const row of results || []) {
+        const series = seriesByStableId.get(row.game_id);
+        if (!series) continue;
+        const userSeriesKey = `${row.user_id}::${series}`;
+        if (seenUserSeries.has(userSeriesKey)) continue;
+        seenUserSeries.add(userSeriesKey);
+
+        const res = await applyReactiveSeriesAutoTracking(
+          env,
+          row.user_id,
+          row.game_id,
+          series,
+          { notifySubscribers: true },
+        );
+        promotedAutoAddedCount += res.autoAddedCount;
+      }
+    }
+  } catch {
+    // Ignore when release or tracking rule tables are absent in minimal test schemas
+  }
+  return promotedAutoAddedCount;
+}
+
+/**
+ * Resets Seeking (2) user_game_releases back to None (0) for every game
+ * assigned to a given canonical series when ignoring or removing a series rule.
+ */
+async function clearSeekingReleasesForSeries(
+  env: Env,
+  userId: number,
+  canonicalSeries: string,
+): Promise<number> {
+  const clearRes = await env.DB.prepare(
+    `UPDATE user_game_releases
+     SET ownership_status = 0
+     WHERE user_id = ?
+       AND ownership_status = 2
+       AND release_id IN (
+         SELECT r.id FROM game_releases r
+         JOIN games g ON g.stable_id = r.game_id
+         WHERE g.canonical_series = ?
+       )`,
+  )
+    .bind(userId, canonicalSeries)
+    .run();
+  return Number(clearRes.meta?.changes || 0);
 }
 
 /**
@@ -3729,41 +3846,43 @@ export async function evaluateTrackingRulesForNewGames(
       }
     }
 
-    const watchedAlerts: WatchedSeriesAlertItem[] = [];
-    if (options?.notifySubscribers) {
-      const seriesPairsByUser = new Map<number, typeof pendingPairs>();
-      for (const p of pendingPairs) {
-        if (!p.matchedSeriesName) continue;
-        let list = seriesPairsByUser.get(p.userId);
-        if (!list) {
-          list = [];
-          seriesPairsByUser.set(p.userId, list);
-        }
-        list.push(p);
+    const pairsByUser = new Map<number, typeof pendingPairs>();
+    for (const p of pendingPairs) {
+      let list = pairsByUser.get(p.userId);
+      if (!list) {
+        list = [];
+        pairsByUser.set(p.userId, list);
       }
-      for (const [uid, pairs] of seriesPairsByUser.entries()) {
-        const existingStatusByRel = new Map<string, number>();
-        for (let i = 0; i < pairs.length; i += 80) {
-          const chunk = pairs.slice(i, i + 80);
-          const ph = chunk.map(() => '?').join(',');
-          const existingRows = await env.DB.prepare(
-            `SELECT release_id, ownership_status FROM user_game_releases WHERE user_id = ? AND release_id IN (${ph})`,
-          )
-            .bind(uid, ...chunk.map((c) => c.releaseId))
-            .all<{ release_id: string; ownership_status: number }>();
-          for (const row of existingRows.results || []) {
-            existingStatusByRel.set(row.release_id, row.ownership_status);
-          }
+      list.push(p);
+    }
+
+    const pairsToWrite: typeof pendingPairs = [];
+    const watchedAlerts: WatchedSeriesAlertItem[] = [];
+    for (const [uid, pairs] of pairsByUser.entries()) {
+      const existingStatusByRel = new Map<string, number>();
+      for (let i = 0; i < pairs.length; i += 80) {
+        const chunk = pairs.slice(i, i + 80);
+        const ph = chunk.map(() => '?').join(',');
+        const existingRows = await env.DB.prepare(
+          `SELECT release_id, ownership_status FROM user_game_releases WHERE user_id = ? AND release_id IN (${ph})`,
+        )
+          .bind(uid, ...chunk.map((c) => c.releaseId))
+          .all<{ release_id: string; ownership_status: number }>();
+        for (const row of existingRows.results || []) {
+          existingStatusByRel.set(row.release_id, row.ownership_status);
         }
-        for (const p of pairs) {
-          const existingStatus = existingStatusByRel.get(p.releaseId);
-          if (existingStatus === undefined || existingStatus === 0) {
+      }
+      for (const p of pairs) {
+        const existingStatus = existingStatusByRel.get(p.releaseId);
+        if (existingStatus === undefined || existingStatus === 0) {
+          pairsToWrite.push(p);
+          if (options?.notifySubscribers && p.matchedSeriesName) {
             watchedAlerts.push({
               userId: uid,
               itemType: 'game',
               itemId: p.itemSlug,
               title: p.itemTitle,
-              series: p.matchedSeriesName!,
+              series: p.matchedSeriesName,
               platformName: p.platformName,
             });
           }
@@ -3771,7 +3890,7 @@ export async function evaluateTrackingRulesForNewGames(
       }
     }
 
-    const statements = pendingPairs.map((p) =>
+    const statements = pairsToWrite.map((p) =>
       env.DB.prepare(
         `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
          VALUES (?, ?, ?, 0)
@@ -5417,20 +5536,11 @@ Disallow: /
           shouldClearSeeking &&
           ruleType === 'series'
         ) {
-          const clearRes = await env.DB.prepare(
-            `UPDATE user_game_releases
-             SET ownership_status = 0
-             WHERE user_id = ?
-               AND ownership_status = 2
-               AND release_id IN (
-                 SELECT r.id FROM game_releases r
-                 JOIN games g ON g.stable_id = r.game_id
-                 WHERE g.canonical_series = ?
-               )`,
-          )
-            .bind(sessionUser.id, matchValue)
-            .run();
-          clearedCount = Number(clearRes.meta?.changes || 0);
+          clearedCount = await clearSeekingReleasesForSeries(
+            env,
+            sessionUser.id,
+            matchValue,
+          );
         }
 
         await invalidateEdgeApiCache(request.url, {
@@ -5461,6 +5571,15 @@ Disallow: /
           url.searchParams.get('target_value') ||
           ''
         ).trim();
+        const clearParam = (
+          url.searchParams.get('clear_existing_seeking') ||
+          url.searchParams.get('clearExistingSeeking') ||
+          ''
+        )
+          .trim()
+          .toLowerCase();
+        const shouldClearSeeking = clearParam === '1' || clearParam === 'true';
+
         if (!ruleType || !matchValue) {
           return Response.json(
             { error: 'rule_type and match_value query params are required.' },
@@ -5475,8 +5594,21 @@ Disallow: /
           .bind(sessionUser.id, ruleType, matchValue)
           .run();
 
+        let clearedCount = 0;
+        if (shouldClearSeeking && ruleType === 'series') {
+          clearedCount = await clearSeekingReleasesForSeries(
+            env,
+            sessionUser.id,
+            matchValue,
+          );
+        }
+
+        await invalidateEdgeApiCache(request.url, {
+          userId: sessionUser.id,
+          username: sessionUser.username,
+        });
         await markDbDirty(env);
-        return Response.json({ success: true });
+        return Response.json({ success: true, clearedCount });
       }
 
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
@@ -11361,7 +11493,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
 
   // 2. Query next incremental slice of games using primary key index
   let { results: batchResults } = await env.DB.prepare(
-    `SELECT stable_id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
+    `SELECT stable_id, id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
      FROM games
      WHERE stable_id > ?
      ORDER BY stable_id ASC
@@ -11370,6 +11502,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     .bind(lastStableId, batchSize)
     .all<{
       stable_id: number;
+      id: string;
       title: string;
       platform_id: number;
       igdb_id: number | null;
@@ -11384,7 +11517,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   if (!batchResults || batchResults.length === 0) {
     // Reached the end of the collection; wrap around to beginning
     const wrapRes = await env.DB.prepare(
-      `SELECT stable_id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
+      `SELECT stable_id, id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
        FROM games
        WHERE stable_id > 0
        ORDER BY stable_id ASC
@@ -11393,6 +11526,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       .bind(batchSize)
       .all<{
         stable_id: number;
+        id: string;
         title: string;
         platform_id: number;
         igdb_id: number | null;
@@ -11422,12 +11556,13 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   let trackedUpcomingGames: typeof batchGames = [];
   try {
     const upcomingRes = await env.DB.prepare(
-      `SELECT stable_id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
+      `SELECT stable_id, id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
        FROM games
        WHERE physical_status = 'likely_physical'
          AND igdb_id IS NOT NULL AND igdb_id > 0`,
     ).all<{
       stable_id: number;
+      id: string;
       title: string;
       platform_id: number;
       igdb_id: number | null;
@@ -11506,12 +11641,15 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     }
   }
 
-  const statements: D1PreparedStatement[] = [];
+  const gameUpdateStatements: D1PreparedStatement[] = [];
   const trackableCandidates: Array<{
     stableId: number;
+    gameSlug: string;
+    title: string;
     platformId: number;
     canonicalSeries: string;
     seriesTrackable: boolean;
+    wasSeriesTrackable: boolean;
   }> = [];
 
   for (const game of candidateGames) {
@@ -11532,6 +11670,12 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       Boolean(fresh?.metadataJson) &&
       fresh?.metadataJson !== (game.metadata_json ?? null);
 
+    const wasTrackable = isSeriesTrackable({
+      title: game.title,
+      collections: game.collections,
+      franchises: game.franchises,
+    });
+
     if (
       nextCanonicalSeries &&
       isSeriesTrackable({
@@ -11542,9 +11686,12 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     ) {
       trackableCandidates.push({
         stableId: game.stable_id,
+        gameSlug: game.id,
+        title: game.title,
         platformId: game.platform_id,
         canonicalSeries: nextCanonicalSeries,
         seriesTrackable: true,
+        wasSeriesTrackable: wasTrackable,
       });
     }
 
@@ -11554,7 +11701,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       nextCanonicalSeries !== (game.canonical_series ?? null) ||
       metadataChanged
     ) {
-      statements.push(
+      gameUpdateStatements.push(
         env.DB.prepare(
           `UPDATE games
            SET collections = ?,
@@ -11573,13 +11720,34 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     }
   }
 
-  const gameUpdatesCount = statements.length;
+  // Persist game metadata/canonical_series updates before rule promotion and healing
+  // so sibling queries read the refreshed canonical series.
+  const gameUpdatesCount = gameUpdateStatements.length;
+  if (gameUpdateStatements.length > 0) {
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < gameUpdateStatements.length; i += CHUNK_SIZE) {
+      await env.DB.batch(gameUpdateStatements.slice(i, i + CHUNK_SIZE));
+    }
+  }
 
-  // Rolling self-healing: evaluate active user_tracking_rules for any trackable games
-  // in this batch that still lack any positive user_game_releases row or game-level override.
+  // Rolling self-healing: promote newly-sequelized owned standalone games first,
+  // then evaluate active user_tracking_rules for unowned trackable games in this batch.
   let selfHealedRulesCount = 0;
   if (trackableCandidates.length > 0) {
     try {
+      const newlyTrackableOwned = trackableCandidates
+        .filter((c) => !c.wasSeriesTrackable)
+        .map((c) => ({
+          stableId: c.stableId,
+          canonicalSeries: c.canonicalSeries,
+        }));
+      if (newlyTrackableOwned.length > 0) {
+        selfHealedRulesCount += await promoteNewlyTrackableOwnedGames(
+          env,
+          newlyTrackableOwned,
+        );
+      }
+
       const releasesByGameId = new Map<
         number,
         Array<{ id: string; region: string | null }>
@@ -11628,6 +11796,8 @@ export async function syncWorkerIgdbSeriesAndCanonical(
         )
         .map((c) => ({
           stableId: c.stableId,
+          gameSlug: c.gameSlug,
+          title: c.title,
           platformId: c.platformId,
           canonicalSeries: c.canonicalSeries,
           seriesTrackable: c.seriesTrackable,
@@ -11635,7 +11805,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
         }));
 
       if (healGames.length > 0) {
-        selfHealedRulesCount = await evaluateTrackingRulesForNewGames(
+        selfHealedRulesCount += await evaluateTrackingRulesForNewGames(
           env,
           healGames,
           { notifySubscribers: true },
@@ -11659,7 +11829,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     lastRunAt: new Date().toISOString(),
   };
 
-  statements.push(
+  await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO sync_state (key, value, updated_at)
        VALUES ('igdb_sync_offset', ?, CURRENT_TIMESTAMP)
@@ -11670,17 +11840,9 @@ export async function syncWorkerIgdbSeriesAndCanonical(
        VALUES ('igdb_rolling_stats', ?, CURRENT_TIMESTAMP)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
     ).bind(JSON.stringify(updatedRollingStats)),
-  );
-
-  if (statements.length > 0) {
-    const CHUNK_SIZE = 100;
-    for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
-      const chunk = statements.slice(i, i + CHUNK_SIZE);
-      await env.DB.batch(chunk);
-    }
-    if (gameUpdatesCount > 0 || selfHealedRulesCount > 0) {
-      await markDbDirty(env);
-    }
+  ]);
+  if (gameUpdatesCount > 0 || selfHealedRulesCount > 0) {
+    await markDbDirty(env);
   }
 
   return {
@@ -12484,13 +12646,8 @@ export async function syncWorkerWatchedSeriesDiscovery(
         franchises: franchisesStr,
       });
       const belongsToSeries =
-        (computedSeries && computedSeries.toLowerCase() === queriedLower) ||
-        (g.collections || []).some(
-          (c) => (c.name || '').trim().toLowerCase() === queriedLower,
-        ) ||
-        (g.franchises || []).some(
-          (f) => (f.name || '').trim().toLowerCase() === queriedLower,
-        );
+        Boolean(computedSeries) &&
+        computedSeries!.toLowerCase() === queriedLower;
       if (!belongsToSeries) continue;
 
       seenCandIgdbIds.add(g.id);
@@ -13634,7 +13791,7 @@ export async function syncWorkerIgdbMetadataBackfill(
 
   // PK range scan over games; platforms joined by primary key.
   const { results: rows } = await env.DB.prepare(
-    `SELECT g.stable_id, g.title, g.platform_id, g.region, g.igdb_id, g.image_url, g.summary, p.igdb_id AS igdb_platform_id
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.image_url, g.summary, g.collections, g.franchises, g.canonical_series, p.igdb_id AS igdb_platform_id
      FROM games g
      LEFT JOIN platforms p ON p.id = g.platform_id
      WHERE g.stable_id > ?
@@ -13644,12 +13801,16 @@ export async function syncWorkerIgdbMetadataBackfill(
     .bind(cursor, batchSize)
     .all<{
       stable_id: number;
+      id: string;
       title: string;
       platform_id: number;
       region: string | null;
       igdb_id: number | null;
       image_url: string | null;
       summary: string | null;
+      collections: string | null;
+      franchises: string | null;
+      canonical_series: string | null;
       igdb_platform_id: number | null;
     }>();
 
@@ -13702,15 +13863,28 @@ export async function syncWorkerIgdbMetadataBackfill(
   const statements: D1PreparedStatement[] = [];
   const matchedGames: Array<{
     stableId: number;
+    gameSlug: string;
+    title: string;
     platformId: number;
     fallbackRegion: string | null;
     canonicalSeries: string;
     seriesTrackable: boolean;
+    wasTrackable: boolean;
   }> = [];
 
   for (const r of candidates) {
     const meta = metaById.get(String(r.stable_id));
     if (!meta) continue;
+    const prevTrackable = isSeriesTrackable({
+      title: r.title,
+      collections: r.collections,
+      franchises: r.franchises,
+    });
+    const nextTrackable = isSeriesTrackable({
+      title: r.title,
+      collections: meta.collections,
+      franchises: meta.franchises,
+    });
     const canonicalSeries = computeGameCanonicalSeries({
       title: r.title,
       collections: meta.collections ?? undefined,
@@ -13739,14 +13913,13 @@ export async function syncWorkerIgdbMetadataBackfill(
     );
     matchedGames.push({
       stableId: r.stable_id,
+      gameSlug: r.id,
+      title: r.title,
       platformId: r.platform_id,
       fallbackRegion: r.region ?? null,
       canonicalSeries,
-      seriesTrackable: isSeriesTrackable({
-        title: r.title,
-        collections: meta.collections,
-        franchises: meta.franchises,
-      }),
+      seriesTrackable: nextTrackable,
+      wasTrackable: prevTrackable,
     });
   }
 
@@ -13765,6 +13938,21 @@ export async function syncWorkerIgdbMetadataBackfill(
   let rulesApplied = 0;
   if (matchedGames.length > 0) {
     try {
+      const newlyTrackableOwned = matchedGames
+        .filter(
+          (g) => !g.wasTrackable && g.seriesTrackable && g.canonicalSeries,
+        )
+        .map((g) => ({
+          stableId: g.stableId,
+          canonicalSeries: g.canonicalSeries,
+        }));
+      if (newlyTrackableOwned.length > 0) {
+        rulesApplied += await promoteNewlyTrackableOwnedGames(
+          env,
+          newlyTrackableOwned,
+        );
+      }
+
       const releasesByGame = new Map<
         number,
         Array<{ id: string; region: string | null }>
@@ -13790,6 +13978,8 @@ export async function syncWorkerIgdbMetadataBackfill(
       const gamesForRules = matchedGames
         .map((g) => ({
           stableId: g.stableId,
+          gameSlug: g.gameSlug,
+          title: g.title,
           platformId: g.platformId,
           canonicalSeries: g.canonicalSeries,
           seriesTrackable: g.seriesTrackable,
@@ -13801,7 +13991,7 @@ export async function syncWorkerIgdbMetadataBackfill(
         .filter((g) => g.releases.length > 0);
 
       if (gamesForRules.length > 0) {
-        rulesApplied = await evaluateTrackingRulesForNewGames(
+        rulesApplied += await evaluateTrackingRulesForNewGames(
           env,
           gamesForRules,
           { notifySubscribers: true },
