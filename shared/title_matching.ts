@@ -789,3 +789,122 @@ export function stripEditionSuffix(title: string): string {
     .replace(/\s*\+\s*jamboree tv/gi, '')
     .trim();
 }
+
+const NON_ENGLISH_EDITION_RE =
+  /\b(?:goldene|silberne|kristall|rote|blaue|gelbe|smaragd|rubin|saphir|feuerrote|blattgr(?:u|ü)ne|speciale|edici[oó]n|edizione|ausgabe|auflage)\b/i;
+
+const PLUS_ADDON_KEYWORD_RE =
+  /\b(?:pass|expansion|booster|treasure|world|tv|minions|fury|story|chapter|dlc|content|island|quest|season|pack|episode|adventure)\b/i;
+
+const SPACE_EDITION_RE =
+  /^(.{3,}?)\s+((?:Collector'?s?|Special|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+One|Launch|Royal|Gourmet|Next\s+Level|Gold|Platinum|Silver|Anniversary|\d+(?:st|nd|rd|th)\s+Anniversary|GOTY|Game\s+of\s+the\s+Year|Crewmate|Plortable|Archaeologist|Hero|Crafted|Ancestral|Warmastered|Deathinitive|Remastered|Legacy|Expanded|Director'?s?|Nintendo\s+Switch(?:\s*2)?|Switch\s*2)\s+Edition)$/i;
+
+const NAMED_EDITION_CUT_RE =
+  /^(.{3,}?)(?:\s*[:\-–—]\s*|\s+)(Director'?s?\s+Cut|Extended\s+Cut|GOTY|Complete\s+Adventure|Expansion\s+Pass|Treasure\s+Trove|Connected|Tamriel\s+Unlimited|Remastered|HD\s+Remaster)$/i;
+
+function splitTitleEditionSuffix(
+  title: string,
+): { base: string; suffix: string } | null {
+  const trimmed = (title || '').trim();
+  if (!trimmed) return null;
+
+  // 1. Physical cart/disc DLC bundle suffix ("Pokemon Scarlet + The Hidden Treasure of Area Zero")
+  const plusMatch = trimmed.match(/^(.{4,}?)\s+(\+\s+.+)$/);
+  if (plusMatch) {
+    const base = plusMatch[1].trim();
+    const suffix = plusMatch[2].trim();
+    if (
+      !isCompilationOrBundleTitle(base) &&
+      PLUS_ADDON_KEYWORD_RE.test(suffix)
+    ) {
+      return { base, suffix };
+    }
+  }
+
+  // 2. Separator-delimited English "... Edition" ("Game: Special Edition", "... - Nintendo Switch 2 Edition")
+  const sepEditionMatch = trimmed.match(
+    /^(.{3,}?)\s*[:\-–—]\s*([^:\-–—]+\bEdition)$/i,
+  );
+  if (sepEditionMatch) {
+    const base = sepEditionMatch[1].trim();
+    const suffix = sepEditionMatch[2].trim();
+    if (
+      suffix.split(/\s+/).length <= 6 &&
+      !NON_ENGLISH_EDITION_RE.test(suffix)
+    ) {
+      return { base, suffix };
+    }
+  }
+
+  // 3. Space-delimited recognized English edition ("Croc ... Platinum Edition")
+  const spaceEditionMatch = trimmed.match(SPACE_EDITION_RE);
+  if (spaceEditionMatch) {
+    const base = spaceEditionMatch[1].trim();
+    const suffix = spaceEditionMatch[2].trim();
+    if (!NON_ENGLISH_EDITION_RE.test(suffix)) {
+      return { base, suffix };
+    }
+  }
+
+  // 4. Recognized physical edition/cut qualifiers without the word "Edition"
+  const namedMatch = trimmed.match(NAMED_EDITION_CUT_RE);
+  if (namedMatch) {
+    const base = namedMatch[1].trim();
+    const suffix = namedMatch[2].trim();
+    if (base.length >= 3 && !NON_ENGLISH_EDITION_RE.test(suffix)) {
+      return { base, suffix };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extracts a trailing physical edition, DLC add-on, or platform-edition suffix
+ * from a game title while ignoring localized non-English edition tags.
+ */
+export function extractEditionSuffix(title: string): string | null {
+  return splitTitleEditionSuffix(title)?.suffix ?? null;
+}
+
+/**
+ * Resolves a consistent parent `games.title` from a source/DAT title and an optional IGDB
+ * canonical `name`, adopting IGDB's clean base typography while preserving distinct physical
+ * editions, platform editions (e.g. Nintendo Switch 2 Edition), and DLC add-ons.
+ */
+export function resolveCanonicalDisplayTitle(
+  sourceTitle: string,
+  igdbName?: string | null,
+): string {
+  const srcClean = (sourceTitle || '').trim();
+  const igdbClean = (igdbName || '').trim();
+  if (!igdbClean) return srcClean;
+  if (!srcClean) return igdbClean;
+
+  const srcEd = splitTitleEditionSuffix(srcClean);
+  if (!srcEd) {
+    return igdbClean;
+  }
+
+  const igdbEd = splitTitleEditionSuffix(igdbClean);
+  if (
+    igdbEd &&
+    normalizeTitleForMatching(srcEd.suffix) ===
+      normalizeTitleForMatching(igdbEd.suffix)
+  ) {
+    return igdbClean;
+  }
+
+  const igdbBase = igdbEd ? igdbEd.base : igdbClean;
+  if (igdbBase.toLowerCase().includes(srcEd.suffix.toLowerCase())) {
+    return igdbClean;
+  }
+
+  if (srcEd.suffix.startsWith('+')) {
+    return `${igdbBase} ${srcEd.suffix}`;
+  }
+  if (igdbBase.includes(':') || /[!?]$/.test(igdbBase)) {
+    return `${igdbBase} - ${srcEd.suffix}`;
+  }
+  return `${igdbBase}: ${srcEd.suffix}`;
+}

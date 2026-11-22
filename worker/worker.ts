@@ -32,6 +32,7 @@ import {
   isOfficialIGDBGame,
   JournalEntryRow,
   RESOLVE_CANONICAL_GAME_ID_QUERY,
+  getResolveCanonicalGameIdParams,
   JOURNAL_ENTRY_BY_ITEM_QUERY,
   JOURNAL_ENTRIES_ALL_QUERY,
   UPSERT_JOURNAL_ENTRY_QUERY,
@@ -82,6 +83,7 @@ import {
 import {
   isCompilationOrBundleTitle,
   normalizeTitleForMatching,
+  resolveCanonicalDisplayTitle,
   stripEditionSuffix,
 } from '../shared/title_matching';
 import { MULTI_POSE_AMIIBO_EXPANSIONS } from '../shared/amiibo_poses';
@@ -2454,6 +2456,7 @@ function buildGameDetailFromSnapshot(
   id: string,
   userId: number | null,
   homeRegion: string,
+  releaseId?: string | null,
 ): DbGame | null {
   const games = snapshot.tables?.['games'] || [];
   const releases = snapshot.tables?.['game_releases'] || [];
@@ -2461,7 +2464,10 @@ function buildGameDetailFromSnapshot(
   const userGames = snapshot.tables?.['user_games'] || [];
   const userGameReleases = snapshot.tables?.['user_game_releases'] || [];
 
-  const matchedRelease = releases.find((r) => String(r['id']) === id) || null;
+  const explicitRelId = (releaseId || '').trim();
+  const matchedRelease = explicitRelId
+    ? releases.find((r) => String(r['id']) === explicitRelId) || null
+    : releases.find((r) => String(r['id']) === id) || null;
   let g: Record<string, unknown> | undefined;
   if (matchedRelease) {
     const gid = Number(matchedRelease['game_id']);
@@ -2469,7 +2475,7 @@ function buildGameDetailFromSnapshot(
   }
   if (!g) {
     g = games.find(
-      (item) => String(item['id']) === id || String(item['stable_id']) === id,
+      (item) => String(item['stable_id']) === id || String(item['id']) === id,
     );
   }
   if (!g) return null;
@@ -3205,7 +3211,7 @@ export async function applyReactiveSeriesAutoTracking(
           return {
             userId,
             itemType: 'game',
-            itemId: meta?.gameSlug || added.releaseId,
+            itemId: String(added.stableId),
             title: meta?.title || canonicalSeries,
             series: canonicalSeries,
             platformName,
@@ -3447,6 +3453,34 @@ async function loadPlatformLookupMaps(env: Env): Promise<{
   return { byId, byIgdbId };
 }
 
+async function allocateNextGameStableId(env: Env): Promise<number> {
+  const row = await env.DB.prepare(
+    'SELECT COALESCE(MAX(stable_id), 0) AS max_id FROM games',
+  ).first<{ max_id: number }>();
+  return Number(row?.max_id ?? 0) + 1;
+}
+
+function nextSequentialReleaseId(
+  gameStableId: number,
+  existingIds: Iterable<string>,
+): string {
+  let maxSeq = 0;
+  const prefix = `${gameStableId}-`;
+  for (const existingId of existingIds) {
+    if (!existingId.startsWith(prefix)) continue;
+    const tail = existingId.slice(prefix.length);
+    if (/^\d+$/.test(tail)) {
+      const seq = Number(tail);
+      if (seq > maxSeq) maxSeq = seq;
+    }
+  }
+  const nextId = `${prefix}${maxSeq + 1}`;
+  if (existingIds instanceof Set) {
+    existingIds.add(nextId);
+  }
+  return nextId;
+}
+
 async function insertCatalogGameWithReleases(
   env: Env,
   params: {
@@ -3485,96 +3519,73 @@ async function insertCatalogGameWithReleases(
   gameSlug: string;
   insertedReleases: Array<{ id: string; region: string | null }>;
 } | null> {
-  const platSlug =
-    slugifySegment(params.platformSlugHint || '') ||
-    `platform-${params.platformId}`;
-  const rawBaseSlug = `${slugifySegment(params.title) || 'game'}-${platSlug}`;
-  let gameSlug = rawBaseSlug;
-  let suffix = 1;
-  while (params.usedSlugs.has(gameSlug)) {
-    gameSlug = `${rawBaseSlug}-${suffix++}`;
-  }
-  const existingSlugCheck = await env.DB.prepare(
-    'SELECT id FROM games WHERE id = ? LIMIT 1',
-  )
-    .bind(gameSlug)
-    .first<{ id: string }>()
-    .catch(() => null);
-  if (existingSlugCheck) {
-    while (true) {
-      const candidate = `${rawBaseSlug}-${suffix++}`;
-      if (params.usedSlugs.has(candidate)) continue;
-      const collision = await env.DB.prepare(
-        'SELECT id FROM games WHERE id = ? LIMIT 1',
+  const canonicalTitle = resolveCanonicalDisplayTitle(
+    params.title,
+    params.igdbMeta?.name,
+  );
+  let stableId = await allocateNextGameStableId(env);
+  let gameSlug = String(stableId);
+  let inserted = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    gameSlug = String(stableId);
+    try {
+      await env.DB.prepare(
+        `INSERT INTO games (
+           stable_id, id, title, platform_id, region,
+           manually_verified, physical_status, release_medium, verification_tier,
+           canonical_series, barcode, igdb_id, igdb_url, image_url, summary, genres,
+           collections, franchises, metadata_json,
+           retail_price, retail_regular_price, retail_discount_pct, retail_on_sale,
+           retail_store, retail_url, retail_updated_at
+         ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-        .bind(candidate)
-        .first<{ id: string }>()
-        .catch(() => null);
-      if (!collision) {
-        gameSlug = candidate;
-        break;
+        .bind(
+          stableId,
+          gameSlug,
+          canonicalTitle,
+          params.platformId,
+          params.region || 'USA',
+          params.physicalStatus,
+          params.releaseMedium || 'physical_retail',
+          params.verificationTier ?? 1,
+          params.canonicalSeries ?? null,
+          params.barcode ?? null,
+          params.igdbMeta?.igdb_id ?? null,
+          params.igdbMeta?.igdb_url ?? null,
+          params.igdbMeta?.image_url ?? params.imageUrlFallback ?? null,
+          params.igdbMeta?.summary ?? null,
+          params.igdbMeta?.genres ?? null,
+          params.igdbMeta?.collections ?? null,
+          params.igdbMeta?.franchises ?? null,
+          params.igdbMeta?.metadata_json ?? null,
+          params.retailPriceCents ?? null,
+          params.retailRegularPriceCents ?? null,
+          params.retailDiscountPct ?? 0,
+          params.retailOnSale ?? 0,
+          params.retailStore ?? null,
+          params.retailUrl ?? null,
+          params.retailUpdatedAt ?? null,
+        )
+        .run();
+      inserted = true;
+      break;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/UNIQUE constraint failed/i.test(msg) && attempt < 2) {
+        stableId = (await allocateNextGameStableId(env)) + attempt + 1;
+        continue;
       }
+      throw err;
     }
   }
+  if (!inserted) return null;
   params.usedSlugs.add(gameSlug);
-
-  await env.DB.prepare(
-    `INSERT INTO games (
-       id, title, platform_id, region,
-       manually_verified, physical_status, release_medium, verification_tier,
-       canonical_series, barcode, igdb_id, igdb_url, image_url, summary, genres,
-       collections, franchises, metadata_json,
-       retail_price, retail_regular_price, retail_discount_pct, retail_on_sale,
-       retail_store, retail_url, retail_updated_at
-     ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      gameSlug,
-      params.title,
-      params.platformId,
-      params.region || 'USA',
-      params.physicalStatus,
-      params.releaseMedium || 'physical_retail',
-      params.verificationTier ?? 1,
-      params.canonicalSeries ?? null,
-      params.barcode ?? null,
-      params.igdbMeta?.igdb_id ?? null,
-      params.igdbMeta?.igdb_url ?? null,
-      params.igdbMeta?.image_url ?? params.imageUrlFallback ?? null,
-      params.igdbMeta?.summary ?? null,
-      params.igdbMeta?.genres ?? null,
-      params.igdbMeta?.collections ?? null,
-      params.igdbMeta?.franchises ?? null,
-      params.igdbMeta?.metadata_json ?? null,
-      params.retailPriceCents ?? null,
-      params.retailRegularPriceCents ?? null,
-      params.retailDiscountPct ?? 0,
-      params.retailOnSale ?? 0,
-      params.retailStore ?? null,
-      params.retailUrl ?? null,
-      params.retailUpdatedAt ?? null,
-    )
-    .run();
-
-  const row = await env.DB.prepare('SELECT stable_id FROM games WHERE id = ?')
-    .bind(gameSlug)
-    .first<{ stable_id: number }>();
-  const stableId = Number(row?.stable_id ?? 0);
-  if (!stableId) return null;
 
   const insertedReleases: Array<{ id: string; region: string | null }> = [];
   const relStatements: D1PreparedStatement[] = [];
-  const usedRelSlugs = new Set<string>();
   for (let i = 0; i < params.releases.length; i++) {
     const rel = params.releases[i];
-    const relSuffix = slugifySegment(rel.slugSuffix) || `rel-${i + 1}`;
-    const baseRelSlug = `${gameSlug}-${relSuffix}`;
-    let relId = baseRelSlug;
-    let relCounter = 1;
-    while (usedRelSlugs.has(relId)) {
-      relId = `${baseRelSlug}-${relCounter++}`;
-    }
-    usedRelSlugs.add(relId);
+    const relId = `${stableId}-${i + 1}`;
     const relRegion = rel.region ?? params.region ?? 'USA';
     insertedReleases.push({ id: relId, region: relRegion });
     relStatements.push(
@@ -3693,7 +3704,7 @@ export async function dispatchWatchedSeriesNotifications(
               url:
                 item.itemType === 'toy'
                   ? `/collection/toy/${item.itemId}`
-                  : `/collection/game/${item.itemId}`,
+                  : `/game/${item.itemId}`,
             },
           });
         }
@@ -3841,7 +3852,7 @@ export async function evaluateTrackingRulesForNewGames(
             game.canonicalSeries ||
             match.matchedSeriesName ||
             targetRel.id,
-          itemSlug: game.gameSlug || targetRel.id,
+          itemSlug: String(game.stableId),
           platformName: fallbackPlatName,
         });
       }
@@ -6384,6 +6395,7 @@ Disallow: /
     // Endpoint: GET /api/games/:id
     else if (path.startsWith('/api/games/')) {
       const id = path.split('/').pop() || '';
+      const releaseId = (url.searchParams.get('release') || '').trim() || null;
       const userId = sessionUser ? sessionUser.id : null;
       const effectiveHomeRegion = sessionUser
         ? sessionUser.homeRegion
@@ -6391,7 +6403,7 @@ Disallow: /
 
       try {
         const query = buildGameDetailQuery(userId);
-        const params = getGameDetailQueryParams(id, userId);
+        const params = getGameDetailQueryParams(id, userId, releaseId);
         const game = (await env.DB.prepare(query)
           .bind(...params)
           .first()) as DbGame | null;
@@ -6550,6 +6562,7 @@ Disallow: /
           id,
           userId,
           effectiveHomeRegion,
+          releaseId,
         );
         if (!game) {
           return Response.json({ error: 'Not found' }, { status: 404 });
@@ -8118,19 +8131,21 @@ Disallow: /
 
       try {
         let canonicalId = itemId;
+        let legacyId: string | null = null;
         if (itemType === 'game') {
           const resolved = (await env.DB.prepare(
             RESOLVE_CANONICAL_GAME_ID_QUERY,
           )
-            .bind(itemId, itemId)
-            .first()) as { game_id?: string } | null;
+            .bind(...getResolveCanonicalGameIdParams(itemId))
+            .first()) as { game_id?: string; legacy_id?: string | null } | null;
           if (resolved?.game_id) {
             canonicalId = resolved.game_id;
+            legacyId = resolved.legacy_id ?? null;
           }
         }
 
         const entry = (await env.DB.prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
-          .bind(sessionUser.id, itemType, itemId, canonicalId)
+          .bind(sessionUser.id, itemType, canonicalId, legacyId || itemId)
           .first()) as JournalEntryRow | null;
 
         return Response.json(
@@ -8271,12 +8286,14 @@ Disallow: /
       }
 
       let canonicalId = rawItemId;
+      let legacyId: string | null = null;
       if (itemType === 'game') {
         const resolved = (await env.DB.prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
-          .bind(rawItemId, rawItemId)
-          .first()) as { game_id?: string } | null;
+          .bind(...getResolveCanonicalGameIdParams(rawItemId))
+          .first()) as { game_id?: string; legacy_id?: string | null } | null;
         if (resolved?.game_id) {
           canonicalId = resolved.game_id;
+          legacyId = resolved.legacy_id ?? null;
         }
       }
 
@@ -8328,6 +8345,11 @@ Disallow: /
           .bind(sessionUser.id, itemType, rawItemId)
           .run();
       }
+      if (legacyId && legacyId !== canonicalId && legacyId !== rawItemId) {
+        await env.DB.prepare(DELETE_JOURNAL_ENTRY_QUERY)
+          .bind(sessionUser.id, itemType, legacyId)
+          .run();
+      }
 
       const savedEntry = (await env.DB.prepare(JOURNAL_ENTRY_BY_ITEM_QUERY)
         .bind(sessionUser.id, itemType, canonicalId, canonicalId)
@@ -8365,12 +8387,14 @@ Disallow: /
       }
 
       let canonicalId = rawItemId;
+      let legacyId: string | null = null;
       if (itemType === 'game') {
         const resolved = (await env.DB.prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
-          .bind(rawItemId, rawItemId)
-          .first()) as { game_id?: string } | null;
+          .bind(...getResolveCanonicalGameIdParams(rawItemId))
+          .first()) as { game_id?: string; legacy_id?: string | null } | null;
         if (resolved?.game_id) {
           canonicalId = resolved.game_id;
+          legacyId = resolved.legacy_id ?? null;
         }
       }
 
@@ -8380,6 +8404,11 @@ Disallow: /
       if (canonicalId !== rawItemId) {
         await env.DB.prepare(DELETE_JOURNAL_ENTRY_QUERY)
           .bind(sessionUser.id, itemType, rawItemId)
+          .run();
+      }
+      if (legacyId && legacyId !== canonicalId && legacyId !== rawItemId) {
+        await env.DB.prepare(DELETE_JOURNAL_ENTRY_QUERY)
+          .bind(sessionUser.id, itemType, legacyId)
           .run();
       }
 
@@ -9450,8 +9479,12 @@ export default {
               .first<{ value: string }>()
               .catch(() => null),
           ]);
-        const manifestVersion =
+        let manifestVersion =
           hasCatalogManifest?.customMetadata?.['version'] || '';
+        if (hasCatalogManifest && !manifestVersion) {
+          const parsedManifest = await resolveCatalogManifest(env);
+          manifestVersion = parsedManifest?.version || '';
+        }
         const isManifestFromPreviousDay = Boolean(
           hasLatest &&
           hasCatalogManifest &&
@@ -9971,8 +10004,12 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
         if (!igdbMeta && !validBarcode) continue;
 
         const platInfo = platformById.get(entry.platformId);
+        const canonicalTitle = resolveCanonicalDisplayTitle(
+          entry.cleanedTitle,
+          igdbMeta?.name,
+        );
         const canonicalSeries = computeGameCanonicalSeries({
-          title: entry.cleanedTitle,
+          title: canonicalTitle,
           collections: igdbMeta?.collections ?? undefined,
           franchises: igdbMeta?.franchises ?? undefined,
         });
@@ -9988,7 +10025,7 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
         const onSaleInt = entry.deal.onSale && discountPct > 0 ? 1 : 0;
 
         const inserted = await insertCatalogGameWithReleases(env, {
-          title: entry.cleanedTitle,
+          title: canonicalTitle,
           platformId: entry.platformId,
           platformSlugHint: platInfo?.displayName || platInfo?.name,
           region: 'USA',
@@ -10023,13 +10060,13 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
           platformId: entry.platformId,
           canonicalSeries,
           seriesTrackable: isSeriesTrackable({
-            title: entry.cleanedTitle,
+            title: canonicalTitle,
             collections: igdbMeta?.collections,
             franchises: igdbMeta?.franchises,
           }),
-          title: entry.cleanedTitle,
+          title: canonicalTitle,
           platformName: platInfo?.displayName || platInfo?.name || null,
-          gameSlug: inserted.gameSlug,
+          gameSlug: String(inserted.stableId),
           releases: inserted.insertedReleases,
         });
       }
@@ -10216,7 +10253,7 @@ export async function dispatchDealPushNotifications(
 
         matchedGames.push({
           title: game.title,
-          slug: game.id,
+          slug: String(stableId),
           deal,
           discountPct,
         });
@@ -10242,7 +10279,7 @@ export async function dispatchDealPushNotifications(
         icon: '/icons/icon-192.png',
         badge: '/icons/badge-96.png',
         data: {
-          url: `/collection/game/${top.slug}`,
+          url: `/game/${top.slug}`,
         },
       };
 
@@ -10489,8 +10526,15 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
     }
 
     const existingRelSet = new Set<string>();
+    const existingRelIdsByGame = new Map<number, Set<string>>();
     const unlinkedByGameReg = new Map<string, string>();
     for (const gr of existingGameRelsRes.results || []) {
+      let idSet = existingRelIdsByGame.get(gr.game_id);
+      if (!idSet) {
+        idSet = new Set<string>();
+        existingRelIdsByGame.set(gr.game_id, idSet);
+      }
+      idSet.add(gr.id);
       existingRelSet.add(
         `${gr.game_id}::${gr.region || 'World'}::${gr.variants || 'Standard'}`,
       );
@@ -10498,12 +10542,6 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         unlinkedByGameReg.set(`${gr.game_id}::${gr.region || 'USA'}`, gr.id);
       }
     }
-
-    const slugify = (s: string) =>
-      (s || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
 
     for (const g of gamesRes.results || []) {
       const norm = normalizeTitleForMatching(g.title);
@@ -10536,7 +10574,12 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         }
 
         existingRelSet.add(relKey);
-        const relId = `${g.id}-rev-${slugify(reg)}-${slugify(cr.variants || 'standard')}`;
+        let idSet = existingRelIdsByGame.get(g.stable_id);
+        if (!idSet) {
+          idSet = new Set<string>();
+          existingRelIdsByGame.set(g.stable_id, idSet);
+        }
+        const relId = nextSequentialReleaseId(g.stable_id, idSet);
         gameStatements.push(
           env.DB.prepare(
             `INSERT INTO game_releases (id, game_id, region, variants, canonical_release_id)
@@ -10931,15 +10974,19 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         const { po, platformId } = entry;
         const igdbMeta = igdbMetaMap.get(key) ?? null;
         const platInfo = platformById.get(platformId);
+        const canonicalTitle = resolveCanonicalDisplayTitle(
+          po.cleanTitle,
+          igdbMeta?.name,
+        );
         const canonicalSeries = computeGameCanonicalSeries({
-          title: po.cleanTitle,
+          title: canonicalTitle,
           collections: igdbMeta?.collections ?? undefined,
           franchises: igdbMeta?.franchises ?? undefined,
         });
         const storeSlug = slugifySegment(po.store) || 'boutique';
 
         const inserted = await insertCatalogGameWithReleases(env, {
-          title: po.cleanTitle,
+          title: canonicalTitle,
           platformId,
           platformSlugHint: platInfo?.displayName || platInfo?.name,
           region: 'USA',
@@ -10973,13 +11020,13 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
             platformId,
             canonicalSeries,
             seriesTrackable: isSeriesTrackable({
-              title: po.cleanTitle,
+              title: canonicalTitle,
               collections: igdbMeta?.collections,
               franchises: igdbMeta?.franchises,
             }),
-            title: po.cleanTitle,
+            title: canonicalTitle,
             platformName: platInfo?.displayName || platInfo?.name || null,
-            gameSlug: inserted.gameSlug,
+            gameSlug: String(inserted.stableId),
             releases: inserted.insertedReleases,
           });
           if (entry.shouldAnnounceFresh) {
@@ -10987,7 +11034,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
               game: {
                 stable_id: inserted.stableId,
                 id: inserted.gameSlug,
-                title: po.cleanTitle,
+                title: canonicalTitle,
                 ownership_status: 0,
                 platform_id: platformId,
                 physical_status: 'likely_physical',
@@ -10999,8 +11046,8 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         } else if (entry.shouldAnnounceFresh) {
           newlyAnnouncedGames.push({
             game: {
-              id: `boutique-${po.store.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${encodeURIComponent(po.cleanTitle)}`,
-              title: po.cleanTitle,
+              id: `boutique-${po.store.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${encodeURIComponent(canonicalTitle)}`,
+              title: canonicalTitle,
               ownership_status: 0,
               platform_id: platformId,
               physical_status: 'likely_physical',
@@ -11262,7 +11309,7 @@ async function dispatchPhysicalAnnouncementNotifications(
 
           const url = top.isUncataloged
             ? `/collection/games?search=${encodeURIComponent(top.preOrder.cleanTitle)}`
-            : `/collection/game/${top.game.id}`;
+            : `/game/${top.game.stable_id ?? top.game.id}`;
 
           payloadsToSend.push({
             title,
@@ -11385,7 +11432,7 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
           icon: '/icons/icon-192.png',
           badge: '/icons/badge-96.png',
           data: {
-            url: `/collection/game/${game.id}`,
+            url: `/game/${game.stable_id}`,
           },
         };
 
@@ -11949,6 +11996,7 @@ export const DAILY_CATALOG_WRITE_BUDGET = 60000;
 
 export interface IgdbGameMeta {
   igdb_id: number;
+  name: string | null;
   igdb_url: string | null;
   image_url: string | null;
   summary: string | null;
@@ -12186,6 +12234,7 @@ function toIgdbGameMeta(c: IgdbSearchCandidate): IgdbGameMeta {
     (c.alternative_names && c.alternative_names.length > 0);
   return {
     igdb_id: c.id,
+    name: c.name?.trim() || null,
     igdb_url: c.url || null,
     image_url: imageUrl,
     summary: c.summary || null,
@@ -13394,10 +13443,8 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   const existingGameByPlatformNorm = new Map<string, ExistingCatalogGameMeta>();
   const existingGameByPlatformIgdb = new Map<string, ExistingCatalogGameMeta>();
   const existingGameByPlatformCrc = new Map<string, ExistingCatalogGameMeta>();
-  const usedGameSlugs = new Set<string>();
   const maxSortByPlatform = new Map<number, number>();
   for (const g of existingGamesRes.results || []) {
-    usedGameSlugs.add(g.id);
     const meta: ExistingCatalogGameMeta = {
       stable_id: g.stable_id,
       id: g.id,
@@ -13473,17 +13520,12 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     }
   }
 
-  const slugify = (s: string) =>
-    (s || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-
   let tickWritesUsed = 0;
   let ingestedGamesCount = 0;
   let ingestedReleasesCount = 0;
   let igdbMatchedCount = 0;
   let nextCursor = currentCursor;
+  let nextGameStableId: number | null = null;
 
   // Resolve IGDB metadata up front for groups that will be inserted, so each new game
   // row carries igdb_id / cover / summary in its single INSERT (no follow-up UPDATE).
@@ -13647,13 +13689,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
 
         for (let i = 0; i < newCanonicalRels.length; i++) {
           const cr = newCanonicalRels[i];
-          const rawRelSlug = `${existingGame.id}-${cr.rom_crc || slugify(cr.serial_code || cr.rom_name || cr.region || `rel-${cr.id}`)}`;
-          let relSlug = rawRelSlug;
-          let relCounter = 1;
-          while (usedRelSlugs.has(relSlug)) {
-            relSlug = `${rawRelSlug}-${relCounter++}`;
-          }
-          usedRelSlugs.add(relSlug);
+          const relSlug = nextSequentialReleaseId(
+            existingGame.stable_id,
+            usedRelSlugs,
+          );
           const relRegion = cr.region || 'USA';
           const relReleaseDate = igdbMeta
             ? resolveIgdbPlatformReleaseDate(
@@ -13732,20 +13771,16 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           r.region === 'World' ||
           (r.region && r.region.includes('USA')),
       ) || canonicalRels[0];
-    const displayTitle = cleanCanonicalDisplayTitle(
+    const sourceTitle = cleanCanonicalDisplayTitle(
       preferredRel.raw_title || group.raw_title,
+    );
+    const displayTitle = resolveCanonicalDisplayTitle(
+      sourceTitle,
+      igdbMeta?.name,
     );
     const platformName =
       platformNameById.get(group.platform_id) ||
       `platform-${group.platform_id}`;
-    const baseSlug = `${slugify(displayTitle)}-${slugify(platformName)}`;
-    let candidateGameId = baseSlug;
-    let suffix = 1;
-    while (usedGameSlugs.has(candidateGameId)) {
-      candidateGameId = `${baseSlug}-${suffix++}`;
-    }
-    usedGameSlugs.add(candidateGameId);
-
     const canonicalSeries = computeGameCanonicalSeries({
       title: displayTitle,
       collections: igdbMeta?.collections ?? undefined,
@@ -13755,43 +13790,58 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     const nextSort = (maxSortByPlatform.get(group.platform_id) ?? 1000) + 1;
     maxSortByPlatform.set(group.platform_id, nextSort);
 
-    await env.DB.prepare(
-      `INSERT INTO games (
-         id, title, platform_id, sort_index, region,
-         manually_verified, physical_status, verification_tier, canonical_series,
-         igdb_id, igdb_url, image_url, summary, genres, collections, franchises, metadata_json
-       ) VALUES (?, ?, ?, ?, ?, 0, 'verified_physical', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        candidateGameId,
-        displayTitle,
-        group.platform_id,
-        nextSort,
-        gameRegion,
-        canonicalSeries,
-        igdbMeta?.igdb_id ?? null,
-        igdbMeta?.igdb_url ?? null,
-        igdbMeta?.image_url ?? null,
-        igdbMeta?.summary ?? null,
-        igdbMeta?.genres ?? null,
-        igdbMeta?.collections ?? null,
-        igdbMeta?.franchises ?? null,
-        igdbMeta?.metadata_json ?? null,
-      )
-      .run();
-    if (igdbMeta) igdbMatchedCount++;
-
-    const insertedGame = await env.DB.prepare(
-      'SELECT stable_id FROM games WHERE id = ?',
-    )
-      .bind(candidateGameId)
-      .first<{ stable_id: number }>();
-
-    const stableId = insertedGame?.stable_id ?? 0;
-    if (!stableId) {
+    const baseStableId: number =
+      nextGameStableId ?? (await allocateNextGameStableId(env));
+    let stableId: number = baseStableId;
+    nextGameStableId = baseStableId + 1;
+    let candidateGameId = String(stableId);
+    let inserted = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      candidateGameId = String(stableId);
+      try {
+        await env.DB.prepare(
+          `INSERT INTO games (
+             stable_id, id, title, platform_id, sort_index, region,
+             manually_verified, physical_status, verification_tier, canonical_series,
+             igdb_id, igdb_url, image_url, summary, genres, collections, franchises, metadata_json
+           ) VALUES (?, ?, ?, ?, ?, ?, 0, 'verified_physical', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+          .bind(
+            stableId,
+            candidateGameId,
+            displayTitle,
+            group.platform_id,
+            nextSort,
+            gameRegion,
+            canonicalSeries,
+            igdbMeta?.igdb_id ?? null,
+            igdbMeta?.igdb_url ?? null,
+            igdbMeta?.image_url ?? null,
+            igdbMeta?.summary ?? null,
+            igdbMeta?.genres ?? null,
+            igdbMeta?.collections ?? null,
+            igdbMeta?.franchises ?? null,
+            igdbMeta?.metadata_json ?? null,
+          )
+          .run();
+        inserted = true;
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/UNIQUE constraint failed/i.test(msg) && attempt < 2) {
+          stableId = (await allocateNextGameStableId(env)) + attempt + 1;
+          nextGameStableId = stableId + 1;
+          continue;
+        }
+        throw err;
+      }
+    }
+    if (!inserted) {
       nextCursor = Math.max(nextCursor, group.maxSliceId);
       continue;
     }
+    nextGameStableId = Math.max(nextGameStableId, stableId + 1);
+    if (igdbMeta) igdbMatchedCount++;
 
     const newGameMeta: ExistingCatalogGameMeta = {
       stable_id: stableId,
@@ -13817,7 +13867,6 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
 
     const relStatements: D1PreparedStatement[] = [];
     const addedReleases: Array<{ id: string; region: string | null }> = [];
-    const usedRelSlugs = new Set<string>();
 
     for (let i = 0; i < canonicalRels.length; i++) {
       const cr = canonicalRels[i];
@@ -13828,13 +13877,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           newGameMeta,
         );
       }
-      const rawRelSlug = `${candidateGameId}-${cr.rom_crc || slugify(cr.serial_code || cr.rom_name || cr.region || `rel-${i + 1}`)}`;
-      let relSlug = rawRelSlug;
-      let relCounter = 1;
-      while (usedRelSlugs.has(relSlug)) {
-        relSlug = `${rawRelSlug}-${relCounter++}`;
-      }
-      usedRelSlugs.add(relSlug);
+      const relSlug = `${stableId}-${i + 1}`;
       const relRegion = cr.region || gameRegion;
       const relReleaseDate = igdbMeta
         ? resolveIgdbPlatformReleaseDate(
@@ -14023,7 +14066,7 @@ export async function syncWorkerIgdbMetadataBackfill(
 
   // PK range scan over games; platforms joined by primary key.
   const { results: rows } = await env.DB.prepare(
-    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.image_url, g.summary, g.collections, g.franchises, g.canonical_series, p.igdb_id AS igdb_platform_id, p.launch_date AS platform_launch_date
+    `SELECT g.stable_id, g.id, g.title, g.manually_verified, g.platform_id, g.region, g.igdb_id, g.image_url, g.summary, g.collections, g.franchises, g.canonical_series, p.igdb_id AS igdb_platform_id, p.launch_date AS platform_launch_date
      FROM games g
      LEFT JOIN platforms p ON p.id = g.platform_id
      WHERE g.stable_id > ?
@@ -14035,6 +14078,7 @@ export async function syncWorkerIgdbMetadataBackfill(
       stable_id: number;
       id: string;
       title: string;
+      manually_verified: number | null;
       platform_id: number;
       region: string | null;
       igdb_id: number | null;
@@ -14139,18 +14183,22 @@ export async function syncWorkerIgdbMetadataBackfill(
   for (const r of candidates) {
     const meta = metaById.get(String(r.stable_id));
     if (!meta) continue;
+    const nextTitle =
+      (r.manually_verified ?? 0) === 0
+        ? resolveCanonicalDisplayTitle(r.title, meta.name)
+        : r.title;
     const prevTrackable = isSeriesTrackable({
       title: r.title,
       collections: r.collections,
       franchises: r.franchises,
     });
     const nextTrackable = isSeriesTrackable({
-      title: r.title,
+      title: nextTitle,
       collections: meta.collections,
       franchises: meta.franchises,
     });
     const canonicalSeries = computeGameCanonicalSeries({
-      title: r.title,
+      title: nextTitle,
       collections: meta.collections ?? undefined,
       franchises: meta.franchises ?? undefined,
     });
@@ -14162,12 +14210,14 @@ export async function syncWorkerIgdbMetadataBackfill(
     statements.push(
       env.DB.prepare(
         `UPDATE games SET
+           title = ?,
            igdb_id = ?, igdb_url = ?, image_url = ?, summary = ?, genres = ?,
            collections = ?, franchises = ?,
            metadata_json = COALESCE(metadata_json, ?),
            canonical_series = COALESCE(NULLIF(?, ''), canonical_series)
          WHERE stable_id = ? AND igdb_id IS NULL`,
       ).bind(
+        nextTitle,
         meta.igdb_id,
         meta.igdb_url,
         meta.image_url,
@@ -14182,8 +14232,8 @@ export async function syncWorkerIgdbMetadataBackfill(
     );
     matchedGames.push({
       stableId: r.stable_id,
-      gameSlug: r.id,
-      title: r.title,
+      gameSlug: String(r.stable_id),
+      title: nextTitle,
       platformId: r.platform_id,
       igdbPlatformId: r.igdb_platform_id ?? null,
       platformLaunchDate: r.platform_launch_date ?? null,

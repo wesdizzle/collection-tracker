@@ -63,7 +63,7 @@
             @for (g of visiblePlayingGames(); track g.id) {
               <div class="shelf-card" data-testid="active-play-card">
                 <a
-                  [routerLink]="['/game', g.id]"
+                  [routerLink]="['/game', g.stable_id ?? g.id]"
                   class="shelf-card-link"
                   [title]="g.title"
                 >
@@ -112,7 +112,7 @@
             @for (g of visibleQueuedGames(); track g.id) {
               <div class="shelf-card" data-testid="queued-play-card">
                 <a
-                  [routerLink]="['/game', g.id]"
+                  [routerLink]="['/game', g.stable_id ?? g.id]"
                   class="shelf-card-link"
                   [title]="g.title"
                 >

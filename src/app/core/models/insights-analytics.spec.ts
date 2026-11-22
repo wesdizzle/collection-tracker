@@ -161,11 +161,11 @@ describe('insights-analytics', () => {
     expect(allVal.matchedCostBasisCents).toBe(16500);
     expect(allVal.unrealizedDeltaCents).toBe(21000);
     expect(allVal.topValuable.map((e) => e.routeId)).toEqual([
-      'ct-snes',
+      '1',
       'mario-amiibo',
     ]);
     expect(allVal.topCostBasis.map((e) => e.routeId)).toEqual([
-      'ct-snes',
+      '1',
       'mario-amiibo',
     ]);
 

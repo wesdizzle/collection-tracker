@@ -209,7 +209,8 @@ export function computeScopedValuation(
       entries.push({
         itemType: 'game',
         canonicalId,
-        routeId: g.id,
+        routeId:
+          g.stable_id !== undefined ? String(g.stable_id) : g.game_id || g.id,
         title: g.title,
         subtitle: g.display_name || g.platform || 'Game',
         estimatedCents: est.cents,

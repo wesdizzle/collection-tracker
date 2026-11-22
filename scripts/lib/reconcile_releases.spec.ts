@@ -151,12 +151,12 @@ describe('reconcile_releases', () => {
         rom_name: string | null;
         rom_crc: string | null;
       };
-      expect(updated.id).toBe('1873-a95adadb');
+      expect(updated.id).toBe('1873-default');
       expect(updated.canonical_release_id).toBe(762828);
       expect(updated.rom_name).toBe("Yoku's Island Express (World).xci");
       expect(updated.rom_crc).toBe('a95adadb');
 
-      // Verify child platform (PSVR -> PS4) reconciled and upgraded ID
+      // Verify child platform (PSVR -> PS4) reconciled while keeping release ID immutable
       const psvrUpdated = db
         .prepare('SELECT * FROM game_releases WHERE game_id = ?')
         .get(2739) as {
@@ -165,7 +165,7 @@ describe('reconcile_releases', () => {
         rom_name: string | null;
         rom_crc: string | null;
       };
-      expect(psvrUpdated.id).toBe('2739-0f563151');
+      expect(psvrUpdated.id).toBe('2739-default');
       expect(psvrUpdated.canonical_release_id).toBe(889900);
       expect(psvrUpdated.rom_name).toBe('Astro Bot - Rescue Mission (USA).iso');
       expect(psvrUpdated.rom_crc).toBe('0f563151');
@@ -173,10 +173,10 @@ describe('reconcile_releases', () => {
       expect(fs.existsSync(testSqlPath)).toBe(true);
       const sqlContent = fs.readFileSync(testSqlPath, 'utf8');
       expect(sqlContent).toContain(
-        "UPDATE game_releases SET id = '1873-a95adadb', canonical_release_id = 762828, rom_name = 'Yoku''s Island Express (World).xci', rom_crc = 'a95adadb'",
+        "UPDATE game_releases SET canonical_release_id = 762828, rom_name = 'Yoku''s Island Express (World).xci', rom_crc = 'a95adadb'",
       );
       expect(sqlContent).toContain(
-        "UPDATE game_releases SET id = '2739-0f563151', canonical_release_id = 889900, rom_name = 'Astro Bot - Rescue Mission (USA).iso', rom_crc = '0f563151'",
+        "UPDATE game_releases SET canonical_release_id = 889900, rom_name = 'Astro Bot - Rescue Mission (USA).iso', rom_crc = '0f563151'",
       );
     });
 
@@ -251,12 +251,12 @@ describe('reconcile_releases', () => {
         rom_name: string | null;
       };
 
-      expect(threeHopes.id).toBe('1572-b1765d12');
+      expect(threeHopes.id).toBe('1572-default');
       expect(threeHopes.canonical_release_id).toBe(999002);
       expect(threeHopes.rom_name).toBe('Fire Emblem - Three Hopes (USA).xci');
     });
 
-    it('should cascade game_releases primary key renames to user_game_releases.release_id', () => {
+    it('should preserve release IDs and user_game_releases links without CRC-based PK renames', () => {
       db.exec(`
         CREATE TABLE user_game_releases (
           user_id INTEGER,
@@ -277,11 +277,12 @@ describe('reconcile_releases', () => {
       const userRel = db
         .prepare('SELECT release_id FROM user_game_releases WHERE game_id = ?')
         .get(1873) as { release_id: string };
-      expect(userRel.release_id).toBe('1873-a95adadb');
+      expect(userRel.release_id).toBe('1873-default');
 
       const sqlContent = fs.readFileSync(testSqlPath, 'utf8');
+      expect(sqlContent).not.toContain('1873-a95adadb');
       expect(sqlContent).toContain(
-        "UPDATE user_game_releases SET release_id = '1873-a95adadb' WHERE release_id = '1873-default';",
+        "UPDATE game_releases SET canonical_release_id = 762828, rom_name = 'Yoku''s Island Express (World).xci', rom_crc = 'a95adadb'",
       );
     });
 
@@ -335,7 +336,12 @@ describe('reconcile_releases', () => {
           (5001, 'gta-trilogy-ps2', 'Grand Theft Auto: The Trilogy', 30, 333001, 'verified_physical'),
           (5002, 'gta-iii-ps2', 'Grand Theft Auto III', 30, 333002, 'verified_physical'),
           (509, 'fire-emblem-gba', 'Fire Emblem', 19, 444001, 'verified_physical'),
-          (510, 'pokemon-gold-gbc', 'Pokémon Gold Version', 18, 555001, 'verified_physical');
+          (510, 'pokemon-gold-gbc', 'Pokémon Gold Version', 18, 555001, 'verified_physical'),
+          (6001, 'crash-action-pack-ps2', 'Crash Bandicoot Action Pack', 30, 666001, 'verified_physical'),
+          (6002, 'crash-twinsanity-ps2', 'Crash Twinsanity', 30, 666002, 'verified_physical'),
+          (6003, 'dq8-ps2', 'Dragon Quest VIII: Journey of the Cursed King', 30, 666003, 'verified_physical'),
+          (6004, 'ff12-ps2', 'Final Fantasy XII', 30, 666004, 'verified_physical'),
+          (6005, 'batman-arkham-goty-ps3', 'Batman: Arkham City', 32, 666005, 'verified_physical');
 
         INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, is_verified_physical, source)
         VALUES
@@ -344,7 +350,10 @@ describe('reconcile_releases', () => {
           (9003, 32, 'Batman: Arkham City', '${normalizeTitleForMatching('Batman: Arkham City')}', 'USA', 'Batman - Arkham City (USA).iso', 'ccccdddd', 1, 'redump'),
           (9004, 30, 'Grand Theft Auto III', '${normalizeTitleForMatching('Grand Theft Auto III')}', 'USA', 'Grand Theft Auto III (USA).iso', 'eeeeffff', 1, 'redump'),
           (9005, 19, 'Fire Emblem - Rekka no Ken', '${normalizeTitleForMatching('Fire Emblem - Rekka no Ken')}', 'Japan', 'Fire Emblem - Rekka no Ken (Japan).gba', '12345678', 1, 'no-intro'),
-          (9006, 18, 'Pokemon - Goldene Edition', '${normalizeTitleForMatching('Pokemon - Goldene Edition')}', 'Germany', 'Pokemon - Goldene Edition (Germany).gbc', '87654321', 1, 'no-intro');
+          (9006, 18, 'Pokemon - Goldene Edition', '${normalizeTitleForMatching('Pokemon - Goldene Edition')}', 'Germany', 'Pokemon - Goldene Edition (Germany).gbc', '87654321', 1, 'no-intro'),
+          (9007, 30, 'Crash Twinsanity', '${normalizeTitleForMatching('Crash Twinsanity')}', 'USA', 'Crash Twinsanity (USA) (v2.00).iso', '06c5bb4a', 1, 'redump'),
+          (9008, 30, 'Final Fantasy XII', '${normalizeTitleForMatching('Final Fantasy XII')}', 'USA', 'Final Fantasy XII (USA) (Demo).iso', '99990000', 1, 'redump'),
+          (9009, 32, 'Batman: Arkham City - Game of the Year Edition', '${normalizeTitleForMatching('Batman: Arkham City')}', 'USA', 'Batman - Arkham City - Game of the Year Edition (USA).iso', '033a0e50', 1, 'redump');
 
         INSERT INTO game_releases (id, game_id, region, canonical_release_id, rom_name, rom_crc)
         VALUES
@@ -361,7 +370,15 @@ describe('reconcile_releases', () => {
           ('5002-base', 5002, 'USA', 9004, 'Grand Theft Auto III (USA).iso', 'eeeeffff'),
           -- Non-English localized releases (must preserve both)
           ('509-jpn', 509, 'Japan', 9005, 'Fire Emblem - Rekka no Ken (Japan).gba', '12345678'),
-          ('510-ger', 510, 'Germany', 9006, 'Pokemon - Goldene Edition (Germany).gbc', '87654321');
+          ('510-ger', 510, 'Germany', 9006, 'Pokemon - Goldene Edition (Germany).gbc', '87654321'),
+          -- Action Pack sharing Crash Twinsanity disc (must preserve)
+          ('6001-pack', 6001, 'USA', 9007, 'Crash Twinsanity (USA) (v2.00).iso', '06c5bb4a'),
+          ('6002-base', 6002, 'USA', 9007, 'Crash Twinsanity (USA) (v2.00).iso', '06c5bb4a'),
+          -- Pack-in Demo disc (must preserve)
+          ('6003-demo', 6003, 'USA', 9008, 'Final Fantasy XII (USA) (Demo).iso', '99990000'),
+          ('6004-demo', 6004, 'USA', 9008, 'Final Fantasy XII (USA) (Demo).iso', '99990000'),
+          -- Same-game GOTY shared disc (must preserve)
+          ('6005-goty', 6005, 'USA', 9009, 'Batman - Arkham City - Game of the Year Edition (USA).iso', '033a0e50');
       `);
 
       try {

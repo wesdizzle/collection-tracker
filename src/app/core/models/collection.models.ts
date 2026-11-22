@@ -78,6 +78,7 @@ export interface GameRelease {
   disc_label?: string | null;
   is_companion_base_disc?: boolean;
   companion_game_id?: string;
+  companion_stable_id?: number;
   companion_game_title?: string;
   comments?: string | null;
 }
@@ -101,6 +102,8 @@ export interface ReleaseMediaItem {
 
 export interface SharedMediaReleaseLink {
   id: string;
+  game_id?: number;
+  stable_id?: number;
   title: string;
   region?: string | null;
   variants?: string | null;

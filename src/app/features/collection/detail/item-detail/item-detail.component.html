@@ -458,8 +458,18 @@
                                     <a
                                       [routerLink]="[
                                         '/game',
-                                        release.companion_game_id,
+                                        release.companion_stable_id ??
+                                          release.companion_game_id,
                                       ]"
+                                      [queryParams]="
+                                        release.companion_stable_id &&
+                                        release.companion_game_id
+                                          ? {
+                                              release:
+                                                release.companion_game_id,
+                                            }
+                                          : null
+                                      "
                                       class="meta-link font-semibold"
                                     >
                                       {{
@@ -477,8 +487,18 @@
                                     <a
                                       [routerLink]="[
                                         '/game',
-                                        release.companion_game_id,
+                                        release.companion_stable_id ??
+                                          release.companion_game_id,
                                       ]"
+                                      [queryParams]="
+                                        release.companion_stable_id &&
+                                        release.companion_game_id
+                                          ? {
+                                              release:
+                                                release.companion_game_id,
+                                            }
+                                          : null
+                                      "
                                       class="meta-link font-semibold"
                                     >
                                       {{
@@ -593,7 +613,15 @@
                             track shared.id
                           ) {
                             <a
-                              [routerLink]="['/game', shared.id]"
+                              [routerLink]="[
+                                '/game',
+                                shared.stable_id ?? shared.game_id ?? shared.id,
+                              ]"
+                              [queryParams]="
+                                shared.stable_id || shared.game_id
+                                  ? { release: shared.id }
+                                  : null
+                              "
                               class="jump-link-pill"
                             >
                               <span class="flex items-center gap-xs"
@@ -690,7 +718,10 @@
                             }
                           </div>
                           <a
-                            [routerLink]="['/game', other.id]"
+                            [routerLink]="['/game', g.stable_id ?? other.id]"
+                            [queryParams]="
+                              g.stable_id ? { release: other.id } : null
+                            "
                             class="meta-link text-xs font-semibold flex items-center gap-xs interactive"
                           >
                             <span>View Release</span>

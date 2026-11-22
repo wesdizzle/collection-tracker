@@ -143,6 +143,15 @@ export class ItemDetailComponent {
 
   private itemOverride = signal<Game | Toy | Platform | null>(null);
 
+  public routeReleaseId = toSignal<string | null>(
+    this.route.queryParamMap
+      ? this.route.queryParamMap.pipe(
+          switchMap((q) => [q.get('release') || null]),
+        )
+      : of(null),
+    { initialValue: null },
+  );
+
   /**
    * Reactive signal containing the full metadata for the current item.
    * Dynamically fetches data from the CollectionService based on the route parameters.
@@ -150,13 +159,17 @@ export class ItemDetailComponent {
   private fetchedItem = toSignal(
     combineLatest([
       this.route.paramMap,
+      this.route.queryParamMap ?? of(null),
       toObservable(this.collectionService.refreshTrigger),
     ]).pipe(
-      switchMap(([params, _]) => {
+      switchMap(([params, queryParams, _]) => {
         this.errorMessage.set(null);
         this.itemOverride.set(null);
         const type = params.get('type') || '';
         const id = params.get('id');
+        const releaseId = queryParams
+          ? queryParams.get('release') || null
+          : null;
         if (!id) {
           this.errorMessage.set('Item identifier was not provided.');
           return of(null);
@@ -167,8 +180,8 @@ export class ItemDetailComponent {
         switch (type) {
           case 'game':
             this.collectionService.setActiveTransitionItem('game', id);
-            cached = this.collectionService.getCachedGameById(id);
-            fetch$ = this.collectionService.getGameById(id);
+            cached = this.collectionService.getCachedGameById(id, releaseId);
+            fetch$ = this.collectionService.getGameById(id, releaseId);
             break;
           case 'toy':
             this.collectionService.setActiveTransitionItem('toy', id);
@@ -207,7 +220,10 @@ export class ItemDetailComponent {
     const id = this.routeId();
     if (!id) return null;
     if (itemType === 'game') {
-      return this.collectionService.getCachedGameById(id);
+      return this.collectionService.getCachedGameById(
+        id,
+        this.routeReleaseId(),
+      );
     }
     if (itemType === 'toy') {
       return this.collectionService.getCachedToyById(id);

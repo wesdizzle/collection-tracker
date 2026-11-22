@@ -355,6 +355,34 @@ function isEnglishRegionValue(region: string | null | undefined): boolean {
 const NON_ENGLISH_ROM_TAG_RE =
   /\((?:Japan|Germany|France|Spain|Italy|Korea|China|Asia|Russia)\)/i;
 
+const AUDIT_EXTRA_BUNDLE_TITLE_RE = /\b(?:action\s+pack|bundle|saga)\b/i;
+const SHARED_EDITION_DISC_RE =
+  /[:\-–]?\s*(?:game of the year edition|goty edition|gold edition|gourmet edition|next level edition|ultimate edition|treasure trove|connected)\b/gi;
+
+function isLegitimateSharedEditionDisc(
+  gameTitle: string,
+  romName: string | null | undefined,
+): boolean {
+  if (!romName) return false;
+  if (/\((?:Bonus Disc|Tokusei Disc|Kakuchou Disc)\)/i.test(romName)) {
+    return false;
+  }
+  const romClean = extractCleanRomTitle(romName);
+  SHARED_EDITION_DISC_RE.lastIndex = 0;
+  const gameHasEd = SHARED_EDITION_DISC_RE.test(gameTitle);
+  SHARED_EDITION_DISC_RE.lastIndex = 0;
+  const romHasEd = SHARED_EDITION_DISC_RE.test(romClean);
+  if (!gameHasEd && !romHasEd) return false;
+  const strippedGame = gameTitle.replace(SHARED_EDITION_DISC_RE, '').trim();
+  const strippedRom = romClean.replace(SHARED_EDITION_DISC_RE, '').trim();
+  return Boolean(
+    strippedGame &&
+    strippedRom &&
+    normalizeTitleForMatching(strippedGame) ===
+      normalizeTitleForMatching(strippedRom),
+  );
+}
+
 /**
  * Audits populated non-compilation game_releases rows against their parent games
  * for cross-IGDB ROM CRC collisions and mismatched wrong-game ROMs, then emits
@@ -485,7 +513,10 @@ export function auditAndRepairCorruptedRoms(
     return (
       row.bundle_parent_id != null ||
       isCompilationOrBundleTitle(row.game_title) ||
-      (rawRom !== '' && isCompilationOrBundleTitle(rawRom))
+      AUDIT_EXTRA_BUNDLE_TITLE_RE.test(row.game_title) ||
+      (rawRom !== '' && isCompilationOrBundleTitle(rawRom)) ||
+      (row.rom_name ? /\(Demo\)/i.test(row.rom_name) : false) ||
+      isLegitimateSharedEditionDisc(row.game_title, row.rom_name)
     );
   };
 
@@ -953,11 +984,30 @@ export function reconcileGameReleasesWithCanonical(
   const usedRomsByPlatformId = new Map<number, Set<string>>();
   const usedCrcsByGameId = new Map<number, Set<string>>();
   const usedCrcsByPlatformId = new Map<number, Set<string>>();
-  const existingReleaseIds = new Set(
-    (
-      db.prepare('SELECT id FROM game_releases').all() as Array<{ id: string }>
-    ).map((r) => r.id),
-  );
+  const existingReleaseIds = new Set<string>();
+  const maxSeqByGameId = new Map<number, number>();
+  for (const r of db
+    .prepare('SELECT id, game_id FROM game_releases')
+    .all() as Array<{ id: string; game_id: number }>) {
+    existingReleaseIds.add(r.id);
+    const match = r.id.match(new RegExp(`^${r.game_id}-(\\d+)$`));
+    if (match) {
+      const seq = Number(match[1]);
+      if (seq > (maxSeqByGameId.get(r.game_id) ?? 0)) {
+        maxSeqByGameId.set(r.game_id, seq);
+      }
+    }
+  }
+  const allocateSeqReleaseId = (gameId: number): string => {
+    let seq = (maxSeqByGameId.get(gameId) ?? 0) + 1;
+    while (existingReleaseIds.has(`${gameId}-${seq}`)) {
+      seq++;
+    }
+    const nextId = `${gameId}-${seq}`;
+    maxSeqByGameId.set(gameId, seq);
+    existingReleaseIds.add(nextId);
+    return nextId;
+  };
   const existingRoms = db
     .prepare(
       `SELECT gr.game_id, g.platform_id, gr.rom_name, gr.rom_crc
@@ -1204,14 +1254,8 @@ export function reconcileGameReleasesWithCanonical(
       usedCrcsByGameId.set(rel.game_id, usedCrcSet);
     }
 
-    const candidateNewId =
-      rel.id.endsWith('-default') && best.rom_crc
-        ? `${rel.game_slug || rel.id.replace(/-default$/, '')}-${best.rom_crc.toLowerCase()}`
-        : rel.id;
-    const newId =
-      candidateNewId !== rel.id && !existingReleaseIds.has(candidateNewId)
-        ? candidateNewId
-        : rel.id;
+    // Keep release primary keys immutable (no CRC/slug-based ID renames)
+    const newId = rel.id;
     existingReleaseIds.add(newId);
 
     updates.push({
@@ -1288,7 +1332,7 @@ export function reconcileGameReleasesWithCanonical(
 
       for (const sibling of siblingDiscs) {
         usedSet.add(sibling.rom_name);
-        const siblingId = `${rel.game_slug || rel.id.replace(/-default$/, '')}-disc-${sibling.id}`;
+        const siblingId = allocateSeqReleaseId(rel.game_id);
         sqlStatements.push(
           `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(siblingId)}, ${rel.game_id}, ${sibling.id}, ${escapeSql(sibling.region || rel.region)}, ${escapeSql(sibling.variants || rel.variants)}, ${escapeSql(sibling.also_released_as)}, ${escapeSql(sibling.rom_name)}, ${escapeSql(sibling.rom_crc)});`,
         );
@@ -1315,7 +1359,7 @@ export function reconcileGameReleasesWithCanonical(
     );
     for (const packIn of packInDiscs) {
       usedSet.add(packIn.rom_name);
-      const packInId = `${rel.game_slug || rel.id.replace(/-default$/, '')}-packin-${packIn.id}`;
+      const packInId = allocateSeqReleaseId(rel.game_id);
       sqlStatements.push(
         `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(packInId)}, ${rel.game_id}, ${packIn.id}, ${escapeSql(packIn.region || rel.region)}, ${escapeSql(packIn.variants || 'Demo')}, ${escapeSql(packIn.also_released_as)}, ${escapeSql(packIn.rom_name)}, ${escapeSql(packIn.rom_crc)});`,
       );
@@ -1403,7 +1447,7 @@ export function reconcileGameReleasesWithCanonical(
           platUsedCrcSet.add(crcNorm);
           usedCrcsByPlatformId.set(g.platform_id, platUsedCrcSet);
         }
-        const newId = `${g.slug}-dat-${c.id}`;
+        const newId = allocateSeqReleaseId(g.stable_id);
         sqlStatements.push(
           `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(newId)}, ${g.stable_id}, ${c.id}, ${escapeSql(c.region)}, ${escapeSql(c.variants)}, ${escapeSql(c.also_released_as)}, ${escapeSql(c.rom_name)}, ${escapeSql(c.rom_crc)});`,
         );

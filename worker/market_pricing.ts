@@ -18,7 +18,10 @@ import {
   getPriceShardIndex,
   isMarketPriceFresh,
 } from '../shared/market_pricing';
-import { RESOLVE_CANONICAL_GAME_ID_QUERY } from '../shared/queries';
+import {
+  RESOLVE_CANONICAL_GAME_ID_QUERY,
+  getResolveCanonicalGameIdParams,
+} from '../shared/queries';
 import {
   EbayApiError,
   EbayConfigEnv,
@@ -434,10 +437,11 @@ export async function savePriceQueryOverride(
   let canonicalId = rawItemId.trim();
   if (itemType === 'game') {
     const resolved = await env.DB.prepare(RESOLVE_CANONICAL_GAME_ID_QUERY)
-      .bind(canonicalId, canonicalId)
-      .first<{ game_id?: string }>();
-    if (resolved?.game_id) {
-      canonicalId = resolved.game_id;
+      .bind(...getResolveCanonicalGameIdParams(canonicalId))
+      .first<{ game_id?: string; legacy_id?: string | null }>();
+    const preferredId = resolved?.legacy_id || resolved?.game_id;
+    if (preferredId) {
+      canonicalId = preferredId;
     }
   }
 

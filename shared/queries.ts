@@ -327,7 +327,7 @@ export function buildGameDetailQuery(userId?: number | null): string {
             g.origin_metadata,
             g.bundle_parent_id,
             g.bundle_disc_number,
-            COALESCE(bc.bundle_count, 0) as bundle_count,
+            (SELECT COUNT(*) FROM games bc WHERE bc.bundle_parent_id = g.stable_id) as bundle_count,
             ${ownershipCol} as ownership_status,
             COALESCE(r.region, g.region) as region,
             r.variants,
@@ -358,29 +358,22 @@ export function buildGameDetailQuery(userId?: number | null): string {
               ELSE 0
             END as is_source_verified
      FROM games g 
-     LEFT JOIN game_releases r ON r.id = (
-         SELECT id FROM (
-             SELECT id, 1 as priority, 0 as is_owned, 1 as region_match FROM game_releases WHERE id = ?
-             UNION ALL
-             SELECT r2.id, 2 as priority, ${isOwnedCol} as is_owned, (CASE WHEN r2.region = g.region THEN 0 ELSE 1 END) as region_match
-             FROM game_releases r2
-             ${candidateJoin}
-             WHERE r2.game_id = g.stable_id
-         )
-         ORDER BY priority ASC, is_owned DESC, region_match ASC, id ASC
-         LIMIT 1
+     LEFT JOIN game_releases r ON r.id = COALESCE(
+         (SELECT id FROM game_releases WHERE id = ? AND game_id = g.stable_id LIMIT 1),
+         (SELECT r2.id
+          FROM game_releases r2
+          ${candidateJoin}
+          WHERE r2.game_id = g.stable_id
+          ORDER BY ${isOwnedCol} DESC, (CASE WHEN r2.region = g.region THEN 0 ELSE 1 END) ASC, r2.id ASC
+          LIMIT 1)
      )
      ${userJoin}
      LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
      LEFT JOIN platforms p ON g.platform_id = p.id 
      LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
-     LEFT JOIN (
-         SELECT bundle_parent_id, COUNT(*) as bundle_count 
-         FROM games 
-         WHERE bundle_parent_id IS NOT NULL 
-         GROUP BY bundle_parent_id
-     ) bc ON g.stable_id = bc.bundle_parent_id
      WHERE g.stable_id = (
+         SELECT stable_id FROM games WHERE stable_id = ?
+         UNION ALL
          SELECT game_id FROM game_releases WHERE id = ?
          UNION ALL
          SELECT stable_id FROM games WHERE id = ?
@@ -394,11 +387,23 @@ export const GAME_DETAIL_QUERY = buildGameDetailQuery(null);
 export function getGameDetailQueryParams(
   id: string,
   userId?: number | null,
+  releaseId?: string | null,
 ): unknown[] {
+  const trimmed = (id || '').trim();
+  const numericStableId = /^\d+$/.test(trimmed) ? Number(trimmed) : -1;
+  const effectiveReleaseId = (releaseId || '').trim() || trimmed;
   if (userId) {
-    return [id, userId, userId, userId, id, id];
+    return [
+      effectiveReleaseId,
+      userId,
+      userId,
+      userId,
+      numericStableId,
+      trimmed,
+      trimmed,
+    ];
   }
-  return [id, id, id];
+  return [effectiveReleaseId, numericStableId, trimmed, trimmed];
 }
 
 /**
@@ -1027,11 +1032,14 @@ export interface CompanionDiscCandidateRow {
   disc_label?: string | null;
   is_companion_base_disc?: boolean;
   companion_game_id?: string;
+  companion_stable_id?: number;
   companion_game_title?: string;
 }
 
 export interface SharedMediaReleaseLink {
   id: string;
+  game_id?: number;
+  stable_id?: number;
   title: string;
   region: string | null;
   variants: string | null;
@@ -1238,6 +1246,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
           disc_label: discLabel,
           is_companion_base_disc: true,
           companion_game_id: d.id,
+          companion_stable_id: d.game_id,
           companion_game_title: pair.originalDisplayTitle,
         });
       }
@@ -1325,6 +1334,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
             disc_label: spec.discLabel,
             is_companion_base_disc: true,
             companion_game_id: bestStandalone.id,
+            companion_stable_id: bestStandalone.game_id,
             companion_game_title: spec.standaloneDisplayTitle,
           });
         }
@@ -1333,6 +1343,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
         for (const rel of game.releases) {
           if (matchesBoxSetDiscSpec(rel, spec)) {
             rel['companion_game_id'] = bestStandalone.id;
+            rel['companion_stable_id'] = bestStandalone.game_id;
             rel['companion_game_title'] = spec.standaloneDisplayTitle;
           }
         }
@@ -1409,6 +1420,8 @@ export function enrichGameDetailWithCompanionsAndVouchers(
       if (!sharedLinks.some((s) => s.id === sup.id)) {
         sharedLinks.push({
           id: sup.id,
+          game_id: sup.game_id,
+          stable_id: sup.game_id,
           title: pair.supersetDisplayTitle || sup.game_title,
           region: sup.region,
           variants: sup.variants,
@@ -1459,6 +1472,8 @@ export function enrichGameDetailWithCompanionsAndVouchers(
         if (!sharedLinks.some((s) => s.id === boxCand.id)) {
           sharedLinks.push({
             id: boxCand.id,
+            game_id: boxCand.game_id,
+            stable_id: boxCand.game_id,
             title: boxSet.boxSetDisplayTitle,
             region: boxCand.region,
             variants: boxCand.variants,
@@ -1486,6 +1501,8 @@ export function enrichGameDetailWithCompanionsAndVouchers(
         if (!sharedLinks.some((s) => s.id === cand.id)) {
           sharedLinks.push({
             id: cand.id,
+            game_id: cand.game_id,
+            stable_id: cand.game_id,
             title: `${packIn.hostGameDisplayTitle} (${packIn.discLabel})`,
             region: cand.region,
             variants: cand.variants,
@@ -1536,6 +1553,8 @@ export function enrichGameDetailWithCompanionsAndVouchers(
       if (!sharedLinks.some((s) => s.id === partCand.id)) {
         sharedLinks.push({
           id: partCand.id,
+          game_id: partCand.game_id,
+          stable_id: partCand.game_id,
           title: targetDisplayTitle,
           region: partCand.region,
           variants: partCand.variants,
@@ -1794,11 +1813,21 @@ export interface JournalEntryRow {
 }
 
 export const RESOLVE_CANONICAL_GAME_ID_QUERY = `
-  SELECT id as game_id FROM games WHERE id = ?
+  SELECT CAST(stable_id AS TEXT) as game_id, id as legacy_id FROM games WHERE stable_id = ?
   UNION ALL
-  SELECT g.id as game_id FROM games g JOIN game_releases r ON r.game_id = g.stable_id WHERE r.id = ?
+  SELECT CAST(stable_id AS TEXT) as game_id, id as legacy_id FROM games WHERE id = ?
+  UNION ALL
+  SELECT CAST(g.stable_id AS TEXT) as game_id, g.id as legacy_id FROM games g JOIN game_releases r ON r.game_id = g.stable_id WHERE r.id = ?
   LIMIT 1
 `;
+
+export function getResolveCanonicalGameIdParams(
+  rawId: string,
+): [number, string, string] {
+  const trimmed = (rawId || '').trim();
+  const numericId = /^\d+$/.test(trimmed) ? Number(trimmed) : -1;
+  return [numericId, trimmed, trimmed];
+}
 
 export const JOURNAL_ENTRY_BY_ITEM_QUERY = `
   SELECT id, user_id, item_type, item_id, purchase_date, is_approximate_date, price_paid,

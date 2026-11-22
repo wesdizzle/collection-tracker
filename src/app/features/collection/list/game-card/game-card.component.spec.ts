@@ -243,13 +243,11 @@ describe('GameCardComponent', () => {
 
     expect(cs.activeTransitionItem()).toEqual({
       type: 'game',
-      id: 'super-mario-galaxy-wii',
+      id: '1',
     });
-    expect(component.activeViewTransitionName()).toBe(
-      'catalog-media-game-super-mario-galaxy-wii',
-    );
+    expect(component.activeViewTransitionName()).toBe('catalog-media-game-1');
     expect(img.style.getPropertyValue('view-transition-name')).toBe(
-      'catalog-media-game-super-mario-galaxy-wii',
+      'catalog-media-game-1',
     );
   });
 

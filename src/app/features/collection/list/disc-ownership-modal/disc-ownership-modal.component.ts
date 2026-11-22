@@ -104,7 +104,9 @@ export class DiscOwnershipModalComponent implements AfterViewInit {
 
   public readonly detailRoute = computed(() => {
     const g = this.game();
-    return g ? ['/game', g.game_id || g.id] : ['/collection/games'];
+    return g
+      ? ['/game', g.stable_id ?? g.game_id ?? g.id]
+      : ['/collection/games'];
   });
 
   constructor() {

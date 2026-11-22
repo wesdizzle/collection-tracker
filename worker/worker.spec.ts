@@ -701,6 +701,94 @@ describe('Worker API Logic', () => {
     }
   });
 
+  it('daytime cron reads manifest.version from JSON body when customMetadata is omitted', async () => {
+    db.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('db_dirty', '0', datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = '0'`,
+    ).run();
+
+    mockBucket.storage.clear();
+    mockBucket.metadata.clear();
+
+    await mockBucket.put('snapshots/latest.json', JSON.stringify({ ok: true }));
+    await mockBucket.put(R2_GAMES_ACTIVE_LITE_KEY, JSON.stringify({ ok: 1 }), {
+      customMetadata: { date: '2026-11-19' },
+    });
+    // Put manifest WITHOUT customMetadata (simulating `wrangler r2 object put`) for today -> no stale rebuild
+    await mockBucket.put(
+      R2_CATALOG_MANIFEST_KEY,
+      JSON.stringify({
+        version: '2026-11-19:1:1',
+        timestamp: '2026-11-19T12:00:00.000Z',
+        totalRows: 1,
+        chunkSize: 3500,
+        chunkCount: 1,
+        maxStableId: 1,
+        toysTotalRows: 1,
+        toysChunkCount: 1,
+      }),
+    );
+
+    const scheduledEvent = {
+      cron: '*/30 * * * *',
+      type: 'scheduled',
+      scheduledTime: Date.now(),
+    } as unknown as ScheduledEvent;
+
+    const originalDate = globalThis.Date;
+    let mockTimeMs = Date.parse('2026-11-19T14:00:00Z');
+    globalThis.Date = class extends originalDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) {
+          super(mockTimeMs);
+        } else {
+          super(...(args as [string | number | Date]));
+        }
+      }
+      static override now() {
+        return mockTimeMs;
+      }
+    } as unknown as typeof Date;
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => {
+        return {
+          ok: true,
+          json: async () => ({ products: [] }),
+          text: async () => '',
+        } as unknown as Response;
+      });
+
+    try {
+      await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+      // Manifest had today's date in JSON body even without customMetadata, so chunks were NOT rebuilt
+      expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(false);
+
+      // Advance past cachedCatalogManifest TTL and overwrite manifest with yesterday's version in JSON body (still no customMetadata)
+      mockTimeMs += 120_000;
+      await mockBucket.put(
+        R2_CATALOG_MANIFEST_KEY,
+        JSON.stringify({
+          version: '2026-11-18:1:1',
+          timestamp: '2026-11-18T12:00:00.000Z',
+          totalRows: 1,
+          chunkSize: 3500,
+          chunkCount: 1,
+          maxStableId: 1,
+          toysTotalRows: 1,
+          toysChunkCount: 1,
+        }),
+      );
+      await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+      expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(true);
+    } finally {
+      globalThis.Date = originalDate;
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('GET /api/games uses Edge Cache and mutation invalidates it', async () => {
     const cachedMap = new Map<string, Response>();
     const mockCache = {
@@ -1524,7 +1612,7 @@ describe('Worker API Logic', () => {
         };
       };
       expect(savedData.success).toBe(true);
-      expect(savedData.entry.item_id).toBe('mario');
+      expect(savedData.entry.item_id).toBe('1');
       expect(savedData.entry.purchase_date).toBe('2009-06');
       expect(savedData.entry.is_approximate_date).toBe(1);
       expect(savedData.entry.price_paid).toBe(4.1);
@@ -1533,7 +1621,7 @@ describe('Worker API Logic', () => {
         'https://mail.google.com/mail/u/0/#all/16867f8a6f04196d',
       );
 
-      // Querying via release ID 'gb-mario' resolves to canonical 'mario' entry
+      // Querying via release ID 'gb-mario' resolves to canonical numeric stable_id '1' entry
       const getRes = await worker.fetch(
         new Request(
           'http://localhost/api/journal?item_type=game&item_id=gb-mario',
@@ -1546,7 +1634,7 @@ describe('Worker API Logic', () => {
         entry: { item_id: string; merchant: string; receipt_url: string };
       };
       expect(getData.authorized).toBe(true);
-      expect(getData.entry.item_id).toBe('mario');
+      expect(getData.entry.item_id).toBe('1');
       expect(getData.entry.merchant).toBe('eBay');
 
       // Update with a non-Gmail external receipt link
@@ -2428,6 +2516,50 @@ describe('Worker API Logic', () => {
       expect(data.id).toBe('castlevania-usa');
       expect(data.region).toBe('USA');
       expect(data.ownership_status).toBe(1);
+
+      // Querying by numeric stable_id with explicit ?release= overrides default owned release selection
+      const explicitRelRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/games/930?release=castlevania-jp',
+          {
+            headers: { Cookie: `${SESSION_COOKIE}=${sessionToken}` },
+          },
+        ),
+        mockEnv,
+      );
+      expect(explicitRelRes.status).toBe(200);
+      const explicitData = (await explicitRelRes.json()) as {
+        id: string;
+        region: string;
+        ownership_status: number;
+      };
+      expect(explicitData.id).toBe('castlevania-jp');
+      expect(explicitData.region).toBe('Japan');
+      expect(explicitData.ownership_status).toBe(0);
+
+      // Foreign release ID passed in ?release= must not replace this game's own release
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id) VALUES (931, '931', 'Other Game', 35)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region) VALUES ('931-1', 931, 'Europe')`,
+      ).run();
+      const foreignRelRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/games/930?release=931-1',
+          {
+            headers: { Cookie: `${SESSION_COOKIE}=${sessionToken}` },
+          },
+        ),
+        mockEnv,
+      );
+      expect(foreignRelRes.status).toBe(200);
+      const foreignData = (await foreignRelRes.json()) as {
+        id: string;
+        region: string;
+      };
+      expect(foreignData.id).toBe('castlevania-usa');
+      expect(foreignData.region).toBe('USA');
     });
 
     it('GET /api/admin/diagnostics/jobs returns 404 after migrating cron logs off D1', async () => {
@@ -5547,13 +5679,13 @@ describe('Worker API Logic', () => {
           expect(payloads).toContainEqual(
             expect.objectContaining({
               title: '✨ New in Hollow Knight: Hollow Knight: Silksong',
-              data: { url: '/collection/game/hollow-knight-silksong-switch' },
+              data: { url: '/game/9312' },
             }),
           );
           expect(payloads).toContainEqual(
             expect.objectContaining({
               title: '✨ New in Doom: Doom Eternal',
-              data: { url: '/collection/game/doom-eternal-switch' },
+              data: { url: '/game/9313' },
             }),
           );
         } finally {
@@ -5632,7 +5764,7 @@ describe('Worker API Logic', () => {
             expect.anything(),
             expect.objectContaining({
               title: '✨ New in Alien: Alien II',
-              data: { url: '/collection/game/alien-sequel' },
+              data: { url: '/game/9322' },
             }),
             expect.anything(),
           );
@@ -5965,6 +6097,115 @@ describe('Worker API Logic', () => {
             )
             .get() as { ownership_status: number };
           expect(uniqueTracking.ownership_status).toBe(2);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('applies edition-preserving IGDB titles, numeric game IDs, and sequential release IDs during catalog seeding and backfill', async () => {
+        db.exec(`
+          UPDATE platforms SET igdb_id = 130, launch_date = '2017-03-03' WHERE id = 26;
+          INSERT INTO games (stable_id, id, title, platform_id, manually_verified, physical_status)
+          VALUES
+            (9501, '9501', 'Xenoblade Chronicles - Definitive Edition', 26, 0, 'verified_physical'),
+            (9502, '9502', 'Custom Curated Title', 26, 1, 'verified_physical');
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES
+            ('9501-1', 9501, 'USA'),
+            ('9502-1', 9502, 'USA');
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_crc, is_verified_physical)
+          VALUES
+            (9801, 26, 'Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition (USA)', '${normalizeTitleForMatching('Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition')}', 'USA', 'DEAD1234', 1),
+            (9802, 26, 'Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition (Europe)', '${normalizeTitleForMatching('Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition')}', 'Europe', 'DEAD5678', 1);
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_stage', 'done');
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9800');
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_paused', '0');
+        `);
+
+        stubIgdbFetch({
+          'Xenoblade Chronicles - Definitive Edition': [
+            {
+              id: 7101,
+              name: 'Xenoblade Chronicles: Definitive Edition',
+              url: 'https://www.igdb.com/games/xenoblade-chronicles-definitive-edition',
+              summary: 'RPG',
+              cover: { image_id: 'xbcde' },
+              genres: [{ name: 'Role-playing (RPG)' }],
+              collections: [{ name: 'Xenoblade Chronicles' }],
+              franchises: [],
+              platforms: [130],
+            },
+          ],
+          'Custom Curated Title': [
+            {
+              id: 7102,
+              name: 'Custom: Curated Title',
+              url: 'https://www.igdb.com/games/custom-curated-title',
+              summary: 'Keep curated title',
+              cover: { image_id: 'cct' },
+              genres: [{ name: 'Action' }],
+              collections: [],
+              franchises: [],
+              platforms: [130],
+            },
+          ],
+          'Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition': [
+            {
+              id: 7103,
+              name: 'Rune Factory: Guardians of Azuma',
+              url: 'https://www.igdb.com/games/rune-factory-guardians-of-azuma',
+              summary: 'Action RPG',
+              cover: { image_id: 'rfga' },
+              genres: [{ name: 'Role-playing (RPG)' }],
+              collections: [{ name: 'Rune Factory' }],
+              franchises: [],
+              platforms: [130],
+              alternative_names: [
+                {
+                  name: 'Rune Factory: Guardians of Azuma - Nintendo Switch 2 Edition',
+                },
+              ],
+            },
+          ],
+        });
+
+        try {
+          const backfillRes = await syncWorkerIgdbMetadataBackfill(mockEnv, {
+            batchSize: 1000,
+          });
+          expect(backfillRes.matched).toBe(2);
+
+          const xeno = db
+            .prepare('SELECT title FROM games WHERE stable_id = 9501')
+            .get() as { title: string };
+          expect(xeno.title).toBe('Xenoblade Chronicles: Definitive Edition');
+
+          const curated = db
+            .prepare('SELECT title FROM games WHERE stable_id = 9502')
+            .get() as { title: string };
+          expect(curated.title).toBe('Custom Curated Title');
+
+          const seedRes = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(seedRes.ingestedGames).toBe(1);
+          expect(seedRes.ingestedReleases).toBe(2);
+
+          const rfGame = db
+            .prepare(
+              'SELECT stable_id, id, title FROM games WHERE igdb_id = 7103',
+            )
+            .get() as { stable_id: number; id: string; title: string };
+          expect(rfGame.stable_id).toBe(9503);
+          expect(rfGame.id).toBe('9503');
+          expect(rfGame.title).toBe(
+            'Rune Factory: Guardians of Azuma - Nintendo Switch 2 Edition',
+          );
+
+          const rfReleases = db
+            .prepare(
+              'SELECT id, region FROM game_releases WHERE game_id = ? ORDER BY id ASC',
+            )
+            .all(rfGame.stable_id) as Array<{ id: string; region: string }>;
+          expect(rfReleases.map((r) => r.id)).toEqual(['9503-1', '9503-2']);
         } finally {
           vi.unstubAllGlobals();
         }

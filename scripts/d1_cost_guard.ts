@@ -37,10 +37,14 @@ import {
   ACTIVE_GAMES_LIST_WHERE_CLAUSE,
   ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE,
   buildCatalogGamesChunkQuery,
+  buildGameDetailQuery,
   buildGamesListQuery,
   CATALOG_GAMES_CHUNK_BOUND_QUERY,
   CATALOG_MAX_GAME_STABLE_ID_QUERY,
   CATALOG_MAX_TOY_STABLE_ID_QUERY,
+  getGameDetailQueryParams,
+  getResolveCanonicalGameIdParams,
+  RESOLVE_CANONICAL_GAME_ID_QUERY,
 } from '../shared/queries.js';
 
 export type StaticSchemaCostGuardResult = ReturnType<
@@ -374,6 +378,16 @@ export function runCollectionStaticSchemaCostGuard(
       name: 'active games list query (public)',
       sql: `${buildGamesListQuery(null)} ${ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE}`,
       params: [],
+    },
+    {
+      name: 'game detail lookup by stable_id and optional release',
+      sql: buildGameDetailQuery(1),
+      params: getGameDetailQueryParams('387', 1, '387-1'),
+    },
+    {
+      name: 'canonical game ID resolver (numeric, slug, or release)',
+      sql: RESOLVE_CANONICAL_GAME_ID_QUERY,
+      params: getResolveCanonicalGameIdParams('387'),
     },
   ];
 

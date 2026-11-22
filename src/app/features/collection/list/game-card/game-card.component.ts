@@ -91,7 +91,7 @@ export class GameCardComponent {
 
   onCardActivate(): void {
     const g = this.game();
-    const rawId = g.id || g.stable_id;
+    const rawId = g.stable_id ?? g.id;
     this.collectionService.setActiveTransitionItem('game', rawId);
     const name = this.getCoverViewTransitionName(g);
     const imgEl = this.coverImg?.nativeElement;
@@ -198,7 +198,7 @@ export class GameCardComponent {
   }
 
   public getCoverViewTransitionName(game: Game): string | null {
-    const rawId = game.id || game.stable_id;
+    const rawId = game.stable_id ?? game.id;
     if (!rawId) return null;
     const safeId = String(rawId).replace(/[^a-zA-Z0-9_-]/g, '-');
     return `catalog-media-game-${safeId}`;

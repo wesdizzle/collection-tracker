@@ -26,7 +26,7 @@
         @for (game of games(); track game.id) {
           <div class="compact-table-row state-layer">
             <a
-              [routerLink]="['/game', game.id]"
+              [routerLink]="['/game', game.stable_id ?? game.id]"
               class="row-primary-link"
               [attr.aria-label]="game.title"
             ></a>

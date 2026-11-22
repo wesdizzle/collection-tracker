@@ -639,8 +639,8 @@ export class CommandPaletteComponent implements AfterViewInit {
               : g.ownership_status === 3
                 ? 'Ordered'
                 : undefined,
-        url: `/game/${g.id || g.stable_id}`,
-        action: () => this.navigate(`/game/${g.id || g.stable_id}`),
+        url: `/game/${g.stable_id ?? g.id}`,
+        action: () => this.navigate(`/game/${g.stable_id ?? g.id}`),
       }));
 
     const toys = this.collectionService.toys();

@@ -9,6 +9,8 @@ import {
   titlesMatch,
   gameMatchesReleaseWithAlternatives,
   isCompilationOrBundleTitle,
+  extractEditionSuffix,
+  resolveCanonicalDisplayTitle,
 } from './title_matching.js';
 
 describe('Title Normalization', () => {
@@ -1039,6 +1041,93 @@ describe('Title Matching Strategies', () => {
       expect(isCompilationOrBundleTitle('Combat ~ Tank-Plus')).toBe(false);
       expect(isCompilationOrBundleTitle("Marvel's Avengers")).toBe(false);
       expect(isCompilationOrBundleTitle('LEGO Batman')).toBe(false);
+    });
+  });
+
+  describe('extractEditionSuffix & resolveCanonicalDisplayTitle', () => {
+    it('adopts IGDB canonical typography and strips box-art taglines when no edition suffix is present', () => {
+      expect(
+        resolveCanonicalDisplayTitle(
+          "Oddworld - Munch's Oddysee",
+          "Oddworld: Munch's Oddysee",
+        ),
+      ).toBe("Oddworld: Munch's Oddysee");
+      expect(
+        resolveCanonicalDisplayTitle('Driver - You Are the Wheelman', 'Driver'),
+      ).toBe('Driver');
+    });
+
+    it('preserves physical Switch 2, GOTY, DLC +, and re-release editions on top of IGDB base names', () => {
+      expect(
+        extractEditionSuffix(
+          'Rune Factory: Guardians of Azuma - Nintendo Switch 2 Edition',
+        ),
+      ).toBe('Nintendo Switch 2 Edition');
+      expect(
+        resolveCanonicalDisplayTitle(
+          'Rune Factory: Guardians of Azuma - Nintendo Switch 2 Edition',
+          'Rune Factory: Guardians of Azuma',
+        ),
+      ).toBe('Rune Factory: Guardians of Azuma - Nintendo Switch 2 Edition');
+
+      expect(
+        resolveCanonicalDisplayTitle(
+          'Dishonored: Game of the Year Edition',
+          'Dishonored: Definitive Edition',
+        ),
+      ).toBe('Dishonored: Game of the Year Edition');
+
+      expect(
+        resolveCanonicalDisplayTitle(
+          'Pokemon Scarlet + The Hidden Treasure of Area Zero',
+          'Pokémon Scarlet',
+        ),
+      ).toBe('Pokémon Scarlet + The Hidden Treasure of Area Zero');
+
+      expect(
+        resolveCanonicalDisplayTitle(
+          'Croc Legend of the Gobbos Platinum Edition',
+          'Croc: Legend of the Gobbos',
+        ),
+      ).toBe('Croc: Legend of the Gobbos - Platinum Edition');
+
+      expect(
+        resolveCanonicalDisplayTitle(
+          'Shovel Knight: Treasure Trove',
+          'Shovel Knight',
+        ),
+      ).toBe('Shovel Knight: Treasure Trove');
+
+      expect(
+        resolveCanonicalDisplayTitle(
+          'Tetris Effect: Connected',
+          'Tetris Effect',
+        ),
+      ).toBe('Tetris Effect: Connected');
+
+      expect(
+        resolveCanonicalDisplayTitle(
+          'The Elder Scrolls Online: Tamriel Unlimited',
+          'The Elder Scrolls Online',
+        ),
+      ).toBe('The Elder Scrolls Online: Tamriel Unlimited');
+
+      expect(
+        resolveCanonicalDisplayTitle(
+          'Tomb Raider IV-VI Remastered',
+          'Tomb Raider IV•V•VI Remastered',
+        ),
+      ).toBe('Tomb Raider IV•V•VI Remastered');
+    });
+
+    it('ignores localized non-English edition markers so regional dumps normalize cleanly to IGDB English titles', () => {
+      expect(extractEditionSuffix('Pokemon - Goldene Edition')).toBeNull();
+      expect(
+        resolveCanonicalDisplayTitle(
+          'Pokemon - Goldene Edition',
+          'Pokémon Gold Version',
+        ),
+      ).toBe('Pokémon Gold Version');
     });
   });
 });

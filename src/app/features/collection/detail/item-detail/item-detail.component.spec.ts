@@ -32,6 +32,7 @@ describe('ItemDetailComponent', () => {
   let collectionService: CollectionService;
   let router: Router;
   let paramMapSubject: BehaviorSubject<ParamMap>;
+  let queryParamMapSubject: BehaviorSubject<ParamMap>;
 
   const mockGame: Game = {
     stable_id: 1,
@@ -68,6 +69,7 @@ describe('ItemDetailComponent', () => {
     paramMapSubject = new BehaviorSubject(
       convertToParamMap({ id: '1', type: 'game' }),
     );
+    queryParamMapSubject = new BehaviorSubject(convertToParamMap({}));
 
     vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
 
@@ -81,6 +83,7 @@ describe('ItemDetailComponent', () => {
           provide: ActivatedRoute,
           useValue: {
             paramMap: paramMapSubject.asObservable(),
+            queryParamMap: queryParamMapSubject.asObservable(),
           },
         },
       ],
@@ -1331,6 +1334,42 @@ describe('ItemDetailComponent', () => {
       expect(coverImg?.style.getPropertyValue('view-transition-name')).toBe(
         'catalog-media-game-super-mario-world-snes',
       );
+    });
+
+    it('forwards ?release= query parameter to getGameById and renders numeric other_releases links', async () => {
+      const getGameSpy = vi
+        .spyOn(collectionService, 'getGameById')
+        .mockReturnValue(
+          of({
+            ...mockGame,
+            stable_id: 387,
+            id: '387-2',
+            game_id: '387',
+            region: 'Japan',
+            other_releases: [
+              {
+                id: '387-1',
+                game_id: 387,
+                title: 'Wave Race 64',
+                region: 'USA',
+                has_media: 1,
+                ownership_status: 1,
+              },
+            ],
+          }),
+        );
+
+      paramMapSubject.next(convertToParamMap({ id: '387', type: 'game' }));
+      queryParamMapSubject.next(convertToParamMap({ release: '387-2' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(getGameSpy).toHaveBeenCalledWith('387', '387-2');
+      const otherLink = fixture.nativeElement.querySelector(
+        '.other-release-row a.meta-link',
+      ) as HTMLAnchorElement | null;
+      expect(otherLink?.getAttribute('href')).toBe('/game/387?release=387-1');
     });
   });
 });

@@ -177,11 +177,11 @@ describe('OwnershipVerificationComponent', () => {
     // Cross-region switch (Chrono Trigger USA -> Japan: stable_id 102) is unchecked by default
     expect(component.isSwitchSelected(102)).toBe(false);
 
-    // Verify ownership switch game title links directly to /game/:slug
+    // Verify ownership switch game title links directly to /game/:stable_id
     const switchLink = fixture.nativeElement.querySelector(
       '[data-testid="switch-game-link-101"]',
     ) as HTMLAnchorElement;
-    expect(switchLink?.getAttribute('href')).toBe('/game/super-mario-world');
+    expect(switchLink?.getAttribute('href')).toBe('/game/101');
 
     // Default pruneMissingMedia is false -> effectiveSelectedClearCount is 0 and clearMediaOwned is []
     expect(component.effectiveSelectedClearCount()).toBe(0);

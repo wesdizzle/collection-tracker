@@ -1685,10 +1685,19 @@ export class CollectionService implements OnDestroy {
    * Synchronously looks up a game from the in-memory collection state for
    * instant detail hydration and View Transition snapshot continuity.
    */
-  public getCachedGameById(id: string): Game | null {
-    const cached = this._games().find(
-      (g) => g.id === id || String(g.stable_id) === id || g.game_id === id,
-    );
+  public getCachedGameById(id: string, releaseId?: string | null): Game | null {
+    const games = this._games();
+    const cached =
+      (releaseId
+        ? games.find(
+            (g) =>
+              g.id === releaseId &&
+              (String(g.stable_id) === id || g.game_id === id || g.id === id),
+          )
+        : undefined) ??
+      games.find(
+        (g) => String(g.stable_id) === id || g.id === id || g.game_id === id,
+      );
     if (!cached) {
       return null;
     }
@@ -1754,17 +1763,20 @@ export class CollectionService implements OnDestroy {
    * Fetches a single game by its stable identifier.
    * Falls back to in-memory collection state if network or edge API is unavailable.
    */
-  getGameById(id: string): Observable<Game> {
-    return this.http.get<Game>(`/api/games/${id}`).pipe(
-      map((game) => this.enrichGameTitle(game)),
-      catchError((err) => {
-        const cached = this.getCachedGameById(id);
-        if (cached) {
-          return of(cached);
-        }
-        return throwError(() => err);
-      }),
-    );
+  getGameById(id: string, releaseId?: string | null): Observable<Game> {
+    const query = releaseId ? `?release=${encodeURIComponent(releaseId)}` : '';
+    return this.http
+      .get<Game>(`/api/games/${encodeURIComponent(id)}${query}`)
+      .pipe(
+        map((game) => this.enrichGameTitle(game)),
+        catchError((err) => {
+          const cached = this.getCachedGameById(id, releaseId);
+          if (cached) {
+            return of(cached);
+          }
+          return throwError(() => err);
+        }),
+      );
   }
 
   /**
