@@ -16,6 +16,8 @@ import { getLocalDatabase } from './db.js';
 import {
   normalizeTitleForMatching,
   titlesMatch,
+  gameMatchesReleaseWithAlternatives,
+  isCompilationOrBundleTitle,
 } from '../../shared/title_matching.js';
 import { cleanTitleWithoutParentheticals } from '../../shared/canonical_releases.js';
 import { getRomGroupingKey } from '../../shared/queries.js';
@@ -137,6 +139,619 @@ export function selectBestRegionalCandidate<
   return null;
 }
 
+const ROM_EXTENSION_RE =
+  /\.(?:iso|bin|cue|chd|rvz|gcz|wbfs|xci|nsp|nsz|cia|3ds|nds|dsi|gba|gbc|gb|n64|z64|v64|sfc|smc|fig|swc|nes|fds|unf|md|gen|smd|sms|gg|32x|pce|ngp|ngc|ws|wsc|zip|7z|rar|cso|pbp|pkg|vpk|wua|wux|wud|dol|gcm|cdi|gdi|mdf|mds|img|ccd|sub|nrg|lnx|a26|a52|a78|j64|jag|col|int|vec|vb)$/i;
+
+function escapeSqlValue(s: string | null | undefined): string {
+  return s !== null && s !== undefined ? `'${s.replace(/'/g, "''")}'` : 'NULL';
+}
+
+function extractCleanRomTitle(rawTitleOrRomName: string): string {
+  const withoutExt = rawTitleOrRomName.replace(ROM_EXTENSION_RE, '').trim();
+  return withoutExt
+    .replace(/\s*[[(][^\])\r\n]+[\])]\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export interface GameRomValidationTarget {
+  title: string;
+  platform_id: number;
+  metadata_json?: string | null;
+  bundle_parent_id?: number | null;
+}
+
+export interface CandidateRomValidationInput {
+  raw_title?: string | null;
+  rom_name?: string | null;
+  region?: string | null;
+  also_released_as?: string | null;
+}
+
+function parseMetadataAlternatives(
+  metadataJson: string | null | undefined,
+  alsoReleasedAs: string | null | undefined,
+): Array<{ name: string; comment?: string }> {
+  const alts: Array<{ name: string; comment?: string }> = [];
+  if (metadataJson) {
+    try {
+      const parsed = JSON.parse(metadataJson) as {
+        alternative_names?: Array<{ name?: string; comment?: string } | string>;
+        game_localizations?: Array<
+          { name?: string; region?: { name?: string } | string } | string
+        >;
+      };
+      if (Array.isArray(parsed.alternative_names)) {
+        for (const alt of parsed.alternative_names) {
+          if (typeof alt === 'string') {
+            if (alt.trim()) alts.push({ name: alt.trim() });
+          } else if (alt && typeof alt.name === 'string' && alt.name.trim()) {
+            alts.push({ name: alt.name.trim(), comment: alt.comment });
+          }
+        }
+      }
+      if (Array.isArray(parsed.game_localizations)) {
+        for (const loc of parsed.game_localizations) {
+          if (typeof loc === 'string') {
+            if (loc.trim()) alts.push({ name: loc.trim() });
+          } else if (loc && typeof loc.name === 'string' && loc.name.trim()) {
+            const regionComment =
+              typeof loc.region === 'string'
+                ? loc.region
+                : loc.region && typeof loc.region.name === 'string'
+                  ? loc.region.name
+                  : undefined;
+            alts.push({ name: loc.name.trim(), comment: regionComment });
+          }
+        }
+      }
+    } catch {
+      // Ignore malformed JSON metadata
+    }
+  }
+  if (alsoReleasedAs) {
+    for (const part of alsoReleasedAs.split(/[,;/|]+/)) {
+      const trimmed = part.trim();
+      if (trimmed) {
+        alts.push({ name: trimmed });
+      }
+    }
+  }
+  return alts;
+}
+
+/**
+ * Validates whether a ROM / canonical release candidate legitimately matches
+ * the target game, accounting for compilations, edition suffixes, and localized
+ * IGDB alternative/also-released-as names.
+ */
+export function isRomValidForGame(
+  game: GameRomValidationTarget,
+  candidate: CandidateRomValidationInput,
+): boolean {
+  const rawInput = (candidate.raw_title || candidate.rom_name || '').trim();
+  if (!rawInput) return false;
+
+  if (
+    game.bundle_parent_id != null ||
+    isCompilationOrBundleTitle(game.title) ||
+    isCompilationOrBundleTitle(rawInput)
+  ) {
+    return true;
+  }
+
+  const releaseTitle = extractCleanRomTitle(rawInput) || rawInput;
+  const rawReleaseName = (candidate.rom_name || candidate.raw_title || '')
+    .replace(ROM_EXTENSION_RE, '')
+    .trim();
+  const alternativeNames = parseMetadataAlternatives(
+    game.metadata_json,
+    candidate.also_released_as,
+  );
+
+  if (
+    gameMatchesReleaseWithAlternatives(
+      game.title,
+      releaseTitle,
+      rawReleaseName,
+      game.platform_id,
+      alternativeNames,
+      candidate.region,
+    )
+  ) {
+    return true;
+  }
+
+  const strippedGameTitle = stripEditionSuffix(game.title);
+  if (
+    strippedGameTitle &&
+    strippedGameTitle !== game.title &&
+    gameMatchesReleaseWithAlternatives(
+      strippedGameTitle,
+      releaseTitle,
+      rawReleaseName,
+      game.platform_id,
+      alternativeNames,
+      candidate.region,
+    )
+  ) {
+    return true;
+  }
+
+  const strippedReleaseTitle = stripEditionSuffix(releaseTitle);
+  if (
+    strippedReleaseTitle &&
+    strippedReleaseTitle !== releaseTitle &&
+    gameMatchesReleaseWithAlternatives(
+      game.title,
+      strippedReleaseTitle,
+      rawReleaseName,
+      game.platform_id,
+      alternativeNames,
+      candidate.region,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export type CorruptedRomReason =
+  | 'cross_igdb_crc_collision'
+  | 'lego_brand_mismatch'
+  | 'english_wrong_game_rom';
+
+export interface CorruptedRomAuditItem {
+  releaseId: string;
+  gameId: number;
+  platformId: number;
+  gameTitle: string;
+  igdbId: number | null;
+  region: string | null;
+  oldCanonicalReleaseId: number | null;
+  oldRomName: string | null;
+  oldRomCrc: string | null;
+  reason: CorruptedRomReason;
+  action: 'repaired' | 'cleared';
+  newCanonicalReleaseId: number | null;
+  newRomName: string | null;
+  newRomCrc: string | null;
+}
+
+export interface CorruptedRomAuditOptions {
+  dryRun?: boolean;
+  sqlOutputPath?: string;
+  platformId?: number;
+}
+
+export interface CorruptedRomAuditResult {
+  flagged: CorruptedRomAuditItem[];
+  repairedCount: number;
+  clearedCount: number;
+  countsByReason: Record<CorruptedRomReason, number>;
+  sqlStatements: string[];
+}
+
+const ENGLISH_REGION_TOKENS = new Set([
+  'usa',
+  'canada',
+  'world',
+  'uk',
+  'australia',
+  'north america',
+]);
+
+function isEnglishRegionValue(region: string | null | undefined): boolean {
+  if (!region || !region.trim()) return true;
+  const tokens = region
+    .toLowerCase()
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return tokens.length > 0 && tokens.every((t) => ENGLISH_REGION_TOKENS.has(t));
+}
+
+const NON_ENGLISH_ROM_TAG_RE =
+  /\((?:Japan|Germany|France|Spain|Italy|Korea|China|Asia|Russia)\)/i;
+
+/**
+ * Audits populated non-compilation game_releases rows against their parent games
+ * for cross-IGDB ROM CRC collisions and mismatched wrong-game ROMs, then emits
+ * primary-key indexed SQL repairs (re-matching canonical_releases or clearing bad ROMs).
+ */
+export function auditAndRepairCorruptedRoms(
+  db: Database.Database,
+  options: CorruptedRomAuditOptions = {},
+): CorruptedRomAuditResult {
+  const isDryRun = options.dryRun ?? false;
+  const gamesCols = new Set(
+    (db.pragma('table_info(games)') as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  );
+  const grCols = new Set(
+    (db.pragma('table_info(game_releases)') as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  );
+  const crCols = new Set(
+    (
+      db.pragma('table_info(canonical_releases)') as Array<{ name: string }>
+    ).map((c) => c.name),
+  );
+
+  const hasGameIgdbId = gamesCols.has('igdb_id');
+  const hasGameMeta = gamesCols.has('metadata_json');
+  const hasGameBundle = gamesCols.has('bundle_parent_id');
+  const hasGrAlso = grCols.has('also_released_as');
+  const hasCrVerified = crCols.has('is_verified_physical');
+  const hasCrAlso = crCols.has('also_released_as');
+
+  const platformFilter =
+    options.platformId !== undefined
+      ? ` AND g.platform_id = ${Number(options.platformId)}`
+      : '';
+
+  const populatedRows = db
+    .prepare(
+      `SELECT gr.id AS release_id,
+              gr.game_id,
+              gr.region,
+              gr.rom_name,
+              gr.rom_crc,
+              gr.canonical_release_id,
+              ${hasGrAlso ? 'gr.also_released_as' : 'NULL AS also_released_as'},
+              g.platform_id,
+              g.title AS game_title,
+              ${hasGameIgdbId ? 'g.igdb_id' : 'NULL AS igdb_id'},
+              ${hasGameMeta ? 'g.metadata_json' : 'NULL AS metadata_json'},
+              ${hasGameBundle ? 'g.bundle_parent_id' : 'NULL AS bundle_parent_id'},
+              cr.raw_title AS cr_raw_title,
+              ${hasCrAlso ? 'cr.also_released_as' : 'NULL AS cr_also_released_as'}
+       FROM game_releases gr
+       JOIN games g ON g.stable_id = gr.game_id
+       LEFT JOIN canonical_releases cr ON cr.id = gr.canonical_release_id
+       WHERE (gr.rom_name IS NOT NULL OR (gr.rom_crc IS NOT NULL AND gr.rom_crc != ''))
+         ${platformFilter}
+       ORDER BY gr.game_id ASC, gr.id ASC`,
+    )
+    .all() as Array<{
+    release_id: string;
+    game_id: number;
+    region: string | null;
+    rom_name: string | null;
+    rom_crc: string | null;
+    canonical_release_id: number | null;
+    also_released_as: string | null;
+    platform_id: number;
+    game_title: string;
+    igdb_id: number | null;
+    metadata_json: string | null;
+    bundle_parent_id: number | null;
+    cr_raw_title: string | null;
+    cr_also_released_as: string | null;
+  }>;
+
+  // Build per-game existing canonical/CRC sets and per-platform game lists for Rule 2
+  const usedCanonicalIdsByGame = new Map<number, Set<number>>();
+  const usedCrcsByGame = new Map<number, Set<string>>();
+  for (const row of populatedRows) {
+    if (row.canonical_release_id != null) {
+      let set = usedCanonicalIdsByGame.get(row.game_id);
+      if (!set) {
+        set = new Set<number>();
+        usedCanonicalIdsByGame.set(row.game_id, set);
+      }
+      set.add(row.canonical_release_id);
+    }
+    const crcLower = (row.rom_crc || '').trim().toLowerCase();
+    if (crcLower) {
+      let crcSet = usedCrcsByGame.get(row.game_id);
+      if (!crcSet) {
+        crcSet = new Set<string>();
+        usedCrcsByGame.set(row.game_id, crcSet);
+      }
+      crcSet.add(crcLower);
+    }
+  }
+
+  const allGames = db
+    .prepare(
+      `SELECT stable_id, title, platform_id,
+              ${hasGameIgdbId ? 'igdb_id' : 'NULL AS igdb_id'}
+       FROM games
+       ${options.platformId !== undefined ? 'WHERE platform_id = ' + Number(options.platformId) : ''}`,
+    )
+    .all() as Array<{
+    stable_id: number;
+    title: string;
+    platform_id: number;
+    igdb_id: number | null;
+  }>;
+
+  const gamesByPlatform = new Map<number, typeof allGames>();
+  for (const g of allGames) {
+    let list = gamesByPlatform.get(g.platform_id);
+    if (!list) {
+      list = [];
+      gamesByPlatform.set(g.platform_id, list);
+    }
+    list.push(g);
+  }
+
+  const isRowCompilation = (row: (typeof populatedRows)[number]): boolean => {
+    const rawRom = (row.cr_raw_title || row.rom_name || '').trim();
+    return (
+      row.bundle_parent_id != null ||
+      isCompilationOrBundleTitle(row.game_title) ||
+      (rawRom !== '' && isCompilationOrBundleTitle(rawRom))
+    );
+  };
+
+  const rowCandidate = (
+    row: (typeof populatedRows)[number],
+  ): CandidateRomValidationInput => ({
+    raw_title: row.cr_raw_title || row.rom_name,
+    rom_name: row.rom_name,
+    region: row.region,
+    also_released_as: row.cr_also_released_as || row.also_released_as,
+  });
+
+  const rowGameTarget = (
+    row: (typeof populatedRows)[number],
+  ): GameRomValidationTarget => ({
+    title: row.game_title,
+    platform_id: row.platform_id,
+    metadata_json: row.metadata_json,
+    bundle_parent_id: row.bundle_parent_id,
+  });
+
+  const flaggedReasonByReleaseId = new Map<string, CorruptedRomReason>();
+  const rowByReleaseId = new Map<string, (typeof populatedRows)[number]>();
+  for (const row of populatedRows) {
+    rowByReleaseId.set(row.release_id, row);
+  }
+
+  // Rule 1: cross-IGDB (platform_id, LOWER(rom_crc)) collision on non-compilations
+  const nonCompByPlatformCrc = new Map<
+    string,
+    Array<(typeof populatedRows)[number]>
+  >();
+  for (const row of populatedRows) {
+    const crcLower = (row.rom_crc || '').trim().toLowerCase();
+    if (!crcLower || isRowCompilation(row)) continue;
+    const key = `${row.platform_id}::${crcLower}`;
+    let group = nonCompByPlatformCrc.get(key);
+    if (!group) {
+      group = [];
+      nonCompByPlatformCrc.set(key, group);
+    }
+    group.push(row);
+  }
+
+  for (const group of nonCompByPlatformCrc.values()) {
+    const distinctIgdbIds = new Set(
+      group
+        .map((r) => r.igdb_id)
+        .filter((id): id is number => id != null && id > 0),
+    );
+    if (distinctIgdbIds.size < 2) continue;
+
+    const hasValidHolder = group.some((r) =>
+      isRomValidForGame(rowGameTarget(r), rowCandidate(r)),
+    );
+    if (!hasValidHolder) continue;
+
+    for (const r of group) {
+      if (!isRomValidForGame(rowGameTarget(r), rowCandidate(r))) {
+        flaggedReasonByReleaseId.set(r.release_id, 'cross_igdb_crc_collision');
+      }
+    }
+  }
+
+  // Rule 2: LEGO brand mismatch or English wrong-game ROM matching another IGDB game
+  for (const row of populatedRows) {
+    if (flaggedReasonByReleaseId.has(row.release_id)) continue;
+    if (!row.rom_name || isRowCompilation(row)) continue;
+    if (isRomValidForGame(rowGameTarget(row), rowCandidate(row))) continue;
+
+    const romTitle = extractCleanRomTitle(row.rom_name);
+    if (!romTitle) continue;
+
+    const gameHasLego = /\blego\b/i.test(row.game_title);
+    const romHasLego = /\blego\b/i.test(romTitle);
+    if (gameHasLego !== romHasLego) {
+      flaggedReasonByReleaseId.set(row.release_id, 'lego_brand_mismatch');
+      continue;
+    }
+
+    const rawRomName = row.rom_name;
+    if (
+      isEnglishRegionValue(row.region) &&
+      !NON_ENGLISH_ROM_TAG_RE.test(rawRomName)
+    ) {
+      const platformGames = gamesByPlatform.get(row.platform_id) || [];
+      const matchesOtherGame = platformGames.some(
+        (other) =>
+          other.stable_id !== row.game_id &&
+          other.igdb_id != null &&
+          other.igdb_id !== row.igdb_id &&
+          titlesMatch(other.title, romTitle, rawRomName, row.platform_id),
+      );
+      if (matchesOtherGame) {
+        flaggedReasonByReleaseId.set(row.release_id, 'english_wrong_game_rom');
+      }
+    }
+  }
+
+  const findCanonicalStmt = db.prepare(
+    `SELECT id, raw_title, region, rom_name, rom_crc,
+            ${hasCrAlso ? 'also_released_as' : 'NULL AS also_released_as'}
+     FROM canonical_releases
+     WHERE platform_id = ?
+       AND normalized_title IN (?, ?)
+       ${hasCrVerified ? 'AND is_verified_physical = 1' : ''}
+       AND rom_name IS NOT NULL`,
+  );
+
+  const flagged: CorruptedRomAuditItem[] = [];
+  const sqlStatements: string[] = [];
+  const countsByReason: Record<CorruptedRomReason, number> = {
+    cross_igdb_crc_collision: 0,
+    lego_brand_mismatch: 0,
+    english_wrong_game_rom: 0,
+  };
+  let repairedCount = 0;
+  let clearedCount = 0;
+
+  for (const [releaseId, reason] of flaggedReasonByReleaseId) {
+    const row = rowByReleaseId.get(releaseId)!;
+    countsByReason[reason]++;
+
+    const normFull = normalizeTitleForMatching(row.game_title);
+    const normStripped = normalizeTitleForMatching(
+      stripEditionSuffix(row.game_title),
+    );
+    const candidates = findCanonicalStmt.all(
+      row.platform_id,
+      normFull,
+      normStripped || normFull,
+    ) as Array<{
+      id: number;
+      raw_title: string;
+      region: string | null;
+      rom_name: string | null;
+      rom_crc: string | null;
+      also_released_as: string | null;
+    }>;
+
+    const usedCanonIds = usedCanonicalIdsByGame.get(row.game_id);
+    const usedCrcs = usedCrcsByGame.get(row.game_id);
+    const currentCrcLower = (row.rom_crc || '').trim().toLowerCase();
+
+    const validCandidates = candidates.filter((cand) => {
+      if (!cand.rom_name) return false;
+      if (cand.id !== row.canonical_release_id && usedCanonIds?.has(cand.id)) {
+        return false;
+      }
+      const candCrcLower = (cand.rom_crc || '').trim().toLowerCase();
+      if (
+        candCrcLower &&
+        candCrcLower !== currentCrcLower &&
+        usedCrcs?.has(candCrcLower)
+      ) {
+        return false;
+      }
+      return isRomValidForGame(rowGameTarget(row), {
+        raw_title: cand.raw_title,
+        rom_name: cand.rom_name,
+        region: cand.region,
+        also_released_as: cand.also_released_as,
+      });
+    });
+
+    const best = selectBestRegionalCandidate(validCandidates, row.region);
+    if (best && best.rom_name) {
+      repairedCount++;
+      usedCanonIds?.add(best.id);
+      if (best.rom_crc) {
+        usedCrcs?.add(best.rom_crc.trim().toLowerCase());
+      }
+      flagged.push({
+        releaseId: row.release_id,
+        gameId: row.game_id,
+        platformId: row.platform_id,
+        gameTitle: row.game_title,
+        igdbId: row.igdb_id,
+        region: row.region,
+        oldCanonicalReleaseId: row.canonical_release_id,
+        oldRomName: row.rom_name,
+        oldRomCrc: row.rom_crc,
+        reason,
+        action: 'repaired',
+        newCanonicalReleaseId: best.id,
+        newRomName: best.rom_name,
+        newRomCrc: best.rom_crc,
+      });
+      sqlStatements.push(
+        `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSqlValue(best.rom_name)}, rom_crc = ${escapeSqlValue(best.rom_crc)} WHERE id = ${escapeSqlValue(row.release_id)};`,
+      );
+    } else {
+      clearedCount++;
+      flagged.push({
+        releaseId: row.release_id,
+        gameId: row.game_id,
+        platformId: row.platform_id,
+        gameTitle: row.game_title,
+        igdbId: row.igdb_id,
+        region: row.region,
+        oldCanonicalReleaseId: row.canonical_release_id,
+        oldRomName: row.rom_name,
+        oldRomCrc: row.rom_crc,
+        reason,
+        action: 'cleared',
+        newCanonicalReleaseId: null,
+        newRomName: null,
+        newRomCrc: null,
+      });
+      sqlStatements.push(
+        `UPDATE game_releases SET canonical_release_id = NULL, rom_name = NULL, rom_crc = NULL WHERE id = ${escapeSqlValue(row.release_id)};`,
+      );
+    }
+  }
+
+  if (flagged.length > 0) {
+    sqlStatements.push(
+      "INSERT INTO sync_state (key, value) VALUES ('db_dirty', '1') ON CONFLICT(key) DO UPDATE SET value = '1';",
+    );
+  }
+
+  if (!isDryRun && flagged.length > 0) {
+    const repairStmt = db.prepare(
+      'UPDATE game_releases SET canonical_release_id = ?, rom_name = ?, rom_crc = ? WHERE id = ?',
+    );
+    const clearStmt = db.prepare(
+      'UPDATE game_releases SET canonical_release_id = NULL, rom_name = NULL, rom_crc = NULL WHERE id = ?',
+    );
+    const tx = db.transaction(() => {
+      for (const item of flagged) {
+        if (item.action === 'repaired') {
+          repairStmt.run(
+            item.newCanonicalReleaseId,
+            item.newRomName,
+            item.newRomCrc,
+            item.releaseId,
+          );
+        } else {
+          clearStmt.run(item.releaseId);
+        }
+      }
+    });
+    tx();
+  }
+
+  if (options.sqlOutputPath) {
+    const dir = path.dirname(options.sqlOutputPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(
+      options.sqlOutputPath,
+      sqlStatements.join('\n') + (sqlStatements.length > 0 ? '\n' : ''),
+      'utf8',
+    );
+  }
+
+  return {
+    flagged,
+    repairedCount,
+    clearedCount,
+    countsByReason,
+    sqlStatements,
+  };
+}
+
 /**
  * Reconciles unlinked game_releases with canonical DAT releases.
  */
@@ -176,9 +791,22 @@ export function reconcileGameReleasesWithCanonical(
       ? 'also_released_as'
       : 'NULL as also_released_as';
 
+    const gamesColsPre = new Set(
+      (db.pragma('table_info(games)') as Array<{ name: string }>).map(
+        (c) => c.name,
+      ),
+    );
+    const selectGameMetaPre = gamesColsPre.has('metadata_json')
+      ? 'g.metadata_json'
+      : 'NULL as metadata_json';
+    const selectGameBundlePre = gamesColsPre.has('bundle_parent_id')
+      ? 'g.bundle_parent_id'
+      : 'NULL as bundle_parent_id';
+
     const unlinkedWithRom = db
       .prepare(
-        `SELECT gr.id, gr.game_id, g.platform_id, g.title, gr.region, gr.variants, gr.rom_name, gr.rom_crc
+        `SELECT gr.id, gr.game_id, g.platform_id, g.title, gr.region, gr.variants, gr.rom_name, gr.rom_crc,
+                ${selectGameMetaPre}, ${selectGameBundlePre}
          FROM game_releases gr
          JOIN games g ON gr.game_id = g.stable_id
          WHERE gr.rom_name IS NOT NULL
@@ -194,14 +822,16 @@ export function reconcileGameReleasesWithCanonical(
       variants: string | null;
       rom_name: string;
       rom_crc: string | null;
+      metadata_json: string | null;
+      bundle_parent_id: number | null;
     }>;
 
     if (unlinkedWithRom.length > 0) {
       const findByRomStmt = db.prepare(
-        `SELECT id, rom_name, rom_crc, variants, ${selectCrAlsoPre} FROM canonical_releases WHERE platform_id = ? AND rom_name = ? LIMIT 1`,
+        `SELECT id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre} FROM canonical_releases WHERE platform_id = ? AND rom_name = ? LIMIT 1`,
       );
       const findByCrcStmt = db.prepare(
-        `SELECT id, rom_name, rom_crc, variants, ${selectCrAlsoPre} FROM canonical_releases WHERE platform_id = ? AND LOWER(rom_crc) = LOWER(?) LIMIT 1`,
+        `SELECT id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre} FROM canonical_releases WHERE platform_id = ? AND LOWER(rom_crc) = LOWER(?) LIMIT 1`,
       );
       const isCanonicalUsedOnGameStmt = db.prepare(
         `SELECT 1 FROM game_releases WHERE game_id = ? AND canonical_release_id = ? AND id != ? LIMIT 1`,
@@ -211,6 +841,8 @@ export function reconcileGameReleasesWithCanonical(
         let match = findByRomStmt.get(gr.platform_id, gr.rom_name) as
           | {
               id: number;
+              raw_title: string | null;
+              region: string | null;
               rom_name: string;
               rom_crc: string | null;
               variants: string | null;
@@ -226,7 +858,21 @@ export function reconcileGameReleasesWithCanonical(
 
         if (
           match &&
-          !isCanonicalUsedOnGameStmt.get(gr.game_id, match.id, gr.id)
+          !isCanonicalUsedOnGameStmt.get(gr.game_id, match.id, gr.id) &&
+          isRomValidForGame(
+            {
+              title: gr.title,
+              platform_id: gr.platform_id,
+              metadata_json: gr.metadata_json,
+              bundle_parent_id: gr.bundle_parent_id,
+            },
+            {
+              raw_title: match.raw_title,
+              rom_name: match.rom_name,
+              region: match.region || gr.region,
+              also_released_as: match.also_released_as,
+            },
+          )
         ) {
           if (!isDryRun) {
             if (hasGrAlsoPre) {

@@ -8,6 +8,7 @@ import {
   normalizeTitleForMatching,
   titlesMatch,
   gameMatchesReleaseWithAlternatives,
+  isCompilationOrBundleTitle,
 } from './title_matching.js';
 
 describe('Title Normalization', () => {
@@ -1014,6 +1015,30 @@ describe('Title Matching Strategies', () => {
           'Korea',
         ),
       ).toBe(true);
+    });
+  });
+
+  describe('isCompilationOrBundleTitle', () => {
+    it('returns true for compilations, trilogies, box sets, multi-in-1 carts, and combo titles', () => {
+      expect(
+        isCompilationOrBundleTitle(
+          'Crash Superpack - Crash Bandicoot 2 - N-Tranced + Crash Nitro Kart',
+        ),
+      ).toBe(true);
+      expect(isCompilationOrBundleTitle('Grand Theft Auto: The Trilogy')).toBe(
+        true,
+      );
+      expect(isCompilationOrBundleTitle('Mass Effect Trilogy')).toBe(true);
+      expect(isCompilationOrBundleTitle('Box Set Vol 1')).toBe(true);
+      expect(isCompilationOrBundleTitle('2-in-1 Fun Pack')).toBe(true);
+      expect(isCompilationOrBundleTitle('Game A / Game B')).toBe(true);
+    });
+
+    it('returns false for standalone titles including No-Intro alternate separator ~', () => {
+      expect(isCompilationOrBundleTitle('Wave Race 64')).toBe(false);
+      expect(isCompilationOrBundleTitle('Combat ~ Tank-Plus')).toBe(false);
+      expect(isCompilationOrBundleTitle("Marvel's Avengers")).toBe(false);
+      expect(isCompilationOrBundleTitle('LEGO Batman')).toBe(false);
     });
   });
 });

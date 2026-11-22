@@ -7,8 +7,10 @@ import {
   stripEditionSuffix,
   selectBestRegionalCandidate,
   reconcileGameReleasesWithCanonical,
+  auditAndRepairCorruptedRoms,
 } from './reconcile_releases.js';
 import { auditSqlCost } from '../d1_cost_guard.js';
+import { normalizeTitleForMatching } from '../../shared/title_matching.js';
 
 describe('reconcile_releases', () => {
   describe('stripEditionSuffix', () => {
@@ -281,6 +283,166 @@ describe('reconcile_releases', () => {
       expect(sqlContent).toContain(
         "UPDATE user_game_releases SET release_id = '1873-a95adadb' WHERE release_id = '1873-default';",
       );
+    });
+
+    it('should reject relinking an unlinked release when the matched canonical ROM belongs to a mismatched title such as LEGO Marvel Avengers vs Marvel Avengers', () => {
+      db.exec(`
+        INSERT INTO games (stable_id, title, platform_id)
+        VALUES (3002, 'Marvel''s Avengers', 34);
+        INSERT INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, canonical_release_id)
+        VALUES ('3002-bad', 3002, 'USA', NULL, 'LEGO Marvel''s Avengers (USA).iso', 'deadbeef', NULL);
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source)
+        VALUES (888001, 34, 'LEGO Marvel''s Avengers', 'legomarvelsavengers', 'USA', NULL, 'LEGO Marvel''s Avengers (USA).iso', 'deadbeef', 'dat');
+      `);
+
+      reconcileGameReleasesWithCanonical(db, {
+        dryRun: false,
+        platformId: 34,
+        sqlOutputPath: testSqlPath,
+      });
+
+      const rel = db
+        .prepare('SELECT canonical_release_id FROM game_releases WHERE id = ?')
+        .get('3002-bad') as { canonical_release_id: number | null };
+      expect(rel.canonical_release_id).toBeNull();
+    });
+  });
+
+  describe('auditAndRepairCorruptedRoms', () => {
+    it('flags cross-IGDB CRC collisions and LEGO/wrong-game ROMs, repairs or clears only the invalid holder, preserves compilations and localized ROMs, and passes auditSqlCost with zero scans', () => {
+      const tmpBaselinePath = path.join(
+        os.tmpdir(),
+        `test_repair_rom_baseline_${Date.now()}.db`,
+      );
+      const tmpSqlPath = path.join(
+        os.tmpdir(),
+        `test_repair_rom_sql_${Date.now()}.sql`,
+      );
+
+      const db = new Database(tmpBaselinePath);
+      const schemaSql = fs.readFileSync(
+        path.resolve(process.cwd(), 'migrations', 'schema.sql'),
+        'utf8',
+      );
+      db.exec(schemaSql);
+      db.exec(`
+        INSERT INTO games (stable_id, id, title, platform_id, igdb_id, physical_status)
+        VALUES
+          (3002, 'marvels-avengers-ps4', 'Marvel''s Avengers', 34, 111001, 'verified_physical'),
+          (4169, 'lego-marvels-avengers-ps4', 'LEGO Marvel''s Avengers', 34, 111002, 'verified_physical'),
+          (2471, 'lego-batman-ps3', 'LEGO Batman: The Videogame', 32, 222001, 'verified_physical'),
+          (3846, 'batman-arkham-city-ps3', 'Batman: Arkham City', 32, 222002, 'verified_physical'),
+          (5001, 'gta-trilogy-ps2', 'Grand Theft Auto: The Trilogy', 30, 333001, 'verified_physical'),
+          (5002, 'gta-iii-ps2', 'Grand Theft Auto III', 30, 333002, 'verified_physical'),
+          (509, 'fire-emblem-gba', 'Fire Emblem', 19, 444001, 'verified_physical'),
+          (510, 'pokemon-gold-gbc', 'Pokémon Gold Version', 18, 555001, 'verified_physical');
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, is_verified_physical, source)
+        VALUES
+          (9001, 34, 'LEGO Marvel''s Avengers', '${normalizeTitleForMatching("LEGO Marvel's Avengers")}', 'USA', 'LEGO Marvel''s Avengers (USA).iso', 'aaaabbbb', 1, 'redump'),
+          (9002, 34, 'Marvel''s Avengers', '${normalizeTitleForMatching("Marvel's Avengers")}', 'USA', 'Marvel''s Avengers (USA).iso', '11112222', 1, 'redump'),
+          (9003, 32, 'Batman: Arkham City', '${normalizeTitleForMatching('Batman: Arkham City')}', 'USA', 'Batman - Arkham City (USA).iso', 'ccccdddd', 1, 'redump'),
+          (9004, 30, 'Grand Theft Auto III', '${normalizeTitleForMatching('Grand Theft Auto III')}', 'USA', 'Grand Theft Auto III (USA).iso', 'eeeeffff', 1, 'redump'),
+          (9005, 19, 'Fire Emblem - Rekka no Ken', '${normalizeTitleForMatching('Fire Emblem - Rekka no Ken')}', 'Japan', 'Fire Emblem - Rekka no Ken (Japan).gba', '12345678', 1, 'no-intro'),
+          (9006, 18, 'Pokemon - Goldene Edition', '${normalizeTitleForMatching('Pokemon - Goldene Edition')}', 'Germany', 'Pokemon - Goldene Edition (Germany).gbc', '87654321', 1, 'no-intro');
+
+        INSERT INTO game_releases (id, game_id, region, canonical_release_id, rom_name, rom_crc)
+        VALUES
+          -- Cross-IGDB collision: Marvel's Avengers wrongly got LEGO Marvel's Avengers ISO, but valid canonical exists (repaired)
+          ('3002-wrong', 3002, 'USA', 9001, 'LEGO Marvel''s Avengers (USA).iso', 'aaaabbbb'),
+          -- Valid holder of aaaabbbb (untouched)
+          ('4169-valid', 4169, 'USA', 9001, 'LEGO Marvel''s Avengers (USA).iso', 'aaaabbbb'),
+          -- Cross-IGDB collision: LEGO Batman wrongly got Arkham City ISO, no canonical replacement (cleared)
+          ('2471-wrong', 2471, 'USA', 9003, 'Batman - Arkham City (USA).iso', 'ccccdddd'),
+          -- Valid holder of ccccdddd (untouched)
+          ('3846-valid', 3846, 'USA', 9003, 'Batman - Arkham City (USA).iso', 'ccccdddd'),
+          -- Compilation sharing eeeeffff with standalone GTA III (must preserve both)
+          ('5001-comp', 5001, 'USA', 9004, 'Grand Theft Auto III (USA).iso', 'eeeeffff'),
+          ('5002-base', 5002, 'USA', 9004, 'Grand Theft Auto III (USA).iso', 'eeeeffff'),
+          -- Non-English localized releases (must preserve both)
+          ('509-jpn', 509, 'Japan', 9005, 'Fire Emblem - Rekka no Ken (Japan).gba', '12345678'),
+          ('510-ger', 510, 'Germany', 9006, 'Pokemon - Goldene Edition (Germany).gbc', '87654321');
+      `);
+
+      try {
+        const dryRes = auditAndRepairCorruptedRoms(db, {
+          dryRun: true,
+          sqlOutputPath: tmpSqlPath,
+        });
+        expect(dryRes.flagged.length).toBe(2);
+        expect(dryRes.repairedCount).toBe(1);
+        expect(dryRes.clearedCount).toBe(1);
+
+        const repairedItem = dryRes.flagged.find(
+          (f) => f.releaseId === '3002-wrong',
+        );
+        expect(repairedItem?.action).toBe('repaired');
+        expect(repairedItem?.newCanonicalReleaseId).toBe(9002);
+        expect(repairedItem?.newRomName).toBe("Marvel's Avengers (USA).iso");
+        expect(repairedItem?.newRomCrc).toBe('11112222');
+
+        const clearedItem = dryRes.flagged.find(
+          (f) => f.releaseId === '2471-wrong',
+        );
+        expect(clearedItem?.action).toBe('cleared');
+        expect(clearedItem?.newRomName).toBeNull();
+        expect(clearedItem?.newRomCrc).toBeNull();
+
+        // Audit SQL cost BEFORE applying to baseline DB
+        const costReport = auditSqlCost(tmpSqlPath, 5000, tmpBaselinePath);
+        expect(costReport.unindexedScans.length).toBe(0);
+        expect(costReport.isWithinBudget).toBe(true);
+
+        // Apply non-dry-run and confirm valid holders/compilations/localized rows remain untouched
+        const applied = auditAndRepairCorruptedRoms(db, {
+          dryRun: false,
+        });
+        expect(applied.flagged.length).toBe(2);
+
+        const avengersRow = db
+          .prepare(
+            "SELECT canonical_release_id, rom_name, rom_crc FROM game_releases WHERE id = '3002-wrong'",
+          )
+          .get() as {
+          canonical_release_id: number | null;
+          rom_name: string | null;
+          rom_crc: string | null;
+        };
+        expect(avengersRow).toEqual({
+          canonical_release_id: 9002,
+          rom_name: "Marvel's Avengers (USA).iso",
+          rom_crc: '11112222',
+        });
+
+        const legoBatmanRow = db
+          .prepare(
+            "SELECT canonical_release_id, rom_name, rom_crc FROM game_releases WHERE id = '2471-wrong'",
+          )
+          .get() as {
+          canonical_release_id: number | null;
+          rom_name: string | null;
+          rom_crc: string | null;
+        };
+        expect(legoBatmanRow).toEqual({
+          canonical_release_id: null,
+          rom_name: null,
+          rom_crc: null,
+        });
+
+        const feRow = db
+          .prepare("SELECT rom_name FROM game_releases WHERE id = '509-jpn'")
+          .get() as { rom_name: string };
+        expect(feRow.rom_name).toBe('Fire Emblem - Rekka no Ken (Japan).gba');
+
+        const pkRow = db
+          .prepare("SELECT rom_name FROM game_releases WHERE id = '510-ger'")
+          .get() as { rom_name: string };
+        expect(pkRow.rom_name).toBe('Pokemon - Goldene Edition (Germany).gbc');
+      } finally {
+        db.close();
+        if (fs.existsSync(tmpBaselinePath)) fs.unlinkSync(tmpBaselinePath);
+        if (fs.existsSync(tmpSqlPath)) fs.unlinkSync(tmpSqlPath);
+      }
     });
   });
 

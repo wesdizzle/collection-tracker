@@ -735,6 +735,18 @@ export function gameMatchesReleaseWithAlternatives(
   return false;
 }
 
+const COMPILATION_OR_BUNDLE_RE =
+  /\b(?:trilogy|quadrilogy|duology|collections?|antholog(?:y|ies)|essentials|superpack|double pack|dual pack|combo pack|box\s*set|\d+[- ]in[- ]1|\d+\s+games?\s+in\s+|all[- ]stars|classics|replay|archives|heritage|compilation)\b|\+|\//i;
+
+/**
+ * Identifies multi-game compilation packs, anthologies, or dual-game cartridges whose
+ * releases can legitimately share ROM CRCs with standalone entries of the included titles.
+ */
+export function isCompilationOrBundleTitle(title: string): boolean {
+  if (!title) return false;
+  return COMPILATION_OR_BUNDLE_RE.test(title);
+}
+
 /**
  * Removes standard regional identifiers in parentheses from a raw release string.
  *

@@ -80,6 +80,7 @@ import {
   PAST_REVISION_TITLE_ALIASES,
 } from '../shared/switch_revisions';
 import {
+  isCompilationOrBundleTitle,
   normalizeTitleForMatching,
   stripEditionSuffix,
 } from '../shared/title_matching';
@@ -11430,6 +11431,7 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
  */
 export interface IgdbSeriesSyncOptions {
   batchSize?: number;
+  forceSelfHeal?: boolean;
 }
 
 /**
@@ -11449,6 +11451,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   refreshedIgdbCount: number;
   updatedGamesCount: number;
   selfHealedRulesCount?: number;
+  updatedReleaseDatesCount?: number;
   cursorOffset?: number;
 }> {
   const batchSize = options?.batchSize ?? 100;
@@ -11493,7 +11496,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
 
   // 2. Query next incremental slice of games using primary key index
   let { results: batchResults } = await env.DB.prepare(
-    `SELECT stable_id, id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
+    `SELECT stable_id, id, title, platform_id, region, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
      FROM games
      WHERE stable_id > ?
      ORDER BY stable_id ASC
@@ -11505,6 +11508,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       id: string;
       title: string;
       platform_id: number;
+      region?: string | null;
       igdb_id: number | null;
       collections: string | null;
       franchises: string | null;
@@ -11517,7 +11521,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   if (!batchResults || batchResults.length === 0) {
     // Reached the end of the collection; wrap around to beginning
     const wrapRes = await env.DB.prepare(
-      `SELECT stable_id, id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
+      `SELECT stable_id, id, title, platform_id, region, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
        FROM games
        WHERE stable_id > 0
        ORDER BY stable_id ASC
@@ -11529,6 +11533,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
         id: string;
         title: string;
         platform_id: number;
+        region?: string | null;
         igdb_id: number | null;
         collections: string | null;
         franchises: string | null;
@@ -11556,7 +11561,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   let trackedUpcomingGames: typeof batchGames = [];
   try {
     const upcomingRes = await env.DB.prepare(
-      `SELECT stable_id, id, title, platform_id, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
+      `SELECT stable_id, id, title, platform_id, region, igdb_id, collections, franchises, canonical_series, physical_status, metadata_json
        FROM games
        WHERE physical_status = 'likely_physical'
          AND igdb_id IS NOT NULL AND igdb_id > 0`,
@@ -11565,6 +11570,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       id: string;
       title: string;
       platform_id: number;
+      region?: string | null;
       igdb_id: number | null;
       collections: string | null;
       franchises: string | null;
@@ -11603,6 +11609,8 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       collections: string | null;
       franchises: string | null;
       metadataJson: string | null;
+      firstReleaseDate: number | string | null;
+      releaseDates: IgdbReleaseDateEntry[];
     }
   >();
 
@@ -11611,11 +11619,13 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     env.TWITCH_CLIENT_ID &&
     env.TWITCH_CLIENT_SECRET
   ) {
-    const igdbQuery = `fields id, collections.name, franchises.name, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region; where id = (${igdbIdsToQuery.join(',')}); limit ${igdbIdsToQuery.length};`;
+    const igdbQuery = `fields id, collections.name, franchises.name, first_release_date, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region; where id = (${igdbIdsToQuery.join(',')}); limit ${igdbIdsToQuery.length};`;
     const rawIgdb = (await queryIGDBEdge('games', igdbQuery, env)) as Array<{
       id: number;
       collections?: Array<{ name: string }>;
       franchises?: Array<{ name: string }>;
+      first_release_date?: number | string | null;
+      release_dates?: IgdbReleaseDateEntry[];
       alternative_names?: Array<{ name: string; comment?: string }>;
       game_localizations?: Array<{ name: string; region?: number }>;
     }>;
@@ -11637,7 +11647,13 @@ export async function syncWorkerIgdbSeriesAndCanonical(
               alternative_names: item.alternative_names || [],
             })
           : null;
-      igdbFreshMap.set(item.id, { collections, franchises, metadataJson });
+      igdbFreshMap.set(item.id, {
+        collections,
+        franchises,
+        metadataJson,
+        firstReleaseDate: item.first_release_date ?? null,
+        releaseDates: item.release_dates || [],
+      });
     }
   }
 
@@ -11650,6 +11666,13 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     canonicalSeries: string;
     seriesTrackable: boolean;
     wasSeriesTrackable: boolean;
+  }> = [];
+  const dateBackfillCandidates: Array<{
+    stableId: number;
+    platformId: number;
+    fallbackRegion: string | null;
+    firstReleaseDate: number | string | null;
+    releaseDates: IgdbReleaseDateEntry[];
   }> = [];
 
   for (const game of candidateGames) {
@@ -11669,6 +11692,10 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     const metadataChanged =
       Boolean(fresh?.metadataJson) &&
       fresh?.metadataJson !== (game.metadata_json ?? null);
+    const seriesChanged =
+      nextCollections !== (game.collections ?? null) ||
+      nextFranchises !== (game.franchises ?? null) ||
+      nextCanonicalSeries !== (game.canonical_series ?? null);
 
     const wasTrackable = isSeriesTrackable({
       title: game.title,
@@ -11677,6 +11704,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     });
 
     if (
+      (seriesChanged || options?.forceSelfHeal) &&
       nextCanonicalSeries &&
       isSeriesTrackable({
         title: game.title,
@@ -11696,11 +11724,19 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     }
 
     if (
-      nextCollections !== (game.collections ?? null) ||
-      nextFranchises !== (game.franchises ?? null) ||
-      nextCanonicalSeries !== (game.canonical_series ?? null) ||
-      metadataChanged
+      fresh &&
+      (fresh.firstReleaseDate != null || fresh.releaseDates.length > 0)
     ) {
+      dateBackfillCandidates.push({
+        stableId: game.stable_id,
+        platformId: game.platform_id,
+        fallbackRegion: game.region ?? null,
+        firstReleaseDate: fresh.firstReleaseDate,
+        releaseDates: fresh.releaseDates,
+      });
+    }
+
+    if (seriesChanged || metadataChanged) {
       gameUpdateStatements.push(
         env.DB.prepare(
           `UPDATE games
@@ -11727,6 +11763,57 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     const CHUNK_SIZE = 100;
     for (let i = 0; i < gameUpdateStatements.length; i += CHUNK_SIZE) {
       await env.DB.batch(gameUpdateStatements.slice(i, i + CHUNK_SIZE));
+    }
+  }
+
+  // Passively backfill missing game_releases.release_date values using the already-fetched
+  // IGDB response (0 extra IGDB subrequests; touches only rows with release_date IS NULL).
+  let releaseDateUpdatesCount = 0;
+  if (dateBackfillCandidates.length > 0) {
+    try {
+      const { byId: platformById } = await loadPlatformLookupMaps(env);
+      const dateByGameId = new Map(
+        dateBackfillCandidates.map((c) => [c.stableId, c]),
+      );
+      const releaseDateStatements: D1PreparedStatement[] = [];
+      for (let i = 0; i < dateBackfillCandidates.length; i += 80) {
+        const chunkIds = dateBackfillCandidates
+          .slice(i, i + 80)
+          .map((c) => c.stableId);
+        const ph = chunkIds.map(() => '?').join(',');
+        const missingDateRes = await env.DB.prepare(
+          `SELECT id, game_id, region FROM game_releases WHERE game_id IN (${ph}) AND release_date IS NULL`,
+        )
+          .bind(...chunkIds)
+          .all<{ id: string; game_id: number; region: string | null }>();
+        for (const rel of missingDateRes.results || []) {
+          const info = dateByGameId.get(rel.game_id);
+          if (!info) continue;
+          const plat = platformById.get(info.platformId);
+          const resolvedDate = resolveIgdbPlatformReleaseDate(
+            info.releaseDates,
+            plat?.igdbId ?? null,
+            plat?.launchDate ?? null,
+            rel.region ?? info.fallbackRegion ?? 'USA',
+            info.firstReleaseDate,
+          );
+          if (resolvedDate) {
+            releaseDateStatements.push(
+              env.DB.prepare(
+                `UPDATE game_releases SET release_date = ? WHERE id = ? AND release_date IS NULL`,
+              ).bind(resolvedDate, rel.id),
+            );
+          }
+        }
+      }
+      if (releaseDateStatements.length > 0) {
+        for (let i = 0; i < releaseDateStatements.length; i += 100) {
+          await env.DB.batch(releaseDateStatements.slice(i, i + 100));
+        }
+        releaseDateUpdatesCount = releaseDateStatements.length;
+      }
+    } catch {
+      // Ignore if game_releases / platforms are absent in minimal test schemas
     }
   }
 
@@ -11841,7 +11928,11 @@ export async function syncWorkerIgdbSeriesAndCanonical(
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
     ).bind(JSON.stringify(updatedRollingStats)),
   ]);
-  if (gameUpdatesCount > 0 || selfHealedRulesCount > 0) {
+  if (
+    gameUpdatesCount > 0 ||
+    selfHealedRulesCount > 0 ||
+    releaseDateUpdatesCount > 0
+  ) {
     await markDbDirty(env);
   }
 
@@ -11849,6 +11940,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     refreshedIgdbCount: igdbFreshMap.size,
     updatedGamesCount: gameUpdatesCount + 1,
     selfHealedRulesCount,
+    updatedReleaseDatesCount: releaseDateUpdatesCount,
     cursorOffset: nextOffset,
   };
 }
@@ -11863,6 +11955,8 @@ export interface IgdbGameMeta {
   genres: string | null;
   collections: string | null;
   franchises: string | null;
+  first_release_date: number | string | null;
+  release_dates: IgdbReleaseDateEntry[];
   metadata_json: string | null;
 }
 
@@ -12098,6 +12192,8 @@ function toIgdbGameMeta(c: IgdbSearchCandidate): IgdbGameMeta {
     genres: c.genres?.map((g) => g.name).join(', ') || null,
     collections: c.collections?.map((x) => x.name).join(', ') || null,
     franchises: c.franchises?.map((x) => x.name).join(', ') || null,
+    first_release_date: c.first_release_date ?? null,
+    release_dates: c.release_dates || [],
     metadata_json: hasLocalized
       ? JSON.stringify({
           game_localizations: c.game_localizations || [],
@@ -12147,7 +12243,7 @@ export async function fetchIgdbMetadataForTitles(
         // NOTE: IGDB `search` returns no rows inside multiquery sub-queries, and inner `*`
         // wildcards inside quotes are treated literally, so AND separate token substring filters
         // and apply strict normalized matching locally.
-        return `query games "q${idx}" { fields id, name, url, summary, cover.image_id, cover.url, genres.name, collections.name, franchises.name, platforms, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region; where platforms = (${platformIds}) & (${buildFieldClause('name')} | ${buildFieldClause('alternative_names.name')} | ${buildFieldClause('game_localizations.name')}); sort id asc; limit 50; };`;
+        return `query games "q${idx}" { fields id, name, url, summary, first_release_date, cover.image_id, cover.url, genres.name, collections.name, franchises.name, platforms, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date; where platforms = (${platformIds}) & (${buildFieldClause('name')} | ${buildFieldClause('alternative_names.name')} | ${buildFieldClause('game_localizations.name')}); sort id asc; limit 50; };`;
       })
       .join('\n');
     try {
@@ -13182,6 +13278,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       normalized_title: string;
       raw_title: string;
       maxSliceId: number;
+      sliceCrcs: Set<string>;
     }
   >();
   // canonical_releases.is_verified_physical can be stale; re-apply the current non-retail
@@ -13194,16 +13291,23 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       continue;
     }
     const key = `${row.platform_id}::${row.normalized_title}`;
+    const crcUpper = (row.rom_crc || '').trim().toUpperCase();
     const existing = groupsMap.get(key);
     if (!existing) {
+      const sliceCrcs = new Set<string>();
+      if (crcUpper) sliceCrcs.add(crcUpper);
       groupsMap.set(key, {
         platform_id: row.platform_id,
         normalized_title: row.normalized_title,
         raw_title: row.raw_title,
         maxSliceId: row.id,
+        sliceCrcs,
       });
-    } else if (row.id > existing.maxSliceId) {
-      existing.maxSliceId = row.id;
+    } else {
+      if (row.id > existing.maxSliceId) {
+        existing.maxSliceId = row.id;
+      }
+      if (crcUpper) existing.sliceCrcs.add(crcUpper);
     }
   }
 
@@ -13238,12 +13342,17 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   const platformPlaceholders = distinctPlatforms.map(() => '?').join(',');
   const [platformsRes, existingGamesRes] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, display_name, igdb_id FROM platforms WHERE id IN (${platformPlaceholders})`,
+      `SELECT id, display_name, igdb_id, launch_date FROM platforms WHERE id IN (${platformPlaceholders})`,
     )
       .bind(...distinctPlatforms)
-      .all<{ id: number; display_name: string; igdb_id: number | null }>(),
+      .all<{
+        id: number;
+        display_name: string;
+        igdb_id: number | null;
+        launch_date: string | null;
+      }>(),
     env.DB.prepare(
-      `SELECT stable_id, id, title, platform_id, canonical_series, collections, franchises
+      `SELECT stable_id, id, title, platform_id, igdb_id, canonical_series, collections, franchises, bundle_parent_id
        FROM games
        WHERE platform_id IN (${platformPlaceholders})`,
     )
@@ -13253,44 +13362,60 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         id: string;
         title: string;
         platform_id: number;
+        igdb_id: number | null;
         canonical_series: string | null;
         collections: string | null;
         franchises: string | null;
+        bundle_parent_id: number | null;
       }>(),
   ]);
 
   const platformNameById = new Map<number, string>();
   const platformIgdbIdById = new Map<number, number | null>();
+  const platformLaunchDateById = new Map<number, string | null>();
   for (const p of platformsRes.results || []) {
     platformNameById.set(p.id, p.display_name);
     platformIgdbIdById.set(p.id, p.igdb_id ?? null);
+    platformLaunchDateById.set(p.id, p.launch_date ?? null);
   }
 
-  const existingGameByPlatformNorm = new Map<
-    string,
-    {
-      stable_id: number;
-      id: string;
-      title: string;
-      platform_id: number;
-      canonical_series: string | null;
-      collections: string | null;
-      franchises: string | null;
-    }
-  >();
+  interface ExistingCatalogGameMeta {
+    stable_id: number;
+    id: string;
+    title: string;
+    platform_id: number;
+    igdb_id: number | null;
+    canonical_series: string | null;
+    collections: string | null;
+    franchises: string | null;
+    bundle_parent_id: number | null;
+  }
+
+  const existingGameByPlatformNorm = new Map<string, ExistingCatalogGameMeta>();
+  const existingGameByPlatformIgdb = new Map<string, ExistingCatalogGameMeta>();
+  const existingGameByPlatformCrc = new Map<string, ExistingCatalogGameMeta>();
   const usedGameSlugs = new Set<string>();
   const maxSortByPlatform = new Map<number, number>();
   for (const g of existingGamesRes.results || []) {
     usedGameSlugs.add(g.id);
-    const meta = {
+    const meta: ExistingCatalogGameMeta = {
       stable_id: g.stable_id,
       id: g.id,
       title: g.title,
       platform_id: g.platform_id,
+      igdb_id: g.igdb_id ?? null,
       canonical_series: g.canonical_series ?? null,
       collections: g.collections ?? null,
       franchises: g.franchises ?? null,
+      bundle_parent_id: g.bundle_parent_id ?? null,
     };
+    if (
+      g.igdb_id != null &&
+      g.igdb_id > 0 &&
+      !existingGameByPlatformIgdb.has(`${g.platform_id}::${g.igdb_id}`)
+    ) {
+      existingGameByPlatformIgdb.set(`${g.platform_id}::${g.igdb_id}`, meta);
+    }
     const strippedNorm = normalizeTitleForMatching(stripEditionSuffix(g.title));
     if (
       strippedNorm &&
@@ -13301,6 +13426,50 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     const norm = normalizeTitleForMatching(g.title);
     if (norm) {
       existingGameByPlatformNorm.set(`${g.platform_id}::${norm}`, meta);
+    }
+  }
+
+  // Pre-fetch existing (platform_id, rom_crc) matches via idx_game_releases_rom_crc
+  // for candidate non-compilation groups not already matched by title.
+  const unmatchedSliceCrcs = new Set<string>();
+  for (const [key, group] of groupsMap) {
+    if (existingGameByPlatformNorm.has(key)) continue;
+    if (isCompilationOrBundleTitle(group.raw_title)) continue;
+    for (const crc of group.sliceCrcs) {
+      unmatchedSliceCrcs.add(crc);
+    }
+  }
+  if (unmatchedSliceCrcs.size > 0) {
+    const crcVariants = Array.from(unmatchedSliceCrcs).flatMap((c) => {
+      const lower = c.toLowerCase();
+      return lower === c ? [c] : [c, lower];
+    });
+    for (let i = 0; i < crcVariants.length; i += 80) {
+      const chunk = crcVariants.slice(i, i + 80);
+      const ph = chunk.map(() => '?').join(',');
+      const crcRes = await env.DB.prepare(
+        `SELECT gr.rom_crc, g.stable_id, g.id, g.title, g.platform_id, g.igdb_id,
+                g.canonical_series, g.collections, g.franchises, g.bundle_parent_id
+         FROM game_releases gr
+         JOIN games g ON g.stable_id = gr.game_id
+         WHERE gr.rom_crc IN (${ph})
+           AND gr.rom_crc IS NOT NULL
+           AND gr.rom_crc != ''`,
+      )
+        .bind(...chunk)
+        .all<ExistingCatalogGameMeta & { rom_crc: string }>();
+      for (const row of crcRes.results || []) {
+        if (
+          row.bundle_parent_id != null ||
+          isCompilationOrBundleTitle(row.title)
+        ) {
+          continue;
+        }
+        const k = `${row.platform_id}::${row.rom_crc.trim().toUpperCase()}`;
+        if (!existingGameByPlatformCrc.has(k)) {
+          existingGameByPlatformCrc.set(k, row);
+        }
+      }
     }
   }
 
@@ -13385,9 +13554,38 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       continue;
     }
 
-    const existingGame = existingGameByPlatformNorm.get(
-      `${group.platform_id}::${group.normalized_title}`,
-    );
+    const groupKey = `${group.platform_id}::${group.normalized_title}`;
+    const igdbMeta = igdbMetaByGroup.get(groupKey) || null;
+    let existingGame = existingGameByPlatformNorm.get(groupKey) || null;
+    if (!existingGame && igdbMeta?.igdb_id) {
+      existingGame =
+        existingGameByPlatformIgdb.get(
+          `${group.platform_id}::${igdbMeta.igdb_id}`,
+        ) || null;
+    }
+    if (!existingGame && !isCompilationOrBundleTitle(group.raw_title)) {
+      for (const cr of canonicalRels) {
+        const crcUpper = (cr.rom_crc || '').trim().toUpperCase();
+        if (!crcUpper) continue;
+        const crcMatch = existingGameByPlatformCrc.get(
+          `${group.platform_id}::${crcUpper}`,
+        );
+        if (
+          crcMatch &&
+          (!igdbMeta?.igdb_id ||
+            !crcMatch.igdb_id ||
+            igdbMeta.igdb_id === crcMatch.igdb_id)
+        ) {
+          existingGame = crcMatch;
+          break;
+        }
+      }
+    }
+
+    const platIgdbId = platformIgdbIdById.get(group.platform_id) ?? null;
+    const platLaunchDate =
+      platformLaunchDateById.get(group.platform_id) ?? null;
+
     if (existingGame) {
       // Attach any newly discovered regional or revision releases past the cursor to the existing game
       const existingRelRes = await env.DB.prepare(
@@ -13457,12 +13655,21 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           }
           usedRelSlugs.add(relSlug);
           const relRegion = cr.region || 'USA';
+          const relReleaseDate = igdbMeta
+            ? resolveIgdbPlatformReleaseDate(
+                igdbMeta.release_dates,
+                platIgdbId,
+                platLaunchDate,
+                relRegion,
+                igdbMeta.first_release_date,
+              )
+            : null;
           addedReleasesForExisting.push({ id: relSlug, region: relRegion });
           relStatements.push(
             env.DB.prepare(
               `INSERT INTO game_releases (
-                 id, game_id, region, variants, rom_name, rom_crc, canonical_release_id
-               ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                 id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO NOTHING`,
             ).bind(
               relSlug,
@@ -13471,6 +13678,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
               cr.variants || null,
               cr.rom_name || null,
               cr.rom_crc || null,
+              relReleaseDate,
               cr.id,
             ),
           );
@@ -13508,9 +13716,6 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
 
     // Estimate billable writes: 1 game row + 7 always-populated indexes (+1 partial idx_games_igdb_id
     // when igdb_id is set) + M release rows (M * (1 + 6) = 7M writes)
-    const igdbMeta =
-      igdbMetaByGroup.get(`${group.platform_id}::${group.normalized_title}`) ||
-      null;
     const estimatedWrites = (igdbMeta ? 9 : 8) + canonicalRels.length * 7;
     if (
       tickWritesUsed > 0 &&
@@ -13588,18 +13793,27 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       continue;
     }
 
+    const newGameMeta: ExistingCatalogGameMeta = {
+      stable_id: stableId,
+      id: candidateGameId,
+      title: displayTitle,
+      platform_id: group.platform_id,
+      igdb_id: igdbMeta?.igdb_id ?? null,
+      canonical_series: canonicalSeries,
+      collections: igdbMeta?.collections ?? null,
+      franchises: igdbMeta?.franchises ?? null,
+      bundle_parent_id: null,
+    };
     existingGameByPlatformNorm.set(
       `${group.platform_id}::${group.normalized_title}`,
-      {
-        stable_id: stableId,
-        id: candidateGameId,
-        title: displayTitle,
-        platform_id: group.platform_id,
-        canonical_series: canonicalSeries,
-        collections: igdbMeta?.collections ?? null,
-        franchises: igdbMeta?.franchises ?? null,
-      },
+      newGameMeta,
     );
+    if (newGameMeta.igdb_id != null && newGameMeta.igdb_id > 0) {
+      existingGameByPlatformIgdb.set(
+        `${group.platform_id}::${newGameMeta.igdb_id}`,
+        newGameMeta,
+      );
+    }
 
     const relStatements: D1PreparedStatement[] = [];
     const addedReleases: Array<{ id: string; region: string | null }> = [];
@@ -13607,6 +13821,13 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
 
     for (let i = 0; i < canonicalRels.length; i++) {
       const cr = canonicalRels[i];
+      const crcUpper = (cr.rom_crc || '').trim().toUpperCase();
+      if (crcUpper && !isCompilationOrBundleTitle(displayTitle)) {
+        existingGameByPlatformCrc.set(
+          `${group.platform_id}::${crcUpper}`,
+          newGameMeta,
+        );
+      }
       const rawRelSlug = `${candidateGameId}-${cr.rom_crc || slugify(cr.serial_code || cr.rom_name || cr.region || `rel-${i + 1}`)}`;
       let relSlug = rawRelSlug;
       let relCounter = 1;
@@ -13614,21 +13835,32 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         relSlug = `${rawRelSlug}-${relCounter++}`;
       }
       usedRelSlugs.add(relSlug);
-      addedReleases.push({ id: relSlug, region: cr.region || gameRegion });
+      const relRegion = cr.region || gameRegion;
+      const relReleaseDate = igdbMeta
+        ? resolveIgdbPlatformReleaseDate(
+            igdbMeta.release_dates,
+            platIgdbId,
+            platLaunchDate,
+            relRegion,
+            igdbMeta.first_release_date,
+          )
+        : null;
+      addedReleases.push({ id: relSlug, region: relRegion });
 
       relStatements.push(
         env.DB.prepare(
           `INSERT INTO game_releases (
-             id, game_id, region, variants, rom_name, rom_crc, canonical_release_id
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+             id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO NOTHING`,
         ).bind(
           relSlug,
           stableId,
-          cr.region || gameRegion,
+          relRegion,
           cr.variants || null,
           cr.rom_name || null,
           cr.rom_crc || null,
+          relReleaseDate,
           cr.id,
         ),
       );
@@ -13791,7 +14023,7 @@ export async function syncWorkerIgdbMetadataBackfill(
 
   // PK range scan over games; platforms joined by primary key.
   const { results: rows } = await env.DB.prepare(
-    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.image_url, g.summary, g.collections, g.franchises, g.canonical_series, p.igdb_id AS igdb_platform_id
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.image_url, g.summary, g.collections, g.franchises, g.canonical_series, p.igdb_id AS igdb_platform_id, p.launch_date AS platform_launch_date
      FROM games g
      LEFT JOIN platforms p ON p.id = g.platform_id
      WHERE g.stable_id > ?
@@ -13812,6 +14044,7 @@ export async function syncWorkerIgdbMetadataBackfill(
       franchises: string | null;
       canonical_series: string | null;
       igdb_platform_id: number | null;
+      platform_launch_date: string | null;
     }>();
 
   const slice = rows || [];
@@ -13860,16 +14093,47 @@ export async function syncWorkerIgdbMetadataBackfill(
     })),
   );
 
+  const matchedIgdbIds = Array.from(
+    new Set(
+      Array.from(metaById.values())
+        .map((m) => m.igdb_id)
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+  const existingCanonicalByPlatIgdb = new Map<string, number>();
+  for (let i = 0; i < matchedIgdbIds.length; i += 80) {
+    const chunk = matchedIgdbIds.slice(i, i + 80);
+    const ph = chunk.map(() => '?').join(',');
+    const dupRes = await env.DB.prepare(
+      `SELECT stable_id, platform_id, igdb_id
+       FROM games
+       WHERE igdb_id IN (${ph}) AND igdb_id IS NOT NULL`,
+    )
+      .bind(...chunk)
+      .all<{ stable_id: number; platform_id: number; igdb_id: number }>();
+    for (const row of dupRes.results || []) {
+      const k = `${row.platform_id}::${row.igdb_id}`;
+      const prev = existingCanonicalByPlatIgdb.get(k);
+      if (prev === undefined || row.stable_id < prev) {
+        existingCanonicalByPlatIgdb.set(k, row.stable_id);
+      }
+    }
+  }
+
   const statements: D1PreparedStatement[] = [];
   const matchedGames: Array<{
     stableId: number;
     gameSlug: string;
     title: string;
     platformId: number;
+    igdbPlatformId: number | null;
+    platformLaunchDate: string | null;
     fallbackRegion: string | null;
     canonicalSeries: string;
     seriesTrackable: boolean;
     wasTrackable: boolean;
+    isDuplicateOfExisting: boolean;
+    meta: IgdbGameMeta;
   }> = [];
 
   for (const r of candidates) {
@@ -13890,6 +14154,11 @@ export async function syncWorkerIgdbMetadataBackfill(
       collections: meta.collections ?? undefined,
       franchises: meta.franchises ?? undefined,
     });
+    const existingOwnerId = existingCanonicalByPlatIgdb.get(
+      `${r.platform_id}::${meta.igdb_id}`,
+    );
+    const isDuplicateOfExisting =
+      existingOwnerId !== undefined && existingOwnerId !== r.stable_id;
     statements.push(
       env.DB.prepare(
         `UPDATE games SET
@@ -13916,10 +14185,14 @@ export async function syncWorkerIgdbMetadataBackfill(
       gameSlug: r.id,
       title: r.title,
       platformId: r.platform_id,
+      igdbPlatformId: r.igdb_platform_id ?? null,
+      platformLaunchDate: r.platform_launch_date ?? null,
       fallbackRegion: r.region ?? null,
       canonicalSeries,
       seriesTrackable: nextTrackable,
       wasTrackable: prevTrackable,
+      isDuplicateOfExisting,
+      meta,
     });
   }
 
@@ -13934,11 +14207,84 @@ export async function syncWorkerIgdbMetadataBackfill(
   );
   await env.DB.batch(statements);
 
-  // Evaluate tracking rules for games that just gained IGDB series/franchise metadata
+  // Backfill release_date and evaluate tracking rules for matched non-duplicate games
   let rulesApplied = 0;
+  let releaseDatesUpdated = 0;
   if (matchedGames.length > 0) {
     try {
-      const newlyTrackableOwned = matchedGames
+      const releasesByGame = new Map<
+        number,
+        Array<{
+          id: string;
+          region: string | null;
+          release_date: string | null;
+        }>
+      >();
+      for (let i = 0; i < matchedGames.length; i += 80) {
+        const chunkIds = matchedGames.slice(i, i + 80).map((g) => g.stableId);
+        const ph = chunkIds.map(() => '?').join(',');
+        const relRes = await env.DB.prepare(
+          `SELECT id, game_id, region, release_date FROM game_releases WHERE game_id IN (${ph})`,
+        )
+          .bind(...chunkIds)
+          .all<{
+            id: string;
+            game_id: number;
+            region: string | null;
+            release_date: string | null;
+          }>();
+        for (const rel of relRes.results || []) {
+          let list = releasesByGame.get(rel.game_id);
+          if (!list) {
+            list = [];
+            releasesByGame.set(rel.game_id, list);
+          }
+          list.push({
+            id: rel.id,
+            region: rel.region,
+            release_date: rel.release_date ?? null,
+          });
+        }
+      }
+
+      const releaseDateStatements: D1PreparedStatement[] = [];
+      for (const g of matchedGames) {
+        if (
+          g.meta.first_release_date == null &&
+          g.meta.release_dates.length === 0
+        ) {
+          continue;
+        }
+        const rels = releasesByGame.get(g.stableId) || [];
+        for (const rel of rels) {
+          if (rel.release_date) continue;
+          const resolvedDate = resolveIgdbPlatformReleaseDate(
+            g.meta.release_dates,
+            g.igdbPlatformId,
+            g.platformLaunchDate,
+            rel.region ?? g.fallbackRegion ?? 'USA',
+            g.meta.first_release_date,
+          );
+          if (resolvedDate) {
+            releaseDateStatements.push(
+              env.DB.prepare(
+                `UPDATE game_releases SET release_date = ? WHERE id = ? AND release_date IS NULL`,
+              ).bind(resolvedDate, rel.id),
+            );
+          }
+        }
+      }
+      if (releaseDateStatements.length > 0) {
+        for (let i = 0; i < releaseDateStatements.length; i += 100) {
+          await env.DB.batch(releaseDateStatements.slice(i, i + 100));
+        }
+        releaseDatesUpdated = releaseDateStatements.length;
+      }
+
+      const nonDuplicateMatched = matchedGames.filter(
+        (g) => !g.isDuplicateOfExisting,
+      );
+      const newlyTrackableOwned = nonDuplicateMatched
         .filter(
           (g) => !g.wasTrackable && g.seriesTrackable && g.canonicalSeries,
         )
@@ -13953,29 +14299,7 @@ export async function syncWorkerIgdbMetadataBackfill(
         );
       }
 
-      const releasesByGame = new Map<
-        number,
-        Array<{ id: string; region: string | null }>
-      >();
-      for (let i = 0; i < matchedGames.length; i += 80) {
-        const chunkIds = matchedGames.slice(i, i + 80).map((g) => g.stableId);
-        const ph = chunkIds.map(() => '?').join(',');
-        const relRes = await env.DB.prepare(
-          `SELECT id, game_id, region FROM game_releases WHERE game_id IN (${ph})`,
-        )
-          .bind(...chunkIds)
-          .all<{ id: string; game_id: number; region: string | null }>();
-        for (const rel of relRes.results || []) {
-          let list = releasesByGame.get(rel.game_id);
-          if (!list) {
-            list = [];
-            releasesByGame.set(rel.game_id, list);
-          }
-          list.push({ id: rel.id, region: rel.region });
-        }
-      }
-
-      const gamesForRules = matchedGames
+      const gamesForRules = nonDuplicateMatched
         .map((g) => ({
           stableId: g.stableId,
           gameSlug: g.gameSlug,
@@ -14002,7 +14326,8 @@ export async function syncWorkerIgdbMetadataBackfill(
     }
   }
 
-  const writesUsed = matchedCount * 2 + rulesApplied * 2;
+  const writesUsed =
+    matchedCount * 2 + rulesApplied * 2 + releaseDatesUpdated * 2;
   const statsPayload = {
     matchedTotal: prevStats.matchedTotal + matchedCount,
     rulesAppliedTotal: prevStats.rulesAppliedTotal + rulesApplied,

@@ -5413,7 +5413,7 @@ describe('Worker API Logic', () => {
 
         db.exec(`
           INSERT INTO games (stable_id, id, title, platform_id, canonical_series, igdb_id)
-          VALUES (9301, 'doom-ii-gba', 'Doom II', 1, 'Doom', NULL);
+          VALUES (9301, 'doom-ii-gba', 'Doom II', 1, 'Doom II', NULL);
           INSERT INTO game_releases (id, game_id, region)
           VALUES ('doom-ii-gba-usa', 9301, 'USA');
           INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
@@ -5470,7 +5470,7 @@ describe('Worker API Logic', () => {
           VALUES
             (9311, 'hollow-knight-switch', 'Hollow Knight', 26, NULL, 'Hollow Knight', 14593),
             (9312, 'hollow-knight-silksong-switch', 'Hollow Knight: Silksong', 26, 'Hollow Knight', 'Hollow Knight', NULL),
-            (9313, 'doom-eternal-switch', 'Doom Eternal', 26, 'Doom', 'Doom', NULL);
+            (9313, 'doom-eternal-switch', 'Doom Eternal', 26, 'Doom', 'Doom Eternal', NULL);
           INSERT INTO game_releases (id, game_id, region)
           VALUES
             ('hollow-knight-switch-usa', 9311, 'USA'),
@@ -5638,6 +5638,334 @@ describe('Worker API Logic', () => {
           );
         } finally {
           webPushSpy.mockRestore();
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerIgdbSeriesAndCanonical skips rule self-healing when series did not change unless forceSelfHeal is true, and passively backfills NULL release_date without overwriting existing dates', async () => {
+        const { syncWorkerIgdbSeriesAndCanonical } = await import('./worker');
+        const envWithIgdb: Env = {
+          ...mockEnv,
+          TWITCH_CLIENT_ID: 'test-client-id',
+          TWITCH_CLIENT_SECRET: 'test-client-secret',
+        };
+
+        db.exec(`
+          UPDATE platforms SET igdb_id = 130, launch_date = '2017-03-03' WHERE id = 26;
+          INSERT INTO games (stable_id, id, title, platform_id, collections, canonical_series, igdb_id)
+          VALUES (9401, 'steady-state-switch', 'Steady State Game', 26, 'Steady', 'Steady', 77001);
+          INSERT INTO game_releases (id, game_id, region, release_date)
+          VALUES
+            ('steady-usa', 9401, 'USA', NULL),
+            ('steady-jpn', 9401, 'Japan', '2020-01-01');
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES (1, 'series', 'Steady', 2, 'home', 0);
+        `);
+
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (url: string | URL | Request) => {
+            const urlStr = url.toString();
+            if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+              return new Response(
+                JSON.stringify({ access_token: 'tok', expires_in: 3600 }),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              );
+            }
+            if (urlStr.includes('api.igdb.com/v4/games')) {
+              return new Response(
+                JSON.stringify([
+                  {
+                    id: 77001,
+                    collections: [{ name: 'Steady' }],
+                    franchises: [],
+                    first_release_date: 1609459200,
+                    release_dates: [
+                      {
+                        platform: 130,
+                        release_region: 2,
+                        date: 1612137600,
+                      },
+                      {
+                        platform: 130,
+                        release_region: 5,
+                        date: 1600000000,
+                      },
+                    ],
+                  },
+                ]),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              );
+            }
+            return new Response('unexpected', { status: 500 });
+          });
+
+        try {
+          const steadyRes = await syncWorkerIgdbSeriesAndCanonical(
+            envWithIgdb,
+            {
+              batchSize: 50,
+            },
+          );
+          expect(steadyRes.selfHealedRulesCount).toBe(0);
+          expect(steadyRes.updatedReleaseDatesCount).toBe(1);
+
+          const usaRel = db
+            .prepare(
+              "SELECT release_date FROM game_releases WHERE id = 'steady-usa'",
+            )
+            .get() as { release_date: string | null };
+          const jpnRel = db
+            .prepare(
+              "SELECT release_date FROM game_releases WHERE id = 'steady-jpn'",
+            )
+            .get() as { release_date: string | null };
+          expect(usaRel.release_date).toBe('2021-02-01');
+          expect(jpnRel.release_date).toBe('2020-01-01');
+
+          const trackingBeforeForce = db
+            .prepare(
+              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'steady-usa'",
+            )
+            .get();
+          expect(trackingBeforeForce).toBeUndefined();
+
+          db.prepare(
+            "INSERT INTO sync_state (key, value) VALUES ('igdb_sync_offset', '0') ON CONFLICT(key) DO UPDATE SET value = '0'",
+          ).run();
+
+          const forcedRes = await syncWorkerIgdbSeriesAndCanonical(
+            envWithIgdb,
+            {
+              batchSize: 50,
+              forceSelfHeal: true,
+            },
+          );
+          expect(forcedRes.selfHealedRulesCount).toBe(1);
+
+          const trackingAfterForce = db
+            .prepare(
+              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'steady-usa'",
+            )
+            .get() as { ownership_status: number };
+          expect(trackingAfterForce.ownership_status).toBe(2);
+        } finally {
+          fetchSpy.mockRestore();
+        }
+      });
+
+      it('syncWorkerBroadCatalogPopulation resolves IGDB release_date and deduplicates by (platform_id, igdb_id) and non-compilation (platform_id, rom_crc) without skipping compilations', async () => {
+        db.exec(`
+          UPDATE platforms SET igdb_id = 130, launch_date = '2017-03-03' WHERE id = 26;
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, physical_status)
+          VALUES
+            (9410, 'wave-race-64-switch', 'Wave Race 64', 26, 3456, 'verified_physical'),
+            (9411, 'crash-2-switch', 'Crash Bandicoot 2', 26, NULL, 'verified_physical'),
+            (9412, 'box-set-vol-1-switch', 'Box Set Vol 1', 26, 8888, 'verified_physical');
+          INSERT INTO game_releases (id, game_id, region, rom_crc)
+          VALUES
+            ('wr64-usa', 9410, 'USA', 'AABBCCDD'),
+            ('cb2-usa', 9411, 'USA', '11223344'),
+            ('box1-usa', 9412, 'USA', '55667788');
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_crc, is_verified_physical)
+          VALUES
+            (9701, 26, 'Wave Race 64 - Kawasaki Jet Ski (Japan)', '${normalizeTitleForMatching('Wave Race 64 - Kawasaki Jet Ski')}', 'Japan', 'EEFF0011', 1),
+            (9702, 26, 'Crash 2 Alternate Title (USA)', '${normalizeTitleForMatching('Crash 2 Alternate Title')}', 'USA', '11223344', 1),
+            (9705, 26, 'Crash 2 Alternate Title (Europe)', '${normalizeTitleForMatching('Crash 2 Alternate Title')}', 'Europe', '11223355', 1),
+            (9703, 26, 'Super Mega Trilogy Pack (USA)', '${normalizeTitleForMatching('Super Mega Trilogy Pack')}', 'USA', '55667788', 1),
+            (9704, 26, 'Alien (USA)', '${normalizeTitleForMatching('Alien')}', 'USA', '99887766', 1);
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_stage', 'done');
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9700');
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_paused', '0');
+        `);
+
+        stubIgdbFetch({
+          'Wave Race 64 - Kawasaki Jet Ski': [
+            {
+              id: 3456,
+              name: 'Wave Race 64',
+              url: 'https://www.igdb.com/games/wave-race-64',
+              summary: 'Jet ski racing.',
+              cover: { image_id: 'wr64' },
+              genres: [{ name: 'Racing' }],
+              collections: [{ name: 'Wave Race' }],
+              franchises: [],
+              platforms: [130],
+              alternative_names: [{ name: 'Wave Race 64 - Kawasaki Jet Ski' }],
+              game_localizations: [],
+              first_release_date: 1585699200,
+              release_dates: [
+                {
+                  platform: 130,
+                  release_region: 5,
+                  date: 1585699200,
+                },
+              ],
+            },
+          ],
+          Alien: [
+            {
+              ...alienIgdb,
+              platforms: [130],
+              first_release_date: 1612137600,
+              release_dates: [
+                {
+                  platform: 130,
+                  release_region: 2,
+                  date: 1612137600,
+                },
+              ],
+            },
+          ],
+        });
+
+        try {
+          const res = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(res.skipped).toBe(false);
+          // Only Super Mega Trilogy Pack (9703) and Alien (9704) should insert new games
+          expect(res.ingestedGames).toBe(2);
+
+          const waveRaceGames = db
+            .prepare('SELECT stable_id FROM games WHERE igdb_id = 3456')
+            .all();
+          expect(waveRaceGames.length).toBe(1);
+
+          const waveRaceJpn = db
+            .prepare(
+              "SELECT region, release_date FROM game_releases WHERE game_id = 9410 AND region = 'Japan'",
+            )
+            .get() as { region: string; release_date: string | null };
+          expect(waveRaceJpn).toEqual({
+            region: 'Japan',
+            release_date: '2020-04-01',
+          });
+
+          const crashRels = db
+            .prepare(
+              'SELECT region, rom_crc FROM game_releases WHERE game_id = 9411',
+            )
+            .all() as Array<{ region: string; rom_crc: string }>;
+          expect(crashRels.length).toBe(2);
+
+          const crashEur = crashRels.find((r) => r.region === 'Europe');
+          expect(crashEur).toEqual({ region: 'Europe', rom_crc: '11223355' });
+
+          const compGame = db
+            .prepare(
+              "SELECT stable_id FROM games WHERE title = 'Super Mega Trilogy Pack' AND platform_id = 26",
+            )
+            .get();
+          expect(compGame).toBeDefined();
+
+          const alienRel = db
+            .prepare(
+              "SELECT gr.release_date FROM game_releases gr JOIN games g ON gr.game_id = g.stable_id WHERE g.title = 'Alien' AND g.platform_id = 26",
+            )
+            .get() as { release_date: string | null };
+          expect(alienRel.release_date).toBe('2021-02-01');
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerIgdbMetadataBackfill populates missing release_date and suppresses duplicate Seeking alerts when another game on the platform already holds the igdb_id', async () => {
+        db.exec(`
+          UPDATE platforms SET igdb_id = 59, launch_date = '1977-09-11' WHERE id = 26;
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, canonical_series, summary, physical_status)
+          VALUES (9420, 'alien-existing', 'Alien', 26, 4242, 'Alien', 'Already matched.', 'verified_physical');
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, physical_status)
+          VALUES (9421, 'alien-dup-bare', 'Alien', 26, NULL, 'verified_physical');
+          INSERT INTO game_releases (id, game_id, region, release_date)
+          VALUES ('alien-dup-usa', 9421, 'USA', NULL);
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, physical_status)
+          VALUES (9422, 'comet-unique-bare', 'Comet Hunter', 26, NULL, 'verified_physical');
+          INSERT INTO game_releases (id, game_id, region, release_date)
+          VALUES ('comet-unique-usa', 9422, 'USA', NULL);
+          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+          VALUES
+            (1, 'series', 'Alien', 2, 'home', 0),
+            (1, 'series', 'Comet', 2, 'home', 0);
+        `);
+
+        stubIgdbFetch({
+          Alien: [
+            {
+              ...alienIgdb,
+              first_release_date: 410227200,
+              release_dates: [
+                {
+                  platform: 59,
+                  release_region: 2,
+                  date: 410227200,
+                },
+              ],
+            },
+          ],
+          'Comet Hunter': [
+            {
+              id: 5252,
+              name: 'Comet Hunter',
+              url: 'https://www.igdb.com/games/comet-hunter',
+              summary: 'Space shooter.',
+              cover: { image_id: 'comet1' },
+              genres: [{ name: 'Shooter' }],
+              collections: [{ name: 'Comet' }],
+              franchises: [],
+              platforms: [59],
+              alternative_names: [],
+              game_localizations: [],
+              first_release_date: 441763200,
+              release_dates: [
+                {
+                  platform: 59,
+                  release_region: 2,
+                  date: 441763200,
+                },
+              ],
+            },
+          ],
+        });
+
+        try {
+          const res = await syncWorkerIgdbMetadataBackfill(mockEnv, {
+            batchSize: 1000,
+          });
+          expect(res.matched).toBe(2);
+
+          const dupRel = db
+            .prepare(
+              "SELECT release_date FROM game_releases WHERE id = 'alien-dup-usa'",
+            )
+            .get() as { release_date: string | null };
+          expect(dupRel.release_date).toBe('1983-01-01');
+
+          const dupTracking = db
+            .prepare(
+              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'alien-dup-usa'",
+            )
+            .get();
+          expect(dupTracking).toBeUndefined();
+
+          const uniqueRel = db
+            .prepare(
+              "SELECT release_date FROM game_releases WHERE id = 'comet-unique-usa'",
+            )
+            .get() as { release_date: string | null };
+          expect(uniqueRel.release_date).toBe('1984-01-01');
+
+          const uniqueTracking = db
+            .prepare(
+              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'comet-unique-usa'",
+            )
+            .get() as { ownership_status: number };
+          expect(uniqueTracking.ownership_status).toBe(2);
+        } finally {
           vi.unstubAllGlobals();
         }
       });

@@ -1289,6 +1289,13 @@ export class CollectionService implements OnDestroy {
         phase1Match.canonical_series || overlaid.canonical_series,
       collections: phase1Match.collections ?? overlaid.collections,
       franchises: phase1Match.franchises ?? overlaid.franchises,
+      image_url: phase1Match.image_url || overlaid.image_url,
+      release_date: phase1Match.release_date || overlaid.release_date,
+      igdb_id: phase1Match.igdb_id ?? overlaid.igdb_id,
+      igdb_url: phase1Match.igdb_url || overlaid.igdb_url,
+      summary: phase1Match.summary || overlaid.summary,
+      genres: phase1Match.genres || overlaid.genres,
+      physical_status: phase1Match.physical_status ?? overlaid.physical_status,
       ownership_status: phase1Match.ownership_status,
       play_status: phase1Match.play_status,
       queued: phase1Match.queued ?? overlaid.queued,
@@ -1409,7 +1416,10 @@ export class CollectionService implements OnDestroy {
             overlaid.retail_updated_at !== cachedGame.retail_updated_at ||
             overlaid.canonical_series !== cachedGame.canonical_series ||
             overlaid.collections !== cachedGame.collections ||
-            overlaid.franchises !== cachedGame.franchises)
+            overlaid.franchises !== cachedGame.franchises ||
+            overlaid.image_url !== cachedGame.image_url ||
+            overlaid.release_date !== cachedGame.release_date ||
+            overlaid.igdb_id !== cachedGame.igdb_id)
         ) {
           stateChanged = true;
         }

@@ -1859,6 +1859,9 @@ describe('CollectionService', () => {
               canonical_series: 'Disney',
               collections: 'Disney Infinity',
               franchises: null,
+              image_url: null,
+              release_date: null,
+              igdb_id: null,
               ownership_status: 2,
               play_status: 0,
               has_media: 0,
@@ -1924,6 +1927,10 @@ describe('CollectionService', () => {
             canonical_series: 'Disney Infinity',
             collections: 'Disney Infinity',
             franchises: null,
+            image_url:
+              'https://images.igdb.com/igdb/image/upload/t_cover_big/co542y.jpg',
+            release_date: '2013-08-18',
+            igdb_id: 76848,
             ownership_status: 2,
             play_status: 0,
             has_media: 0,
@@ -1977,11 +1984,21 @@ describe('CollectionService', () => {
         .games()
         .find((g) => g.id === 'disney-infinity-wii-u');
       expect(merged?.canonical_series).toBe('Disney Infinity');
+      expect(merged?.image_url).toBe(
+        'https://images.igdb.com/igdb/image/upload/t_cover_big/co542y.jpg',
+      );
+      expect(merged?.release_date).toBe('2013-08-18');
+      expect(merged?.igdb_id).toBe(76848);
 
       const persisted = storeMap
         .get(1)
         ?.state.games.find((g) => g.id === 'disney-infinity-wii-u');
       expect(persisted?.canonical_series).toBe('Disney Infinity');
+      expect(persisted?.image_url).toBe(
+        'https://images.igdb.com/igdb/image/upload/t_cover_big/co542y.jpg',
+      );
+      expect(persisted?.release_date).toBe('2013-08-18');
+      expect(persisted?.igdb_id).toBe(76848);
     });
 
     it('stops fetching trailing chunks early when a non-zero chunk returns empty rows due to primary-key gaps', async () => {
