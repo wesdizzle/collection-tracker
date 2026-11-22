@@ -327,21 +327,21 @@ describe('reconcile_releases', () => {
       );
       db.exec(schemaSql);
       db.exec(`
-        INSERT INTO games (stable_id, id, title, platform_id, igdb_id, physical_status)
+        INSERT INTO games (stable_id, id, title, platform_id, igdb_id)
         VALUES
-          (3002, 'marvels-avengers-ps4', 'Marvel''s Avengers', 34, 111001, 'verified_physical'),
-          (4169, 'lego-marvels-avengers-ps4', 'LEGO Marvel''s Avengers', 34, 111002, 'verified_physical'),
-          (2471, 'lego-batman-ps3', 'LEGO Batman: The Videogame', 32, 222001, 'verified_physical'),
-          (3846, 'batman-arkham-city-ps3', 'Batman: Arkham City', 32, 222002, 'verified_physical'),
-          (5001, 'gta-trilogy-ps2', 'Grand Theft Auto: The Trilogy', 30, 333001, 'verified_physical'),
-          (5002, 'gta-iii-ps2', 'Grand Theft Auto III', 30, 333002, 'verified_physical'),
-          (509, 'fire-emblem-gba', 'Fire Emblem', 19, 444001, 'verified_physical'),
-          (510, 'pokemon-gold-gbc', 'Pokémon Gold Version', 18, 555001, 'verified_physical'),
-          (6001, 'crash-action-pack-ps2', 'Crash Bandicoot Action Pack', 30, 666001, 'verified_physical'),
-          (6002, 'crash-twinsanity-ps2', 'Crash Twinsanity', 30, 666002, 'verified_physical'),
-          (6003, 'dq8-ps2', 'Dragon Quest VIII: Journey of the Cursed King', 30, 666003, 'verified_physical'),
-          (6004, 'ff12-ps2', 'Final Fantasy XII', 30, 666004, 'verified_physical'),
-          (6005, 'batman-arkham-goty-ps3', 'Batman: Arkham City', 32, 666005, 'verified_physical');
+          (3002, 'marvels-avengers-ps4', 'Marvel''s Avengers', 34, 111001),
+          (4169, 'lego-marvels-avengers-ps4', 'LEGO Marvel''s Avengers', 34, 111002),
+          (2471, 'lego-batman-ps3', 'LEGO Batman: The Videogame', 32, 222001),
+          (3846, 'batman-arkham-city-ps3', 'Batman: Arkham City', 32, 222002),
+          (5001, 'gta-trilogy-ps2', 'Grand Theft Auto: The Trilogy', 30, 333001),
+          (5002, 'gta-iii-ps2', 'Grand Theft Auto III', 30, 333002),
+          (509, 'fire-emblem-gba', 'Fire Emblem', 19, 444001),
+          (510, 'pokemon-gold-gbc', 'Pokémon Gold Version', 18, 555001),
+          (6001, 'crash-action-pack-ps2', 'Crash Bandicoot Action Pack', 30, 666001),
+          (6002, 'crash-twinsanity-ps2', 'Crash Twinsanity', 30, 666002),
+          (6003, 'dq8-ps2', 'Dragon Quest VIII: Journey of the Cursed King', 30, 666003),
+          (6004, 'ff12-ps2', 'Final Fantasy XII', 30, 666004),
+          (6005, 'batman-arkham-goty-ps3', 'Batman: Arkham City', 32, 666005);
 
         INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, is_verified_physical, source)
         VALUES
@@ -501,6 +501,53 @@ describe('reconcile_releases', () => {
       } finally {
         if (fs.existsSync(tmpBaselinePath)) fs.unlinkSync(tmpBaselinePath);
         if (fs.existsSync(tmpSqlPath)) fs.unlinkSync(tmpSqlPath);
+      }
+    });
+  });
+
+  describe('reconcileGameReleasesWithCanonical chunked SQL output', () => {
+    it('partitions emitted SQL into bounded chunk files when maxBatchWrites is set', () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'reconcile-chunks-'),
+      );
+      const dbPath = path.join(tmpDir, 'test.db');
+      const sqlOut = path.join(tmpDir, 'reconcile.sql');
+      const db = new Database(dbPath);
+      const schemaSql = fs.readFileSync(
+        path.resolve(process.cwd(), 'migrations', 'schema.sql'),
+        'utf8',
+      );
+      db.exec(schemaSql);
+      db.exec(`
+        INSERT INTO games (stable_id, id, title, platform_id) VALUES
+          (101, '101', 'Chrono Trigger', 15),
+          (102, '102', 'Super Metroid', 15),
+          (103, '103', 'EarthBound', 15);
+        INSERT INTO game_releases (id, game_id, region) VALUES
+          ('101-1', 101, 'USA'),
+          ('102-1', 102, 'USA'),
+          ('103-1', 103, 'USA');
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, source, is_verified_physical) VALUES
+          (501, 15, 'Chrono Trigger (USA)', '${normalizeTitleForMatching('Chrono Trigger')}', 'USA', 'Chrono Trigger (USA).sfc', '1111aaaa', 'dat', 1),
+          (502, 15, 'Super Metroid (Japan, USA)', '${normalizeTitleForMatching('Super Metroid')}', 'USA', 'Super Metroid (Japan, USA).sfc', '2222bbbb', 'dat', 1),
+          (503, 15, 'EarthBound (USA)', '${normalizeTitleForMatching('EarthBound')}', 'USA', 'EarthBound (USA).sfc', '3333cccc', 'dat', 1);
+      `);
+
+      try {
+        const res = reconcileGameReleasesWithCanonical(db, {
+          sqlOutputPath: sqlOut,
+          maxBatchWrites: 10,
+        });
+        expect(res.reconciledCount).toBe(3);
+        expect(res.chunkSqlPaths?.length).toBeGreaterThanOrEqual(2);
+        for (const chunkPath of res.chunkSqlPaths || []) {
+          expect(fs.existsSync(chunkPath)).toBe(true);
+          const content = fs.readFileSync(chunkPath, 'utf8');
+          expect(content).not.toContain('physical_status');
+        }
+      } finally {
+        db.close();
+        fs.rmSync(tmpDir, { recursive: true, force: true });
       }
     });
   });

@@ -365,7 +365,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
                   <span>Retail Deals & Price Drops</span>
                 </div>
                 <div class="text-2xs text-muted mt-3xs">
-                  Scans Best Buy, Video Games Plus & PNP Games
+                  Scans Video Games Plus & PNP Games
                 </div>
               </div>
               <div class="deals-header-right">
@@ -1181,7 +1181,7 @@ export class NotificationSettingsModalComponent {
 
   public readonly platforms = COMMON_PLATFORMS;
   public readonly discountOptions = [0, 15, 20, 25, 50];
-  public readonly storeOptions = ['Best Buy', 'VGP', 'PNP Games'];
+  public readonly storeOptions = ['VGP', 'PNP Games'];
 
   public readonly isTestingAlert = signal<boolean>(false);
   public readonly testMessage = signal<string | null>(null);

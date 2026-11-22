@@ -496,21 +496,6 @@ export class ItemDetailComponent {
   }
 
   /**
-   * Computes parsed archival origin provenance metadata for digital extracted ROMs.
-   */
-  public parsedOriginMetadata = computed(() => {
-    const g = this.game();
-    if (!g || !g.origin_metadata) return null;
-    try {
-      return typeof g.origin_metadata === 'string'
-        ? JSON.parse(g.origin_metadata)
-        : g.origin_metadata;
-    } catch {
-      return { origin_channel: g.origin_metadata };
-    }
-  });
-
-  /**
    * Computes a human-readable, long-form release date.
    * Handles string splitting to avoid browser-specific UTC offset bugs with Date objects.
    */
@@ -656,36 +641,15 @@ export class ItemDetailComponent {
     if (game.releases && game.releases.length > 0) {
       return game.releases.some((r) => r.ownership_status === 1);
     }
-    return (
-      game.ownership_status === 1 && game.physical_status !== 'digital_only'
-    );
+    return game.ownership_status === 1;
   }
 
   /**
-   * Returns true if the game represents a known physical release (e.g. verified physical,
-   * matched ROM/catalog signature, physical retail medium, or physical releases list).
+   * Returns true if the game represents a known physical release.
+   * Every cataloged entry in `games` is physical by definition.
    */
   public hasPhysicalRelease(game?: Game | null): boolean {
-    if (!game) return false;
-    if (!game.rom_name && game.physical_status === 'digital_only') {
-      return false;
-    }
-    if (
-      game.physical_status === 'verified_physical' ||
-      game.physical_status === 'likely_physical'
-    ) {
-      return true;
-    }
-    if (game.release_medium === 'physical_retail') {
-      return true;
-    }
-    if (game.rom_name) {
-      return true;
-    }
-    if (game.releases && game.releases.length > 0) {
-      return true;
-    }
-    return false;
+    return Boolean(game);
   }
 
   /**
@@ -1140,12 +1104,9 @@ export class ItemDetailComponent {
   }
 
   /**
-   * Returns the direct Best Buy product link if known, otherwise generates a targeted search query.
+   * Generates a targeted Best Buy search query.
    */
   getBestBuyUrl(game: Game): string {
-    if (game.retail_url && game.retail_store === 'Best Buy') {
-      return game.retail_url;
-    }
     const platformName = game.display_name || game.platform || '';
     return `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(game.title + ' ' + platformName)}`;
   }
@@ -1189,9 +1150,6 @@ export class ItemDetailComponent {
   }
 
   getBestBuyToyUrl(toy: Toy): string {
-    if (toy.retail_url && toy.retail_store === 'Best Buy') {
-      return toy.retail_url;
-    }
     const query = `${toy.name} ${toy.line || ''}`.trim();
     return `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(query)}`;
   }

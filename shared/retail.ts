@@ -1,39 +1,15 @@
 /**
- * RETAIL DEALS & STOCK CLIENT (VIDEOGAMESPLUS, PNP GAMES, BEST BUY)
+ * RETAIL DEALS & STOCK CLIENT (VIDEOGAMESPLUS, PNP GAMES)
  *
  * Integrates with:
  * 1. VideoGamesPlus / videogamesplus.ca Shopify JSON & Predictive Search API (CA - CAD converted to USD)
  * 2. PNP Games / pnpgamesonline.com WooCommerce Store API v1 (CA - CAD converted to USD)
- * 3. Official Best Buy Developer API (US - USD, optional when BESTBUY_API_KEY is configured)
  *
- * Covers both physical video games and toys-to-life / amiibo figures.
- * Designed to stay well within Cloudflare Workers Free Tier limits (~20-23 subrequests per run).
+ * Covers both physical video games (deals + pre-orders) and toys-to-life / amiibo figures.
+ * Designed to stay well within Cloudflare Workers Free Tier limits (~20 subrequests per run).
  */
 
-export interface BestBuyProduct {
-  sku: number | string;
-  name: string;
-  upc?: string;
-  regularPrice: number;
-  salePrice: number;
-  onSale: boolean;
-  percentSavings?: string | number;
-  dollarSavings?: number;
-  url: string;
-  platform?: string;
-  onlineAvailability?: boolean;
-}
-
-export interface BestBuyApiResponse {
-  from: number;
-  to: number;
-  total: number;
-  currentPage: number;
-  totalPages: number;
-  products: BestBuyProduct[];
-}
-
-export type RetailStoreName = 'Best Buy' | 'VGP' | 'PNP Games';
+export type RetailStoreName = 'VGP' | 'PNP Games';
 
 export interface RetailDealItem {
   store: RetailStoreName;
@@ -48,6 +24,8 @@ export interface RetailDealItem {
   platform?: string;
   onlineAvailability: boolean;
   categoryHint?: 'game' | 'toy';
+  isPreOrder?: boolean;
+  releaseDate?: string | null;
 }
 
 export const DEFAULT_CAD_TO_USD_RATE = 0.73;
@@ -55,7 +33,7 @@ export const DEFAULT_CAD_TO_USD_RATE = 0.73;
 /**
  * Maps retailer platform strings to Collection Tracker platform IDs.
  */
-export const BESTBUY_TO_TRACKER_PLATFORM: Record<string, number> = {
+export const RETAIL_TO_TRACKER_PLATFORM: Record<string, number> = {
   'PlayStation 4': 34,
   PS4: 34,
   'SONY PLAYSTATION 4': 34,
@@ -114,7 +92,7 @@ export const BESTBUY_TO_TRACKER_PLATFORM: Record<string, number> = {
 };
 
 const CASE_INSENSITIVE_PLATFORM_MAP = new Map<string, number>(
-  Object.entries(BESTBUY_TO_TRACKER_PLATFORM).map(([k, v]) => [
+  Object.entries(RETAIL_TO_TRACKER_PLATFORM).map(([k, v]) => [
     k.toLowerCase().trim(),
     v,
   ]),
@@ -145,7 +123,7 @@ export function resolveRetailPlatformId(
 ): number | undefined {
   if (platformStr) {
     const direct =
-      BESTBUY_TO_TRACKER_PLATFORM[platformStr] ??
+      RETAIL_TO_TRACKER_PLATFORM[platformStr] ??
       CASE_INSENSITIVE_PLATFORM_MAP.get(platformStr.toLowerCase().trim());
     if (direct !== undefined) return direct;
   }
@@ -214,7 +192,7 @@ export function resolveRetailPlatformId(
  * platform suffixes, shipping tags, and edition noise.
  * e.g., "Marvel's Spider-Man: Miles Morales - PlayStation 4" -> "Marvel's Spider-Man: Miles Morales"
  */
-export function cleanBestBuyTitle(rawTitle: string): string {
+export function cleanRetailTitle(rawTitle: string): string {
   if (!rawTitle) return '';
   let cleaned = decodeHtmlEntities(rawTitle);
 
@@ -287,56 +265,81 @@ export async function fetchCadToUsdRate(
   return DEFAULT_CAD_TO_USD_RATE;
 }
 
+const NON_GAME_RETAIL_KEYWORDS =
+  /\b(controller|joy-con|joycon|headset|charging\s+station|carrying\s+case|travel\s+case|protective\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console|dualSense|pro\s+controller)\b/i;
+
 /**
- * Fetches active on-sale video games from Best Buy API.
- * Supports both Fetch API (Cloudflare Worker) and custom fetch functions.
+ * Returns true if a retailer product title/type is clearly hardware, apparel, TCG,
+ * audio, book, or accessory merchandise rather than a physical game release.
  */
-export async function fetchBestBuyDeals(
-  apiKey: string,
-  fetchFn: typeof fetch = fetch,
-  maxPages = 4,
-): Promise<BestBuyProduct[]> {
-  if (!apiKey) {
-    throw new Error('Best Buy API key is required');
+export function isNonGameRetailTitle(
+  title: string,
+  productType?: string | null,
+): boolean {
+  const combined = decodeHtmlEntities(`${title || ''} ${productType || ''}`);
+  return NON_GAME_RETAIL_KEYWORDS.test(combined);
+}
+
+const MONTH_NAME_MAP: Record<string, string> = {
+  jan: '01',
+  january: '01',
+  feb: '02',
+  february: '02',
+  mar: '03',
+  march: '03',
+  apr: '04',
+  april: '04',
+  may: '05',
+  jun: '06',
+  june: '06',
+  jul: '07',
+  july: '07',
+  aug: '08',
+  august: '08',
+  sep: '09',
+  sept: '09',
+  september: '09',
+  oct: '10',
+  october: '10',
+  nov: '11',
+  november: '11',
+  dec: '12',
+  december: '12',
+};
+
+/**
+ * Extracts a YYYY-MM-DD release/ship date from retailer titles or HTML descriptions
+ * (e.g., "ESTIMATED SHIP DATE MAY 22 2026" or "Release Date: October 17, 2026").
+ * Rejects common placeholder dates like Dec 31 or far-future TBAs.
+ */
+export function parseRetailReleaseDate(text?: string | null): string | null {
+  if (!text) return null;
+  const plain = decodeHtmlEntities(text).replace(/<[^>]+>/g, ' ');
+
+  const isoMatch = plain.match(
+    /(?:release|ship|street)\s*date\s*[:\-–—]?\s*(\d{4}-\d{2}-\d{2})/i,
+  );
+  if (isoMatch) {
+    const [, dateStr] = isoMatch;
+    if (!dateStr.endsWith('-12-31') && dateStr <= '2035-12-31') {
+      return dateStr;
+    }
   }
 
-  const allProducts: BestBuyProduct[] = [];
-  let page = 1;
-  let totalPages = 1;
-
-  while (page <= totalPages && page <= maxPages) {
-    // Best Buy SQL-style query filter for Video Games category on sale
-    const query = encodeURIComponent(
-      'categoryPath.name="Video Games"&onSale=true',
-    );
-    const show =
-      'sku,name,upc,regularPrice,salePrice,onSale,percentSavings,dollarSavings,url,platform,onlineAvailability';
-    const url = `https://api.bestbuy.com/v1/products(${query})?apiKey=${encodeURIComponent(apiKey)}&pageSize=100&page=${page}&show=${show}&format=json`;
-
-    const res = await fetchFn(url, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'CollectionTracker/1.0',
-      },
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!res.ok) {
-      throw new Error(
-        `Best Buy API request failed with status ${res.status}: ${res.statusText}`,
-      );
+  const namedMatch = plain.match(
+    /(?:estimated\s+ship\s+date|release\s+date|ships(?:\s+on)?|releases(?:\s+on)?)\s*[:\-–—]?\s*(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})/i,
+  );
+  if (namedMatch) {
+    const month = MONTH_NAME_MAP[namedMatch[1].toLowerCase()];
+    const dayNum = parseInt(namedMatch[2], 10);
+    const year = parseInt(namedMatch[3], 10);
+    if (month && dayNum >= 1 && dayNum <= 31 && year >= 2020 && year <= 2035) {
+      if (month === '12' && dayNum === 31) return null; // Dec 31 placeholder
+      return `${year}-${month}-${String(dayNum).padStart(2, '0')}`;
     }
-
-    const data = (await res.json()) as BestBuyApiResponse;
-    if (data.products && Array.isArray(data.products)) {
-      allProducts.push(...data.products);
-    }
-
-    totalPages = data.totalPages || 1;
-    page++;
   }
 
-  return allProducts;
+  return null;
 }
 
 interface VgpShopifyVariant {
@@ -353,6 +356,8 @@ interface VgpShopifyProduct {
   title: string;
   handle: string;
   product_type?: string;
+  body_html?: string;
+  published_at?: string;
   tags?: string[];
   variants?: VgpShopifyVariant[];
 }
@@ -374,15 +379,17 @@ function parseVgpProductToRetailItem(
   cadToUsdRate: number,
   forceOnSaleFlag?: boolean,
   categoryHint?: 'game' | 'toy',
+  options?: { allowUnavailable?: boolean; isPreOrder?: boolean },
 ): RetailDealItem | null {
-  const availableVariants = (prod.variants || []).filter(
-    (v) => v.available && parseFloat(v.price) > 0,
+  const allowUnavailable = options?.allowUnavailable ?? false;
+  const candidateVariants = (prod.variants || []).filter(
+    (v) => (allowUnavailable || v.available) && parseFloat(v.price) > 0,
   );
-  if (availableVariants.length === 0) return null;
+  if (candidateVariants.length === 0) return null;
 
-  // Select lowest price available variant
-  availableVariants.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
-  const bestVar = availableVariants[0];
+  // Select lowest price matching variant
+  candidateVariants.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+  const bestVar = candidateVariants[0];
 
   const priceCad = parseFloat(bestVar.price);
   const compareCad = bestVar.compare_at_price
@@ -398,6 +405,14 @@ function parseVgpProductToRetailItem(
     ? Math.round(((regularPriceUsd - salePriceUsd) / regularPriceUsd) * 100)
     : 0;
 
+  const tagStr = Array.isArray(prod.tags) ? prod.tags.join(' ') : '';
+  const releaseDate =
+    parseRetailReleaseDate(prod.body_html) ||
+    parseRetailReleaseDate(prod.title);
+  const isPreOrder =
+    options?.isPreOrder ||
+    /\bpre[\s-]?order\b/i.test(`${prod.title} ${tagStr}`);
+
   return {
     store: 'VGP',
     sku: bestVar.sku || String(prod.id),
@@ -409,9 +424,69 @@ function parseVgpProductToRetailItem(
     percentSavings: discountPct,
     url: `https://videogamesplus.ca/products/${prod.handle}`,
     platform: prod.product_type || undefined,
-    onlineAvailability: true,
+    onlineAvailability: bestVar.available,
     categoryHint,
+    ...(isPreOrder ? { isPreOrder: true } : {}),
+    ...(releaseDate ? { releaseDate } : {}),
   };
+}
+
+/**
+ * Fetches newest game pre-orders & recent physical releases from VideoGamesPlus
+ * via `/products.json` (most recently published catalog products).
+ */
+export async function fetchVgpNewPreOrders(
+  fetchFn: typeof fetch = fetch,
+  maxPages = 2,
+  cadToUsdRate = DEFAULT_CAD_TO_USD_RATE,
+): Promise<RetailDealItem[]> {
+  const items: RetailDealItem[] = [];
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  for (let page = 1; page <= maxPages; page++) {
+    const url = `https://videogamesplus.ca/products.json?limit=250&page=${page}`;
+    const res = await fetchFn(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'CollectionTracker/1.0',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) {
+      throw new Error(
+        `VGP Pre-Order API request failed with status ${res.status}: ${res.statusText}`,
+      );
+    }
+
+    const data = (await res.json()) as { products?: VgpShopifyProduct[] };
+    const products = data.products || [];
+    if (products.length === 0) break;
+
+    for (const prod of products) {
+      if (isNonGameRetailTitle(prod.title, prod.product_type)) continue;
+      const item = parseVgpProductToRetailItem(
+        prod,
+        cadToUsdRate,
+        false,
+        'game',
+        {
+          allowUnavailable: true,
+        },
+      );
+      if (!item || isStandaloneToyListing(item)) continue;
+      if (
+        item.isPreOrder ||
+        (item.releaseDate && item.releaseDate >= todayIso)
+      ) {
+        items.push({ ...item, isPreOrder: true });
+      }
+    }
+
+    if (products.length < 250) break;
+  }
+
+  return items;
 }
 
 /**
@@ -585,6 +660,8 @@ interface PnpWooProduct {
   sku?: string;
   on_sale: boolean;
   is_in_stock: boolean;
+  short_description?: string;
+  description?: string;
   prices?: {
     price: string;
     regular_price: string;
@@ -604,8 +681,10 @@ function parsePnpProductToRetailItem(
   cadToUsdRate: number,
   forceOnSaleFlag?: boolean,
   categoryHint?: 'game' | 'toy',
+  options?: { allowOutOfStock?: boolean; isPreOrder?: boolean },
 ): RetailDealItem | null {
-  if (!prod.is_in_stock || !prod.prices) return null;
+  const allowOutOfStock = options?.allowOutOfStock ?? false;
+  if ((!allowOutOfStock && !prod.is_in_stock) || !prod.prices) return null;
 
   const minorUnit = prod.prices.currency_minor_unit ?? 2;
   const divisor = Math.pow(10, minorUnit);
@@ -630,19 +709,87 @@ function parsePnpProductToRetailItem(
   );
   const platName = platAttr?.terms?.[0]?.name;
 
+  const decodedName = decodeHtmlEntities(prod.name);
+  const releaseDate =
+    parseRetailReleaseDate(decodedName) ||
+    parseRetailReleaseDate(prod.short_description) ||
+    parseRetailReleaseDate(prod.description);
+  const isPreOrder =
+    options?.isPreOrder || /\bpre[\s-]?order\b/i.test(decodedName);
+
   return {
     store: 'PNP Games',
     sku: prod.sku || String(prod.id),
-    name: decodeHtmlEntities(prod.name),
+    name: decodedName,
     regularPrice: regularPriceUsd,
     salePrice: salePriceUsd,
     onSale: forceOnSaleFlag ?? Boolean(prod.on_sale || isDiscounted),
     percentSavings: discountPct,
     url: prod.permalink,
     platform: platName || undefined,
-    onlineAvailability: true,
+    onlineAvailability: Boolean(prod.is_in_stock),
     categoryHint,
+    ...(isPreOrder ? { isPreOrder: true } : {}),
+    ...(releaseDate ? { releaseDate } : {}),
   };
+}
+
+/**
+ * Fetches active & announced game pre-orders from PNP Games (category 13767 PREORDER).
+ * Extracts estimated release/ship dates from product descriptions when present.
+ */
+export async function fetchPnpPreOrders(
+  fetchFn: typeof fetch = fetch,
+  maxPages = 4,
+  cadToUsdRate = DEFAULT_CAD_TO_USD_RATE,
+): Promise<RetailDealItem[]> {
+  const items: RetailDealItem[] = [];
+  let totalPages = maxPages;
+
+  for (let page = 1; page <= totalPages && page <= maxPages; page++) {
+    const url = `https://pnpgamesonline.com/wp-json/wc/store/v1/products?category=13767&per_page=100&page=${page}`;
+    const res = await fetchFn(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'CollectionTracker/1.0',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) {
+      throw new Error(
+        `PNP Games Pre-Order API request failed with status ${res.status}: ${res.statusText}`,
+      );
+    }
+
+    const headerTotalPages = res.headers?.get?.('x-wp-totalpages');
+    if (headerTotalPages) {
+      const parsedPages = parseInt(headerTotalPages, 10);
+      if (!isNaN(parsedPages) && parsedPages > 0) {
+        totalPages = Math.min(maxPages, parsedPages);
+      }
+    }
+
+    const products = (await res.json()) as PnpWooProduct[];
+    if (!Array.isArray(products) || products.length === 0) break;
+
+    for (const prod of products) {
+      if (isNonGameRetailTitle(prod.name)) continue;
+      const item = parsePnpProductToRetailItem(
+        prod,
+        cadToUsdRate,
+        false,
+        'game',
+        { allowOutOfStock: true, isPreOrder: true },
+      );
+      if (!item || isStandaloneToyListing(item)) continue;
+      items.push(item);
+    }
+
+    if (products.length < 100) break;
+  }
+
+  return items;
 }
 
 /**
@@ -766,78 +913,51 @@ export async function fetchPnpAmiiboStock(
 }
 
 /**
- * Aggregates active deals & toy stock across VGP, PNP Games, and (if configured) Best Buy.
- * Designed to execute in ~19-23 total subrequests (well within Cloudflare Worker's 50-subrequest free limit).
+ * Aggregates active deals & toy stock across VGP and PNP Games.
+ * Designed to execute within Cloudflare Worker's 50-subrequest free limit.
  */
 export async function fetchAllRetailDeals(
   options: {
-    bestBuyApiKey?: string;
     fetchFn?: typeof fetch;
     maxVgpPages?: number;
     maxPnpPages?: number;
-    maxBestBuyPages?: number;
     includeToys?: boolean;
   } = {},
 ): Promise<{
   deals: RetailDealItem[];
-  sources: { vgp: number; pnp: number; bestbuy: number };
+  sources: { vgp: number; pnp: number };
   cadToUsdRate: number;
 }> {
   const fetchFn = options.fetchFn || fetch;
   const includeToys = options.includeToys ?? true;
   const cadToUsdRate = await fetchCadToUsdRate(fetchFn);
 
-  const [vgpDeals, vgpAmiibo, pnpDeals, pnpAmiibo, bestBuyProducts] =
-    await Promise.all([
-      fetchVgpDeals(fetchFn, options.maxVgpPages ?? 6, cadToUsdRate).catch(
-        (err) => {
-          console.warn('[RetailSync] VGP fetch warning:', err);
+  const [vgpDeals, vgpAmiibo, pnpDeals, pnpAmiibo] = await Promise.all([
+    fetchVgpDeals(fetchFn, options.maxVgpPages ?? 6, cadToUsdRate).catch(
+      (err) => {
+        console.warn('[RetailSync] VGP fetch warning:', err);
+        return [] as RetailDealItem[];
+      },
+    ),
+    includeToys
+      ? fetchVgpAmiiboStock(fetchFn, cadToUsdRate).catch((err) => {
+          console.warn('[RetailSync] VGP Amiibo fetch warning:', err);
           return [] as RetailDealItem[];
-        },
-      ),
-      includeToys
-        ? fetchVgpAmiiboStock(fetchFn, cadToUsdRate).catch((err) => {
-            console.warn('[RetailSync] VGP Amiibo fetch warning:', err);
-            return [] as RetailDealItem[];
-          })
-        : Promise.resolve([] as RetailDealItem[]),
-      fetchPnpDeals(fetchFn, options.maxPnpPages ?? 8, cadToUsdRate).catch(
-        (err) => {
-          console.warn('[RetailSync] PNP Games fetch warning:', err);
+        })
+      : Promise.resolve([] as RetailDealItem[]),
+    fetchPnpDeals(fetchFn, options.maxPnpPages ?? 8, cadToUsdRate).catch(
+      (err) => {
+        console.warn('[RetailSync] PNP Games fetch warning:', err);
+        return [] as RetailDealItem[];
+      },
+    ),
+    includeToys
+      ? fetchPnpAmiiboStock(fetchFn, 2, cadToUsdRate).catch((err) => {
+          console.warn('[RetailSync] PNP Games Amiibo fetch warning:', err);
           return [] as RetailDealItem[];
-        },
-      ),
-      includeToys
-        ? fetchPnpAmiiboStock(fetchFn, 2, cadToUsdRate).catch((err) => {
-            console.warn('[RetailSync] PNP Games Amiibo fetch warning:', err);
-            return [] as RetailDealItem[];
-          })
-        : Promise.resolve([] as RetailDealItem[]),
-      options.bestBuyApiKey
-        ? fetchBestBuyDeals(
-            options.bestBuyApiKey,
-            fetchFn,
-            options.maxBestBuyPages ?? 4,
-          ).catch((err) => {
-            console.warn('[RetailSync] Best Buy fetch warning:', err);
-            return [] as BestBuyProduct[];
-          })
-        : Promise.resolve([] as BestBuyProduct[]),
-    ]);
-
-  const bestBuyDeals: RetailDealItem[] = bestBuyProducts.map((p) => ({
-    store: 'Best Buy',
-    sku: String(p.sku),
-    name: p.name,
-    upc: p.upc,
-    regularPrice: p.regularPrice,
-    salePrice: p.salePrice,
-    onSale: p.onSale,
-    percentSavings: Math.round(Number(p.percentSavings) || 0),
-    url: p.url,
-    platform: p.platform,
-    onlineAvailability: p.onlineAvailability ?? true,
-  }));
+        })
+      : Promise.resolve([] as RetailDealItem[]),
+  ]);
 
   // Merge and deduplicate VGP and PNP items by URL so on-sale items from sales feeds
   // are not duplicated by the dedicated amiibo feeds
@@ -862,11 +982,52 @@ export async function fetchAllRetailDeals(
   const mergedPnp = mergeByUrl(pnpDeals, pnpAmiibo);
 
   return {
-    deals: [...bestBuyDeals, ...mergedVgp, ...mergedPnp],
+    deals: [...mergedVgp, ...mergedPnp],
     sources: {
       vgp: mergedVgp.length,
       pnp: mergedPnp.length,
-      bestbuy: bestBuyDeals.length,
+    },
+    cadToUsdRate,
+  };
+}
+
+/**
+ * Aggregates new game pre-orders across VGP and PNP Games within Worker subrequest budgets.
+ */
+export async function fetchAllRetailPreOrders(
+  options: {
+    fetchFn?: typeof fetch;
+    maxVgpPages?: number;
+    maxPnpPages?: number;
+  } = {},
+): Promise<{
+  preOrders: RetailDealItem[];
+  sources: { vgp: number; pnp: number };
+  cadToUsdRate: number;
+}> {
+  const fetchFn = options.fetchFn || fetch;
+  const cadToUsdRate = await fetchCadToUsdRate(fetchFn);
+
+  const [vgpPreOrders, pnpPreOrders] = await Promise.all([
+    fetchVgpNewPreOrders(fetchFn, options.maxVgpPages ?? 2, cadToUsdRate).catch(
+      (err) => {
+        console.warn('[RetailPreOrderSync] VGP fetch warning:', err);
+        return [] as RetailDealItem[];
+      },
+    ),
+    fetchPnpPreOrders(fetchFn, options.maxPnpPages ?? 4, cadToUsdRate).catch(
+      (err) => {
+        console.warn('[RetailPreOrderSync] PNP Games fetch warning:', err);
+        return [] as RetailDealItem[];
+      },
+    ),
+  ]);
+
+  return {
+    preOrders: [...vgpPreOrders, ...pnpPreOrders],
+    sources: {
+      vgp: vgpPreOrders.length,
+      pnp: pnpPreOrders.length,
     },
     cadToUsdRate,
   };
@@ -901,9 +1062,7 @@ const TOY_ACCESSORY_EXCLUSION_REGEX =
  * Returns true if the product title or categoryHint indicates a standalone toy/amiibo figure
  * rather than a video game.
  */
-export function isStandaloneToyListing(
-  product: BestBuyProduct | RetailDealItem,
-): boolean {
+export function isStandaloneToyListing(product: RetailDealItem): boolean {
   if ('categoryHint' in product && product.categoryHint === 'toy') {
     return !GAME_WITH_TOY_BUNDLE_REGEX.test(product.name);
   }
@@ -921,11 +1080,11 @@ export function isStandaloneToyListing(
 }
 
 /**
- * Matches a retail product (Best Buy, VGP, or PNP Games) to a candidate game from the database.
+ * Matches a retail product (VGP or PNP Games) to a candidate game from the database.
  * First tries exact barcode/UPC match, then falls back to normalized title + platform match.
  */
 export function matchRetailGameProduct(
-  product: BestBuyProduct | RetailDealItem,
+  product: RetailDealItem,
   candidates: CandidateGame[],
 ): number | null {
   // Guard against matching standalone amiibo/toys to games with the same title
@@ -949,7 +1108,7 @@ export function matchRetailGameProduct(
   // 2. Title + Platform match
   const platformId = resolveRetailPlatformId(product.platform, product.name);
 
-  const cleanedProductTitle = cleanBestBuyTitle(product.name);
+  const cleanedProductTitle = cleanRetailTitle(product.name);
   const normProductTitle = normalizeTitle(cleanedProductTitle);
 
   if (!normProductTitle) return null;
@@ -968,11 +1127,6 @@ export function matchRetailGameProduct(
 
   return null;
 }
-
-/**
- * Backwards-compatible alias for matchRetailGameProduct.
- */
-export const matchBestBuyProduct = matchRetailGameProduct;
 
 /**
  * Extracts normalized character/figure name, optional series hint, and whether the listing
@@ -1090,7 +1244,7 @@ function seriesMatchesHint(
  * Returns the matched toy's `id` (slug) or null if no confident match is found.
  */
 export function matchRetailToyProduct(
-  product: BestBuyProduct | RetailDealItem,
+  product: RetailDealItem,
   candidates: CandidateToy[],
 ): string | null {
   const rawName = decodeHtmlEntities(product.name || '');

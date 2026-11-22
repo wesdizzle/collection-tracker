@@ -34,6 +34,9 @@ import {
  * Flat rows keep R2 catalog chunks compact and enable O(1) user overlay merging; virtual Retail Release (SKU)
  * grouping happens in `groupCatalogMediaIntoReleases` on the frontend.
  */
+const VERIFIED_CANONICAL_SOURCES_SQL =
+  "'nintendo_revised', 'dat', 'nscollectors', 'serialstation', 'ps5db', 'mame', 'neogeo_x', 'lgn', 'retail_catalog', 'community_csv'";
+
 export function buildGamesListQuery(userId?: number | null): string {
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?
@@ -77,16 +80,7 @@ export function buildGamesListQuery(userId?: number | null): string {
              )
              ELSE NULL
            END as metadata_json,
-           COALESCE(
-             CASE WHEN cr.source = 'nintendo_revised' THEN 'verified_physical' ELSE NULL END,
-             g.physical_status
-           ) as physical_status,
-           COALESCE(
-             CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE NULL END,
-             g.verification_tier
-           ) as verification_tier,
            g.barcode,
-           g.release_medium,
            g.bundle_parent_id,
            g.bundle_disc_number,
            COALESCE(bc.bundle_count, 0) as bundle_count,
@@ -116,7 +110,7 @@ export function buildGamesListQuery(userId?: number | null): string {
            cr.source,
            cr.serial_code,
            CASE
-             WHEN cr.source IN ('nintendo_revised', 'dat') OR r.rom_name IS NOT NULL THEN 1
+             WHEN cr.source IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
              ELSE 0
            END as is_source_verified
     FROM games g 
@@ -239,7 +233,11 @@ export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
         AND (ug_act.play_status > 0 OR ug_act.queued > 0)
     )
     OR g.retail_on_sale = 1
-    OR g.physical_status = 'likely_physical'
+    OR g.stable_id IN (
+      SELECT r_up.game_id
+      FROM game_releases r_up
+      WHERE r_up.release_date >= DATE('now')
+    )
     OR g.bundle_parent_id > 0
   )
   AND (
@@ -251,6 +249,7 @@ export const ACTIVE_GAMES_LIST_WHERE_CLAUSE = `
     OR COALESCE(ug.queued, 0) > 0
     OR COALESCE(g.retail_on_sale, 0) = 1
     OR (g.retail_price IS NOT NULL AND g.retail_price > 0)
+    OR r.release_date >= DATE('now')
     OR g.bundle_parent_id IS NOT NULL
   )
 `;
@@ -259,13 +258,14 @@ export const ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE = `
   AND g.stable_id IN (
     SELECT g_sale.stable_id FROM games g_sale WHERE g_sale.retail_on_sale = 1
     UNION
-    SELECT g_phys.stable_id FROM games g_phys WHERE g_phys.physical_status = 'likely_physical'
+    SELECT +r_up.game_id FROM game_releases r_up WHERE r_up.release_date >= DATE('now')
     UNION
     SELECT +g_bun.stable_id FROM games g_bun WHERE g_bun.bundle_parent_id > 0
   )
   AND (
     COALESCE(g.retail_on_sale, 0) = 1
     OR (g.retail_price IS NOT NULL AND g.retail_price > 0)
+    OR r.release_date >= DATE('now')
     OR g.bundle_parent_id IS NOT NULL
   )
 `;
@@ -314,17 +314,7 @@ export function buildGameDetailQuery(userId?: number | null): string {
             g.franchises,
             g.manually_verified,
             g.metadata_json,
-            COALESCE(
-              CASE WHEN cr.source = 'nintendo_revised' THEN 'verified_physical' ELSE NULL END,
-              g.physical_status
-            ) as physical_status,
-            COALESCE(
-              CASE WHEN cr.source = 'nintendo_revised' THEN 1 ELSE NULL END,
-              g.verification_tier
-            ) as verification_tier,
             g.barcode,
-            g.release_medium,
-            g.origin_metadata,
             g.bundle_parent_id,
             g.bundle_disc_number,
             (SELECT COUNT(*) FROM games bc WHERE bc.bundle_parent_id = g.stable_id) as bundle_count,
@@ -354,7 +344,7 @@ export function buildGameDetailQuery(userId?: number | null): string {
             cr.source,
             cr.serial_code,
             CASE
-              WHEN cr.source IN ('nintendo_revised', 'dat') OR r.rom_name IS NOT NULL THEN 1
+              WHEN cr.source IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
               ELSE 0
             END as is_source_verified
      FROM games g 
@@ -448,8 +438,7 @@ export function buildGameReleasesByGameIdQuery(
             ${hasManualCol} as has_manual,
             r.canonical_release_id, cr.source,
             CASE
-              WHEN cr.source = 'nintendo_revised' THEN 1
-              WHEN cr.source = 'dat' OR r.rom_name IS NOT NULL THEN 1
+              WHEN cr.source IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
               ELSE 0
             END as is_source_verified,
             cr.serial_code, cr.publisher as comments
@@ -480,8 +469,6 @@ export function buildBundledGamesByParentQuery(userId?: number | null): string {
            g.title,
            g.platform_id,
            g.bundle_disc_number,
-           g.release_medium,
-           g.origin_metadata,
            COALESCE(r.rom_name, g.title) as rom_name,
            ${hasMediaCol} as has_media,
            COALESCE(pp.display_name, p.display_name) as platform_name,
@@ -2147,7 +2134,7 @@ export function resolveLocalizedReleaseTitle(
 /**
  * Enriches a game list row with its localized release title, extracts any
  * distinct cross-language search names into `searchableNames`, and strips
- * bulky `metadata_json`, `origin_metadata`, and `raw_title` fields before
+ * bulky `metadata_json` and `raw_title` fields before
  * serializing the `/api/games` or `/api/u/:username/games` payload.
  * Parses `metadata_json` at most once per row.
  */
@@ -2217,7 +2204,6 @@ export function enrichAndStripGameListRow(
     }
   }
   row['metadata_json'] = undefined;
-  row['origin_metadata'] = undefined;
   row['raw_title'] = undefined;
 }
 

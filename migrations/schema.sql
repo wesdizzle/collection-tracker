@@ -46,11 +46,7 @@ CREATE TABLE IF NOT EXISTS games (
     manually_verified INTEGER DEFAULT 0,
     metadata_json TEXT,
     igdb_url TEXT,
-    physical_status TEXT DEFAULT 'unverified',
-    verification_tier INTEGER DEFAULT 0,
     barcode TEXT,
-    release_medium TEXT DEFAULT 'physical_retail',
-    origin_metadata TEXT,
     bundle_parent_id INTEGER REFERENCES games (stable_id) ON DELETE SET NULL,
     bundle_disc_number INTEGER,
     retail_price INTEGER,
@@ -253,7 +249,6 @@ CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id) WHERE igdb_id IS 
 CREATE INDEX IF NOT EXISTS idx_games_platform_id ON games (platform_id);
 CREATE INDEX IF NOT EXISTS idx_games_canonical_series ON games (canonical_series);
 CREATE INDEX IF NOT EXISTS idx_games_bundle_parent ON games (bundle_parent_id);
-CREATE INDEX IF NOT EXISTS idx_games_physical_status ON games (physical_status);
 CREATE INDEX IF NOT EXISTS idx_games_retail_on_sale ON games (retail_on_sale);
 CREATE INDEX IF NOT EXISTS idx_games_title_nocase ON games (title COLLATE NOCASE);
 

@@ -73,7 +73,6 @@ import {
   matchesProvenanceFilters,
   parseJournalDate,
 } from '../../../../core/models/provenance-analytics';
-import { isPhysicalReleaseGame } from '../../../../core/models/insights-analytics';
 import { CollectionFiltersComponent } from '../../filters/collection-filters/collection-filters.component';
 import { ActivePlayShelfComponent } from '../active-play-shelf/active-play-shelf.component';
 import { GameCardComponent } from '../game-card/game-card.component';
@@ -1322,11 +1321,9 @@ export class CollectionListComponent
         if (g.has_case && g.has_manual) {
           cibCounts.set(p, (cibCounts.get(p) || 0) + 1);
         }
-        if (isPhysicalReleaseGame(g)) {
-          physicalCounts.set(p, (physicalCounts.get(p) || 0) + 1);
-          if (g.has_media) {
-            ownedMediaCounts.set(p, (ownedMediaCounts.get(p) || 0) + 1);
-          }
+        physicalCounts.set(p, (physicalCounts.get(p) || 0) + 1);
+        if (g.has_media) {
+          ownedMediaCounts.set(p, (ownedMediaCounts.get(p) || 0) + 1);
         }
       }
     }

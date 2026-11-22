@@ -190,7 +190,6 @@ describe('resolveLocalizedReleaseTitle', () => {
       raw_title: 'Saru! Get You!',
       region: 'Japan',
       metadata_json: apeEscapeMetadata,
-      origin_metadata: '{"raw":true}',
     };
     enrichAndStripGameListRow(row, 'USA');
     expect(row['title']).toBe('サルゲッチュ');
@@ -198,7 +197,6 @@ describe('resolveLocalizedReleaseTitle', () => {
       'Ape Escape: La Invasión de los Monos',
     );
     expect(row['metadata_json']).toBeUndefined();
-    expect(row['origin_metadata']).toBeUndefined();
     expect(row['raw_title']).toBeUndefined();
   });
 

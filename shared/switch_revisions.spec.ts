@@ -212,6 +212,23 @@ describe('Switch Revisions & nxdumptool Matching Engine', () => {
       ]);
     });
 
+    it('should recover cart code and region when Switch 2 rows shift cart code into Regions column', () => {
+      const sw2Tab: SwitchSheetTabConfig = {
+        gid: '2222222',
+        name: 'Switch 2 Main Sheet',
+        platformId: 27,
+      };
+      const csv = [
+        'Game Name,Rev #,Ver,DL,Size,Regions,Front,Comments',
+        'Dave the Diver: Complete Edition - Nintendo Switch 2 Edition ,00,1.0.6.1224,Yes,8.4 GB,LN-A8XTB-USA-0,,Download updates',
+      ].join('\n');
+
+      const releases = parseSwitchRevisionsCsv([{ tab: sw2Tab, csv }]);
+      expect(releases).toHaveLength(1);
+      expect(releases[0].region).toBe('USA');
+      expect(releases[0].serial_code).toBe('LN-A8XTB-USA-0');
+    });
+
     it('drops unmatched Past Revisions typo rows and resolves edition-stripped Past Revisions titles against main tabs', () => {
       const mainTab: SwitchSheetTabConfig = {
         gid: '1882179329',

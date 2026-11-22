@@ -130,17 +130,6 @@
               }}</span>
               <div class="row-inline-badges">
                 @if (
-                  game.physical_status === 'digital_extracted_rom' ||
-                  game.release_medium === 'digital_extracted_rom'
-                ) {
-                  <span
-                    class="digital-extracted-badge"
-                    title="Archival Extracted ROM (Official VC/NSO/Compilation)"
-                  >
-                    <app-icon name="rom-archive" [size]="12" />
-                  </span>
-                }
-                @if (
                   (game.bundle_count && game.bundle_count > 0) ||
                   (game.bundled_games && game.bundled_games.length > 0)
                 ) {
@@ -267,7 +256,6 @@
               @if (
                 showMediaDetails() &&
                 game.ownership_status === 1 &&
-                game.release_medium !== 'digital_native' &&
                 !isMultiDisc(game)
               ) {
                 <button
@@ -287,7 +275,6 @@
               @if (
                 showMediaDetails() &&
                 game.ownership_status === 1 &&
-                game.release_medium !== 'digital_native' &&
                 isMultiDisc(game)
               ) {
                 <div
@@ -368,7 +355,7 @@
                   class="deal-sale-badge compact-badge"
                   [title]="
                     'On Sale at ' +
-                    (game.retail_store || 'Best Buy') +
+                    (game.retail_store || 'Retailer') +
                     (game.retail_regular_price
                       ? ' (Reg: $' +
                         (game.retail_regular_price / 100).toFixed(2) +

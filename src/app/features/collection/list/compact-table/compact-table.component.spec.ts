@@ -35,7 +35,7 @@ describe('CompactTableComponent', () => {
       has_manual: 0,
       has_media: 1,
       retail_price: 3999,
-      retail_store: 'Best Buy',
+      retail_store: 'VGP',
       release_date: '2017-03-03',
       image_url: 'https://example.com/botw.jpg',
       mediaItems: [{ id: 'botw-cart-1', label: 'Cart', hasMedia: 1 }],

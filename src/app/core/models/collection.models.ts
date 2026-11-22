@@ -36,21 +36,6 @@ export enum PlayStatus {
   Dropped = 5,
 }
 
-export type PhysicalStatus =
-  | 'verified_physical'
-  | 'likely_physical'
-  | 'digital_extracted_rom'
-  | 'digital_only'
-  | 'unreleased_prototype'
-  | 'unverified';
-
-export type ReleaseMedium =
-  | 'physical_retail'
-  | 'physical_limited'
-  | 'digital_extracted_rom'
-  | 'digital_native'
-  | 'unreleased_prototype';
-
 /**
  * Represents a single physical media item (`game_releases` + optional `canonical_releases`
  * metadata) within a Platform Game's Retail Release (SKU).
@@ -171,14 +156,10 @@ export interface Game {
   serial_code?: string | null;
   is_source_verified?: number;
   source?: string | null;
-  physical_status?: PhysicalStatus;
-  release_medium?: ReleaseMedium;
-  origin_metadata?: string | null;
   metadata_json?: string | null;
   bundle_parent_id?: number | null;
   bundle_disc_number?: number | null;
   bundle_count?: number;
-  verification_tier?: number;
   barcode?: string | null;
   disc_label?: string | null;
   companion_game_id?: string;
@@ -212,8 +193,6 @@ export interface BundledGame {
   platform_id: number;
   platform_name?: string;
   bundle_disc_number?: number;
-  release_medium?: string;
-  origin_metadata?: string | null;
   rom_name?: string | null;
   has_media?: number;
 }
@@ -845,45 +824,40 @@ export interface UserTrackingRule {
 }
 
 export interface CatalogSeedStatus {
-  paused: boolean;
-  stage: '2A' | '2B' | 'done' | string;
-  cursor: number;
-  cursorId?: number;
-  dailyWriteBudget: number;
-  writesUsedToday: number;
-  dailyWritesUsed?: number;
-  dailyDate?: string;
-  gamesIngestedToday?: number;
-  releasesIngestedToday?: number;
-  lastUpdatedAt?: string | null;
-  canonicalMinId?: number;
-  canonicalMaxId?: number;
-  currentPlatformName?: string | null;
-  maxGameStableId?: number;
-  igdbBackfill?: {
+  canonicalTailer: {
     cursor: number;
-    lastWrapDate: string | null;
-    matchedTotal: number;
-    rulesAppliedTotal: number;
-    lastRunAt: string | null;
+    canonicalMinId: number;
+    canonicalMaxId: number;
+    pendingCanonicalRows: number;
+    writesUsedToday: number;
+    dailyWriteBudget: number;
+    gamesIngestedToday: number;
+    releasesIngestedToday: number;
+    lastUpdatedAt: string | null;
+    maxGameStableId: number;
   };
-  igdbRolling?: {
+  igdbRolling: {
     cursorOffset: number;
     refreshedTotal: number;
     updatedTotal: number;
     selfHealedRulesTotal: number;
     lastRunAt: string | null;
   };
-  upstreamSources?: {
-    switchRevisionsUpdatedAt: string | null;
-    amiiboCatalogUpdatedAt: string | null;
-  };
-  seriesDiscovery?: {
+  seriesDiscovery: {
     cursor: number;
     totalSeriesRules: number;
     seriesScannedTotal: number;
     discoveredGamesTotal: number;
     lastRunAt: string | null;
+  };
+  upstreamSources: {
+    boutiquePreOrdersUpdatedAt: string | null;
+    retailPreOrdersUpdatedAt: string | null;
+    retailDealsUpdatedAt: string | null;
+    switchRevisionsUpdatedAt: string | null;
+    nsCollectorsUpdatedAt: string | null;
+    amiiboCatalogUpdatedAt: string | null;
+    catalogChunksUpdatedAt: string | null;
   };
 }
 

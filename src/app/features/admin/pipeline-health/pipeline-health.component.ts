@@ -19,9 +19,9 @@ import {
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 
 /**
- * Displays broad catalog seeding progress, daily D1 write quota usage,
- * continuous IGDB backfill & rolling self-healing telemetry, and watched-series
- * discovery progress for administrators.
+ * Displays always-living catalog maintenance telemetry: canonical tailer & R2 catalog
+ * rebuilds, rolling IGDB refresh, watched-series discovery, upstream physical feed
+ * sync timestamps, and eBay 6h valuation cache quota.
  */
 @Component({
   selector: 'app-pipeline-health',
@@ -41,9 +41,7 @@ export class PipelineHealthComponent {
   readonly loading = input<boolean>(false);
   readonly actionBusy = input<boolean>(false);
   readonly error = input<string | null>(null);
-  readonly seedProgressPct = input<number>(0);
   readonly dailyBudgetPct = input<number>(0);
-  readonly backfillProgressPct = input<number>(0);
   readonly rollingProgressPct = input<number>(0);
   readonly marketPricingStatus = input<MarketPricingRateLimitStatus | null>(
     null,
@@ -51,53 +49,25 @@ export class PipelineHealthComponent {
   readonly marketCachePurging = input<boolean>(false);
 
   readonly refresh = output<void>();
-  readonly togglePause = output<void>();
   readonly runSeedBatch = output<void>();
-  readonly runBackfillBatch = output<void>();
   readonly runRollingRefresh = output<void>();
   readonly runSeriesDiscovery = output<void>();
+  readonly runNsCollectors = output<void>();
+  readonly runRetailPreOrders = output<void>();
   readonly purgeMarketCache = output<void>();
 
-  readonly seedBarItems = computed<readonly KitStatBarItem[]>(() => {
-    const pct = this.seedProgressPct();
-    return [
-      {
-        id: 'seed-progress',
-        label: 'Cursor Progress',
-        value: pct,
-        max: 100,
-        displayValue: `${pct}%`,
-        tone: 'primary',
-      },
-    ];
-  });
-
   readonly budgetBarItems = computed<readonly KitStatBarItem[]>(() => {
-    const s = this.status();
-    if (!s) return [];
-    const budget = Math.max(1, s.dailyWriteBudget);
+    const tailer = this.status()?.canonicalTailer;
+    if (!tailer) return [];
+    const budget = Math.max(1, tailer.dailyWriteBudget);
     return [
       {
         id: 'budget-usage',
         label: 'Writes Used Today',
-        value: s.writesUsedToday,
+        value: tailer.writesUsedToday,
         max: budget,
-        displayValue: `${s.writesUsedToday} / ${s.dailyWriteBudget}`,
+        displayValue: `${tailer.writesUsedToday} / ${tailer.dailyWriteBudget}`,
         tone: this.dailyBudgetPct() >= 90 ? 'warning' : 'primary',
-      },
-    ];
-  });
-
-  readonly backfillBarItems = computed<readonly KitStatBarItem[]>(() => {
-    const pct = this.backfillProgressPct();
-    return [
-      {
-        id: 'backfill-progress',
-        label: 'IGDB Backfill Cursor Sweep',
-        value: pct,
-        max: 100,
-        displayValue: `${pct}%`,
-        tone: 'primary',
       },
     ];
   });
@@ -116,70 +86,30 @@ export class PipelineHealthComponent {
     ];
   });
 
-  readonly seedKvItems = computed<readonly KitKvItem[]>(() => {
+  readonly tailerKvItems = computed<readonly KitKvItem[]>(() => {
     const s = this.status();
     if (!s) return [];
     return [
       {
         label: 'Canonical Cursor',
-        value: `${s.cursor} / ${s.canonicalMaxId ?? s.cursor}`,
+        value: `${s.canonicalTailer.cursor} / ${s.canonicalTailer.canonicalMaxId}`,
       },
-      {
-        label: 'Active Platform',
-        value: s.currentPlatformName || 'Caught up / Steady State',
-      },
-      {
-        label: 'Last Seed Update',
-        value: s.lastUpdatedAt || 'Never',
-        tone: 'muted',
-      },
-    ];
-  });
-
-  readonly budgetKvItems = computed<readonly KitKvItem[]>(() => {
-    const s = this.status();
-    if (!s) return [];
-    return [
       {
         label: 'Games Ingested Today',
-        value: String(s.gamesIngestedToday ?? 0),
+        value: String(s.canonicalTailer.gamesIngestedToday),
       },
       {
         label: 'Releases Attached Today',
-        value: String(s.releasesIngestedToday ?? 0),
+        value: String(s.canonicalTailer.releasesIngestedToday),
       },
       {
-        label: 'Switch Revisions Synced',
-        value: s.upstreamSources?.switchRevisionsUpdatedAt || 'Pending',
+        label: 'R2 Catalog Chunks',
+        value: s.upstreamSources.catalogChunksUpdatedAt || 'Pending',
         tone: 'muted',
       },
       {
-        label: 'Amiibo Catalog Synced',
-        value: s.upstreamSources?.amiiboCatalogUpdatedAt || 'Pending',
-        tone: 'muted',
-      },
-    ];
-  });
-
-  readonly backfillKvItems = computed<readonly KitKvItem[]>(() => {
-    const s = this.status();
-    if (!s) return [];
-    return [
-      {
-        label: 'Stable ID Cursor',
-        value: `${s.igdbBackfill?.cursor ?? 0} / ${s.maxGameStableId ?? 0}`,
-      },
-      {
-        label: 'Games Matched (Total)',
-        value: String(s.igdbBackfill?.matchedTotal ?? 0),
-      },
-      {
-        label: 'Rules Applied (Backfill)',
-        value: String(s.igdbBackfill?.rulesAppliedTotal ?? 0),
-      },
-      {
-        label: 'Last Daily Wrap Date',
-        value: s.igdbBackfill?.lastWrapDate || 'In first pass',
+        label: 'Last Tailer Run',
+        value: s.canonicalTailer.lastUpdatedAt || 'Pending',
         tone: 'muted',
       },
     ];
@@ -191,19 +121,65 @@ export class PipelineHealthComponent {
     return [
       {
         label: 'Rolling Offset',
-        value: `${s.igdbRolling?.cursorOffset ?? 0} / ${s.maxGameStableId ?? 0}`,
+        value: `${s.igdbRolling.cursorOffset} / ${s.canonicalTailer.maxGameStableId}`,
       },
       {
         label: 'IGDB Refreshed (Total)',
-        value: String(s.igdbRolling?.refreshedTotal ?? 0),
+        value: String(s.igdbRolling.refreshedTotal),
+      },
+      {
+        label: 'Updated Rows (Total)',
+        value: String(s.igdbRolling.updatedTotal),
       },
       {
         label: 'Self-Healed Rules (Total)',
-        value: String(s.igdbRolling?.selfHealedRulesTotal ?? 0),
+        value: String(s.igdbRolling.selfHealedRulesTotal),
       },
       {
         label: 'Last Rolling Run',
-        value: s.igdbRolling?.lastRunAt || 'Pending',
+        value: s.igdbRolling.lastRunAt || 'Pending',
+        tone: 'muted',
+      },
+    ];
+  });
+
+  readonly upstreamSourcesKvItems = computed<readonly KitKvItem[]>(() => {
+    const u = this.status()?.upstreamSources;
+    if (!u) return [];
+    return [
+      {
+        label: 'Boutique Pre-Orders',
+        value: u.boutiquePreOrdersUpdatedAt || 'Pending',
+        tone: 'muted',
+      },
+      {
+        label: 'Retail Pre-Orders (VGP / PNP)',
+        value: u.retailPreOrdersUpdatedAt || 'Pending',
+        tone: 'muted',
+      },
+      {
+        label: 'Retail Deals',
+        value: u.retailDealsUpdatedAt || 'Pending',
+        tone: 'muted',
+      },
+      {
+        label: 'Switch Revisions',
+        value: u.switchRevisionsUpdatedAt || 'Pending',
+        tone: 'muted',
+      },
+      {
+        label: 'r/NSCollectors Sheet',
+        value: u.nsCollectorsUpdatedAt || 'Pending',
+        tone: 'muted',
+      },
+      {
+        label: 'Amiibo Catalog',
+        value: u.amiiboCatalogUpdatedAt || 'Pending',
+        tone: 'muted',
+      },
+      {
+        label: 'R2 Catalog Chunks',
+        value: u.catalogChunksUpdatedAt || 'Pending',
         tone: 'muted',
       },
     ];
@@ -215,23 +191,23 @@ export class PipelineHealthComponent {
     return [
       {
         label: 'Active Series Rules',
-        value: String(s.seriesDiscovery?.totalSeriesRules ?? 0),
+        value: String(s.seriesDiscovery.totalSeriesRules),
       },
       {
         label: 'Series Cursor',
-        value: String(s.seriesDiscovery?.cursor ?? 0),
+        value: String(s.seriesDiscovery.cursor),
       },
       {
         label: 'Series Scanned (Total)',
-        value: String(s.seriesDiscovery?.seriesScannedTotal ?? 0),
+        value: String(s.seriesDiscovery.seriesScannedTotal),
       },
       {
         label: 'Games Discovered (Total)',
-        value: String(s.seriesDiscovery?.discoveredGamesTotal ?? 0),
+        value: String(s.seriesDiscovery.discoveredGamesTotal),
       },
       {
         label: 'Last Discovery Run',
-        value: s.seriesDiscovery?.lastRunAt || 'Pending',
+        value: s.seriesDiscovery.lastRunAt || 'Pending',
         tone: 'muted',
       },
     ];

@@ -35,7 +35,6 @@ import {
   computeScopedJournalSummary,
   computeScopedValuation,
   computeToyLineStats,
-  isPhysicalReleaseGame,
 } from '../../../core/models/insights-analytics';
 import { IconComponent } from '../../../shared/components/icon/icon.component';
 import { InsightsOverviewTabComponent } from './insights-overview-tab/insights-overview-tab.component';
@@ -293,7 +292,7 @@ export class CollectionInsightsComponent implements OnInit {
   );
 
   public readonly physicalOwnedGames = computed<Game[]>(() =>
-    this.ownedReleases().filter((g) => isPhysicalReleaseGame(g)),
+    this.ownedReleases(),
   );
 
   public readonly mediaOwnedGames = computed<Game[]>(() =>

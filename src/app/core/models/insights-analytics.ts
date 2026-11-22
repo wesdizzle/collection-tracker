@@ -132,13 +132,6 @@ function gameMatchesPlatform(game: Game, platformId: number): boolean {
   );
 }
 
-export function isPhysicalReleaseGame(game: Game): boolean {
-  return (
-    game.release_medium !== 'digital_extracted_rom' &&
-    game.release_medium !== 'digital_native'
-  );
-}
-
 function findFreshPrice(
   marketPricesMap: ReadonlyMap<string, EphemeralMarketPrice>,
   nowMs: number,
@@ -549,9 +542,7 @@ export function computePhysicalMediaStats(
   allGames: readonly Game[],
   platforms: readonly Platform[],
 ): PhysicalMediaSummary {
-  const physicalReleases = allGames.filter(
-    (g) => g.ownership_status === 1 && isPhysicalReleaseGame(g),
-  );
+  const physicalReleases = allGames.filter((g) => g.ownership_status === 1);
   const ownedMediaReleases = physicalReleases.filter((g) =>
     Boolean(g.has_media),
   );

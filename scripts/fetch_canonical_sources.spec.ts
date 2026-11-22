@@ -1,9 +1,10 @@
 /**
- * Unit Tests for Canonical DAT Downloader Utility
+ * Unit Tests for Canonical Sources Fetcher Utility
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
   REDUMP_TARGETS,
@@ -14,15 +15,15 @@ import {
   applyCanonicalDatPatches,
   pruneAndDeduplicateDats,
   syncCleanDatsToDirectory,
-} from './download_canonical_dats.js';
+  parseSourceFilterArg,
+  fetchCanonicalSources,
+} from './fetch_canonical_sources.js';
 
-describe('Canonical DAT Downloader', () => {
-  const tempTestDir = path.join(process.cwd(), 'scripts', 'temp', 'test_dats');
+describe('Canonical Sources Fetcher', () => {
+  let tempTestDir: string;
 
   beforeEach(() => {
-    if (!fs.existsSync(tempTestDir)) {
-      fs.mkdirSync(tempTestDir, { recursive: true });
-    }
+    tempTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fetch-sources-spec-'));
   });
 
   afterEach(() => {
@@ -532,6 +533,41 @@ game (
 
       const dstFiles = fs.readdirSync(dstNoIntro);
       expect(dstFiles).toEqual(['Nintendo - Game Boy.dat']);
+    });
+  });
+
+  describe('parseSourceFilterArg & fetchCanonicalSources selective fetching', () => {
+    it('parses --source filters and selectively fetches non-DAT adapters into isolated sourcesDir', async () => {
+      expect(parseSourceFilterArg(undefined)).toEqual(['all']);
+      expect(parseSourceFilterArg('nscollectors,ps5db')).toEqual([
+        'nscollectors',
+        'ps5db',
+      ]);
+      expect(() => parseSourceFilterArg('bogus')).toThrow(/Unknown source/);
+
+      const mockFetch = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('neogeo.xml')) {
+          return new Response(
+            '<?xml version="1.0"?><softwarelist name="neogeo"><software name="nam1975"><description>NAM-1975 (NGM-001 ~ NGH-001)</description><publisher>SNK</publisher><sharedfeat name="release" value="MVS,AES" /></software></softwarelist>',
+            { status: 200 },
+          );
+        }
+        return new Response(
+          'Title,Game Publisher,Physical Publisher,ESRB SKU\nAstro Bot,Sony Interactive Entertainment,Sony Interactive Entertainment,PPSA-21564\n',
+          { status: 200 },
+        );
+      });
+
+      const res = await fetchCanonicalSources({
+        sources: parseSourceFilterArg('neogeo,ps5db'),
+        sourcesDir: tempTestDir,
+        fetchFn: mockFetch as typeof fetch,
+      });
+
+      expect(res.fetchedSources).toEqual(['neogeo', 'ps5db']);
+      expect(fs.existsSync(path.join(tempTestDir, 'neogeo.xml'))).toBe(true);
+      expect(fs.existsSync(path.join(tempTestDir, 'ps5db.csv'))).toBe(true);
     });
   });
 });

@@ -7,14 +7,14 @@
  * What runs in the production Worker automatically after deploy:
  *   - Nintendo Switch physical catalog & cartridge revisions (`syncWorkerSwitchRevisions`)
  *   - Amiibo figure & card catalog (`syncWorkerAmiiboCatalog`)
- *   - Limited-print boutique feeds (`syncWorkerPhysicalFeeds` + `syncWorkerBoutiquePreOrders`)
- *   - Broad catalog promotion & IGDB metadata (`syncWorkerBroadCatalogPopulation` + `syncWorkerIgdbMetadataBackfill`)
+ *   - Limited-print & retail feeds (`syncWorkerBoutiquePreOrders` + `syncWorkerRetailPreOrders` + `syncWorkerNsCollectors`)
+ *   - Steady-state canonical tailer & rolling IGDB maintenance (`syncWorkerBroadCatalogPopulation` + `syncWorkerIgdbSeriesAndCanonical`)
  *   - Daily diff-guarded R2 snapshots (`performScheduledBackup` + `performCanonicalReleasesBackup`)
  *
  * What this local bootstrap script seeds:
- *   1. Declarative schema + 56 platforms + 41 toy_series (`migrations/schema.sql`)
+ *   1. Declarative schema + 55 platforms + 41 toy_series (`migrations/schema.sql`)
  *   2. 547 permanently retired Skylanders & Starlink toys (`migrations/seed_retired_toys.sql`)
- *   3. Canonical No-Intro & Redump DAT catalog (`dats/` -> `canonical_releases`)
+ *   3. Canonical DATs & offline verification sources (`dats/`, `data/sources/` -> `canonical_releases`)
  *
  * Usage:
  *   npm run db:bootstrap
@@ -29,7 +29,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import { resolveLocalDatabasePath } from './lib/db.js';
-import { downloadAllCanonicalDats } from './download_canonical_dats.js';
+import { downloadAllCanonicalDats } from './fetch_canonical_sources.js';
 import { syncCanonicalSources } from './sync_canonical_sources.js';
 import { runWithD1CostGuard } from './d1_cost_guard.js';
 

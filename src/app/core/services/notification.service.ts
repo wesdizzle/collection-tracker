@@ -14,7 +14,7 @@ export const DEFAULT_DEAL_PREFERENCES: DealNotificationPreferences = {
   minDiscountPct: 20,
   maxPriceCents: null,
   platformIds: [],
-  stores: ['Best Buy', 'VGP', 'PNP Games'],
+  stores: ['VGP', 'PNP Games'],
   notify_game_releases: true,
   notify_physical_announcements: true,
   notify_watched_series: true,

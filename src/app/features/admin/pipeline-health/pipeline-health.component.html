@@ -35,147 +35,38 @@
     </div>
   } @else if (status(); as s) {
     <div class="pipeline-grid mb-lg">
-      <!-- Card 1: Broad Catalog Ingestion -->
-      <kit-section-card title="Broad Catalog Ingestion" [compact]="true">
-        <div cardActions class="flex items-center gap-xs">
-          <span
-            class="pipeline-badge"
-            [class.done]="s.stage === 'done' || s.stage === 'completed'"
-          >
-            {{
-              s.stage === 'done' || s.stage === 'completed'
-                ? 'Steady State'
-                : 'Stage ' + s.stage.toUpperCase()
-            }}
-          </span>
-          @if (s.paused) {
-            <span class="pipeline-badge paused">Paused</span>
-          }
-        </div>
+      <!-- Card 1: Rolling IGDB Refresh -->
+      <kit-section-card title="Rolling IGDB Refresh" [compact]="true">
+        <span cardActions class="pipeline-badge done">Continuous Active</span>
 
         <div class="pipeline-card-body">
           <kit-stat-bar-list
-            [items]="seedBarItems()"
+            [items]="rollingBarItems()"
             [defaultMax]="100"
             [compact]="true"
-            ariaLabel="Cursor progress"
+            ariaLabel="Rolling IGDB and rule self-heal"
           />
           <kit-kv-grid
-            [items]="seedKvItems()"
+            [items]="rollingKvItems()"
             density="compact"
             layout="list"
           />
-
           <div class="pipeline-card-actions">
             <button
               type="button"
               class="m3-btn m3-btn-secondary btn-sm"
-              data-testid="pipeline-pause-btn"
+              data-testid="pipeline-run-rolling-btn"
               [disabled]="actionBusy()"
-              (click)="togglePause.emit()"
+              (click)="runRollingRefresh.emit()"
             >
-              {{ s.paused ? 'Resume Seeding' : 'Pause Seeding' }}
-            </button>
-            <button
-              type="button"
-              class="m3-btn m3-btn-primary btn-sm"
-              data-testid="pipeline-run-seed-btn"
-              [disabled]="actionBusy()"
-              (click)="runSeedBatch.emit()"
-            >
-              Run Seed Batch Now
+              Run Rolling Check
             </button>
           </div>
         </div>
       </kit-section-card>
 
-      <!-- Card 2: Daily D1 Write Budget -->
-      <kit-section-card title="Daily D1 Write Budget" [compact]="true">
-        <span
-          cardActions
-          class="pipeline-badge"
-          [class.warn]="dailyBudgetPct() >= 90"
-        >
-          {{ dailyBudgetPct() }}% Used
-        </span>
-
-        <div class="pipeline-card-body">
-          <kit-stat-bar-list
-            [items]="budgetBarItems()"
-            [compact]="true"
-            ariaLabel="Daily D1 write budget"
-          />
-          <kit-kv-grid
-            [items]="budgetKvItems()"
-            density="compact"
-            layout="list"
-          />
-        </div>
-      </kit-section-card>
-
-      <!-- Card 3: Self-Healing & IGDB Metadata Sync -->
-      <kit-section-card
-        class="pipeline-card-wide"
-        title="Self-Healing &amp; IGDB Metadata Sweep"
-        [compact]="true"
-      >
-        <span cardActions class="pipeline-badge done">Continuous Active</span>
-
-        <div class="pipeline-dual-grid">
-          <div class="pipeline-subpanel">
-            <kit-stat-bar-list
-              [items]="backfillBarItems()"
-              [defaultMax]="100"
-              [compact]="true"
-              ariaLabel="IGDB backfill cursor sweep"
-            />
-            <kit-kv-grid
-              [items]="backfillKvItems()"
-              density="compact"
-              layout="list"
-            />
-            <div class="pipeline-card-actions">
-              <button
-                type="button"
-                class="m3-btn m3-btn-secondary btn-sm"
-                data-testid="pipeline-run-backfill-btn"
-                [disabled]="actionBusy()"
-                (click)="runBackfillBatch.emit()"
-              >
-                Run Backfill Batch
-              </button>
-            </div>
-          </div>
-
-          <div class="pipeline-subpanel">
-            <kit-stat-bar-list
-              [items]="rollingBarItems()"
-              [defaultMax]="100"
-              [compact]="true"
-              ariaLabel="Rolling IGDB and rule self-heal"
-            />
-            <kit-kv-grid
-              [items]="rollingKvItems()"
-              density="compact"
-              layout="list"
-            />
-            <div class="pipeline-card-actions">
-              <button
-                type="button"
-                class="m3-btn m3-btn-secondary btn-sm"
-                data-testid="pipeline-run-rolling-btn"
-                [disabled]="actionBusy()"
-                (click)="runRollingRefresh.emit()"
-              >
-                Run Rolling Check
-              </button>
-            </div>
-          </div>
-        </div>
-      </kit-section-card>
-
-      <!-- Card 4: Autonomous Watched-Series Discovery -->
-      <kit-section-card title="Watched-Series IGDB Discovery" [compact]="true">
+      <!-- Card 2: Watched-Series Discovery -->
+      <kit-section-card title="Watched-Series Discovery" [compact]="true">
         <span cardActions class="pipeline-badge done">2h Rolling Cadence</span>
 
         <div class="pipeline-card-body">
@@ -194,6 +85,87 @@
               (click)="runSeriesDiscovery.emit()"
             >
               Run Series Discovery
+            </button>
+          </div>
+        </div>
+      </kit-section-card>
+
+      <!-- Card 3: Live Upstream Sources & Pre-Orders -->
+      <kit-section-card
+        title="Live Upstream Sources &amp; Pre-Orders"
+        [compact]="true"
+      >
+        <span cardActions class="pipeline-badge done">Scheduled Syncs</span>
+
+        <div class="pipeline-card-body">
+          <kit-kv-grid
+            [items]="upstreamSourcesKvItems()"
+            density="compact"
+            layout="list"
+          />
+
+          <div class="pipeline-card-actions">
+            <button
+              type="button"
+              class="m3-btn m3-btn-secondary btn-sm"
+              data-testid="pipeline-run-nscollectors-btn"
+              [disabled]="actionBusy()"
+              (click)="runNsCollectors.emit()"
+            >
+              Sync r/NSCollectors
+            </button>
+            <button
+              type="button"
+              class="m3-btn m3-btn-secondary btn-sm"
+              data-testid="pipeline-run-retail-preorders-btn"
+              [disabled]="actionBusy()"
+              (click)="runRetailPreOrders.emit()"
+            >
+              Sync Retail Pre-Orders
+            </button>
+          </div>
+        </div>
+      </kit-section-card>
+
+      <!-- Card 4: Canonical Tailer & R2 Catalog -->
+      <kit-section-card
+        title="Canonical Tailer &amp; R2 Catalog"
+        [compact]="true"
+      >
+        <span
+          cardActions
+          class="pipeline-badge"
+          [class.done]="s.canonicalTailer.pendingCanonicalRows === 0"
+          [class.warn]="dailyBudgetPct() >= 90"
+        >
+          {{
+            s.canonicalTailer.pendingCanonicalRows > 0
+              ? s.canonicalTailer.pendingCanonicalRows + ' Pending'
+              : 'Caught Up'
+          }}
+        </span>
+
+        <div class="pipeline-card-body">
+          <kit-stat-bar-list
+            [items]="budgetBarItems()"
+            [compact]="true"
+            ariaLabel="Daily D1 write budget"
+          />
+          <kit-kv-grid
+            [items]="tailerKvItems()"
+            density="compact"
+            layout="list"
+          />
+
+          <div class="pipeline-card-actions">
+            <button
+              type="button"
+              class="m3-btn m3-btn-primary btn-sm"
+              data-testid="pipeline-run-seed-btn"
+              [disabled]="actionBusy()"
+              (click)="runSeedBatch.emit()"
+            >
+              Run Tailer Batch
             </button>
           </div>
         </div>

@@ -20,9 +20,9 @@ import { PipelineHealthComponent } from './pipeline-health/pipeline-health.compo
 /**
  * ADMIN CENTER COMPONENT (/admin)
  *
- * Streamlined administration center housing autonomous catalog pipeline telemetry,
- * daily D1 write quota monitoring, IGDB self-healing sweep status, and watched-series
- * discovery controls.
+ * Streamlined administration center housing always-living catalog maintenance telemetry,
+ * daily D1 write quota monitoring, IGDB rolling self-healing, watched-series
+ * discovery, and upstream physical release feed sync controls.
  */
 @Component({
   selector: 'app-admin-center',
@@ -46,39 +46,19 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
 
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
-  public readonly seedProgressPct = computed<number>(() => {
-    const status = this.pipelineStatus();
-    if (!status) return 0;
-    const min = status.canonicalMinId ?? 0;
-    const max = status.canonicalMaxId ?? 0;
-    const cursor = status.cursor ?? 0;
-    if (status.stage === 'done' || status.stage === 'completed') return 100;
-    if (max <= min) return 0;
-    const pct = Math.round(((cursor - min) / (max - min)) * 100);
-    return Math.max(0, Math.min(100, pct));
-  });
-
   public readonly dailyBudgetPct = computed<number>(() => {
-    const status = this.pipelineStatus();
-    if (!status || !status.dailyWriteBudget) return 0;
+    const tailer = this.pipelineStatus()?.canonicalTailer;
+    if (!tailer || !tailer.dailyWriteBudget) return 0;
     return Math.min(
       100,
-      Math.round((status.writesUsedToday / status.dailyWriteBudget) * 100),
+      Math.round((tailer.writesUsedToday / tailer.dailyWriteBudget) * 100),
     );
-  });
-
-  public readonly backfillProgressPct = computed<number>(() => {
-    const status = this.pipelineStatus();
-    const max = status?.maxGameStableId ?? 0;
-    const cursor = status?.igdbBackfill?.cursor ?? 0;
-    if (!max || max <= 0) return 0;
-    return Math.min(100, Math.round((cursor / max) * 100));
   });
 
   public readonly rollingProgressPct = computed<number>(() => {
     const status = this.pipelineStatus();
-    const max = status?.maxGameStableId ?? 0;
-    const offset = status?.igdbRolling?.cursorOffset ?? 0;
+    const max = status?.canonicalTailer.maxGameStableId ?? 0;
+    const offset = status?.igdbRolling.cursorOffset ?? 0;
     if (!max || max <= 0) return 0;
     return Math.min(100, Math.round((offset / max) * 100));
   });
@@ -138,11 +118,11 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
 
   private async runPipelineControlAction(
     payload: {
-      paused?: boolean;
       runBatchNow?: boolean;
-      runBackfillNow?: boolean;
       runRollingRefreshNow?: boolean;
       runSeriesDiscoveryNow?: boolean;
+      runNsCollectorsNow?: boolean;
+      runRetailPreOrdersNow?: boolean;
     },
     successMessage: (status: CatalogSeedStatus) => string,
     fallbackError: string,
@@ -171,34 +151,12 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
     }
   }
 
-  public async togglePipelinePause(): Promise<void> {
-    const current = this.pipelineStatus();
-    if (!current) return;
-    await this.runPipelineControlAction(
-      { paused: !current.paused },
-      (s) =>
-        s.paused
-          ? 'Autonomous catalog seeding paused.'
-          : 'Autonomous catalog seeding resumed.',
-      'Failed to toggle catalog seed pause state.',
-    );
-  }
-
   public async triggerSeedBatchNow(): Promise<void> {
     await this.runPipelineControlAction(
       { runBatchNow: true },
       (s) =>
-        `Catalog seed batch completed (Stage ${s.stage.toUpperCase()}, cursor ${s.cursor}).`,
-      'Failed to run catalog seed batch.',
-    );
-  }
-
-  public async triggerBackfillBatchNow(): Promise<void> {
-    await this.runPipelineControlAction(
-      { runBackfillNow: true },
-      (s) =>
-        `IGDB backfill batch completed (cursor ${s.igdbBackfill?.cursor ?? 0}).`,
-      'Failed to run IGDB backfill batch.',
+        `Canonical tailer batch completed (cursor ${s.canonicalTailer.cursor}).`,
+      'Failed to run canonical tailer batch.',
     );
   }
 
@@ -206,7 +164,7 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
     await this.runPipelineControlAction(
       { runRollingRefreshNow: true },
       (s) =>
-        `Rolling IGDB self-heal check completed (offset ${s.igdbRolling?.cursorOffset ?? 0}).`,
+        `Rolling IGDB self-heal check completed (offset ${s.igdbRolling.cursorOffset}).`,
       'Failed to run rolling IGDB refresh.',
     );
   }
@@ -215,8 +173,24 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
     await this.runPipelineControlAction(
       { runSeriesDiscoveryNow: true },
       (s) =>
-        `Watched-series discovery completed (cursor ${s.seriesDiscovery?.cursor ?? 0}).`,
+        `Watched-series discovery completed (cursor ${s.seriesDiscovery.cursor}).`,
       'Failed to run watched-series discovery.',
+    );
+  }
+
+  public async triggerNsCollectorsNow(): Promise<void> {
+    await this.runPipelineControlAction(
+      { runNsCollectorsNow: true },
+      () => 'r/NSCollectors physical Switch sheet sync completed.',
+      'Failed to sync r/NSCollectors sheet.',
+    );
+  }
+
+  public async triggerRetailPreOrdersNow(): Promise<void> {
+    await this.runPipelineControlAction(
+      { runRetailPreOrdersNow: true },
+      () => 'Retail pre-orders feed sync completed.',
+      'Failed to sync retail pre-orders.',
     );
   }
 

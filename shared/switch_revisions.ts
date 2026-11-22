@@ -485,9 +485,21 @@ export function parseSwitchRevisionsCsv(
       const versionOnCart = (row[2] || '').trim();
       const downloadAvailable = (row[3] || '').trim();
       const downloadSize = (row[4] || '').trim();
-      const region = (row[5] || '').trim();
-      const frontCartCode = (row[6] || '').trim();
+      let region = (row[5] || '').trim();
+      let frontCartCode = (row[6] || '').trim();
       const comments = (row[7] || '').trim();
+
+      // Switch 2 sheet rows occasionally shift the front cart code into the Region column
+      // (e.g. "LN-A8XTB-USA-0" in col 5 with col 6 blank). Recover both fields.
+      if (!frontCartCode && region) {
+        const shiftedCartMatch = region.match(
+          /^L[A-Z]-(?:H-)?[A-Z0-9]{5}-([A-Z]{3})\b/i,
+        );
+        if (shiftedCartMatch) {
+          frontCartCode = region;
+          region = shiftedCartMatch[1].toUpperCase();
+        }
+      }
 
       const parsed: RawSpreadsheetRow = {
         gameName: lastSeenGameName,

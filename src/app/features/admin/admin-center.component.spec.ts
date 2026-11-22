@@ -12,23 +12,17 @@ describe('AdminCenterComponent', () => {
   let fixture: ComponentFixture<AdminCenterComponent>;
 
   const baseStatus: CatalogSeedStatus = {
-    paused: false,
-    stage: '2A',
-    cursor: 500,
-    canonicalMinId: 100,
-    canonicalMaxId: 900,
-    dailyWriteBudget: 60000,
-    writesUsedToday: 12000,
-    gamesIngestedToday: 42,
-    releasesIngestedToday: 84,
-    currentPlatformName: 'Nintendo Switch',
-    maxGameStableId: 1000,
-    igdbBackfill: {
-      cursor: 250,
-      lastWrapDate: '2026-11-17',
-      matchedTotal: 200,
-      rulesAppliedTotal: 15,
-      lastRunAt: '2026-11-18T10:00:00Z',
+    canonicalTailer: {
+      cursor: 500,
+      canonicalMinId: 100,
+      canonicalMaxId: 900,
+      pendingCanonicalRows: 400,
+      dailyWriteBudget: 60000,
+      writesUsedToday: 12000,
+      gamesIngestedToday: 42,
+      releasesIngestedToday: 84,
+      lastUpdatedAt: '2026-11-18T11:30:00Z',
+      maxGameStableId: 1000,
     },
     igdbRolling: {
       cursorOffset: 400,
@@ -43,6 +37,15 @@ describe('AdminCenterComponent', () => {
       seriesScannedTotal: 20,
       discoveredGamesTotal: 6,
       lastRunAt: '2026-11-18T11:00:00Z',
+    },
+    upstreamSources: {
+      boutiquePreOrdersUpdatedAt: '2026-11-18T01:00:00Z',
+      retailPreOrdersUpdatedAt: '2026-11-18T02:00:00Z',
+      retailDealsUpdatedAt: '2026-11-18T03:00:00Z',
+      switchRevisionsUpdatedAt: '2026-11-18T04:00:00Z',
+      nsCollectorsUpdatedAt: '2026-11-18T05:00:00Z',
+      amiiboCatalogUpdatedAt: '2026-11-18T06:00:00Z',
+      catalogChunksUpdatedAt: '2026-11-18T00:05:00Z',
     },
   };
 
@@ -60,12 +63,7 @@ describe('AdminCenterComponent', () => {
       isAdmin: vi.fn(() => true),
       promptAdminLogin: vi.fn(),
       getCatalogSeedStatus: vi.fn(() => of(baseStatus)),
-      updateCatalogSeedControl: vi.fn((payload) =>
-        of({
-          ...baseStatus,
-          paused: payload.paused ?? baseStatus.paused,
-        }),
-      ),
+      updateCatalogSeedControl: vi.fn(() => of(baseStatus)),
       getMarketPricingRateLimits: vi.fn(() =>
         of({
           configured: true,
@@ -99,16 +97,21 @@ describe('AdminCenterComponent', () => {
     fixture.detectChanges();
   });
 
-  it('loads pipeline status, progress bars, and seriesDiscovery card on init', () => {
+  it('loads 4 always-living maintenance cards, budget, rolling progress, and 7 upstream source timestamps on init', () => {
     expect(mockCollectionService.getCatalogSeedStatus).toHaveBeenCalled();
-    expect(component.seedProgressPct()).toBe(50);
     expect(component.dailyBudgetPct()).toBe(20);
-    expect(component.backfillProgressPct()).toBe(25);
     expect(component.rollingProgressPct()).toBe(40);
 
     const el = fixture.nativeElement as HTMLElement;
     expect(el.textContent).toContain('Admin Center');
-    expect(el.textContent).toContain('Watched-Series IGDB Discovery');
+    expect(el.textContent).toContain('Rolling IGDB Refresh');
+    expect(el.textContent).toContain('Watched-Series Discovery');
+    expect(el.textContent).toContain('Live Upstream Sources & Pre-Orders');
+    expect(el.textContent).toContain('Canonical Tailer & R2 Catalog');
+    expect(el.textContent).toContain('400 Pending');
+    expect(el.textContent).toContain('2026-11-18T05:00:00Z');
+    expect(el.textContent).not.toContain('Pause Seeding');
+    expect(el.textContent).not.toContain('IGDB Backfill');
     const verifyLink = el.querySelector(
       '[data-testid="admin-verify-ownership-link"]',
     ) as HTMLAnchorElement | null;
@@ -116,25 +119,11 @@ describe('AdminCenterComponent', () => {
     expect(verifyLink?.getAttribute('href')).toBe('/admin/verify-ownership');
   });
 
-  it('triggers pause toggle, seed, backfill, rolling refresh, and watched series discovery actions', async () => {
-    await component.togglePipelinePause();
-    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
-      {
-        paused: true,
-      },
-    );
-
+  it('triggers tailer batch, rolling refresh, watched series discovery, r/NSCollectors, and retail pre-orders actions', async () => {
     await component.triggerSeedBatchNow();
     expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
       {
         runBatchNow: true,
-      },
-    );
-
-    await component.triggerBackfillBatchNow();
-    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
-      {
-        runBackfillNow: true,
       },
     );
 
@@ -149,6 +138,20 @@ describe('AdminCenterComponent', () => {
     expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
       {
         runSeriesDiscoveryNow: true,
+      },
+    );
+
+    await component.triggerNsCollectorsNow();
+    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
+      {
+        runNsCollectorsNow: true,
+      },
+    );
+
+    await component.triggerRetailPreOrdersNow();
+    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
+      {
+        runRetailPreOrdersNow: true,
       },
     );
   });

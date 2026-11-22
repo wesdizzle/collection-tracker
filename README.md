@@ -236,9 +236,9 @@ Configure a public OIDC client in your identity provider with Authorization Code
 | `npm run dev`                                       | Initializes local D1 schema and runs Wrangler local Worker + Angular dev server        |
 | `npm run db:pull`                                   | Pulls latest production snapshot + `canonical_releases` from R2 into local D1          |
 | `npm run db:bootstrap`                              | Initializes schema, seeds 547 retired toys, and syncs canonical DATs into local SQLite |
-| `npm run dats:download`                             | Downloads public Redump & No-Intro XML/CLRMamePro DAT files into `/dats`               |
-| `npm run dats:sync`                                 | Parses `/dats`, updates `canonical_releases` deltas, and reconciles `game_releases`    |
-| `npm run dats:update`                               | Runs `dats:download` followed by `dats:sync` for periodic offline DAT maintenance      |
+| `npm run sources:fetch`                             | Fetches Redump/No-Intro DATs and offline physical sources (`-- --source=...`)          |
+| `npm run sources:sync`                              | Syncs DATs, offline sources & `data/sources/community/*.csv`, reconciling releases     |
+| `npm run sources:update`                            | Runs `sources:fetch` followed by `sources:sync` for full offline source maintenance    |
 | `npm run d1:cost-guard`                             | Verifies static schema index bounds (`1 + K`) and `EXPLAIN QUERY PLAN` on critical SQL |
 | `npm run d1:cost-guard -- --file=<sql> [--confirm]` | Pre-flight cost guard validating write budgets and index plans for migrations          |
 | `npm run build`                                     | Compiles production Angular bundle to `dist/tracker`                                   |
@@ -275,7 +275,6 @@ The app defaults to **Collection Tracker** as a neutral instance name. Deployers
 | `EBAY_CLIENT_ID`        | eBay Developer Production App ID for live Browse API market valuations     | _(Optional)_                             |
 | `EBAY_CLIENT_SECRET`    | eBay Developer Production Cert ID for eBay OAuth client credentials        | _(Optional)_                             |
 | `MARKET_PRICING_ACCESS` | Access policy for live eBay valuations (`admin` or `authenticated`)        | `admin`                                  |
-| `BESTBUY_API_KEY`       | Optional Best Buy API key for enhanced deal scanning                       | _(Optional)_                             |
 | `VAPID_PUBLIC_KEY`      | Web Push VAPID application public key (RFC 8292)                           | _(Built-in default)_                     |
 | `VAPID_PRIVATE_KEY`     | Web Push VAPID private key (secret)                                        | _(Optional)_                             |
 

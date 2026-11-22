@@ -39,9 +39,10 @@ import worker, {
   syncWorkerAmiiboCatalog,
   syncWorkerBoutiquePreOrders,
   syncWorkerBroadCatalogPopulation,
-  syncWorkerIgdbMetadataBackfill,
   syncWorkerLaunchDayNotifications,
+  syncWorkerNsCollectors,
   syncWorkerRetailDeals,
+  syncWorkerRetailPreOrders,
   syncWorkerWatchedSeriesDiscovery,
   evaluateTrackingRulesForNewGames,
   evaluateTrackingRulesForNewToys,
@@ -1700,11 +1701,11 @@ describe('Worker API Logic', () => {
       expect(afterDelData.entries).toHaveLength(0);
     });
 
-    it('syncWorkerBoutiquePreOrders updates physical_status and stores retail url on pre-order match', async () => {
+    it('syncWorkerBoutiquePreOrders stores retail url and store on pre-order match', async () => {
       db.prepare(
         `
-        INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-        VALUES (777, 'switch-sea-of-stars', 'Sea of Stars', 26, 'unverified')
+        INSERT INTO games (stable_id, id, title, platform_id)
+        VALUES (777, 'switch-sea-of-stars', 'Sea of Stars', 26)
       `,
       ).run();
 
@@ -1748,22 +1749,19 @@ describe('Worker API Logic', () => {
         expect(result.matchedCount).toBeGreaterThan(0);
 
         const updated = db
-          .prepare(
-            'SELECT physical_status, retail_url, retail_store FROM games WHERE id = ?',
-          )
+          .prepare('SELECT retail_url, retail_store FROM games WHERE id = ?')
           .get('switch-sea-of-stars') as {
-          physical_status: string;
           retail_url: string;
           retail_store: string;
         };
-        expect(updated.physical_status).toBe('likely_physical');
         expect(updated.retail_url).toContain('sea-of-stars-switch');
+        expect(updated.retail_store).toBeTruthy();
       } finally {
         fetchSpy.mockRestore();
       }
     });
 
-    it('syncWorkerLaunchDayNotifications transitions games launching today', async () => {
+    it('syncWorkerLaunchDayNotifications dispatches launch alerts once per calendar day via sync_state dedup', async () => {
       db.prepare(
         `
         INSERT OR IGNORE INTO platforms (id, name, display_name)
@@ -1773,8 +1771,8 @@ describe('Worker API Logic', () => {
 
       db.prepare(
         `
-        INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-        VALUES (888, 'metroid-prime-4', 'Metroid Prime 4: Beyond', 26, 'likely_physical')
+        INSERT INTO games (stable_id, id, title, platform_id)
+        VALUES (888, 'metroid-prime-4', 'Metroid Prime 4: Beyond', 26)
       `,
       ).run();
 
@@ -1785,18 +1783,35 @@ describe('Worker API Logic', () => {
       `,
       ).run();
 
-      await syncWorkerLaunchDayNotifications(mockEnv);
-      const updated = db
-        .prepare('SELECT physical_status FROM games WHERE id = ?')
-        .get('metroid-prime-4') as { physical_status: string };
-      expect(updated.physical_status).toBe('likely_physical');
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-launch', 1, 'https://push.example.com/launch', 'p256', 'auth', '{"enabled": true, "notify_game_releases": true}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      try {
+        const first = await syncWorkerLaunchDayNotifications(mockEnv);
+        expect(first.dispatchedCount).toBe(1);
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+
+        // Second run on the same launch day must be deduplicated cleanly
+        webPushSpy.mockClear();
+        const second = await syncWorkerLaunchDayNotifications(mockEnv);
+        expect(second.dispatchedCount).toBe(0);
+        expect(webPushSpy).not.toHaveBeenCalled();
+      } finally {
+        webPushSpy.mockRestore();
+      }
     });
 
     it('syncWorkerBoutiquePreOrders suppresses standard announcement if physical copy is already owned on same platform', async () => {
       // User owns USA physical copy of Antonblast on Switch
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (901, 'antonblast-switch', 'Antonblast', 26, 'verified_physical')`,
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (901, 'antonblast-switch', 'Antonblast', 26)`,
       ).run();
 
       db.prepare(
@@ -1858,8 +1873,8 @@ describe('Worker API Logic', () => {
     it('syncWorkerBoutiquePreOrders allows announcement for a special edition even if standard copy is owned', async () => {
       // User owns Standard physical copy
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (902, 'hollow-knight-switch', 'Hollow Knight', 26, 'verified_physical')`,
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (902, 'hollow-knight-switch', 'Hollow Knight', 26)`,
       ).run();
 
       db.prepare(
@@ -1930,10 +1945,10 @@ describe('Worker API Logic', () => {
     });
 
     it('syncWorkerBoutiquePreOrders allows announcement across different platforms', async () => {
-      // User owns Antonblast on Switch (stable_id 903), but PS5 (stable_id 904) is unowned
+      // User owns Antonblast on Switch (stable_id 903), while PS5 version is newly announced uncataloged
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (903, 'antonblast-switch', 'Antonblast', 26, 'verified_physical')`,
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (903, 'antonblast-switch', 'Antonblast', 26)`,
       ).run();
 
       db.prepare(
@@ -1946,18 +1961,8 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (904, 'antonblast-ps5', 'Antonblast', 35, 'unverified')`,
-      ).run();
-
-      db.prepare(
-        `INSERT INTO game_releases (id, game_id, region)
-         VALUES ('anton-ps5-rel', 904, 'USA')`,
-      ).run();
-
-      db.prepare(
         `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-ps5', 1, 'https://push.example.com/sub-ps5', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
+         VALUES ('sub-ps5', 1, 'https://push.example.com/sub-ps5', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true, "uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const mockShopify = {
@@ -1967,6 +1972,7 @@ describe('Worker API Logic', () => {
             title: 'Antonblast - PS5',
             handle: 'antonblast-ps5',
             tags: ['game', 'pre-order'],
+            published_at: new Date().toISOString(),
             variants: [{ price: '35.00' }],
           },
         ],
@@ -2014,8 +2020,8 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (910, 'celeste-switch', 'Celeste', 26, 'digital_only')`,
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (910, 'celeste-switch', 'Celeste', 26)`,
       ).run();
 
       db.prepare(
@@ -2094,11 +2100,10 @@ describe('Worker API Logic', () => {
       }
     });
 
-    it('syncWorkerBoutiquePreOrders silently updates retail_url for games already physical without dispatching notifications', async () => {
-      // Game is verified_physical with an old retail_url
+    it('syncWorkerBoutiquePreOrders silently updates retail_url for existing games without dispatching notifications', async () => {
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status, retail_url)
-         VALUES (911, 'hollow-knight-switch-2', 'Hollow Knight', 26, 'verified_physical', 'https://old-retailer.com/hk')`,
+        `INSERT INTO games (stable_id, id, title, platform_id, retail_url)
+         VALUES (911, 'hollow-knight-switch-2', 'Hollow Knight', 26, 'https://old-retailer.com/hk')`,
       ).run();
 
       db.prepare(
@@ -2157,28 +2162,11 @@ describe('Worker API Logic', () => {
       }
     });
 
-    it('syncWorkerBoutiquePreOrders dispatches announcement notification when digital_only game transitions to likely_physical', async () => {
-      db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (912, 'crow-country-switch', 'Crow Country', 26, 'digital_only')`,
-      ).run();
-
+    it('syncWorkerBoutiquePreOrders ingests and announces new physical editions from Limited Game News', async () => {
       db.prepare(
         `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-transition', 1, 'https://push.example.com/sub-transition', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"unowned": true}}', 'agent', datetime('now'), datetime('now'))`,
+         VALUES ('sub-lgn', 1, 'https://push.example.com/sub-lgn', 'p256', 'auth', '{"enabled": true, "notify_physical_announcements": true, "physical_announcement_scope": {"uncataloged": true}}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
-
-      const mockShopify = {
-        products: [
-          {
-            id: 665544,
-            title: 'Crow Country - Nintendo Switch',
-            handle: 'crow-country-switch',
-            tags: ['game', 'pre-order'],
-            variants: [{ price: '34.99' }],
-          },
-        ],
-      };
 
       const webPushSpy = vi
         .spyOn(webPush, 'sendWebPushNotification')
@@ -2187,10 +2175,31 @@ describe('Worker API Logic', () => {
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
         .mockImplementation(async (input) => {
-          if (typeof input === 'string' && input.includes('fangamer.com')) {
+          const url = String(input);
+          if (url.includes('limitedgamenews.com/wp-json/wp/v2/posts')) {
             return {
               ok: true,
-              json: async () => mockShopify,
+              json: async () => [
+                {
+                  id: 7771,
+                  date_gmt: new Date().toISOString(),
+                  link: 'https://limitedgamenews.com/crow-country-switch/',
+                  title: {
+                    rendered:
+                      'Red Art Games announces Crow Country for Nintendo Switch',
+                  },
+                  excerpt: {
+                    rendered: '<p>Physical edition pre-orders open now.</p>',
+                  },
+                  categories: [],
+                },
+              ],
+            } as unknown as Response;
+          }
+          if (url.includes('limitedgamenews.com/wp-json/wp/v2/categories')) {
+            return {
+              ok: true,
+              json: async () => [],
             } as unknown as Response;
           }
           return {
@@ -2201,6 +2210,7 @@ describe('Worker API Logic', () => {
 
       try {
         const result = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(result.ingestedCount).toBe(1);
         expect(result.notifications.dispatchedCount).toBe(1);
         expect(webPushSpy).toHaveBeenCalledWith(
           expect.anything(),
@@ -2210,10 +2220,13 @@ describe('Worker API Logic', () => {
           expect.anything(),
         );
 
-        const updated = db
-          .prepare('SELECT physical_status FROM games WHERE stable_id = 912')
-          .get() as { physical_status: string };
-        expect(updated.physical_status).toBe('likely_physical');
+        const inserted = db
+          .prepare(
+            "SELECT retail_store, retail_url FROM games WHERE title = 'Crow Country' AND platform_id = 26",
+          )
+          .get() as { retail_store: string; retail_url: string };
+        expect(inserted.retail_store).toBe('Limited Game News');
+        expect(inserted.retail_url).toContain('crow-country-switch');
       } finally {
         fetchSpy.mockRestore();
         webPushSpy.mockRestore();
@@ -2360,8 +2373,8 @@ describe('Worker API Logic', () => {
 
     it('syncWorkerBoutiquePreOrders suppresses announcements when listing is sold out (available: false)', async () => {
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (920, 'pizza-tower-switch', 'Pizza Tower', 26, 'digital_only')`,
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (920, 'pizza-tower-switch', 'Pizza Tower', 26)`,
       ).run();
 
       db.prepare(
@@ -2412,8 +2425,8 @@ describe('Worker API Logic', () => {
 
     it('syncWorkerBoutiquePreOrders suppresses announcements for ancient special editions (> 7 days old and not pre-orders)', async () => {
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (921, 'celeste-switch', 'Celeste', 26, 'likely_physical')`,
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (921, 'celeste-switch', 'Celeste', 26)`,
       ).run();
 
       db.prepare(
@@ -2475,8 +2488,8 @@ describe('Worker API Logic', () => {
 
     it('GET /api/games/:id prioritizes owned release matching game region over unowned foreign releases', async () => {
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, region, physical_status)
-         VALUES (930, 'castlevania-dominus-test', 'Castlevania Dominus Collection', 35, 'USA', 'verified_physical')`,
+        `INSERT INTO games (stable_id, id, title, platform_id, region)
+         VALUES (930, 'castlevania-dominus-test', 'Castlevania Dominus Collection', 35, 'USA')`,
       ).run();
 
       // First release inserted is Japan and unowned
@@ -2612,44 +2625,13 @@ describe('Worker API Logic', () => {
       }
     });
 
-    it('POST /api/collection/toggle updates physical_status on a game', async () => {
-      db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (905, 'digital-game', 'Digital Indie Game', 26, 'digital_only')`,
-      ).run();
-
-      const req = new Request('http://localhost/api/collection/toggle', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-key': 'test-secret-key',
-        },
-        body: JSON.stringify({
-          id: 'digital-game',
-          type: 'game',
-          field: 'physical_status',
-          status: 'likely_physical',
-        }),
-      });
-
-      const res = await worker.fetch(req, mockEnv);
-      expect(res.status).toBe(200);
-
-      const row = db
-        .prepare('SELECT physical_status FROM games WHERE id = ?')
-        .get('digital-game') as {
-        physical_status: string;
-      };
-      expect(row.physical_status).toBe('likely_physical');
-    });
-
     describe('Game & release deletion', () => {
       const adminHeaders = { 'x-admin-key': 'test-secret-key' };
 
       beforeEach(() => {
         db.prepare(
-          `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-           VALUES (950, 'del-game', 'Deletable Game', 26, 'likely_physical')`,
+          `INSERT INTO games (stable_id, id, title, platform_id)
+           VALUES (950, 'del-game', 'Deletable Game', 26)`,
         ).run();
         db.prepare(
           `INSERT INTO game_releases (id, game_id, region)
@@ -3373,15 +3355,15 @@ describe('Worker API Logic', () => {
         ).run();
         for (let i = 1; i <= 4; i++) {
           db.prepare(
-            `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-             VALUES (?, ?, ?, 26, 'digital_only')`,
+            `INSERT INTO games (stable_id, id, title, platform_id)
+             VALUES (?, ?, ?, 26)`,
           ).run(960 + i, `coalesce-game-${i}`, `Coalesce Game ${i}`);
           db.prepare(
-            `INSERT INTO game_releases (id, game_id, region)
-             VALUES (?, ?, 'USA')`,
-          ).run(`coalesce-rel-${i}`, 960 + i);
+            `INSERT INTO game_releases (id, game_id, region, variants)
+             VALUES (?, ?, 'USA', ?)`,
+          ).run(`coalesce-rel-${i}`, 960 + i, "Collector's Edition");
         }
-        // User 1 owns all 4 games physically; User 2 owns none
+        // User 1 owns the Collector's Edition of all 4 games; User 2 owns none
         for (let i = 1; i <= 4; i++) {
           db.prepare(
             `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
@@ -3398,7 +3380,7 @@ describe('Worker API Logic', () => {
         const mockShopify = {
           products: [1, 2, 3, 4].map((i) => ({
             id: 880000 + i,
-            title: `Coalesce Game ${i} - Nintendo Switch`,
+            title: `Coalesce Game ${i} Collector's Edition - Nintendo Switch`,
             handle: `coalesce-game-${i}-switch`,
             tags: ['game', 'pre-order'],
             variants: [{ price: '34.99' }],
@@ -3449,8 +3431,8 @@ describe('Worker API Logic', () => {
 
       it('short-circuits syncWorkerBoutiquePreOrders when boutique_feed_hash is unchanged and re-evaluates after markDbDirty', async () => {
         db.prepare(
-          `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-           VALUES (975, 'feed-hash-game', 'Feed Hash Game', 26, 'digital_only')`,
+          `INSERT INTO games (stable_id, id, title, platform_id)
+           VALUES (975, 'feed-hash-game', 'Feed Hash Game', 26)`,
         ).run();
 
         const mockShopify = {
@@ -3620,9 +3602,9 @@ describe('Worker API Logic', () => {
 
       it('PERF-02: syncWorkerRetailDeals incurs 0 writes on unchanged repeat runs and resets only expired sales', async () => {
         db.prepare(
-          `INSERT INTO games (stable_id, id, title, platform_id, physical_status, retail_on_sale, retail_price, retail_regular_price, retail_discount_pct, retail_store, retail_url)
-           VALUES (980, 'active-deal-sw', 'Octopath Traveler II', 26, 'verified_physical', 0, null, null, null, null, null),
-                  (981, 'expired-deal-sw', 'Expired Sale Game', 26, 'verified_physical', 1, 1999, 5999, 67, 'VGP', 'https://videogamesplus.ca/products/expired')`,
+          `INSERT INTO games (stable_id, id, title, platform_id, retail_on_sale, retail_price, retail_regular_price, retail_discount_pct, retail_store, retail_url)
+           VALUES (980, 'active-deal-sw', 'Octopath Traveler II', 26, 0, null, null, null, null, null),
+                  (981, 'expired-deal-sw', 'Expired Sale Game', 26, 1, 1999, 5999, 67, 'VGP', 'https://videogamesplus.ca/products/expired')`,
         ).run();
 
         const vgpMock = {
@@ -4820,15 +4802,13 @@ describe('Worker API Logic', () => {
 
         const newGame = db
           .prepare(
-            "SELECT stable_id, title, physical_status FROM games WHERE title = 'F-Zero 99 Physical Edition'",
+            "SELECT stable_id, title FROM games WHERE title = 'F-Zero 99 Physical Edition'",
           )
           .get() as {
           stable_id: number;
           title: string;
-          physical_status: string;
         };
         expect(newGame).toBeTruthy();
-        expect(newGame.physical_status).toBe('verified_physical');
 
         const trackedRelease = db
           .prepare(
@@ -5236,133 +5216,7 @@ describe('Worker API Logic', () => {
         }
       });
 
-      it('syncWorkerIgdbMetadataBackfill fills only bare games, evaluates tracking rules, and wraps its cursor once per day', async () => {
-        db.exec(`
-          UPDATE platforms SET igdb_id = 59 WHERE id = 26;
-          INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-          VALUES (9101, 'alien-bf', 'Alien', 26, 'verified_physical');
-          INSERT INTO games (stable_id, id, title, platform_id, summary, physical_status)
-          VALUES (9102, 'alien-curated', 'Alien', 26, 'Hand written', 'verified_physical');
-          INSERT INTO game_releases (id, game_id, region)
-          VALUES ('alien-bf-usa', 9101, 'USA');
-          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
-          VALUES (1, 'series', 'Alien', 2, 'home', 0);
-        `);
-        stubIgdbFetch({ Alien: [alienIgdb] });
-        try {
-          const first = await syncWorkerIgdbMetadataBackfill(mockEnv, {
-            batchSize: 1000,
-          });
-          expect(first.skipped).toBe(false);
-          expect(first.matched).toBe(1);
-          expect(first.rulesApplied).toBe(1);
-          expect(first.writesUsed).toBe(4);
-
-          const rows = db
-            .prepare(
-              "SELECT id, igdb_id, summary, canonical_series FROM games WHERE id IN ('alien-bf', 'alien-curated') ORDER BY id",
-            )
-            .all();
-          expect(rows).toEqual([
-            {
-              id: 'alien-bf',
-              igdb_id: 4242,
-              summary: 'Atari 2600 maze game.',
-              canonical_series: 'Alien',
-            },
-            {
-              id: 'alien-curated',
-              igdb_id: null,
-              summary: 'Hand written',
-              canonical_series: null,
-            },
-          ]);
-
-          const trackedRel = db
-            .prepare(
-              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'alien-bf-usa'",
-            )
-            .get() as { ownership_status: number } | undefined;
-          expect(trackedRel?.ownership_status).toBe(2);
-
-          const second = await syncWorkerIgdbMetadataBackfill(mockEnv, {
-            batchSize: 1000,
-          });
-          expect(second).toMatchObject({
-            skipped: true,
-            reason: 'wrapped_to_start',
-            cursor: 0,
-          });
-          const wrapRow = db
-            .prepare(
-              "SELECT value FROM sync_state WHERE key = 'igdb_backfill_last_wrap_date'",
-            )
-            .get() as { value: string };
-          expect(wrapRow?.value).toBe(new Date().toISOString().slice(0, 10));
-
-          // Re-scanning later the same UTC day finishes with completed when no bare games remain
-          const third = await syncWorkerIgdbMetadataBackfill(mockEnv, {
-            batchSize: 1000,
-          });
-          expect(third.skipped).toBe(false);
-          expect(third.matched).toBe(0);
-
-          const fourth = await syncWorkerIgdbMetadataBackfill(mockEnv, {
-            batchSize: 1000,
-          });
-          expect(fourth).toMatchObject({ skipped: true, reason: 'completed' });
-        } finally {
-          vi.unstubAllGlobals();
-        }
-      });
-
-      it('syncWorkerIgdbMetadataBackfill matches bare DAT-hyphenated games against IGDB colon titles', async () => {
-        db.exec(`
-          INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-          VALUES (9201, 'guitar-hero-van-halen-ps2', 'Guitar Hero - Van Halen', 30, 'verified_physical');
-        `);
-        stubIgdbFetch({
-          'Guitar Hero: Van Halen': [
-            {
-              id: 2675,
-              name: 'Guitar Hero: Van Halen',
-              url: 'https://www.igdb.com/games/guitar-hero-van-halen',
-              summary: 'Van Halen rhythm game.',
-              cover: { image_id: 'ghvh_cover' },
-              genres: [{ name: 'Music' }],
-              collections: [{ name: 'Guitar Hero' }],
-              franchises: [{ name: 'Guitar Hero' }],
-              platforms: [8],
-            },
-          ],
-        });
-        try {
-          const res = await syncWorkerIgdbMetadataBackfill(mockEnv, {
-            batchSize: 1000,
-          });
-          expect(res.skipped).toBe(false);
-          expect(res.matched).toBe(1);
-
-          const updated = db
-            .prepare(
-              'SELECT igdb_id, igdb_url, image_url, summary, genres, canonical_series FROM games WHERE stable_id = 9201',
-            )
-            .get();
-          expect(updated).toEqual({
-            igdb_id: 2675,
-            igdb_url: 'https://www.igdb.com/games/guitar-hero-van-halen',
-            image_url:
-              'https://images.igdb.com/igdb/image/upload/t_cover_big/ghvh_cover.jpg',
-            summary: 'Van Halen rhythm game.',
-            genres: 'Music',
-            canonical_series: 'Guitar Hero',
-          });
-        } finally {
-          vi.unstubAllGlobals();
-        }
-      });
-
-      it('POST /api/admin/catalog-seed persists catalog_seed_paused and returns enriched telemetry', async () => {
+      it('POST /api/admin/catalog-seed returns streamlined maintenance telemetry and getBroadCatalogSeedStatus honors includeTableBounds', async () => {
         db.exec(`
           INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical)
           VALUES (7001, 26, 'Telemetry Game (USA)', 'telemetrygame', 'USA', 1);
@@ -5387,7 +5241,7 @@ describe('Worker API Logic', () => {
               'Content-Type': 'application/json',
               Cookie: `${SESSION_COOKIE}=${token}`,
             },
-            body: JSON.stringify({ paused: true }),
+            body: JSON.stringify({}),
           }),
           mockEnv,
         );
@@ -5395,39 +5249,46 @@ describe('Worker API Logic', () => {
         const postJson = (await postRes.json()) as {
           success: boolean;
           status: {
-            paused: boolean;
-            canonicalMinId: number;
-            canonicalMaxId: number;
-            maxGameStableId: number;
-            igdbBackfill: { cursor: number };
+            canonicalTailer: {
+              cursor: number;
+              canonicalMinId: number;
+              canonicalMaxId: number;
+              maxGameStableId: number;
+            };
             igdbRolling: { cursorOffset: number };
-            upstreamSources: { switchRevisionsUpdatedAt: string | null };
+            seriesDiscovery: { cursor: number };
+            upstreamSources: {
+              switchRevisionsUpdatedAt: string | null;
+              nsCollectorsUpdatedAt: string | null;
+              retailPreOrdersUpdatedAt: string | null;
+            };
           };
         };
         expect(postJson.success).toBe(true);
-        expect(postJson.status.paused).toBe(true);
-        expect(postJson.status.canonicalMinId).toBe(7001);
-        expect(postJson.status.canonicalMaxId).toBeGreaterThanOrEqual(7001);
-        expect(postJson.status.maxGameStableId).toBeGreaterThanOrEqual(8001);
-        expect(postJson.status.igdbBackfill).toBeDefined();
+        expect(postJson.status.canonicalTailer.canonicalMinId).toBe(7001);
+        expect(
+          postJson.status.canonicalTailer.canonicalMaxId,
+        ).toBeGreaterThanOrEqual(7001);
+        expect(
+          postJson.status.canonicalTailer.maxGameStableId,
+        ).toBeGreaterThanOrEqual(8001);
         expect(postJson.status.igdbRolling).toBeDefined();
+        expect(postJson.status.seriesDiscovery).toBeDefined();
         expect(postJson.status.upstreamSources).toBeDefined();
 
         const fullStatus = await getBroadCatalogSeedStatus(mockEnv);
-        expect(fullStatus.canonicalMinId).toBe(7001);
-        expect(fullStatus.canonicalMaxId).toBe(7001);
-        expect(fullStatus.maxGameStableId).toBe(8001);
+        expect(fullStatus.canonicalTailer.canonicalMinId).toBe(7001);
+        expect(fullStatus.canonicalTailer.canonicalMaxId).toBe(7001);
+        expect(fullStatus.canonicalTailer.maxGameStableId).toBe(8001);
 
         const prepareSpy = vi.spyOn(mockEnv.DB, 'prepare');
         try {
           const lightStatus = await getBroadCatalogSeedStatus(mockEnv, {
             includeTableBounds: false,
           });
-          expect(lightStatus.paused).toBe(true);
-          expect(lightStatus.canonicalMinId).toBe(0);
-          expect(lightStatus.canonicalMaxId).toBe(0);
-          expect(lightStatus.currentPlatformName).toBeNull();
-          expect(lightStatus.maxGameStableId).toBe(0);
+          expect(lightStatus.canonicalTailer.canonicalMinId).toBe(0);
+          expect(lightStatus.canonicalTailer.canonicalMaxId).toBe(0);
+          expect(lightStatus.canonicalTailer.maxGameStableId).toBe(0);
           const issuedSql = prepareSpy.mock.calls.map((c) => String(c[0]));
           expect(
             issuedSql.some((sql) => sql.includes('canonical_releases')),
@@ -5435,23 +5296,12 @@ describe('Worker API Logic', () => {
         } finally {
           prepareSpy.mockRestore();
         }
-
-        const pausedRow = db
-          .prepare(
-            "SELECT value FROM sync_state WHERE key = 'catalog_seed_paused'",
-          )
-          .get() as { value: string };
-        expect(pausedRow).toEqual({ value: '1' });
-
-        // Calling syncWorkerBroadCatalogPopulation should respect pause immediately
-        const skippedRun = await syncWorkerBroadCatalogPopulation(mockEnv);
-        expect(skippedRun).toMatchObject({ skipped: true, reason: 'paused' });
       });
 
       it('syncWorkerBroadCatalogPopulation in steady-state attaches new regional releases to existing games, ignores World placeholders, and evaluates rules', async () => {
         db.exec(`
-          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, collections, physical_status)
-          VALUES (9201, 'luigis-mansion-2-hd-switch', 'Luigi''s Mansion 2 HD', 26, 'Luigi''s Mansion', 'Luigi''s Mansion', 'verified_physical');
+          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, collections)
+          VALUES (9201, 'luigis-mansion-2-hd-switch', 'Luigi''s Mansion 2 HD', 26, 'Luigi''s Mansion', 'Luigi''s Mansion');
           INSERT INTO game_releases (id, game_id, region)
           VALUES ('luigis-mansion-2-hd-switch-jpn', 9201, 'Japan');
           INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
@@ -5460,9 +5310,7 @@ describe('Worker API Logic', () => {
           VALUES
             (9501, 26, 'Unknown Past Typo', '${normalizeTitleForMatching('Unknown Past Typo')}', 'World', 'Rev 000 (v1.0.0)', NULL, 'nintendo_revised', 1),
             (9502, 26, 'Luigi''s Mansion 2 HD', '${normalizeTitleForMatching("Luigi's Mansion 2 HD")}', 'USA', 'Rev 000 (v1.0.0)', 'LA-H-BANRA-USA', 'nintendo_revised', 1);
-          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_stage', 'done');
           INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9500');
-          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_paused', '0');
         `);
 
         stubIgdbFetch({});
@@ -5509,9 +5357,7 @@ describe('Worker API Logic', () => {
         db.exec(`
           INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical)
           VALUES (9601, 34, 'Constructor', '${normalizeTitleForMatching('Constructor')}', 'USA', 1);
-          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_stage', '2A');
           INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9600');
-          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_paused', '0');
         `);
 
         stubIgdbFetch({});
@@ -5694,86 +5540,6 @@ describe('Worker API Logic', () => {
         }
       });
 
-      it('syncWorkerIgdbMetadataBackfill forwards title and slug in alerts and auto-promotes owned standalone games', async () => {
-        db.exec(`
-          UPDATE platforms SET igdb_id = 59 WHERE id = 26;
-          INSERT INTO games (stable_id, id, title, platform_id, canonical_series, physical_status)
-          VALUES
-            (9321, 'alien-orig', 'Alien', 26, 'Alien', 'verified_physical'),
-            (9322, 'alien-sequel', 'Alien II', 26, 'Alien', 'verified_physical');
-          INSERT INTO game_releases (id, game_id, region)
-          VALUES
-            ('alien-orig-usa', 9321, 'USA'),
-            ('alien-sequel-usa', 9322, 'USA');
-          INSERT INTO user_game_releases (user_id, release_id, ownership_status)
-          VALUES (1, 'alien-orig-usa', 1);
-          INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-          VALUES ('sub-backfill', 1, 'https://push.example.com/bf', 'p256', 'auth', '{"enabled": true, "notify_watched_series": true}', 'agent', datetime('now'), datetime('now'));
-        `);
-        const webPushSpy = vi
-          .spyOn(webPush, 'sendWebPushNotification')
-          .mockResolvedValue({
-            success: true,
-            status: 201,
-            shouldDelete: false,
-          });
-        stubIgdbFetch({
-          Alien: [
-            {
-              ...alienIgdb,
-              collections: [{ name: 'Alien' }],
-            },
-          ],
-          'Alien II': [
-            {
-              id: 4243,
-              name: 'Alien II',
-              url: 'https://www.igdb.com/games/alien-ii',
-              summary: 'Sequel.',
-              cover: { image_id: 'al2' },
-              genres: [{ name: 'Arcade' }],
-              collections: [{ name: 'Alien' }],
-              platforms: [59],
-            },
-          ],
-        });
-        try {
-          const res = await syncWorkerIgdbMetadataBackfill(mockEnv, {
-            batchSize: 1000,
-          });
-          expect(res.skipped).toBe(false);
-          expect(res.matched).toBe(2);
-          expect(res.rulesApplied).toBe(1);
-
-          const rule = db
-            .prepare(
-              "SELECT match_value FROM user_tracking_rules WHERE user_id = 1 AND rule_type = 'series' AND match_value = 'Alien'",
-            )
-            .get() as { match_value: string } | undefined;
-          expect(rule?.match_value).toBe('Alien');
-
-          const sequelStatus = db
-            .prepare(
-              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'alien-sequel-usa'",
-            )
-            .get() as { ownership_status: number } | undefined;
-          expect(sequelStatus?.ownership_status).toBe(2);
-
-          expect(webPushSpy).toHaveBeenCalledTimes(1);
-          expect(webPushSpy).toHaveBeenCalledWith(
-            expect.anything(),
-            expect.objectContaining({
-              title: '✨ New in Alien: Alien II',
-              data: { url: '/game/9322' },
-            }),
-            expect.anything(),
-          );
-        } finally {
-          webPushSpy.mockRestore();
-          vi.unstubAllGlobals();
-        }
-      });
-
       it('syncWorkerIgdbSeriesAndCanonical skips rule self-healing when series did not change unless forceSelfHeal is true, and passively backfills NULL release_date without overwriting existing dates', async () => {
         const { syncWorkerIgdbSeriesAndCanonical } = await import('./worker');
         const envWithIgdb: Env = {
@@ -5895,11 +5661,11 @@ describe('Worker API Logic', () => {
       it('syncWorkerBroadCatalogPopulation resolves IGDB release_date and deduplicates by (platform_id, igdb_id) and non-compilation (platform_id, rom_crc) without skipping compilations', async () => {
         db.exec(`
           UPDATE platforms SET igdb_id = 130, launch_date = '2017-03-03' WHERE id = 26;
-          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, physical_status)
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id)
           VALUES
-            (9410, 'wave-race-64-switch', 'Wave Race 64', 26, 3456, 'verified_physical'),
-            (9411, 'crash-2-switch', 'Crash Bandicoot 2', 26, NULL, 'verified_physical'),
-            (9412, 'box-set-vol-1-switch', 'Box Set Vol 1', 26, 8888, 'verified_physical');
+            (9410, 'wave-race-64-switch', 'Wave Race 64', 26, 3456),
+            (9411, 'crash-2-switch', 'Crash Bandicoot 2', 26, NULL),
+            (9412, 'box-set-vol-1-switch', 'Box Set Vol 1', 26, 8888);
           INSERT INTO game_releases (id, game_id, region, rom_crc)
           VALUES
             ('wr64-usa', 9410, 'USA', 'AABBCCDD'),
@@ -5912,9 +5678,7 @@ describe('Worker API Logic', () => {
             (9705, 26, 'Crash 2 Alternate Title (Europe)', '${normalizeTitleForMatching('Crash 2 Alternate Title')}', 'Europe', '11223355', 1),
             (9703, 26, 'Super Mega Trilogy Pack (USA)', '${normalizeTitleForMatching('Super Mega Trilogy Pack')}', 'USA', '55667788', 1),
             (9704, 26, 'Alien (USA)', '${normalizeTitleForMatching('Alien')}', 'USA', '99887766', 1);
-          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_stage', 'done');
           INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9700');
-          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_paused', '0');
         `);
 
         stubIgdbFetch({
@@ -6006,109 +5770,13 @@ describe('Worker API Logic', () => {
         }
       });
 
-      it('syncWorkerIgdbMetadataBackfill populates missing release_date and suppresses duplicate Seeking alerts when another game on the platform already holds the igdb_id', async () => {
-        db.exec(`
-          UPDATE platforms SET igdb_id = 59, launch_date = '1977-09-11' WHERE id = 26;
-          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, canonical_series, summary, physical_status)
-          VALUES (9420, 'alien-existing', 'Alien', 26, 4242, 'Alien', 'Already matched.', 'verified_physical');
-          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, physical_status)
-          VALUES (9421, 'alien-dup-bare', 'Alien', 26, NULL, 'verified_physical');
-          INSERT INTO game_releases (id, game_id, region, release_date)
-          VALUES ('alien-dup-usa', 9421, 'USA', NULL);
-          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, physical_status)
-          VALUES (9422, 'comet-unique-bare', 'Comet Hunter', 26, NULL, 'verified_physical');
-          INSERT INTO game_releases (id, game_id, region, release_date)
-          VALUES ('comet-unique-usa', 9422, 'USA', NULL);
-          INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
-          VALUES
-            (1, 'series', 'Alien', 2, 'home', 0),
-            (1, 'series', 'Comet', 2, 'home', 0);
-        `);
-
-        stubIgdbFetch({
-          Alien: [
-            {
-              ...alienIgdb,
-              first_release_date: 410227200,
-              release_dates: [
-                {
-                  platform: 59,
-                  release_region: 2,
-                  date: 410227200,
-                },
-              ],
-            },
-          ],
-          'Comet Hunter': [
-            {
-              id: 5252,
-              name: 'Comet Hunter',
-              url: 'https://www.igdb.com/games/comet-hunter',
-              summary: 'Space shooter.',
-              cover: { image_id: 'comet1' },
-              genres: [{ name: 'Shooter' }],
-              collections: [{ name: 'Comet' }],
-              franchises: [],
-              platforms: [59],
-              alternative_names: [],
-              game_localizations: [],
-              first_release_date: 441763200,
-              release_dates: [
-                {
-                  platform: 59,
-                  release_region: 2,
-                  date: 441763200,
-                },
-              ],
-            },
-          ],
-        });
-
-        try {
-          const res = await syncWorkerIgdbMetadataBackfill(mockEnv, {
-            batchSize: 1000,
-          });
-          expect(res.matched).toBe(2);
-
-          const dupRel = db
-            .prepare(
-              "SELECT release_date FROM game_releases WHERE id = 'alien-dup-usa'",
-            )
-            .get() as { release_date: string | null };
-          expect(dupRel.release_date).toBe('1983-01-01');
-
-          const dupTracking = db
-            .prepare(
-              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'alien-dup-usa'",
-            )
-            .get();
-          expect(dupTracking).toBeUndefined();
-
-          const uniqueRel = db
-            .prepare(
-              "SELECT release_date FROM game_releases WHERE id = 'comet-unique-usa'",
-            )
-            .get() as { release_date: string | null };
-          expect(uniqueRel.release_date).toBe('1984-01-01');
-
-          const uniqueTracking = db
-            .prepare(
-              "SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = 'comet-unique-usa'",
-            )
-            .get() as { ownership_status: number };
-          expect(uniqueTracking.ownership_status).toBe(2);
-        } finally {
-          vi.unstubAllGlobals();
-        }
-      });
-
-      it('applies edition-preserving IGDB titles, numeric game IDs, and sequential release IDs during catalog seeding and backfill', async () => {
+      it('applies edition-preserving IGDB titles, numeric game IDs, and sequential release IDs during catalog seeding', async () => {
         db.exec(`
           UPDATE platforms SET igdb_id = 130, launch_date = '2017-03-03' WHERE id = 26;
-          INSERT INTO games (stable_id, id, title, platform_id, manually_verified, physical_status)
+          INSERT INTO games (stable_id, id, title, platform_id, manually_verified)
           VALUES
-            (9501, '9501', 'Xenoblade Chronicles - Definitive Edition', 26, 0, 'verified_physical'),
-            (9502, '9502', 'Custom Curated Title', 26, 1, 'verified_physical');
+            (9501, '9501', 'Xenoblade Chronicles - Definitive Edition', 26, 0),
+            (9502, '9502', 'Custom Curated Title', 26, 1);
           INSERT INTO game_releases (id, game_id, region)
           VALUES
             ('9501-1', 9501, 'USA'),
@@ -6117,38 +5785,10 @@ describe('Worker API Logic', () => {
           VALUES
             (9801, 26, 'Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition (USA)', '${normalizeTitleForMatching('Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition')}', 'USA', 'DEAD1234', 1),
             (9802, 26, 'Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition (Europe)', '${normalizeTitleForMatching('Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition')}', 'Europe', 'DEAD5678', 1);
-          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_stage', 'done');
           INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9800');
-          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_paused', '0');
         `);
 
         stubIgdbFetch({
-          'Xenoblade Chronicles - Definitive Edition': [
-            {
-              id: 7101,
-              name: 'Xenoblade Chronicles: Definitive Edition',
-              url: 'https://www.igdb.com/games/xenoblade-chronicles-definitive-edition',
-              summary: 'RPG',
-              cover: { image_id: 'xbcde' },
-              genres: [{ name: 'Role-playing (RPG)' }],
-              collections: [{ name: 'Xenoblade Chronicles' }],
-              franchises: [],
-              platforms: [130],
-            },
-          ],
-          'Custom Curated Title': [
-            {
-              id: 7102,
-              name: 'Custom: Curated Title',
-              url: 'https://www.igdb.com/games/custom-curated-title',
-              summary: 'Keep curated title',
-              cover: { image_id: 'cct' },
-              genres: [{ name: 'Action' }],
-              collections: [],
-              franchises: [],
-              platforms: [130],
-            },
-          ],
           'Rune Factory - Guardians of Azuma - Nintendo Switch 2 Edition': [
             {
               id: 7103,
@@ -6170,21 +5810,6 @@ describe('Worker API Logic', () => {
         });
 
         try {
-          const backfillRes = await syncWorkerIgdbMetadataBackfill(mockEnv, {
-            batchSize: 1000,
-          });
-          expect(backfillRes.matched).toBe(2);
-
-          const xeno = db
-            .prepare('SELECT title FROM games WHERE stable_id = 9501')
-            .get() as { title: string };
-          expect(xeno.title).toBe('Xenoblade Chronicles: Definitive Edition');
-
-          const curated = db
-            .prepare('SELECT title FROM games WHERE stable_id = 9502')
-            .get() as { title: string };
-          expect(curated.title).toBe('Custom Curated Title');
-
           const seedRes = await syncWorkerBroadCatalogPopulation(mockEnv);
           expect(seedRes.ingestedGames).toBe(1);
           expect(seedRes.ingestedReleases).toBe(2);
@@ -7193,7 +6818,7 @@ describe('Worker API Logic', () => {
     it('scopes default GET /api/games to active collection rows on large catalogs (>500 games), returns full catalog with include_unowned=1, and backfills lite snapshots on daytime cron when latest.json exists', async () => {
       const insertMany = db.transaction(() => {
         const insertGame = db.prepare(
-          `INSERT INTO games (id, title, platform_id, release_medium) VALUES (?, ?, 1, 'physical_retail')`,
+          `INSERT INTO games (id, title, platform_id) VALUES (?, ?, 1)`,
         );
         for (let i = 1; i <= 505; i++) {
           insertGame.run(`bulk-game-${i}`, `Bulk Game ${i}`);
@@ -7290,7 +6915,7 @@ describe('Worker API Logic', () => {
       // Seed 505 unowned games so catalog exceeds 500 threshold and triggers X-Catalog-Partial: 1
       const insertMany = db.transaction(() => {
         const insertGame = db.prepare(
-          `INSERT INTO games (id, title, platform_id, release_medium) VALUES (?, ?, 1, 'physical_retail')`,
+          `INSERT INTO games (id, title, platform_id) VALUES (?, ?, 1)`,
         );
         const insertRel = db.prepare(
           `INSERT INTO game_releases (id, game_id, region) VALUES (?, ?, 'USA')`,
@@ -7454,7 +7079,7 @@ describe('Worker API Logic', () => {
         // 5. Same-day new game + live user state returned by /api/user/collection-overlay and /api/u/alice/collection-overlay
         const newGameInfo = db
           .prepare(
-            `INSERT INTO games (id, title, platform_id, release_medium) VALUES ('same-day-new', 'Same Day Discovery', 1, 'physical_retail')`,
+            `INSERT INTO games (id, title, platform_id) VALUES ('same-day-new', 'Same Day Discovery', 1)`,
           )
           .run();
         db.prepare(
@@ -7776,9 +7401,9 @@ describe('Worker API Logic', () => {
       db.prepare('DELETE FROM games').run();
 
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, physical_status)
-         VALUES (10, 'gap-game-10', 'Gap Game Low', 26, 'verified_physical'),
-                (50000, 'gap-game-50000', 'Gap Game High', 26, 'verified_physical')`,
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (10, 'gap-game-10', 'Gap Game Low', 26),
+                (50000, 'gap-game-50000', 'Gap Game High', 26)`,
       ).run();
       db.prepare(
         `INSERT INTO game_releases (id, game_id, region)
@@ -7847,9 +7472,9 @@ describe('Worker API Logic', () => {
       ).run();
 
       db.prepare(
-        `INSERT INTO games (stable_id, id, title, platform_id, canonical_series, physical_status)
-         VALUES (701, 'metroid-1', 'Metroid Prime 4', 26, 'Metroid', 'verified_physical'),
-                (702, 'metroid-2', 'Metroid Dread', 26, 'Metroid', 'verified_physical')`,
+        `INSERT INTO games (stable_id, id, title, platform_id, canonical_series)
+         VALUES (701, 'metroid-1', 'Metroid Prime 4', 26, 'Metroid'),
+                (702, 'metroid-2', 'Metroid Dread', 26, 'Metroid')`,
       ).run();
       db.prepare(
         `INSERT INTO game_releases (id, game_id, region)
@@ -7906,11 +7531,11 @@ describe('Worker API Logic', () => {
         // Coalesce when > 3 new matched additions arrive in one batch
         webPushSpy.mockClear();
         db.prepare(
-          `INSERT INTO games (stable_id, id, title, platform_id, canonical_series, physical_status)
-           VALUES (703, 'm-3', 'Metroid III', 26, 'Metroid', 'verified_physical'),
-                  (704, 'm-4', 'Metroid IV', 26, 'Metroid', 'verified_physical'),
-                  (705, 'm-5', 'Metroid V', 26, 'Metroid', 'verified_physical'),
-                  (706, 'm-6', 'Metroid VI', 26, 'Metroid', 'verified_physical')`,
+          `INSERT INTO games (stable_id, id, title, platform_id, canonical_series)
+           VALUES (703, 'm-3', 'Metroid III', 26, 'Metroid'),
+                  (704, 'm-4', 'Metroid IV', 26, 'Metroid'),
+                  (705, 'm-5', 'Metroid V', 26, 'Metroid'),
+                  (706, 'm-6', 'Metroid VI', 26, 'Metroid')`,
         ).run();
         db.prepare(
           `INSERT INTO game_releases (id, game_id, region)
@@ -7977,7 +7602,7 @@ describe('Worker API Logic', () => {
       }
     });
 
-    it('syncWorkerBoutiquePreOrders auto-ingests unmatched physical pre-orders as likely_physical and evaluates series rules', async () => {
+    it('syncWorkerBoutiquePreOrders auto-ingests unmatched physical pre-orders and evaluates series rules', async () => {
       db.prepare(
         `INSERT OR REPLACE INTO sync_state (key, value) VALUES ('boutique_seed_completed', '1')`,
       ).run();
@@ -8037,17 +7662,15 @@ describe('Worker API Logic', () => {
 
         const ingestedGame = db
           .prepare(
-            `SELECT stable_id, title, platform_id, physical_status, retail_store FROM games WHERE platform_id = 26 AND title LIKE 'Celeste%'`,
+            `SELECT stable_id, title, platform_id, retail_store FROM games WHERE platform_id = 26 AND title LIKE 'Celeste%'`,
           )
           .get() as {
           stable_id: number;
           title: string;
           platform_id: number;
-          physical_status: string;
           retail_store: string;
         };
         expect(ingestedGame).toBeDefined();
-        expect(ingestedGame.physical_status).toBe('likely_physical');
         expect(ingestedGame.retail_store).toBe('Limited Run Games');
 
         const releases = db
@@ -8064,36 +7687,40 @@ describe('Worker API Logic', () => {
     });
 
     it('syncWorkerRetailDeals auto-ingests unmatched physical retail games with a valid barcode and skips items without IGDB or barcode', async () => {
-      const mockBestBuy = {
-        from: 1,
-        to: 2,
-        total: 2,
-        currentPage: 1,
-        totalPages: 1,
+      const mockVgp = {
         products: [
           {
-            sku: 6600111,
-            name: 'Xenoblade Chronicles X: Definitive Edition - Nintendo Switch',
-            upc: '045496905415',
-            regularPrice: 59.99,
-            salePrice: 49.99,
-            onSale: true,
-            percentSavings: '17',
-            url: 'https://www.bestbuy.com/site/6600111.p',
-            platform: 'Nintendo Switch',
-            onlineAvailability: true,
+            id: 6600111,
+            title:
+              'Xenoblade Chronicles X: Definitive Edition - Nintendo Switch',
+            handle: 'xenoblade-x-de-switch',
+            product_type: 'Nintendo Switch',
+            variants: [
+              {
+                id: 66001111,
+                sku: '6600111',
+                price: '69.99',
+                compare_at_price: '79.99',
+                barcode: '045496905415',
+                available: true,
+              },
+            ],
           },
           {
-            sku: 6600222,
-            name: 'Random Unverified Accessory Game - Nintendo Switch',
-            upc: '',
-            regularPrice: 29.99,
-            salePrice: 19.99,
-            onSale: true,
-            percentSavings: '33',
-            url: 'https://www.bestbuy.com/site/6600222.p',
-            platform: 'Nintendo Switch',
-            onlineAvailability: true,
+            id: 6600222,
+            title: 'Random Unverified Accessory Game - Nintendo Switch',
+            handle: 'random-unverified',
+            product_type: 'Nintendo Switch',
+            variants: [
+              {
+                id: 66002221,
+                sku: '6600222',
+                price: '29.99',
+                compare_at_price: '39.99',
+                barcode: '',
+                available: true,
+              },
+            ],
           },
         ],
       };
@@ -8102,46 +7729,202 @@ describe('Worker API Logic', () => {
         .spyOn(globalThis, 'fetch')
         .mockImplementation(async (input) => {
           const urlStr = String(input);
-          if (urlStr.includes('api.bestbuy.com')) {
-            return new Response(JSON.stringify(mockBestBuy), {
+          if (urlStr.includes('open.er-api.com')) {
+            return new Response(JSON.stringify({ rates: { USD: 0.75 } }), {
               status: 200,
               headers: { 'Content-Type': 'application/json' },
             });
           }
-          return new Response(JSON.stringify({ products: [], records: [] }), {
+          if (
+            urlStr.includes('videogamesplus.ca/collections/sales/products.json')
+          ) {
+            return new Response(JSON.stringify(mockVgp), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          if (urlStr.includes('pnpgamesonline.com')) {
+            return new Response(JSON.stringify([]), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          return new Response(JSON.stringify({ products: [] }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           });
         });
 
-      const retailEnv: Env = {
-        ...mockEnv,
-        BESTBUY_API_KEY: 'test-bb-key',
-      };
-
       try {
-        const res = await syncWorkerRetailDeals(retailEnv);
+        const res = await syncWorkerRetailDeals(mockEnv);
         expect(res.matchedCount).toBeGreaterThanOrEqual(1);
 
         const barcodedGame = db
           .prepare(
-            `SELECT stable_id, title, physical_status, barcode, retail_store FROM games WHERE barcode = '045496905415'`,
+            `SELECT stable_id, title, barcode, retail_store FROM games WHERE barcode = '045496905415'`,
           )
           .get() as {
           stable_id: number;
           title: string;
-          physical_status: string;
           barcode: string;
           retail_store: string;
         };
         expect(barcodedGame).toBeDefined();
-        expect(barcodedGame.physical_status).toBe('verified_physical');
-        expect(barcodedGame.retail_store).toBe('Best Buy');
+        expect(barcodedGame.retail_store).toBe('VGP');
 
         const rejectedGame = db
           .prepare(`SELECT 1 FROM games WHERE title LIKE '%Random Unverified%'`)
           .get();
         expect(rejectedGame).toBeUndefined();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerRetailPreOrders matches existing titles, backfills release_date, and ingests new pre-orders', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (9901, '9901', 'Yooka-Replaylee', 27)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, release_date)
+         VALUES ('9901-1', 9901, 'USA', NULL)`,
+      ).run();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('open.er-api.com')) {
+            return new Response(JSON.stringify({ rates: { USD: 0.75 } }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          if (urlStr.includes('videogamesplus.ca/products.json')) {
+            return new Response(
+              JSON.stringify({
+                products: [
+                  {
+                    id: 9910,
+                    title: 'Yooka-Replaylee - Nintendo Switch 2 (PRE-ORDER)',
+                    handle: 'yooka-replaylee-ns2',
+                    product_type: 'Nintendo Switch 2',
+                    tags: ['PRE-ORDER'],
+                    body_html: '<p>Release Date: November 12, 2026</p>',
+                    variants: [{ id: 99101, price: '69.99', available: true }],
+                  },
+                ],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          if (
+            urlStr.includes('pnpgamesonline.com') &&
+            urlStr.includes('13767')
+          ) {
+            return new Response(
+              JSON.stringify([
+                {
+                  id: 9920,
+                  name: 'Metroid Prime 4: Beyond - Switch 2',
+                  permalink:
+                    'https://pnpgamesonline.com/product/metroid-prime-4-ns2/',
+                  sku: 'PNP-9920',
+                  on_sale: false,
+                  is_in_stock: true,
+                  short_description: '<p>ESTIMATED SHIP DATE MAY 22 2026</p>',
+                  prices: {
+                    price: '8999',
+                    regular_price: '8999',
+                    sale_price: '8999',
+                    currency_minor_unit: 2,
+                  },
+                  attributes: [
+                    {
+                      taxonomy: 'pa_platform',
+                      terms: [{ name: 'Nintendo Switch 2' }],
+                    },
+                  ],
+                },
+              ]),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          return new Response(JSON.stringify({ products: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        });
+
+      try {
+        const res = await syncWorkerRetailPreOrders(mockEnv);
+        expect(res.matchedCount).toBe(1);
+        expect(res.ingestedCount).toBe(1);
+
+        const existingRel = db
+          .prepare("SELECT release_date FROM game_releases WHERE id = '9901-1'")
+          .get() as { release_date: string };
+        expect(existingRel.release_date).toBe('2026-11-12');
+
+        const newGame = db
+          .prepare(
+            "SELECT g.title, g.retail_store, r.release_date FROM games g JOIN game_releases r ON r.game_id = g.stable_id WHERE g.title LIKE 'Metroid Prime 4%'",
+          )
+          .get() as {
+          title: string;
+          retail_store: string;
+          release_date: string;
+        };
+        expect(newGame.retail_store).toBe('PNP Games');
+        expect(newGame.release_date).toBe('2026-05-22');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerNsCollectors ingests canonical rows, hash-skips repeat runs, and links ingested Switch 2 titles', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('gid=764784245')) {
+            return new Response(
+              [
+                'Title,Region,Cart Type,Release Date,Publisher',
+                'Mario Kart World,USA,64GB Cartridge,2025-06-05,Nintendo',
+              ].join('\n'),
+              { status: 200, headers: { 'Content-Type': 'text/csv' } },
+            );
+          }
+          return new Response('Title,Region\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/csv' },
+          });
+        });
+
+      try {
+        const first = await syncWorkerNsCollectors(mockEnv);
+        expect(first.checked).toBe(true);
+        expect(first.hashMatch).toBe(false);
+        expect(first.addedCanonical).toBe(1);
+        expect(first.ingestedGames).toBe(1);
+
+        const row = db
+          .prepare(
+            "SELECT g.title, r.canonical_release_id, r.release_date FROM games g JOIN game_releases r ON r.game_id = g.stable_id WHERE g.platform_id = 27 AND g.title = 'Mario Kart World'",
+          )
+          .get() as {
+          title: string;
+          canonical_release_id: number | null;
+          release_date: string | null;
+        };
+        expect(row.canonical_release_id).toBeGreaterThan(0);
+        expect(row.release_date).toBe('2025-06-05');
+
+        const second = await syncWorkerNsCollectors(mockEnv);
+        expect(second.hashMatch).toBe(true);
+        expect(second.addedCanonical).toBe(0);
       } finally {
         fetchSpy.mockRestore();
       }
@@ -8227,18 +8010,16 @@ describe('Worker API Logic', () => {
 
         const insertedGame = db
           .prepare(
-            `SELECT stable_id, title, platform_id, physical_status, canonical_series FROM games WHERE igdb_id = 99001`,
+            `SELECT stable_id, title, platform_id, canonical_series FROM games WHERE igdb_id = 99001`,
           )
           .get() as {
           stable_id: number;
           title: string;
           platform_id: number;
-          physical_status: string;
           canonical_series: string;
         };
         expect(insertedGame).toBeDefined();
         expect(insertedGame.platform_id).toBe(26);
-        expect(insertedGame.physical_status).toBe('verified_physical');
         expect(insertedGame.canonical_series).toBe('Fire Emblem');
 
         const skippedDigital = db

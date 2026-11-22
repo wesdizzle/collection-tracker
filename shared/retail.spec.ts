@@ -1,26 +1,29 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  cleanBestBuyTitle,
+  cleanRetailTitle,
   decodeHtmlEntities,
   resolveRetailPlatformId,
   normalizeTitle,
-  matchBestBuyProduct,
   matchRetailGameProduct,
   matchRetailToyProduct,
   parseRetailToyTitle,
-  fetchBestBuyDeals,
+  isNonGameRetailTitle,
+  parseRetailReleaseDate,
   fetchCadToUsdRate,
   fetchVgpDeals,
   fetchVgpAmiiboStock,
+  fetchVgpNewPreOrders,
   fetchPnpDeals,
   fetchPnpAmiiboStock,
+  fetchPnpPreOrders,
   fetchAllRetailDeals,
-  BestBuyProduct,
+  fetchAllRetailPreOrders,
+  RetailDealItem,
   CandidateGame,
   CandidateToy,
 } from './retail.js';
 
-describe('Retail Deals & Stock Client (VGP, PNP Games, Best Buy)', () => {
+describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
   describe('decodeHtmlEntities', () => {
     it('should decode named and numeric HTML entities from WooCommerce titles', () => {
       expect(
@@ -32,43 +35,43 @@ describe('Retail Deals & Stock Client (VGP, PNP Games, Best Buy)', () => {
     });
   });
 
-  describe('cleanBestBuyTitle', () => {
+  describe('cleanRetailTitle', () => {
     it('should strip trailing platform suffixes and VGP/PNP tags from titles', () => {
       expect(
-        cleanBestBuyTitle("Marvel's Spider-Man: Miles Morales - PlayStation 4"),
+        cleanRetailTitle("Marvel's Spider-Man: Miles Morales - PlayStation 4"),
       ).toBe("Marvel's Spider-Man: Miles Morales");
 
-      expect(cleanBestBuyTitle('Super Mario Odyssey - Nintendo Switch')).toBe(
+      expect(cleanRetailTitle('Super Mario Odyssey - Nintendo Switch')).toBe(
         'Super Mario Odyssey',
       );
 
-      expect(cleanBestBuyTitle('Halo Infinite - Xbox Series X')).toBe(
+      expect(cleanRetailTitle('Halo Infinite - Xbox Series X')).toBe(
         'Halo Infinite',
       );
 
-      expect(cleanBestBuyTitle('God of War - PS4')).toBe('God of War');
+      expect(cleanRetailTitle('God of War - PS4')).toBe('God of War');
 
-      expect(cleanBestBuyTitle("Demon's Souls [PlayStation 5]")).toBe(
+      expect(cleanRetailTitle("Demon's Souls [PlayStation 5]")).toBe(
         "Demon's Souls",
       );
 
       expect(
-        cleanBestBuyTitle('Final Fantasy VII Rebirth Standard Edition'),
+        cleanRetailTitle('Final Fantasy VII Rebirth Standard Edition'),
       ).toBe('Final Fantasy VII Rebirth');
 
       expect(
-        cleanBestBuyTitle('Silent Hill 2 (PS5) [PEGI Import] - PlayStation 5'),
+        cleanRetailTitle('Silent Hill 2 (PS5) [PEGI Import] - PlayStation 5'),
       ).toBe('Silent Hill 2');
 
       expect(
-        cleanBestBuyTitle(
+        cleanRetailTitle(
           'Mario &#038; Luigi: Brothership [US/ESRB] (Nintendo Switch)',
         ),
       ).toBe('Mario & Luigi: Brothership');
     });
 
     it('should handle empty or undefined titles gracefully', () => {
-      expect(cleanBestBuyTitle('')).toBe('');
+      expect(cleanRetailTitle('')).toBe('');
     });
   });
 
@@ -93,7 +96,7 @@ describe('Retail Deals & Stock Client (VGP, PNP Games, Best Buy)', () => {
     });
   });
 
-  describe('matchRetailGameProduct / matchBestBuyProduct', () => {
+  describe('matchRetailGameProduct', () => {
     const candidates: CandidateGame[] = [
       {
         stable_id: 101,
@@ -120,29 +123,35 @@ describe('Retail Deals & Stock Client (VGP, PNP Games, Best Buy)', () => {
     ];
 
     it('should match game by exact UPC barcode when present', () => {
-      const product: BestBuyProduct = {
-        sku: 5358600,
+      const product: RetailDealItem = {
+        store: 'VGP',
+        sku: '5358600',
         name: 'God of War PS4 Edition',
         upc: '071171950550',
         regularPrice: 19.99,
         salePrice: 9.99,
         onSale: true,
-        url: 'https://bestbuy.com/gow',
+        percentSavings: 50,
+        url: 'https://videogamesplus.ca/products/gow-ps4',
+        onlineAvailability: true,
       };
 
-      const matchedId = matchBestBuyProduct(product, candidates);
+      const matchedId = matchRetailGameProduct(product, candidates);
       expect(matchedId).toBe(101);
     });
 
     it('should match game by title and platform when UPC is not present', () => {
-      const product: BestBuyProduct = {
-        sku: 999999,
+      const product: RetailDealItem = {
+        store: 'PNP Games',
+        sku: '999999',
         name: 'Halo Infinite - Xbox Series X',
         platform: 'Xbox Series X',
         regularPrice: 59.99,
         salePrice: 19.99,
         onSale: true,
-        url: 'https://bestbuy.com/halo',
+        percentSavings: 67,
+        url: 'https://pnpgamesonline.com/product/halo',
+        onlineAvailability: true,
       };
 
       const matchedId = matchRetailGameProduct(product, candidates);
@@ -150,28 +159,34 @@ describe('Retail Deals & Stock Client (VGP, PNP Games, Best Buy)', () => {
     });
 
     it('should not match game if platform does not match', () => {
-      const product: BestBuyProduct = {
-        sku: 888888,
+      const product: RetailDealItem = {
+        store: 'VGP',
+        sku: '888888',
         name: 'God of War - PlayStation 5',
         platform: 'PlayStation 5', // PS5 (35), but candidate is PS4 (34)
         regularPrice: 19.99,
         salePrice: 9.99,
         onSale: true,
-        url: 'https://bestbuy.com/gow-ps5',
+        percentSavings: 50,
+        url: 'https://videogamesplus.ca/products/gow-ps5',
+        onlineAvailability: true,
       };
 
-      const matchedId = matchBestBuyProduct(product, candidates);
+      const matchedId = matchRetailGameProduct(product, candidates);
       expect(matchedId).toBeNull();
     });
 
     it('should not falsely match a standalone amiibo figure to a game with the same title', () => {
-      const product: BestBuyProduct = {
-        sku: 777777,
+      const product: RetailDealItem = {
+        store: 'PNP Games',
+        sku: '777777',
         name: 'Metroid - amiibo',
         regularPrice: 21.99,
         salePrice: 14.99,
         onSale: true,
+        percentSavings: 32,
         url: 'https://pnpgamesonline.com/product/metroid-amiibo/',
+        onlineAvailability: true,
       };
 
       expect(matchRetailGameProduct(product, candidates)).toBeNull();
@@ -361,85 +376,32 @@ describe('Retail Deals & Stock Client (VGP, PNP Games, Best Buy)', () => {
     });
   });
 
-  describe('fetchBestBuyDeals', () => {
-    it('should fetch pages of deals and aggregate products', async () => {
-      const mockFetch = vi.fn().mockImplementation((url: string) => {
-        const urlObj = new URL(url);
-        const page = urlObj.searchParams.get('page') || '1';
-
-        if (page === '1') {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                from: 1,
-                to: 2,
-                total: 3,
-                currentPage: 1,
-                totalPages: 2,
-                products: [
-                  {
-                    sku: 1,
-                    name: 'Game 1 - PS4',
-                    regularPrice: 29.99,
-                    salePrice: 9.99,
-                    onSale: true,
-                    percentSavings: '67',
-                    url: 'https://bb.com/1',
-                  },
-                  {
-                    sku: 2,
-                    name: 'Game 2 - Switch',
-                    regularPrice: 59.99,
-                    salePrice: 29.99,
-                    onSale: true,
-                    percentSavings: '50',
-                    url: 'https://bb.com/2',
-                  },
-                ],
-              }),
-          });
-        }
-
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              from: 3,
-              to: 3,
-              total: 3,
-              currentPage: 2,
-              totalPages: 2,
-              products: [
-                {
-                  sku: 3,
-                  name: 'Game 3 - Xbox One',
-                  regularPrice: 19.99,
-                  salePrice: 4.99,
-                  onSale: true,
-                  percentSavings: '75',
-                  url: 'https://bb.com/3',
-                },
-              ],
-            }),
-        });
-      });
-
-      const deals = await fetchBestBuyDeals(
-        'test_key',
-        mockFetch as unknown as typeof fetch,
-        2,
+  describe('isNonGameRetailTitle & parseRetailReleaseDate', () => {
+    it('should filter out hardware, accessories, soundtracks, guides, and TCG items', () => {
+      expect(isNonGameRetailTitle('Nintendo Switch 2 Pro Controller')).toBe(
+        true,
       );
-      expect(deals.length).toBe(3);
-      expect(deals[0].sku).toBe(1);
-      expect(deals[2].sku).toBe(3);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(isNonGameRetailTitle('Metroid Dread Vinyl Soundtrack OST')).toBe(
+        true,
+      );
+      expect(
+        isNonGameRetailTitle('Pokemon Scarlet & Violet Booster Box TCG'),
+      ).toBe(true);
+      expect(isNonGameRetailTitle('Metroid Prime 4: Beyond - Switch 2')).toBe(
+        false,
+      );
     });
 
-    it('should throw error when api key is missing', async () => {
-      await expect(fetchBestBuyDeals('')).rejects.toThrow(
-        'Best Buy API key is required',
+    it('should parse shipped/release dates and skip Dec 31 placeholders', () => {
+      expect(
+        parseRetailReleaseDate('<p>ESTIMATED SHIP DATE MAY 22 2026</p>'),
+      ).toBe('2026-05-22');
+      expect(parseRetailReleaseDate('Release Date: October 17, 2026')).toBe(
+        '2026-10-17',
       );
+      expect(
+        parseRetailReleaseDate('ESTIMATED SHIP DATE DECEMBER 31 2026'),
+      ).toBeNull();
     });
   });
 
@@ -659,7 +621,7 @@ describe('Retail Deals & Stock Client (VGP, PNP Games, Best Buy)', () => {
   });
 
   describe('fetchAllRetailDeals', () => {
-    it('should aggregate VGP and PNP deals even without a Best Buy API key', async () => {
+    it('should aggregate VGP and PNP deals cleanly', async () => {
       const mockFetch = vi.fn().mockImplementation((url: string) => {
         if (url.includes('open.er-api.com')) {
           return Promise.resolve({
@@ -740,8 +702,119 @@ describe('Retail Deals & Stock Client (VGP, PNP Games, Best Buy)', () => {
       expect(result.cadToUsdRate).toBe(0.75);
       expect(result.sources.vgp).toBe(1);
       expect(result.sources.pnp).toBe(1);
-      expect(result.sources.bestbuy).toBe(0);
       expect(result.deals.length).toBe(2);
+    });
+  });
+
+  describe('fetchAllRetailPreOrders & pre-order scrapers', () => {
+    it('should fetch and parse VGP and PNP game pre-orders while excluding non-games', async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('open.er-api.com')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ rates: { USD: 0.75 } }),
+          });
+        }
+        if (url.includes('videogamesplus.ca/products.json')) {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                products: [
+                  {
+                    id: 1001,
+                    title: 'Yooka-Replaylee - Nintendo Switch 2 (PRE-ORDER)',
+                    handle: 'yooka-replaylee-ns2',
+                    product_type: 'Nintendo Switch 2',
+                    tags: ['PRE-ORDER'],
+                    body_html: '<p>Release Date: November 12, 2026</p>',
+                    variants: [
+                      {
+                        id: 10011,
+                        price: '69.99',
+                        compare_at_price: null,
+                        available: true,
+                      },
+                    ],
+                  },
+                  {
+                    id: 1002,
+                    title: 'Switch 2 Pro Controller (PRE-ORDER)',
+                    handle: 'switch-2-pro-controller',
+                    product_type: 'Accessory',
+                    tags: ['PRE-ORDER'],
+                    variants: [
+                      {
+                        id: 10021,
+                        price: '99.99',
+                        compare_at_price: null,
+                        available: true,
+                      },
+                    ],
+                  },
+                ],
+              }),
+          });
+        }
+        if (url.includes('pnpgamesonline.com') && url.includes('13767')) {
+          return Promise.resolve({
+            ok: true,
+            headers: new Headers({ 'x-wp-totalpages': '1' }),
+            json: () =>
+              Promise.resolve([
+                {
+                  id: 2001,
+                  name: 'Metroid Prime 4: Beyond &#8211; Switch 2',
+                  permalink:
+                    'https://pnpgamesonline.com/product/metroid-prime-4-ns2/',
+                  sku: 'PNP-2001',
+                  on_sale: false,
+                  is_in_stock: false,
+                  short_description: '<p>ESTIMATED SHIP DATE MAY 22 2026</p>',
+                  prices: {
+                    price: '8999',
+                    regular_price: '8999',
+                    sale_price: '8999',
+                    currency_minor_unit: 2,
+                  },
+                  attributes: [
+                    {
+                      taxonomy: 'pa_platform',
+                      terms: [{ name: 'Nintendo Switch 2' }],
+                    },
+                  ],
+                },
+              ]),
+          });
+        }
+        return Promise.resolve({ ok: false, status: 404 });
+      });
+
+      const vgpOnly = await fetchVgpNewPreOrders(
+        mockFetch as unknown as typeof fetch,
+        1,
+        0.75,
+      );
+      expect(vgpOnly).toHaveLength(1);
+      expect(vgpOnly[0].releaseDate).toBe('2026-11-12');
+      expect(vgpOnly[0].isPreOrder).toBe(true);
+
+      const pnpOnly = await fetchPnpPreOrders(
+        mockFetch as unknown as typeof fetch,
+        1,
+        0.75,
+      );
+      expect(pnpOnly).toHaveLength(1);
+      expect(pnpOnly[0].releaseDate).toBe('2026-05-22');
+      expect(pnpOnly[0].isPreOrder).toBe(true);
+
+      const all = await fetchAllRetailPreOrders({
+        fetchFn: mockFetch as unknown as typeof fetch,
+        maxVgpPages: 1,
+        maxPnpPages: 1,
+      });
+      expect(all.sources).toEqual({ vgp: 1, pnp: 1 });
+      expect(all.preOrders).toHaveLength(2);
     });
   });
 });

@@ -21,7 +21,6 @@ runWranglerDeploy({
     'EBAY_CLIENT_ID',
     'EBAY_CLIENT_SECRET',
     'MARKET_PRICING_ACCESS',
-    'BESTBUY_API_KEY',
     'VAPID_PUBLIC_KEY',
     'VAPID_PRIVATE_KEY',
     'APP_NAME',

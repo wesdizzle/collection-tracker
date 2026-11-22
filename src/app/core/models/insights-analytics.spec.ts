@@ -262,7 +262,7 @@ describe('insights-analytics', () => {
     expect(stats[1].catalogCount).toBe(1);
   });
 
-  it('computes physical media ownership stats across multi-disc releases excluding digital-native games', () => {
+  it('computes physical media ownership stats across multi-disc releases excluding unowned games', () => {
     const games: Game[] = [
       ...ownedGames,
       {
@@ -280,17 +280,16 @@ describe('insights-analytics', () => {
       },
       {
         stable_id: 4,
-        id: 'digital-ps1',
-        game_id: 'digital-ps1',
-        title: 'Digital Release',
+        id: 'seeking-ps1',
+        game_id: 'seeking-ps1',
+        title: 'Unowned PS1 Game',
         series: 'Misc',
         canonical_series: 'Misc',
         platform: 'PS1',
         platform_id: 2,
-        ownership_status: OwnershipStatus.Owned,
+        ownership_status: OwnershipStatus.Seeking,
         play_status: PlayStatus.Unplayed,
         has_media: 0,
-        release_medium: 'digital_native',
       },
     ];
 

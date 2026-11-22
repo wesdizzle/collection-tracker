@@ -286,27 +286,22 @@ import {
                       <span
                         class="notif-status-badge"
                         [class.active]="
-                          !seed.paused &&
-                          seed.stage !== 'done' &&
-                          seed.stage !== 'completed'
+                          seed.canonicalTailer.pendingCanonicalRows > 0
                         "
                         [title]="
-                          'Stage ' +
-                          seed.stage.toUpperCase() +
-                          ': ' +
-                          (seed.dailyWritesUsed ?? seed.writesUsedToday) +
+                          'Maintenance Active: ' +
+                          seed.canonicalTailer.writesUsedToday +
                           ' / ' +
-                          seed.dailyWriteBudget +
+                          seed.canonicalTailer.dailyWriteBudget +
                           ' writes today'
                         "
                       >
                         {{
-                          seed.paused
-                            ? 'Seed Paused'
-                            : seed.stage === 'done' ||
-                                seed.stage === 'completed'
-                              ? 'Seeded'
-                              : 'Stage ' + seed.stage.toUpperCase()
+                          seed.canonicalTailer.pendingCanonicalRows > 0
+                            ? 'Ingesting (' +
+                              seed.canonicalTailer.pendingCanonicalRows +
+                              ')'
+                            : 'Healthy'
                         }}
                       </span>
                     }
@@ -961,18 +956,6 @@ export class ProfileModalComponent implements OnInit {
             void this.collectionService.refreshAll();
           }
         },
-        error: () => {},
-      });
-  }
-
-  public toggleCatalogSeedPause(): void {
-    const current = this.catalogSeedStatus();
-    if (!current) return;
-    const nextPaused = !current.paused;
-    this.collectionService
-      .updateCatalogSeedControl({ paused: nextPaused })
-      .subscribe({
-        next: (status) => this.catalogSeedStatus.set(status),
         error: () => {},
       });
   }

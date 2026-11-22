@@ -615,13 +615,11 @@ export class CollectionService implements OnDestroy {
   }
 
   public updateCatalogSeedControl(payload: {
-    paused?: boolean;
-    stage?: '2A' | '2B' | 'done';
-    cursor?: number;
     runBatchNow?: boolean;
-    runBackfillNow?: boolean;
     runRollingRefreshNow?: boolean;
     runSeriesDiscoveryNow?: boolean;
+    runNsCollectorsNow?: boolean;
+    runRetailPreOrdersNow?: boolean;
   }): Observable<CatalogSeedStatus> {
     return this.http
       .post<
@@ -1295,7 +1293,6 @@ export class CollectionService implements OnDestroy {
       igdb_url: phase1Match.igdb_url || overlaid.igdb_url,
       summary: phase1Match.summary || overlaid.summary,
       genres: phase1Match.genres || overlaid.genres,
-      physical_status: phase1Match.physical_status ?? overlaid.physical_status,
       ownership_status: phase1Match.ownership_status,
       play_status: phase1Match.play_status,
       queued: phase1Match.queued ?? overlaid.queued,
@@ -1812,7 +1809,7 @@ export class CollectionService implements OnDestroy {
   }
 
   /**
-   * Triggers a retail deals and clearance scan across Best Buy, VGP, and PNP Games.
+   * Triggers a retail deals and clearance scan across VGP and PNP Games.
    */
   syncRetailDeals(): Observable<{
     success: boolean;

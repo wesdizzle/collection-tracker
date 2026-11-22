@@ -545,45 +545,6 @@ describe('ItemDetailComponent', () => {
     expect(discsSection.textContent).not.toContain('Single Cartridge');
   });
 
-  it('should display extracted archival ROM provenance and badge', async () => {
-    vi.spyOn(collectionService, 'getGameById').mockReturnValue(
-      of({
-        ...mockGame,
-        title: 'EarthBound Beginnings',
-        platform: 'NES',
-        physical_status: 'digital_extracted_rom',
-        release_medium: 'digital_extracted_rom',
-        origin_metadata: JSON.stringify({
-          origin_type: 'extracted_virtual_console',
-          origin_platform: 'Wii U Virtual Console',
-          origin_channel: 'Wii U Virtual Console',
-          origin_year: 2015,
-          target_hardware: 'Nintendo Entertainment System / Famicom',
-          notes: 'First official English localization release.',
-        }),
-      }),
-    );
-    paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
-
-    const compiled = fixture.nativeElement;
-    // Check extracted ROM pill
-    const extractedPill = compiled.querySelector('.stat-pill.extracted-rom');
-    expect(extractedPill).toBeTruthy();
-    expect(extractedPill.textContent).toContain('Extracted Archival ROM');
-
-    // Check provenance card
-    const provenanceCard = compiled.querySelector('.provenance-section');
-    expect(provenanceCard).toBeTruthy();
-    expect(provenanceCard.textContent).toContain('Wii U Virtual Console');
-    expect(provenanceCard.textContent).toContain('2015');
-    expect(provenanceCard.textContent).toContain(
-      'First official English localization release.',
-    );
-  });
-
   it('should display included bundled games and bonus discs', async () => {
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(
       of({
@@ -719,9 +680,8 @@ describe('ItemDetailComponent', () => {
       retail_regular_price: 3499,
       retail_discount_pct: 57,
       retail_on_sale: 1,
-      retail_store: 'Best Buy',
-      retail_url:
-        'https://www.bestbuy.com/site/hollow-knight-nintendo-switch/6352097.p?skuId=6352097',
+      retail_store: 'VGP',
+      retail_url: 'https://videogamesplus.ca/products/hollow-knight-switch',
     };
     vi.spyOn(collectionService, 'getGameById').mockReturnValue(of(dealGame));
     paramMapSubject.next(convertToParamMap({ id: '1', type: 'game' }));
@@ -983,7 +943,6 @@ describe('ItemDetailComponent', () => {
         platform: 'Atari 2600',
         platform_id: 10,
         ownership_status: 0,
-        physical_status: 'verified_physical',
         rom_name: 'Asteroids (Japan, USA).a26',
         releases: [
           {
@@ -1093,14 +1052,6 @@ describe('ItemDetailComponent', () => {
           ownership_status: 1,
           play_status: PlayStatus.Played,
           has_media: 1,
-          physical_status: 'digital_extracted_rom',
-          release_medium: 'digital_extracted_rom',
-          origin_metadata: JSON.stringify({
-            origin_channel: 'Wii U Virtual Console',
-            origin_year: 2015,
-            target_hardware: 'SNES',
-            notes: 'Extracted VC release',
-          }),
           bundled_games: [
             {
               stable_id: 201,
@@ -1171,14 +1122,12 @@ describe('ItemDetailComponent', () => {
       expect(compiled.querySelector('.play-status-pill')).toBeNull();
       expect(compiled.querySelector('.ownership-pill')).toBeNull();
 
-      // Media ownership details (Disc/Cart Owned / Missing buttons and Extracted Archival ROM pill) are omitted
+      // Media ownership details (Disc/Cart Owned / Missing buttons) are omitted
       expect(compiled.querySelector('.disc-actions')).toBeNull();
-      expect(compiled.querySelector('.stat-pill.extracted-rom')).toBeNull();
       expect(compiled.textContent).not.toContain('Cart Owned');
       expect(compiled.textContent).not.toContain('Disc Owned');
 
-      // Provenance sections (Archival Origin Provenance and Acquisition Journal & Provenance) are omitted
-      expect(compiled.querySelector('.provenance-section')).toBeNull();
+      // Acquisition Journal & Provenance is omitted
       expect(
         compiled.querySelector('[data-testid="journal-section"]'),
       ).toBeNull();

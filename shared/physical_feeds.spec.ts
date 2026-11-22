@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   cleanBoutiqueTitle,
   fetchBoutiquePreOrders,
+  fetchLimitedGameNewsReleases,
   BoutiqueFeedConfig,
   BOUTIQUE_FEED_CONFIGS,
 } from './physical_feeds.js';
@@ -73,6 +74,15 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
 
       const pin = cleanBoutiqueTitle('Celeste Enamel Pin Set');
       expect(pin.isGame).toBe(false);
+
+      expect(cleanBoutiqueTitle('Mario Desk Mat').isGame).toBe(false);
+      expect(cleanBoutiqueTitle('Game X Slipcover').isGame).toBe(false);
+      expect(cleanBoutiqueTitle('Hollow Knight Acrylic Stand').isGame).toBe(
+        false,
+      );
+      expect(cleanBoutiqueTitle('Game Y (Digital Code Only)').isGame).toBe(
+        false,
+      );
     });
 
     it('should recognize retro console cartridges', () => {
@@ -204,6 +214,8 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
         'Serenity Forge',
         'Premium Edition Games',
         'CastleMania',
+        'Silver Lining Direct',
+        'First Press Games',
       ]);
       expect(storeNames).not.toContain('VGP');
       expect(storeNames).not.toContain('PNP Games');
@@ -345,6 +357,123 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
         mockFetch as unknown as typeof fetch,
       );
       expect(results).toEqual([]);
+    });
+
+    it('should support multi-page Shopify pagination when maxPages > 1', async () => {
+      const page1Products = Array.from({ length: 250 }, (_, idx) => ({
+        id: idx + 1,
+        title: `Paged Game ${idx + 1} (Switch)`,
+        handle: `paged-game-${idx + 1}`,
+        variants: [{ price: '39.99', available: true }],
+      }));
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('page=2')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              products: [
+                {
+                  id: 251,
+                  title: 'Final Page Game (PS5)',
+                  handle: 'final-page-game',
+                  variants: [{ price: '49.99', available: true }],
+                },
+              ],
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ products: page1Products }),
+        });
+      });
+
+      const store: BoutiqueFeedConfig[] = [
+        {
+          store: 'Silver Lining Direct',
+          url: 'https://direct.silverliningint.com/products.json?limit=250',
+          baseUrl: 'https://direct.silverliningint.com',
+          type: 'shopify',
+        },
+      ];
+
+      const results = await fetchBoutiquePreOrders(
+        mockFetch as unknown as typeof fetch,
+        store,
+        3,
+      );
+      expect(results).toHaveLength(251);
+      expect(results[250].store).toBe('Silver Lining Direct');
+      expect(results[250].platformId).toBe(35);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('fetchLimitedGameNewsReleases', () => {
+    it('should parse multi-platform announcements, publisher framing, and Asia English tags', async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/categories')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => [
+              { id: 4, name: 'Nintendo Switch', slug: 'nintendo-switch' },
+              { id: 3, name: 'PlayStation 5', slug: 'playstation-5' },
+              { id: 10022, name: 'Asia English', slug: 'asia-english' },
+            ],
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: 501,
+              date_gmt: '2026-11-20T12:00:00',
+              link: 'https://limitedgamenews.com/2026/11/castlevania/',
+              title: {
+                rendered:
+                  'Red Art Games announces Castlevania Dominus Collection for Nintendo Switch and PS5',
+              },
+              excerpt: {
+                rendered:
+                  '<p>Physical editions open for pre-order on Switch and PS5.</p>',
+              },
+              categories: [4, 3],
+            },
+            {
+              id: 502,
+              date_gmt: '2026-11-21T09:00:00',
+              link: 'https://limitedgamenews.com/2026/11/shiren/',
+              title: {
+                rendered: 'Shiren the Wanderer &#8211; Switch 2 (Asia English)',
+              },
+              excerpt: {
+                rendered: '<p>Import physical edition available.</p>',
+              },
+              categories: [10022],
+            },
+            {
+              id: 503,
+              date_gmt: '2026-11-21T10:00:00',
+              link: 'https://limitedgamenews.com/2026/11/roundup/',
+              title: { rendered: 'Weekly Physical Release Roundup' },
+              excerpt: { rendered: '<p>Everything released this week.</p>' },
+              categories: [4],
+            },
+          ],
+        });
+      });
+
+      const items = await fetchLimitedGameNewsReleases(
+        mockFetch as unknown as typeof fetch,
+      );
+      expect(items).toHaveLength(3);
+      expect(items[0].store).toBe('Limited Game News');
+      expect(items[0].cleanTitle).toBe('Castlevania Dominus Collection');
+      expect(items.slice(0, 2).map((i) => i.platformId)).toEqual([26, 35]);
+
+      expect(items[2].cleanTitle).toBe('Shiren the Wanderer');
+      expect(items[2].platformId).toBe(27);
+      expect(items[2].region).toBe('Asia');
     });
   });
 });

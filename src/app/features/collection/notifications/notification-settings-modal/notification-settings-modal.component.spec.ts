@@ -29,7 +29,7 @@ describe('NotificationSettingsModalComponent', () => {
     minDiscountPct: 20,
     maxPriceCents: null,
     platformIds: [],
-    stores: ['Best Buy', 'VGP', 'PNP Games'],
+    stores: ['VGP', 'PNP Games'],
   };
 
   beforeEach(() => {
@@ -115,12 +115,12 @@ describe('NotificationSettingsModalComponent', () => {
   });
 
   it('should toggle store selections while preserving at least one', () => {
-    expect(component.isStoreSelected('Best Buy')).toBe(true);
-    component.toggleStore('Best Buy');
-    expect(component.isStoreSelected('Best Buy')).toBe(false);
+    expect(component.isStoreSelected('VGP')).toBe(true);
+    component.toggleStore('VGP');
+    expect(component.isStoreSelected('VGP')).toBe(false);
 
-    component.toggleStore('Best Buy');
-    expect(component.isStoreSelected('Best Buy')).toBe(true);
+    component.toggleStore('VGP');
+    expect(component.isStoreSelected('VGP')).toBe(true);
   });
 
   it('should toggle platform selection', () => {

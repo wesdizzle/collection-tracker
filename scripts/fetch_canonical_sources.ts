@@ -1,16 +1,18 @@
 /**
- * CANONICAL DAT DOWNLOADER UTILITY
+ * CANONICAL SOURCES FETCHER UTILITY
  *
- * Automatically downloads and updates official, canonical DAT files for all tracked platforms:
- * 1. Redump (Optical Disc Systems): Fetches latest zip archives from http://redump.org/datfile/<slug>/
- *    and extracts canonical XML DATs into `dats/`.
- * 2. No-Intro (Cartridge & ROM Systems): Fetches latest canonical XML DATs from the master
- *    No-Intro daily mirror into `dats/No-Intro/`.
+ * Fetches official and community-maintained offline physical verification sources:
+ * 1. Redump & No-Intro XML DAT files into `dats/`
+ * 2. MAME Neo Geo AES (`hash/neogeo.xml`) into `data/sources/`
+ * 3. r/NSCollectors Switch 1 & 2 CSV tabs into `data/sources/nscollectors/`
+ * 4. Community PS5 Physical Database (PS5DB) CSV into `data/sources/ps5db.csv`
+ * 5. SerialStation OpenAPI v1 PlayStation discs into `data/sources/serialstation_*.json`
+ * 6. Retail & boutique back-catalogs + LGN announcements into `data/sources/retail_backcatalog.json`
  *
  * USAGE:
- *   npx tsx scripts/download_canonical_dats.ts
- *   npm run dats:download
- *   npm run dats:update (Downloads latest DATs and immediately runs synchronization)
+ *   npx tsx scripts/fetch_canonical_sources.ts [--source=dats,neogeo,nscollectors,ps5db,serialstation,retail]
+ *   npm run sources:fetch
+ *   npm run sources:update (Fetches latest sources and immediately runs synchronization)
  */
 
 import * as fs from 'fs';
@@ -18,6 +20,11 @@ import * as os from 'node:os';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { fetchNeoGeoSources } from './lib/sources/neogeo.js';
+import { fetchNsCollectorsSources } from './lib/sources/nscollectors_sync.js';
+import { fetchPs5DbSource } from './lib/sources/ps5db.js';
+import { fetchSerialStationSources } from './lib/sources/serialstation.js';
+import { fetchRetailBackCatalogSources } from './lib/sources/retail_backcatalog.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1389,16 +1396,162 @@ export async function runDatDownloads() {
     );
   }
   console.log(
-    '\n👉 Next step: Run `npm run dats:sync` to parse & compile SQL seed for Cloudflare D1.\n',
+    '\n👉 Next step: Run `npm run sources:sync` to parse & compile SQL seed for Cloudflare D1.\n',
   );
 }
 
 export const downloadAllCanonicalDats = runDatDownloads;
 
+export type CanonicalSourceFilter =
+  | 'dats'
+  | 'neogeo'
+  | 'nscollectors'
+  | 'ps5db'
+  | 'serialstation'
+  | 'retail'
+  | 'all';
+
+const VALID_FETCH_SOURCES = new Set<CanonicalSourceFilter>([
+  'dats',
+  'neogeo',
+  'nscollectors',
+  'ps5db',
+  'serialstation',
+  'retail',
+  'all',
+]);
+
+export function parseSourceFilterArg(raw?: string): CanonicalSourceFilter[] {
+  if (!raw || !raw.trim()) return ['all'];
+  const tokens = raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (tokens.length === 0 || tokens.includes('all')) return ['all'];
+  const resolved: CanonicalSourceFilter[] = [];
+  for (const token of tokens) {
+    if (!VALID_FETCH_SOURCES.has(token as CanonicalSourceFilter)) {
+      throw new Error(
+        `Unknown source "${token}". Valid values: dats, neogeo, nscollectors, ps5db, serialstation, retail, all`,
+      );
+    }
+    if (!resolved.includes(token as CanonicalSourceFilter)) {
+      resolved.push(token as CanonicalSourceFilter);
+    }
+  }
+  return resolved;
+}
+
+export interface FetchCanonicalSourcesOptions {
+  sources?: CanonicalSourceFilter[];
+  sourcesDir?: string;
+  maxPages?: number;
+  fetchFn?: typeof fetch;
+}
+
+export async function fetchCanonicalSources(
+  options: FetchCanonicalSourcesOptions = {},
+): Promise<{
+  fetchedSources: string[];
+  sourcesDir: string;
+}> {
+  const sourcesDir =
+    options.sourcesDir || path.join(rootDir, 'data', 'sources');
+  fs.mkdirSync(sourcesDir, { recursive: true });
+  const selected = new Set<CanonicalSourceFilter>(
+    options.sources && options.sources.length > 0 ? options.sources : ['all'],
+  );
+  const runAll = selected.has('all');
+  const fetchFn = options.fetchFn ?? fetch;
+  const fetchedSources: string[] = [];
+
+  if (runAll || selected.has('dats')) {
+    await runDatDownloads();
+    fetchedSources.push('dats');
+  }
+
+  if (runAll || selected.has('neogeo')) {
+    const res = await fetchNeoGeoSources(sourcesDir, fetchFn);
+    console.log(
+      `🕹️ [Neo Geo] Saved MAME neogeo.xml (${(res.bytes / 1024).toFixed(0)} KB, ${res.aesCount} AES titles)`,
+    );
+    fetchedSources.push('neogeo');
+  }
+
+  if (runAll || selected.has('nscollectors')) {
+    const res = await fetchNsCollectorsSources(sourcesDir, fetchFn);
+    console.log(
+      `📋 [r/NSCollectors] Saved ${res.tabsFetched} CSV tabs (${res.totalEntries} Switch physical records)`,
+    );
+    fetchedSources.push('nscollectors');
+  }
+
+  if (runAll || selected.has('ps5db')) {
+    const res = await fetchPs5DbSource(sourcesDir, fetchFn);
+    console.log(
+      `💿 [PS5DB] Saved ps5db.csv (${(res.bytes / 1024).toFixed(0)} KB, ${res.count} PS5 titles)`,
+    );
+    fetchedSources.push('ps5db');
+  }
+
+  if (runAll || selected.has('serialstation')) {
+    const res = await fetchSerialStationSources(sourcesDir, {
+      maxPages: options.maxPages,
+      fetchFn,
+    });
+    console.log(
+      `🎫 [SerialStation] Saved ${res.releasesCount} physical releases & ${res.tmdbCount} TMDB masters (${res.parsedCount} normalized)`,
+    );
+    fetchedSources.push('serialstation');
+  }
+
+  if (runAll || selected.has('retail')) {
+    const res = await fetchRetailBackCatalogSources(sourcesDir, {
+      maxPages: options.maxPages,
+      fetchFn,
+    });
+    console.log(
+      `🛍️ [Retail/LGN] Saved retail_backcatalog.json (${res.totalParsed} catalog & announcement entries)`,
+    );
+    fetchedSources.push('retail');
+  }
+
+  return { fetchedSources, sourcesDir };
+}
+
 // Execute directly if run as a CLI script
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runDatDownloads().catch((err) => {
-    console.error('[DatDownloader] Fatal execution error:', err);
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Canonical Offline Sources Fetcher
+
+Usage:
+  npx tsx scripts/fetch_canonical_sources.ts [options]
+
+Options:
+  --source=<list>       Comma-separated sources: dats,neogeo,nscollectors,ps5db,serialstation,retail,all (default: all)
+  --sources-dir=<path>  Directory for fetched non-DAT artifacts (default: data/sources)
+  --max-pages=<N>       Optional pagination cap for SerialStation & retail catalogs
+  --help, -h            Show this help message
+`);
+    process.exit(0);
+  }
+  const sourceArg = args.find((a) => a.startsWith('--source='))?.split('=')[1];
+  const sourcesDirArg = args
+    .find((a) => a.startsWith('--sources-dir='))
+    ?.split('=')[1];
+  const maxPagesArg = args
+    .find((a) => a.startsWith('--max-pages='))
+    ?.split('=')[1];
+  const maxPages = maxPagesArg ? parseInt(maxPagesArg, 10) : undefined;
+
+  fetchCanonicalSources({
+    sources: parseSourceFilterArg(sourceArg),
+    sourcesDir: sourcesDirArg ? path.resolve(sourcesDirArg) : undefined,
+    maxPages: maxPages && Number.isFinite(maxPages) ? maxPages : undefined,
+  }).catch((err) => {
+    console.error('[SourceFetcher] Fatal execution error:', err);
     process.exit(1);
   });
 }

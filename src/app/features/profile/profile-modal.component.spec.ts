@@ -487,27 +487,46 @@ describe('ProfileModalComponent', () => {
     expect(component.trackingRules().length).toBe(0);
   });
 
-  it('should render Seeded badge for stage=done with writesUsedToday tooltip and unwrap pause toggle updates', () => {
+  it('should render Healthy badge with writesUsedToday tooltip when canonical tailer has 0 pending rows', () => {
     vi.spyOn(collectionService, 'getCatalogSeedStatus').mockReturnValue(
       of({
-        paused: false,
-        stage: 'done',
-        cursor: 5120,
-        dailyWriteBudget: 60000,
-        writesUsedToday: 120,
+        canonicalTailer: {
+          cursor: 5120,
+          canonicalMinId: 1,
+          canonicalMaxId: 5120,
+          pendingCanonicalRows: 0,
+          writesUsedToday: 120,
+          dailyWriteBudget: 60000,
+          gamesIngestedToday: 4,
+          releasesIngestedToday: 8,
+          lastUpdatedAt: '2026-11-22T01:00:00Z',
+          maxGameStableId: 4000,
+        },
+        igdbRolling: {
+          cursorOffset: 200,
+          refreshedTotal: 100,
+          updatedTotal: 10,
+          selfHealedRulesTotal: 2,
+          lastRunAt: '2026-11-22T02:00:00Z',
+        },
+        seriesDiscovery: {
+          cursor: 1,
+          totalSeriesRules: 5,
+          seriesScannedTotal: 20,
+          discoveredGamesTotal: 3,
+          lastRunAt: '2026-11-22T02:00:00Z',
+        },
+        upstreamSources: {
+          boutiquePreOrdersUpdatedAt: null,
+          retailPreOrdersUpdatedAt: null,
+          retailDealsUpdatedAt: null,
+          switchRevisionsUpdatedAt: null,
+          nsCollectorsUpdatedAt: null,
+          amiiboCatalogUpdatedAt: null,
+          catalogChunksUpdatedAt: null,
+        },
       }),
     );
-    const controlSpy = vi
-      .spyOn(collectionService, 'updateCatalogSeedControl')
-      .mockReturnValue(
-        of({
-          paused: true,
-          stage: 'done',
-          cursor: 5120,
-          dailyWriteBudget: 60000,
-          writesUsedToday: 120,
-        }),
-      );
 
     modalService.open();
     fixture.detectChanges();
@@ -516,13 +535,9 @@ describe('ProfileModalComponent', () => {
       '[data-testid="profile-discovery-btn"]',
     ) as HTMLButtonElement;
     const badge = discoveryBtn?.querySelector('.notif-status-badge');
-    expect(badge?.textContent?.trim()).toBe('Seeded');
+    expect(badge?.textContent?.trim()).toBe('Healthy');
     expect(badge?.classList.contains('active')).toBe(false);
     expect(badge?.getAttribute('title')).toContain('120 / 60000 writes today');
-
-    component.toggleCatalogSeedPause();
-    expect(controlSpy).toHaveBeenCalledWith({ paused: true });
-    expect(component.catalogSeedStatus()?.paused).toBe(true);
   });
 
   it('should format multi-region toy badges and expose PrioritySeeking = 4', () => {

@@ -114,7 +114,7 @@ export const PROTECTED_TABLES = [
 
 export const MAX_SECONDARY_INDEXES: Record<string, number> = {
   users: 2,
-  games: 8,
+  games: 7,
   game_releases: 6,
   toys: 5,
   user_games: 1,
@@ -388,6 +388,11 @@ export function runCollectionStaticSchemaCostGuard(
       name: 'canonical game ID resolver (numeric, slug, or release)',
       sql: RESOLVE_CANONICAL_GAME_ID_QUERY,
       params: getResolveCanonicalGameIdParams('387'),
+    },
+    {
+      name: 'upcoming physical releases IGDB refresh lookup',
+      sql: "SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.collections, g.franchises, g.canonical_series, g.metadata_json FROM game_releases r JOIN games g ON g.stable_id = r.game_id WHERE r.release_date >= DATE('now') LIMIT 100",
+      params: [],
     },
   ];
 

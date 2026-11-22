@@ -313,8 +313,6 @@ describe('CollectionListComponent', () => {
         title: 'Mother',
         platform: 'Famicom',
         platform_id: 53,
-        physical_status: 'verified_physical',
-        release_medium: 'physical_retail',
         ownership_status: 1,
       },
       {
@@ -323,8 +321,6 @@ describe('CollectionListComponent', () => {
         title: 'Bayonetta 2',
         platform: 'Wii U',
         platform_id: 24,
-        physical_status: 'verified_physical',
-        release_medium: 'physical_retail',
         ownership_status: 1,
       },
       {
@@ -335,8 +331,6 @@ describe('CollectionListComponent', () => {
         platform_id: 24,
         bundle_parent_id: 100,
         bundle_disc_number: 2,
-        physical_status: 'verified_physical',
-        release_medium: 'physical_retail',
         ownership_status: 1,
       },
     ]);
@@ -1783,7 +1777,7 @@ describe('CollectionListComponent', () => {
         has_case: 1,
         has_manual: 1,
         retail_price: 2999,
-        retail_store: 'Best Buy',
+        retail_store: 'VGP',
         image_url: 'https://example.com/mario.jpg',
       } as unknown as Game,
     ];
@@ -2147,7 +2141,6 @@ describe('CollectionListComponent', () => {
         platform_id: 13,
         ownership_status: 1,
         is_source_verified: 1,
-        physical_status: 'verified_physical',
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);
@@ -2178,7 +2171,6 @@ describe('CollectionListComponent', () => {
         platform_launch_date: '2017-03-03',
         brand: 'Nintendo',
         ownership_status: 1,
-        physical_status: 'verified_physical',
       },
       {
         id: 'undated-hw-game',
@@ -2189,7 +2181,6 @@ describe('CollectionListComponent', () => {
         platform_launch_date: null,
         brand: 'Sony',
         ownership_status: 1,
-        physical_status: 'verified_physical',
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);
@@ -3420,7 +3411,6 @@ describe('CollectionListComponent', () => {
         play_status: 1,
         has_case: 1,
         has_manual: 1,
-        release_medium: 'optical_disc',
         has_media: 1,
       },
       {
@@ -3435,7 +3425,6 @@ describe('CollectionListComponent', () => {
         play_status: 0,
         has_case: 1,
         has_manual: 0,
-        release_medium: 'optical_disc',
         has_media: 0,
       },
       {
@@ -3453,7 +3442,7 @@ describe('CollectionListComponent', () => {
         stable_id: 4,
         id: 'gc-4',
         game_id: 'gc-4',
-        title: 'Digital Arcade Title',
+        title: 'Metroid Prime 2',
         platform: 'GameCube',
         platform_id: 1,
         region: 'USA',
@@ -3461,7 +3450,6 @@ describe('CollectionListComponent', () => {
         play_status: 0,
         has_case: 0,
         has_manual: 0,
-        release_medium: 'digital_native',
         has_media: 0,
       },
     ]);
@@ -3500,7 +3488,7 @@ describe('CollectionListComponent', () => {
         .querySelector('[data-testid="platform-media-pill"]')
         ?.textContent?.replace(/\s+/g, ' ')
         .trim(),
-    ).toBe('1/2 Media Owned');
+    ).toBe('1/3 Media Owned');
 
     // Partial catalog hides X / Y (%) and falls back to N Items
     vi.spyOn(cs, 'catalogIsPartial').mockReturnValue(true);

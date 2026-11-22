@@ -99,7 +99,6 @@
         @if (
           showMediaDetails() &&
           game().ownership_status === 1 &&
-          game().release_medium !== 'digital_native' &&
           !isMultiDisc(game())
         ) {
           <button
@@ -119,7 +118,6 @@
         @if (
           showMediaDetails() &&
           game().ownership_status === 1 &&
-          game().release_medium !== 'digital_native' &&
           isMultiDisc(game())
         ) {
           @if (getOwnedDiscCount(game()) === getTotalDiscCount(game())) {
@@ -170,26 +168,12 @@
             </div>
           }
         }
-        @if (
-          game().is_source_verified &&
-          (game().physical_status === 'verified_physical' ||
-            !game().physical_status)
-        ) {
+        @if (game().is_source_verified) {
           <span
             class="physical-release-badge"
             title="Verified Source Match (DAT / Nintendo Revised)"
           >
             <app-icon name="verified-badge" [size]="14" />
-          </span>
-        } @else if (
-          game().physical_status === 'digital_extracted_rom' ||
-          game().release_medium === 'digital_extracted_rom'
-        ) {
-          <span
-            class="digital-extracted-badge"
-            title="Archival Extracted ROM (Official VC/NSO/Compilation)"
-          >
-            <app-icon name="rom-archive" [size]="14" />
           </span>
         }
         @if (
@@ -275,7 +259,7 @@
           class="deal-sale-badge"
           [title]="
             'On Sale at ' +
-            (game().retail_store || 'Best Buy') +
+            (game().retail_store || 'Retailer') +
             (game().retail_regular_price
               ? ' (Reg: $' +
                 (game().retail_regular_price! / 100).toFixed(2) +

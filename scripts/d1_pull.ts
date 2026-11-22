@@ -23,6 +23,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
   findWranglerSqliteFile,
+  loadDeployEnv,
   runD1PullFromR2,
 } from '@wesdizzle/app-kit/scripts';
 
@@ -232,20 +233,47 @@ async function pullFromDirectD1() {
   console.log(
     '[D1Pull] Initiating explicit --direct-d1 export from Cloudflare D1 (collection-db)...',
   );
+  const envVars = loadDeployEnv(rootDir);
+  const d1DatabaseId = envVars['D1_DATABASE_ID']?.trim();
+  if (!d1DatabaseId || d1DatabaseId === 'local-dev-db') {
+    throw new Error(
+      '[D1Pull] D1_DATABASE_ID is required in .dev.vars or environment variables for --direct-d1.',
+    );
+  }
+  const wranglerPath = path.join(rootDir, 'wrangler.toml');
+  const originalWrangler = fs.readFileSync(wranglerPath, 'utf-8');
+  if (!originalWrangler.includes('database_id = "local-dev-db"')) {
+    throw new Error(
+      '[D1Pull] Expected placeholder database_id = "local-dev-db" in wrangler.toml.',
+    );
+  }
+  const patchedWrangler = originalWrangler.replace(
+    'database_id = "local-dev-db"',
+    `database_id = "${d1DatabaseId}"`,
+  );
+  const execEnv: NodeJS.ProcessEnv = { ...process.env };
+  delete execEnv['CLOUDFLARE_API_TOKEN'];
+
   const tempSqlPath = path.join(
     os.tmpdir(),
     `_d1_export_${process.pid}_${Date.now()}.sql`,
   );
 
   try {
-    execSync(
-      `npx wrangler d1 export collection-db --remote --output="${tempSqlPath}"`,
-      {
-        cwd: rootDir,
-        stdio: 'inherit',
-        shell: true as unknown as string,
-      },
-    );
+    fs.writeFileSync(wranglerPath, patchedWrangler, 'utf-8');
+    try {
+      execSync(
+        `npx wrangler d1 export collection-db --remote --output="${tempSqlPath}"`,
+        {
+          cwd: rootDir,
+          stdio: 'inherit',
+          env: execEnv,
+          shell: true as unknown as string,
+        },
+      );
+    } finally {
+      fs.writeFileSync(wranglerPath, originalWrangler, 'utf-8');
+    }
 
     if (!fs.existsSync(tempSqlPath) || fs.statSync(tempSqlPath).size === 0) {
       throw new Error('Exported SQL dump is empty or missing.');

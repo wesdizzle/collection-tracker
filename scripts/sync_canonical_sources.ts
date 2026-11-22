@@ -1,20 +1,17 @@
 /**
  * CANONICAL SOURCES SYNCHRONIZATION UTILITY
  *
- * Scans canonical XML DAT files in `dats/` for tracked platforms and populates
- * the local `canonical_releases` database table using a diff-guarded comparison
- * against existing rows.
- *
- * Supports platform-specific surgical syncing via `--platform=<name|id>` to prevent
- * exhausting Cloudflare D1's daily free-tier write quota (100,000 writes/day).
- *
- * Compiles targeted, surgical SQL files (`scripts/temp/seed_canonical_releases.sql`
- * and `scripts/temp/reconcile_releases.sql`) for deployment to remote Cloudflare D1.
+ * Scans canonical XML DAT files in `dats/` and offline verification sources in
+ * `data/sources/` (`neogeo`, `nscollectors`, `ps5db`, `serialstation`, `retail`,
+ * `community` drop-in CSVs) to populate `canonical_releases` using diff-guarded
+ * comparisons against existing rows, and links matching `game_releases`.
  *
  * USAGE:
  *   npx tsx scripts/sync_canonical_sources.ts [options]
  *
  * OPTIONS:
+ *   --source=<list>        Comma-separated sources: dats,neogeo,nscollectors,ps5db,serialstation,retail,community,all (default: all)
+ *   --sources-dir=<path>   Directory containing fetched source artifacts (default: data/sources)
  *   --platform=<id|name>   Sync only the specified platform (e.g. --platform=vita or --platform=19)
  *   --dry-run              Calculate source counts, per-platform diffs, and D1 quota impact without modifying data
  *   --remote               Execute generated SQL against remote D1 via d1_cost_guard
@@ -27,10 +24,15 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { parseDatFile } from './lib/dat_parser.js';
 import { findDatFileForPlatform, PlatformRecord } from './lib/dat_cache.js';
-import { deduplicateDatReleases } from '../shared/canonical_releases.js';
+import {
+  CanonicalRelease,
+  deduplicateDatReleases,
+} from '../shared/canonical_releases.js';
 import {
   reconcileGameReleasesWithCanonical,
   ReconcileResult,
+  selectBestRegionalCandidate,
+  stripEditionSuffix,
 } from './lib/reconcile_releases.js';
 import { getLocalDatabase } from './lib/db.js';
 import {
@@ -41,16 +43,67 @@ import { findRetailPackInDisc } from '../shared/special_labels.js';
 import { extractDiscLabel } from '../shared/source_format.js';
 import { normalizeTitleForMatching } from '../shared/title_matching.js';
 import { runWithD1CostGuard } from './d1_cost_guard.js';
+import { loadNeoGeoReleases } from './lib/sources/neogeo.js';
+import { loadNsCollectorsReleases } from './lib/sources/nscollectors_sync.js';
+import { loadPs5DbReleases } from './lib/sources/ps5db.js';
+import { loadSerialStationReleases } from './lib/sources/serialstation.js';
+import { loadRetailBackCatalogReleases } from './lib/sources/retail_backcatalog.js';
+import { loadCommunityCsvReleases } from './lib/sources/community_csv.js';
+
+export type SyncSourceFilter =
+  | 'dats'
+  | 'neogeo'
+  | 'nscollectors'
+  | 'ps5db'
+  | 'serialstation'
+  | 'retail'
+  | 'community'
+  | 'all';
+
+const VALID_SYNC_SOURCES = new Set<SyncSourceFilter>([
+  'dats',
+  'neogeo',
+  'nscollectors',
+  'ps5db',
+  'serialstation',
+  'retail',
+  'community',
+  'all',
+]);
+
+export function parseSyncSourceFilterArg(raw?: string): SyncSourceFilter[] {
+  if (!raw || !raw.trim()) return ['all'];
+  const tokens = raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (tokens.length === 0 || tokens.includes('all')) return ['all'];
+  const out: SyncSourceFilter[] = [];
+  for (const t of tokens) {
+    if (!VALID_SYNC_SOURCES.has(t as SyncSourceFilter)) {
+      throw new Error(
+        `Unknown sync source "${t}". Valid values: dats, neogeo, nscollectors, ps5db, serialstation, retail, community, all`,
+      );
+    }
+    if (!out.includes(t as SyncSourceFilter)) {
+      out.push(t as SyncSourceFilter);
+    }
+  }
+  return out;
+}
 
 export interface SyncCanonicalOptions {
   db?: Database.Database;
   datsDir?: string;
+  sourcesDir?: string;
+  sources?: SyncSourceFilter[];
   targetPlatformId?: number;
   targetPlatformFilter?: string;
   dryRun?: boolean;
   skipReconcile?: boolean;
   pushRemote?: boolean;
   maxWrites?: number;
+  sqlOutputPath?: string;
 }
 
 export interface SyncCanonicalSummary {
@@ -60,6 +113,7 @@ export interface SyncCanonicalSummary {
   insertedCount: number;
   updatedCount: number;
   deletedCount: number;
+  linkedNonDatReleases: number;
   reconcileResult: ReconcileResult | null;
   seedSqlPath: string;
 }
@@ -70,14 +124,32 @@ function escapeSql(val: string | number | null | undefined): string {
   return `'${String(val).replace(/'/g, "''")}'`;
 }
 
+function sqlNullableEquals(
+  col: string,
+  val: string | null | undefined,
+): string {
+  return val === null || val === undefined
+    ? `${col} IS NULL`
+    : `${col} = ${escapeSql(val)}`;
+}
+
 export async function syncCanonicalSources(
   options: SyncCanonicalOptions = {},
 ): Promise<SyncCanonicalSummary> {
   const ownDb = !options.db;
   const db = options.db || getLocalDatabase();
   const isDryRun = Boolean(options.dryRun);
-  const tempDir = path.join(process.cwd(), 'scripts', 'temp');
+  const seedSqlPath =
+    options.sqlOutputPath ||
+    path.join(process.cwd(), 'scripts', 'temp', 'seed_canonical_releases.sql');
+  const tempDir = path.dirname(seedSqlPath);
   fs.mkdirSync(tempDir, { recursive: true });
+  const sourcesDir =
+    options.sourcesDir || path.join(process.cwd(), 'data', 'sources');
+  const selectedSources = new Set<SyncSourceFilter>(
+    options.sources && options.sources.length > 0 ? options.sources : ['all'],
+  );
+  const runAllSources = selectedSources.has('all');
 
   try {
     const allPlatforms = db
@@ -200,244 +272,240 @@ export async function syncCanonicalSources(
       : db.prepare(`DELETE FROM canonical_releases WHERE id = ?`);
 
     let platformsProcessed = 0;
+    const processedPlatformIds = new Set<number>();
     let totalRawCount = 0;
     let totalDeduplicatedCount = 0;
     let insertedCount = 0;
     let updatedCount = 0;
     let deletedCount = 0;
+    let linkedNonDatReleases = 0;
     const sqlStatements: string[] = [
       '-- Generated by scripts/sync_canonical_sources.ts',
       `-- Timestamp: ${new Date().toISOString()}`,
       '',
     ];
 
+    const allowedPlatformIds = new Set(targetPlatforms.map((p) => p.id));
+
+    const nonDatReleases: CanonicalRelease[] = [];
+    if (runAllSources || selectedSources.has('neogeo')) {
+      nonDatReleases.push(...loadNeoGeoReleases(sourcesDir));
+    }
+    if (runAllSources || selectedSources.has('nscollectors')) {
+      nonDatReleases.push(...loadNsCollectorsReleases(sourcesDir).releases);
+    }
+    if (runAllSources || selectedSources.has('ps5db')) {
+      nonDatReleases.push(...loadPs5DbReleases(sourcesDir));
+    }
+    if (runAllSources || selectedSources.has('serialstation')) {
+      nonDatReleases.push(...loadSerialStationReleases(sourcesDir));
+    }
+    if (runAllSources || selectedSources.has('retail')) {
+      nonDatReleases.push(...loadRetailBackCatalogReleases(sourcesDir));
+    }
+    if (runAllSources || selectedSources.has('community')) {
+      nonDatReleases.push(
+        ...loadCommunityCsvReleases(sourcesDir, allPlatforms),
+      );
+    }
+
+    const filteredNonDatReleases = nonDatReleases.filter((r) =>
+      allowedPlatformIds.has(r.platform_id),
+    );
+
     const runSyncLoop = () => {
-      for (const plat of targetPlatforms) {
-        if (plat.id === 26 || plat.id === 27) {
-          continue; // Switch 1 & 2 handled via Worker Nintendo Revised sync
-        }
-
-        const datInfo = findDatFileForPlatform(db, plat.id);
-        if (!datInfo) continue;
-
-        platformsProcessed++;
-        const { filePath } = datInfo;
-        const parsed = parseDatFile(filePath);
-        const rawCount = parsed.releases.length;
-        totalRawCount += rawCount;
-
-        const deduplicated = deduplicateDatReleases(plat.id, parsed.releases);
-        totalDeduplicatedCount += deduplicated.length;
-
-        for (const rel of deduplicated) {
-          if (!rel.packin_host_normalized_title) {
-            const packIn = findRetailPackInDisc(rel.rom_name || rel.raw_title);
-            if (packIn) {
-              rel.packin_host_normalized_title = packIn.hostGameNormTitle;
-            }
+      if (runAllSources || selectedSources.has('dats')) {
+        for (const plat of targetPlatforms) {
+          if (plat.id === 26 || plat.id === 27) {
+            continue; // Switch 1 & 2 handled via Nintendo Revised & r/NSCollectors
           }
 
-          if (budgetRecords.length > 0) {
-            const isUpdatedEdition =
-              /welcome\s*amiibo|edition|plus|\+|deluxe|director'?s cut|game of the year|goty/i.test(
-                rel.raw_title,
+          const datInfo = findDatFileForPlatform(db, plat.id);
+          if (!datInfo) continue;
+
+          processedPlatformIds.add(plat.id);
+          platformsProcessed = processedPlatformIds.size;
+          const { filePath } = datInfo;
+          const parsed = parseDatFile(filePath);
+          const rawCount = parsed.releases.length;
+          totalRawCount += rawCount;
+
+          const deduplicated = deduplicateDatReleases(plat.id, parsed.releases);
+          totalDeduplicatedCount += deduplicated.length;
+
+          for (const rel of deduplicated) {
+            if (!rel.packin_host_normalized_title) {
+              const packIn = findRetailPackInDisc(
+                rel.rom_name || rel.raw_title,
               );
-            const dateKey = `${rel.normalized_title}::${(rel.region || '').toLowerCase()}`;
-            const relDate =
-              datesMap.get(dateKey) ||
-              datesMap.get(rel.normalized_title) ||
-              null;
+              if (packIn) {
+                rel.packin_host_normalized_title = packIn.hostGameNormTitle;
+              }
+            }
 
-            const classification = classifyCartridgeBudgetWithRecords(
-              budgetRecords,
-              {
-                platformId: plat.id,
-                gameTitle: rel.raw_title,
-                region: rel.region,
-                physicalReleaseDate: relDate,
-                isUpdatedEdition,
-              },
-            );
+            if (budgetRecords.length > 0) {
+              const isUpdatedEdition =
+                /welcome\s*amiibo|edition|plus|\+|deluxe|director'?s cut|game of the year|goty/i.test(
+                  rel.raw_title,
+                );
+              const dateKey = `${rel.normalized_title}::${(rel.region || '').toLowerCase()}`;
+              const relDate =
+                datesMap.get(dateKey) ||
+                datesMap.get(rel.normalized_title) ||
+                null;
 
-            if (classification.isBudget) {
-              if (classification.isBudgetOnly && classification.budgetLabel) {
-                if (!rel.variants) {
-                  rel.variants = classification.budgetLabel;
+              const classification = classifyCartridgeBudgetWithRecords(
+                budgetRecords,
+                {
+                  platformId: plat.id,
+                  gameTitle: rel.raw_title,
+                  region: rel.region,
+                  physicalReleaseDate: relDate,
+                  isUpdatedEdition,
+                },
+              );
+
+              if (classification.isBudget) {
+                if (classification.isBudgetOnly && classification.budgetLabel) {
+                  if (!rel.variants) {
+                    rel.variants = classification.budgetLabel;
+                  } else if (
+                    !rel.variants
+                      .toLowerCase()
+                      .includes(classification.budgetLabel.toLowerCase())
+                  ) {
+                    rel.variants = `${rel.variants}, ${classification.budgetLabel}`;
+                  }
                 } else if (
-                  !rel.variants
-                    .toLowerCase()
-                    .includes(classification.budgetLabel.toLowerCase())
+                  !classification.isBudgetOnly &&
+                  classification.alsoReleasedAs
                 ) {
-                  rel.variants = `${rel.variants}, ${classification.budgetLabel}`;
+                  rel.also_released_as = classification.alsoReleasedAs;
                 }
-              } else if (
-                !classification.isBudgetOnly &&
-                classification.alsoReleasedAs
-              ) {
-                rel.also_released_as = classification.alsoReleasedAs;
               }
             }
           }
-        }
 
-        const existingRows = existingStmt.all(plat.id) as Array<{
-          id: number;
-          raw_title: string;
-          normalized_title: string;
-          region: string | null;
-          variants: string | null;
-          also_released_as: string | null;
-          packin_host_normalized_title: string | null;
-          redump_disc_id: number | null;
-          rom_name: string | null;
-          rom_crc: string | null;
-          serial_code: string | null;
-          barcode: string | null;
-          publisher: string | null;
-          source: string;
-          is_verified_physical: number;
-        }>;
+          const existingRows = existingStmt.all(plat.id) as Array<{
+            id: number;
+            raw_title: string;
+            normalized_title: string;
+            region: string | null;
+            variants: string | null;
+            also_released_as: string | null;
+            packin_host_normalized_title: string | null;
+            redump_disc_id: number | null;
+            rom_name: string | null;
+            rom_crc: string | null;
+            serial_code: string | null;
+            barcode: string | null;
+            publisher: string | null;
+            source: string;
+            is_verified_physical: number;
+          }>;
 
-        const existingByKey = new Map<string, typeof existingRows>();
-        const existingByCrc = new Map<string, typeof existingRows>();
-        const existingByGroup = new Map<string, typeof existingRows>();
-        for (const row of existingRows) {
-          const key = `${row.rom_name || ''}::${row.raw_title}::${row.region || ''}`;
-          const list = existingByKey.get(key) || [];
-          list.push(row);
-          existingByKey.set(key, list);
+          const existingByKey = new Map<string, typeof existingRows>();
+          const existingByCrc = new Map<string, typeof existingRows>();
+          const existingByGroup = new Map<string, typeof existingRows>();
+          for (const row of existingRows) {
+            const key = `${row.rom_name || ''}::${row.raw_title}::${row.region || ''}`;
+            const list = existingByKey.get(key) || [];
+            list.push(row);
+            existingByKey.set(key, list);
 
-          if (row.rom_crc) {
-            const crcKey = row.rom_crc.toLowerCase();
-            const crcList = existingByCrc.get(crcKey) || [];
-            crcList.push(row);
-            existingByCrc.set(crcKey, crcList);
-          }
-
-          const discLabel = extractDiscLabel(row.rom_name) || 'Single';
-          const groupKey = `${row.normalized_title}::${row.region || 'World'}::${row.variants || 'Standard'}::${discLabel}`;
-          const grpList = existingByGroup.get(groupKey) || [];
-          grpList.push(row);
-          existingByGroup.set(groupKey, grpList);
-        }
-
-        const seenExistingIds = new Set<number>();
-        const matchedExistingByIndex = new Map<
-          number,
-          (typeof existingRows)[number]
-        >();
-
-        // Pass 1: Claim exact (rom_name, raw_title, region) matches first
-        for (let idx = 0; idx < deduplicated.length; idx++) {
-          const rel = deduplicated[idx];
-          const key = `${rel.rom_name || ''}::${rel.raw_title}::${rel.region || ''}`;
-          const candidates = (existingByKey.get(key) || []).filter(
-            (r) => !seenExistingIds.has(r.id),
-          );
-          if (candidates.length > 0) {
-            const romCrcVal = rel.rom_crc || null;
-            const match =
-              candidates.find((r) => r.rom_crc === romCrcVal) || candidates[0];
-            matchedExistingByIndex.set(idx, match);
-            seenExistingIds.add(match.id);
-          }
-        }
-
-        // Pass 2: Fallback match by identical CRC or (normalized_title, region, variants, discLabel)
-        for (let idx = 0; idx < deduplicated.length; idx++) {
-          if (matchedExistingByIndex.has(idx)) continue;
-          const rel = deduplicated[idx];
-          const romCrcVal = rel.rom_crc ? rel.rom_crc.toLowerCase() : null;
-          let fallbackMatch: (typeof existingRows)[number] | undefined;
-
-          if (romCrcVal) {
-            const crcCandidates = (existingByCrc.get(romCrcVal) || []).filter(
-              (r) => !seenExistingIds.has(r.id),
-            );
-            fallbackMatch =
-              crcCandidates.find(
-                (r) => r.normalized_title === rel.normalized_title,
-              ) || crcCandidates[0];
-          }
-
-          if (!fallbackMatch) {
-            const discLabel = extractDiscLabel(rel.rom_name) || 'Single';
-            const groupKey = `${rel.normalized_title}::${rel.region || 'World'}::${rel.variants || 'Standard'}::${discLabel}`;
-            const grpCandidates = (existingByGroup.get(groupKey) || []).filter(
-              (r) => !seenExistingIds.has(r.id),
-            );
-            fallbackMatch = grpCandidates[0];
-          }
-
-          if (fallbackMatch) {
-            matchedExistingByIndex.set(idx, fallbackMatch);
-            seenExistingIds.add(fallbackMatch.id);
-          }
-        }
-
-        let platInserted = 0;
-        let platUpdated = 0;
-        let platDeleted = 0;
-
-        for (let idx = 0; idx < deduplicated.length; idx++) {
-          const rel = deduplicated[idx];
-          const romCrcVal = rel.rom_crc || null;
-          const existing = matchedExistingByIndex.get(idx);
-
-          const regionVal = rel.region || null;
-          const variantsVal = rel.variants || null;
-          const alsoReleasedVal = rel.also_released_as || null;
-          const packinVal = rel.packin_host_normalized_title || null;
-          const redumpIdVal = rel.redump_disc_id || null;
-          const romNameVal = rel.rom_name || null;
-          const serialVal = rel.serial_code || null;
-          const barcodeVal = rel.barcode || null;
-          const publisherVal = rel.publisher || null;
-          const verifiedVal = rel.is_verified_physical ?? 1;
-
-          if (!existing) {
-            if (insertStmt) {
-              insertStmt.run(
-                plat.id,
-                rel.raw_title,
-                rel.normalized_title,
-                regionVal,
-                variantsVal,
-                alsoReleasedVal,
-                packinVal,
-                redumpIdVal,
-                romNameVal,
-                romCrcVal,
-                serialVal,
-                barcodeVal,
-                publisherVal,
-                verifiedVal,
-              );
+            if (row.rom_crc) {
+              const crcKey = row.rom_crc.toLowerCase();
+              const crcList = existingByCrc.get(crcKey) || [];
+              crcList.push(row);
+              existingByCrc.set(crcKey, crcList);
             }
-            sqlStatements.push(
-              `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, also_released_as, packin_host_normalized_title, redump_disc_id, rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical) VALUES (${plat.id}, ${escapeSql(rel.raw_title)}, ${escapeSql(rel.normalized_title)}, ${escapeSql(regionVal)}, ${escapeSql(variantsVal)}, ${escapeSql(alsoReleasedVal)}, ${escapeSql(packinVal)}, ${escapeSql(redumpIdVal)}, ${escapeSql(romNameVal)}, ${escapeSql(romCrcVal)}, ${escapeSql(serialVal)}, ${escapeSql(barcodeVal)}, ${escapeSql(publisherVal)}, 'dat', ${verifiedVal});`,
-            );
-            insertedCount++;
-            platInserted++;
-          } else {
-            const hasDiff =
-              existing.raw_title !== rel.raw_title ||
-              existing.normalized_title !== rel.normalized_title ||
-              existing.region !== regionVal ||
-              existing.variants !== variantsVal ||
-              existing.also_released_as !== alsoReleasedVal ||
-              existing.packin_host_normalized_title !== packinVal ||
-              existing.redump_disc_id !== redumpIdVal ||
-              existing.rom_name !== romNameVal ||
-              existing.rom_crc !== romCrcVal ||
-              existing.serial_code !== serialVal ||
-              existing.barcode !== barcodeVal ||
-              existing.publisher !== publisherVal ||
-              existing.is_verified_physical !== verifiedVal;
 
-            if (hasDiff) {
-              if (updateStmt) {
-                updateStmt.run(
+            const discLabel = extractDiscLabel(row.rom_name) || 'Single';
+            const groupKey = `${row.normalized_title}::${row.region || 'World'}::${row.variants || 'Standard'}::${discLabel}`;
+            const grpList = existingByGroup.get(groupKey) || [];
+            grpList.push(row);
+            existingByGroup.set(groupKey, grpList);
+          }
+
+          const seenExistingIds = new Set<number>();
+          const matchedExistingByIndex = new Map<
+            number,
+            (typeof existingRows)[number]
+          >();
+
+          // Pass 1: Claim exact (rom_name, raw_title, region) matches first
+          for (let idx = 0; idx < deduplicated.length; idx++) {
+            const rel = deduplicated[idx];
+            const key = `${rel.rom_name || ''}::${rel.raw_title}::${rel.region || ''}`;
+            const candidates = (existingByKey.get(key) || []).filter(
+              (r) => !seenExistingIds.has(r.id),
+            );
+            if (candidates.length > 0) {
+              const romCrcVal = rel.rom_crc || null;
+              const match =
+                candidates.find((r) => r.rom_crc === romCrcVal) ||
+                candidates[0];
+              matchedExistingByIndex.set(idx, match);
+              seenExistingIds.add(match.id);
+            }
+          }
+
+          // Pass 2: Fallback match by identical CRC or (normalized_title, region, variants, discLabel)
+          for (let idx = 0; idx < deduplicated.length; idx++) {
+            if (matchedExistingByIndex.has(idx)) continue;
+            const rel = deduplicated[idx];
+            const romCrcVal = rel.rom_crc ? rel.rom_crc.toLowerCase() : null;
+            let fallbackMatch: (typeof existingRows)[number] | undefined;
+
+            if (romCrcVal) {
+              const crcCandidates = (existingByCrc.get(romCrcVal) || []).filter(
+                (r) => !seenExistingIds.has(r.id),
+              );
+              fallbackMatch =
+                crcCandidates.find(
+                  (r) => r.normalized_title === rel.normalized_title,
+                ) || crcCandidates[0];
+            }
+
+            if (!fallbackMatch) {
+              const discLabel = extractDiscLabel(rel.rom_name) || 'Single';
+              const groupKey = `${rel.normalized_title}::${rel.region || 'World'}::${rel.variants || 'Standard'}::${discLabel}`;
+              const grpCandidates = (
+                existingByGroup.get(groupKey) || []
+              ).filter((r) => !seenExistingIds.has(r.id));
+              fallbackMatch = grpCandidates[0];
+            }
+
+            if (fallbackMatch) {
+              matchedExistingByIndex.set(idx, fallbackMatch);
+              seenExistingIds.add(fallbackMatch.id);
+            }
+          }
+
+          let platInserted = 0;
+          let platUpdated = 0;
+          let platDeleted = 0;
+
+          for (let idx = 0; idx < deduplicated.length; idx++) {
+            const rel = deduplicated[idx];
+            const romCrcVal = rel.rom_crc || null;
+            const existing = matchedExistingByIndex.get(idx);
+
+            const regionVal = rel.region || null;
+            const variantsVal = rel.variants || null;
+            const alsoReleasedVal = rel.also_released_as || null;
+            const packinVal = rel.packin_host_normalized_title || null;
+            const redumpIdVal = rel.redump_disc_id || null;
+            const romNameVal = rel.rom_name || null;
+            const serialVal = rel.serial_code || null;
+            const barcodeVal = rel.barcode || null;
+            const publisherVal = rel.publisher || null;
+            const verifiedVal = rel.is_verified_physical ?? 1;
+
+            if (!existing) {
+              if (insertStmt) {
+                insertStmt.run(
+                  plat.id,
                   rel.raw_title,
                   rel.normalized_title,
                   regionVal,
@@ -451,87 +519,441 @@ export async function syncCanonicalSources(
                   barcodeVal,
                   publisherVal,
                   verifiedVal,
-                  existing.id,
                 );
               }
-              const whereClause = existing.rom_name
-                ? `WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)}`
-                : `WHERE id = ${existing.id}`;
               sqlStatements.push(
-                `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, also_released_as = ${escapeSql(alsoReleasedVal)}, packin_host_normalized_title = ${escapeSql(packinVal)}, redump_disc_id = ${escapeSql(redumpIdVal)}, rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} ${whereClause};`,
+                `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, also_released_as, packin_host_normalized_title, redump_disc_id, rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical) VALUES (${plat.id}, ${escapeSql(rel.raw_title)}, ${escapeSql(rel.normalized_title)}, ${escapeSql(regionVal)}, ${escapeSql(variantsVal)}, ${escapeSql(alsoReleasedVal)}, ${escapeSql(packinVal)}, ${escapeSql(redumpIdVal)}, ${escapeSql(romNameVal)}, ${escapeSql(romCrcVal)}, ${escapeSql(serialVal)}, ${escapeSql(barcodeVal)}, ${escapeSql(publisherVal)}, 'dat', ${verifiedVal});`,
               );
-              if (
-                (existing.rom_name !== romNameVal ||
-                  existing.rom_crc !== romCrcVal) &&
-                hasLinkedReleaseStmt.get(existing.id)
-              ) {
-                if (updateLinkedReleaseRomStmt) {
-                  updateLinkedReleaseRomStmt.run(
+              insertedCount++;
+              platInserted++;
+            } else {
+              const hasDiff =
+                existing.raw_title !== rel.raw_title ||
+                existing.normalized_title !== rel.normalized_title ||
+                existing.region !== regionVal ||
+                existing.variants !== variantsVal ||
+                existing.also_released_as !== alsoReleasedVal ||
+                existing.packin_host_normalized_title !== packinVal ||
+                existing.redump_disc_id !== redumpIdVal ||
+                existing.rom_name !== romNameVal ||
+                existing.rom_crc !== romCrcVal ||
+                existing.serial_code !== serialVal ||
+                existing.barcode !== barcodeVal ||
+                existing.publisher !== publisherVal ||
+                existing.is_verified_physical !== verifiedVal;
+
+              if (hasDiff) {
+                if (updateStmt) {
+                  updateStmt.run(
+                    rel.raw_title,
+                    rel.normalized_title,
+                    regionVal,
+                    variantsVal,
+                    alsoReleasedVal,
+                    packinVal,
+                    redumpIdVal,
                     romNameVal,
                     romCrcVal,
+                    serialVal,
+                    barcodeVal,
+                    publisherVal,
+                    verifiedVal,
                     existing.id,
                   );
                 }
-                const linkedWhere = romNameVal
-                  ? `WHERE canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSql(romNameVal)} AND platform_id = ${plat.id} LIMIT 1)`
-                  : `WHERE canonical_release_id = ${existing.id}`;
+                const whereClause = existing.rom_name
+                  ? `WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)}`
+                  : `WHERE id = ${existing.id}`;
                 sqlStatements.push(
-                  `UPDATE game_releases SET rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)} ${linkedWhere};`,
+                  `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, also_released_as = ${escapeSql(alsoReleasedVal)}, packin_host_normalized_title = ${escapeSql(packinVal)}, redump_disc_id = ${escapeSql(redumpIdVal)}, rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} ${whereClause};`,
                 );
+                if (
+                  (existing.rom_name !== romNameVal ||
+                    existing.rom_crc !== romCrcVal) &&
+                  hasLinkedReleaseStmt.get(existing.id)
+                ) {
+                  if (updateLinkedReleaseRomStmt) {
+                    updateLinkedReleaseRomStmt.run(
+                      romNameVal,
+                      romCrcVal,
+                      existing.id,
+                    );
+                  }
+                  const linkedWhere = romNameVal
+                    ? `WHERE canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSql(romNameVal)} AND platform_id = ${plat.id} LIMIT 1)`
+                    : `WHERE canonical_release_id = ${existing.id}`;
+                  sqlStatements.push(
+                    `UPDATE game_releases SET rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)} ${linkedWhere};`,
+                  );
+                }
+                updatedCount++;
+                platUpdated++;
               }
-              updatedCount++;
-              platUpdated++;
             }
           }
-        }
 
-        const rowsToDelete = existingRows.filter(
-          (existing) => !seenExistingIds.has(existing.id),
-        );
-        const romsToDelete = rowsToDelete
-          .map((r) => r.rom_name)
-          .filter((r): r is string => Boolean(r));
-        const idsWithoutRom = rowsToDelete
-          .filter((r) => !r.rom_name)
-          .map((r) => r.id);
-
-        const UNLINK_CHUNK = 50;
-        for (let i = 0; i < romsToDelete.length; i += UNLINK_CHUNK) {
-          const chunk = romsToDelete.slice(i, i + UNLINK_CHUNK);
-          sqlStatements.push(
-            `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name IN (${chunk.map((r) => escapeSql(r)).join(', ')}));`,
+          const rowsToDelete = existingRows.filter(
+            (existing) => !seenExistingIds.has(existing.id),
           );
-        }
-        for (let i = 0; i < idsWithoutRom.length; i += UNLINK_CHUNK) {
-          const chunk = idsWithoutRom.slice(i, i + UNLINK_CHUNK);
-          sqlStatements.push(
-            `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (${chunk.join(', ')});`,
-          );
-        }
+          const romsToDelete = rowsToDelete
+            .map((r) => r.rom_name)
+            .filter((r): r is string => Boolean(r));
+          const idsWithoutRom = rowsToDelete
+            .filter((r) => !r.rom_name)
+            .map((r) => r.id);
 
-        for (const existing of rowsToDelete) {
-          if (hasLinkedReleaseStmt.get(existing.id) && unlinkReleaseStmt) {
-            unlinkReleaseStmt.run(existing.id);
-          }
-          if (deleteStmt) {
-            deleteStmt.run(existing.id);
-          }
-          if (existing.rom_name) {
+          const UNLINK_CHUNK = 50;
+          for (let i = 0; i < romsToDelete.length; i += UNLINK_CHUNK) {
+            const chunk = romsToDelete.slice(i, i + UNLINK_CHUNK);
             sqlStatements.push(
-              `DELETE FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)};`,
-            );
-          } else {
-            sqlStatements.push(
-              `DELETE FROM canonical_releases WHERE id = ${existing.id};`,
+              `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name IN (${chunk.map((r) => escapeSql(r)).join(', ')}));`,
             );
           }
-          deletedCount++;
-          platDeleted++;
+          for (let i = 0; i < idsWithoutRom.length; i += UNLINK_CHUNK) {
+            const chunk = idsWithoutRom.slice(i, i + UNLINK_CHUNK);
+            sqlStatements.push(
+              `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (${chunk.join(', ')});`,
+            );
+          }
+
+          for (const existing of rowsToDelete) {
+            if (hasLinkedReleaseStmt.get(existing.id) && unlinkReleaseStmt) {
+              unlinkReleaseStmt.run(existing.id);
+            }
+            if (deleteStmt) {
+              deleteStmt.run(existing.id);
+            }
+            if (existing.rom_name) {
+              sqlStatements.push(
+                `DELETE FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)};`,
+              );
+            } else {
+              sqlStatements.push(
+                `DELETE FROM canonical_releases WHERE id = ${existing.id};`,
+              );
+            }
+            deletedCount++;
+            platDeleted++;
+          }
+
+          console.log(
+            `  [${plat.display_name || plat.name}] ${rawCount} raw -> ${deduplicated.length} canonical (+${platInserted} new, ~${platUpdated} updated, -${platDeleted} removed)`,
+          );
+        }
+      }
+
+      if (filteredNonDatReleases.length > 0) {
+        const groupedNonDat = new Map<string, CanonicalRelease[]>();
+        for (const rel of filteredNonDatReleases) {
+          const groupKey = `${rel.platform_id}::${rel.source}`;
+          const list = groupedNonDat.get(groupKey) || [];
+          list.push(rel);
+          groupedNonDat.set(groupKey, list);
         }
 
-        console.log(
-          `  [${plat.display_name || plat.name}] ${rawCount} raw -> ${deduplicated.length} canonical (+${platInserted} new, ~${platUpdated} updated, -${platDeleted} removed)`,
-        );
+        const selectNonDatExistingStmt = db.prepare(`
+          SELECT id, platform_id, raw_title, normalized_title, region, variants,
+                 serial_code, barcode, publisher, source, is_verified_physical
+          FROM canonical_releases
+          WHERE platform_id = ? AND source = ?
+        `);
+        const insertNonDatStmt = isDryRun
+          ? null
+          : db.prepare(`
+              INSERT INTO canonical_releases (
+                platform_id, raw_title, normalized_title, region, variants,
+                serial_code, barcode, publisher, source, is_verified_physical
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+        const updateNonDatStmt = isDryRun
+          ? null
+          : db.prepare(`
+              UPDATE canonical_releases
+              SET raw_title = ?, normalized_title = ?, region = ?, variants = ?,
+                  serial_code = ?, barcode = ?, publisher = ?, is_verified_physical = ?
+              WHERE id = ?
+            `);
+        const syncedNonDatPlatforms = new Set<number>();
+
+        for (const [, groupReleases] of groupedNonDat) {
+          if (groupReleases.length === 0) continue;
+          const platId = groupReleases[0].platform_id;
+          const sourceName = groupReleases[0].source;
+          processedPlatformIds.add(platId);
+          platformsProcessed = processedPlatformIds.size;
+          if (groupReleases.some((r) => r.is_verified_physical === 1)) {
+            syncedNonDatPlatforms.add(platId);
+          }
+
+          totalRawCount += groupReleases.length;
+          totalDeduplicatedCount += groupReleases.length;
+
+          const existingRows = selectNonDatExistingStmt.all(
+            platId,
+            sourceName,
+          ) as Array<{
+            id: number;
+            platform_id: number;
+            raw_title: string;
+            normalized_title: string;
+            region: string | null;
+            variants: string | null;
+            serial_code: string | null;
+            barcode: string | null;
+            publisher: string | null;
+            source: string;
+            is_verified_physical: number;
+          }>;
+
+          const existingByExactKey = new Map<
+            string,
+            (typeof existingRows)[number]
+          >();
+          const existingByLooseKey = new Map<
+            string,
+            (typeof existingRows)[number]
+          >();
+          for (const ex of existingRows) {
+            const exactKey = `${ex.normalized_title}::${ex.region || ''}::${ex.variants || ''}::${ex.serial_code || ''}`;
+            if (!existingByExactKey.has(exactKey)) {
+              existingByExactKey.set(exactKey, ex);
+            }
+            const looseKey = `${ex.normalized_title}::${ex.region || ''}::${ex.variants || ''}`;
+            if (!existingByLooseKey.has(looseKey)) {
+              existingByLooseKey.set(looseKey, ex);
+            }
+          }
+
+          const claimedIds = new Set<number>();
+          let srcInserted = 0;
+          let srcUpdated = 0;
+          let srcDeleted = 0;
+
+          for (const rel of groupReleases) {
+            const regionVal = rel.region || null;
+            const variantsVal = rel.variants || null;
+            const serialVal = rel.serial_code || null;
+            const barcodeVal = rel.barcode || null;
+            const publisherVal = rel.publisher || null;
+            const verifiedVal = rel.is_verified_physical ?? 1;
+
+            const exactKey = `${rel.normalized_title}::${regionVal || ''}::${variantsVal || ''}::${serialVal || ''}`;
+            const looseKey = `${rel.normalized_title}::${regionVal || ''}::${variantsVal || ''}`;
+            let existing = existingByExactKey.get(exactKey);
+            if (existing && claimedIds.has(existing.id)) existing = undefined;
+            if (!existing) {
+              const candidate = existingByLooseKey.get(looseKey);
+              if (candidate && !claimedIds.has(candidate.id)) {
+                existing = candidate;
+              }
+            }
+
+            if (!existing) {
+              if (insertNonDatStmt) {
+                insertNonDatStmt.run(
+                  platId,
+                  rel.raw_title,
+                  rel.normalized_title,
+                  regionVal,
+                  variantsVal,
+                  serialVal,
+                  barcodeVal,
+                  publisherVal,
+                  sourceName,
+                  verifiedVal,
+                );
+              }
+              sqlStatements.push(
+                `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, serial_code, barcode, publisher, source, is_verified_physical) VALUES (${platId}, ${escapeSql(rel.raw_title)}, ${escapeSql(rel.normalized_title)}, ${escapeSql(regionVal)}, ${escapeSql(variantsVal)}, ${escapeSql(serialVal)}, ${escapeSql(barcodeVal)}, ${escapeSql(publisherVal)}, ${escapeSql(sourceName)}, ${verifiedVal});`,
+              );
+              insertedCount++;
+              srcInserted++;
+            } else {
+              claimedIds.add(existing.id);
+              const hasDiff =
+                existing.raw_title !== rel.raw_title ||
+                existing.normalized_title !== rel.normalized_title ||
+                existing.region !== regionVal ||
+                existing.variants !== variantsVal ||
+                existing.serial_code !== serialVal ||
+                existing.barcode !== barcodeVal ||
+                existing.publisher !== publisherVal ||
+                existing.is_verified_physical !== verifiedVal;
+
+              if (hasDiff) {
+                if (updateNonDatStmt) {
+                  updateNonDatStmt.run(
+                    rel.raw_title,
+                    rel.normalized_title,
+                    regionVal,
+                    variantsVal,
+                    serialVal,
+                    barcodeVal,
+                    publisherVal,
+                    verifiedVal,
+                    existing.id,
+                  );
+                }
+                const whereClause = existing.serial_code
+                  ? `WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND serial_code = ${escapeSql(existing.serial_code)}`
+                  : `WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND normalized_title = ${escapeSql(existing.normalized_title)} AND ${sqlNullableEquals('region', existing.region)} AND ${sqlNullableEquals('variants', existing.variants)}`;
+                sqlStatements.push(
+                  `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} ${whereClause};`,
+                );
+                updatedCount++;
+                srcUpdated++;
+              }
+            }
+          }
+
+          const toDelete = existingRows.filter((r) => !claimedIds.has(r.id));
+          for (const obsolete of toDelete) {
+            if (hasLinkedReleaseStmt.get(obsolete.id) && unlinkReleaseStmt) {
+              unlinkReleaseStmt.run(obsolete.id);
+            }
+            if (deleteStmt) {
+              deleteStmt.run(obsolete.id);
+            }
+            if (obsolete.serial_code) {
+              sqlStatements.push(
+                `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND serial_code = ${escapeSql(obsolete.serial_code)});`,
+              );
+              sqlStatements.push(
+                `DELETE FROM canonical_releases WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND serial_code = ${escapeSql(obsolete.serial_code)};`,
+              );
+            } else {
+              sqlStatements.push(
+                `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND normalized_title = ${escapeSql(obsolete.normalized_title)} AND ${sqlNullableEquals('region', obsolete.region)} AND ${sqlNullableEquals('variants', obsolete.variants)});`,
+              );
+              sqlStatements.push(
+                `DELETE FROM canonical_releases WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND normalized_title = ${escapeSql(obsolete.normalized_title)} AND ${sqlNullableEquals('region', obsolete.region)} AND ${sqlNullableEquals('variants', obsolete.variants)};`,
+              );
+            }
+            deletedCount++;
+            srcDeleted++;
+          }
+
+          console.log(
+            `  [source=${sourceName} p=${platId}] ${groupReleases.length} releases (+${srcInserted} new, ~${srcUpdated} updated, -${srcDeleted} removed)`,
+          );
+        }
+
+        // Link existing unlinked game_releases on newly synced verified non-DAT platforms
+        if (syncedNonDatPlatforms.size > 0) {
+          const verifiedByPlatNorm = new Map<
+            string,
+            Array<{
+              id: number;
+              platform_id: number;
+              normalized_title: string;
+              region: string | null;
+              variants: string | null;
+              barcode: string | null;
+              source: string;
+            }>
+          >();
+          const ph = Array.from(syncedNonDatPlatforms)
+            .map(() => '?')
+            .join(',');
+          const verifiedRows = db
+            .prepare(
+              `SELECT id, platform_id, normalized_title, region, variants, barcode, source
+               FROM canonical_releases
+               WHERE platform_id IN (${ph})
+                 AND is_verified_physical = 1
+                 AND COALESCE(source, '') != 'dat'`,
+            )
+            .all(...Array.from(syncedNonDatPlatforms)) as Array<{
+            id: number;
+            platform_id: number;
+            normalized_title: string;
+            region: string | null;
+            variants: string | null;
+            barcode: string | null;
+            source: string;
+          }>;
+          const seenCandidateKeys = new Set<string>();
+          for (const vr of verifiedRows) {
+            const k = `${vr.platform_id}::${vr.normalized_title}`;
+            const arr = verifiedByPlatNorm.get(k) || [];
+            arr.push(vr);
+            verifiedByPlatNorm.set(k, arr);
+            seenCandidateKeys.add(
+              `${vr.platform_id}::${vr.source}::${vr.normalized_title}::${vr.region || ''}::${vr.variants || ''}`,
+            );
+          }
+          if (isDryRun) {
+            for (const rel of filteredNonDatReleases) {
+              if (rel.is_verified_physical !== 1) continue;
+              const candKey = `${rel.platform_id}::${rel.source}::${rel.normalized_title}::${rel.region || ''}::${rel.variants || ''}`;
+              if (seenCandidateKeys.has(candKey)) continue;
+              seenCandidateKeys.add(candKey);
+              const k = `${rel.platform_id}::${rel.normalized_title}`;
+              const arr = verifiedByPlatNorm.get(k) || [];
+              arr.push({
+                id: 0,
+                platform_id: rel.platform_id,
+                normalized_title: rel.normalized_title,
+                region: rel.region || null,
+                variants: rel.variants || null,
+                barcode: rel.barcode || null,
+                source: rel.source,
+              });
+              verifiedByPlatNorm.set(k, arr);
+            }
+          }
+
+          const unlinkedReleases = db
+            .prepare(
+              `SELECT gr.id, gr.region, gr.variants, gr.barcode, g.title, g.platform_id
+               FROM game_releases gr
+               JOIN games g ON g.stable_id = gr.game_id
+               WHERE gr.canonical_release_id IS NULL
+                 AND g.platform_id IN (${ph})`,
+            )
+            .all(...Array.from(syncedNonDatPlatforms)) as Array<{
+            id: string;
+            region: string | null;
+            variants: string | null;
+            barcode: string | null;
+            title: string;
+            platform_id: number;
+          }>;
+
+          const linkStmt = isDryRun
+            ? null
+            : db.prepare(
+                `UPDATE game_releases
+                 SET canonical_release_id = ?,
+                     variants = COALESCE(variants, ?),
+                     barcode = COALESCE(barcode, ?)
+                 WHERE id = ? AND canonical_release_id IS NULL`,
+              );
+
+          for (const gr of unlinkedReleases) {
+            const norm = normalizeTitleForMatching(gr.title);
+            const strippedNorm = normalizeTitleForMatching(
+              stripEditionSuffix(gr.title),
+            );
+            const candidates =
+              verifiedByPlatNorm.get(`${gr.platform_id}::${norm}`) ||
+              (strippedNorm
+                ? verifiedByPlatNorm.get(`${gr.platform_id}::${strippedNorm}`)
+                : undefined);
+            if (!candidates || candidates.length === 0) continue;
+
+            const best = selectBestRegionalCandidate(candidates, gr.region);
+            if (!best) continue;
+
+            if (linkStmt) {
+              linkStmt.run(best.id, best.variants, best.barcode, gr.id);
+            }
+            sqlStatements.push(
+              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${gr.platform_id} AND source = ${escapeSql(best.source)} AND normalized_title = ${escapeSql(best.normalized_title)} AND ${sqlNullableEquals('region', best.region)} LIMIT 1), variants = COALESCE(variants, ${escapeSql(best.variants)}), barcode = COALESCE(barcode, ${escapeSql(best.barcode)}) WHERE id = ${escapeSql(gr.id)} AND canonical_release_id IS NULL;`,
+            );
+            linkedNonDatReleases++;
+          }
+        }
       }
     };
 
@@ -564,7 +986,6 @@ export async function syncCanonicalSources(
       }
     }
 
-    const seedSqlPath = path.join(tempDir, 'seed_canonical_releases.sql');
     fs.writeFileSync(seedSqlPath, sqlStatements.join('\n') + '\n', 'utf8');
 
     let reconcileResult: ReconcileResult | null = null;
@@ -580,6 +1001,7 @@ export async function syncCanonicalSources(
       insertedCount +
       updatedCount +
       deletedCount +
+      linkedNonDatReleases +
       (reconcileResult?.reconciledCount || 0);
     const quotaPercentage = ((totalWriteOps / 100000) * 100).toFixed(2);
 
@@ -588,7 +1010,7 @@ export async function syncCanonicalSources(
     );
     console.log(
       isDryRun
-        ? '📊 CLOUDFLARE D1 FREE TIER QUOTA IMPACT (DRY RUN)'
+        ? '📊 CLOUDFLARE D1 QUOTA IMPACT (DRY RUN)'
         : '✅ CANONICAL RELEASES SYNCHRONIZATION SUMMARY',
     );
     console.log(
@@ -596,13 +1018,16 @@ export async function syncCanonicalSources(
     );
     console.log(`- Synced Platforms:                  ${platformsProcessed}`);
     console.log(
-      `- Raw DAT Releases Scanned:          ${totalRawCount.toLocaleString()}`,
+      `- Raw Releases Scanned:              ${totalRawCount.toLocaleString()}`,
     );
     console.log(
       `- Canonical Physical Signatures:     ${totalDeduplicatedCount.toLocaleString()}`,
     );
     console.log(
       `- Diff vs Existing DB:               +${insertedCount} new, ~${updatedCount} updated, -${deletedCount} removed`,
+    );
+    console.log(
+      `- Linked Non-DAT Game Releases:      ${linkedNonDatReleases} releases`,
     );
     console.log(
       `- Collection Releases Reconciled:    ${reconcileResult?.reconciledCount || 0} releases`,
@@ -617,7 +1042,7 @@ export async function syncCanonicalSources(
     if (
       options.pushRemote &&
       !isDryRun &&
-      insertedCount + updatedCount + deletedCount > 0
+      insertedCount + updatedCount + deletedCount + linkedNonDatReleases > 0
     ) {
       runWithD1CostGuard({
         sqlFilePath: seedSqlPath,
@@ -634,6 +1059,7 @@ export async function syncCanonicalSources(
       insertedCount,
       updatedCount,
       deletedCount,
+      linkedNonDatReleases,
       reconcileResult,
       seedSqlPath,
     };
@@ -653,14 +1079,16 @@ if (isMain) {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
-Canonical DAT Synchronization Utility
+Canonical Sources Synchronization Utility
 
 Usage:
   npx tsx scripts/sync_canonical_sources.ts [options]
 
 Options:
+  --source=<list>       Comma-separated sources: dats,neogeo,nscollectors,ps5db,serialstation,retail,community,all (default: all)
+  --sources-dir=<path>  Directory containing fetched non-DAT artifacts (default: data/sources)
   --platform=<id|name>  Sync only the specified platform (e.g. --platform=vita or --platform=19)
-  --dry-run             Analyze DAT files and calculate D1 quota impact without modifying database
+  --dry-run             Analyze source files and calculate D1 quota impact without modifying database
   --remote              Push generated SQL to remote D1 via d1_cost_guard
   --help, -h            Show this help message
 `);
@@ -671,8 +1099,14 @@ Options:
   const pushRemote = args.includes('--remote');
   const skipReconcile = args.includes('--skip-reconcile');
   const platArg = args.find((a) => a.startsWith('--platform='))?.split('=')[1];
+  const sourceArg = args.find((a) => a.startsWith('--source='))?.split('=')[1];
+  const sourcesDirArg = args
+    .find((a) => a.startsWith('--sources-dir='))
+    ?.split('=')[1];
 
   syncCanonicalSources({
+    sources: parseSyncSourceFilterArg(sourceArg),
+    sourcesDir: sourcesDirArg ? path.resolve(sourcesDirArg) : undefined,
     targetPlatformFilter: platArg,
     dryRun,
     pushRemote,
