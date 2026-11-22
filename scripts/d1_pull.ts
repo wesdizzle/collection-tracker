@@ -310,11 +310,21 @@ async function pullFromDirectD1() {
     const newDb = new Database(localDbPath);
     try {
       newDb.pragma('foreign_keys = OFF');
+      newDb.pragma('synchronous = OFF');
+      newDb.pragma('temp_store = MEMORY');
       const sqlContent = fs.readFileSync(tempSqlPath, 'utf8');
-      newDb.exec(sqlContent);
+      const loadDumpTx = newDb.transaction(() => {
+        newDb.exec(sqlContent);
+      });
+      loadDumpTx();
       if (fs.existsSync(schemaSqlPath)) {
-        newDb.exec(fs.readFileSync(schemaSqlPath, 'utf8'));
+        const schemaContent = fs.readFileSync(schemaSqlPath, 'utf8');
+        const applySchemaTx = newDb.transaction(() => {
+          newDb.exec(schemaContent);
+        });
+        applySchemaTx();
       }
+      newDb.pragma('synchronous = FULL');
       newDb.pragma('foreign_keys = ON');
       const integrity = newDb.pragma('integrity_check');
       console.log('[D1Pull] Integrity check:', integrity);
