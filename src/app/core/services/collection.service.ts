@@ -1285,6 +1285,10 @@ export class CollectionService implements OnDestroy {
 
     return {
       ...overlaid,
+      canonical_series:
+        phase1Match.canonical_series || overlaid.canonical_series,
+      collections: phase1Match.collections ?? overlaid.collections,
+      franchises: phase1Match.franchises ?? overlaid.franchises,
       ownership_status: phase1Match.ownership_status,
       play_status: phase1Match.play_status,
       queued: phase1Match.queued ?? overlaid.queued,
@@ -1402,7 +1406,10 @@ export class CollectionService implements OnDestroy {
             Boolean(overlaid.has_media) !== Boolean(cachedGame.has_media) ||
             Boolean(overlaid.has_case) !== Boolean(cachedGame.has_case) ||
             Boolean(overlaid.has_manual) !== Boolean(cachedGame.has_manual) ||
-            overlaid.retail_updated_at !== cachedGame.retail_updated_at)
+            overlaid.retail_updated_at !== cachedGame.retail_updated_at ||
+            overlaid.canonical_series !== cachedGame.canonical_series ||
+            overlaid.collections !== cachedGame.collections ||
+            overlaid.franchises !== cachedGame.franchises)
         ) {
           stateChanged = true;
         }

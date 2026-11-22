@@ -1837,6 +1837,153 @@ describe('CollectionService', () => {
       expect(liveOwned?.play_status).toBe(2);
     });
 
+    it('preserves updated Phase 1 canonical_series over stale IndexedDB catalog chunks during Phase 2 overlay hydration', async () => {
+      const storeMap = new Map<
+        number,
+        {
+          state: { games: Game[]; catalogVersion?: string | null };
+          updatedAt: number;
+        }
+      >();
+      storeMap.set(1, {
+        state: {
+          catalogVersion: 'v2026-11-21',
+          games: [
+            {
+              id: 'disney-infinity-wii-u',
+              game_id: 'disney-infinity-wii-u',
+              stable_id: 1366,
+              title: 'Disney Infinity',
+              platform: 'Wii U',
+              platform_id: 24,
+              canonical_series: 'Disney',
+              collections: 'Disney Infinity',
+              franchises: null,
+              ownership_status: 2,
+              play_status: 0,
+              has_media: 0,
+            } as Game,
+          ],
+        },
+        updatedAt: 1000,
+      });
+
+      const internal = service as unknown as {
+        offlineStore: {
+          getStoredState: (uid: number) => Promise<unknown>;
+          saveStateLocally: (
+            state: {
+              games: Game[];
+              toys: unknown[];
+              platforms: unknown[];
+              journalEntries: unknown[];
+              catalogVersion?: string | null;
+            },
+            updatedAtMs: number,
+            pendingSync: boolean,
+            uid: number,
+          ) => Promise<void>;
+        };
+      };
+      vi.spyOn(internal.offlineStore, 'getStoredState').mockImplementation(
+        async (uid: number) => storeMap.get(uid) ?? null,
+      );
+      vi.spyOn(internal.offlineStore, 'saveStateLocally').mockImplementation(
+        async (state, updatedAt, _pending, uid) => {
+          storeMap.set(uid, {
+            state: {
+              games: state.games,
+              catalogVersion: state.catalogVersion ?? null,
+            },
+            updatedAt,
+          });
+        },
+      );
+
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'alice@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      const pRefresh = service.refreshAll();
+      httpMock.expectOne('/api/games').flush(
+        [
+          {
+            id: 'disney-infinity-wii-u',
+            game_id: 'disney-infinity-wii-u',
+            stable_id: 1366,
+            title: 'Disney Infinity',
+            platform: 'Wii U',
+            platform_id: 24,
+            canonical_series: 'Disney Infinity',
+            collections: 'Disney Infinity',
+            franchises: null,
+            ownership_status: 2,
+            play_status: 0,
+            has_media: 0,
+          },
+        ],
+        { headers: { 'X-Catalog-Partial': '1' } },
+      );
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRefresh;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+        version: 'v2026-11-21',
+        timestamp: '2026-11-21T13:02:32Z',
+        totalRows: 1,
+        chunkSize: 3500,
+        chunkCount: 1,
+        maxStableId: 1366,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=1366')
+        .flush({
+          version: 'v2026-11-21',
+          timestamp: '2026-11-21T13:02:32Z',
+          maxStableId: 1366,
+          ugr: [
+            {
+              release_id: 'disney-infinity-wii-u',
+              ownership_status: 2,
+              has_media: 0,
+              has_case: 0,
+              has_manual: 0,
+            },
+          ],
+          ug: [],
+          deltaGames: [],
+        });
+
+      await service.ensureFullCatalogLoaded();
+      httpMock.expectNone('/api/catalog/games?chunk=0&v=v2026-11-21');
+
+      const merged = service
+        .games()
+        .find((g) => g.id === 'disney-infinity-wii-u');
+      expect(merged?.canonical_series).toBe('Disney Infinity');
+
+      const persisted = storeMap
+        .get(1)
+        ?.state.games.find((g) => g.id === 'disney-infinity-wii-u');
+      expect(persisted?.canonical_series).toBe('Disney Infinity');
+    });
+
     it('stops fetching trailing chunks early when a non-zero chunk returns empty rows due to primary-key gaps', async () => {
       service.setCurrentUserForTesting({
         id: 1,
